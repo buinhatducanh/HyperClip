@@ -1,0 +1,13 @@
+[
+  {
+    "channelId": "UCcGsDTH1Bypd8gWH1US1b4g",
+    "channelName": "Nhật Đức Anh Bùi",
+    "hubUrl": "https://pubsubhubbub.appspot.com/subscribe",
+    "topic": "https://www.youtube.com/feeds/videos.xml?channel_id=UCcGsDTH1Bypd8gWH1US1b4g",
+    "callback": "https://choose-nut-susan-eggs.trycloudflare.com/",
+    "leaseSeconds": 432000,
+    "expiresAt": 1777315228425,
+    "verifyToken": "hyperclip_UCcGsDTH1Bypd8gWH1US1b4g_1776883226809",
+    "subscribedAt": "2026-04-22T18:40:28.425Z"
+  }
+]

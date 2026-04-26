@@ -1,0 +1,23 @@
+appId: com.loopcompany.hyperclip
+productName: HyperClip
+directories:
+  output: release
+  buildResources: resources
+files:
+  - .next/**/*
+  - dist-electron/**/*
+  - package.json
+extraResources:
+  - from: resources/
+    to: resources/
+win:
+  target:
+    - target: portable
+      arch:
+        - x64
+  icon: resources/icon.ico
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+asar: true

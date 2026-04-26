@@ -1,0 +1,9 @@
+node_modules
+.next/
+dist-electron/
+release/
+dist/
+out/
+*.tmp
+*.tmp-*
+tmp/
