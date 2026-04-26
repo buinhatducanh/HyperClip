@@ -23,6 +23,7 @@ export const IPC_CHANNELS = {
   SYSTEM_STATS: 'system:stats',
   SYSTEM_STATS_EVENT: 'system:stats-update',
   SYSTEM_OPEN_FOLDER: 'system:openFolder',
+  SYSTEM_OPEN_URL: 'system:openUrl',
 
   // Notification
   NOTIFICATION_EVENT: 'notification',
@@ -38,6 +39,7 @@ export const IPC_CHANNELS = {
   CHANNEL_ADD: 'channel:add',
   CHANNEL_UPDATE: 'channel:update',
   CHANNEL_REMOVE: 'channel:remove',
+  CHANNEL_SYNCED_EVENT: 'channel:synced-event',
 
   // Settings
   SETTINGS_GET: 'settings:get',
@@ -56,4 +58,5 @@ export const IPC_CHANNELS = {
   AUTH_OAUTH_SET_CREDS: 'auth:oauth-set-creds',
   AUTH_OAUTH_GET_CREDS: 'auth:oauth-get-creds',
   AUTH_UPDATE_EVENT: 'auth:update-event',
+  AUTH_SUBS_SYNCED_EVENT: 'auth:subs-synced-event',
 } as const

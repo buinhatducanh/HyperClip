@@ -12,6 +12,9 @@ import fs from 'fs'
 import os from 'os'
 import { getCookieManager } from './cookie_manager.js'
 import { getOAuthClientId, getValidAccessToken, fetchSubscriptions, fetchRecentUploads, YouTubeChannel } from './youtube_auth.js'
+import { getChannels, addChannel, removeChannel } from './store.js'
+import { channelEvents } from './cookie_manager.js'
+import { getCookieManager as getCM } from './cookie_manager.js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -479,7 +482,13 @@ class YouTubePoller {
       if (this._oauthChannels.length === 0) {
         this._oauthChannels = await fetchSubscriptions(accessToken)
         console.log(`[YouTubePoller] OAuth: ${this._oauthChannels.length} subscriptions loaded`)
-        this._lastOAuthPollTime = Date.now() - 10 * 60 * 1000 // look back 10 min on first poll
+
+        // Sync OAuth subscriptions → channel store so sidebar can display them
+        this._syncOAuthChannelsToStore()
+
+        // Reset seen videos so we re-detect recent uploads (last 60 min)
+        this._seenVideoIds.clear()
+        this._lastOAuthPollTime = Date.now() - 60 * 60 * 1000 // look back 60 min on first poll
       }
 
       if (this._oauthChannels.length === 0) {
@@ -490,38 +499,55 @@ class YouTubePoller {
       this._lastError = null
       this._cookiesReady = true
 
-      const sinceMs = this._lastOAuthPollTime || (Date.now() - 10 * 60 * 1000)
+      const sinceMs = this._lastOAuthPollTime > 0 ? this._lastOAuthPollTime : (Date.now() - 10 * 60 * 1000)
+
+      // Build channelId → channelName map
+      const channelMap = new Map(this._oauthChannels.map(c => [c.channelId, c.title]))
+
+      // Fetch all channels in PARALLEL (concurrency: 10 at a time)
+      const CONCURRENCY = 10
+      const allYtVideos: import('./youtube_auth.js').YouTubeVideo[] = []
+
+      for (let i = 0; i < this._oauthChannels.length; i += CONCURRENCY) {
+        const batch = this._oauthChannels.slice(i, i + CONCURRENCY)
+        const results = await Promise.all(
+          batch.map(ch => fetchRecentUploads(accessToken, ch.channelId, sinceMs))
+        )
+        for (const vids of results) {
+          allYtVideos.push(...vids)
+        }
+      }
+
+      console.log(`[YouTubePoller] OAuth: polled ${this._oauthChannels.length} channels, got ${allYtVideos.length} total uploads (since ${Math.round((Date.now() - sinceMs) / 60000)}m ago)`)
+
       const newVideos: DetectedVideo[] = []
+      for (const ytVid of allYtVideos) {
+        if (this._seenVideoIds.has(ytVid.videoId)) continue
 
-      // Poll each subscribed channel for recent uploads
-      for (const channel of this._oauthChannels) {
-        const ytVideos = await fetchRecentUploads(accessToken, channel.channelId, sinceMs)
-        for (const ytVid of ytVideos) {
-          if (this._seenVideoIds.has(ytVid.videoId)) continue
+        this._seenVideoIds.add(ytVid.videoId)
+        this._videoCount++
+        this._newVideoCount++
 
-          this._seenVideoIds.add(ytVid.videoId)
-          this._videoCount++
-          this._newVideoCount++
-
-          const publishedAt = new Date(ytVid.publishedAt).getTime()
-          const ageMin = (Date.now() - publishedAt) / 60000
-          const ageStr = ageMin >= 60
-            ? `${Math.floor(ageMin / 60)}h ago`
+        const publishedAt = new Date(ytVid.publishedAt).getTime()
+        const ageMs = Date.now() - publishedAt
+        const ageMin = ageMs / 60000
+        const ageStr = ageMin >= 60
+          ? `${Math.floor(ageMin / 60)}h ago`
+          : ageMin < 1
+            ? 'Vừa xong'
             : `${Math.round(ageMin)}m ago`
 
-          newVideos.push({
-            videoId: ytVid.videoId,
-            title: ytVid.title,
-            channelId: channel.channelId,
-            channelName: channel.title,
-            thumbnail: `https://img.youtube.com/vi/${ytVid.videoId}/hqdefault.jpg`,
-            duration: ageStr,
-            publishedTime: ageStr,
-            detectedAt: Date.now(),
-          })
+        newVideos.push({
+          videoId: ytVid.videoId,
+          title: ytVid.title,
+          channelId: ytVid.channelId,
+          channelName: channelMap.get(ytVid.channelId) || '',
+          thumbnail: `https://img.youtube.com/vi/${ytVid.videoId}/hqdefault.jpg`,
+          duration: ageStr,
+          publishedTime: ageStr,
+          detectedAt: Date.now(),
+        })
 
-          if (newVideos.length >= this._maxVideosPerPoll) break
-        }
         if (newVideos.length >= this._maxVideosPerPoll) break
       }
 
@@ -529,7 +555,7 @@ class YouTubePoller {
 
       if (newVideos.length > 0) {
         this._lastNewVideosAt = Date.now()
-        console.log(`[YouTubePoller] OAuth: detected ${newVideos.length} new video(s): ${newVideos.map(v => `"${v.title}" (${v.videoId})`).join(', ')}`)
+        console.log(`[YouTubePoller] ✓ Detected ${newVideos.length} new video(s): ${newVideos.map(v => `"${v.title}" by ${v.channelName}`).join(', ')}`)
         this._onNewVideos?.(newVideos)
       }
     } catch (e) {
@@ -633,6 +659,40 @@ class YouTubePoller {
     console.log(`[YouTubePoller] Starting (interval: ${this._pollIntervalMs / 1000}s)`)
     this._pollOnce()
     this._scheduleNextPoll()
+  }
+
+  private _syncOAuthChannelsToStore(): void {
+    try {
+      const existingChannels = getChannels()
+      const existingIds = new Set(existingChannels.map(c => c.channelId || c.id))
+
+      let added = 0
+      for (const sub of this._oauthChannels) {
+        if (existingIds.has(sub.channelId)) continue
+
+        const avatarColors = ['#00B4FF', '#FF0000', '#00FF88', '#FFB800', '#7C3AED', '#FF0080', '#FF6B35']
+        const color = avatarColors[added % avatarColors.length]
+        const id = `oauth_${sub.channelId}`
+        addChannel({
+          id,
+          name: sub.title,
+          handle: `@${sub.channelId}`,
+          avatarColor: color,
+          channelId: sub.channelId,
+          avatarUrl: sub.thumbnail || undefined,
+          createdAt: new Date().toISOString(),
+        })
+        added++
+      }
+
+      if (added > 0) {
+        console.log(`[YouTubePoller] Synced ${added} OAuth channels to store`)
+        // Notify renderer to re-fetch channel list
+        channelEvents.emit('channelsSynced', { count: added })
+      }
+    } catch (e) {
+      console.warn('[YouTubePoller] Failed to sync OAuth channels:', e)
+    }
   }
 
   stop(): void {

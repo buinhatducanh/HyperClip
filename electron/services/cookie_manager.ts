@@ -13,6 +13,13 @@ import os from 'os'
 import https from 'https'
 import http from 'http'
 import { URL } from 'url'
+import { EventEmitter } from 'events'
+
+// Auth status change event bus — main.ts listens to relay to renderer
+export const authEvents = new EventEmitter()
+
+// Channel sync event — emitted after OAuth subscriptions are synced to store
+export const channelEvents = new EventEmitter()
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -225,6 +232,7 @@ class ChromiumCookieManager implements CookieManager {
   // OAuth state
   private _oauthReady: boolean = false
   private _accountName: string = ''
+  private _oauthFlowStarted: boolean = false // guard: don't re-trigger OAuth window in same session
 
   constructor() {
     this._pythonPath = getPythonPath()
@@ -256,6 +264,8 @@ class ChromiumCookieManager implements CookieManager {
         try {
           this._accountName = await fetchAccountInfo(tokens.access_token) || ''
         } catch {}
+        // Emit immediately so renderer gets the logged-in state
+        authEvents.emit('authUpdated', this.getAuthStatus())
         return
       }
       // No tokens — auto-start OAuth flow
@@ -273,6 +283,9 @@ class ChromiumCookieManager implements CookieManager {
 
   /** Auto-start OAuth flow on boot — Chrome opens, user approves, callback resolves */
   private _autoStartOAuth(clientId: string): void {
+    // Guard: only one OAuth window per session
+    if (this._oauthFlowStarted || this._oauthReady) return
+    this._oauthFlowStarted = true
     import('./youtube_auth.js').then(async ({ startOAuthFlow, fetchAccountInfo }) => {
       const result = await startOAuthFlow(clientId)
       if (result.success && result.tokens) {
@@ -282,6 +295,8 @@ class ChromiumCookieManager implements CookieManager {
           this._accountName = await fetchAccountInfo(result.tokens.access_token) || ''
           if (this._accountName) console.log('[CookieManager] Account:', this._accountName)
         } catch {}
+        // Notify listeners that auth status changed
+        authEvents.emit('authUpdated', this.getAuthStatus())
       } else {
         console.warn('[CookieManager] OAuth auto-login failed:', result.error)
       }
@@ -474,7 +489,7 @@ class ChromiumCookieManager implements CookieManager {
 
   getAuthStatus(): AuthStatus {
     return {
-      isReady: this.isReady() || this._oauthReady,
+      isReady: this._oauthReady || this.isReady(),
       cookieCount: this._cookies.length,
       loggedOut: !this._oauthReady && this._cookies.length === 0,
       accountName: this._accountName,
@@ -487,11 +502,11 @@ class ChromiumCookieManager implements CookieManager {
     this._accountName = ''
     this._cookies = []
     this._initPromise = Promise.resolve()
-    // Clear OAuth tokens
     try {
       const { clearTokens } = await import('./youtube_auth.js')
       clearTokens()
     } catch {}
+    authEvents.emit('authUpdated', this.getAuthStatus())
   }
 }
 

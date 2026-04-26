@@ -20,7 +20,7 @@ import { renderVideo, renderChunked, generateBlurBackground, cancelChunked, canc
 import { cancelFfmpeg, cancelAllFfmpeg, getPoolStatus } from './services/worker-pool.js'
 import { getVideoStoragePath, getOutputPath, generateWorkspacePaths, cleanupWorkspace, ensureStorageDirs, loadSettings, saveSettings } from './services/ramdisk.js'
 import { createYouTubePoller, stopYouTubePoller, getYouTubePoller } from './services/youtube_poller.js'
-import { initCookieManager, getCookieManager } from './services/cookie_manager.js'
+import { initCookieManager, getCookieManager, authEvents, channelEvents } from './services/cookie_manager.js'
 
 // Fix UTF-8 console output on Windows — set code page to 65001 (UTF-8)
 if (process.platform === 'win32') {
@@ -530,6 +530,11 @@ async function registerIPCHandlers() {
     return { success: true }
   })
 
+  ipcMain.handle(IPC_CHANNELS.SYSTEM_OPEN_URL, async (_, url: string) => {
+    shell.openExternal(url)
+    return { success: true }
+  })
+
   ipcMain.handle(IPC_CHANNELS.WORKSPACE_LIST, async (): Promise<WorkspaceData[]> => {
     return getWorkspaces()
   })
@@ -834,6 +839,20 @@ async function registerIPCHandlers() {
     return { clientId: getOAuthClientId(), clientSecret: getOAuthClientSecret() }
   })
 }
+
+// Relay auth status changes to renderer (registered at module load — catches early OAuth events)
+authEvents.on('authUpdated', (status) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(IPC_CHANNELS.AUTH_UPDATE_EVENT, status)
+  }
+})
+
+// Relay channel sync events so frontend re-fetches channel list
+channelEvents.on('channelsSynced', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(IPC_CHANNELS.CHANNEL_SYNCED_EVENT, null)
+  }
+})
 
 // ─── System monitor ────────────────────────────────────────────────────────────
 function startSystemMonitor() {

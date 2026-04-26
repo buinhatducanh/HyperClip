@@ -21,16 +21,13 @@ export interface RenderMetadata {
 }
 
 export interface Overlay {
-  type: 'image' | 'text'
+  type: 'header' | 'title'
   src?: string
   content?: string
-  font?: string
+  shape?: string
+  borderColor?: string
+  bgColor?: string
   fontSize?: number
-  color?: string
-  x: number
-  y: number
-  width?: number
-  height?: number
 }
 
 export interface RenderProgress {
@@ -142,10 +139,14 @@ export async function renderVideo(
   const ext = codec === 'hevc' ? 'mp4' : 'mp4'
   const outputFile = path.join(outputDir, `${workspace_id}_output.${ext}`)
 
-  // Video crop: scale to fit, then pad with blur background
-  const videoW = 1080
-  const videoH = 607
-  const padTop = Math.floor((outH - videoH) / 2)
+  // Output canvas: 1080x1920
+  const canvasW = 1080
+  const canvasH = 1920
+  const headerH = Math.floor(canvasH * 0.20) // 384px — top 20%
+  const titleH = Math.floor(canvasH * 0.20) // 384px — bottom 20%
+  const videoH = canvasH - headerH - titleH // 1152px — middle 60%
+  const videoTop = headerH
+  const videoW = Math.floor(videoH * 16 / 9) // 2048px → scale to 1080
 
   const trimStart = trim.start
   const trimEnd = trim.end
@@ -154,15 +155,17 @@ export async function renderVideo(
   // Speed filter
   const speedFilter = video_speed !== 1.0 ? `,setpts=${1 / video_speed}*PTS` : ''
 
-  // Base filter chain: scale → pad → blur overlay → speed
+  // Base filter chain for the video within the video zone
   const baseFilters = [
     `scale=${videoW}:${videoH}:force_original_aspect_ratio=decrease`,
-    `pad=${videoW}:${videoH}:(ow-iw)/2:(oh-ih)/2`,
-    `overlay=0:${padTop}`,
   ]
   if (speedFilter) baseFilters.push(speedFilter)
 
-  const filterChain = baseFilters.join(',')
+  const baseChain = baseFilters.join(',')
+
+  // Overlay inputs
+  const headerOl = overlays.find(o => o.type === 'header' && o.src)
+  const titleOl = overlays.find(o => o.type === 'title' && o.content)
 
   // NVENC codec
   const nvencCodec = codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'
@@ -171,28 +174,81 @@ export async function renderVideo(
 
   // Build ffmpeg args
   const args: string[] = [
-    // Seek before input for fast seeking
     '-ss', String(trimStart),
     '-t', String(duration),
-    // GPU decode (hwaccel cuda) — must come before input
     '-hwaccel', 'cuda',
     '-hwaccel_device', '0',
     '-i', `"${source_video}"`,
-    // Blur background
     '-i', `"${blur_background}"`,
+    ...(headerOl?.src ? ['-i', `"${headerOl.src}"`] : []),
   ]
 
-  // Add overlay images as inputs
-  const overlayImages = overlays.filter(o => o.type === 'image' && o.src)
-  overlayImages.forEach(ol => {
-    args.push('-i', `"${ol.src}"`)
-  })
+  // ── Build filter complex ──────────────────────────────────────────────────
+  // 3-zone layout: header(top 20%) | video(middle 60%) | title(bottom 20%)
+  //
+  // [0:v] = source video
+  // [1:v] = blur background (used as base canvas)
+  // [2:v] = header image (if present)
+  //
+  // Strategy:
+  // 1. Scale blur bg → canvas size 1080x1920  → [bg]
+  // 2. Scale video → fit middle zone, pad to canvas → [vid]
+  // 3. Header image → full width, height = headerH → [hd] (if present)
+  // 4. Composites: [bg]+[vid] → [vz]; [vz]+[hd] → [final]; drawtext → [out]
 
-  // Filter complex
-  const filterComplex = `[0:v]${filterChain}[v];[1:v][v]overlay=0:0`
+  // Title overlay
+  let titlePart = ''
+  if (titleOl?.content) {
+    const txt = titleOl.content.replace(/'/g, "\\'")
+    const fs = Math.max(24, (titleOl.fontSize ?? 13) * 4)
+    const bc = titleOl.borderColor ?? '#00B4FF'
+    const bgc = titleOl.bgColor ?? 'rgba(0,180,255,0.12)'
+    const alphaMatch = bgc.match(/[\d.]+(?=\)$)/)
+    const alpha = alphaMatch ? parseFloat(alphaMatch[0]) : 0.12
+    const boxW = Math.floor(canvasW * 0.66)
+    const boxH = Math.floor(titleH * 0.55)
+    const boxY = canvasH - Math.floor(titleH * 0.72)
+    const boxX = Math.floor((canvasW - boxW) / 2)
+    titlePart =
+      `drawbox=x=${boxX}:y=${boxY}:w=${boxW}:h=${boxH}:color=${bc}@${alpha}:thickness=-2,` +
+      `drawbox=x=${boxX}:y=${boxY}:w=${boxW}:h=${boxH}:color=${bc}@1:thickness=3,` +
+      `drawtext=text='${txt}':fontsize=${fs}:fontcolor=white:borderw=2:bordercolor=${bc}:x=(w-text_w)/2:y=${boxY}+(boxH-text_h)/2`
+  }
+
+  // Compose the 3 cases
+  const vidPart = `[0:v]${baseChain},scale=${videoW}:${videoH},pad=${canvasW}:${canvasH}:(ow-iw)/2:${videoTop}[vid]`
+  const bgPart = `[1:v]scale=${canvasW}:${canvasH}[bg]`
+  const hdPart = headerOl?.src ? `[2:v]scale=${canvasW}:${headerH}[hd]` : ''
+
+  let filterComplex: string
+  let mapOutput: string
+
+  if (titleOl?.content) {
+    // Case 3: Title on top
+    filterComplex =
+      `${vidPart};${bgPart};${hdPart}` +
+      `;[bg][vid]overlay=0:${videoTop}[vz];` +
+      (headerOl?.src ? `[vz][hd]overlay=0:0[fh];[fh]` : `[vz]`) +
+      `${titlePart}[td]`
+    mapOutput = '[td]'
+  } else if (headerOl?.src) {
+    // Case 2: Header on top
+    filterComplex =
+      `${vidPart};${bgPart};${hdPart}` +
+      `;[bg][vid]overlay=0:${videoTop};[vz][hd]overlay=0:0[final]`
+    mapOutput = '[final]'
+  } else {
+    // Case 1: Video zone only
+    filterComplex =
+      `${vidPart};${bgPart}` +
+      `;[bg][vid]overlay=0:${videoTop}[vz]`
+    mapOutput = '[vz]'
+  }
+
+  args.push('-filter_complex', filterComplex)
+  args.push('-map', mapOutput)
 
   args.push(
-    '-filter_complex', filterComplex,
     '-c:v', nvencCodec,
     '-preset', preset,               // p1=fastest, p2=fast, p3=balanced
     '-rc', 'vbr',
@@ -335,15 +391,17 @@ function buildChunkArgs(
   const nvencCodec = codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'
   const cq = codec === 'hevc' ? 28 : 23
 
-  const videoW = 1080
-  const videoH = 607
-  const padTop = Math.floor((1920 - videoH) / 2)
+  // 3-zone layout: header(20%) | video(60%) | title(20%)
+  const canvasW = 1080
+  const canvasH = 1920
+  const headerH = Math.floor(canvasH * 0.20) // 384
+  const titleH = Math.floor(canvasH * 0.20) // 384
+  const videoH = canvasH - headerH - titleH // 1152
+  const videoTop = headerH
+  const videoW = Math.floor(videoH * 16 / 9) // 2048 → scale to 1080
 
-  const filterChain = [
-    `scale=${videoW}:${videoH}:force_original_aspect_ratio=decrease`,
-    `pad=${videoW}:${videoH}:(ow-iw)/2:(oh-ih)/2`,
-    `overlay=0:${padTop}`,
-  ].join(',')
+  const filterChain =
+    `scale=${videoW}:${videoH},pad=${canvasW}:${canvasH}:(ow-iw)/2:${videoTop}`
 
   return [
     '-ss', String(trimStart),
@@ -351,7 +409,7 @@ function buildChunkArgs(
     '-hwaccel', 'cuda', '-hwaccel_device', '0',
     '-i', `"${sourceVideo}"`,
     '-i', `"${blurBg}"`,
-    '-filter_complex', `${filterChain}[v];[1:v][v]overlay=0:0`,
+    '-filter_complex', `${filterChain}[vid];[1:v]scale=${canvasW}:${canvasH}[bg];[bg][vid]overlay=0:${videoTop}[v]`,
     '-map', '[v]', '-map', '0:a?',
     '-c:v', nvencCodec,
     '-preset', preset,

@@ -100,6 +100,9 @@ export const ipc = {
   async openFolder(folderPath: string) {
     return window.electronAPI?.openFolder(folderPath)
   },
+  async openUrl(url: string) {
+    return window.electronAPI?.openUrl(url)
+  },
   onSystemStats(callback: (stats: object) => void) {
     return window.electronAPI?.onSystemStats(callback) ?? (() => {})
   },
@@ -120,6 +123,9 @@ export const ipc = {
   },
   onAuthUpdate(callback: (status: object) => void) {
     return window.electronAPI?.onAuthUpdate(callback) ?? (() => {})
+  },
+  onChannelSynced(callback: () => void) {
+    return window.electronAPI?.onChannelSynced(callback) ?? (() => {})
   },
   async getSettings() {
     return window.electronAPI?.getSettings() ?? { videoStoragePath: undefined, outputPath: undefined }

@@ -1,5 +1,6 @@
 export type VideoStatus = 'new' | 'rendering' | 'done';
 export type CanvasBg = 'black' | 'white';
+export type TitleShape = 'rounded' | 'square' | 'diamond';
 
 export interface Channel {
   id: string;
@@ -26,21 +27,24 @@ export interface EditorState {
   canvasBg: CanvasBg;
   trimStart: number;
   trimEnd: number;
-  overlayText: string;
-  overlayBorderColor: string;
-  overlayBgColor: string;
-  overlayPosition: { x: number; y: number };
-  overlayWidth: number;
-  overlayFontSize: number;
-  videoHeight: number;
-  videoYOffset: number;
-  speedMultiplier: number; // 1.0 | 1.1 | 1.2 | 1.5
-  uploadedImageUrl: string | null;
+  // Header image (top section)
+  headerImageUrl: string | null;
+  headerImageOffsetY: number; // 0-100, vertical position within header
+  // Title box (bottom section)
+  titleText: string;
+  titleShape: TitleShape;
+  titleBorderColor: string;
+  titleBgColor: string;
+  titleFontSize: number;     // px in preview
+  // Speed
+  speedMultiplier: number;    // 1.0 to 2.0, step 0.1
+  // Export
   exportQuality: 1080 | 720 | 360;
   exportCodec: 'h264' | 'hevc';
   exportPreset: 'p1' | 'p2' | 'p3';
   exportTune: 'hq' | 'll' | 'film';
   enableChunked: boolean;
+  // Background
   backgroundType: 'blur' | 'solid' | 'image';
 }
 

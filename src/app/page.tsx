@@ -5,6 +5,7 @@ import { Sidebar } from './components/Sidebar'
 import { WorkspaceQueue } from './components/workspace/WorkspaceQueue'
 import { RenderQueueBar } from './components/workspace/RenderQueueBar'
 import { DetailEditor } from './components/DetailEditor'
+import { LoginScreen } from './components/LoginScreen'
 import type { Channel, Video, SystemStats, EditorState } from './types'
 import { useAppStore, type Workspace } from './lib/store'
 import { ipc } from './lib/ipc'
@@ -77,10 +78,22 @@ export default function DashboardPage() {
   const [authStatus, setAuthStatus] = useState<{ isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean }>({ isReady: false, cookieCount: 0, loggedOut: true, accountName: '', oauthReady: false })
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Fetch auth status on mount
+  // Fetch auth status on mount + listen for updates
   useEffect(() => {
     ipc.getAuthStatus().then(setAuthStatus)
+    const cleanupAuth = ipc.onAuthUpdate((status) => {
+      setAuthStatus(status as any)
+    })
+    return () => { cleanupAuth() }
   }, [])
+
+  // Re-fetch channels when OAuth subscriptions are synced
+  useEffect(() => {
+    const cleanup = ipc.onChannelSynced(() => {
+      initChannels()
+    })
+    return cleanup
+  }, [initChannels])
 
   // Sync IPC workspace updates into Zustand store
   useEffect(() => {
@@ -225,10 +238,6 @@ export default function DashboardPage() {
     resetEditorState()
   }
 
-  const handleAddChannel = (url: string) => {
-    useAppStore.getState().addChannel(url)
-  }
-
   const handleAddTracker = async (url: string, trimLimit: '5min' | '10min' | 'full') => {
     showToast('Adding tracker...')
     try {
@@ -290,26 +299,20 @@ export default function DashboardPage() {
 
     // Build overlays from editor state
     const overlays: object[] = []
-    if (editorState.overlayText) {
+    if (editorState.headerImageUrl) {
       overlays.push({
-        type: 'text',
-        content: editorState.overlayText,
-        color: editorState.overlayBorderColor,
-        fontSize: editorState.overlayFontSize,
-        font: 'Inter',
-        x: editorState.overlayPosition.x,
-        y: editorState.overlayPosition.y,
-        width: editorState.overlayWidth,
+        type: 'header',
+        src: editorState.headerImageUrl,
       })
     }
-    if (editorState.uploadedImageUrl) {
+    if (editorState.titleText) {
       overlays.push({
-        type: 'image',
-        src: editorState.uploadedImageUrl,
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 100,
+        type: 'title',
+        content: editorState.titleText,
+        shape: editorState.titleShape,
+        borderColor: editorState.titleBorderColor,
+        bgColor: editorState.titleBgColor,
+        fontSize: editorState.titleFontSize,
       })
     }
 
@@ -369,26 +372,20 @@ export default function DashboardPage() {
     const trimEndSec = Math.round((editorState.trimEnd / 100) * totalSec)
 
     const overlays: object[] = []
-    if (editorState.overlayText) {
+    if (editorState.headerImageUrl) {
       overlays.push({
-        type: 'text',
-        content: editorState.overlayText,
-        color: editorState.overlayBorderColor,
-        fontSize: editorState.overlayFontSize,
-        font: 'Inter',
-        x: editorState.overlayPosition.x,
-        y: editorState.overlayPosition.y,
-        width: editorState.overlayWidth,
+        type: 'header',
+        src: editorState.headerImageUrl,
       })
     }
-    if (editorState.uploadedImageUrl) {
+    if (editorState.titleText) {
       overlays.push({
-        type: 'image',
-        src: editorState.uploadedImageUrl,
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 100,
+        type: 'title',
+        content: editorState.titleText,
+        shape: editorState.titleShape,
+        borderColor: editorState.titleBorderColor,
+        bgColor: editorState.titleBgColor,
+        fontSize: editorState.titleFontSize,
       })
     }
 
@@ -444,13 +441,21 @@ export default function DashboardPage() {
       className="flex overflow-hidden"
       style={{ height: '100vh', background: '#0E0E0E', fontFamily: 'Inter, sans-serif', color: '#fff' }}
     >
+      {/* Login waiting screen — blocks all interaction until OAuth completes */}
+      {!authStatus.isReady && (
+        <LoginScreen
+          accountName={authStatus.accountName}
+          oauthReady={authStatus.oauthReady}
+          onLogout={handleLogout}
+        />
+      )}
+
       {/* Col 1 — Sidebar */}
       <Sidebar
         channels={channels}
         activeChannelId={activeChannelId || ''}
         newCounts={newCounts}
         onChannelSelect={handleChannelSelect}
-        onAddChannel={handleAddChannel}
         onEditChannel={(id, patch) => updateChannel(id, patch)}
         onDeleteChannel={(id) => removeChannel(id)}
         systemStats={systemStats}

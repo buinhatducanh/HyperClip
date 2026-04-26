@@ -9,7 +9,6 @@ interface Props {
   activeChannelId: string
   newCounts: Record<string, number>
   onChannelSelect: (id: string) => void
-  onAddChannel: (url: string) => void
   onEditChannel?: (id: string, patch: Partial<Channel>) => void
   onDeleteChannel?: (id: string) => void
   systemStats: SystemStats
@@ -19,27 +18,17 @@ interface Props {
 
 export function Sidebar({
   channels, activeChannelId, newCounts,
-  onChannelSelect, onAddChannel,
+  onChannelSelect,
   onEditChannel, onDeleteChannel,
   systemStats,
   authStatus,
   onLogout,
 }: Props) {
-  const [addOpen, setAddOpen] = useState(false)
-  const [urlInput, setUrlInput] = useState('')
-
   const [editId, setEditId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editHandle, setEditHandle] = useState('')
   const [editAvatarUrl, setEditAvatarUrl] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
-
-  const submit = () => {
-    if (!urlInput.trim()) return
-    onAddChannel(urlInput.trim())
-    setUrlInput('')
-    setAddOpen(false)
-  }
 
   const openEdit = (ch: Channel) => {
     setEditId(ch.id)
@@ -152,28 +141,17 @@ export function Sidebar({
         <NavLink href="/settings" icon="⚙" label="SETTINGS" active={false} />
       </div>
 
-      {/* Add tracker */}
+      {/* OAuth subscriptions count */}
       <div className="px-3 py-2" style={{ borderBottom: '1px solid #1E1E1E' }}>
-        {!addOpen ? (
-          <button
-            onClick={() => setAddOpen(true)}
-            className="w-full flex items-center gap-2 rounded px-3 transition-colors"
-            style={{ height: 30, background: 'rgba(0,180,255,0.1)', border: '1px solid rgba(0,180,255,0.25)', color: '#00B4FF', fontSize: 11, fontWeight: 600, cursor: 'pointer', letterSpacing: '0.04em' }}
-          >
-            + Add Tracker
-          </button>
+        {authStatus?.isReady ? (
+          <div className="flex items-center gap-2">
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00FF88', boxShadow: '0 0 4px #00FF88', flexShrink: 0 }} />
+            <span style={{ fontSize: 10, color: '#555' }}>{channels.length} subscriptions</span>
+          </div>
         ) : (
-          <div className="flex gap-1">
-            <input
-              autoFocus
-              value={urlInput}
-              onChange={(e) => setUrlInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') setAddOpen(false) }}
-              placeholder="youtube.com/@channel"
-              className="flex-1 rounded px-2 outline-none"
-              style={{ height: 30, background: '#111', border: '1px solid #333', color: '#ddd', fontSize: 11, minWidth: 0 }}
-            />
-            <button onClick={submit} style={{ width: 30, height: 30, background: '#00B4FF', border: 'none', borderRadius: 4, color: '#fff', fontSize: 16, cursor: 'pointer', flexShrink: 0 }}>↵</button>
+          <div className="flex items-center gap-2">
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#FF4444', flexShrink: 0 }} />
+            <span style={{ fontSize: 10, color: '#444' }}>Chưa đăng nhập</span>
           </div>
         )}
       </div>

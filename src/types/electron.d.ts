@@ -35,12 +35,15 @@ export interface ElectronAPI {
   cancelRender: (workspaceId: string) => Promise<unknown>
   getSystemStats: () => Promise<unknown>
   openFolder: (folderPath: string) => Promise<unknown>
+  openUrl: (url: string) => Promise<unknown>
   onSystemStats: (callback: (stats: object) => void) => () => void
   onRenderProgress: (callback: (progress: object) => void) => () => void
   onNotification: (callback: (n: object) => void) => () => void
   onWorkspaceUpdate: (callback: (ws: object) => void) => () => void
   onQuickAdd: (callback: () => void) => () => void
   onAutoDownload: (callback: (data: unknown) => void) => () => void
+  onAuthUpdate: (callback: (status: unknown) => void) => () => void
+  onChannelSynced: (callback: () => void) => () => void
   getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string }>
   updateSettings: (patch: { videoStoragePath?: string; outputPath?: string }) => Promise<void>
   getAuthStatus: () => Promise<{ isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean }>

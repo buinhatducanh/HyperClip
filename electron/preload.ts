@@ -23,6 +23,7 @@ const IPC = {
   SYSTEM_STATS: 'system:stats',
   SYSTEM_STATS_EVENT: 'system:stats-update',
   SYSTEM_OPEN_FOLDER: 'system:openFolder',
+  SYSTEM_OPEN_URL: 'system:openUrl',
 
   // Notification
   NOTIFICATION_EVENT: 'notification',
@@ -53,6 +54,7 @@ const IPC = {
   AUTH_OAUTH_SET_CREDS: 'auth:oauth-set-creds',
   AUTH_OAUTH_GET_CREDS: 'auth:oauth-get-creds',
   AUTH_UPDATE_EVENT: 'auth:update-event',
+  CHANNEL_SYNCED_EVENT: 'channel:synced-event',
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -89,6 +91,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSystemStats: () => ipcRenderer.invoke(IPC.SYSTEM_STATS),
   openFolder: (folderPath: string) =>
     ipcRenderer.invoke(IPC.SYSTEM_OPEN_FOLDER, folderPath),
+  openUrl: (url: string) =>
+    ipcRenderer.invoke(IPC.SYSTEM_OPEN_URL, url),
 
   // Events (renderer listens — return cleanup functions)
   onSystemStats: (callback: (stats: unknown) => void) => {
@@ -157,4 +161,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setOAuthCredentials: (clientId: string, clientSecret: string) =>
     ipcRenderer.invoke(IPC.AUTH_OAUTH_SET_CREDS, clientId, clientSecret) as Promise<{ success: boolean }>,
   getOAuthCredentials: () => ipcRenderer.invoke(IPC.AUTH_OAUTH_GET_CREDS) as Promise<{ clientId: string; clientSecret: string }>,
+
+  // Auth events
+  onAuthUpdate: (callback: (status: unknown) => void) => {
+    const handler = (_: unknown, status: unknown) => callback(status)
+    ipcRenderer.on(IPC.AUTH_UPDATE_EVENT, handler)
+    return () => ipcRenderer.removeListener(IPC.AUTH_UPDATE_EVENT, handler)
+  },
+  onChannelSynced: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on(IPC.CHANNEL_SYNCED_EVENT, handler)
+    return () => ipcRenderer.removeListener(IPC.CHANNEL_SYNCED_EVENT, handler)
+  },
 })
