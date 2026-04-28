@@ -623,7 +623,8 @@ async function registerIPCHandlers() {
   })
 
   ipcMain.handle(IPC_CHANNELS.WORKSPACE_DELETE, async (_, id: string) => {
-    cleanupWorkspace(id)
+    const ws = getWorkspace(id)
+    cleanupWorkspace(id, ws?.downloadedPath)
     deleteWorkspace(id)
     return { success: true }
   })
@@ -861,14 +862,15 @@ async function registerIPCHandlers() {
   ipcMain.handle(IPC_CHANNELS.VIDEO_FILE, async (_, workspaceId: string): Promise<{ path: string; url: string } | null> => {
     const ws = getWorkspace(workspaceId)
     if (!ws || !ws.downloadedPath) return null
-    if (!fs.existsSync(ws.downloadedPath)) {
+    const normalizedPath = ws.downloadedPath.replace(/\\/g, '/')
+    if (!fs.existsSync(normalizedPath)) {
       console.warn(`[VIDEO_FILE] file not found: ${ws.downloadedPath}`)
       return null
     }
     // Use local-video:// protocol (registered in bootstrap) — required because
     // Chromium blocks file:// URLs from http:// origins with contextIsolation:true.
-    // Keep backslashes for Windows — protocol handler decodes correctly.
-    const videoUrl = 'local-video://' + ws.downloadedPath
+    // Convert backslashes to forward slashes so decodeURIComponent() returns a valid path.
+    const videoUrl = 'local-video://' + normalizedPath
     return { path: ws.downloadedPath, url: videoUrl }
   })
 
@@ -876,12 +878,13 @@ async function registerIPCHandlers() {
   ipcMain.handle(IPC_CHANNELS.VIDEO_BLOB, async (_, workspaceId: string): Promise<Uint8Array | null> => {
     const ws = getWorkspace(workspaceId)
     if (!ws || !ws.downloadedPath) return null
-    if (!fs.existsSync(ws.downloadedPath)) {
+    const normalizedPath = ws.downloadedPath.replace(/\\/g, '/')
+    if (!fs.existsSync(normalizedPath)) {
       console.warn(`[VIDEO_BLOB] file not found: ${ws.downloadedPath}`)
       return null
     }
     try {
-      const data = fs.readFileSync(ws.downloadedPath)
+      const data = fs.readFileSync(normalizedPath)
       return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
     } catch (err) {
       console.error(`[VIDEO_BLOB] read error: ${err}`)
@@ -908,7 +911,7 @@ async function registerIPCHandlers() {
     const workspaces = getWorkspaces()
     for (const ws of workspaces) {
       if (ws.channelId === channelId) {
-        cleanupWorkspace(ws.id)
+        cleanupWorkspace(ws.id, ws.downloadedPath)
         deleteWorkspace(ws.id)
       }
     }

@@ -162,7 +162,8 @@ export function ensureStorageDirs(): void {
 }
 
 // Generate workspace file paths
-export function generateWorkspacePaths(workspaceId: string): {
+// yt-dlp outputs: {workspaceId}_{videoId}.mp4 — pass videoId to match the actual file
+export function generateWorkspacePaths(workspaceId: string, videoId?: string): {
   videoPath: string
   blurPath: string
   metadataPath: string
@@ -172,7 +173,10 @@ export function generateWorkspacePaths(workspaceId: string): {
   const outputDir = getOutputPath()
 
   return {
-    videoPath: path.join(storagePath, `${workspaceId}.mp4`),
+    // yt-dlp output template: {workspaceId}_%(id)s.mp4 — videoId required to match
+    videoPath: videoId
+      ? path.join(storagePath, `${workspaceId}_${videoId}.mp4`)
+      : path.join(storagePath, `${workspaceId}.mp4`),
     blurPath: path.join(storagePath, `blur_${workspaceId}.jpg`),
     metadataPath: path.join(storagePath, `meta_${workspaceId}.json`),
     outputPath: path.join(outputDir, `${workspaceId}_output.mp4`),
@@ -231,17 +235,32 @@ function getFreeDiskSpace(dirPath: string): number {
 }
 
 // Clean up old workspace files
-export function cleanupWorkspace(workspaceId: string): void {
+export function cleanupWorkspace(workspaceId: string, downloadedPath?: string): void {
+  // Clean the actual downloaded file (yt-dlp uses {workspaceId}_{videoId}.mp4)
+  // and the generic path (for backward compat / cleanup of old format files)
   const { videoPath, blurPath, metadataPath, outputPath } = generateWorkspacePaths(workspaceId)
 
-  for (const filePath of [videoPath, blurPath, metadataPath]) {
+  const filesToClean = new Set<string>()
+  if (downloadedPath) filesToClean.add(downloadedPath)
+  filesToClean.add(videoPath)  // generic workspaceId.mp4 (old format)
+  // Also try workspaceId_*.mp4 pattern (yt-dlp new format without knowing videoId)
+  filesToClean.add(blurPath)
+  filesToClean.add(metadataPath)
+  // output file
+  try {
+    if (fs.existsSync(outputPath)) {
+      filesToClean.add(outputPath)
+    }
+  } catch {}
+
+  for (const filePath of filesToClean) {
     try {
-      if (fs.existsSync(filePath)) {
+      if (filePath && fs.existsSync(filePath)) {
         fs.unlinkSync(filePath)
         console.log(`[RAMDisk] Cleaned: ${filePath}`)
       }
     } catch (err) {
-      console.error(`[RAMDisk] Failed to clean ${filePath}:`, err)
+      // Ignore errors for files that don't exist
     }
   }
 }
@@ -257,14 +276,20 @@ export function formatBytes(bytes: number): string {
 
 // Get storage stats for a workspace
 export function getWorkspaceStorageSize(workspaceId: string): { video: number; blur: number; total: number } {
-  const { videoPath, blurPath } = generateWorkspacePaths(workspaceId)
+  const storagePath = getVideoStoragePath()
   let videoSize = 0
   let blurSize = 0
 
+  // yt-dlp outputs: workspaceId_{videoId}.mp4 — scan for matching files
   try {
-    if (fs.existsSync(videoPath)) {
-      videoSize = fs.statSync(videoPath).size
+    const files = fs.readdirSync(storagePath).filter(f => f.startsWith(workspaceId + '_') && f.endsWith('.mp4'))
+    for (const f of files) {
+      videoSize += fs.statSync(path.join(storagePath, f)).size
     }
+  } catch {}
+
+  try {
+    const blurPath = path.join(storagePath, `blur_${workspaceId}.jpg`)
     if (fs.existsSync(blurPath)) {
       blurSize = fs.statSync(blurPath).size
     }
