@@ -34,29 +34,42 @@
 
 ### Cơ chế — 2 chế độ
 
-**Chế độ 1 (Real-time, ~4s):** YouTube Data API v3 via OAuth Bearer Token
+**Chế độ 1 (Primary — dùng GẦN LUÔN):** playlistItems per channel batch
+> ⚠️ **QUAN TRỌNG**: `activities?home=true` trả về **0 items** mà không có browser cookies. Đây là known YouTube API limitation. `playlistItems` per channel là detection path DUY NHẤT hoạt động đáng tin cậy.
 
 ```
 YouTubePoller (4s jitter)
          ↓
-activities?home=true (1 unit, OAuth Bearer) — personalized feed
+activities?home=true (1 unit/poll)
          ↓
-parse videos → filter age < 1 min
+0 items (99% — no browser cookies) → trigger fallback NGAY
+         ↓
+playlistItems per 50 channels (100 units/poll)
+  → channels API: fetch uploads playlist ID (1 unit/channel)
+  → playlistItems: fetch recent videos (1 unit/channel)
+         ↓
+filter age < 1 min
          ↓
 autoDownloadFromWebSub()
          ↓
 Workspace → Download → Blur → Notify
 ```
 
-**Fallback:** playlistItems per 50 channels batch (100 units/poll)
-→ Triggered when activities returns 0 videos for 2 consecutive polls
-→ Throttled to max 1 run per 5 min
+**Fallback logic**:
+- `FALLBACK_DEBOUNCE_POLLS = 1` → fallback chạy ngay sau poll đầu tiên (không đợi 2 polls)
+- `FALLBACK_THROTTLE_MS = 6s` → fallback mỗi 6s (không phải 5 phút)
+- Fallback tìm video → `_lastFallbackAt = 0` → throttle reset → poll tiếp theo chạy fallback ngay
+- Mỗi poll: 50 channels × 2 units = 100 units/poll
+- 100 channels → 2 batch scans → worst case detection: ~12s sau video upload
 
 ### Lý do không dùng RSS
 YouTube feed indexing có độ trễ **5-30 phút** — dù polling bao nhiêu lần cũng không nhận video mới trong khoảng thời gian này. RSS không phải giải pháp.
 
+### Lý do activities?home=true KHÔNG dùng làm primary detection
+`activities?home=true` trả về **0 items** mà không có browser cookies. Đây là known YouTube API limitation — API cần cookie context để index personalized feed. Chỉ dùng `playlistItems` per channel làm detection path DUY NHẤT.
+
 ### Lý do không dùng activities?mine=true
-`activities?mine=true&type=upload` chỉ trả về **uploads của chính tài khoản OAuth**, không phải subscribed channels. Subscription notification items trong feed có thumbnail = channel avatar (không chứa videoId).
+`activities?mine=true&type=upload` chỉ trả về **uploads của chính tài khoản OAuth**, không phải subscribed channels.
 
 ### Authentication Model
 - **OAuth 2.0 Bearer Token**: YouTube Data API v3 — authenticates API calls
@@ -399,4 +412,4 @@ App khởi động
 
 ---
 
-## 14. Ngày cập nhật: 2026-04-27
+## 14. Ngày cập nhật: 2026-04-28
