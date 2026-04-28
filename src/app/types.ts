@@ -21,6 +21,9 @@ export interface Video {
   status: VideoStatus;
   renderProgress?: number;
   fileSize: string;
+  downloadedPath?: string;
+  /** Human-readable file size */
+  fileSizeBytes?: number;
 }
 
 export interface EditorState {
@@ -29,6 +32,8 @@ export interface EditorState {
   trimEnd: number;
   // Header image (top section)
   headerImageUrl: string | null;
+  /** Disk path for FFmpeg to read (null until saved from blob URL) */
+  headerImageDiskPath: string | null;
   headerImageOffsetY: number; // 0-100, vertical position within header
   // Title box (bottom section)
   titleText: string;
@@ -46,6 +51,24 @@ export interface EditorState {
   enableChunked: boolean;
   // Background
   backgroundType: 'blur' | 'solid' | 'image';
+  /** Uploaded background image URL (blob URL — for preview only) */
+  backgroundImageUrl: string | null;
+  /** Disk path for FFmpeg to read (null until saved from blob URL) */
+  backgroundImageDiskPath: string | null;
+  /** Solid background color hex */
+  backgroundColor: string;
+}
+
+export interface KeyStatus {
+  key: string
+  projectId: string
+  name: string
+  usedToday: number
+  quotaTotal: number
+  quotaPercent: number
+  errors: number
+  lastUsed: number | null
+  status: 'healthy' | 'warning' | 'error' | 'exhausted'
 }
 
 export interface SystemStats {
@@ -64,6 +87,8 @@ export interface SystemStats {
   gpuName: string;
   gpuEncoder: string;
   gpuMemoryTotal: number;
+  gpuTier?: string;
+  maxChunkWorkers?: number;
   networkIp: string;
   isOnline: boolean;
   activeWorkers: number;

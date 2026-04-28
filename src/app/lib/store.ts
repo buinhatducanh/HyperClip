@@ -4,7 +4,15 @@ import { ipc } from './ipc'
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
-export type WorkspaceStatus = 'new' | 'waiting' | 'downloading' | 'ready' | 'editing' | 'rendering' | 'done'
+export type WorkspaceStatus = 'new' | 'waiting' | 'downloading' | 'ready' | 'editing' | 'rendering' | 'done' | 'error'
+
+export interface AppNotification {
+  id: string
+  type: 'info' | 'success' | 'warning' | 'error' | 'autodownload'
+  message: string
+  timestamp: number
+  read: boolean
+}
 
 export interface Workspace {
   id: string
@@ -19,6 +27,8 @@ export interface Workspace {
   renderProgress?: number
   fileSize: string
   trimLimit: '5min' | '10min' | 'full'
+  /** Export quality for this workspace — set when user edits in editor */
+  quality: 1080 | 720 | 360
   /** Path to downloaded video file — populated after download */
   downloadedPath?: string
   /** Path to blur background image — populated after pre-processing */
@@ -48,6 +58,13 @@ export interface AppStore {
   // UI state
   renderQueueExpanded: boolean
   toast: string
+  notifications: AppNotification[]
+
+  // Actions — Notifications
+  addNotification: (n: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => void
+  markRead: (id: string) => void
+  markAllRead: () => void
+  clearNotifications: () => void
 
   // Editor state
   editorState: EditorState
@@ -98,6 +115,7 @@ const INIT_EDITOR: EditorState = {
   trimStart: 0,
   trimEnd: 100,
   headerImageUrl: null,
+  headerImageDiskPath: null,
   headerImageOffsetY: 50,
   titleText: '',
   titleShape: 'rounded',
@@ -111,6 +129,9 @@ const INIT_EDITOR: EditorState = {
   exportTune: 'hq',
   enableChunked: false,
   backgroundType: 'blur',
+  backgroundImageUrl: null,
+  backgroundImageDiskPath: null,
+  backgroundColor: '#000000',
 }
 
 // ─── Store ─────────────────────────────────────────────────────────────────────
@@ -130,6 +151,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   renderQueueExpanded: false,
   toast: '',
+  notifications: [],
   editorState: INIT_EDITOR,
 
   // Actions — Workspace
@@ -149,6 +171,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         renderProgress: w.renderProgress,
         fileSize: formatFileSize(w.fileSize),
         trimLimit: w.trimLimit || '10min',
+        quality: w.quality || 1080,
         downloadedPath: w.downloadedPath,
         blurBackgroundPath: w.blurBackgroundPath,
         outputPath: w.outputPath,
@@ -250,6 +273,33 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ toast: msg })
     setTimeout(() => set({ toast: '' }), 3200)
   },
+
+  // Actions — Notifications
+  addNotification: (n) =>
+    set((s) => {
+      const notification: AppNotification = {
+        ...n,
+        id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        timestamp: Date.now(),
+        read: false,
+      }
+      const notifications = [notification, ...s.notifications].slice(0, 50)
+      return { notifications }
+    }),
+
+  markRead: (id) =>
+    set((s) => ({
+      notifications: s.notifications.map((n) =>
+        n.id === id ? { ...n, read: true } : n
+      ),
+    })),
+
+  markAllRead: () =>
+    set((s) => ({
+      notifications: s.notifications.map((n) => ({ ...n, read: true })),
+    })),
+
+  clearNotifications: () => set({ notifications: [] }),
 
   // Actions — Editor
   updateEditorState: (patch) =>

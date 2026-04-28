@@ -26,7 +26,7 @@ export function BackgroundControls({ type, color, onTypeChange, onRegenerateBlur
                 borderStyle: 'solid',
                 borderColor: isActive ? '#00B4FF' : '#222',
                 borderRadius: 3,
-                fontSize: 8,
+                fontSize: 9,
                 fontWeight: 700,
                 color: isActive ? '#00B4FF' : '#444',
                 cursor: 'pointer',

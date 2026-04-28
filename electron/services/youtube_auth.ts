@@ -19,7 +19,11 @@ import { shell } from 'electron'
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const OAUTH_PORT = 8765
+const OAUTH_PORT_MAX = 8775 // range of ports to try if primary is in use
 const TOKEN_FILE = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_tokens.json')
+
+// Active OAuth server — closed before starting a new flow to prevent EADDRINUSE
+let _activeServer: http.Server | null = null
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -28,6 +32,9 @@ export interface OAuthTokens {
   refresh_token: string
   expires_at: number  // Unix ms timestamp
   token_type: string
+  clientId?: string   // saved for token refresh
+  clientSecret?: string
+  projectId?: string  // project this token belongs to (for multi-project key-token pairing)
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -102,11 +109,17 @@ export function loadTokens(): OAuthTokens | null {
   return null
 }
 
-export function saveTokens(tokens: OAuthTokens): void {
+export function saveTokens(tokens: OAuthTokens, clientId?: string, clientSecret?: string, projectId?: string): void {
   const file = getTokenFile()
+  const toSave: OAuthTokens & { projectId?: string } = {
+    ...tokens,
+    clientId: clientId || tokens.clientId,
+    clientSecret: clientSecret || tokens.clientSecret,
+    projectId: projectId || tokens.projectId,
+  }
   try {
-    fs.writeFileSync(file, JSON.stringify(tokens, null, 2), 'utf-8')
-    console.log('[OAuth] Tokens saved to:', file, '— expires at:', new Date(tokens.expires_at).toISOString())
+    fs.writeFileSync(file, JSON.stringify(toSave, null, 2), 'utf-8')
+    console.log('[OAuth] Tokens saved to:', file, '— expires at:', new Date(tokens.expires_at).toISOString(), projectId ? ` (project: ${projectId})` : '')
   } catch (e) {
     console.error('[OAuth] FAILED to save tokens to', file, ':', e)
     throw e
@@ -115,6 +128,7 @@ export function saveTokens(tokens: OAuthTokens): void {
 
 export function clearTokens(): void {
   try { if (fs.existsSync(getTokenFile())) fs.unlinkSync(getTokenFile()) } catch {}
+  _cachedToken = null
 }
 
 // ─── OAuth URL Builder ─────────────────────────────────────────────────────────
@@ -197,13 +211,15 @@ function exchangeCodeForTokens(clientId: string, clientSecret: string, code: str
 
 // ─── Token Refresh ────────────────────────────────────────────────────────────
 
-export function refreshAccessToken(clientId: string, refreshToken: string): Promise<OAuthTokens> {
+export function refreshAccessToken(clientId: string, clientSecret: string, refreshToken: string): Promise<OAuthTokens> {
   return new Promise((resolve, reject) => {
-    const body = new URLSearchParams({
+    const bodyParams: Record<string, string> = {
       client_id: clientId,
       refresh_token: refreshToken,
       grant_type: 'refresh_token',
-    }).toString()
+    }
+    if (clientSecret) bodyParams['client_secret'] = clientSecret
+    const body = new URLSearchParams(bodyParams).toString()
 
     const options = {
       hostname: 'oauth2.googleapis.com',
@@ -242,25 +258,42 @@ export function refreshAccessToken(clientId: string, refreshToken: string): Prom
   })
 }
 
-// ─── Get Valid Access Token ───────────────────────────────────────────────────
+// ─── Get Valid Access Token (cached) ─────────────────────────────────────────
+
+let _cachedToken: { token: string; expiresAt: number } | null = null
 
 export async function getValidAccessToken(clientId: string): Promise<string | null> {
+  // Return cached token if still valid (with 60s buffer)
+  if (_cachedToken && _cachedToken.expiresAt - 60000 > Date.now()) {
+    console.log('[OAuth] Using cached token (expires in', Math.round((_cachedToken.expiresAt - Date.now()) / 60000), 'min)')
+    return _cachedToken.token
+  }
+
   const tokens = loadTokens()
-  if (!tokens?.access_token) return null
+  console.log('[OAuth] Tokens loaded:', tokens ? 'yes (expires ' + (tokens.expires_at ? new Date(tokens.expires_at).toISOString() : 'unknown') + ')' : 'NO')
+  if (!tokens?.access_token) {
+    console.warn('[OAuth] No access_token in loaded tokens')
+    return null
+  }
 
   // Refresh if expired (with 60s buffer)
   if (tokens.expires_at - 60000 < Date.now()) {
+    console.log('[OAuth] Token expired, refreshing...')
     try {
-      const newTokens = await refreshAccessToken(clientId, tokens.refresh_token)
+      const clientSecret = getOAuthClientSecret()
+      const newTokens = await refreshAccessToken(clientId, clientSecret, tokens.refresh_token)
       saveTokens(newTokens)
+      _cachedToken = { token: newTokens.access_token, expiresAt: newTokens.expires_at }
       return newTokens.access_token
     } catch (e) {
-      console.warn('[OAuth] Token refresh failed:', e)
+      console.error('[OAuth] Token refresh FAILED:', e, '— clientSecret:', getOAuthClientSecret() ? 'SET' : 'EMPTY')
       clearTokens()
+      _cachedToken = null
       return null
     }
   }
 
+  _cachedToken = { token: tokens.access_token, expiresAt: tokens.expires_at }
   return tokens.access_token
 }
 
@@ -270,21 +303,38 @@ export interface OAuthResult {
   success: boolean
   error?: string
   tokens?: OAuthTokens
+  projectId?: string
 }
 
 /**
  * Start OAuth 2.0 flow. Opens system browser, waits for callback, returns tokens.
+ * @param clientId OAuth Client ID
+ * @param clientSecret OAuth Client Secret (optional — uses default if not provided)
+ * @param projectId Project ID to store with token (for multi-project key-token pairing)
  */
-export async function startOAuthFlow(clientId: string): Promise<OAuthResult> {
+export async function startOAuthFlow(clientId: string, clientSecret?: string, projectId?: string): Promise<OAuthResult> {
+  // If no secret provided, read from config file (for backward compat with cookie_manager)
+  const effectiveSecret = clientSecret || (() => {
+    try {
+      const configPath = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json')
+      if (fs.existsSync(configPath)) {
+        const cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+        return cfg.client_secret || ''
+      }
+    } catch {}
+    return ''
+  })()
   return new Promise((resolve) => {
     let server: http.Server | null = null
     let resolved = false
+    let timeout: NodeJS.Timeout | undefined
 
     const cleanup = () => {
       if (server) {
         server.close()
         server = null
       }
+      if (_activeServer === server) _activeServer = null
     }
 
     const finish = (result: OAuthResult) => {
@@ -294,288 +344,94 @@ export async function startOAuthFlow(clientId: string): Promise<OAuthResult> {
       resolve(result)
     }
 
-    // Timeout after 5 minutes
-    const timeout = setTimeout(() => {
-      finish({ success: false, error: 'OAuth timeout (5 minutes)' })
-    }, 5 * 60 * 1000)
+    // Close any existing OAuth server first to prevent EADDRINUSE
+    const closeExisting = (): Promise<void> => {
+      return new Promise((r) => {
+        if (_activeServer) {
+          _activeServer.close(() => { _activeServer = null; r() })
+          // Force close if lingering
+          setTimeout(() => { _activeServer = null; r() }, 500)
+        } else {
+          r()
+        }
+      })
+    }
 
-    server = http.createServer((req, res) => {
-      const url = new URL(req.url || '', `http://localhost:${OAUTH_PORT}`)
-      const code = url.searchParams.get('code')
-      const error = url.searchParams.get('error')
+    const tryListen = (port: number) => {
+      server = http.createServer((req, res) => {
+        const url = new URL(req.url || '', `http://localhost:${port}`)
+        const code = url.searchParams.get('code')
+        const error = url.searchParams.get('error')
 
-      if (error) {
-        res.writeHead(400, { 'Content-Type': 'text/html' })
-        res.end('<html><body style="background:#0f0f0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2 style="color:#FF4444">OAuth Error</h2><p style="color:#aaa">Authentication was cancelled. You can close this tab.</p></div></html>')
-        finish({ success: false, error: error })
-        return
-      }
+        if (error) {
+          res.writeHead(400, { 'Content-Type': 'text/html' })
+          res.end('<html><body style="background:#0f0f0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2 style="color:#FF4444">OAuth Error</h2><p style="color:#aaa">Authentication was cancelled. You can close this tab.</p></div></html>')
+          finish({ success: false, error: error })
+          return
+        }
 
-      if (!code) {
-        res.writeHead(400)
-        res.end('Missing code')
-        return
-      }
+        if (!code) {
+          res.writeHead(400, { 'Content-Type': 'text/html' })
+          res.end('<html><body style="background:#0f0f0f;color:#fff;font-family:sans-serif"><p>Missing code</p></html>')
+          finish({ success: false, error: 'Missing code' })
+          return
+        }
 
-      if (error) {
-        res.writeHead(200, { 'Content-Type': 'text/html' })
-        res.end('<html><body style="background:#0f0f0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2 style="color:#FF4444">OAuth Error</h2><p style="color:#aaa">Authentication was cancelled. You can close this tab.</p></div></html>')
-        finish({ success: false, error: error })
-        return
-      }
+        // Got the code — exchange for tokens (don't send HTML until we know result)
+        clearTimeout(timeout!)
 
-      if (!code) {
-        res.writeHead(400, { 'Content-Type': 'text/html' })
-        res.end('<html><body style="background:#0f0f0f;color:#fff;font-family:sans-serif"><p>Missing code</p></html>')
-        finish({ success: false, error: 'Missing code' })
-        return
-      }
+        exchangeCodeForTokens(clientId, effectiveSecret, code)
+          .then((tokens) => {
+            console.log('[OAuth] Token exchanged — expires in', Math.round((tokens.expires_at - Date.now()) / 60000), 'minutes', projectId ? ` (project: ${projectId})` : '')
+            // Save to flat file for legacy compat (no projectId = single-project flow).
+            // Per-project flows (with projectId) rely on TokenManager.addToken() from main.ts instead.
+            if (!projectId) {
+              saveTokens(tokens, clientId, effectiveSecret)
+            }
+            res.writeHead(200, { 'Content-Type': 'text/html' })
+            res.end('<html><body style="background:#0f0f0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2 style="color:#00FF88">HyperClip</h2><p style="color:#aaa">Authentication successful! You can close this tab and return to HyperClip.</p></div></html>')
+            finish({ success: true, tokens, projectId })
+          })
+          .catch((e) => {
+            console.error('[OAuth] Token exchange FAILED:', e)
+            res.writeHead(200, { 'Content-Type': 'text/html' })
+            res.end(`<html><body style="background:#0f0f0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;padding:20px"><div style="text-align:center;max-width:480px"><h2 style="color:#FF4444">Token Exchange Failed</h2><p style="color:#FF8888;font-size:13px;word-break:break-all">${(e as Error).message}</p><p style="color:#555;font-size:12px;margin-top:20px">Close this tab. HyperClip will retry automatically.</p></div></html>`)
+            finish({ success: false, error: (e as Error).message })
+          })
+      })
 
-      // Got the code — exchange for tokens (don't send HTML until we know result)
-      clearTimeout(timeout)
+      server.on('error', (e: NodeJS.ErrnoException) => {
+        if (e.code === 'EADDRINUSE' && port < OAUTH_PORT_MAX) {
+          console.warn(`[OAuth] Port ${port} in use — retrying on ${port + 1}`)
+          server!.close()
+          tryListen(port + 1)
+        } else {
+          console.warn('[OAuth] Server error:', e)
+          finish({ success: false, error: e.message })
+        }
+      })
 
-      const clientSecret = getOAuthClientSecret()
-      exchangeCodeForTokens(clientId, clientSecret, code)
-        .then((tokens) => {
-          saveTokens(tokens)
-          console.log('[OAuth] Tokens saved — access token expires in', Math.round((tokens.expires_at - Date.now()) / 60000), 'minutes')
-          res.writeHead(200, { 'Content-Type': 'text/html' })
-          res.end('<html><body style="background:#0f0f0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2 style="color:#00FF88">HyperClip</h2><p style="color:#aaa">Authentication successful! You can close this tab and return to HyperClip.</p></div></html>')
-          finish({ success: true, tokens })
+      server.listen(port, '127.0.0.1', () => {
+        const oauthUrl = buildOAuthUrl(clientId)
+        console.log(`[OAuth] Starting OAuth flow on port ${port} — opening browser`)
+        _activeServer = server
+        shell.openExternal(oauthUrl).catch((e) => {
+          console.warn('[OAuth] Failed to open browser:', e)
+          finish({ success: false, error: 'Failed to open browser' })
         })
-        .catch((e) => {
-          console.error('[OAuth] Token exchange FAILED:', e)
-          res.writeHead(200, { 'Content-Type': 'text/html' })
-          res.end(`<html><body style="background:#0f0f0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;padding:20px"><div style="text-align:center;max-width:480px"><h2 style="color:#FF4444">Token Exchange Failed</h2><p style="color:#FF8888;font-size:13px;word-break:break-all">${(e as Error).message}</p><p style="color:#555;font-size:12px;margin-top:20px">Close this tab. HyperClip will retry automatically.</p></div></html>`)
-          finish({ success: false, error: (e as Error).message })
-        })
-    })
-
-    server.on('error', (e) => {
-      console.warn('[OAuth] Server error:', e)
-      finish({ success: false, error: (e as Error).message })
-    })
-
-    server.listen(OAUTH_PORT, '127.0.0.1', () => {
-      const oauthUrl = buildOAuthUrl(clientId)
-      console.log('[OAuth] Starting OAuth flow — opening browser')
-      shell.openExternal(oauthUrl).catch((e) => {
-        console.warn('[OAuth] Failed to open browser:', e)
-        finish({ success: false, error: 'Failed to open browser' })
       })
-    })
-  })
-}
-
-// ─── YouTube Data API v3 ────────────────────────────────────────────────────────
-
-export interface YouTubeChannel {
-  channelId: string
-  title: string
-  thumbnail: string
-}
-
-export interface YouTubeVideo {
-  videoId: string
-  channelId: string
-  title: string
-  publishedAt: string
-}
-
-/**
- * Fetch user's YouTube subscriptions using OAuth tokens.
- */
-export async function fetchSubscriptions(accessToken: string): Promise<YouTubeChannel[]> {
-  return new Promise((resolve) => {
-    const options = {
-      hostname: 'www.googleapis.com',
-      path: '/youtube/v3/subscriptions?part=snippet&mine=true&maxResults=50&order=alphabetical',
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
     }
 
-    const req = https.request(options, (res) => {
-      let data = ''
-      res.on('data', (chunk) => (data += chunk))
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data)
-          if (json.error) {
-            console.warn('[YouTubeAPI] fetchSubscriptions error:', json.error.message)
-            resolve([])
-            return
-          }
-          const channels: YouTubeChannel[] = (json.items || []).map((item: any) => ({
-            channelId: item.snippet.resourceId.channelId,
-            title: item.snippet.title,
-            thumbnail: item.snippet.thumbnails?.default?.url || '',
-          }))
-          resolve(channels)
-        } catch (e) {
-          console.warn('[YouTubeAPI] fetchSubscriptions parse error:', e)
-          resolve([])
-        }
-      })
+    closeExisting().then(() => {
+      // Timeout after 5 minutes
+      const timeout = setTimeout(() => {
+        finish({ success: false, error: 'OAuth timeout (5 minutes)' })
+      }, 5 * 60 * 1000)
+      tryListen(OAUTH_PORT)
     })
-    req.on('error', () => resolve([]))
-    req.end()
   })
 }
 
-/**
- * Fetch the user's subscription feed (home feed) in ONE API call.
- * This is the efficient approach — avoids 43 separate calls per poll.
- */
-export async function fetchSubscriptionFeed(accessToken: string, sinceMs: number): Promise<YouTubeVideo[]> {
-  return new Promise((resolve) => {
-    const publishedAfter = new Date(sinceMs).toISOString()
-    const options = {
-      hostname: 'www.googleapis.com',
-      path: `/youtube/v3/activities?part=snippet,contentDetails&home=true&maxResults=20&publishedAfter=${publishedAfter}`,
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-    }
-
-    const req = https.request(options, (res) => {
-      let data = ''
-      res.on('data', (chunk) => { data += chunk })
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data)
-          if (json.error) {
-            console.warn('[YouTubeAPI] fetchSubscriptionFeed error:', json.error.message)
-            resolve([])
-            return
-          }
-          const videos: YouTubeVideo[] = (json.items || [])
-            .filter((item: any) => {
-              // Only actual video uploads (skip "playlistItem", "recommendation", etc.)
-              return item.contentDetails?.upload?.videoId
-            })
-            .map((item: any) => ({
-              videoId: item.contentDetails.upload.videoId,
-              channelId: item.snippet.channelId || '',
-              title: item.snippet.title || 'Untitled',
-              publishedAt: item.snippet.publishedAt,
-            }))
-          resolve(videos)
-        } catch (e) {
-          console.warn('[YouTubeAPI] fetchSubscriptionFeed parse error:', e)
-          resolve([])
-        }
-      })
-    })
-    req.on('error', (e) => {
-      console.warn('[YouTubeAPI] fetchSubscriptionFeed network error:', e.message)
-      resolve([])
-    })
-    req.end()
-  })
-}
-
-/**
- * Fetch recent uploads from the user's OWN channel.
- * Detects when the logged-in user uploads a new video.
- */
-export async function fetchOwnChannelRecentUploads(accessToken: string, sinceMs: number): Promise<YouTubeVideo[]> {
-  return new Promise((resolve) => {
-    const publishedAfter = new Date(sinceMs).toISOString()
-    const options = {
-      hostname: 'www.googleapis.com',
-      path: `/youtube/v3/activities?part=snippet,contentDetails&mine=true&maxResults=10&publishedAfter=${publishedAfter}`,
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-    }
-
-    const req = https.request(options, (res) => {
-      let data = ''
-      res.on('data', (chunk) => { data += chunk })
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data)
-          if (json.error) {
-            console.warn('[YouTubeAPI] fetchOwnChannelRecentUploads error:', json.error.message)
-            resolve([])
-            return
-          }
-          const videos: YouTubeVideo[] = (json.items || [])
-            .filter((item: any) => item.contentDetails?.upload?.videoId)
-            .map((item: any) => ({
-              videoId: item.contentDetails.upload.videoId,
-              channelId: item.snippet.channelId || '',
-              title: item.snippet.title || 'Untitled',
-              publishedAt: item.snippet.publishedAt,
-            }))
-          resolve(videos)
-        } catch (e) {
-          console.warn('[YouTubeAPI] fetchOwnChannelRecentUploads parse error:', e)
-          resolve([])
-        }
-      })
-    })
-    req.on('error', (e) => {
-      console.warn('[YouTubeAPI] fetchOwnChannelRecentUploads network error:', e.message)
-      resolve([])
-    })
-    req.end()
-  })
-}
-
-/**
- * Fetch recent uploads from a specific channel using OAuth tokens.
- */
-export async function fetchRecentUploads(accessToken: string, channelId: string, sinceMs: number): Promise<YouTubeVideo[]> {
-  return new Promise((resolve) => {
-    const options = {
-      hostname: 'www.googleapis.com',
-      path: `/youtube/v3/activities?part=snippet,contentDetails&channelId=${channelId}&maxResults=5&publishedAfter=${new Date(sinceMs).toISOString()}`,
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-    }
-
-    const req = https.request(options, (res) => {
-      let data = ''
-      res.on('data', (chunk) => (data += chunk))
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data)
-          if (json.error) {
-            console.warn(`[YouTubeAPI] fetchRecentUploads error for ${channelId}:`, json.error.message)
-            resolve([])
-            return
-          }
-          const items = json.items || []
-          // Only actual uploads (filter out likes, favorites, etc.)
-          const videos: YouTubeVideo[] = items
-            .filter((item: any) => !!item.contentDetails?.upload?.videoId)
-            .map((item: any) => ({
-              videoId: item.contentDetails.upload.videoId,
-              channelId: channelId,
-              title: item.snippet?.title || 'Untitled',
-              publishedAt: item.snippet?.publishedAt || '',
-            }))
-          resolve(videos)
-        } catch (e) {
-          resolve([])
-        }
-      })
-    })
-    req.on('error', () => resolve([]))
-    req.end()
-  })
-}
 
 /**
  * Get account info from YouTube API.
@@ -610,4 +466,70 @@ export async function fetchAccountInfo(accessToken: string): Promise<string | nu
     req.on('error', () => resolve(null))
     req.end()
   })
+}
+
+// ─── Subscription List Sync ─────────────────────────────────────────────────────
+
+export interface SubscriptionItem {
+  channelId: string
+  channelName: string
+  avatarUrl: string
+}
+
+/**
+ * Fetch full subscription list from YouTube Data API v3.
+ * Called periodically to keep the channel store in sync with the user's
+ * real YouTube subscriptions (handles subscribe/unsubscribe on youtube.com).
+ */
+export async function fetchMySubscriptions(accessToken: string): Promise<SubscriptionItem[]> {
+  const subscriptions: SubscriptionItem[] = []
+  let nextPageToken: string | undefined = undefined
+
+  do {
+    const params = new URLSearchParams({
+      part: 'snippet',
+      mine: 'true',
+      maxResults: '50',
+      order: 'alphabetical',
+    })
+    if (nextPageToken) params.set('pageToken', nextPageToken)
+
+    const result = await new Promise<{ data: any; error?: string }>((resolve) => {
+      const options = {
+        hostname: 'www.googleapis.com',
+        path: `/youtube/v3/subscriptions?${params.toString()}`,
+        method: 'GET',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+      const req = https.request(options, (res) => {
+        let data = ''
+        res.on('data', (c) => { data += c })
+        res.on('end', () => {
+          try { resolve({ data: JSON.parse(data) }) }
+          catch { resolve({ data: {}, error: 'parse error' }) }
+        })
+      })
+      req.on('error', (e) => resolve({ data: {}, error: e.message }))
+      req.setTimeout(15000, () => { req.destroy(); resolve({ data: {}, error: 'timeout' }) })
+      req.end()
+    })
+
+    if (result.error || result.data.error) break
+
+    for (const item of result.data.items || []) {
+      const snippet = item.snippet || {}
+      const resource = snippet.resourceId || {}
+      if (resource.channelId) {
+        subscriptions.push({
+          channelId: resource.channelId,
+          channelName: snippet.title || 'Unknown',
+          avatarUrl: snippet.thumbnails?.medium?.url || snippet.thumbnails?.default?.url || '',
+        })
+      }
+    }
+
+    nextPageToken = result.data.nextPageToken
+  } while (nextPageToken)
+
+  return subscriptions
 }

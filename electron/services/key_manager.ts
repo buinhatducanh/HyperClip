@@ -1,0 +1,298 @@
+/**
+ * Key Manager — HyperClip
+ *
+ * Manages YouTube Data API keys with smart least-used rotation.
+ * Supports dynamic add/remove, quota tracking, and per-key stats.
+ *
+ * Smart Rotation: selects the key with the most remaining quota.
+ * Persists keys and stats to separate JSON files.
+ */
+
+import path from 'path'
+import fs from 'fs'
+import os from 'os'
+
+// ─── Types ─────────────────────────────────────────────────────────────────────
+
+export interface APIKey {
+  key: string
+  projectId: string
+  name: string
+}
+
+interface KeyStats {
+  key: string
+  usedToday: number   // units consumed today
+  errors: number       // consecutive errors
+  lastUsed: number    // timestamp
+  lastErrorAt: number  // timestamp
+}
+
+export interface KeyStatus {
+  key: string
+  projectId: string
+  name: string
+  usedToday: number
+  quotaTotal: number
+  quotaPercent: number   // 0-100
+  errors: number
+  lastUsed: number | null
+  status: 'healthy' | 'warning' | 'error' | 'exhausted'
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const KEYS_DIR = path.join(os.homedir(), 'AppData', 'Roaming', 'HyperClip')
+const KEYS_FILE = path.join(KEYS_DIR, 'api_keys.json')
+const STATS_FILE = path.join(KEYS_DIR, 'key_stats.json')
+
+const MAX_UNITS_PER_KEY = 9500   // 500 unit buffer per key
+const MAX_ERRORS = 3             // mark unhealthy after 3 consecutive errors
+const RESET_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
+
+// ─── Key Manager ─────────────────────────────────────────────────────────────
+
+class KeyManager {
+  private _keys: APIKey[] = []
+  private _stats: Map<string, KeyStats> = new Map()
+  private _lastReset: number = Date.now()
+  private _initialized: boolean = false
+
+  constructor() {
+    this._load()
+    this._loadStats()
+    this._checkReset()
+  }
+
+  // ── Load / Persist ──────────────────────────────────────────────────────────
+
+  private _ensureDir(): void {
+    if (!fs.existsSync(KEYS_DIR)) {
+      fs.mkdirSync(KEYS_DIR, { recursive: true })
+    }
+  }
+
+  private _load(): void {
+    try {
+      if (fs.existsSync(KEYS_FILE)) {
+        const data = JSON.parse(fs.readFileSync(KEYS_FILE, 'utf-8'))
+        this._keys = (data.keys || []).filter((k: APIKey) => k.key && k.key !== 'YOUR_API_KEY_01')
+      }
+    } catch (e) {
+      console.warn('[KeyManager] Failed to load keys:', e)
+    }
+
+    if (this._keys.length === 0) {
+      console.warn('[KeyManager] No API keys found in', KEYS_FILE)
+      console.warn('[KeyManager] Run HyperClip with a valid api_keys.json in AppData/Roaming/HyperClip/')
+    } else {
+      console.log(`[KeyManager] Loaded ${this._keys.length} keys, smart rotation active`)
+    }
+  }
+
+  private _loadStats(): void {
+    try {
+      if (fs.existsSync(STATS_FILE)) {
+        const data = JSON.parse(fs.readFileSync(STATS_FILE, 'utf-8'))
+        this._stats = new Map(Object.entries(data.stats || {}))
+        this._lastReset = data.lastReset || Date.now()
+      }
+    } catch {}
+  }
+
+  private _persist(): void {
+    this._ensureDir()
+    try {
+      fs.writeFileSync(KEYS_FILE, JSON.stringify({ keys: this._keys }, null, 2), 'utf-8')
+    } catch (e) {
+      console.error('[KeyManager] Failed to persist keys:', e)
+    }
+    this._persistStats()
+  }
+
+  private _persistStats(): void {
+    try {
+      const obj: Record<string, KeyStats> = {}
+      for (const [k, v] of this._stats) obj[k] = v
+      fs.writeFileSync(STATS_FILE, JSON.stringify({ stats: obj, lastReset: this._lastReset }, null, 2), 'utf-8')
+    } catch (e) {
+      console.error('[KeyManager] Failed to persist stats:', e)
+    }
+  }
+
+  private _checkReset(): void {
+    if (Date.now() - this._lastReset > RESET_INTERVAL_MS) {
+      this._stats.clear()
+      this._lastReset = Date.now()
+      this._persistStats()
+      console.log('[KeyManager] Daily reset — all key quotas refreshed')
+    }
+  }
+
+  // ── Smart Rotation ─────────────────────────────────────────────────────────
+
+  /**
+   * Get the best available key — the one with the most remaining quota.
+   * Skips exhausted or unhealthy keys.
+   */
+  getKey(): APIKey {
+    this._checkReset()
+
+    if (this._keys.length === 0) {
+      throw new Error('No API keys configured. Add keys to ' + KEYS_FILE)
+    }
+
+    const candidates = this._keys.filter(k => {
+      const s = this._stats.get(k.key)
+      if (!s) return true
+      return s.usedToday < MAX_UNITS_PER_KEY && s.errors < MAX_ERRORS
+    })
+
+    if (candidates.length === 0) {
+      throw new Error('All API keys exhausted or unhealthy (quota reset at midnight PT)')
+    }
+
+    // Sort by remaining quota (least-used first = most remaining)
+    candidates.sort((a, b) => {
+      const sa = this._stats.get(a.key)
+      const sb = this._stats.get(b.key)
+      const ua = sa?.usedToday ?? 0
+      const ub = sb?.usedToday ?? 0
+      // Pick the key with LEAST usage (most quota remaining)
+      return ua - ub
+    })
+
+    const chosen = candidates[0]
+    const stat = this._stats.get(chosen.key) || { key: chosen.key, usedToday: 0, errors: 0, lastUsed: 0, lastErrorAt: 0 }
+    stat.lastUsed = Date.now()
+    this._stats.set(chosen.key, stat)
+    this._persistStats()
+    return chosen
+  }
+
+  // ── Tracking ───────────────────────────────────────────────────────────────
+
+  /** Track units consumed by a key */
+  track(key: string, units: number): void {
+    const stat = this._stats.get(key) || { key, usedToday: 0, errors: 0, lastUsed: 0, lastErrorAt: 0 }
+    stat.usedToday += units
+    this._stats.set(key, stat)
+    this._persistStats()
+  }
+
+  /** Record an error for a key (increments consecutive error count) */
+  recordError(key: string): void {
+    const stat = this._stats.get(key) || { key, usedToday: 0, errors: 0, lastUsed: 0, lastErrorAt: 0 }
+    stat.errors++
+    stat.lastErrorAt = Date.now()
+    this._stats.set(key, stat)
+    this._persistStats()
+    console.warn(`[KeyManager] Error on key ${key.slice(0, 12)}... — errors: ${stat.errors}`)
+  }
+
+  // ── CRUD ──────────────────────────────────────────────────────────────────
+
+  /** Add a new key */
+  addKey(key: string, projectId: string, name: string): void {
+    if (this._keys.find(k => k.key === key)) {
+      console.warn('[KeyManager] Key already exists:', key.slice(0, 12))
+      return
+    }
+    this._keys.push({ key, projectId, name })
+    this._persist()
+    console.log(`[KeyManager] Added key: ${name} (${key.slice(0, 12)}...)`)
+  }
+
+  /** Remove a key by key string */
+  removeKey(key: string): void {
+    const idx = this._keys.findIndex(k => k.key === key)
+    if (idx === -1) return
+    const removed = this._keys.splice(idx, 1)[0]
+    this._stats.delete(key)
+    this._persist()
+    this._persistStats()
+    console.log(`[KeyManager] Removed key: ${removed.name}`)
+  }
+
+  /** Reset quota for a specific key */
+  resetKey(key: string): void {
+    const stat = this._stats.get(key)
+    if (stat) {
+      stat.usedToday = 0
+      stat.errors = 0
+      this._stats.set(key, stat)
+      this._persistStats()
+      console.log(`[KeyManager] Reset quota for key ${key.slice(0, 12)}...`)
+    }
+  }
+
+  /** Reset all key quotas */
+  resetAll(): void {
+    this._stats.clear()
+    this._lastReset = Date.now()
+    this._persistStats()
+    console.log('[KeyManager] Reset all key quotas')
+  }
+
+  // ── Query ─────────────────────────────────────────────────────────────────
+
+  /** Get all keys with current stats */
+  getAllKeys(): KeyStatus[] {
+    this._checkReset()
+    return this._keys.map(k => {
+      const stat = this._stats.get(k.key)
+      const usedToday = stat?.usedToday ?? 0
+      const errors = stat?.errors ?? 0
+      const quotaPercent = Math.round((usedToday / MAX_UNITS_PER_KEY) * 100)
+
+      let status: KeyStatus['status'] = 'healthy'
+      if (usedToday >= MAX_UNITS_PER_KEY || errors >= MAX_ERRORS) status = 'exhausted'
+      else if (quotaPercent >= 80) status = 'warning'
+      else if (errors > 0) status = 'error'
+
+      return {
+        key: k.key,
+        projectId: k.projectId,
+        name: k.name,
+        usedToday,
+        quotaTotal: MAX_UNITS_PER_KEY,
+        quotaPercent: Math.min(100, quotaPercent),
+        errors,
+        lastUsed: stat?.lastUsed ?? null,
+        status,
+      }
+    })
+  }
+
+  getKeyCount(): number {
+    return this._keys.length
+  }
+
+  getKeyForProject(projectId: string): APIKey | null {
+    const candidates = this._keys.filter(k => k.projectId === projectId)
+    if (candidates.length === 0) return null
+    // Return the least-used key within this project
+    candidates.sort((a, b) => {
+      const sa = this._stats.get(a.key)?.usedToday ?? 0
+      const sb = this._stats.get(b.key)?.usedToday ?? 0
+      return sa - sb
+    })
+    return candidates[0]
+  }
+
+  /** Get usedToday for a specific key (for quota guard checks) */
+  getUsedToday(key: string): number {
+    return this._stats.get(key)?.usedToday ?? 0
+  }
+}
+
+// ─── Singleton ────────────────────────────────────────────────────────────────
+
+let _instance: KeyManager | null = null
+
+export function getKeyManager(): KeyManager {
+  if (!_instance) _instance = new KeyManager()
+  return _instance
+}
+
+export { KeyManager }

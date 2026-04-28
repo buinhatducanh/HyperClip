@@ -2,7 +2,7 @@
 
 interface Props {
   quality: number
-  onChange: (q: 1080 | 720) => void
+  onChange: (q: 1080 | 720 | 360) => void
   onExport: () => void
   isRendering?: boolean
   codec?: 'h264' | 'hevc'
@@ -14,10 +14,12 @@ interface Props {
   enableChunked?: boolean
   onChunkedChange?: (v: boolean) => void
   onExportChunked?: () => void
+  maxChunkWorkers?: number
 }
 
 const TUNE_LABELS: Record<string, string> = { hq: 'HQ', ll: 'LL', film: 'FILM' }
 const PRESET_LABELS: Record<string, string> = { p1: 'FAST', p2: 'BAL', p3: 'QUAL' }
+const QUALITY_LABELS: Record<number, string> = { 360: '360p', 720: '720p', 1080: '1080p' }
 
 export function ExportPanel({
   quality, onChange, onExport, isRendering,
@@ -26,16 +28,17 @@ export function ExportPanel({
   tune = 'hq', onTuneChange,
   enableChunked = false, onChunkedChange,
   onExportChunked,
+  maxChunkWorkers = 4,
 }: Props) {
   return (
     <div className="flex flex-col gap-3">
       {/* Quality */}
       <div>
-        <div style={{ fontSize: 8, color: '#333', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 4 }}>
+        <div style={{ fontSize: 9, color: '#444', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 4 }}>
           QUALITY
         </div>
         <div className="flex gap-1">
-          {([1080, 720] as const).map((q) => {
+          {([1080, 720, 360] as const).map((q) => {
             const active = quality === q
             return (
               <button key={q} onClick={() => onChange(q)}
@@ -59,7 +62,7 @@ export function ExportPanel({
       <div className="flex gap-2">
         {onCodecChange && (
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 8, color: '#333', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 4 }}>
+            <div style={{ fontSize: 9, color: '#444', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 4 }}>
               CODEC
             </div>
             <div className="flex gap-1">
@@ -84,7 +87,7 @@ export function ExportPanel({
         )}
         {onPresetChange && (
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 8, color: '#333', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 4 }}>
+            <div style={{ fontSize: 9, color: '#444', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 4 }}>
               PRESET
             </div>
             <div className="flex gap-1">
@@ -112,7 +115,7 @@ export function ExportPanel({
       {/* Tune */}
       {onTuneChange && (
         <div>
-          <div style={{ fontSize: 8, color: '#333', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 4 }}>
+          <div style={{ fontSize: 9, color: '#444', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 4 }}>
             TUNE
           </div>
           <div className="flex gap-1">
@@ -141,13 +144,13 @@ export function ExportPanel({
         <div className="flex items-center justify-between">
           <span
             title="4 workers encode song song trên NVENC — nhanh hơn nhưng tốn GPU hơn"
-            style={{ fontSize: 8, color: '#333', fontWeight: 700, letterSpacing: '0.1em', cursor: 'help' }}>
+            style={{ fontSize: 9, color: '#444', fontWeight: 700, letterSpacing: '0.1em', cursor: 'help' }}>
             GPU MAX
           </span>
           <div className="flex items-center gap-2">
             <span
               title="4 workers encode song song trên NVENC"
-              style={{ fontSize: 8, color: enableChunked ? '#00FF88' : '#333', fontWeight: 700, cursor: 'help' }}>
+              style={{ fontSize: 9, color: enableChunked ? '#00FF88' : '#444', fontWeight: 700, cursor: 'help' }}>
               PARALLEL
             </span>
             <button
@@ -168,7 +171,7 @@ export function ExportPanel({
               }} />
             </button>
             {enableChunked && (
-              <span style={{ fontSize: 7, color: '#00FF88', fontFamily: 'monospace' }}>4x</span>
+              <span style={{ fontSize: 7, color: '#00FF88', fontFamily: 'monospace' }}>{maxChunkWorkers}x</span>
             )}
           </div>
         </div>
@@ -228,7 +231,7 @@ export function ExportPanel({
         </button>
       </div>
 
-      <div style={{ fontSize: 8, color: '#333', textAlign: 'center', letterSpacing: '0.05em' }}>
+      <div style={{ fontSize: 9, color: '#333', textAlign: 'center', letterSpacing: '0.05em' }}>
         NVENC · CUDA DECODE · GPU MAX
       </div>
 

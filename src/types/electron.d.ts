@@ -30,6 +30,9 @@ export interface ElectronAPI {
   getWorkspaces: () => Promise<unknown[]>
   updateWorkspace: (id: string, patch: object) => Promise<unknown>
   deleteWorkspace: (id: string) => Promise<unknown>
+  retryWorkspace: (id: string) => Promise<unknown>
+  getVideoFile: (workspaceId: string) => Promise<{ path: string; url: string } | null>
+  saveBlobToFile: (arrayBuffer: Uint8Array, filename: string) => Promise<{ diskPath: string } | null>
   startRender: (workspaceId: string, metadata: object) => Promise<unknown>
   startChunked: (workspaceId: string, metadata: object, config?: object) => Promise<ChunkedResult | null>
   cancelRender: (workspaceId: string) => Promise<unknown>
@@ -46,10 +49,27 @@ export interface ElectronAPI {
   onChannelSynced: (callback: () => void) => () => void
   getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string }>
   updateSettings: (patch: { videoStoragePath?: string; outputPath?: string }) => Promise<void>
-  getAuthStatus: () => Promise<{ isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean }>
+  getAuthStatus: () => Promise<{
+    isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean
+    cookieCritical?: boolean; cookieError?: string
+  }>
+  onCookieCritical: (callback: (errorMsg: string) => void) => () => void
   logout: () => Promise<{ success: boolean }>
+  startOAuthFlow: () => Promise<{ isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean }>
   setOAuthCredentials: (clientId: string, clientSecret: string) => Promise<{ success: boolean }>
   getOAuthCredentials: () => Promise<{ clientId: string; clientSecret: string }>
+  getKeys: () => Promise<unknown[]>
+  addKey: (key: string, projectId: string, name: string) => Promise<{ success: boolean; keys: unknown[] }>
+  removeKey: (key: string) => Promise<{ success: boolean; keys: unknown[] }>
+  resetKey: (key?: string) => Promise<{ success: boolean; keys: unknown[] }>
+  adminCheckPassword: (password: string) => Promise<{ ok: boolean }>
+  adminSetPassword: (password: string) => Promise<{ success: boolean }>
+  adminHasPassword: () => Promise<{ has: boolean }>
+  getPollerStatus: () => Promise<{
+    active: boolean; pollIntervalMs: number; lastPollAt: number | null
+    lastNewVideosAt: number | null; cookiesReady: boolean
+    videoCount: number; newVideoCount: number; lastError: string | null
+  } | null>
 }
 
 declare global {

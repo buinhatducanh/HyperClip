@@ -1,6 +1,7 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, protocol } from 'electron'
 import path from 'path'
 import os from 'os'
+import crypto from 'crypto'
 import { fileURLToPath } from 'url'
 import { spawn } from 'child_process'
 import http from 'http'
@@ -8,7 +9,7 @@ import fs from 'fs'
 import zlib from 'zlib'
 import { URL } from 'url'
 import { IPC_CHANNELS } from './ipc/channels.js'
-import { collectSystemStats, type SystemStats } from './services/system.js'
+import { collectSystemStats, getGPUCapabilities, type SystemStats } from './services/system.js'
 import {
   getWorkspaces, getWorkspace, addWorkspace, updateWorkspace, deleteWorkspace,
   getSubscription,
@@ -20,7 +21,10 @@ import { renderVideo, renderChunked, generateBlurBackground, cancelChunked, canc
 import { cancelFfmpeg, cancelAllFfmpeg, getPoolStatus } from './services/worker-pool.js'
 import { getVideoStoragePath, getOutputPath, generateWorkspacePaths, cleanupWorkspace, ensureStorageDirs, loadSettings, saveSettings } from './services/ramdisk.js'
 import { createYouTubePoller, stopYouTubePoller, getYouTubePoller } from './services/youtube_poller.js'
+import { refreshChannelCache } from './services/subscription_feed.js'
 import { initCookieManager, getCookieManager, authEvents, channelEvents } from './services/cookie_manager.js'
+import { getKeyManager } from './services/key_manager.js'
+import { getTokenManager } from './services/token_manager.js'
 
 // Fix UTF-8 console output on Windows — set code page to 65001 (UTF-8)
 if (process.platform === 'win32') {
@@ -118,7 +122,7 @@ export function startYouTubePoller(
 }
 
 // ─── Auto-download from new video detected by poller ────────────────────────────
-async function autoDownloadFromWebSub(videoId: string, channelId: string, title: string) {
+async function autoDownloadFromWebSub(videoId: string, channelId: string, channelName: string, title: string) {
   try {
     // Prevent duplicate workspaces: if workspace for this video already exists, skip
     const existingWorkspaces = getWorkspaces()
@@ -131,26 +135,26 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, title:
     // Mark as seen immediately to prevent retries on app restart if download fails
     markVideoSeen(channelId, videoId)
 
-    const channelName = getSubscription(channelId)?.channelName || 'Unknown Channel'
-    console.log(`[Poll] Auto-downloading: ${title} (${videoId}) from ${channelName}`)
+    const finalChannelName = channelName || getSubscription(channelId)?.channelName || 'Unknown Channel'
+    const detectedAt = new Date().toISOString()
+    console.log(`[Poll] Auto-downloading: ${title} (${videoId}) from ${finalChannelName}`)
 
     const storagePath = getVideoStoragePath()
     ensureStorageDirs()
 
     const workspace = addWorkspace({
       channelId,
-      channelName,
+      channelName: finalChannelName,
       channelColor: '#00B4FF',
       videoId,
       videoTitle: title,
       videoUrl: 'https://www.youtube.com/watch?v=' + videoId,
-      // maxresdefault 404 for short/no-HD videos; use hqdefault which always exists
-      thumbnail: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+      thumbnail: `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
       duration: 0,
       trimLimit: '10min',
       status: 'downloading',
       renderProgress: 0,
-      downloadedAt: '',
+      downloadedAt: detectedAt,
       downloadedPath: '',
       blurBackgroundPath: '',
       outputPath: '',
@@ -160,7 +164,7 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, title:
     })
 
     broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, workspace)
-    sendNotification('info', `Auto-downloading: ${title}`, workspace.id)
+    sendNotification('info', `Auto: ${finalChannelName} — ${title}`, workspace.id)
     console.log(`[Auto] Starting download: ${workspace.id} → ${'https://www.youtube.com/watch?v=' + videoId}`)
     const result = await downloadVideo({
       workspaceId: workspace.id,
@@ -183,7 +187,7 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, title:
 
       // Fetch real metadata from yt-dlp (thumbnail, real title)
       const videoInfo = await getVideoInfo('https://www.youtube.com/watch?v=' + videoId)
-      const realThumbnail = videoInfo?.thumbnail || `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
+      const realThumbnail = videoInfo?.thumbnail || `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`
       const realTitle = videoInfo?.title || title
       const realDuration = result.duration || videoInfo?.duration || 0
 
@@ -207,7 +211,8 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, title:
       })
       broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(workspace.id))
       sendNotification('success', `Auto-ready: ${realTitle}`, workspace.id)
-      broadcast(IPC_CHANNELS.AUTO_DOWNLOAD_EVENT, { videoId, title: realTitle, channelName })
+      broadcast(IPC_CHANNELS.AUTO_DOWNLOAD_EVENT, { videoId, title: realTitle, channelName: finalChannelName, detectedAt })
+      showWindowsToast('✅ Download xong!', `${realTitle}`)
     } else {
       // Permanent failure: "not available" means video is gone — don't retry
       const errorMsg = result.error || ''
@@ -271,24 +276,74 @@ function scanExistingDownloadedFiles(): void {
 }
 
 // ─── Channel ID Resolution ─────────────────────────────────────────────────────────
-// Resolves YouTube handle (@channel) to channelId (UC...) for WebSub subscription.
-// Called once at startup for demo channels that only have handles.
+// Resolves YouTube handle (@channel) to channelId (UC...) for subscription feed fallback.
+// Called at startup for ALL channels — even those with existing channelIds.
+// ChannelIds can be corrupted (malformed UC IDs) so we always re-validate.
 async function resolveChannelIdsForPoll(): Promise<void> {
   const channels = getChannels()
+  let resolved = 0
+  let skipped = 0
+
   for (const ch of channels) {
-    // If it's a real UC ID (24 chars), skip. If it's a handle or a fake UC ID (<20 chars), resolve it.
-    if (ch.channelId && ch.channelId.startsWith('UC') && ch.channelId.length >= 24) continue
-    
-    const url = ch.handle || 'https://www.youtube.com/channel/' + ch.id
-    try {
-      const resolved = await getChannelId(url)
-      if (resolved && resolved.startsWith('UC')) {
-        console.log('[Channel] Resolved', ch.name, '->', resolved)
-        updateChannel(ch.id, { channelId: resolved })
+    // Build a reliable channel URL to resolve
+    let resolveUrl = ''
+    let strategy = ''
+
+    // Determine the best URL for this channel
+    if (ch.handle && ch.handle.startsWith('@')) {
+      // If the handle looks like a raw channelId (@UC...), use /channel/ URL instead
+      const handlePart = ch.handle.slice(1) // strip leading '@'
+      if (/^UC[a-zA-Z0-9_-]{22}$/.test(handlePart)) {
+        // Corrupted handle: @UCxxx is actually a channelId
+        resolveUrl = `https://www.youtube.com/channel/${handlePart}`
+        strategy = 'handle→channelId'
+      } else {
+        // Real handle like @MrBeast
+        resolveUrl = `https://www.youtube.com${ch.handle}`
+        strategy = 'handle'
       }
-    } catch {}
+    } else if (ch.channelId && isValidChannelId(ch.channelId)) {
+      // Use the existing channelId if it looks valid
+      resolveUrl = `https://www.youtube.com/channel/${ch.channelId}`
+      strategy = 'channelId'
+    }
+
+    if (!resolveUrl) {
+      console.warn(`[Channel] "${ch.name}": no resolvable URL (handle=${ch.handle || 'none'}, channelId=${ch.channelId || 'none'}, id=${ch.id})`)
+      skipped++
+      continue
+    }
+
+    try {
+      const info = await getChannelInfo(resolveUrl)
+      if (info && info.channelId && info.channelId.startsWith('UC') && info.channelId.length >= 24) {
+        const needsUpdate = !ch.channelId || ch.channelId !== info.channelId || !isValidChannelId(ch.channelId)
+        if (needsUpdate) {
+          console.log(`[Channel] Re-resolved "${ch.name}" [${strategy}]: ${ch.channelId || '(none)'} → ${info.channelId}`)
+          updateChannel(ch.id, { channelId: info.channelId, name: info.channelName || ch.name })
+          resolved++
+        } else {
+          console.log(`[Channel] Verified "${ch.name}": ${info.channelId} [${strategy}]`)
+        }
+      } else if (info && !info.channelId) {
+        console.warn(`[Channel] Could not resolve "${ch.name}" via ${strategy} — no channelId from ${resolveUrl}`)
+      } else if (!info) {
+        console.warn(`[Channel] Failed to fetch "${ch.name}" via ${strategy}: ${resolveUrl}`)
+      }
+    } catch (e) {
+      console.warn(`[Channel] Resolution error for "${ch.name}":`, e)
+    }
   }
+
+  console.log(`[Channel] Resolution: ${resolved} updated, ${skipped} skipped, ${channels.length - resolved - skipped} verified`)
+  refreshChannelCache()
 }
+
+function isValidChannelId(id: string): boolean {
+  // Real YouTube channel IDs: UC prefix + 22 base64 chars = 24 chars total
+  return /^(UC[a-zA-Z0-9_-]{22})$/.test(id)
+}
+
 // ─── Port checker ───────────────────────────────────────────────────────────────
 function isPortOpen(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -509,6 +564,28 @@ function playSuccessBeep() {
   }
 }
 
+// ─── Windows Toast Notification ──────────────────────────────────────────────────
+// Shows a native Windows 10/11 Action Center notification.
+// Works even when app is in background/tray — independent of renderer window.
+function showWindowsToast(title: string, body: string) {
+  if (process.platform !== 'win32') return
+  import('child_process').then(({ spawn }) => {
+    const escapedTitle = title.replace(/"/g, '`"')
+    const escapedBody = body.replace(/`/g, '``').replace(/"/g, '`"')
+    const script = [
+      `try {`,
+      `  [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null`,
+      `  [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null`,
+      `  $xml = [Windows.Data.Xml.Dom.XmlDocument]::new()`,
+      `  $xml.LoadXml('<toast launch="hyperclip"><visual><binding template="ToastGeneric"><text>${escapedTitle}</text><text>${escapedBody}</text></binding></visual></toast>')`,
+      `  $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)`,
+      `  [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("HyperClip").Show($toast)`,
+      `} catch { }`,
+    ].join('; ')
+    spawn('powershell', ['-c', script], { stdio: 'ignore' })
+  }).catch(() => {})
+}
+
 function sendNotification(type: 'success' | 'error' | 'warning' | 'info', message: string, workspaceId?: string) {
   broadcast(IPC_CHANNELS.NOTIFICATION_EVENT, {
     id: `notif-${Date.now()}`,
@@ -549,6 +626,67 @@ async function registerIPCHandlers() {
     cleanupWorkspace(id)
     deleteWorkspace(id)
     return { success: true }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.WORKSPACE_RETRY, async (_, id: string) => {
+    const ws = getWorkspace(id)
+    if (!ws) return { success: false, error: 'Workspace not found' }
+    if (!['waiting', 'error'].includes(ws.status)) {
+      return { success: false, error: `Cannot retry status: ${ws.status}` }
+    }
+
+    const videoUrl = ws.videoUrl || (ws.videoId ? `https://www.youtube.com/watch?v=${ws.videoId}` : null)
+    if (!videoUrl) return { success: false, error: 'No video URL stored' }
+
+    updateWorkspace(id, { status: 'downloading', downloadProgress: 0 })
+    broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id))
+
+    const storagePath = getVideoStoragePath()
+    ensureStorageDirs()
+
+    try {
+      const result = await downloadVideo({
+        workspaceId: id,
+        videoUrl,
+        outputDir: storagePath,
+        trimLimit: ws.trimLimit || '10min',
+        onProgress: (progress) => {
+          broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
+            workspaceId: id,
+            percent: progress.percent,
+            speed: progress.speed,
+            eta: progress.eta,
+          })
+        },
+      })
+
+      if (result.success && result.filePath) {
+        const videoInfo = await getVideoInfo(videoUrl)
+        updateWorkspace(id, {
+          status: 'ready',
+          downloadedAt: new Date().toISOString(),
+          downloadedPath: result.filePath,
+          fileSize: result.fileSize || 0,
+          thumbnail: videoInfo?.thumbnail || ws.thumbnail || '',
+          videoTitle: videoInfo?.title || ws.videoTitle || '',
+          duration: result.duration || videoInfo?.duration || 0,
+        })
+        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id))
+        return { success: true }
+      } else {
+        const errorMsg = result.error || ''
+        const isNotAvailable = errorMsg.includes('not available') || errorMsg.includes('Video unavailable')
+        updateWorkspace(id, {
+          status: isNotAvailable ? 'error' : 'waiting',
+        })
+        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id))
+        return { success: false, error: result.error }
+      }
+    } catch (err) {
+      updateWorkspace(id, { status: 'waiting' })
+      broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id))
+      return { success: false, error: (err as Error).message }
+    }
   })
 
   ipcMain.handle(IPC_CHANNELS.TRACKER_ADD, async (_, url: string, trimLimit: '5min' | '10min' | 'full'): Promise<WorkspaceData | null> => {
@@ -702,6 +840,8 @@ async function registerIPCHandlers() {
         createdAt: new Date().toISOString(),
       }
       const saved = addChannel(newCh)
+      // Keep poller's channel cache in sync
+      refreshChannelCache()
       return saved
     } catch (e) {
       console.error('[CHANNEL_ADD] failed:', e)
@@ -715,6 +855,34 @@ async function registerIPCHandlers() {
 
   ipcMain.handle(IPC_CHANNELS.CHANNEL_REMOVE, async (_, id: string): Promise<boolean> => {
     return removeChannel(id)
+  })
+
+  // Serve video file path for HTML5 preview player
+  ipcMain.handle(IPC_CHANNELS.VIDEO_FILE, async (_, workspaceId: string): Promise<{ path: string; url: string } | null> => {
+    const ws = getWorkspace(workspaceId)
+    if (!ws || !ws.downloadedPath) return null
+    if (!fs.existsSync(ws.downloadedPath)) {
+      console.warn(`[VIDEO_FILE] file not found: ${ws.downloadedPath}`)
+      return null
+    }
+    // Electron renderer supports file:// URLs directly — no custom protocol needed.
+    const videoUrl = 'file:///' + ws.downloadedPath.replace(/\\/g, '/')
+    return { path: ws.downloadedPath, url: videoUrl }
+  })
+
+  // Save binary data from renderer to disk. Renderer sends Uint8Array (converted from File.arrayBuffer()).
+  // This avoids the old approach of passing blob:// URLs which fail in main process context.
+  ipcMain.handle(IPC_CHANNELS.BLOB_SAVE, async (_, arrayBuffer: Uint8Array, filename: string): Promise<{ diskPath: string } | null> => {
+    try {
+      const dir = path.join(app.getPath('userData'), 'temp_assets')
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+      const filePath = path.join(dir, filename)
+      fs.writeFileSync(filePath, Buffer.from(arrayBuffer))
+      return { diskPath: filePath }
+    } catch (err) {
+      console.error('[blob:save] failed:', err)
+      return null
+    }
   })
 
   ipcMain.handle(IPC_CHANNELS.TRACKER_REMOVE, async (_, channelId: string) => {
@@ -758,8 +926,16 @@ async function registerIPCHandlers() {
     if (!workspace) return { success: false, workspaceId, error: 'Workspace not found' }
     if (!workspace.downloadedPath) return { success: false, workspaceId, error: 'Video not downloaded' }
 
+    // GPU-aware config injection — RTX 5080 tier gets 8 workers / 120s chunks
+    const gpuCaps = getGPUCapabilities()
+    const effectiveConfig: ChunkConfig = {
+      workers: config?.workers ?? gpuCaps.maxChunkWorkers,
+      chunkDuration: config?.chunkDuration ?? (gpuCaps.tier === 'high' ? 120 : 30),
+      minChunkDuration: config?.minChunkDuration ?? (gpuCaps.tier === 'high' ? 10 : 5),
+    }
+
     updateWorkspace(workspaceId, { status: 'rendering', renderProgress: 0 })
-    sendNotification('info', `Chunked render: ${workspace.videoTitle}`, workspaceId)
+    sendNotification('info', `GPU MAX (${effectiveConfig.workers}x): ${workspace.videoTitle}`, workspaceId)
 
     const outputDir = getOutputPath()
     ensureStorageDirs()
@@ -767,7 +943,7 @@ async function registerIPCHandlers() {
     const result = await renderChunked(
       metadata,
       outputDir,
-      config,
+      effectiveConfig,
       (progress) => {
         updateWorkspace(workspaceId, { renderProgress: Math.round(progress.percent) })
         broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, progress)
@@ -786,16 +962,38 @@ async function registerIPCHandlers() {
     return result
   })
 
-  // Settings
-  ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, async (): Promise<{ videoStoragePath?: string; outputPath?: string }> => {
+  // ─── Admin Password ────────────────────────────────────────────────────────────
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, async (): Promise<{ videoStoragePath?: string; outputPath?: string; adminPasswordHash?: string }> => {
     return loadSettings()
   })
 
-  ipcMain.handle(IPC_CHANNELS.SETTINGS_UPDATE, async (_, patch: { videoStoragePath?: string; outputPath?: string }): Promise<void> => {
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_UPDATE, async (_, patch: { videoStoragePath?: string; outputPath?: string; adminPasswordHash?: string }): Promise<void> => {
     const settings = loadSettings()
     if (patch.videoStoragePath !== undefined) settings.videoStoragePath = patch.videoStoragePath
     if (patch.outputPath !== undefined) settings.outputPath = patch.outputPath
+    if (patch.adminPasswordHash !== undefined) settings.adminPasswordHash = patch.adminPasswordHash
     saveSettings(settings)
+  })
+
+  // Hash password with SHA-256
+  ipcMain.handle(IPC_CHANNELS.ADMIN_CHECK_PASSWORD, async (_, password: string): Promise<{ ok: boolean }> => {
+    const settings = loadSettings()
+    if (!settings.adminPasswordHash) return { ok: false }
+    const hash = crypto.createHash('sha256').update(password).digest('hex')
+    return { ok: hash === settings.adminPasswordHash }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.ADMIN_SET_PASSWORD, async (_, password: string): Promise<{ success: boolean }> => {
+    const hash = crypto.createHash('sha256').update(password).digest('hex')
+    const settings = loadSettings()
+    settings.adminPasswordHash = hash
+    saveSettings(settings)
+    return { success: true }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.ADMIN_HAS_PASSWORD, async (): Promise<{ has: boolean }> => {
+    const settings = loadSettings()
+    return { has: !!settings.adminPasswordHash }
   })
 
   // Poller status: return current YouTubePoller state
@@ -819,18 +1017,51 @@ async function registerIPCHandlers() {
     return { success: true }
   })
 
+  // Triggers OAuth flow from LoginScreen (manual re-login when tokens expired)
+  ipcMain.handle(IPC_CHANNELS.AUTH_OAUTH_START, async () => {
+    const cm = getCookieManager()
+    await cm.startOAuthFlow()
+    // Reload TokenManager so it picks up the newly saved token (saved by youtube_auth.saveTokens)
+    getTokenManager().reload()
+    return cm.getAuthStatus()
+  })
+
   ipcMain.handle(IPC_CHANNELS.AUTH_OAUTH_SET_CREDS, async (_, clientId: string, clientSecret: string) => {
-    // Save OAuth credentials to config file
-    const { getOAuthClientId: authGetId } = await import('./services/youtube_auth.js')
     const fs2 = await import('fs')
     const path2 = await import('path')
     const os2 = await import('os')
     const configFile = path2.join(os2.tmpdir(), 'hyperclip-cookies', 'oauth_config.json')
     const dir = path2.dirname(configFile)
     if (!fs2.existsSync(dir)) fs2.mkdirSync(dir, { recursive: true })
-    const config = { client_id: clientId, client_secret: clientSecret }
+    // Preserve existing per-project credentials, add/update legacy single-project fields
+    let config: Record<string, any> = {}
+    try {
+      if (fs2.existsSync(configFile)) {
+        config = JSON.parse(fs2.readFileSync(configFile, 'utf-8'))
+        // If old format (array or single-project object), migrate to per-project
+        if (!config['proj-01']) {
+          // Keep existing non-project entries (like proj-01, proj-02, etc.)
+          // Old format was { client_id, client_secret } — don't destroy per-project data
+        }
+      }
+    } catch {}
+    // Save as per-project format
+    const projectIds = ['proj-01', 'proj-02', 'proj-03', 'proj-04']
+    for (const pid of projectIds) {
+      if (!config[pid]) config[pid] = {}
+      if (!config[pid].clientId) {
+        // If this project has no clientId yet, use the provided one (for single-project migration)
+        if (!config[pid].clientId) {
+          config[pid] = { clientId, clientSecret }
+          break // only apply to first project without credentials
+        }
+      }
+    }
+    // Also save legacy fields for backward compat
+    config['client_id'] = clientId
+    config['client_secret'] = clientSecret
     fs2.writeFileSync(configFile, JSON.stringify(config, null, 2), 'utf-8')
-    console.log('[OAuth] Credentials saved to', configFile)
+    console.log('[OAuth] Credentials saved (per-project format)')
     return { success: true }
   })
 
@@ -838,12 +1069,84 @@ async function registerIPCHandlers() {
     const { getOAuthClientId, getOAuthClientSecret } = await import('./services/youtube_auth.js')
     return { clientId: getOAuthClientId(), clientSecret: getOAuthClientSecret() }
   })
+
+  // ─── Per-project OAuth (multi-token) ─────────────────────────────────────────
+  ipcMain.handle(IPC_CHANNELS.AUTH_OAUTH_START_PER_PROJECT, async (_, clientId: string, clientSecret: string, projectId: string) => {
+    const { startOAuthFlow } = await import('./services/youtube_auth.js')
+    const result = await startOAuthFlow(clientId, clientSecret, projectId)
+    if (result.success && result.tokens && result.projectId) {
+      getTokenManager().addToken(result.projectId, clientId, clientSecret, result.tokens)
+      console.log(`[OAuth] Token stored in TokenManager for ${result.projectId} — ${result.tokens.access_token.slice(0, 10)}... expires ${new Date(result.tokens.expires_at).toLocaleString()}`)
+    }
+    return result
+  })
+
+  ipcMain.handle(IPC_CHANNELS.TOKEN_STATUS_LIST, () => {
+    return getTokenManager().getAllStatuses()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.TOKEN_REMOVE, (_, projectId: string) => {
+    getTokenManager().removeToken(projectId)
+    return { success: true }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.TOKEN_GET_DEFAULT_CREDS, async () => {
+    // Return per-project credentials from oauth_config.json
+    const fs = await import('fs')
+    const path = await import('path')
+    const os = await import('os')
+    const configFile = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json')
+    try {
+      if (fs.existsSync(configFile)) {
+        const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
+        // Support new per-project format: { proj-01: { clientId, clientSecret }, ... }
+        if (typeof config === 'object' && !config.client_id) {
+          return config
+        }
+      }
+    } catch {}
+    return {}
+  })
+
+  // ─── Key Management ──────────────────────────────────────────────────────────
+  ipcMain.handle(IPC_CHANNELS.KEY_LIST, () => {
+    return getKeyManager().getAllKeys()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.KEY_ADD, (_, key: string, projectId: string, name: string) => {
+    getKeyManager().addKey(key, projectId, name)
+    return { success: true, keys: getKeyManager().getAllKeys() }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.KEY_REMOVE, (_, key: string) => {
+    getKeyManager().removeKey(key)
+    return { success: true, keys: getKeyManager().getAllKeys() }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.KEY_RESET, (_, key?: string) => {
+    if (key) {
+      getKeyManager().resetKey(key)
+    } else {
+      getKeyManager().resetAll()
+    }
+    return { success: true, keys: getKeyManager().getAllKeys() }
+  })
 }
 
 // Relay auth status changes to renderer (registered at module load — catches early OAuth events)
 authEvents.on('authUpdated', (status) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(IPC_CHANNELS.AUTH_UPDATE_EVENT, status)
+  }
+})
+
+// Cookie critical failure → redirect renderer to login screen
+authEvents.on('cookieCritical', (errorMsg) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    console.log(`[HyperClip] Cookie critical failure: ${errorMsg} — redirecting to login`)
+    mainWindow.webContents.send(IPC_CHANNELS.AUTH_COOKIE_CRITICAL, errorMsg)
+    // Navigate to settings/login page
+    mainWindow.webContents.send('navigate', '/settings')
   }
 })
 
@@ -856,16 +1159,18 @@ channelEvents.on('channelsSynced', () => {
 
 // ─── System monitor ────────────────────────────────────────────────────────────
 function startSystemMonitor() {
+  // 5s interval: GPU/RAM stats don't need sub-second resolution.
+  // 24/7 app: this saves ~30k calls/day vs 2s interval.
   setInterval(() => {
     if (!mainWindow || mainWindow.isDestroyed()) return
     const stats = collectSystemStats()
     mainWindow.webContents.send(IPC_CHANNELS.SYSTEM_STATS_EVENT, stats)
-  }, 2000)
+  }, 5000)
 }
 
 // ─── Shutdown ─────────────────────────────────────────────────────────────────
-function quitAll() {
-  stopYouTubePoller()
+async function quitAll() {
+  await stopYouTubePoller()
   cancelAllFfmpeg()
   cancelAllChunked()
   renderQueue.forEach(job => job.resolve({ success: false, error: 'App shutting down' }))
@@ -889,6 +1194,13 @@ app.whenReady().then(async () => {
     await startNextServer()
   }
 
+  // Register local-video:// protocol to serve downloaded video files to renderer.
+  // Chromium blocks file:// URLs in <video src> — this bypasses that restriction.
+  protocol.registerFileProtocol('local-video', (request, callback) => {
+    const filePath = request.url.replace(/^local-video:\/\//, '')
+    callback({ path: decodeURIComponent(filePath) })
+  })
+
   createWindow()
   createTray()
   await registerIPCHandlers()
@@ -900,7 +1212,7 @@ app.whenReady().then(async () => {
   // so poll won't re-download files already on disk
   scanExistingDownloadedFiles()
 
-  // Init cookie manager (auto-refresh every 15m) then start polling
+  // Init cookie manager (auto-refresh every 15m + sub sync every 2m) then start polling
   const cookieResult = await initCookieManager()
   if (cookieResult.success) {
     console.log(`[HyperClip] Cookies ready (${cookieResult.browser}, ${cookieResult.cookies.length} cookies)`)
@@ -908,12 +1220,18 @@ app.whenReady().then(async () => {
     console.warn(`[HyperClip] Cookie init failed: ${cookieResult.error} — polling will retry`)
   }
 
-  startYouTubePoller(3000, (videos) => {
+  // Start auto-refresh timer (cookies + subscription sync)
+  getCookieManager().startAutoRefresh()
+
+  // Poll every 4s — activities?home=true (1 unit) + batched playlistItems (8 channels/poll)
+  // All 46 channels covered in ~23 seconds: 6 polls × 8 channels = 48
+  startYouTubePoller(4000, (videos) => {
     for (const v of videos) {
-      autoDownloadFromWebSub(v.videoId, v.channelId, v.title)
+      showWindowsToast('📥 Video mới!', `${v.channelName}: ${v.title}`)
+      autoDownloadFromWebSub(v.videoId, v.channelId, v.channelName, v.title)
     }
   })
-  console.log('[HyperClip] Auto-ingestion active (cookie polling — 3s interval, 100 channels)')
+  console.log('[HyperClip] Auto-ingestion active (YouTube API — 4s interval, batched channels)')
 
   console.log(`[HyperClip] Ready → http://localhost:${NEXT_PORT}`)
 })

@@ -2,7 +2,7 @@ import { spawn, execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import https from 'https'
-import { getFfmpegPath } from './ffmpeg-paths.js'
+import { getFfmpegPath, getFfprobePath } from './ffmpeg-paths.js'
 
 // ─── HTTP helpers ───────────────────────────────────────────────────────────────
 function httpGet(url: string, timeout = 10000): Promise<string> {
@@ -62,18 +62,23 @@ export async function getLatestVideosFromRss(channelId: string, limit = 3): Prom
 }
 
 export async function getChannelMetadataFromHttp(url: string): Promise<YtdlpChannelInfo | null> {
-  // Extract channel ID from URL: /channel/UCxxx or /@handle
+  // Extract channel ID from URL: /channel/UCxxx or /@handle or raw corrupted UC ID
   let channelId = ''
   let channelUrl = url
-  
+
   const channelMatch = url.match(/\/channel\/(UC[^/?]+)/)
   if (channelMatch) {
     channelId = channelMatch[1]
+    channelUrl = `https://www.youtube.com/channel/${channelId}`
   } else {
     const handleMatch = url.match(/\/@([^/?]+)/)
     if (handleMatch) {
       channelId = handleMatch[1]
       channelUrl = `https://www.youtube.com/@${channelId}`
+    } else if (url.startsWith('UC') && url.length > 20) {
+      // Raw UC ID passed as URL — build proper channel URL
+      channelId = url
+      channelUrl = `https://www.youtube.com/channel/${channelId}`
     }
   }
 
@@ -83,28 +88,24 @@ export async function getChannelMetadataFromHttp(url: string): Promise<YtdlpChan
   let channelName = 'Unknown'
   let avatarUrl = ''
 
-  // 1. Resolve handle to UC... ID if necessary
-  // Check if it's a handle or a fake UC ID (bug from previous version)
-  const isRealId = resolvedId.startsWith('UC') && resolvedId.length >= 24
-  const isLikelyFakeId = resolvedId.startsWith('UC') && resolvedId.length < 20 // UC + short handle
-  
-  if (!isRealId || isLikelyFakeId) {
+  // Check if the channelId looks like a real UC ID (exactly 24 chars: UC + 22 base64 chars)
+  const isRealId = /^(UC[a-zA-Z0-9_-]{22})$/.test(resolvedId)
+
+  if (!isRealId) {
     try {
       const body = await httpGet(channelUrl)
       // Search for channelId in the page source
-      const idMatch = body.match(/"channelId":"(UC[a-zA-Z0-9_-]{22})"/) || 
+      const idMatch = body.match(/"channelId":"(UC[a-zA-Z0-9_-]{22})"/) ||
                       body.match(/"browseId":"(UC[a-zA-Z0-9_-]{22})"/) ||
                       body.match(/channel_id=(UC[a-zA-Z0-9_-]{22})/)
-      
+
       if (idMatch) {
         resolvedId = idMatch[1]
       } else {
         // If we can't find the ID, return early to trigger yt-dlp fallback
-        console.warn(`[getChannelMetadataFromHttp] Could not find UC ID in page for ${channelUrl}`)
         return { channelName: 'Unknown', channelId: '', avatarUrl: '', handle: url }
       }
     } catch (e: any) {
-      console.warn('[getChannelMetadataFromHttp] Handle resolution failed:', e.message)
       return { channelName: 'Unknown', channelId: '', avatarUrl: '', handle: url }
     }
   }
@@ -421,7 +422,7 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
     // Get duration
     let duration = 0
     try {
-      const ffprobePath = getFfmpegPath()
+      const ffprobePath = getFfprobePath()
       const out = execSync(`"${ffprobePath}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${existingFile}"`, { encoding: 'utf-8', timeout: 10000 })
       duration = Math.floor(parseFloat(out.trim()))
     } catch {}
@@ -585,8 +586,9 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
       // Get duration using ffprobe
       let duration = 0
       try {
+        const ffprobePath = getFfprobePath()
         const out = execSync(
-          `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${downloadedFile}"`,
+          `"${ffprobePath}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${downloadedFile}"`,
           { encoding: 'utf-8', timeout: 10000 }
         )
         duration = Math.floor(parseFloat(out.trim()))

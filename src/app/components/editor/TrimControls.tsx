@@ -88,11 +88,11 @@ export function TrimControls({ start, end, duration, onChange }: Props) {
 
       {/* Timestamps */}
       <div className="flex justify-between" style={{ opacity: 0.5 }}>
-        <span style={{ fontSize: 8, fontFamily: 'monospace' }}>{fmtTime(startSec)}</span>
-        <span style={{ fontSize: 8, color: '#00B4FF', fontFamily: 'monospace' }}>
+        <span style={{ fontSize: 9, fontFamily: 'monospace' }}>{fmtTime(startSec)}</span>
+        <span style={{ fontSize: 9, color: '#00B4FF', fontFamily: 'monospace' }}>
           {fmtTime(selectedDuration)} selected
         </span>
-        <span style={{ fontSize: 8, fontFamily: 'monospace' }}>{fmtTime(endSec)}</span>
+        <span style={{ fontSize: 9, fontFamily: 'monospace' }}>{fmtTime(endSec)}</span>
       </div>
     </div>
   )

@@ -2,7 +2,12 @@
   "permissions": {
     "allow": [
       "Bash(npx:*)",
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "WebSearch",
+      "WebFetch(domain:developers.google.com)",
+      "WebFetch(domain:support.google.com)",
+      "WebFetch(domain:www.youtube.com)",
+      "WebFetch(domain:web.archive.org)"
     ]
   },
   "enabledMcpjsonServers": [

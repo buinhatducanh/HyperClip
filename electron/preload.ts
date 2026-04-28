@@ -2,6 +2,11 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 // IPC channels from main process
 const IPC = {
+  // Video file serving
+  VIDEO_FILE: 'video:file',
+  // Blob URL → disk path (for FFmpeg to read images)
+  BLOB_SAVE: 'blob:save',
+
   // Tracker
   TRACKER_ADD: 'tracker:add',
   TRACKER_REMOVE: 'tracker:remove',
@@ -11,7 +16,9 @@ const IPC = {
   WORKSPACE_LIST: 'workspace:list',
   WORKSPACE_UPDATE: 'workspace:update',
   WORKSPACE_DELETE: 'workspace:delete',
+  WORKSPACE_ADD: 'workspace:add',
   WORKSPACE_UPDATE_EVENT: 'workspace:update-event',
+  WORKSPACE_RETRY: 'workspace:retry',
 
   // Render
   RENDER_START: 'render:start',
@@ -45,16 +52,35 @@ const IPC = {
   // WebSub
   WEBSUB_TEST: 'websub:test',
 
+  // Keys
+  KEY_LIST: 'key:list',
+  KEY_ADD: 'key:add',
+  KEY_REMOVE: 'key:remove',
+  KEY_RESET: 'key:reset',
+
+  // Admin password
+  ADMIN_CHECK_PASSWORD: 'admin:check-password',
+  ADMIN_SET_PASSWORD: 'admin:set-password',
+  ADMIN_HAS_PASSWORD: 'admin:has-password',
+
   // Poller
   POLLER_STATUS: 'poller:status',
 
   // Auth
   AUTH_STATUS: 'auth:status',
   AUTH_LOGOUT: 'auth:logout',
+  AUTH_OAUTH_START: 'auth:oauth-start',
   AUTH_OAUTH_SET_CREDS: 'auth:oauth-set-creds',
   AUTH_OAUTH_GET_CREDS: 'auth:oauth-get-creds',
   AUTH_UPDATE_EVENT: 'auth:update-event',
+  AUTH_COOKIE_CRITICAL: 'auth:cookie-critical',
   CHANNEL_SYNCED_EVENT: 'channel:synced-event',
+
+  // Per-project OAuth
+  AUTH_OAUTH_START_PER_PROJECT: 'auth:oauth-start-per-project',
+    TOKEN_STATUS_LIST: 'token:status-list',
+  TOKEN_REMOVE: 'token:remove',
+  TOKEN_GET_DEFAULT_CREDS: 'token:get-default-creds',
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -74,10 +100,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Workspaces
   getWorkspaces: () => ipcRenderer.invoke(IPC.WORKSPACE_LIST),
+  getVideoFile: (workspaceId: string) =>
+    ipcRenderer.invoke(IPC.VIDEO_FILE, workspaceId) as Promise<{ path: string; url: string } | null>,
+  saveBlobToFile: (arrayBuffer: Uint8Array, filename: string) =>
+    ipcRenderer.invoke(IPC.BLOB_SAVE, arrayBuffer, filename) as Promise<{ diskPath: string } | null>,
   updateWorkspace: (id: string, patch: Record<string, unknown>) =>
     ipcRenderer.invoke(IPC.WORKSPACE_UPDATE, id, patch),
   deleteWorkspace: (id: string) =>
     ipcRenderer.invoke(IPC.WORKSPACE_DELETE, id),
+  retryWorkspace: (id: string) =>
+    ipcRenderer.invoke(IPC.WORKSPACE_RETRY, id),
 
   // Rendering
   startRender: (workspaceId: string, metadata: Record<string, unknown>) =>
@@ -158,9 +190,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
     oauthReady: boolean
   }>,
   logout: () => ipcRenderer.invoke(IPC.AUTH_LOGOUT) as Promise<{ success: boolean }>,
+  startOAuthFlow: () => ipcRenderer.invoke(IPC.AUTH_OAUTH_START) as Promise<{
+    isReady: boolean
+    cookieCount: number
+    loggedOut: boolean
+    accountName: string
+    oauthReady: boolean
+  }>,
   setOAuthCredentials: (clientId: string, clientSecret: string) =>
     ipcRenderer.invoke(IPC.AUTH_OAUTH_SET_CREDS, clientId, clientSecret) as Promise<{ success: boolean }>,
   getOAuthCredentials: () => ipcRenderer.invoke(IPC.AUTH_OAUTH_GET_CREDS) as Promise<{ clientId: string; clientSecret: string }>,
+
+  // Per-project OAuth tokens
+  startOAuthFlowPerProject: (clientId: string, clientSecret: string, projectId: string) =>
+    ipcRenderer.invoke(IPC.AUTH_OAUTH_START_PER_PROJECT, clientId, clientSecret, projectId) as Promise<{ success: boolean; error?: string }>,
+  getTokenStatuses: () => ipcRenderer.invoke(IPC.TOKEN_STATUS_LIST) as Promise<unknown[]>,
+  removeToken: (projectId: string) =>
+    ipcRenderer.invoke(IPC.TOKEN_REMOVE, projectId) as Promise<{ success: boolean }>,
+  getDefaultOAuthCredentials: () =>
+    ipcRenderer.invoke(IPC.TOKEN_GET_DEFAULT_CREDS) as Promise<Record<string, { clientId: string; clientSecret: string }>>,
 
   // Auth events
   onAuthUpdate: (callback: (status: unknown) => void) => {
@@ -168,9 +216,31 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on(IPC.AUTH_UPDATE_EVENT, handler)
     return () => ipcRenderer.removeListener(IPC.AUTH_UPDATE_EVENT, handler)
   },
+  onCookieCritical: (callback: (errorMsg: string) => void) => {
+    const handler = (_: unknown, msg: string) => callback(msg)
+    ipcRenderer.on(IPC.AUTH_COOKIE_CRITICAL, handler)
+    return () => ipcRenderer.removeListener(IPC.AUTH_COOKIE_CRITICAL, handler)
+  },
   onChannelSynced: (callback: () => void) => {
     const handler = () => callback()
     ipcRenderer.on(IPC.CHANNEL_SYNCED_EVENT, handler)
     return () => ipcRenderer.removeListener(IPC.CHANNEL_SYNCED_EVENT, handler)
   },
+
+  // Keys
+  getKeys: () => ipcRenderer.invoke(IPC.KEY_LIST),
+  addKey: (key: string, projectId: string, name: string) =>
+    ipcRenderer.invoke(IPC.KEY_ADD, key, projectId, name) as Promise<{ success: boolean; keys: unknown[] }>,
+  removeKey: (key: string) =>
+    ipcRenderer.invoke(IPC.KEY_REMOVE, key) as Promise<{ success: boolean; keys: unknown[] }>,
+  resetKey: (key?: string) =>
+    ipcRenderer.invoke(IPC.KEY_RESET, key) as Promise<{ success: boolean; keys: unknown[] }>,
+
+  // Admin password
+  adminCheckPassword: (password: string) =>
+    ipcRenderer.invoke(IPC.ADMIN_CHECK_PASSWORD, password) as Promise<{ ok: boolean }>,
+  adminSetPassword: (password: string) =>
+    ipcRenderer.invoke(IPC.ADMIN_SET_PASSWORD, password) as Promise<{ success: boolean }>,
+  adminHasPassword: () =>
+    ipcRenderer.invoke(IPC.ADMIN_HAS_PASSWORD) as Promise<{ has: boolean }>,
 })

@@ -11,7 +11,9 @@ interface Props {
   onSelect: (id: string) => void
   onQuickAction?: (action: 'open' | 'delete', id: string) => void
   onAddTracker: (url: string, trimLimit: '5min' | '10min' | 'full') => void
+  onAddChannel: (url: string) => void
   defaultTrimLimit: '5min' | '10min' | 'full'
+  onRetry?: (id: string) => void
 }
 
 type GroupStatus = 'ready' | 'rendering' | 'downloading' | 'waiting' | 'editing' | 'done'
@@ -41,7 +43,7 @@ function groupByStatus(workspaces: Workspace[]): Map<GroupStatus, Workspace[]> {
   return groups
 }
 
-export function WorkspaceQueue({ workspaces, selectedId, onSelect, onQuickAction, onAddTracker, defaultTrimLimit }: Props) {
+export function WorkspaceQueue({ workspaces, selectedId, onSelect, onQuickAction, onAddTracker, onAddChannel, defaultTrimLimit, onRetry }: Props) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<GroupStatus>>(new Set(['done']))
   const groups = groupByStatus(workspaces)
 
@@ -63,7 +65,7 @@ export function WorkspaceQueue({ workspaces, selectedId, onSelect, onQuickAction
   return (
     <div className="flex flex-col h-full" style={{ background: '#121212' }}>
       {/* Top Input Bar */}
-      <InputBar defaultTrimLimit={defaultTrimLimit} onAddTracker={onAddTracker} />
+      <InputBar defaultTrimLimit={defaultTrimLimit} onAddTracker={onAddTracker} onAddChannel={onAddChannel} />
 
       {/* Queue header */}
       <div
@@ -132,7 +134,7 @@ export function WorkspaceQueue({ workspaces, selectedId, onSelect, onQuickAction
                 >
                   <span
                     style={{
-                      fontSize: 8,
+                      fontSize: 9,
                       fontWeight: 800,
                       color: cfg.color,
                       letterSpacing: '0.08em',
@@ -157,7 +159,7 @@ export function WorkspaceQueue({ workspaces, selectedId, onSelect, onQuickAction
                       marginLeft: 6,
                       fontSize: 9,
                       fontFamily: 'monospace',
-                      color: '#333',
+                      color: '#444',
                     }}
                   >
                     {items.length}
@@ -166,7 +168,7 @@ export function WorkspaceQueue({ workspaces, selectedId, onSelect, onQuickAction
                     <span
                       style={{
                         marginLeft: 8,
-                        fontSize: 8,
+                        fontSize: 9,
                         fontWeight: 600,
                         color: '#00FF8844',
                         letterSpacing: '0.04em',
@@ -202,6 +204,7 @@ export function WorkspaceQueue({ workspaces, selectedId, onSelect, onQuickAction
                     isSelected={ws.id === selectedId}
                     onClick={() => onSelect(ws.id)}
                     onQuickAction={onQuickAction}
+                    onRetry={onRetry}
                   />
                 ))}
               </div>

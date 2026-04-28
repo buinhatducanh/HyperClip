@@ -2,6 +2,7 @@ import { spawn, ChildProcess } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import { getFfmpegPath } from './ffmpeg-paths.js'
+import { getGPUCapabilities } from './system.js'
 
 // ─── Worker Pool ────────────────────────────────────────────────────────────────
 // Manages concurrent FFmpeg processes with queue, cancel, and resource limits.
@@ -118,6 +119,26 @@ export class WorkerPool {
 
 export const renderPool = new WorkerPool(2)
 
+// ─── Dedicated Chunk Worker Pool ───────────────────────────────────────────────
+// GPU-tier-sized pool for parallel chunk encoding.
+// Lazy init: avoids circular dependency (worker-pool → system → ramdisk → worker-pool)
+// at module load time. Pool is created on first use.
+let _chunkPool: WorkerPool | null = null
+let _gpuCaps: { tier: string; maxChunkWorkers: number; encoder: string } | null = null
+
+function getChunkPool(): WorkerPool {
+  if (!_chunkPool) {
+    _gpuCaps = getGPUCapabilities()
+    _chunkPool = new WorkerPool(_gpuCaps.maxChunkWorkers)
+    console.log(`[GPU] tier=${_gpuCaps.tier} workers=${_gpuCaps.maxChunkWorkers} encoder=${_gpuCaps.encoder}`)
+  }
+  return _chunkPool
+}
+
+export function getChunkPoolStatus(): PoolStatus {
+  return getChunkPool().status
+}
+
 // ─── Run FFmpeg with full callback support ─────────────────────────────────────
 
 export interface FfmpegRunOptions {
@@ -129,12 +150,21 @@ export interface FfmpegRunOptions {
   timeoutMs?: number
 }
 
+function quotePath(p: string): string {
+  return '"' + p.replace(/"/g, '""') + '"'
+}
+
+function buildArgs(program: string, args: string[]): string {
+  return [quotePath(program), ...args].join(' ')
+}
+
 export async function runFfmpeg(opts: FfmpegRunOptions): Promise<PoolResult> {
   const { jobId, args, outputFile, onProgress, onFps, timeoutMs = 2 * 60 * 60 * 1000 } = opts
 
   return new Promise((resolve) => {
     const ffmpeg = getFfmpegPath()
-    const proc = spawn(ffmpeg, args, { shell: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    const cmd = buildArgs(ffmpeg, args)
+    const proc = spawn('cmd', ['/c', cmd], { shell: false, stdio: ['ignore', 'pipe', 'pipe'] })
 
     // Register with pool for cancellation support
     renderPool.track(jobId, proc)

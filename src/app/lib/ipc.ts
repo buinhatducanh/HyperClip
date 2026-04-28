@@ -1,55 +1,7 @@
 // IPC client wrapper for Electron
 // Exposes window.electronAPI (from preload) to the renderer
 
-export interface ChunkedResult {
-  success: boolean
-  workspaceId: string
-  outputPath?: string
-  fileSize?: number
-  duration?: number
-  error?: string
-  chunks: Array<{
-    index: number
-    start: number
-    end: number
-    outputPath: string
-    fileSize: number
-    encodeMs: number
-  }>
-  totalEncodeMs: number
-}
-
-export interface ElectronAPI {
-  addTracker: (url: string, trimLimit: string) => Promise<unknown>
-  removeTracker: (id: string) => Promise<unknown>
-  getTrackers: () => Promise<unknown[]>
-  getChannelInfo: (url: string) => Promise<unknown>
-  getChannels: () => Promise<unknown[]>
-  addChannel: (url: string) => Promise<unknown>
-  updateChannel: (id: string, patch: object) => Promise<unknown>
-  removeChannel: (id: string) => Promise<unknown>
-  getWorkspaces: () => Promise<unknown[]>
-  updateWorkspace: (id: string, patch: object) => Promise<unknown>
-  deleteWorkspace: (id: string) => Promise<unknown>
-  startRender: (workspaceId: string, metadata: object) => Promise<unknown>
-  startChunked: (workspaceId: string, metadata: object, config?: object) => Promise<ChunkedResult | null>
-  cancelRender: (workspaceId: string) => Promise<unknown>
-  getSystemStats: () => Promise<unknown>
-  openFolder: (folderPath: string) => Promise<unknown>
-  onSystemStats: (callback: (stats: object) => void) => () => void
-  onRenderProgress: (callback: (progress: object) => void) => () => void
-  onNotification: (callback: (n: object) => void) => () => void
-  onWorkspaceUpdate: (callback: (ws: object) => void) => () => void
-  onQuickAdd: (callback: () => void) => () => void
-  onAutoDownload: (callback: (data: object) => void) => () => void
-  onAuthUpdate: (callback: (status: object) => void) => () => void
-  getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string }>
-  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string }) => Promise<void>
-  getAuthStatus: () => Promise<{ isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean }>
-  logout: () => Promise<{ success: boolean }>
-  setOAuthCredentials: (clientId: string, clientSecret: string) => Promise<{ success: boolean }>
-  getOAuthCredentials: () => Promise<{ clientId: string; clientSecret: string }>
-}
+import type { KeyStatus } from '../types'
 
 export const ipc = {
   async addTracker(url: string, trimLimit: string) {
@@ -84,6 +36,15 @@ export const ipc = {
   },
   async deleteWorkspace(id: string) {
     return window.electronAPI?.deleteWorkspace(id)
+  },
+  async retryWorkspace(id: string) {
+    return window.electronAPI?.retryWorkspace(id)
+  },
+  async getVideoFile(workspaceId: string) {
+    return window.electronAPI?.getVideoFile(workspaceId) ?? null
+  },
+  async saveBlobToFile(arrayBuffer: Uint8Array, filename: string) {
+    return window.electronAPI?.saveBlobToFile(arrayBuffer, filename) ?? null
   },
   async startRender(workspaceId: string, metadata: object) {
     return window.electronAPI?.startRender(workspaceId, metadata)
@@ -124,6 +85,9 @@ export const ipc = {
   onAuthUpdate(callback: (status: object) => void) {
     return window.electronAPI?.onAuthUpdate(callback) ?? (() => {})
   },
+  onCookieCritical(callback: (errorMsg: string) => void) {
+    return window.electronAPI?.onCookieCritical(callback) ?? (() => {})
+  },
   onChannelSynced(callback: () => void) {
     return window.electronAPI?.onChannelSynced(callback) ?? (() => {})
   },
@@ -139,10 +103,38 @@ export const ipc = {
   async logout() {
     return window.electronAPI?.logout() ?? { success: false }
   },
+  async startOAuthFlow() {
+    return window.electronAPI?.startOAuthFlow() ?? { isReady: false, cookieCount: 0, loggedOut: true, accountName: '', oauthReady: false }
+  },
   async setOAuthCredentials(clientId: string, clientSecret: string) {
     return window.electronAPI?.setOAuthCredentials(clientId, clientSecret) ?? { success: false }
   },
   async getOAuthCredentials() {
     return window.electronAPI?.getOAuthCredentials() ?? { clientId: '', clientSecret: '' }
+  },
+  async getKeys(): Promise<KeyStatus[]> {
+    const result = await window.electronAPI?.getKeys()
+    return (result as KeyStatus[]) ?? []
+  },
+  async addKey(key: string, projectId: string, name: string) {
+    return window.electronAPI?.addKey(key, projectId, name) ?? { success: false, keys: [] }
+  },
+  async removeKey(key: string) {
+    return window.electronAPI?.removeKey(key) ?? { success: false, keys: [] }
+  },
+  async resetKey(key?: string) {
+    return window.electronAPI?.resetKey(key) ?? { success: false, keys: [] }
+  },
+  async adminCheckPassword(password: string) {
+    return window.electronAPI?.adminCheckPassword(password) ?? { ok: false }
+  },
+  async adminSetPassword(password: string) {
+    return window.electronAPI?.adminSetPassword(password) ?? { success: false }
+  },
+  async adminHasPassword() {
+    return window.electronAPI?.adminHasPassword() ?? { has: false }
+  },
+  async getPollerStatus(): Promise<{ active: boolean; lastPollAt: number | null; newVideoCount: number; lastError: string | null } | null> {
+    return window.electronAPI?.getPollerStatus() ?? null
   },
 }

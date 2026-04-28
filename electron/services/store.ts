@@ -136,6 +136,7 @@ export interface WorkspaceData {
   trimLimit: '5min' | '10min' | 'full'
   status: 'waiting' | 'downloading' | 'ready' | 'editing' | 'rendering' | 'done' | 'error'
   renderProgress: number // 0-100
+  downloadProgress?: number // 0-100
   downloadedAt: string   // ISO timestamp
   downloadedPath: string
   blurBackgroundPath: string

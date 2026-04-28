@@ -2,13 +2,14 @@
 
 import type { Workspace } from '../../lib/store'
 
-type WorkspaceStatus = 'waiting' | 'downloading' | 'ready' | 'editing' | 'rendering' | 'done'
+type WorkspaceStatus = 'waiting' | 'downloading' | 'ready' | 'editing' | 'rendering' | 'done' | 'error'
 
 interface Props {
   workspace: Workspace
   isSelected: boolean
   onClick: () => void
   onQuickAction?: (action: 'open' | 'delete', id: string) => void
+  onRetry?: (id: string) => void
 }
 
 const STATUS_CONFIG: Record<WorkspaceStatus, { label: string; color: string; bg: string; border: string }> = {
@@ -18,6 +19,7 @@ const STATUS_CONFIG: Record<WorkspaceStatus, { label: string; color: string; bg:
   editing:     { label: 'EDITING',   color: '#7C3AED', bg: '#7C3AED10', border: '#7C3AED22' },
   rendering:   { label: 'RENDERING', color: '#FF4444', bg: '#FF444410', border: '#FF444422' },
   done:        { label: 'DONE',      color: '#444444', bg: '#1A1A1A',   border: '#222222' },
+  error:       { label: 'ERROR',     color: '#FF4444', bg: '#FF444410', border: '#FF444422' },
 }
 
 function formatDuration(seconds: number): string {
@@ -35,7 +37,7 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 ** 2)).toFixed(0)} MB`
 }
 
-export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction }: Props) {
+export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, onRetry }: Props) {
   const status = workspace.status as WorkspaceStatus
   const cfg = STATUS_CONFIG[status]
   const isReady = status === 'ready'
@@ -67,10 +69,11 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction }:
     >
       <div className="flex items-start gap-3">
         {/* Thumbnail */}
+        {/* Thumbnail: 9:16 vertical — đúng aspect ratio của video output */}
         <div
           style={{
-            width: 72,
-            height: 40,
+            width: 45,
+            height: 80,
             borderRadius: 3,
             overflow: 'hidden',
             flexShrink: 0,
@@ -80,9 +83,27 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction }:
           }}
         >
           <img
-            src={workspace.thumbnail || 'https://via.placeholder.com/72x40/1A1A1A/333?text=No+Thumb'}
+            src={workspace.thumbnail || 'https://via.placeholder.com/45x80/1A1A1A/333?text=?'}
             alt=""
             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            onError={(e) => {
+              const img = e.currentTarget
+              if (!img.dataset.fallbacked) {
+                img.dataset.fallbacked = '1'
+                // Try mqdefault (320x180) — YouTube generates this faster than hqdefault
+                const src = img.src
+                if (src.includes('/hqdefault.jpg')) {
+                  img.src = src.replace('/hqdefault.jpg', '/mqdefault.jpg')
+                } else if (src.includes('/mqdefault.jpg')) {
+                  img.src = src.replace('/mqdefault.jpg', '/sddefault.jpg')
+                } else if (src.includes('/sddefault.jpg')) {
+                  img.src = src.replace('/sddefault.jpg', '/maxresdefault.jpg')
+                } else {
+                  // Not a YouTube thumbnail — use placeholder
+                  img.src = 'https://via.placeholder.com/45x80/1A1A1A/333?text=▶'
+                }
+              }
+            }}
           />
           {/* Duration badge */}
           <div
@@ -93,7 +114,7 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction }:
               background: 'rgba(0,0,0,0.75)',
               borderRadius: 2,
               padding: '1px 3px',
-              fontSize: 8,
+              fontSize: 9,
               fontWeight: 700,
               color: '#fff',
               fontFamily: 'monospace',
@@ -101,6 +122,19 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction }:
           >
             {workspace.duration || '0:00'}
           </div>
+          {/* Channel color indicator */}
+          <div
+            style={{
+              position: 'absolute',
+              top: 3,
+              left: 3,
+              width: 4,
+              height: 4,
+              borderRadius: 1,
+              background: workspace.channelColor || '#00B4FF',
+              boxShadow: `0 0 4px ${workspace.channelColor || '#00B4FF'}`,
+            }}
+          />
         </div>
 
         {/* Info */}
@@ -109,7 +143,7 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction }:
             {isNew && (
               <span
                 style={{
-                  fontSize: 8,
+                  fontSize: 9,
                   fontWeight: 800,
                   color: '#00FF88',
                   background: '#00FF8810',
@@ -125,7 +159,7 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction }:
             {/* Status badge */}
             <span
               style={{
-                fontSize: 8,
+                fontSize: 9,
                 fontWeight: 800,
                 color: cfg.color,
                 background: cfg.bg,
@@ -143,13 +177,25 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction }:
             {/* Trim limit */}
             <span
               style={{
-                fontSize: 8,
+                fontSize: 9,
                 fontWeight: 600,
-                color: '#444',
+                color: '#555',
                 fontFamily: 'monospace',
               }}
             >
               {workspace.trimLimit === '5min' ? '5MIN' : workspace.trimLimit === '10min' ? '10MIN' : 'FULL'}
+            </span>
+            {/* Quality indicator */}
+            <span
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                color: workspace.quality === 1080 ? '#00FF88' : workspace.quality === 720 ? '#FFB800' : '#555',
+                fontFamily: 'monospace',
+                letterSpacing: '0.02em',
+              }}
+            >
+              {workspace.quality}p
             </span>
           </div>
 
@@ -184,7 +230,15 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction }:
             <span style={{ fontSize: 9, color: '#444', fontWeight: 500 }}>
               {workspace.channelName}
             </span>
-            <span style={{ fontSize: 9, color: '#333' }}>·</span>
+            {workspace.downloadedAt && (
+              <>
+                <span style={{ fontSize: 9, color: '#333' }}>·</span>
+                <span style={{ fontSize: 9, color: '#333', fontFamily: 'monospace' }}>
+                  {workspace.downloadedAt}
+                </span>
+              </>
+            )}
+            <span style={{ fontSize: 9, color: '#2a2a2a' }}>·</span>
             <span style={{ fontSize: 9, color: '#444', fontFamily: 'monospace' }}>
               {workspace.fileSize}
             </span>
@@ -221,10 +275,10 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction }:
                 />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3 }}>
-                <span style={{ fontSize: 8, color: '#00B4FF', fontFamily: 'monospace', fontWeight: 600 }}>
+                <span style={{ fontSize: 9, color: '#00B4FF', fontFamily: 'monospace', fontWeight: 600 }}>
                   ↓ DOWNLOADING
                 </span>
-                <span style={{ fontSize: 8, color: '#333', fontFamily: 'monospace' }}>
+                <span style={{ fontSize: 9, color: '#444', fontFamily: 'monospace' }}>
                   {workspace.downloadProgress || 0}%
                 </span>
               </div>
@@ -271,6 +325,23 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction }:
               DELETE
             </button>
           </>
+        )}
+        {onRetry && (status === 'waiting' || status === 'error') && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onRetry(workspace.id) }}
+            style={{
+              fontSize: 9,
+              fontWeight: 600,
+              color: '#FFB800',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              letterSpacing: '0.08em',
+              padding: 0,
+            }}
+          >
+            RETRY
+          </button>
         )}
       </div>
     </div>

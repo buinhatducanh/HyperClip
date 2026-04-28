@@ -5,9 +5,10 @@ import { useState } from 'react'
 interface Props {
   defaultTrimLimit: '5min' | '10min' | 'full'
   onAddTracker: (url: string, trimLimit: '5min' | '10min' | 'full') => void
+  onAddChannel: (url: string) => void
 }
 
-export function InputBar({ defaultTrimLimit, onAddTracker }: Props) {
+export function InputBar({ defaultTrimLimit, onAddTracker, onAddChannel }: Props) {
   const [url, setUrl] = useState('')
   const [trimLimit, setTrimLimit] = useState<'5min' | '10min' | 'full'>(defaultTrimLimit)
   const [loading, setLoading] = useState(false)
@@ -15,11 +16,25 @@ export function InputBar({ defaultTrimLimit, onAddTracker }: Props) {
   const isValidUrl = (u: string) =>
     u.includes('youtube.com') || u.includes('youtu.be')
 
+  const isChannelUrl = (u: string) => {
+    const lower = u.toLowerCase()
+    return lower.includes('/channel/') ||
+      lower.includes('/c/') ||
+      lower.includes('/@') ||
+      lower.includes('/user/') ||
+      lower.includes('/videos/') ||
+      lower.includes('/playlists')
+  }
+
   const handleSubmit = async () => {
     if (!url.trim() || !isValidUrl(url)) return
     setLoading(true)
     try {
-      await onAddTracker(url.trim(), trimLimit)
+      if (isChannelUrl(url)) {
+        await onAddChannel(url.trim())
+      } else {
+        await onAddTracker(url.trim(), trimLimit)
+      }
       setUrl('')
     } finally {
       setLoading(false)
@@ -35,6 +50,9 @@ export function InputBar({ defaultTrimLimit, onAddTracker }: Props) {
     { label: 'Auto-Trim: Max 10 Min', value: '10min' },
     { label: 'Full Video', value: 'full' },
   ]
+
+  const canAdd = isValidUrl(url) && !loading
+  const isChannel = isChannelUrl(url)
 
   return (
     <div
@@ -52,7 +70,7 @@ export function InputBar({ defaultTrimLimit, onAddTracker }: Props) {
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Paste YouTube URL / Channel..."
+          placeholder="Paste YouTube Video URL or Channel URL..."
           style={{
             width: '100%',
             height: 36,
@@ -84,54 +102,56 @@ export function InputBar({ defaultTrimLimit, onAddTracker }: Props) {
         </svg>
       </div>
 
-      {/* Trim dropdown */}
-      <select
-        value={trimLimit}
-        onChange={(e) => setTrimLimit(e.target.value as '5min' | '10min' | 'full')}
-        style={{
-          height: 36,
-          background: '#1A1A1A',
-          border: '1px solid #252525',
-          borderRadius: 4,
-          paddingLeft: 10,
-          paddingRight: 10,
-          fontSize: 11,
-          fontWeight: 600,
-          color: '#888',
-          outline: 'none',
-          cursor: 'pointer',
-          fontFamily: 'Inter, sans-serif',
-          minWidth: 160,
-        }}
-      >
-        {trimOptions.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
+      {/* Trim dropdown — only for video URLs */}
+      {!isChannel && (
+        <select
+          value={trimLimit}
+          onChange={(e) => setTrimLimit(e.target.value as '5min' | '10min' | 'full')}
+          style={{
+            height: 36,
+            background: '#1A1A1A',
+            border: '1px solid #252525',
+            borderRadius: 4,
+            paddingLeft: 10,
+            paddingRight: 10,
+            fontSize: 11,
+            fontWeight: 600,
+            color: '#888',
+            outline: 'none',
+            cursor: 'pointer',
+            fontFamily: 'Inter, sans-serif',
+            minWidth: 160,
+          }}
+        >
+          {trimOptions.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      )}
 
-      {/* Add Tracker Button */}
+      {/* Add Button */}
       <button
         onClick={handleSubmit}
-        disabled={loading || !isValidUrl(url)}
+        disabled={!canAdd}
         style={{
           height: 36,
           paddingLeft: 16,
           paddingRight: 16,
-          background: isValidUrl(url) && !loading ? '#00B4FF' : '#1A1A1A',
+          background: canAdd ? (isChannel ? '#00FF88' : '#00B4FF') : '#1A1A1A',
           border: '1px solid',
-          borderColor: isValidUrl(url) && !loading ? '#00B4FF' : '#252525',
+          borderColor: canAdd ? (isChannel ? '#00FF88' : '#00B4FF') : '#252525',
           borderRadius: 4,
           fontSize: 11,
           fontWeight: 700,
-          color: isValidUrl(url) && !loading ? '#000' : '#444',
-          cursor: isValidUrl(url) && !loading ? 'pointer' : 'not-allowed',
+          color: canAdd ? (isChannel ? '#000' : '#000') : '#444',
+          cursor: canAdd ? 'pointer' : 'not-allowed',
           letterSpacing: '0.05em',
           fontFamily: 'Inter, sans-serif',
           whiteSpace: 'nowrap',
           transition: 'all 0.15s',
         }}
       >
-        {loading ? 'ADDING...' : '+ ADD TRACKER'}
+        {loading ? '...' : isChannel ? '+ TRACK CHANNEL' : '+ ADD VIDEO'}
       </button>
     </div>
   )

@@ -3,6 +3,8 @@ import { execSync } from 'child_process'
 import { getRamDiskInfo, getAutoRamDiskSize } from './ramdisk.js'
 import { getPoolStatus } from './worker-pool.js'
 
+export type GPUTier = 'high' | 'mid' | 'low' | 'software'
+
 export interface SystemStats {
   ramUsed: number
   ramTotal: number
@@ -11,26 +13,112 @@ export interface SystemStats {
   ramDiskTotal: number
   ramDiskAvailable: number
   ramDiskIsAvailable: boolean
-  cpuUsage: number        // percent 0-100
-  cpuCores: number       // logical cores
-  cpuName: string        // e.g. "Intel Core Ultra 9 285K"
+  cpuUsage: number
+  cpuCores: number
+  cpuName: string
   gpuUsage: number
   gpuTemp: number
   gpuName: string
-  gpuEncoder: string        // 'nvenc' | 'qsv' | 'vaapi' | 'software'
-  gpuMemoryTotal: number   // MB
+  gpuEncoder: 'nvenc' | 'qsv' | 'vaapi' | 'software'
+  gpuMemoryTotal: number
+  gpuTier: GPUTier
+  maxChunkWorkers: number
   networkIp: string
   isOnline: boolean
   activeWorkers: number
 }
 
-// ─── CPU detection ──────────────────────────────────────────────────────────────
-function getCpuInfo(): { name: string; cores: number; usage: number } {
+// ─── Static GPU detection (run once at startup) ───────────────────────────────
+
+interface GPUStatic {
+  encoder: 'nvenc' | 'qsv' | 'vaapi' | 'software'
+  preset: string
+  gpuName: string
+  memory: number
+  tier: GPUTier
+  maxChunkWorkers: number
+  hasGPU: boolean
+}
+
+let _cachedGPU: GPUStatic | null = null
+
+function detectGPUOnce(): GPUStatic {
+  if (_cachedGPU) return _cachedGPU
+
+  let encoder: GPUStatic['encoder'] = 'software'
+  let preset = 'medium'
+  let gpuName = 'CPU'
+  let memory = 0
+  let tier: GPUTier = 'software'
+  let maxChunkWorkers = 2
+  let hasGPU = false
+
+  // Check nvidia-smi
+  try {
+    const nvOutput = execSync('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits', {
+      encoding: 'utf-8', timeout: 5000,
+    }).trim()
+    if (nvOutput) {
+      hasGPU = true
+      const parts = nvOutput.split('\n')[0].split(',').map((s: string) => s.trim())
+      gpuName = parts[0] || 'NVIDIA GPU'
+      memory = parseInt(parts[1]) || 0
+    }
+  } catch {}
+
+  // NVENC check (only if GPU detected)
+  if (hasGPU) {
+    try {
+      const encodersOut = execSync('ffmpeg -hide_banner -encoders 2>&1', {
+        encoding: 'utf-8', timeout: 5000,
+      }).toString()
+      if (encodersOut.includes('h264_nvenc') || encodersOut.includes('hevc_nvenc')) {
+        encoder = 'nvenc'
+        if (gpuName.includes('RTX 50') || gpuName.includes('RTX 40')) {
+          tier = 'high'; maxChunkWorkers = 8; preset = 'fast'
+        } else if (gpuName.includes('RTX 30') || gpuName.includes('RTX 20')) {
+          tier = 'mid'; maxChunkWorkers = 4; preset = 'fast'
+        } else {
+          tier = 'low'; maxChunkWorkers = 2; preset = 'medium'
+        }
+      }
+    } catch {}
+  }
+
+  // Fallback: QSV / VAAPI (no GPU needed for encoder check)
+  if (encoder === 'software') {
+    try {
+      const encodersOut = execSync('ffmpeg -hide_banner -encoders 2>&1', {
+        encoding: 'utf-8', timeout: 5000,
+      }).toString()
+      if (encodersOut.includes('h264_qsv')) {
+        encoder = 'qsv'; preset = 'fast'; tier = 'low'; maxChunkWorkers = 2
+      } else if (encodersOut.includes('h264_vaapi')) {
+        encoder = 'vaapi'; preset = 'fast'; tier = 'low'; maxChunkWorkers = 2
+      }
+    } catch {}
+  }
+
+  _cachedGPU = { encoder, preset, gpuName, memory, tier, maxChunkWorkers, hasGPU }
+  return _cachedGPU
+}
+
+export function getGPUCapabilities(): Pick<GPUStatic, 'tier' | 'maxChunkWorkers' | 'encoder' | 'preset' | 'gpuName'> {
+  const g = detectGPUOnce()
+  return { tier: g.tier, maxChunkWorkers: g.maxChunkWorkers, encoder: g.encoder, preset: g.preset, gpuName: g.gpuName }
+}
+
+// ─── CPU usage (tick delta with warmup) ───────────────────────────────────────
+
+let _cpuLastTotal = 0
+let _cpuLastIdle = 0
+let _cpuFirstDone = false
+
+function getCpuUsage(): { name: string; cores: number; usage: number } {
   const cpus = os.cpus()
   const cores = cpus.length
   const model = cpus[0]?.model || 'Unknown CPU'
 
-  // Calculate usage from tick differences (similar to `top` behavior)
   let totalIdle = 0, totalTick = 0
   for (const cpu of cpus) {
     for (const type in cpu.times) {
@@ -39,110 +127,71 @@ function getCpuInfo(): { name: string; cores: number; usage: number } {
     totalIdle += cpu.times.idle
   }
 
-  const idleDiff = totalIdle - (getCpuInfo as any)._lastIdle || 0
-  const totalDiff = totalTick - (getCpuInfo as any)._lastTotal || 0
-  ;(getCpuInfo as any)._lastIdle = totalIdle
-  ;(getCpuInfo as any)._lastTotal = totalTick
+  if (!_cpuFirstDone) {
+    // First call: prime the pump — don't show a meaningless spike
+    _cpuLastTotal = totalTick
+    _cpuLastIdle = totalIdle
+    _cpuFirstDone = true
+    return { name: model, cores, usage: 0 }
+  }
+
+  const idleDiff = totalIdle - _cpuLastIdle
+  const totalDiff = totalTick - _cpuLastTotal
+  _cpuLastTotal = totalTick
+  _cpuLastIdle = totalIdle
 
   const usage = totalDiff > 0 ? Math.round((1 - idleDiff / totalDiff) * 100) : 0
   return { name: model, cores, usage: Math.max(0, Math.min(100, usage)) }
 }
 
-// ─── GPU detection ─────────────────────────────────────────────────────────────
-export function detectEncoder(): { encoder: SystemStats['gpuEncoder']; preset: string; gpuName: string; memory: number } {
-  let encoder: SystemStats['gpuEncoder'] = 'software'
-  let preset = 'medium'
-  let gpuName = 'CPU'
-  let memory = 0
+// ─── Network IP (cache once) ─────────────────────────────────────────────────
 
-  // Try NVIDIA first
-  try {
-    const nvOutput = execSync('nvidia-smi --query-gpu=name,utilization.gpu,memory.total --format=csv,noheader,nounits', {
-      encoding: 'utf-8', timeout: 5000,
-    }).trim()
-    if (nvOutput) {
-      const lines = nvOutput.split('\n')
-      const parts = lines[0].split(',').map((s: string) => s.trim())
-      gpuName = parts[0] || 'NVIDIA GPU'
-      memory = parseInt(parts[2]) || 0
+let _cachedIp: string | null = null
 
-      // Verify NVENC support
-      const encodersOut = execSync('ffmpeg -hide_banner -encoders 2>&1', {
-        encoding: 'utf-8', timeout: 5000,
-      }).toString()
-      if (encodersOut.includes('h264_nvenc')) {
-        encoder = 'nvenc'
-        // Adaptive preset: newer GPU = faster preset
-        const isRTX4xxx = gpuName.includes('RTX 40') || gpuName.includes('RTX 50')
-        const isRTX3xxx = gpuName.includes('RTX 30') || gpuName.includes('RTX 20')
-        preset = isRTX4xxx || isRTX3xxx ? 'fast' : 'medium'
-      }
-    }
-  } catch {}
-
-  // Try Intel Quick Sync
-  if (encoder === 'software') {
-    try {
-
-      const qsOut = execSync('ffmpeg -hide_banner -encoders 2>&1', {
-        encoding: 'utf-8', timeout: 5000,
-      })
-      if (qsOut.includes('h264_qsv')) { encoder = 'qsv'; preset = 'fast' }
-      else if (qsOut.includes('h264_vaapi')) { encoder = 'vaapi'; preset = 'fast' }
-    } catch {}
-  }
-
-  return { encoder, preset, gpuName, memory }
-}
-
-export function collectSystemStats(): SystemStats {
-  const totalMem = os.totalmem()
-  const freeMem = os.freemem()
-  const usedMem = totalMem - freeMem
-  const totalGB = totalMem / (1024 ** 3)
-
-  // Auto-detect GPU and encoder
-  const { encoder, gpuName, memory } = detectEncoder()
-
-  // Get CPU info
-  const cpuInfo = getCpuInfo()
-
-  // Get primary IP
+function getNetworkIp(): string {
+  if (_cachedIp) return _cachedIp
   const nets = os.networkInterfaces()
-  let networkIp = '127.0.0.1'
   for (const name of Object.keys(nets)) {
     for (const iface of nets[name] ?? []) {
       if (iface.family === 'IPv4' && !iface.internal) {
-        networkIp = iface.address
-        break
+        _cachedIp = iface.address
+        return _cachedIp
       }
     }
   }
+  return '127.0.0.1'
+}
 
-  // GPU usage/temp via nvidia-smi
+// ─── Main collector (called every 2s from main.ts) ────────────────────────────
+
+export function collectSystemStats(): SystemStats {
+  const gpu = detectGPUOnce()
+  const cpuInfo = getCpuUsage()
+
+  // GPU real-time: only query nvidia-smi when GPU is present
   let gpuUsage = 0
   let gpuTemp = 0
-  if (encoder !== 'software') {
+  if (gpu.hasGPU) {
     try {
-
-      const output = execSync('nvidia-smi --query-gpu=utilization.gpu,temperature.gpu --format=csv,noheader', {
-        encoding: 'utf-8', timeout: 5000,
+      const output = execSync('nvidia-smi --query-gpu=utilization.gpu,temperature.gpu --format=csv,noheader,nounits', {
+        encoding: 'utf-8', timeout: 3000,
       })
-      const parts = output.trim().split(', ')
-      if (parts.length >= 2) {
-        gpuUsage = parseInt(parts[0]) || 0
-        gpuTemp = parseInt(parts[1]) || 0
-      }
+      const parts = output.trim().split(',').map((s: string) => s.trim())
+      gpuUsage = parseInt(parts[0]) || 0
+      gpuTemp = parseInt(parts[1]) || 0
     } catch {}
   }
 
+  const totalMem = os.totalmem()
+  const freeMem = os.freemem()
+  const usedMem = totalMem - freeMem
   const ramDiskInfo = getRamDiskInfo()
   const ramDiskSizeGB = getAutoRamDiskSize()
 
   return {
-    ramUsed: parseFloat(usedMem.toFixed(1)),
-    ramTotal: parseFloat(totalGB.toFixed(1)),
-    ramFree: parseFloat((freeMem / (1024 ** 3)).toFixed(1)),
+    ramUsed: +(usedMem / (1024 ** 3)).toFixed(1),
+    ramTotal: +(totalMem / (1024 ** 3)).toFixed(1),
+    ramFree: +(freeMem / (1024 ** 3)).toFixed(1),
     ramDiskUsed: ramDiskInfo.used,
     ramDiskTotal: ramDiskSizeGB,
     ramDiskAvailable: ramDiskInfo.available,
@@ -152,10 +201,12 @@ export function collectSystemStats(): SystemStats {
     cpuName: cpuInfo.name,
     gpuUsage,
     gpuTemp,
-    gpuName,
-    gpuEncoder: encoder,
-    gpuMemoryTotal: memory,
-    networkIp,
+    gpuName: gpu.gpuName,
+    gpuEncoder: gpu.encoder,
+    gpuMemoryTotal: gpu.memory,
+    gpuTier: gpu.tier,
+    maxChunkWorkers: gpu.maxChunkWorkers,
+    networkIp: getNetworkIp(),
     isOnline: true,
     activeWorkers: getPoolStatus().active,
   }

@@ -1,24 +1,25 @@
 /**
  * Cookie Manager — HyperClip
  *
- * Extracts cookies from Chrome/Edge on Windows using Python + DPAPI.
- * Auto-refreshes every 15 minutes and writes Netscape-format cookie files
- * for use with yt-dlp and HTTP requests.
+ * Pure OAuth approach: YouTube Data API v3 doesn't need browser cookies.
+ * - OAuth tokens handle API authentication
+ * - activities?home=true works with OAuth Bearer token
+ * - yt-dlp uses OAuth tokens for downloads (via --no-playlist)
+ *
+ * The only "cookies" we need are the Netscape-format cookie file
+ * which yt-dlp can generate from OAuth session.
  */
 
-import { spawn } from 'child_process'
+import { session } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import os from 'os'
-import https from 'https'
-import http from 'http'
-import { URL } from 'url'
 import { EventEmitter } from 'events'
+import { getChannels, addChannel, removeChannel } from './store.js'
 
-// Auth status change event bus — main.ts listens to relay to renderer
+// ─── Auth Event Bus ─────────────────────────────────────────────────────────────
+
 export const authEvents = new EventEmitter()
-
-// Channel sync event — emitted after OAuth subscriptions are synced to store
 export const channelEvents = new EventEmitter()
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -29,14 +30,14 @@ export interface CookieData {
   domain: string
   path: string
   secure: boolean
-  expires: number // Unix timestamp (seconds)
+  expires: number
 }
 
 export interface CookieRefreshResult {
   success: boolean
   cookieFile: string
   cookies: CookieData[]
-  browser: 'chrome' | 'edge' | 'none'
+  browser: 'electron'
   error?: string
 }
 
@@ -50,7 +51,10 @@ export interface CookieManager {
   startAutoRefresh(onRefresh?: (result: CookieRefreshResult) => void): void
   validateCookies(): Promise<boolean>
   getAuthStatus(): AuthStatus
+  setQuotaExceeded(error: string): void
   logout(): Promise<void>
+  getLastRefreshTime(): number
+  startOAuthFlow(): Promise<void>
 }
 
 export interface AuthStatus {
@@ -59,447 +63,239 @@ export interface AuthStatus {
   loggedOut: boolean
   accountName: string
   oauthReady: boolean
+  quotaExceeded?: boolean
+  quotaError?: string
+  cookieCritical?: boolean
+  cookieError?: string
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Cookie Manager Implementation ─────────────────────────────────────────────
 
-const REFRESH_INTERVAL_MS = 15 * 60 * 1000 // 15 minutes
-
-// Chrome/Edge base data paths
-const CHROME_BASE = path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'User Data', 'Default')
-const EDGE_BASE = path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'Edge', 'User Data', 'Default')
-const CHROME_COOKIES = path.join(CHROME_BASE, 'Network', 'Cookies')
-const CHROME_COOKIES_FALLBACK = path.join(CHROME_BASE, 'Cookies')
-const EDGE_COOKIES = path.join(EDGE_BASE, 'Network', 'Cookies')
-const EDGE_COOKIES_FALLBACK = path.join(EDGE_BASE, 'Cookies')
-
-const YOUTUBE_DOMAINS = ['.youtube.com', '.googlevideo.com', '.google.com']
-
-// Temp dir for cookie extraction
-function getTempDir(): string {
-  return path.join(os.tmpdir(), 'hyperclip-cookies')
-}
-
-// ─── Python extraction script (embedded) ──────────────────────────────────────
-
-/**
- * Python script to extract cookies from Chromium SQLite DB.
- * Handles DPAPI-encrypted cookies on Windows using win32crypt.
- * If DB is locked, it copies to temp first.
- */
-function getPythonScript(): string {
-  return `
-import sqlite3, os, sys, shutil, win32crypt, tempfile, json
-
-def extract_cookies(cookies_path, output_path):
-    domains = ['.youtube.com', '.googlevideo.com', '.google.com']
-
-    # Copy to temp if file is locked (browser running)
-    temp_path = None
-    try:
-        test_conn = sqlite3.connect(cookies_path, timeout=1)
-        test_conn.close()
-    except sqlite3.OperationalError:
-        temp_path = os.path.join(tempfile.gettempdir(), f'hc_cookies_{os.getpid()}.db')
-        shutil.copy2(cookies_path, temp_path)
-        cookies_path = temp_path
-
-    try:
-        conn = sqlite3.connect(cookies_path)
-        cursor = conn.cursor()
-
-        lines = ['# Netscape HTTP Cookie File\\n']
-        cookie_list = []
-
-        for domain in domains:
-            cursor.execute("""
-                SELECT host_key, name, value, path, secure, expires_utc, is_secure
-                FROM cookies WHERE host_key LIKE ?
-            """, (f'%{domain}',))
-
-            for row in cursor.fetchall():
-                host_key, name, enc_value, path, secure, expires_utc, is_secure = row
-                try:
-                    dec = win32crypt.CryptUnprotectData(enc_value, None, None, None, 0)[1]
-                    dec_str = dec.decode('utf-8', errors='replace')
-
-                    secure_flag = 'TRUE' if (is_secure or secure) else 'FALSE'
-                    # expires_utc is in microseconds since 1601-01-01
-                    if expires_utc and expires_utc > 0:
-                        expires_ts = int(expires_utc / 1000000 - 11644473600)
-                    else:
-                        expires_ts = 0
-
-                    domain_str = host_key if host_key.startswith('.') else '.' + host_key
-                    lines.append(f'{domain_str}\\tTRUE\\t{path}\\t{secure_flag}\\t{expires_ts}\\t{name}\\t{dec_str}\\n')
-
-                    cookie_list.append({
-                        'name': name,
-                        'value': dec_str,
-                        'domain': domain_str,
-                        'path': path or '/',
-                        'secure': is_secure or secure == 1,
-                        'expires': expires_ts,
-                    })
-                except Exception:
-                    pass
-
-        conn.close()
-
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.writelines(lines)
-
-        result = {'success': True, 'cookieCount': len(cookie_list), 'cookies': cookie_list}
-        print(json.dumps(result))
-    except Exception as e:
-        result = {'success': False, 'error': str(e)}
-        print(json.dumps(result))
-    finally:
-        if temp_path and os.path.exists(temp_path):
-            try: os.remove(temp_path)
-            except: pass
-
-if __name__ == '__main__':
-    cookies_path = sys.argv[1]
-    output_path = sys.argv[2]
-    extract_cookies(cookies_path, output_path)
-`
-}
-
-// Find Python executable
-function getPythonPath(): string {
-  // Check PATH first — this finds the active Python installation
-  const pathEnv = (process.env.PATH || '').split(path.delimiter)
-  for (const dir of pathEnv) {
-    const py = path.join(dir, 'python.exe')
-    if (fs.existsSync(py)) return py
-    const py3 = path.join(dir, 'python3.exe')
-    if (fs.existsSync(py3)) return py3
-  }
-
-  // Fallback: common installation paths
-  const candidates = [
-    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python314', 'python.exe'),
-    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python313', 'python.exe'),
-    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe'),
-    path.join(process.env.APPDATA || '', 'Python', 'Python314', 'python.exe'),
-    path.join(process.env.APPDATA || '', 'Python', 'Python313', 'python.exe'),
-    path.join(process.env.APPDATA || '', 'Python', 'Python312', 'python.exe'),
-    'python3',
-    'python',
-  ]
-
-  for (const py of candidates) {
-    try {
-      if (fs.existsSync(py)) return py
-    } catch {}
-  }
-
-  return 'python'
-}
-
-// Find cookie DB path for Chrome or Edge
-function findCookieDB(): { path: string; browser: 'chrome' | 'edge' | 'none' } {
-  // Try Chrome first
-  const chromePaths = [CHROME_COOKIES, CHROME_COOKIES_FALLBACK]
-  for (const p of chromePaths) {
-    try {
-      if (fs.existsSync(p)) return { path: p, browser: 'chrome' }
-    } catch {}
-  }
-
-  // Try Edge
-  const edgePaths = [EDGE_COOKIES, EDGE_COOKIES_FALLBACK]
-  for (const p of edgePaths) {
-    try {
-      if (fs.existsSync(p)) return { path: p, browser: 'edge' }
-    } catch {}
-  }
-
-  return { path: '', browser: 'none' }
-}
-
-// ─── Cookie Manager Implementation ────────────────────────────────────────────
-
-class ChromiumCookieManager implements CookieManager {
+class ElectronCookieManager implements CookieManager {
   private _cookieFile: string = ''
   private _cookies: CookieData[] = []
-  private _pythonScriptFile: string = ''
-  private _pythonPath: string = ''
   private _lastRefresh: number = 0
   private _refreshTimer: NodeJS.Timeout | null = null
+  private _subSyncTimer: NodeJS.Timeout | null = null
   private _initPromise: Promise<void> | null = null
-  // OAuth state
-  private _oauthReady: boolean = false
+  private _cookieCriticalCount: number = 0
+  private _cookieErrorMsg: string = ''
   private _accountName: string = ''
-  private _oauthFlowStarted: boolean = false // guard: don't re-trigger OAuth window in same session
+  private _oauthReady: boolean = false
+  private _quotaExceeded: boolean = false
+  private _quotaError: string = ''
 
   constructor() {
-    this._pythonPath = getPythonPath()
-    this._cookieFile = path.join(getTempDir(), 'youtube_cookies.txt')
-    this._pythonScriptFile = path.join(getTempDir(), 'extract_cookies.py')
-
-    // Ensure temp dir exists
-    const tmpDir = getTempDir()
-    if (!fs.existsSync(tmpDir)) {
-      fs.mkdirSync(tmpDir, { recursive: true })
-    }
-
-    // Write Python script once
-    fs.writeFileSync(this._pythonScriptFile, getPythonScript(), 'utf-8')
-
-    // Initialize — check OAuth first, then cookie fallback
+    const tmpDir = path.join(os.tmpdir(), 'hyperclip-cookies')
+    if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
+    this._cookieFile = path.join(tmpDir, 'youtube_cookies.txt')
     this._initPromise = this._init()
   }
 
   private async _init(): Promise<void> {
-    // Check if OAuth tokens exist — if so, use OAuth
-    try {
-      const { getOAuthClientId, loadTokens, fetchAccountInfo } = await import('./youtube_auth.js')
-      const clientId = getOAuthClientId()
-      const tokens = clientId ? loadTokens() : null
-      if (tokens?.access_token) {
-        console.log('[CookieManager] OAuth tokens found — activating')
-        this._oauthReady = true
-        try {
-          this._accountName = await fetchAccountInfo(tokens.access_token) || ''
-        } catch {}
-        // Emit immediately so renderer gets the logged-in state
-        authEvents.emit('authUpdated', this.getAuthStatus())
-        return
-      }
-      // No tokens — auto-start OAuth flow
-      if (clientId) {
-        console.log('[CookieManager] Starting OAuth automatically...')
-        this._autoStartOAuth(clientId)
-        return
-      }
-    } catch {}
-
-    // No OAuth — fall back to cookie extraction
-    console.log('[CookieManager] No OAuth — falling back to cookie extraction')
-    await this.refresh()
+    // With OAuth-only mode, cookies are generated from OAuth tokens
+    // Check if we have valid tokens
+    const tokenOk = await this._checkOAuthTokens()
+    if (tokenOk) {
+      this._oauthReady = true
+      console.log('[CookieManager] OAuth tokens verified — ready')
+      // Write placeholder cookie file (yt-dlp will use OAuth auth instead)
+      this._writePlaceholderCookieFile()
+    }
   }
 
-  /** Auto-start OAuth flow on boot — Chrome opens, user approves, callback resolves */
-  private _autoStartOAuth(clientId: string): void {
-    // Guard: only one OAuth window per session
-    if (this._oauthFlowStarted || this._oauthReady) return
-    this._oauthFlowStarted = true
-    import('./youtube_auth.js').then(async ({ startOAuthFlow, fetchAccountInfo }) => {
-      const result = await startOAuthFlow(clientId)
-      if (result.success && result.tokens) {
-        console.log('[CookieManager] OAuth auto-login succeeded')
-        this._oauthReady = true
-        try {
-          this._accountName = await fetchAccountInfo(result.tokens.access_token) || ''
-          if (this._accountName) console.log('[CookieManager] Account:', this._accountName)
-        } catch {}
-        // Notify listeners that auth status changed
-        authEvents.emit('authUpdated', this.getAuthStatus())
-      } else {
-        console.warn('[CookieManager] OAuth auto-login failed:', result.error)
-      }
-    }).catch((e: Error) => {
-      console.warn('[CookieManager] OAuth flow error:', e.message)
-    })
+  private async _checkOAuthTokens(): Promise<boolean> {
+    try {
+      const { getTokenManager } = await import('./token_manager.js')
+      const tm = getTokenManager()
+      const best = await tm.getBestAvailable()
+      return !!best
+    } catch { return false }
+  }
+
+  private _writePlaceholderCookieFile(): void {
+    // Write a minimal cookie file with just the header
+    // yt-dlp will use OAuth token for authentication instead of cookies
+    try {
+      fs.writeFileSync(this._cookieFile, '# Netscape HTTP Cookie File\n# HyperClip: Using OAuth for authentication\n', 'utf-8')
+    } catch {}
   }
 
   async ensureInit(): Promise<void> {
     if (this._initPromise) await this._initPromise
   }
 
-  getCookieFile(): string {
-    return this._cookieFile
-  }
-
-  getCookies(): CookieData[] {
-    return this._cookies
-  }
-
-  /** Build a session cookie header for yt-dlp / HTTP requests */
-  getSessionHeader(): string {
-    if (this._cookies.length === 0) return ''
-    return this._cookies
-      .map(c => `${c.name}=${c.value}`)
-      .join('; ')
-  }
+  getCookieFile(): string { return this._cookieFile }
+  getCookies(): CookieData[] { return this._cookies }
+  getSessionHeader(): string { return '' }
 
   isReady(): boolean {
-    return this._cookies.length > 0 && fs.existsSync(this._cookieFile)
+    return this._oauthReady
   }
 
   async refresh(): Promise<CookieRefreshResult> {
-    const { path: dbPath, browser } = findCookieDB()
-
-    if (!dbPath || browser === 'none') {
+    this._lastRefresh = Date.now()
+    const tokenOk = await this._checkOAuthTokens()
+    if (tokenOk) {
+      this._oauthReady = true
+      this._cookieCriticalCount = 0
+      this._writePlaceholderCookieFile()
       return {
-        success: false,
+        success: true,
         cookieFile: this._cookieFile,
         cookies: [],
-        browser: 'none',
-        error: 'No Chrome or Edge cookie database found. Make sure Chrome/Edge is installed and you have logged into YouTube.',
+        browser: 'electron',
       }
     }
-
-    return new Promise((resolve) => {
-      let stdout = ''
-      let stderr = ''
-      const proc = spawn(this._pythonPath, [this._pythonScriptFile, dbPath, this._cookieFile], {
-        env: { ...process.env },
-        windowsHide: true,
-        shell: true,
-      })
-
-      proc.stdout?.on('data', (d) => { stdout += d.toString() })
-      proc.stderr?.on('data', (d) => { stderr += d.toString() })
-
-      proc.on('error', (err) => {
-        resolve({
-          success: false,
-          cookieFile: this._cookieFile,
-          cookies: [],
-          browser,
-          error: `Python spawn error: ${err.message}`,
-        })
-      })
-
-      proc.on('close', (code) => {
-        this._lastRefresh = Date.now()
-
-        if (code !== 0 || !stdout.trim()) {
-          resolve({
-            success: false,
-            cookieFile: this._cookieFile,
-            cookies: [],
-            browser,
-            error: `Python exited with code ${code}. stderr: ${stderr.slice(0, 500)}`,
-          })
-          return
-        }
-
-        try {
-          const result = JSON.parse(stdout.trim())
-
-          if (!result.success) {
-            resolve({
-              success: false,
-              cookieFile: this._cookieFile,
-              cookies: [],
-              browser,
-              error: result.error || 'Unknown extraction error',
-            })
-            return
-          }
-
-          this._cookies = result.cookies || []
-          console.log(`[CookieManager] Extracted ${this._cookies.length} cookies from ${browser} (DB: ${dbPath})`)
-
-          resolve({
-            success: true,
-            cookieFile: this._cookieFile,
-            cookies: this._cookies,
-            browser,
-          })
-        } catch (e) {
-          resolve({
-            success: false,
-            cookieFile: this._cookieFile,
-            cookies: [],
-            browser,
-            error: `JSON parse error: ${e}. stdout: ${stdout.slice(0, 200)}`,
-          })
-        }
-      })
-
-      // Timeout after 15 seconds
-      setTimeout(() => {
-        try { proc.kill() } catch {}
-        resolve({
-          success: false,
-          cookieFile: this._cookieFile,
-          cookies: this._cookies,
-          browser,
-          error: 'Cookie extraction timed out after 15s',
-        })
-      }, 15_000)
-    })
+    return {
+      success: false,
+      cookieFile: this._cookieFile,
+      cookies: [],
+      browser: 'electron',
+      error: 'No valid OAuth tokens found',
+    }
   }
 
-  /** Start auto-refresh timer */
+  private async _doRefresh(onRefresh?: (result: CookieRefreshResult) => void): Promise<void> {
+    console.log('[CookieManager] Checking OAuth tokens...')
+    const result = await this.refresh()
+    if (result.success) {
+      console.log('[CookieManager] OAuth tokens valid')
+    } else {
+      console.warn(`[CookieManager] OAuth check failed: ${result.error}`)
+      this._cookieCriticalCount++
+      this._cookieErrorMsg = result.error || 'OAuth tokens invalid'
+      if (this._cookieCriticalCount >= 3) {
+        console.error('[CookieManager] OAuth critical failure — redirecting to login')
+        authEvents.emit('cookieCritical', this._cookieErrorMsg)
+        authEvents.emit('authUpdated', this.getAuthStatus())
+      }
+    }
+    onRefresh?.(result)
+  }
+
   startAutoRefresh(onRefresh?: (result: CookieRefreshResult) => void): void {
     if (this._refreshTimer) return
+    this._doRefresh(onRefresh)
+    // Check OAuth tokens every 5 minutes
+    this._refreshTimer = setInterval(() => { this._doRefresh(onRefresh) }, 5 * 60 * 1000)
+    // Subscription sync every 15 minutes
+    this._syncSubscriptions().catch(() => {})
+    this._subSyncTimer = setInterval(() => { this._syncSubscriptions().catch(() => {}) }, 15 * 60 * 1000)
+  }
 
-    this._refreshTimer = setInterval(async () => {
-      console.log('[CookieManager] Auto-refreshing cookies...')
-      const result = await this.refresh()
-      if (result.success) {
-        console.log(`[CookieManager] Refresh OK — ${result.cookies.length} cookies from ${result.browser}`)
-      } else {
-        console.warn(`[CookieManager] Refresh failed: ${result.error}`)
-      }
-      onRefresh?.(result)
-    }, REFRESH_INTERVAL_MS)
+  private async _syncSubscriptions(): Promise<void> {
+    if (!this._oauthReady) return
+    const result = await this.syncSubscriptionList()
+    if (result.added > 0 || result.removed > 0) {
+      authEvents.emit('authUpdated', this.getAuthStatus())
+    }
   }
 
   stopAutoRefresh(): void {
-    if (this._refreshTimer) {
-      clearInterval(this._refreshTimer)
-      this._refreshTimer = null
+    if (this._refreshTimer) { clearInterval(this._refreshTimer); this._refreshTimer = null }
+    if (this._subSyncTimer) { clearInterval(this._subSyncTimer); this._subSyncTimer = null }
+  }
+
+  async syncSubscriptionList(): Promise<{ added: number; removed: number }> {
+    try {
+      const { getTokenManager } = await import('./token_manager.js')
+      const { fetchMySubscriptions } = await import('./youtube_auth.js')
+      const best = await getTokenManager().getBestAvailable()
+      if (!best) return { added: 0, removed: 0 }
+
+      const remoteSubs = await fetchMySubscriptions(best.token)
+      const remoteChannelIds = new Set(remoteSubs.map(s => s.channelId))
+      const localChannels = getChannels()
+      const localChannelIds = new Set(localChannels.map(c => c.channelId))
+
+      let added = 0, removed = 0
+      for (const sub of remoteSubs) {
+        if (!localChannelIds.has(sub.channelId)) {
+          const CHANNEL_COLORS = ['#00B4FF', '#7C3AED', '#00FF88', '#FF6B35', '#FF0080', '#FFB800']
+          addChannel({
+            id: `ch${Date.now()}_${sub.channelId.slice(-8)}`,
+            name: sub.channelName,
+            // Only store a handle if it's a real YouTube handle (not a channelId).
+            // The YouTube subscriptions API doesn't provide handles, so we leave it empty.
+            handle: '',
+            avatarColor: CHANNEL_COLORS[added % CHANNEL_COLORS.length],
+            channelId: sub.channelId,
+            avatarUrl: sub.avatarUrl || undefined,
+            createdAt: new Date().toISOString(),
+          })
+          added++
+          console.log(`[SubSync] + ${sub.channelName}`)
+        }
+      }
+
+      for (const ch of localChannels) {
+        if (ch.channelId && !remoteChannelIds.has(ch.channelId)) {
+          if (ch.id.startsWith('ch1') || ch.id.startsWith('ch2') || ch.id.startsWith('ch3')) continue
+          removeChannel(ch.id)
+          removed++
+        }
+      }
+
+      if (added > 0 || removed > 0) {
+        channelEvents.emit('channelsSynced')
+        const { refreshChannelCache } = await import('./subscription_feed.js')
+        refreshChannelCache()
+        console.log(`[SubSync] Done: +${added} -${removed}`)
+      }
+
+      return { added, removed }
+    } catch (e) {
+      console.warn('[SubSync] Failed:', e)
+      return { added: 0, removed: 0 }
     }
   }
 
-  /** Check if cookies are still valid by making a test HTTP request to YouTube */
   async validateCookies(): Promise<boolean> {
-    if (this._cookies.length === 0) return false
-
-    const sessionHeader = this.getSessionHeader()
-    if (!sessionHeader) return false
-
-    // Quick HEAD request to YouTube with cookies
-    return new Promise((resolve) => {
-      const url = 'https://www.youtube.com'
-      const parsedUrl = new URL(url)
-
-      const options = {
-        hostname: parsedUrl.hostname,
-        path: '/',
-        method: 'GET',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Cookie': sessionHeader,
-          'Accept': 'text/html',
-        },
-      }
-
-      const req = https.get(options, (res) => {
-        // If we get redirected to sign-in, cookies are expired
-        const location = res.headers.location || ''
-        const isSignedOut = location.includes('consent.google.com') ||
-          res.headers['www-authenticate'] ||
-          (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && location.includes('youtube.com/sign'))
-
-        resolve(!isSignedOut && res.statusCode !== 401)
-      })
-
-      req.on('error', () => resolve(false))
-      req.setTimeout(8000, () => { req.destroy(); resolve(false) })
-    })
+    return this._oauthReady && await this._checkOAuthTokens()
   }
 
   getAuthStatus(): AuthStatus {
-    return {
-      isReady: this._oauthReady || this.isReady(),
-      cookieCount: this._cookies.length,
-      loggedOut: !this._oauthReady && this._cookies.length === 0,
-      accountName: this._accountName,
-      oauthReady: this._oauthReady,
+    let oauthReadyLive = this._oauthReady
+    if (!oauthReadyLive) {
+      try {
+        const tokenFile = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_tokens.json')
+        if (fs.existsSync(tokenFile)) {
+          const data = JSON.parse(fs.readFileSync(tokenFile, 'utf-8'))
+          if (Array.isArray(data)) {
+            oauthReadyLive = data.some((t: { expires_at?: number }) =>
+              t.expires_at && t.expires_at - 60_000 > Date.now()
+            )
+          }
+        }
+      } catch {}
     }
+    return {
+      isReady: oauthReadyLive,
+      cookieCount: this._cookies.length,
+      loggedOut: !oauthReadyLive,
+      accountName: this._accountName,
+      oauthReady: oauthReadyLive,
+      quotaExceeded: this._quotaExceeded,
+      quotaError: this._quotaError,
+      cookieCritical: this._cookieCriticalCount >= 3,
+      cookieError: this._cookieCriticalCount >= 3 ? this._cookieErrorMsg : undefined,
+    }
+  }
+
+  setQuotaExceeded(error: string): void {
+    this._quotaExceeded = true
+    this._quotaError = error
+    authEvents.emit('authUpdated', this.getAuthStatus())
   }
 
   async logout(): Promise<void> {
     this._oauthReady = false
     this._accountName = ''
+    this._quotaExceeded = false
+    this._quotaError = ''
+    this._cookieCriticalCount = 0
+    this._cookieErrorMsg = ''
     this._cookies = []
     this._initPromise = Promise.resolve()
     try {
@@ -508,33 +304,50 @@ class ChromiumCookieManager implements CookieManager {
     } catch {}
     authEvents.emit('authUpdated', this.getAuthStatus())
   }
+
+  getLastRefreshTime(): number { return this._lastRefresh }
+
+  async startOAuthFlow(): Promise<void> {
+    const { startOAuthFlow, fetchAccountInfo, getOAuthClientId } = await import('./youtube_auth.js')
+    const clientId = getOAuthClientId()
+    if (!clientId) {
+      console.warn('[CookieManager] No OAuth client ID')
+      return
+    }
+    const result = await startOAuthFlow(clientId)
+    if (result.success && result.tokens) {
+      console.log('[CookieManager] OAuth login succeeded')
+      this._oauthReady = true
+      try {
+        this._accountName = await fetchAccountInfo(result.tokens.access_token) || ''
+        if (this._accountName) console.log('[CookieManager] Account:', this._accountName)
+      } catch {}
+      authEvents.emit('authUpdated', this.getAuthStatus())
+    } else {
+      console.warn('[CookieManager] OAuth failed:', result.error)
+    }
+  }
 }
 
-// Singleton instance
-let _manager: ChromiumCookieManager | null = null
+// Singleton
+let _manager: ElectronCookieManager | null = null
 
 export function getCookieManager(): CookieManager {
-  if (!_manager) {
-    _manager = new ChromiumCookieManager()
-  }
+  if (!_manager) _manager = new ElectronCookieManager()
   return _manager
 }
 
-// Quick init function for main.ts to call on startup
 export async function initCookieManager(): Promise<CookieRefreshResult> {
   const mgr = getCookieManager()
   await mgr.ensureInit()
-  // Return current status (don't block on OAuth — it's async)
   return {
     success: mgr.isReady(),
     cookieFile: mgr.getCookieFile(),
     cookies: mgr.getCookies(),
-    browser: 'chrome',
+    browser: 'electron',
   }
 }
 
 export function stopCookieManager(): void {
-  if (_manager) {
-    _manager.stopAutoRefresh()
-  }
+  _manager?.stopAutoRefresh()
 }

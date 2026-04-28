@@ -14,8 +14,7 @@ const SETTINGS_FILE = path.join(STORE_DIR, 'settings.json')
 interface AppSettingsStore {
   videoStoragePath?: string
   outputPath?: string
-  oauthClientId?: string
-  oauthClientSecret?: string
+  adminPasswordHash?: string
 }
 
 let _settings: AppSettingsStore | null = null
@@ -43,14 +42,6 @@ export function getConfiguredVideoStoragePath(): string | undefined {
 
 export function getConfiguredOutputPath(): string | undefined {
   return loadSettings().outputPath
-}
-
-export function getOAuthClientId(): string | undefined {
-  return loadSettings().oauthClientId
-}
-
-export function getOAuthClientSecret(): string | undefined {
-  return loadSettings().oauthClientSecret
 }
 
 export interface RamDiskInfo {
