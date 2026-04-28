@@ -1,10 +1,77 @@
 import fs from 'fs'
 import path from 'path'
+import os from 'os'
 
 // Persist data to %APPDATA%/HyperClip on Windows, ~/.hyperclip on Linux/Mac
 const APPDATA = process.env.APPDATA || process.env.HOME || process.cwd()
 const STORE_DIR = path.join(APPDATA, 'HyperClip')
 const STORE_FILE = path.join(STORE_DIR, 'workspaces.json')
+
+// Resolve a stored downloadedPath to an absolute filesystem path.
+// Cross-machine compatible: store only filename, resolve using current machine's storage dir.
+function resolveDownloadedPath(storedPath: string): string {
+  if (!storedPath) return ''
+  if (path.isAbsolute(storedPath)) return storedPath  // legacy: already absolute
+  // storedPath is just a filename — scan for it in known storage dirs
+  const found = findDownloadedFileByName(storedPath)
+  if (found) return found
+  // Fallback: construct from primary storage dir
+  return path.join(getVideoStorageDir(), storedPath)
+}
+
+// Find a file by filename across known storage directories.
+function findDownloadedFileByName(filename: string): string | null {
+  for (const dir of getKnownStorageDirs()) {
+    try {
+      const fullPath = path.join(dir, filename)
+      if (fs.existsSync(fullPath)) return fullPath
+    } catch {}
+  }
+  return null
+}
+
+// All directories that might contain downloaded video files.
+function getKnownStorageDirs(): string[] {
+  return [
+    // Primary: APPDATA/HyperClip/downloads
+    path.join(STORE_DIR, 'downloads'),
+    // Legacy temp path
+    path.join(os.tmpdir(), 'hyperclip-video'),
+    // RAM disk path (if used)
+    ...(isRamDiskAvailable() ? [getVideoStorageDir()] : []),
+  ]
+}
+
+// Get the primary video storage directory for this machine.
+// Duplicated from ramdisk.ts to avoid circular ESM dependency.
+function getVideoStorageDir(): string {
+  try {
+    // Check if RAM disk is available (ImDisk on R:\)
+    const ramDiskPath = process.platform === 'win32' ? 'R:\\hyperclip' : '/mnt/ramdisk/hyperclip'
+    if (fs.existsSync(ramDiskPath)) return ramDiskPath
+  } catch {}
+  // Fallback: APPDATA/HyperClip/downloads
+  return path.join(STORE_DIR, 'downloads')
+}
+
+function isRamDiskAvailable(): boolean {
+  try {
+    const ramDiskPath = process.platform === 'win32' ? 'R:\\hyperclip' : '/mnt/ramdisk/hyperclip'
+    return fs.existsSync(ramDiskPath)
+  } catch {
+    return false
+  }
+}
+
+// Extract just the filename from a downloadedPath for storage.
+// Cross-machine: only ever store the filename, never an absolute path.
+function makeStorableDownloadedPath(absPath: string): string {
+  if (!absPath) return ''
+  // Already just a filename
+  if (!path.isAbsolute(absPath)) return path.basename(absPath)
+  // Absolute → extract basename (filename only)
+  return path.basename(absPath)
+}
 const SUBS_FILE = path.join(STORE_DIR, 'subscriptions.json')
 const CHANNELS_FILE = path.join(STORE_DIR, 'channels.json')
 const SEEN_VIDEOS_FILE = path.join(STORE_DIR, 'seen-videos.json')
@@ -187,13 +254,45 @@ function saveStore(store: Store): void {
 
 // Get all workspaces
 export function getWorkspaces(): WorkspaceData[] {
-  return loadStore().workspaces
+  return loadStore().workspaces.map(resolveWorkspacePaths)
 }
 
 // Get workspace by ID
 export function getWorkspace(id: string): WorkspaceData | null {
   const store = loadStore()
-  return store.workspaces.find(ws => ws.id === id) || null
+  const ws = store.workspaces.find(ws => ws.id === id)
+  if (!ws) return null
+  return resolveWorkspacePaths(ws)
+}
+
+// Resolve relative downloadedPath → absolute, and scan for missing files.
+function resolveWorkspacePaths(ws: WorkspaceData): WorkspaceData {
+  if (!ws.downloadedPath) return ws
+  const absPath = resolveDownloadedPath(ws.downloadedPath)
+  if (fs.existsSync(absPath)) return { ...ws, downloadedPath: absPath }
+  // File not found at stored path — scan storage dirs for a file matching this workspaceId
+  const found = findDownloadedFile(ws.id)
+  return {
+    ...ws,
+    downloadedPath: found || absPath,  // use found path, or keep stored path (will be flagged as missing)
+  }
+}
+
+// Scan known storage directories for a file matching {workspaceId}_*.mp4
+function findDownloadedFile(workspaceId: string): string | null {
+  for (const dir of getKnownStorageDirs()) {
+    try {
+      if (!fs.existsSync(dir)) continue
+      const files = fs.readdirSync(dir).filter(f =>
+        (f.startsWith(workspaceId + '_') || f.startsWith(workspaceId + '.')) && f.endsWith('.mp4')
+      )
+      if (files.length > 0) {
+        console.log(`[store] Found file for ${workspaceId}: ${files[0]} (in ${dir})`)
+        return path.join(dir, files[0])
+      }
+    } catch {}
+  }
+  return null
 }
 
 // Add new workspace
@@ -222,14 +321,20 @@ export function updateWorkspace(id: string, patch: Partial<WorkspaceData>): Work
 
   if (idx === -1) return null
 
+  // Convert downloadedPath to filename before persisting (cross-machine compatible)
+  const normalizedPatch = { ...patch }
+  if (normalizedPatch.downloadedPath) {
+    normalizedPatch.downloadedPath = makeStorableDownloadedPath(normalizedPatch.downloadedPath)
+  }
+
   store.workspaces[idx] = {
     ...store.workspaces[idx],
-    ...patch,
+    ...normalizedPatch,
     updatedAt: new Date().toISOString(),
   }
 
   saveStore(store)
-  return store.workspaces[idx]
+  return resolveWorkspacePaths(store.workspaces[idx])
 }
 
 // Delete workspace
