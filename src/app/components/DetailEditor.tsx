@@ -102,6 +102,8 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
   const [videoDuration, setVideoDuration] = useState(0)
   const [isVideoReady, setIsVideoReady] = useState(false)
   const [videoNotAvailable, setVideoNotAvailable] = useState(false)
+  // Local thumbnail URL — extracted from downloaded video (replaces YouTube URLs which 404 for new uploads)
+  const [localThumbSrc, setLocalThumbSrc] = useState<string | null>(null)
 
   // Load video file when workspace changes
   useEffect(() => {
@@ -109,6 +111,7 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
       setVideoSrc('')
       setIsVideoReady(false)
       setVideoNotAvailable(false)
+      setLocalThumbSrc(null)
       return
     }
 
@@ -118,6 +121,7 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
     setIsPlaying(false)
     setCurrentTime(0)
     setVideoDuration(0)
+    setLocalThumbSrc(null)
 
     // Get video file URL from IPC
     ipc.getVideoFile(video.id).then(result => {
@@ -127,6 +131,13 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
         // No local file — use YouTube thumbnail as fallback
         setVideoSrc('')
         setVideoNotAvailable(true)
+      }
+    })
+
+    // Also try to load local thumbnail (extracted from downloaded video)
+    ipc.getImageFile(video.id).then(imgResult => {
+      if (imgResult?.dataUrl) {
+        setLocalThumbSrc(imgResult.dataUrl)
       }
     })
   }, [video?.id])
@@ -367,7 +378,8 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
                 />
               ) : videoNotAvailable ? (
                 <img
-                  src={video.thumbnail}
+                  // Prefer local thumbnail (extracted from video) over YouTube URL (may 404 for new uploads)
+                  src={localThumbSrc || video.thumbnail}
                   alt="video"
                   style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', pointerEvents: 'none' }}
                 />

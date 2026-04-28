@@ -130,6 +130,48 @@ export async function generateBlurBackground(
   return { success: true }
 }
 
+// ─── Thumbnail extraction ──────────────────────────────────────────────────────
+// Extract a single frame from a video file as JPEG thumbnail.
+// Used after download to replace YouTube thumbnail URLs (which 404 for new uploads).
+export async function extractVideoThumbnail(
+  videoPath: string,
+  outputPath: string,
+  seekTime = 5,
+): Promise<{ success: boolean; thumbnailPath?: string; error?: string }> {
+  const ffmpeg = getFfmpegPath()
+
+  return new Promise((resolve) => {
+    // Seek to ~5s (past intro, reliable frame)
+    const seekStr = `${Math.floor(seekTime / 3600)}:${String(Math.floor((seekTime % 3600) / 60)).padStart(2, '0')}:${String(seekTime % 60).padStart(2, '0')}`
+    const args = [
+      '-ss', seekStr,
+      '-i', videoPath,
+      '-vframes', '1',
+      '-vf', 'scale=320:-1:force_original_aspect_ratio=decrease',
+      '-q:v', '3',
+      '-y', outputPath,
+    ]
+
+    const cmd = buildArgs([ffmpeg, ...args])
+    const proc = spawn('cmd', ['/c', cmd], {
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stderr = ''
+    proc.stderr?.on('data', (d) => { stderr += d.toString() })
+    proc.on('close', (code) => {
+      if (code === 0 && fs.existsSync(outputPath)) {
+        resolve({ success: true, thumbnailPath: outputPath })
+      } else {
+        resolve({ success: false, error: `ffmpeg exit ${code}: ${stderr.slice(0, 200)}` })
+      }
+    })
+    setTimeout(() => {
+      if (!proc.killed) { proc.kill(); resolve({ success: false, error: 'timeout' }) }
+    }, 15_000)
+  })
+}
+
 // ─── Build filter complex for 3-zone layout ─────────────────────────────────────
 // Canvas: [0     - headerH-1] = Header (top 20%)
 //         [headerH - canvasH-titleH-1] = Video zone (middle 60%)

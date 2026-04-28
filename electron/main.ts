@@ -1,11 +1,11 @@
 import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, protocol } from 'electron'
 import path from 'path'
 import os from 'os'
+import fs from 'fs'
 import crypto from 'crypto'
 import { fileURLToPath } from 'url'
 import { spawn } from 'child_process'
 import http from 'http'
-import fs from 'fs'
 import zlib from 'zlib'
 import { URL } from 'url'
 import { IPC_CHANNELS } from './ipc/channels.js'
@@ -17,7 +17,7 @@ import {
   type WorkspaceData
 } from './services/store.js'
 import { downloadVideo, getVideoInfo, getChannelInfo, getChannelId, type YtdlpVideoInfo, type YtdlpChannelInfo } from './services/youtube.js'
-import { renderVideo, renderChunked, generateBlurBackground, cancelChunked, cancelAllChunked, type RenderMetadata, type RenderProgress, type ChunkConfig } from './services/ffmpeg.js'
+import { renderVideo, renderChunked, generateBlurBackground, extractVideoThumbnail, cancelChunked, cancelAllChunked, type RenderMetadata, type RenderProgress, type ChunkConfig } from './services/ffmpeg.js'
 import { cancelFfmpeg, cancelAllFfmpeg, getPoolStatus } from './services/worker-pool.js'
 import { getVideoStoragePath, getOutputPath, generateWorkspacePaths, cleanupWorkspace, ensureStorageDirs, loadSettings, saveSettings } from './services/ramdisk.js'
 import { createYouTubePoller, stopYouTubePoller, getYouTubePoller } from './services/youtube_poller.js'
@@ -185,18 +185,25 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
       console.log(`[Auto] Download success: ${title} → ${result.filePath}`)
       playSuccessBeep()
 
-      // Fetch real metadata from yt-dlp (thumbnail, real title)
+      // Step 1: Extract local thumbnail from downloaded video (replaces YouTube URL which 404 for new uploads)
+      const storagePath = getVideoStoragePath()
+      const thumbnailPath = path.join(storagePath, `thumb_${workspace.id}.jpg`)
+      const thumbResult = await extractVideoThumbnail(result.filePath, thumbnailPath)
+      console.log(`[Auto] Thumbnail: ${thumbResult.success ? 'extracted' : 'failed — ' + thumbResult.error}`)
+
+      // Fetch real metadata from yt-dlp (real title, duration — YouTube thumbnail may still 404)
       const videoInfo = await getVideoInfo('https://www.youtube.com/watch?v=' + videoId)
-      const realThumbnail = videoInfo?.thumbnail || `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`
       const realTitle = videoInfo?.title || title
       const realDuration = result.duration || videoInfo?.duration || 0
+      // Use local thumbnail if extracted, otherwise fall back to YouTube URL (may 404 for new uploads)
+      const localThumbnail = thumbResult.success ? 'local-video://' + thumbnailPath.replace(/\\/g, '/') : (videoInfo?.thumbnail || `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`)
 
       updateWorkspace(workspace.id, {
         status: 'ready',
         downloadedAt: new Date().toISOString(),
         downloadedPath: result.filePath,
         fileSize: result.fileSize || 0,
-        thumbnail: realThumbnail,
+        thumbnail: localThumbnail,
         videoTitle: realTitle,
         duration: realDuration,
       })
@@ -596,6 +603,27 @@ function sendNotification(type: 'success' | 'error' | 'warning' | 'info', messag
   })
 }
 
+// ─── Video File Resolution ─────────────────────────────────────────────────────
+// Scan known storage directories for a downloaded video file by workspaceId.
+function findDownloadedFileAbs(workspaceId: string): string | null {
+  const dirs = [
+    getVideoStoragePath(),           // primary: APPDATA/HyperClip/downloads or RAM disk
+    path.join(os.tmpdir(), 'hyperclip-video'),  // legacy temp path
+  ]
+  for (const dir of dirs) {
+    try {
+      if (!fs.existsSync(dir)) continue
+      const files = fs.readdirSync(dir).filter(f =>
+        (f.startsWith(workspaceId + '_') || f.startsWith(workspaceId + '.')) && f.endsWith('.mp4')
+      )
+      if (files.length > 0) {
+        return path.join(dir, files[0])
+      }
+    } catch {}
+  }
+  return null
+}
+
 // ─── IPC Handlers ─────────────────────────────────────────────────────────────
 async function registerIPCHandlers() {
   ipcMain.handle(IPC_CHANNELS.SYSTEM_STATS, async (): Promise<SystemStats> => {
@@ -736,7 +764,19 @@ async function registerIPCHandlers() {
       })
 
       if (result.success && result.filePath) {
-        // Step 1: Mark ready immediately after download (non-blocking)
+        // Step 1: Extract local thumbnail from downloaded video
+        const storagePath = getVideoStoragePath()
+        const thumbnailPath = path.join(storagePath, `thumb_${workspace.id}.jpg`)
+        extractVideoThumbnail(result.filePath, thumbnailPath).then((thumbResult) => {
+          if (thumbResult.success) {
+            const update = updateWorkspace(workspace.id, {
+              thumbnail: 'local-video://' + thumbnailPath.replace(/\\/g, '/'),
+            })
+            if (update) broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, update)
+          }
+        }).catch(() => {})
+
+        // Step 1b: Mark ready immediately after download
         const { blurPath } = generateWorkspacePaths(workspace.id)
         const initialUpdate = updateWorkspace(workspace.id, {
           status: 'ready',
@@ -862,32 +902,65 @@ async function registerIPCHandlers() {
   ipcMain.handle(IPC_CHANNELS.VIDEO_FILE, async (_, workspaceId: string): Promise<{ path: string; url: string } | null> => {
     const ws = getWorkspace(workspaceId)
     if (!ws || !ws.downloadedPath) return null
-    const normalizedPath = ws.downloadedPath.replace(/\\/g, '/')
-    if (!fs.existsSync(normalizedPath)) {
-      console.warn(`[VIDEO_FILE] file not found: ${ws.downloadedPath}`)
-      return null
+
+    // Resolve to absolute path: try stored path first, then scan known storage dirs
+    const normalizedStored = ws.downloadedPath.replace(/\\/g, '/')
+    let absPath = normalizedStored
+    if (!fs.existsSync(absPath)) {
+      // Not found at stored path — scan for it
+      const found = findDownloadedFileAbs(workspaceId)
+      if (found) {
+        absPath = found
+      } else {
+        console.warn(`[VIDEO_FILE] file not found: ${ws.downloadedPath}`)
+        return null
+      }
     }
-    // Use local-video:// protocol (registered in bootstrap) — required because
-    // Chromium blocks file:// URLs from http:// origins with contextIsolation:true.
-    // Convert backslashes to forward slashes so decodeURIComponent() returns a valid path.
-    const videoUrl = 'local-video://' + normalizedPath
-    return { path: ws.downloadedPath, url: videoUrl }
+
+    // Protocol needs forward slashes
+    const protocolPath = absPath.replace(/\\/g, '/')
+    // local-video:// protocol: the callback receives this path and decodes it
+    const videoUrl = 'local-video://' + protocolPath
+    return { path: absPath, url: videoUrl }
   })
 
   // Serve full video file as ArrayBuffer (for blob URL playback)
   ipcMain.handle(IPC_CHANNELS.VIDEO_BLOB, async (_, workspaceId: string): Promise<Uint8Array | null> => {
     const ws = getWorkspace(workspaceId)
     if (!ws || !ws.downloadedPath) return null
-    const normalizedPath = ws.downloadedPath.replace(/\\/g, '/')
-    if (!fs.existsSync(normalizedPath)) {
-      console.warn(`[VIDEO_BLOB] file not found: ${ws.downloadedPath}`)
-      return null
+    const normalizedStored = ws.downloadedPath.replace(/\\/g, '/')
+    let absPath = normalizedStored
+    if (!fs.existsSync(absPath)) {
+      const found = findDownloadedFileAbs(workspaceId)
+      if (found) absPath = found
+      else {
+        console.warn(`[VIDEO_BLOB] file not found: ${ws.downloadedPath}`)
+        return null
+      }
     }
     try {
-      const data = fs.readFileSync(normalizedPath)
+      const data = fs.readFileSync(absPath)
       return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
     } catch (err) {
       console.error(`[VIDEO_BLOB] read error: ${err}`)
+      return null
+    }
+  })
+
+  // Serve image file as base64 data URI (for <img> src — local-video:// doesn't work in img tags)
+  ipcMain.handle(IPC_CHANNELS.IMAGE_FILE, async (_, workspaceId: string): Promise<{ path: string; dataUrl: string } | null> => {
+    const storagePath = getVideoStoragePath()
+    const thumbPath = path.join(storagePath, `thumb_${workspaceId}.jpg`)
+    if (!fs.existsSync(thumbPath)) {
+      return null
+    }
+    try {
+      const data = fs.readFileSync(thumbPath)
+      return {
+        path: thumbPath,
+        dataUrl: `data:image/jpeg;base64,${data.toString('base64')}`,
+      }
+    } catch {
       return null
     }
   })

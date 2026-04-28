@@ -33,6 +33,7 @@ export interface ElectronAPI {
   retryWorkspace: (id: string) => Promise<unknown>
   getVideoFile: (workspaceId: string) => Promise<{ path: string; url: string } | null>
   getVideoBlob: (workspaceId: string) => Promise<Uint8Array | null>
+  getImageFile: (workspaceId: string) => Promise<{ path: string; dataUrl: string } | null>
   saveBlobToFile: (arrayBuffer: Uint8Array, filename: string) => Promise<{ diskPath: string } | null>
   startRender: (workspaceId: string, metadata: object) => Promise<unknown>
   startChunked: (workspaceId: string, metadata: object, config?: object) => Promise<ChunkedResult | null>

@@ -1,6 +1,8 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import type { Workspace } from '../../lib/store'
+import { ipc } from '../../lib/ipc'
 
 type WorkspaceStatus = 'waiting' | 'downloading' | 'ready' | 'editing' | 'rendering' | 'done' | 'error'
 
@@ -42,6 +44,29 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
   const cfg = STATUS_CONFIG[status]
   const isReady = status === 'ready'
   const isNew = (workspace as any)._isNew
+  const [thumbSrc, setThumbSrc] = useState<string>(workspace.thumbnail || '')
+
+  // Resolve local thumbnail when workspace.thumbnail is a local-video:// URL
+  useEffect(() => {
+    const thumb = workspace.thumbnail || ''
+    if (thumb.startsWith('local-video://')) {
+      // Already a local URL — use it directly
+      setThumbSrc(thumb)
+    } else if (!thumb) {
+      setThumbSrc('')
+    } else {
+      setThumbSrc(thumb)
+    }
+  }, [workspace.thumbnail])
+
+  // When thumbnail is a local-video:// URL (not loadable by <img>), fetch via IPC
+  useEffect(() => {
+    if (thumbSrc.startsWith('local-video://')) {
+      ipc.getImageFile(workspace.id).then(result => {
+        if (result?.dataUrl) setThumbSrc(result.dataUrl)
+      })
+    }
+  }, [thumbSrc, workspace.id])
 
   return (
     <div
@@ -83,7 +108,7 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
           }}
         >
           <img
-            src={workspace.thumbnail || 'https://via.placeholder.com/45x80/1A1A1A/333?text=?'}
+            src={thumbSrc || 'https://via.placeholder.com/45x80/1A1A1A/333?text=?'}
             alt=""
             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
             onError={(e) => {

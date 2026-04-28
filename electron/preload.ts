@@ -5,6 +5,8 @@ const IPC = {
   // Video file serving
   VIDEO_FILE: 'video:file',
   VIDEO_BLOB: 'video:blob',
+  // Image file serving (local thumbnails extracted from downloaded videos)
+  IMAGE_FILE: 'image:file',
   // Blob URL → disk path (for FFmpeg to read images)
   BLOB_SAVE: 'blob:save',
 
@@ -105,6 +107,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC.VIDEO_FILE, workspaceId) as Promise<{ path: string; url: string } | null>,
   getVideoBlob: (workspaceId: string) =>
     ipcRenderer.invoke(IPC.VIDEO_BLOB, workspaceId) as Promise<Uint8Array | null>,
+  getImageFile: (workspaceId: string) =>
+    ipcRenderer.invoke(IPC.IMAGE_FILE, workspaceId) as Promise<{ path: string; dataUrl: string } | null>,
   saveBlobToFile: (arrayBuffer: Uint8Array, filename: string) =>
     ipcRenderer.invoke(IPC.BLOB_SAVE, arrayBuffer, filename) as Promise<{ diskPath: string } | null>,
   updateWorkspace: (id: string, patch: Record<string, unknown>) =>

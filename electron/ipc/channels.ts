@@ -74,6 +74,9 @@ export const IPC_CHANNELS = {
   // Video blob serving (full file as blob URL for faster playback)
   VIDEO_BLOB: 'video:blob',
 
+  // Image file serving (for local thumbnails — replaces YouTube URLs which 404 for new uploads)
+  IMAGE_FILE: 'image:file',
+
   // Save blob URL to disk (for header/background images that FFmpeg needs to read)
   BLOB_SAVE: 'blob:save',
 
