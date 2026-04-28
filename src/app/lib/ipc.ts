@@ -43,6 +43,10 @@ export const ipc = {
   async getVideoFile(workspaceId: string) {
     return window.electronAPI?.getVideoFile(workspaceId) ?? null
   },
+  async getVideoBlob(workspaceId: string): Promise<Uint8Array | null> {
+    const result = await window.electronAPI?.getVideoBlob(workspaceId)
+    return result ?? null
+  },
   async saveBlobToFile(arrayBuffer: Uint8Array, filename: string) {
     return window.electronAPI?.saveBlobToFile(arrayBuffer, filename) ?? null
   },

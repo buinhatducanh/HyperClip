@@ -5,6 +5,7 @@ import { Video, EditorState, SystemStats } from '../types'
 import { BackgroundControls } from './editor/BackgroundControls'
 import { ExportPanel } from './editor/ExportPanel'
 import { TrimControls } from './editor/TrimControls'
+import { VideoPreloader } from './VideoPreloader'
 import { ipc } from '../lib/ipc'
 
 interface Props {
@@ -218,6 +219,9 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
 
   if (!video) return <EmptyState />
 
+  {/* Background preloader — pre-caches adjacent workspace videos */}
+  <VideoPreloader currentVideoId={video.id} />
+
   const isDark = editorState.canvasBg === 'black'
   const headerHeightPct = 20  // 20% of canvas — matches FFmpeg render: 1920 * 0.20 = ~384px
   const titleHeightPct = 20  // 20% of canvas — matches FFmpeg render
@@ -359,7 +363,7 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
                   onLoadedMetadata={handleVideoLoaded}
                   onEnded={() => { setIsPlaying(false); videoRef.current && (videoRef.current.currentTime = 0) }}
                   onWaiting={() => setIsPlaying(false)}
-                  preload="metadata"
+                  preload="auto"
                 />
               ) : videoNotAvailable ? (
                 <img

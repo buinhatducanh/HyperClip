@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 const IPC = {
   // Video file serving
   VIDEO_FILE: 'video:file',
+  VIDEO_BLOB: 'video:blob',
   // Blob URL → disk path (for FFmpeg to read images)
   BLOB_SAVE: 'blob:save',
 
@@ -102,6 +103,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getWorkspaces: () => ipcRenderer.invoke(IPC.WORKSPACE_LIST),
   getVideoFile: (workspaceId: string) =>
     ipcRenderer.invoke(IPC.VIDEO_FILE, workspaceId) as Promise<{ path: string; url: string } | null>,
+  getVideoBlob: (workspaceId: string) =>
+    ipcRenderer.invoke(IPC.VIDEO_BLOB, workspaceId) as Promise<Uint8Array | null>,
   saveBlobToFile: (arrayBuffer: Uint8Array, filename: string) =>
     ipcRenderer.invoke(IPC.BLOB_SAVE, arrayBuffer, filename) as Promise<{ diskPath: string } | null>,
   updateWorkspace: (id: string, patch: Record<string, unknown>) =>

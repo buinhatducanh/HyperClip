@@ -865,9 +865,28 @@ async function registerIPCHandlers() {
       console.warn(`[VIDEO_FILE] file not found: ${ws.downloadedPath}`)
       return null
     }
-    // Electron renderer supports file:// URLs directly — no custom protocol needed.
-    const videoUrl = 'file:///' + ws.downloadedPath.replace(/\\/g, '/')
+    // Use local-video:// protocol (registered in bootstrap) — required because
+    // Chromium blocks file:// URLs from http:// origins with contextIsolation:true.
+    // Keep backslashes for Windows — protocol handler decodes correctly.
+    const videoUrl = 'local-video://' + ws.downloadedPath
     return { path: ws.downloadedPath, url: videoUrl }
+  })
+
+  // Serve full video file as ArrayBuffer (for blob URL playback)
+  ipcMain.handle(IPC_CHANNELS.VIDEO_BLOB, async (_, workspaceId: string): Promise<Uint8Array | null> => {
+    const ws = getWorkspace(workspaceId)
+    if (!ws || !ws.downloadedPath) return null
+    if (!fs.existsSync(ws.downloadedPath)) {
+      console.warn(`[VIDEO_BLOB] file not found: ${ws.downloadedPath}`)
+      return null
+    }
+    try {
+      const data = fs.readFileSync(ws.downloadedPath)
+      return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+    } catch (err) {
+      console.error(`[VIDEO_BLOB] read error: ${err}`)
+      return null
+    }
   })
 
   // Save binary data from renderer to disk. Renderer sends Uint8Array (converted from File.arrayBuffer()).

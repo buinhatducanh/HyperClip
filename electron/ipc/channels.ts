@@ -71,6 +71,8 @@ export const IPC_CHANNELS = {
 
   // Video file serving (for HTML5 video player preview)
   VIDEO_FILE: 'video:file',
+  // Video blob serving (full file as blob URL for faster playback)
+  VIDEO_BLOB: 'video:blob',
 
   // Save blob URL to disk (for header/background images that FFmpeg needs to read)
   BLOB_SAVE: 'blob:save',
