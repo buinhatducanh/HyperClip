@@ -72,6 +72,11 @@ export interface ElectronAPI {
     lastNewVideosAt: number | null; cookiesReady: boolean
     videoCount: number; newVideoCount: number; lastError: string | null
   } | null>
+  // Project management
+  getProjects: () => Promise<unknown[]>
+  addProject: (data: { projectId: string; clientId: string; clientSecret: string; apiKey: string; apiKeyName?: string }) => Promise<{ success: boolean; projectId: string; error?: string }>
+  removeProject: (projectId: string) => Promise<{ success: boolean }>
+  resetProjectQuota: (projectId: string) => Promise<{ success: boolean }>
 }
 
 declare global {

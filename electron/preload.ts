@@ -61,6 +61,12 @@ const IPC = {
   KEY_REMOVE: 'key:remove',
   KEY_RESET: 'key:reset',
 
+  // Dynamic projects
+  PROJECT_LIST: 'project:list',
+  PROJECT_ADD: 'project:add',
+  PROJECT_REMOVE: 'project:remove',
+  PROJECT_RESET_QUOTA: 'project:reset-quota',
+
   // Admin password
   ADMIN_CHECK_PASSWORD: 'admin:check-password',
   ADMIN_SET_PASSWORD: 'admin:set-password',
@@ -242,6 +248,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC.KEY_REMOVE, key) as Promise<{ success: boolean; keys: unknown[] }>,
   resetKey: (key?: string) =>
     ipcRenderer.invoke(IPC.KEY_RESET, key) as Promise<{ success: boolean; keys: unknown[] }>,
+
+  // Dynamic projects
+  getProjects: () =>
+    ipcRenderer.invoke(IPC.PROJECT_LIST) as Promise<unknown[]>,
+  addProject: (data: { projectId: string; clientId: string; clientSecret: string; apiKey: string; apiKeyName?: string }) =>
+    ipcRenderer.invoke(IPC.PROJECT_ADD, data) as Promise<{ success: boolean; projectId: string; error?: string }>,
+  removeProject: (projectId: string) =>
+    ipcRenderer.invoke(IPC.PROJECT_REMOVE, projectId) as Promise<{ success: boolean }>,
+  resetProjectQuota: (projectId: string) =>
+    ipcRenderer.invoke(IPC.PROJECT_RESET_QUOTA, projectId) as Promise<{ success: boolean }>,
 
   // Admin password
   adminCheckPassword: (password: string) =>

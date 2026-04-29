@@ -59,12 +59,16 @@ class TokenManager {
   private _stats: Map<string, TokenStats> = new Map()
   private _lastReset: number = Date.now()
   private _initialized: boolean = false
+  private _refreshTimer: ReturnType<typeof setInterval> | null = null
 
   constructor() {
     this._loadTokens()
     this._loadStats()
     this._checkReset()
     this._initialized = true
+    // Proactive refresh: check every 30 min + once at startup (after tokens loaded)
+    this._refreshTimer = setInterval(() => { this._proactiveRefresh() }, 30 * 60 * 1000)
+    setTimeout(() => { this._proactiveRefresh() }, 5000)
   }
 
   // ── Load / Persist ────────────────────────────────────────────────────────
@@ -167,6 +171,49 @@ class TokenManager {
       this._lastReset = Date.now()
       this._saveStats()
       console.log('[TokenManager] Daily reset — all token quotas refreshed')
+    }
+  }
+
+  /**
+   * Proactively refresh tokens expiring within 30 minutes.
+   * Runs at startup (5s delay) and every 30 minutes.
+   * Logs each refresh result — warns if ALL tokens fail.
+   */
+  private async _proactiveRefresh(): Promise<void> {
+    if (this._tokens.length === 0) return
+
+    const now = Date.now()
+    const EXPIRY_THRESHOLD_MS = 30 * 60 * 1000 // 30 min
+
+    const expiring = this._tokens.filter(t => t.expires_at - now < EXPIRY_THRESHOLD_MS)
+    if (expiring.length === 0) return
+
+    console.log(`[TokenManager] Proactive refresh: ${expiring.length}/${this._tokens.length} tokens expiring soon`)
+
+    const results = await Promise.allSettled(
+      expiring.map(async (t) => {
+        const refreshed = await this.refreshToken(t)
+        if (!refreshed) {
+          this.recordError(t.projectId)
+          // If token is permanently bad (too many errors), remove it
+          const s = this._stats.get(t.projectId)
+          if (s && s.errors >= MAX_ERRORS) {
+            this.removeToken(t.projectId)
+            console.warn(`[TokenManager] Token ${t.projectId} permanently removed after ${MAX_ERRORS} refresh failures`)
+          }
+          return null
+        }
+        const idx = this._tokens.findIndex(x => x.projectId === t.projectId)
+        if (idx !== -1) this._tokens[idx] = refreshed
+        this._saveTokens()
+        console.log(`[TokenManager] Proactive refresh OK: ${t.projectId} (expires ${new Date(refreshed.expires_at).toISOString()})`)
+        return refreshed
+      })
+    )
+
+    const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && r.value === null))
+    if (failed.length > 0) {
+      console.warn(`[TokenManager] Proactive refresh: ${failed.length} token(s) failed — will retry on next poll`)
     }
   }
 
@@ -367,6 +414,14 @@ class TokenManager {
     this._lastReset = Date.now()
     this._saveStats()
     console.log('[TokenManager] Reset all token quotas')
+  }
+
+  /** Stop background timer — call on app quit */
+  dispose(): void {
+    if (this._refreshTimer) {
+      clearInterval(this._refreshTimer)
+      this._refreshTimer = null
+    }
   }
 
   getTokenCount(): number {

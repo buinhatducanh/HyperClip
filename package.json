@@ -57,11 +57,13 @@
     "lucide-react": "0.487.0",
     "motion": "12.23.24",
     "next": "^14.2.35",
+    "react": "^18.3.1",
     "react-day-picker": "8.10.1",
     "react-dnd": "16.0.1",
     "react-dnd-html5-backend": "16.0.1",
+    "react-dom": "^18.3.1",
     "react-hook-form": "7.55.0",
-    "react-konva": "^19.2.3",
+    "react-konva": "^18.2.10",
     "react-popper": "2.3.0",
     "react-resizable-panels": "2.1.7",
     "react-responsive-masonry": "2.7.1",
@@ -88,18 +90,7 @@
     "vite": "6.3.5",
     "wait-on": "^9.0.5"
   },
-  "peerDependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    },
-    "react-dom": {
-      "optional": true
-    }
-  },
+  "peerDependencies": {},
   "pnpm": {
     "overrides": {
       "vite": "6.3.5"

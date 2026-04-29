@@ -144,4 +144,22 @@ export const ipc = {
   async getPollerStatus(): Promise<{ active: boolean; lastPollAt: number | null; newVideoCount: number; lastError: string | null } | null> {
     return window.electronAPI?.getPollerStatus() ?? null
   },
+
+  // ─── Project Management ──────────────────────────────────────────────────────
+
+  async getProjects() {
+    return window.electronAPI?.getProjects() ?? []
+  },
+
+  async addProject(data: { projectId: string; clientId: string; clientSecret: string; apiKey: string; apiKeyName?: string }) {
+    return window.electronAPI?.addProject(data) ?? { success: false, error: 'electronAPI not available' }
+  },
+
+  async removeProject(projectId: string) {
+    return window.electronAPI?.removeProject(projectId) ?? { success: false }
+  },
+
+  async resetProjectQuota(projectId: string) {
+    return window.electronAPI?.resetProjectQuota(projectId) ?? { success: false }
+  },
 }

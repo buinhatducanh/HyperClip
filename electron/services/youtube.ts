@@ -419,7 +419,6 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
     let fileSize = 0
     try { fileSize = fs.statSync(existingFile).size } catch {}
     console.log(`[yt-dlp] File already exists: ${existingFile} (${fileSize} bytes) — skipping download`)
-    // Get duration
     let duration = 0
     try {
       const ffprobePath = getFfprobePath()
@@ -429,194 +428,154 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
     return { success: true, workspaceId, filePath: existingFile, duration, fileSize }
   }
 
-  const outputTemplate = path.join(outputDir, `${workspaceId}_%(id)s.%(ext)s`)
-
-  const args: string[] = [
-    // URL FIRST — Windows spawn can drop the last arg in some edge cases
-    videoUrl,
-    ...getJsRuntimeArgs(),
-    '-f', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-    '--output', outputTemplate,
-    '--no-playlist',
-    '--merge-output-format', 'mp4',
-    '--newline',
-  ]
-
-  // Trim limit: download only first N seconds
+  // Map trimLimit to section range in HH:MM:SS
+  // Use explicit format — "*0-600" (seconds) was misinterpreted by yt-dlp
+  let sectionArg: string | null = null
   if (trimLimit === '5min') {
-    args.push('--download-sections', '*0-300')
+    sectionArg = '*00:00:00-00:05:00'
   } else if (trimLimit === '10min') {
-    args.push('--download-sections', '*0-600')
+    sectionArg = '*00:00:00-00:10:00'
   }
-  // 'full' = no trim, download entire video
+  // 'full' = null (download entire video)
 
-  // Build ffmpeg-enriched PATH
-  const ffmpegPath = getFfmpegPath()
-  const ffmpegDir = path.dirname(ffmpegPath)
-  const ytDlpDir = path.dirname(ytdlp)
-  const enrichedPath = ffmpegDir + path.delimiter + ytDlpDir + path.delimiter + (process.env.PATH || '')
-  console.log(`[yt-dlp] ffmpeg path: ${ffmpegPath}`)
-  console.log(`[yt-dlp] ffmpeg exists: ${fs.existsSync(ffmpegPath)}`)
-  console.log(`[yt-dlp] ffmpeg dir: ${ffmpegDir}`)
-  console.log(`[yt-dlp] PATH dirs (first 5):`, (process.env.PATH || '').split(path.delimiter).slice(0, 5))
-  console.log(`[yt-dlp] Spawning: "${ytdlp}"`)
-  console.log(`[yt-dlp] Args (${args.length}):`, args)
+  // Core download: spawns yt-dlp with given extra args, resolves with result
+  const doDownload = (extraArgs: string[]): Promise<DownloadResult> => {
+    const outputTemplate = path.join(outputDir, `${workspaceId}_%(id)s.%(ext)s`)
 
-  return new Promise((resolve) => {
-    let stdout = ''
-    let stderr = ''
-    let downloadedFile = ''
-    let lastProgress: DownloadProgress | null = null
-    let procStarted = false
+    const args: string[] = [
+      videoUrl,
+      ...getJsRuntimeArgs(),
+      '-f', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+      '--output', outputTemplate,
+      '--no-playlist',
+      '--merge-output-format', 'mp4',
+      '--newline',
+      ...extraArgs,
+    ]
 
-    const proc = spawn(ytdlp, args, {
-      env: {
-        ...process.env,
-        PATH: enrichedPath,
-      },
-    })
+    // Build ffmpeg-enriched PATH
+    const ffmpegPath = getFfmpegPath()
+    const ffmpegDir = path.dirname(ffmpegPath)
+    const ytDlpDir = path.dirname(ytdlp)
+    const enrichedPath = ffmpegDir + path.delimiter + ytDlpDir + path.delimiter + (process.env.PATH || '')
+    console.log(`[yt-dlp] Spawning: "${ytdlp}"`)
+    console.log(`[yt-dlp] Args:`, args)
 
-    proc.on('error', (err) => {
-      console.error(`[yt-dlp] spawn error: ${err.message} — path: ${ytdlp}`)
-      resolve({ success: false, workspaceId, error: `spawn error: ${err.message}` })
-    })
+    return new Promise((resolve) => {
+      let stdout = ''
+      let stderr = ''
+      let downloadedFile = ''
+      let procStarted = false
 
-    proc.stdout?.on('data', (data) => {
-      const text = data.toString()
-      stdout += text
+      const proc = spawn(ytdlp, args, {
+        env: { ...process.env, PATH: enrichedPath },
+      })
 
-      // Parse progress: [download]   0.1% of   45.23M at   12.5MiB/s ETA 00:05
-      const progressMatch = text.match(/(\d+\.?\d*)%.*at\s+([\d.]+\w+)\s+ETA\s+([\d:]+)/)
-      const destMatch = text.match(/Destination:\s+(.+)/)
-      const mergeMatch = text.match(/Merging formats into "(.+)"/)
-      const errorMatch = text.match(/ERROR.*?:?\s*(.+)/)
+      proc.on('error', (err) => {
+        resolve({ success: false, workspaceId, error: `spawn error: ${err.message}` })
+      })
 
-      if (progressMatch) {
-        if (!procStarted) { console.log(`[yt-dlp] Download started!`); procStarted = true }
-        lastProgress = {
-          workspaceId,
-          percent: parseFloat(progressMatch[1]),
-          speed: progressMatch[2],
-          eta: progressMatch[3],
-          downloaded: '',
-          total: '',
+      proc.stdout?.on('data', (data) => {
+        const text = data.toString()
+        stdout += text
+        const progressMatch = text.match(/(\d+\.?\d*)%.*at\s+([\d.]+\w+)\s+ETA\s+([\d:]+)/)
+        const destMatch = text.match(/Destination:\s+(.+)/)
+        const mergeMatch = text.match(/Merging formats into "(.+)"/)
+        const errorMatch = text.match(/ERROR.*?:?\s*(.+)/)
+
+        if (progressMatch) {
+          if (!procStarted) { console.log(`[yt-dlp] Download started!`); procStarted = true }
+          onProgress?.({
+            workspaceId,
+            percent: parseFloat(progressMatch[1]),
+            speed: progressMatch[2],
+            eta: progressMatch[3],
+            downloaded: '',
+            total: '',
+          })
+        } else if (destMatch) {
+          console.log(`[yt-dlp] Dest: ${destMatch[1].trim()}`)
+        } else if (mergeMatch) {
+          downloadedFile = mergeMatch[1]
+          console.log(`[yt-dlp] Merged to: ${downloadedFile}`)
+        } else if (errorMatch) {
+          stderr += errorMatch[1] + '\n'
         }
-        onProgress?.(lastProgress)
-      } else if (destMatch) {
-        console.log(`[yt-dlp] Destination: ${destMatch[1].trim()}`)
-      } else if (mergeMatch) {
-        downloadedFile = mergeMatch[1]
-        console.log(`[yt-dlp] Merged to: ${downloadedFile}`)
-      } else if (errorMatch) {
-        stderr += errorMatch[1] + '\n'
-        console.error(`[yt-dlp] ERROR: ${errorMatch[1]}`)
-      }
-    })
+      })
 
-    proc.stderr?.on('data', (data) => {
-      const text = data.toString()
-      stderr += text
+      proc.stderr?.on('data', (data) => {
+        const text = data.toString()
+        stderr += text
+        const destMatch = text.match(/\[download\]\s+Destination:\s+(.+)/)
+        if (destMatch && !downloadedFile) downloadedFile = destMatch[1].trim()
+        const mergeMatch = text.match(/\[download\] Merging formats into "(.+)"/)
+        if (mergeMatch) downloadedFile = mergeMatch[1]
+      })
 
-      // Parse [download] Dest: /path/to/file.mp4
-      const destMatch = text.match(/\[download\]\s+Destination:\s+(.+)/)
-      if (destMatch && !downloadedFile) {
-        downloadedFile = destMatch[1].trim()
-        console.log(`[yt-dlp] Dest (stderr): ${downloadedFile}`)
-      }
+      // Timeout: 5 min for section download (much faster), 30 min for full download
+      const timeout = extraArgs.length > 0 ? 5 * 60 * 1000 : 30 * 60 * 1000
+      const timer = setTimeout(() => {
+        if (!proc.killed) proc.kill()
+        resolve({ success: false, workspaceId, error: 'Download timeout' })
+      }, timeout)
 
-      // Final merge
-      const mergeMatch = text.match(/\[download\] Merging formats into "(.+)"/)
-      if (mergeMatch) {
-        downloadedFile = mergeMatch[1]
-        console.log(`[yt-dlp] Merge (stderr): ${downloadedFile}`)
-      }
+      proc.on('close', (code) => {
+        clearTimeout(timer)
+        console.log(`[yt-dlp] Closed code=${code}, file="${downloadedFile}"`)
 
-      // Error detection
-      if (text.includes('ERROR') && !text.includes('WARNING')) {
-        console.error(`[yt-dlp] STDERR ERROR: ${text.trim()}`)
-      }
-    })
+        if (stderr.length > 0) {
+          const lines = stderr.trim().split('\n').slice(0, 10)
+          console.log(`[yt-dlp] stderr: ${lines.join(' | ')}`)
+        }
 
-    proc.on('close', (code) => {
-      console.log(`[yt-dlp] Closed with code ${code}, downloadedFile: "${downloadedFile}", stderr chars: ${stderr.length}`)
+        // Fallback: scan for file by workspaceId pattern
+        if (!downloadedFile) {
+          try {
+            const files = fs.readdirSync(outputDir)
+            const match = files.find(f => f.startsWith(workspaceId + '_') && f.endsWith('.mp4'))
+            if (match) downloadedFile = path.join(outputDir, match)
+          } catch {}
+        }
 
-      // Print first 20 lines of stderr for debugging
-      if (stderr.length > 0) {
-        const lines = stderr.trim().split('\n').slice(0, 20)
-        console.log(`[yt-dlp] stderr (first ${lines.length} lines):`)
-        lines.forEach(l => console.log(`  | ${l}`))
-      }
+        const isFatalError = code !== 0 && code !== 2
+        if (isFatalError || !downloadedFile) {
+          const errorLines = stderr.trim().split('\n').filter(l => l.includes('ERROR'))
+          resolve({ success: false, workspaceId, error: errorLines.join(' | ') || `yt-dlp code ${code}` })
+          return
+        }
 
-      // Fallback: search for any file matching workspaceId pattern in output dir
-      if (!downloadedFile && outputDir) {
+        let fileSize = 0
+        try { fileSize = fs.statSync(downloadedFile).size } catch {}
+
+        let duration = 0
         try {
-          const files = fs.readdirSync(outputDir)
-          const match = files.find(f => f.startsWith(workspaceId + '_') && f.endsWith('.mp4'))
-          if (match) {
-            downloadedFile = path.join(outputDir, match)
-            console.log(`[yt-dlp] Found file via fallback scan: ${downloadedFile}`)
-          }
+          const ffprobePath = getFfprobePath()
+          const out = execSync(`"${ffprobePath}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${downloadedFile}"`, { encoding: 'utf-8', timeout: 10000 })
+          duration = Math.floor(parseFloat(out.trim()))
         } catch {}
-      }
 
-      // yt-dlp exit codes: 0=success, 1=error, 2=warning (non-critical), else=error
-      const isFatalError = code !== 0 && code !== 2
-      if (isFatalError || !downloadedFile) {
-        const errorLines = stderr.trim().split('\n').filter(l => l.includes('ERROR'))
-        const errorMsg = errorLines.join(' | ') || `yt-dlp exited with code ${code}`
-        console.error(`[yt-dlp] Download FAILED: ${errorMsg}`)
-        resolve({
-          success: false,
-          workspaceId,
-          error: errorMsg,
-        })
-        return
-      }
-
-      // Get file info
-      let fileSize = 0
-      try {
-        const stat = fs.statSync(downloadedFile)
-        fileSize = stat.size
-        console.log(`[yt-dlp] File size: ${fileSize} bytes`)
-      } catch (e) {
-        console.error(`[yt-dlp] Could not stat file: ${e}`)
-      }
-
-      // Get duration using ffprobe
-      let duration = 0
-      try {
-        const ffprobePath = getFfprobePath()
-        const out = execSync(
-          `"${ffprobePath}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${downloadedFile}"`,
-          { encoding: 'utf-8', timeout: 10000 }
-        )
-        duration = Math.floor(parseFloat(out.trim()))
-      } catch (e) {
-        console.warn(`[yt-dlp] ffprobe failed: ${e}`)
-      }
-
-      console.log(`[yt-dlp] Download SUCCESS: ${downloadedFile} (${duration}s, ${fileSize} bytes)`)
-      resolve({
-        success: true,
-        workspaceId,
-        filePath: downloadedFile,
-        duration,
-        fileSize,
+        resolve({ success: true, workspaceId, filePath: downloadedFile, duration, fileSize })
       })
     })
+  }
 
-    // Timeout after 30 minutes
-    setTimeout(() => {
-      if (!proc.killed) {
-        proc.kill()
-        resolve({
-          success: false,
-          workspaceId,
-          error: 'Download timeout (30 min)',
-        })
+  // Step 1: try section download (fast — downloads only needed portion)
+  if (sectionArg) {
+    const sectionResult = await doDownload(['--download-sections', sectionArg])
+    if (sectionResult.success && sectionResult.filePath) {
+      // Verify: file must be > 100KB (corrupt/invalid section download = tiny file)
+      if (sectionResult.fileSize && sectionResult.fileSize > 100_000) {
+        console.log(`[yt-dlp] Section download OK: ${sectionResult.filePath} (${sectionResult.fileSize} bytes)`)
+        return sectionResult
       }
-    }, 30 * 60 * 1000)
-  })
-}
+      // Suspiciously small — section download may have produced corrupt output
+      console.warn(`[yt-dlp] Section produced tiny file (${sectionResult.fileSize} bytes) — retrying full`)
+    } else {
+      console.warn(`[yt-dlp] Section download failed: ${sectionResult.error} — retrying full`)
+    }
+  }
 
+  // Step 2: fallback to full download (covers section-parse failures + 'full' trim limit)
+  console.log('[yt-dlp] Falling back to full download...')
+  return doDownload([])
+}

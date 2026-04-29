@@ -86,6 +86,12 @@ export const IPC_CHANNELS = {
   KEY_REMOVE: 'key:remove',
   KEY_RESET: 'key:reset',
 
+  // Dynamic project management (OAuth + API key per project)
+  PROJECT_LIST: 'project:list',
+  PROJECT_ADD: 'project:add',
+  PROJECT_REMOVE: 'project:remove',
+  PROJECT_RESET_QUOTA: 'project:reset-quota',
+
   // Admin password
   ADMIN_CHECK_PASSWORD: 'admin:check-password',
   ADMIN_SET_PASSWORD: 'admin:set-password',

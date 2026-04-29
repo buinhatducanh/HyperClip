@@ -47,6 +47,10 @@ let nextServerOwned = false // did WE spawn the Next.js server?
 // Concurrency controlled by worker-pool (max 2 concurrent FFmpeg processes).
 // The render queue here is for job ordering and user-level queue management.
 
+// ─── In-flight auto-download retries ──────────────────────────────────────────
+// Prevents multiple concurrent retry attempts for the same workspace
+const inProgressAutoRetries: Set<string> = new Set()
+
 const renderQueue: Array<{
   workspaceId: string
   metadata: RenderMetadata
@@ -124,23 +128,31 @@ export function startYouTubePoller(
 // ─── Auto-download from new video detected by poller ────────────────────────────
 async function autoDownloadFromWebSub(videoId: string, channelId: string, channelName: string, title: string) {
   try {
-    // Prevent duplicate workspaces: if workspace for this video already exists, skip
+    const storagePath = getVideoStoragePath()
+    ensureStorageDirs()
+
+    // Check if workspace already exists for this video
     const existingWorkspaces = getWorkspaces()
     const existing = existingWorkspaces.find(ws => ws.videoId === videoId)
+
+    // Mark as seen to prevent duplicate detection
+    markVideoSeen(channelId, videoId)
+
     if (existing) {
-      console.log(`[Poll] Workspace already exists for ${videoId} (status: ${existing.status}) — skipping`)
+      // Retry 'waiting' or 'error' workspaces — they failed to download before
+      if ((existing.status === 'waiting' || existing.status === 'error') && !inProgressAutoRetries.has(existing.id)) {
+        console.log(`[Poll] Retrying existing workspace ${existing.id} (${existing.status}): ${title}`)
+        await retryAutoDownload(existing)
+        return
+      }
+      // 'downloading', 'rendering', 'done' — or already in progress — skip
+      console.log(`[Poll] Workspace ${existing.id} already ${existing.status} — skipping`)
       return
     }
-
-    // Mark as seen immediately to prevent retries on app restart if download fails
-    markVideoSeen(channelId, videoId)
 
     const finalChannelName = channelName || getSubscription(channelId)?.channelName || 'Unknown Channel'
     const detectedAt = new Date().toISOString()
     console.log(`[Poll] Auto-downloading: ${title} (${videoId}) from ${finalChannelName}`)
-
-    const storagePath = getVideoStoragePath()
-    ensureStorageDirs()
 
     const workspace = addWorkspace({
       channelId,
@@ -166,6 +178,7 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
     broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, workspace)
     sendNotification('info', `Auto: ${finalChannelName} — ${title}`, workspace.id)
     console.log(`[Auto] Starting download: ${workspace.id} → ${'https://www.youtube.com/watch?v=' + videoId}`)
+
     const result = await downloadVideo({
       workspaceId: workspace.id,
       videoUrl: 'https://www.youtube.com/watch?v=' + videoId,
@@ -185,18 +198,18 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
       console.log(`[Auto] Download success: ${title} → ${result.filePath}`)
       playSuccessBeep()
 
-      // Step 1: Extract local thumbnail from downloaded video (replaces YouTube URL which 404 for new uploads)
-      const storagePath = getVideoStoragePath()
+      // Extract local thumbnail from downloaded video (YouTube thumbnail may 404 for fresh uploads)
       const thumbnailPath = path.join(storagePath, `thumb_${workspace.id}.jpg`)
       const thumbResult = await extractVideoThumbnail(result.filePath, thumbnailPath)
       console.log(`[Auto] Thumbnail: ${thumbResult.success ? 'extracted' : 'failed — ' + thumbResult.error}`)
 
-      // Fetch real metadata from yt-dlp (real title, duration — YouTube thumbnail may still 404)
+      // Fetch real metadata from yt-dlp
       const videoInfo = await getVideoInfo('https://www.youtube.com/watch?v=' + videoId)
       const realTitle = videoInfo?.title || title
       const realDuration = result.duration || videoInfo?.duration || 0
-      // Use local thumbnail if extracted, otherwise fall back to YouTube URL (may 404 for new uploads)
-      const localThumbnail = thumbResult.success ? 'local-video://' + thumbnailPath.replace(/\\/g, '/') : (videoInfo?.thumbnail || `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`)
+      const localThumbnail = thumbResult.success
+        ? 'local-video:///' + thumbnailPath.replace(/\\/g, '/')
+        : (videoInfo?.thumbnail || `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`)
 
       updateWorkspace(workspace.id, {
         status: 'ready',
@@ -221,20 +234,100 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
       broadcast(IPC_CHANNELS.AUTO_DOWNLOAD_EVENT, { videoId, title: realTitle, channelName: finalChannelName, detectedAt })
       showWindowsToast('✅ Download xong!', `${realTitle}`)
     } else {
-      // Permanent failure: "not available" means video is gone — don't retry
+      // Permanent failure → error, retryable failure → waiting
       const errorMsg = result.error || ''
       const isNotAvailable = errorMsg.includes('not available') || errorMsg.includes('Video unavailable')
       if (isNotAvailable) {
         updateWorkspace(workspace.id, { status: 'error' })
-        console.log(`[Auto] Video permanently unavailable: ${title} (${videoId}) — skipped`)
+        console.log(`[Auto] Video permanently unavailable: ${title} (${videoId})`)
       } else {
-        // Retryable error (network, ffmpeg, etc.) — keep in waiting for next poll
         updateWorkspace(workspace.id, { status: 'waiting' })
+        console.log(`[Auto] Download failed (retryable): ${result.error} — status → waiting`)
         sendNotification('error', `Auto-download failed: ${result.error}`, workspace.id)
       }
     }
   } catch (err) {
     console.error('[Poll] Auto-download error:', err)
+  }
+}
+
+/**
+ * Retry downloading an existing workspace that is 'waiting' or 'error'.
+ * Used when the poller detects a video we already have a workspace for.
+ */
+async function retryAutoDownload(ws: WorkspaceData): Promise<void> {
+  if (!['waiting', 'error'].includes(ws.status)) return
+  if (inProgressAutoRetries.has(ws.id)) return
+
+  inProgressAutoRetries.add(ws.id)
+  try {
+    await doRetryAutoDownload(ws)
+  } finally {
+    inProgressAutoRetries.delete(ws.id)
+  }
+}
+
+async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
+  const storagePath = getVideoStoragePath()
+  const videoUrl = ws.videoUrl || (ws.videoId ? `https://www.youtube.com/watch?v=${ws.videoId}` : null)
+  if (!videoUrl) {
+    console.warn(`[Retry] No URL for workspace ${ws.id}`)
+    return
+  }
+
+  updateWorkspace(ws.id, { status: 'downloading', downloadProgress: 0 })
+  broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
+
+  const result = await downloadVideo({
+    workspaceId: ws.id,
+    videoUrl,
+    outputDir: storagePath,
+    trimLimit: ws.trimLimit || '10min',
+    onProgress: (progress) => {
+      broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
+        workspaceId: ws.id,
+        percent: progress.percent,
+        speed: progress.speed,
+        eta: progress.eta,
+      })
+    },
+  })
+
+  if (result.success && result.filePath) {
+    const thumbPath = path.join(storagePath, `thumb_${ws.id}.jpg`)
+    const thumbResult = await extractVideoThumbnail(result.filePath, thumbPath)
+    const videoInfo = await getVideoInfo(videoUrl)
+    const localThumbnail = thumbResult.success
+      ? 'local-video:///' + thumbPath.replace(/\\/g, '/')
+      : (videoInfo?.thumbnail || `https://img.youtube.com/vi/${ws.videoId}/mqdefault.jpg`)
+
+    updateWorkspace(ws.id, {
+      status: 'ready',
+      downloadedAt: new Date().toISOString(),
+      downloadedPath: result.filePath,
+      fileSize: result.fileSize || 0,
+      thumbnail: localThumbnail,
+      videoTitle: videoInfo?.title || ws.videoTitle,
+      duration: result.duration || videoInfo?.duration || 0,
+    })
+    broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
+
+    const { blurPath } = generateWorkspacePaths(ws.id)
+    const blurResult = await generateBlurBackground(result.filePath, blurPath)
+    updateWorkspace(ws.id, { status: 'ready', blurBackgroundPath: blurResult.success ? blurPath : '' })
+    broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
+    sendNotification('success', `Auto-ready (retry): ${ws.videoTitle}`, ws.id)
+    showWindowsToast('✅ Retry xong!', `${ws.videoTitle}`)
+  } else {
+    const errorMsg = result.error || ''
+    const isNotAvailable = errorMsg.includes('not available') || errorMsg.includes('Video unavailable')
+    if (isNotAvailable) {
+      updateWorkspace(ws.id, { status: 'error' })
+    } else {
+      // Still retryable — stay in waiting for next poll retry
+      updateWorkspace(ws.id, { status: 'waiting' })
+    }
+    broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
   }
 }
 
@@ -770,7 +863,7 @@ async function registerIPCHandlers() {
         extractVideoThumbnail(result.filePath, thumbnailPath).then((thumbResult) => {
           if (thumbResult.success) {
             const update = updateWorkspace(workspace.id, {
-              thumbnail: 'local-video://' + thumbnailPath.replace(/\\/g, '/'),
+              thumbnail: 'local-video:///' + thumbnailPath.replace(/\\/g, '/'),
             })
             if (update) broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, update)
           }
@@ -917,10 +1010,11 @@ async function registerIPCHandlers() {
       }
     }
 
-    // Protocol needs forward slashes
+    // Protocol needs forward slashes; THREE slashes for valid Windows path in URL
     const protocolPath = absPath.replace(/\\/g, '/')
-    // local-video:// protocol: the callback receives this path and decodes it
-    const videoUrl = 'local-video://' + protocolPath
+    // local-video:// protocol: MUST use /// (three slashes) so Chromium correctly
+    // passes C:/Users/... to the file handler. Two slashes → C: treated as host → broken.
+    const videoUrl = 'local-video:///' + protocolPath
     return { path: absPath, url: videoUrl }
   })
 
@@ -1226,6 +1320,152 @@ async function registerIPCHandlers() {
     }
     return { success: true, keys: getKeyManager().getAllKeys() }
   })
+
+  // ─── Dynamic Project Management ─────────────────────────────────────────────
+
+  /**
+   * List all configured projects with full status.
+   * Each project has OAuth credentials + API key + quota stats.
+   */
+  ipcMain.handle(IPC_CHANNELS.PROJECT_LIST, () => {
+    const km = getKeyManager()
+    const tm = getTokenManager()
+    const tokenStatuses = tm.getAllStatuses()
+    const keys = km.getAllKeys()
+
+    type ProjectTokenStatus = 'healthy' | 'warning' | 'error' | 'exhausted' | 'unauthorized' | 'no_oauth'
+
+    // Build project list from tokens (each token = 1 project)
+    const projects: Array<{
+      projectId: string; clientId: string; hasToken: boolean; tokenExpiry: number | null
+      usedToday: number; quotaTotal: number; errors: number; status: ProjectTokenStatus
+      apiKey: string | null; apiKeyName: string | null; apiKeyUsed: number; apiKeyStatus: string
+    }> = tokenStatuses.map(ts => {
+      const projectKeys = keys.filter(k => k.projectId === ts.projectId)
+      const primaryKey = projectKeys[0] || null
+      return {
+        projectId: ts.projectId,
+        clientId: ts.clientId,
+        hasToken: ts.hasToken,
+        tokenExpiry: ts.tokenExpiry,
+        usedToday: ts.usedToday,
+        quotaTotal: ts.quotaTotal,
+        errors: ts.errors,
+        status: ts.status,
+        apiKey: primaryKey?.key || null,
+        apiKeyName: primaryKey?.name || null,
+        apiKeyUsed: primaryKey?.usedToday || 0,
+        apiKeyStatus: primaryKey?.status || 'unauthorized' as string,
+      }
+    })
+
+    // Also include projects that have API keys but no token
+    const tokenProjectIds = new Set(tokenStatuses.map(t => t.projectId))
+    for (const k of keys) {
+      if (!tokenProjectIds.has(k.projectId)) {
+        const existing = projects.find(p => p.projectId === k.projectId)
+        if (!existing) {
+          projects.push({
+            projectId: k.projectId,
+            clientId: '',
+            hasToken: false,
+            tokenExpiry: null,
+            usedToday: 0,
+            quotaTotal: 9500,
+            errors: 0,
+            status: 'no_oauth',
+            apiKey: k.key,
+            apiKeyName: k.name,
+            apiKeyUsed: k.usedToday,
+            apiKeyStatus: k.status,
+          })
+        }
+      }
+    }
+
+    return projects
+  })
+
+  /**
+   * Add a project: OAuth credentials + API key.
+   * 1. Save OAuth credentials (clientId + clientSecret)
+   * 2. Start OAuth browser flow to get token
+   * 3. Save API key
+   */
+  ipcMain.handle(IPC_CHANNELS.PROJECT_ADD, async (_, data: {
+    projectId: string
+    clientId: string
+    clientSecret: string
+    apiKey: string
+    apiKeyName?: string
+  }) => {
+    const { projectId, clientId, clientSecret, apiKey, apiKeyName } = data
+    const tm = getTokenManager()
+    const km = getKeyManager()
+
+    // 1. Save API key
+    const name = apiKeyName?.trim() || `Project ${projectId}`
+    km.addKey(apiKey.trim(), projectId, name)
+
+    // 2. Start OAuth flow
+    const { startOAuthFlow } = await import('./services/youtube_auth.js')
+    const result = await startOAuthFlow(clientId.trim(), clientSecret.trim(), projectId)
+
+    if (result.success && result.tokens && result.projectId) {
+      tm.addToken(result.projectId, clientId.trim(), clientSecret.trim(), result.tokens)
+      console.log(`[Project] Added ${projectId}: OAuth OK + API key OK`)
+      return { success: true, projectId, oauthResult: result }
+    }
+
+    // Key was saved but OAuth failed
+    return {
+      success: false,
+      projectId,
+      error: result.error || 'OAuth failed — API key saved but token not authorized',
+      oauthResult: result,
+    }
+  })
+
+  /**
+   * Remove a project: delete both token and API key.
+   */
+  ipcMain.handle(IPC_CHANNELS.PROJECT_REMOVE, (_, projectId: string) => {
+    const tm = getTokenManager()
+    const km = getKeyManager()
+    tm.removeToken(projectId)
+    // Remove all keys belonging to this project
+    const keys = km.getAllKeys().filter(k => k.projectId === projectId)
+    for (const k of keys) {
+      km.removeKey(k.key)
+    }
+    console.log(`[Project] Removed ${projectId}: token + ${keys.length} key(s)`)
+    return { success: true }
+  })
+
+  /**
+   * Reset quota for a project (both token and key stats).
+   */
+  ipcMain.handle(IPC_CHANNELS.PROJECT_RESET_QUOTA, (_, projectId: string) => {
+    const tm = getTokenManager()
+    const km = getKeyManager()
+    // Reset token quota by reloading stats
+    const keys = km.getAllKeys().filter(k => k.projectId === projectId)
+    for (const k of keys) {
+      km.resetKey(k.key)
+    }
+    // For tokens, we clear stats by removing and re-adding
+    const token = tm.getToken(projectId)
+    if (token) {
+      tm.removeToken(projectId)
+      tm.addToken(projectId, token.clientId, token.clientSecret, {
+        access_token: token.access_token,
+        refresh_token: token.refresh_token,
+        expires_at: token.expires_at,
+        token_type: token.token_type,
+      })
+    }
+    return { success: true }
+  })
 }
 
 // Relay auth status changes to renderer (registered at module load — catches early OAuth events)
@@ -1271,6 +1511,7 @@ async function quitAll() {
   renderQueue.forEach(job => job.resolve({ success: false, error: 'App shutting down' }))
   renderQueue.length = 0
   if (nextServerOwned && nextServer) nextServer.kill()
+  getTokenManager().dispose()
   mainWindow?.destroy()
   app.quit()
 }
@@ -1291,8 +1532,15 @@ app.whenReady().then(async () => {
 
   // Register local-video:// protocol to serve downloaded video files to renderer.
   // Chromium blocks file:// URLs in <video src> — this bypasses that restriction.
+  // URL format MUST be local-video:///C:/Users/... (THREE slashes after scheme).
+  // Two-slash format (local-video://C:/...) causes Chromium to treat C: as the
+  // "host", stripping it during PathForRequest → handler gets C/Users/... (broken path).
+  // With three slashes, Chromium treats the path as /C:/Users/... and returns it correctly.
   protocol.registerFileProtocol('local-video', (request, callback) => {
-    const filePath = request.url.replace(/^local-video:\/\//, '')
+    let filePath = request.url.replace(/^local-video:\/\/?\/?/, '')
+    // Chromium may include a leading slash in the path for three-slash URLs.
+    // Normalize: strip one leading slash so we get C:/Users/... (valid Windows path).
+    if (filePath.startsWith('/')) filePath = filePath.slice(1)
     callback({ path: decodeURIComponent(filePath) })
   })
 

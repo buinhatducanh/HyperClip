@@ -32,7 +32,7 @@ export interface PollerStatus {
   pollIntervalMs: number
   lastPollAt: number | null
   lastNewVideosAt: number | null
-  cookiesReady: boolean
+  channelCount: number // number of channels being monitored
   videoCount: number // total unique videos seen this session
   newVideoCount: number // total new videos detected this session
   lastError: string | null
@@ -40,7 +40,7 @@ export interface PollerStatus {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DEFAULT_POLL_INTERVAL_MS = 4000 // 4 seconds
+const DEFAULT_POLL_INTERVAL_MS = 20000 // 20 seconds
 const MAX_VIDEOS_PER_POLl = 5
 const MAX_VIDEO_AGE_MS = 60 * 1000 // 1 minute — only auto-download videos posted < 1 min ago
 
@@ -56,7 +56,7 @@ class YouTubePoller {
   private _lastPollAt: number | null = null
   private _lastNewVideosAt: number | null = null
   private _lastError: string | null = null
-  private _cookiesReady: boolean = false
+  private _cookiesReady: boolean = false // removed, kept for compat
   private _lastPollTime: number = 0
   private _pollsSinceLastLog: number = 0
 
@@ -72,7 +72,7 @@ class YouTubePoller {
       pollIntervalMs: this._pollIntervalMs,
       lastPollAt: this._lastPollAt,
       lastNewVideosAt: this._lastNewVideosAt,
-      cookiesReady: this._cookiesReady,
+      channelCount: 0, // filled by caller
       videoCount: this._videoCount,
       newVideoCount: this._newVideoCount,
       lastError: this._lastError,
@@ -94,7 +94,7 @@ class YouTubePoller {
 
     // Log every poll start — confirms poller is alive and making API calls
     if (this._pollsSinceLastLog === 0) {
-      console.log(`[YouTubePoller] poll #${this._videoCount + 1}...`)
+      console.log(`[YouTubePoller] Scanning...`)
     }
 
     // API polling: YouTube Data API v3 with 30-key round-robin
@@ -116,8 +116,6 @@ class YouTubePoller {
       }
       return
     }
-
-    this._cookiesReady = true
 
     const newVideos: DetectedVideo[] = []
 
@@ -149,7 +147,7 @@ class YouTubePoller {
 
     this._lastPollTime = Date.now()
 
-    // Log alive status every 30 polls (~2 min at 4s)
+    // Log alive status every 30 polls (~10 min at 20s)
     this._pollsSinceLastLog++
     if (this._pollsSinceLastLog >= 30) {
       const elapsed = this._lastPollAt
