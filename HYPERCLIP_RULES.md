@@ -39,24 +39,145 @@
 ### Cơ chế: Full Scan mỗi Poll
 
 ```
-YouTubePoller (20s)
+YouTubePoller (4 giây ± jitter)
          ↓
 fetchSubscriptionFeed() → ALL channels (parallel, max 20 concurrent)
          ↓
 1. Innertube API (SAPISIDHASH cookies): /youtubei/v1/browse per channel
-   → fallback OAuth Data API v3 (10k units/day) nếu Innertube trả 0
+   → OAuth Data API v3 fallback (10k units/day) nếu Innertube trả 0 video
          ↓
 Filter: age < 10 min, unseen, not deleted
          ↓
 autoDownload() → yt-dlp --download-sections (chỉ N phút cần thiết)
 ```
 
-### Quota Math (Innertube = NO LIMIT)
+### Chi tiết Quota System
 
-- **Innertube API (session cookies)**: KHÔNG có quota limit — dùng cho detection
-- **OAuth Data API v3 fallback**: 10k units/ngày — chỉ dùng khi Innertube fail
-- Chrome sessions: 30 profiles → mỗi profile user đăng nhập YouTube 1 lần
-- SAPISIDHASH = SHA1(timestamp + " " + SAPISID + " " + "https://www.youtube.com")
+Hệ thống có **hai lớp quota độc lập**, chạy song song:
+
+#### Lớp 1 — TokenManager (OAuth tokens, 10,000 units/project/ngày)
+
+Dùng cho **OAuth Data API v3** — fallback path.
+
+| Thông số | Giá trị |
+|----------|---------|
+| Cap per project | **9,500 units/ngày** (500 buffer so với 10k limit thực) |
+| Reset | Mỗi 24h tự clear stats (kiểm tra khi app khởi động) |
+| Track | Mỗi lần gọi playlistItems → `track(projectId)` tăng `usedToday` |
+| Rotation | Chọn token có `usedToday` thấp nhất (most quota remaining) |
+| Error threshold | **3 lỗi liên tiếp** → token bị skip |
+| Storage | `%APPDATA%/HyperClip/token_stats.json` |
+
+**TokenManager chỉ dùng khi Innertube trả 0 video.**
+
+#### Lớp 2 — KeyManager (API keys, 10,000 units/key/ngày)
+
+Dùng cho **API key-based** calls. Hiện tại **chưa được dùng trực tiếp** trong subscription_feed — chỉ load sẵn cho tương lai.
+
+| Thông số | Giá trị |
+|----------|---------|
+| Cap per key | **9,500 units/ngày** |
+| Storage | `%APPDATA%/HyperClip/key_stats.json` |
+
+#### Tại sao có 2 lớp?
+
+```
+1 Google Cloud Project = 1 OAuth Token + 1 API Key = 1 "nhà"
+30 GCP projects × 10,000 units = 300,000 units/ngày (nếu dùng hết)
+```
+
+Trong kiến trúc hiện tại, **KeyManager chưa được dùng** vì:
+- Innertube (cookie-based) là primary → **không tốn quota**
+- OAuth là fallback → dùng **TokenManager** (token-based, không cần key)
+
+### Innertube — Chi tiết kỹ thuật
+
+#### Innertube là gì?
+
+Innertube là **API nội bộ của YouTube** — cùng API mà trình duyệt Chrome dùng khi bạn mở youtube.com. Khác với Data API v3 (dành cho developers), Innertube không có giới hạn quota published.
+
+```
+Data API v3:    https://googleapis.com/youtube/v3/*     → CÓ quota (10k/day)
+Innertube API:   https://www.youtube.com/youtubei/v1/*  → KHÔNG quota
+```
+
+#### Cookie cần thiết
+
+Để gọi Innertube, app cần đọc cookies từ Chrome profiles đã đăng nhập YouTube:
+
+| Cookie | Vai trò |
+|--------|---------|
+| `SAPISID` | Cookie bảo mật cao — dùng để tạo SAPISIDHASH header |
+| `__Secure-1PSID` | Session ID — xác minh user đã đăng nhập |
+| `__Secure-1PSIDCC` | Certificate cookie — cần cho một số requests |
+| `__Secure-1PSIDTS` | Timestamp cookie — chống replay attack |
+| `SOCS` | Consent cookie — `CAI` = đồng ý quảng cáo cá nhân |
+
+#### SAPISIDHASH — Cách xác minh
+
+Google không chỉ đọc cookie — nó cần một hash đặc biệt:
+
+```
+SAPISIDHASH = SHA1(timestamp + " " + SAPISID + " " + "https://www.youtube.com")
+Ví dụ: "1745984000_abc123def456..." (timestamp_hash)
+```
+
+Header gửi kèm request:
+```
+Authorization: SAPISIDHASH 1745984000_abc123def456...
+Cookie: SAPISID=...; __Secure-1PSID=...; __Secure-1PSIDTS=...; SOCS=CAI
+```
+
+### Khi nào Innertube LỖI?
+
+**Nguyên tắc quan trọng:** Innertube chỉ trigger OAuth fallback khi **trả về 0 video** (không phải khi HTTP error).
+
+| Nguyên nhân | Hành vi hiện tại | Cần làm gì? |
+|---|---|---|
+| **Lỗi mạng / timeout** | Request fail → 0 video → OAuth fallback | Tự hết khi mạng khôi phục |
+| **Session die (PSID/SAPISID hết hạn)** | Cookies null → skip Innertube → OAuth fallback | User đăng nhập lại Chrome profile |
+| **SOCS thay đổi** | YouTube trả kết quả khác (non-personalized) | Không ảnh hưởng video detection |
+| **Session revoke (đổi mật khẩu)** | Cookies invalid → skip Innertube → OAuth | User đăng nhập lại TẤT CẢ 30 profiles |
+| **User đăng xuất Chrome profile** | Cookies null → skip Innertube → OAuth | User đăng nhập lại profile đó |
+| **YouTube đổi response format** | Parse fail → 0 video → OAuth fallback | Cập nhật code parse |
+| **IP bị rate limit Innertube** | HTTP 429 → skip → OAuth | Giảm poll interval hoặc chờ |
+
+#### Minh họa fallback chain trong code
+
+```typescript
+// subscription_feed.ts — fetchChannelVideos()
+async function fetchChannelVideos(ch, seenVideoIds, sinceMs) {
+  // Bước 1: Thử Innertube (cookie-based, NO quota)
+  const session = sm.getNextSession() // round-robin 30 profiles
+  if (session?.cookies) {
+    const browseJson = await apiGetInnertube(channelId, session)
+    const videos = parseInnertubePlaylistVideos(...)
+    if (videos.length > 0) {
+      return videos  // ✓ Innertube thành công — KHÔNG tốn quota
+    }
+    // Innertube trả 0 video — chuyển sang OAuth
+  }
+
+  // Bước 2: OAuth fallback (tốn quota)
+  const best = await tm.getBestAvailable() // smart rotation
+  const playlistJson = await apiGetOAuth(..., best.token)
+  tm.track(best.projectId)  // trừ quota
+  // ... parse videos
+}
+```
+
+### Quota Math thực tế
+
+| Kịch bản | Innertube reliability | OAuth calls/ngày | Units/ngày |
+|---------|----------------------|-------------------|-----------|
+| Innertube 100% | 100% | 0 | 0 |
+| Innertube 95% | Thỉnh thoảng 0 video | ~2,160 | ~2,160 |
+| Innertube 50% | Nửa số poll thất bại | ~21,600 | ~21,600 |
+| Innertube 0% | Tất cả → OAuth | ~43,200 | ~43,200 |
+
+Với 300,000 units (30 GCP projects × 10,000), ngay cả khi Innertube hoàn toàn fail, vẫn còn **thặng dư quota gấp ~7 lần** nhu cầu thực tế.
+
+**Kết luận:** Với Innertube là primary path và >50% reliability, OAuth quota gần như không bao giờ hết. Mục tiêu tối ưu: **đảm bảo Innertube cookie sessions ổn định** thay vì thêm nhiều GCP projects.
 
 ### Trim Limit (auto-download)
 

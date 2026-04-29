@@ -289,15 +289,18 @@ async function fetchChannelVideos(
   )
   if (playlistJson.error) {
     console.warn(`[SubFeed] OAuth error for ${ch.name}: ${playlistJson.error}`)
+    // Invalidate cache so next poll can retry with potentially fresh token
+    _uploadsPlaylistCache.delete(channelId)
     return []
   }
 
+  // Track token quota — only on successful API call (even if 0 items)
+  tm.track(best.projectId)
+
   if (!playlistJson.items || playlistJson.items.length === 0) {
     console.log(`[SubFeed] OAuth: no items in uploads playlist for ${ch.name}`)
+    return []
   }
-
-  // Track token quota
-  tm.track(best.projectId)
 
   const videos: SubscriptionVideo[] = []
 

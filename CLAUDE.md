@@ -6,17 +6,24 @@
 
 ## Mục tiêu cốt lõi
 
-**Bắt 100% video mới trong < 5 giây, chạy 24/7 cho ~100 kênh YouTube.**
+**Bắt 100% video mới trong < 20 giây, chạy 24/7 cho ~100 kênh YouTube.**
 
 ## Auto-Ingestion Pipeline
 
 ```
-YouTubePoller (4s) → activities?home=true (OAuth + API key)
-  → filter age < 10 min
-  → autoDownload (yt-dlp) → blur → workspace ready → notify
+YouTubePoller (20s ± jitter)
+         ↓
+fetchSubscriptionFeed() → ALL channels (parallel, max 20 concurrent)
+         ↓
+1. Innertube API (30 Chrome sessions, SAPISIDHASH) — PRIMARY, NO QUOTA
+   → OAuth Data API v3 fallback khi Innertube trả 0 video
+         ↓
+Filter: age < 10 min, unseen, not deleted
+         ↓
+autoDownload (yt-dlp --download-sections) → blur → workspace ready → notify
 ```
 
-**Fallback:** playlistItems per top 5 channels — CHỈ khi HTTP error thực sự (không phải feed trống).
+**Chi tiết quota system và Innertube failure modes:** xem HYPERCLIP_RULES.md section 3b.
 
 ---
 
@@ -29,8 +36,9 @@ YouTubePoller (4s) → activities?home=true (OAuth + API key)
 | State | Zustand (flat, NO context cascade) |
 | Styling | Tailwind CSS v3 + inline styles |
 | Backend | Node.js (Electron main process) |
-| Auth | OAuth 2.0 (YouTube Data API v3) |
-| API Rotation | 30 keys round-robin via KeyManager |
+| Auth Primary | Innertube API via Chrome Session Cookies (30 profiles, NO quota) |
+| Auth Fallback | OAuth 2.0 + Data API v3 (TokenManager, 10k units/project/day) |
+| API Key Pool | KeyManager (chưa dùng trực tiếp, dự phòng tương lai) |
 | Downloader | yt-dlp + Direct IP Binding |
 | Video Processing | FFmpeg + NVIDIA NVENC (RTX 5080) |
 | Hardware | Intel Core Ultra 9 285K, RTX 5080 16GB, 64GB RAM |
@@ -46,9 +54,10 @@ electron/
   ipc/channels.ts           — IPC channel constants
   services/
     youtube_auth.ts         — OAuth 2.0 flow, token management
-    key_manager.ts          — 30 API keys round-robin, quota tracking
-    subscription_feed.ts    — YouTube Data API: activities + playlistItems
-    cookie_manager.ts       — Chrome/Edge cookie extraction (DPAPI, fallback)
+    key_manager.ts          — 30 API keys pool (quota tracking, dự phòng tương lai)
+    token_manager.ts        — OAuth tokens: smart rotation, refresh, per-project quota
+    subscription_feed.ts    — Full scan all channels: Innertube primary + OAuth fallback
+    chrome_cookies.ts       — Chrome cookie extraction (DPAPI + sql.js), SAPISIDHASH, SessionManager (30 profiles)
     youtube_poller.ts       — Orchestrator: feed → autoDownload
     youtube.ts              — yt-dlp wrapper (download, getVideoInfo)
     ffmpeg.ts               — FFmpeg + NVENC render pipeline

@@ -17,7 +17,7 @@ import {
   type WorkspaceData
 } from './services/store.js'
 import { downloadVideo, getVideoInfo, getChannelInfo, getChannelId, type YtdlpVideoInfo, type YtdlpChannelInfo } from './services/youtube.js'
-import { renderVideo, renderChunked, generateBlurBackground, extractVideoThumbnail, cancelChunked, cancelAllChunked, type RenderMetadata, type RenderProgress, type ChunkConfig } from './services/ffmpeg.js'
+import { renderVideo, renderChunked, generateBlurBackground, extractVideoThumbnail, cancelChunked, cancelAllChunked, probeVideoAspect, type RenderMetadata, type RenderProgress, type ChunkConfig } from './services/ffmpeg.js'
 import { cancelFfmpeg, cancelAllFfmpeg, getPoolStatus } from './services/worker-pool.js'
 import { getVideoStoragePath, getOutputPath, generateWorkspacePaths, cleanupWorkspace, ensureStorageDirs, loadSettings, saveSettings } from './services/ramdisk.js'
 import { createYouTubePoller, stopYouTubePoller, getYouTubePoller } from './services/youtube_poller.js'
@@ -217,6 +217,9 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
         ? 'local-video:///' + thumbnailPath.replace(/\\/g, '/')
         : (videoInfo?.thumbnail || `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`)
 
+      // Probe video dimensions to detect if it's a short (vertical) or landscape
+      const aspect = await probeVideoAspect(result.filePath)
+
       updateWorkspace(workspace.id, {
         status: 'ready',
         downloadedAt: new Date().toISOString(),
@@ -225,6 +228,7 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
         thumbnail: localThumbnail,
         videoTitle: realTitle,
         duration: realDuration,
+        isShort: aspect?.isShort ?? true,
       })
       broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(workspace.id))
 
@@ -307,6 +311,8 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
       ? 'local-video:///' + thumbPath.replace(/\\/g, '/')
       : (videoInfo?.thumbnail || `https://img.youtube.com/vi/${ws.videoId}/mqdefault.jpg`)
 
+    const aspect = await probeVideoAspect(result.filePath)
+
     updateWorkspace(ws.id, {
       status: 'ready',
       downloadedAt: new Date().toISOString(),
@@ -315,6 +321,7 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
       thumbnail: localThumbnail,
       videoTitle: videoInfo?.title || ws.videoTitle,
       duration: result.duration || videoInfo?.duration || 0,
+      isShort: aspect?.isShort ?? true,
     })
     broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
 

@@ -25,6 +25,8 @@ export interface RenderMetadata {
   backgroundImage?: string  // absolute path — used when backgroundType='image'
   /** Legacy: blur background path (still used when backgroundType='blur') */
   blur_background?: string
+  /** Source video aspect ratio — true = 9:16 vertical (short), false = landscape (16:9 or wider) */
+  isShort?: boolean
 }
 
 export interface Overlay {
@@ -73,6 +75,28 @@ function buildArgs(args: string[]): string {
     if (a.includes(' ') || a.includes('(') || a.includes(')')) return quotePath(a)
     return a
   }).join(' ')
+}
+
+// ─── Probe video dimensions ─────────────────────────────────────────────────────
+
+export async function probeVideoAspect(videoPath: string): Promise<{ width: number; height: number; isShort: boolean } | null> {
+  const ffprobe = getFfprobePath()
+  try {
+    const out = execSync(`"${ffprobe}" -v error -select_streams v:0 -show_entries stream=width,height -of json "${videoPath}"`, {
+      encoding: 'utf-8',
+      timeout: 15000,
+    })
+    const json = JSON.parse(out)
+    const streams = json.streams
+    if (streams && streams.length > 0) {
+      const width = Number(streams[0].width) || 0
+      const height = Number(streams[0].height) || 0
+      return { width, height, isShort: height >= width }
+    }
+  } catch (e) {
+    console.warn('[probeVideoAspect] ffprobe failed:', e)
+  }
+  return null
 }
 
 // ─── Pre-process: Blur background generation ───────────────────────────────────
@@ -197,13 +221,38 @@ function buildFilterComplex(opts: {
   backgroundType?: 'blur' | 'solid' | 'image'
   /** Pre-rendered title overlay PNG — replaces CPU drawtext per frame */
   titleOverlayPath?: string
+  /** Source video is a short (9:16 or taller). Landscape (16:9 or wider) uses thumbnail-bg + square-cropped video */
+  isShort?: boolean
 }): string {
   const {
     headerOl, titleOl, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, speedFilter, canvasBg,
     backgroundType = 'blur',
     titleOverlayPath,
+    isShort = true,
   } = opts
 
+  // ── LANDSCAPE layout: thumbnail bg + centered square video + part number ──
+  if (!isShort) {
+    // Landscape video: crop center to square, scale to fit videoH
+    const cropW = videoH  // crop to square
+    const cropX = `(iw-${cropW})/2`
+    const speedChain = speedFilter ? `,${speedFilter}` : ''
+    // [0:v] crop square → scale to fit zone → pad into canvas
+    const videoChain = `[0:v]crop=${cropW}:${cropW}:${cropX}:0,scale=${videoH}:${videoH}:force_original_aspect_ratio=exact,pad=${canvasW}:${canvasH}:(ow-iw)/2:${videoTop}${speedChain}[vid]`
+    // [1:v] thumbnail → scale to fill canvas
+    const bgChain = `[1:v]scale=${canvasW}:${canvasH}:force_original_aspect_ratio=increase,crop=${canvasW}:${canvasH}[bg]`
+    // Video over thumbnail bg
+    const vzChain = `[bg][vid]overlay=0:0[vz]`
+    // Title overlay (part number) at bottom
+    if (titleOl?.content && titleOverlayPath) {
+      const sections = [videoChain, bgChain, vzChain]
+      sections.push(`[2:v]scale=${canvasW}:${titleH}[titleScaled]`, `[vz][titleScaled]overlay=0:${canvasH - titleH}[td]`)
+      return sections.join('; ')
+    }
+    return [videoChain, bgChain, vzChain].join('; ')
+  }
+
+  // ── SHORT (vertical) layout: header + video zone + title ──
   // Scale + speed filter chain for video
   // Order: scale → setpts (speed) → pad. speedFilter is "" or "setpts=X*PTS"
   const scaleChain = `[0:v]scale=${videoW}:${videoH}:force_original_aspect_ratio=decrease`
@@ -365,9 +414,12 @@ export async function preRenderOverlays(
   const [outW, outH] = metadata.export_resolution.split('x').map(Number)
   const canvasW = outW || 1080
   const canvasH = outH || 1920
-  const headerH = Math.floor(canvasH * 0.20)
-  const titleH = Math.floor(canvasH * 0.20)
+  const isShort = metadata.isShort !== false
+  const headerH = isShort ? Math.floor(canvasH * 0.20) : Math.floor(canvasH * 0.30)
+  const titleH = isShort ? Math.floor(canvasH * 0.20) : Math.floor(canvasH * 0.30)
   const videoTop = headerH
+  // For landscape, overlay needs to be at bottom of canvas (not centered)
+  const overlayY = isShort ? videoTop : canvasH - titleH
 
   const overlayDir = path.join(outputDir, 'overlays', workspaceId)
   if (!fs.existsSync(overlayDir)) fs.mkdirSync(overlayDir, { recursive: true })
@@ -380,7 +432,7 @@ export async function preRenderOverlays(
     canvasH,
     headerH,
     titleH,
-    videoTop,
+    overlayY,  // placement Y (short=zone top, landscape=bottom)
     titleOl.borderColor ?? '#00B4FF',
     titleOl.bgColor ?? 'rgba(0,180,255,0.12)',
     titleOl.fontSize ?? 13,
@@ -470,6 +522,7 @@ export async function renderVideo(
     codec = 'hevc', preset = 'p1', tune = 'hq', canvasBg = 'black',
     backgroundType = 'blur', backgroundColor = '#000000', backgroundImage,
     blur_background,
+    isShort = true,
   } = metadata
 
   // Parse resolution from export_resolution — this IS used
@@ -483,9 +536,12 @@ export async function renderVideo(
   // 3-zone layout derived from OUTPUT resolution
   const canvasW = outW
   const canvasH = outH
-  const headerH = Math.floor(canvasH * 0.20) // top 20%
-  const titleH = Math.floor(canvasH * 0.20) // bottom 20%
-  const videoH = canvasH - headerH - titleH   // middle 60%
+
+  // LANDSCAPE: thumbnail (30%) + video square (40%) + part number (30%)
+  // SHORT:     header (20%) + video (60%) + title (20%)
+  const headerH = isShort ? Math.floor(canvasH * 0.20) : Math.floor(canvasH * 0.30)
+  const titleH = isShort ? Math.floor(canvasH * 0.20) : Math.floor(canvasH * 0.30)
+  const videoH = canvasH - headerH - titleH
   const videoTop = headerH
   const videoW = Math.floor(videoH * 16 / 9)  // scale to fit 16:9 video in zone
 
@@ -531,6 +587,7 @@ export async function renderVideo(
     canvasBg,
     backgroundType,
     titleOverlayPath,
+    isShort,
   })
 
   // Determine output label
@@ -541,6 +598,7 @@ export async function renderVideo(
 
   // Build ffmpeg args
   // Inputs: [0]=source video, [1]=background, [2]=header image (optional), [3]=title overlay PNG (optional)
+  // For LANDSCAPE: [1] = thumbnail (used as bg), [2] = title overlay PNG
   const args: string[] = [
     '-ss', String(trimStart),
     '-t', String(decodeDuration),
@@ -558,9 +616,12 @@ export async function renderVideo(
       : backgroundType === 'image' && backgroundImage
         ? ['-i', quotePath(backgroundImage)]
         : ['-i', quotePath(blur_background || '')]),
-    ...(headerOl?.src ? ['-i', quotePath(headerOl.src)] : []),
-    // Pre-rendered title overlay PNG (input [3])
-    ...(titleOverlayPath ? ['-i', quotePath(titleOverlayPath)] : []),
+    // Input [2]: header image for short mode; title overlay for landscape mode
+    ...(isShort
+      ? (headerOl?.src ? ['-i', quotePath(headerOl.src)] : [])
+      : (titleOverlayPath ? ['-i', quotePath(titleOverlayPath)] : [])),
+    // Input [3]: title overlay for short mode
+    ...(isShort && titleOverlayPath ? ['-i', quotePath(titleOverlayPath)] : []),
     '-filter_complex', filterComplex,
     '-map', mapOutput,
     '-c:v', nvencCodec,
@@ -654,10 +715,50 @@ function buildChunkArgs(
   videoW: number,
   /** Pre-rendered title overlay PNG — replaces CPU drawtext per frame */
   titleOverlayPath?: string,
+  /** Source video is a short (9:16 or taller). Landscape uses thumbnail-bg + square-cropped video */
+  isShort?: boolean,
 ): string[] {
   const nvencCodec = codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'
 
-  // Build filter chain sections
+  // ── LANDSCAPE layout: thumbnail bg + centered square video + part number ──
+  if (!isShort) {
+    const cropW = videoH
+    const cropX = `(iw-${cropW})/2`
+    const sections = [
+      // [0:v] crop square → scale → pad into canvas
+      `[0:v]crop=${cropW}:${cropW}:${cropX}:0,scale=${videoH}:${videoH}:force_original_aspect_ratio=exact,pad=${canvasW}:${canvasH}:(ow-iw)/2:${videoTop}[vid]`,
+      // [1:v] thumbnail → fill canvas
+      `[1:v]scale=${canvasW}:${canvasH}:force_original_aspect_ratio=increase,crop=${canvasW}:${canvasH}[bg]`,
+      // Video over thumbnail bg
+      `[bg][vid]overlay=0:0[vz]`,
+    ]
+    // Title overlay (input [2]) at bottom
+    if (titleOverlayPath) {
+      sections.push(`[2:v]scale=${canvasW}:${titleH}[titleScaled]`, `[vz][titleScaled]overlay=0:${canvasH - titleH}[final]`)
+    }
+    const filterChain = sections.join('; ')
+    const mapOutput = titleOverlayPath ? '[final]' : '[vz]'
+    return [
+      '-ss', String(trimStart), '-t', String(trimDuration),
+      '-c:v', codec === 'hevc' ? 'hevc_cuvid' : 'h264_cuvid',
+      '-threads', '8', '-fps_mode', 'cfr',
+      '-avoid_negative_ts', 'make_zero',
+      '-i', quotePath(sourceVideo),
+      '-i', quotePath(blurBg),        // [1] = thumbnail for landscape
+      ...(titleOverlayPath ? ['-i', quotePath(titleOverlayPath)] : []),  // [2] = title overlay
+      '-filter_hw_device', 'cuda', '-filter_threads', '16',
+      '-filter_complex', filterChain,
+      '-map', mapOutput, '-map', '0:a?',
+      '-c:v', nvencCodec,
+      ...getNvencParams(codec, preset, true),
+      '-max_muxing_queue_size', '512',
+      '-c:a', 'aac', '-b:a', '192k',
+      '-r', '30',
+      '-y', quotePath(outputFile),
+    ]
+  }
+
+  // ── SHORT (vertical) layout: header + video zone + title ──
   const sections = [
     `[0:v]scale=${videoW}:${videoH}:force_original_aspect_ratio=decrease,pad=${canvasW}:${canvasH}:(ow-iw)/2:${videoTop}[vid]`,
     `[1:v]scale=${canvasW}:${canvasH}[bg]`,
@@ -716,12 +817,13 @@ async function encodeChunk(
   videoW: number,
   titleOverlayPath?: string,
   onProgress?: (percent: number) => void,
+  isShort?: boolean,
 ): Promise<{ success: boolean; fileSize: number; encodeMs: number; error?: string; decodeFps?: number; encodeFps?: number }> {
   const ffmpeg = getFfmpegPath()
   const args = buildChunkArgs(
     sourceVideo, blurBg, startSec, durationSec, outputFile,
     codec, preset, tune, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW,
-    titleOverlayPath,
+    titleOverlayPath, isShort,
   )
 
   return new Promise((resolve) => {
@@ -861,14 +963,15 @@ export async function renderChunked(
   const {
     workspace_id, source_video, blur_background, trim, export_resolution, codec = 'hevc', preset = 'p1',
     backgroundType = 'blur', backgroundColor = '#000000', backgroundImage,
+    isShort = true,
   } = metadata
   const { workers = 8, chunkDuration = 120, minChunkDuration = 10 } = config
 
   const [outW, outH] = metadata.export_resolution.split('x').map(Number)
   const canvasW = outW || 1080
   const canvasH = outH || 1920
-  const headerH = Math.floor(canvasH * 0.20)
-  const titleH = Math.floor(canvasH * 0.20)
+  const headerH = isShort ? Math.floor(canvasH * 0.20) : Math.floor(canvasH * 0.30)
+  const titleH = isShort ? Math.floor(canvasH * 0.20) : Math.floor(canvasH * 0.30)
   const videoH = canvasH - headerH - titleH
   const videoTop = headerH
   const videoW = Math.floor(videoH * 16 / 9)
@@ -952,6 +1055,7 @@ export async function renderChunked(
           const chunkOverall = ((idx + pct / 100) / numChunks) * 90 + 5
           onProgress?.({ workspaceId: workspace_id, percent: chunkOverall, currentTime: 0, totalTime: 0, fps: 0, speed: '', bitrate: '', phase: 'encode', chunkIndex: idx })
         },
+        isShort,
       )
 
       return { idx, startSec, endSec, chunkFile, result }

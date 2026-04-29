@@ -24,6 +24,8 @@ export interface Video {
   downloadedPath?: string;
   /** Human-readable file size */
   fileSizeBytes?: number;
+  /** Detected on download: true = vertical 9:16 short, false = landscape 16:9+ video */
+  isShort?: boolean;
 }
 
 export interface EditorState {

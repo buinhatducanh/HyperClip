@@ -20,13 +20,13 @@ type GroupStatus = 'ready' | 'rendering' | 'downloading' | 'waiting' | 'editing'
 
 const STATUS_ORDER: GroupStatus[] = ['ready', 'rendering', 'downloading', 'waiting', 'editing', 'done']
 
-const GROUP_CONFIG: Record<GroupStatus, { label: string; color: string; icon: string; collapsible?: boolean }> = {
-  ready:      { label: 'READY',      color: '#00FF88', icon: '●' },
-  rendering:  { label: 'RENDERING',  color: '#FF4444', icon: '●' },
-  downloading: { label: 'DOWNLOADING', color: '#00B4FF', icon: '●' },
-  waiting:    { label: 'WAITING',    color: '#FFB800', icon: '●' },
-  editing:    { label: 'EDITING',    color: '#7C3AED', icon: '●' },
-  done:       { label: 'DONE',       color: '#444444', icon: '●', collapsible: true },
+const GROUP_CONFIG: Record<GroupStatus, { label: string; color: string; collapsible?: boolean }> = {
+  ready:      { label: 'READY',      color: '#00FF88', collapsible: false },
+  rendering:  { label: 'RENDERING',  color: '#FF4444', collapsible: false },
+  downloading: { label: 'DOWNLOAD',  color: '#00B4FF', collapsible: false },
+  waiting:    { label: 'WAITING',    color: '#FFB800', collapsible: false },
+  editing:    { label: 'EDITING',    color: '#7C3AED', collapsible: false },
+  done:       { label: 'DONE',       color: '#444444', collapsible: true },
 }
 
 function groupByStatus(workspaces: Workspace[]): Map<GroupStatus, Workspace[]> {
@@ -125,25 +125,14 @@ export function WorkspaceQueue({ workspaces, selectedId, onSelect, onQuickAction
                   onClick={() => cfg.collapsible && toggleGroup(status)}
                   className="flex items-center px-4 shrink-0"
                   style={{
-                    height: 28,
+                    height: 26,
                     background: '#0F0F0F',
                     borderBottom: '1px solid #181818',
                     cursor: cfg.collapsible ? 'pointer' : 'default',
                     userSelect: 'none',
                   }}
                 >
-                  <span
-                    style={{
-                      fontSize: 9,
-                      fontWeight: 800,
-                      color: cfg.color,
-                      letterSpacing: '0.08em',
-                      marginRight: 6,
-                      opacity: 0.7,
-                    }}
-                  >
-                    {cfg.icon}
-                  </span>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: cfg.color, display: 'inline-block', marginRight: 6, boxShadow: `0 0 4px ${cfg.color}88` }} />
                   <span
                     style={{
                       fontSize: 9,
@@ -156,27 +145,14 @@ export function WorkspaceQueue({ workspaces, selectedId, onSelect, onQuickAction
                   </span>
                   <span
                     style={{
-                      marginLeft: 6,
+                      marginLeft: 5,
                       fontSize: 9,
                       fontFamily: 'monospace',
                       color: '#444',
                     }}
                   >
-                    {items.length}
+                    · {items.length}
                   </span>
-                  {status === 'ready' && (
-                    <span
-                      style={{
-                        marginLeft: 8,
-                        fontSize: 9,
-                        fontWeight: 600,
-                        color: '#00FF8844',
-                        letterSpacing: '0.04em',
-                      }}
-                    >
-                      — CLICK TO EDIT
-                    </span>
-                  )}
                   {cfg.collapsible && (
                     <svg
                       width="10"

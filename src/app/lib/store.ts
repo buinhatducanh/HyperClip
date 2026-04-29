@@ -37,6 +37,8 @@ export interface Workspace {
   outputPath?: string
   /** Download progress 0–100 — populated during download */
   downloadProgress?: number
+  /** Detected on download: true = vertical 9:16 short, false = landscape 16:9+ video */
+  isShort?: boolean
 }
 
 export interface AppSettings {
@@ -175,6 +177,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         downloadedPath: w.downloadedPath,
         blurBackgroundPath: w.blurBackgroundPath,
         outputPath: w.outputPath,
+        isShort: w.isShort,
       }))
       set({ workspaces: ws })
     } catch (e) {

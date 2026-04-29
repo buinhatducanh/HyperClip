@@ -432,9 +432,10 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
   // number = minutes (e.g., 10 → *00:00:00-00:10:00), 'full' = no trim
   let sectionArg: string | null = null
   if (typeof trimLimit === 'number' && trimLimit > 0) {
-    const hh = Math.floor(trimLimit / 3600)
-    const mm = Math.floor((trimLimit % 3600) / 60)
-    const ss = trimLimit % 60
+    const totalSeconds = trimLimit * 60
+    const hh = Math.floor(totalSeconds / 3600)
+    const mm = Math.floor((totalSeconds % 3600) / 60)
+    const ss = totalSeconds % 60
     const endHH = String(hh).padStart(2, '0')
     const endMM = String(mm).padStart(2, '0')
     const endSS = String(ss).padStart(2, '0')
@@ -449,16 +450,13 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
     const args: string[] = [
       videoUrl,
       ...getJsRuntimeArgs(),
-      // Format selector for Shorts (9:16 reels) + regular videos:
-      // 1. best video+audio with MP4 (standard)
-      // 2. best video+audio any format (Shorts sometimes in different containers)
-      // 3. video-only any format (Shorts often lack separate audio track)
-      // 4. audio-only fallback
-      // 5. best available (anything)
-      '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/bestvideo/bestaudio/best',
+      // Format selector: prefer H.264+AAC, fallback to best available.
+      // - Avoid VP9/AV1 first to ensure broad compatibility
+      // - Avoid forcing MP4 remux (--merge-output-format removed) — WebM plays fine
+      // - yt-dlp picks the best available format naturally after exclusions
+      '-f', 'bestvideo[vcodec!=vp9][vcodec!=av1]+bestaudio[acodec!=opus]/bestvideo+bestaudio/bestvideo/bestaudio/best',
       '--output', outputTemplate,
       '--no-playlist',
-      '--merge-output-format', 'mp4',
       '--newline',
       ...extraArgs,
     ]

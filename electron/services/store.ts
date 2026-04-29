@@ -213,6 +213,8 @@ export interface WorkspaceData {
   renderMetadata: object | null
   createdAt: string
   updatedAt: string
+  /** Detected on download: true = vertical 9:16 short, false = landscape 16:9+ video */
+  isShort?: boolean
 }
 
 interface Store {

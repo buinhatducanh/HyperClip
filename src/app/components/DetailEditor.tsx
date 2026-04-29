@@ -1,10 +1,7 @@
 'use client'
 
 import { useRef, useState, useEffect, useCallback } from 'react'
-import { Video, EditorState, SystemStats } from '../types'
-import { BackgroundControls } from './editor/BackgroundControls'
-import { ExportPanel } from './editor/ExportPanel'
-import { TrimControls } from './editor/TrimControls'
+import type { Video, EditorState, SystemStats } from '../types'
 import { ipc } from '../lib/ipc'
 
 interface Props {
@@ -32,38 +29,542 @@ function parseDuration(d: string | number): number {
   return parseFloat(d) || 0
 }
 
-// ─── Empty State ────────────────────────────────────────────────────────────────
+// ─── SVG Icons ───────────────────────────────────────────────────────────────────
+
+function IconScissors({ size = 12, color = '#555' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <line x1="20" y1="4" x2="8.12" y2="15.88" />
+      <line x1="14.47" y1="14.48" x2="20" y2="20" />
+      <line x1="8.12" y1="8.12" x2="12" y2="12" />
+    </svg>
+  )
+}
+
+function IconImage({ size = 12, color = '#555' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <polyline points="21 15 16 10 5 21" />
+    </svg>
+  )
+}
+
+function IconType({ size = 12, color = '#555' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="4 7 4 4 20 4 20 7" />
+      <line x1="9" y1="20" x2="15" y2="20" />
+      <line x1="12" y1="4" x2="12" y2="20" />
+    </svg>
+  )
+}
+
+function IconZap({ size = 12, color = '#555' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} stroke="none">
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+    </svg>
+  )
+}
+
+function IconPalette({ size = 12, color = '#555' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="8" cy="14" r="1.5" fill={color} stroke="none" />
+      <circle cx="16" cy="14" r="1.5" fill={color} stroke="none" />
+      <circle cx="12" cy="10" r="1.5" fill={color} stroke="none" />
+    </svg>
+  )
+}
+
+function IconPlay({ size = 18, color = '#FFF' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+      <polygon points="5 3 19 12 5 21 5 3" />
+    </svg>
+  )
+}
+
+function IconPause({ size = 18, color = '#FFF' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+      <rect x="6" y="4" width="4" height="16" rx="1" />
+      <rect x="14" y="4" width="4" height="16" rx="1" />
+    </svg>
+  )
+}
+
+function IconRewind({ size = 16, color = '#FFF' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <polygon points="11 19 2 12 11 5 11 19" fill={color} />
+      <polygon points="22 19 13 12 22 5 22 19" fill={color} />
+    </svg>
+  )
+}
+
+function IconForward({ size = 16, color = '#FFF' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <polygon points="13 19 22 12 13 5 13 19" fill={color} />
+      <polygon points="2 19 11 12 2 5 2 19" fill={color} />
+    </svg>
+  )
+}
+
+function IconVolume({ size = 14, muted = false, color = '#FFF' }: { size?: number; muted?: boolean; color?: string }) {
+  if (muted) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill={color} />
+        <line x1="23" y1="9" x2="17" y2="15" />
+        <line x1="17" y1="9" x2="23" y2="15" />
+      </svg>
+    )
+  }
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill={color} />
+      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+    </svg>
+  )
+}
+
+function IconRefresh({ size = 12, color = '#555' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <polyline points="1 4 1 10 7 10" />
+      <path d="M3.51 15a9 9 0 1 0 .49-3.51" />
+    </svg>
+  )
+}
+
+function IconX({ size = 14, color = '#555' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  )
+}
+
+function IconUpload({ size = 12, color = '#555' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" y1="3" x2="12" y2="15" />
+    </svg>
+  )
+}
+
+function IconChevronRight({ size = 12, color = '#333' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  )
+}
+
+function IconChevronLeft({ size = 12, color = '#333' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  )
+}
+
+// ─── Empty State ─────────────────────────────────────────────────────────────────
 
 function EmptyState() {
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, background: '#0E0E0E' }}>
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" strokeWidth="1.5">
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, background: '#0A0A0A' }}>
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#1E1E1E" strokeWidth="1.5">
         <polygon points="5 3 19 12 5 21 5 3" />
       </svg>
-      <div style={{ fontSize: 13, color: '#333', fontWeight: 500 }}>Chưa chọn video để chỉnh sửa</div>
+      <div style={{ fontSize: 12, color: '#333', fontWeight: 500 }}>Chọn video để chỉnh sửa</div>
     </div>
   )
 }
 
-// ─── Constants ─────────────────────────────────────────────────────────────────
+// ─── Trim Controls ───────────────────────────────────────────────────────────────
+
+function TrimSection({ start, end, duration, onChange }: { start: number; end: number; duration: number; onChange: (s: number, e: number) => void }) {
+  const startSec = (start / 100) * duration
+  const endSec = (end / 100) * duration
+  const selectedSec = Math.max(0, endSec - startSec)
+
+  return (
+    <div style={{ padding: '8px 0' }}>
+      {/* Dual handle slider */}
+      <div style={{ position: 'relative', height: 20, marginBottom: 6 }}>
+        <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', left: 0, right: 0, height: 4, background: '#1A1A1A', borderRadius: 2 }} />
+        <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', left: `${start}%`, width: `${end - start}%`, height: 4, background: '#00B4FF', borderRadius: 2 }} />
+        {/* Start handle */}
+        <div
+          style={{ position: 'absolute', top: '50%', left: `${start}%`, transform: 'translate(-50%, -50%)', width: 12, height: 12, borderRadius: '50%', background: '#fff', border: '2px solid #00B4FF', cursor: 'ew-resize', zIndex: 2 }}
+          onMouseDown={(e) => {
+            e.stopPropagation()
+            const container = e.currentTarget.parentElement!
+            const rect = container.getBoundingClientRect()
+            const onMove = (me: MouseEvent) => {
+              const pct = Math.max(0, Math.min(end - 1, ((me.clientX - rect.left) / rect.width) * 100))
+              onChange(pct, end)
+            }
+            const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+            window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
+          }}
+        />
+        {/* End handle */}
+        <div
+          style={{ position: 'absolute', top: '50%', left: `${end}%`, transform: 'translate(-50%, -50%)', width: 12, height: 12, borderRadius: '50%', background: '#fff', border: '2px solid #00B4FF', cursor: 'ew-resize', zIndex: 2 }}
+          onMouseDown={(e) => {
+            e.stopPropagation()
+            const container = e.currentTarget.parentElement!
+            const rect = container.getBoundingClientRect()
+            const onMove = (me: MouseEvent) => {
+              const pct = Math.max(start + 1, Math.min(100, ((me.clientX - rect.left) / rect.width) * 100))
+              onChange(start, pct)
+            }
+            const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+            window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
+          }}
+        />
+      </div>
+      {/* Time chips */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 9, color: '#444', fontWeight: 600 }}>IN</span>
+          <span style={{ fontSize: 11, color: '#888', fontFamily: 'monospace', fontWeight: 600 }}>{fmtTime(startSec)}</span>
+        </div>
+        <span style={{ fontSize: 11, color: '#00B4FF', fontFamily: 'monospace', fontWeight: 700 }}>{fmtTime(selectedSec)}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 11, color: '#888', fontFamily: 'monospace', fontWeight: 600 }}>{fmtTime(endSec)}</span>
+          <span style={{ fontSize: 9, color: '#444', fontWeight: 600 }}>OUT</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Header Image Section ────────────────────────────────────────────────────────
+
+function HeaderSection({ headerImageUrl, headerImageOffsetY, onChange }: { headerImageUrl: string | null; headerImageOffsetY: number; onChange: (p: Partial<EditorState>) => void }) {
+  const headerFileRef = useRef<HTMLInputElement>(null)
+
+  return (
+    <div style={{ padding: '8px 0' }}>
+      <input type="file" accept="image/*" ref={headerFileRef} className="hidden"
+        onChange={async (e) => {
+          const f = e.target.files?.[0]
+          if (f) {
+            const arrayBuffer = await f.arrayBuffer()
+            const uint8 = new Uint8Array(arrayBuffer)
+            const ext = f.name.split('.').pop() || 'png'
+            const result = await ipc.saveBlobToFile(uint8, `header_${Date.now()}.${ext}`)
+            const blobUrl = URL.createObjectURL(f)
+            onChange({ headerImageUrl: blobUrl, headerImageDiskPath: result?.diskPath ?? null })
+          }
+        }}
+      />
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <button
+          onClick={() => headerFileRef.current?.click()}
+          style={{
+            flex: 1, height: 30,
+            background: headerImageUrl ? '#00B4FF15' : '#1A1A1A',
+            border: `1px solid ${headerImageUrl ? '#00B4FF' : '#222'}`,
+            borderRadius: 3, fontSize: 10, fontWeight: 700,
+            color: headerImageUrl ? '#00B4FF' : '#555',
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+            transition: 'all 0.15s',
+          }}
+        >
+          <IconUpload size={10} color={headerImageUrl ? '#00B4FF' : '#555'} />
+          {headerImageUrl ? 'HEADER' : 'ADD HEADER'}
+        </button>
+        {headerImageUrl && (
+          <button
+            onClick={() => onChange({ headerImageUrl: null, headerImageDiskPath: null })}
+            style={{ width: 30, height: 30, background: 'transparent', border: '1px solid #FF444422', borderRadius: 3, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <IconX size={12} color="#FF4444" />
+          </button>
+        )}
+      </div>
+      {headerImageUrl && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+            <span style={{ fontSize: 9, color: '#444' }}>POSITION</span>
+            <span style={{ fontSize: 9, color: '#555', fontFamily: 'monospace' }}>
+              {headerImageOffsetY < 33 ? 'TOP' : headerImageOffsetY < 66 ? 'CENTER' : 'BOTTOM'}
+            </span>
+          </div>
+          <input type="range" min={0} max={100} value={headerImageOffsetY}
+            onChange={(e) => onChange({ headerImageOffsetY: +e.target.value })}
+            style={{ width: '100%', height: 3 }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Title Section ───────────────────────────────────────────────────────────────
 
 const SHAPE_PRESETS = [
-  { id: 'rounded', label: 'Tròn', borderRadius: 999, icon: '●' },
-  { id: 'square', label: 'Vuông', borderRadius: 4, icon: '■' },
-  { id: 'diamond', label: 'Thoi', borderRadius: 4, icon: '◆' },
+  { id: 'rounded', label: '●', title: 'Rounded' },
+  { id: 'square', label: '■', title: 'Square' },
+  { id: 'diamond', label: '◆', title: 'Diamond' },
 ] as const
 
-const SPEED_STEPS = Array.from({ length: 21 }, (_, i) => +(1.0 + i * 0.1).toFixed(1))
+function TitleSection({ titleText, titleShape, titleBorderColor, titleBgColor, titleFontSize, onChange }: {
+  titleText: string; titleShape: 'rounded' | 'square' | 'diamond'; titleBorderColor: string; titleBgColor: string; titleFontSize: number
+  onChange: (p: Partial<EditorState>) => void
+}) {
+  return (
+    <div style={{ padding: '8px 0' }}>
+      {/* Textarea */}
+      <textarea
+        value={titleText}
+        onChange={(e) => onChange({ titleText: e.target.value })}
+        placeholder="Nhập tiêu đề..."
+        rows={2}
+        style={{
+          width: '100%', background: '#080808', borderWidth: 1, borderStyle: 'solid', borderColor: '#1A1A1A',
+          borderRadius: 3, color: '#AAA', fontSize: 11, padding: '6px 8px',
+          resize: 'none', outline: 'none', fontFamily: 'Inter', lineHeight: 1.3,
+        }}
+      />
+      {/* Shape buttons */}
+      <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+        {SHAPE_PRESETS.map(s => {
+          const active = titleShape === s.id
+          return (
+            <button key={s.id} onClick={() => onChange({ titleShape: s.id } as any)}
+              style={{ flex: 1, height: 26, fontSize: 11, cursor: 'pointer', background: active ? '#00B4FF15' : '#1A1A1A', borderWidth: 1, borderStyle: 'solid', borderColor: active ? '#00B4FF' : '#222', borderRadius: 3, color: active ? '#00B4FF' : '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}
+              title={s.title}
+            >
+              <span style={{ fontSize: 10 }}>{s.label}</span>
+            </button>
+          )
+        })}
+      </div>
+      {/* Colors + Font size */}
+      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 9, color: '#444', marginBottom: 3 }}>VIỀN</div>
+          <div style={{ position: 'relative', height: 24, borderRadius: 2, background: titleBorderColor, border: '1px solid #222', overflow: 'hidden' }}>
+            <input type="color" value={titleBorderColor} onChange={(e) => onChange({ titleBorderColor: e.target.value })} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
+          </div>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 9, color: '#444', marginBottom: 3 }}>NỀN</div>
+          <div style={{ position: 'relative', height: 24, borderRadius: 2, background: titleBgColor.startsWith('rgba') ? '#000' : titleBgColor, border: '1px solid #222', overflow: 'hidden' }}>
+            <input type="color" value={titleBgColor.startsWith('rgba') ? '#000000' : titleBgColor} onChange={(e) => onChange({ titleBgColor: e.target.value })} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
+          </div>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 9, color: '#444', marginBottom: 3 }}>CỠ</div>
+          <div style={{ height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#1A1A1A', border: '1px solid #222', borderRadius: 2 }}>
+            <span style={{ fontSize: 11, color: '#888', fontFamily: 'monospace', fontWeight: 700 }}>{titleFontSize}</span>
+          </div>
+        </div>
+      </div>
+      <input type="range" min={8} max={32} value={titleFontSize}
+        onChange={(e) => onChange({ titleFontSize: +e.target.value })}
+        style={{ width: '100%', height: 3, marginTop: 4 }}
+      />
+    </div>
+  )
+}
 
-// ─── Main DetailEditor ──────────────────────────────────────────────────────────
+// ─── Speed Section ───────────────────────────────────────────────────────────────
 
-export function DetailEditor({ video, editorState, onChange, onRender, onExportChunked, systemStats }: Props) {
-  const headerFileRef = useRef<HTMLInputElement>(null)
+const SPEED_PRESETS = [1.0, 1.5, 2.0]
+
+function SpeedSection({ speedMultiplier, onChange }: { speedMultiplier: number; onChange: (p: Partial<EditorState>) => void }) {
+  const fmt = (v: number) => v.toFixed(1)
+
+  return (
+    <div style={{ padding: '8px 0' }}>
+      {/* Main display + controls */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <button
+          onClick={() => onChange({ speedMultiplier: Math.max(1.0, +(speedMultiplier - 0.1).toFixed(1)) })}
+          style={{ width: 28, height: 28, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, color: '#555', fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <span>−</span>
+        </button>
+        <div style={{ flex: 1, textAlign: 'center' }}>
+          <span style={{ fontSize: 22, fontWeight: 800, color: '#00FF88', fontFamily: 'monospace' }}>{fmt(speedMultiplier)}</span>
+          <span style={{ fontSize: 11, color: '#555', marginLeft: 2 }}>x</span>
+        </div>
+        <button
+          onClick={() => onChange({ speedMultiplier: Math.min(2.0, +(speedMultiplier + 0.1).toFixed(1)) })}
+          style={{ width: 28, height: 28, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, color: '#555', fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <span>+</span>
+        </button>
+      </div>
+      {/* Slider */}
+      <input type="range" min={10} max={20} value={Math.round(speedMultiplier * 10)}
+        onChange={(e) => onChange({ speedMultiplier: +((+e.target.value) / 10).toFixed(1) })}
+        style={{ width: '100%', height: 3, marginBottom: 6 }}
+      />
+      {/* Quick presets */}
+      <div style={{ display: 'flex', gap: 4 }}>
+        {SPEED_PRESETS.map(v => {
+          const active = Math.abs(speedMultiplier - v) < 0.05
+          return (
+            <button key={v} onClick={() => onChange({ speedMultiplier: v })}
+              style={{
+                flex: 1, height: 22, background: active ? '#00FF8820' : '#1A1A1A',
+                border: `1px solid ${active ? '#00FF88' : '#222'}`, borderRadius: 3,
+                fontSize: 10, fontWeight: 700, color: active ? '#00FF88' : '#555',
+                cursor: 'pointer', fontFamily: 'monospace',
+              }}
+            >
+              {fmt(v)}x
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─── Background Section ─────────────────────────────────────────────────────────
+
+function BackgroundSection({ backgroundType, backgroundColor, backgroundImageUrl, editorIsShort, onChange }: {
+  backgroundType: 'blur' | 'solid' | 'image'; backgroundColor: string
+  backgroundImageUrl: string | null
+  editorIsShort: boolean
+  onChange: (p: Partial<EditorState>) => void
+}) {
   const bgImageFileRef = useRef<HTMLInputElement>(null)
-  const canvasWrapRef = useRef<HTMLDivElement>(null)
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (!f) return
+    const arrayBuffer = await f.arrayBuffer()
+    const uint8 = new Uint8Array(arrayBuffer)
+    const ext = f.name.split('.').pop() || 'png'
+    const prefix = editorIsShort ? 'bg' : 'thumb'
+    const result = await ipc.saveBlobToFile(uint8, `${prefix}_${Date.now()}.${ext}`)
+    const blobUrl = URL.createObjectURL(f)
+    onChange({ backgroundImageUrl: blobUrl, backgroundImageDiskPath: result?.diskPath ?? null })
+  }
+
+  return (
+    <div style={{ padding: '8px 0' }}>
+      {/* Type toggle */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+        {(['blur', 'solid', 'image'] as const).map(t => {
+          const active = backgroundType === t
+          return (
+            <button key={t} onClick={() => onChange({ backgroundType: t })}
+              style={{
+                flex: 1, height: 26,
+                background: active ? '#00B4FF15' : '#1A1A1A',
+                border: `1px solid ${active ? '#00B4FF' : '#222'}`,
+                borderRadius: 3, fontSize: 9, fontWeight: 700,
+                color: active ? '#00B4FF' : '#555',
+                cursor: 'pointer', letterSpacing: '0.04em',
+              }}
+            >
+              {t === 'blur' ? 'BLUR' : t === 'solid' ? 'SOLID' : 'IMAGE'}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Solid color */}
+      {backgroundType === 'solid' && (
+        <div style={{ position: 'relative', height: 28, borderRadius: 3, background: backgroundColor, border: '1px solid #222', overflow: 'hidden' }}>
+          <input type="color" value={backgroundColor}
+            onChange={(e) => onChange({ backgroundColor: e.target.value })}
+            style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }}
+          />
+        </div>
+      )}
+
+      {/* Blur regenerate */}
+      {backgroundType === 'blur' && (
+        <button
+          onClick={() => onChange({ backgroundType: 'blur' })}
+          style={{ width: '100%', height: 28, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, color: '#555', fontSize: 9, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = '#00B4FF44'; e.currentTarget.style.color = '#00B4FF' }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = '#222'; e.currentTarget.style.color = '#555' }}
+        >
+          <IconRefresh size={10} color="currentColor" />
+          REGENERATE
+        </button>
+      )}
+
+      {/* Image upload (background for short, thumbnail for landscape) */}
+      {backgroundType === 'image' && (
+        <input type="file" accept="image/*" ref={bgImageFileRef} className="hidden"
+          onChange={handleImageUpload}
+        />
+      )}
+      {backgroundType === 'image' && (
+        <button onClick={() => bgImageFileRef.current?.click()}
+          style={{ width: '100%', height: 28, background: '#1A1A1A', border: '1px solid dashed #222', borderRadius: 3, color: '#444', fontSize: 9, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+        >
+          <IconUpload size={10} color="currentColor" />
+          UPLOAD {editorIsShort ? 'IMAGE' : 'THUMB'}
+        </button>
+      )}
+
+      {/* Thumbnail upload for landscape mode — always available */}
+      {!editorIsShort && backgroundType !== 'image' && (
+        <>
+          <input type="file" accept="image/*" ref={bgImageFileRef} className="hidden"
+            onChange={handleImageUpload}
+          />
+          <button onClick={() => bgImageFileRef.current?.click()}
+            style={{ width: '100%', height: 28, marginTop: 6, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, color: '#555', fontSize: 9, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+          >
+            <IconUpload size={10} color="currentColor" />
+            {backgroundImageUrl ? 'CHANGE THUMB' : 'ADD THUMBNAIL'}
+          </button>
+          {backgroundImageUrl && (
+            <button onClick={() => onChange({ backgroundImageUrl: null, backgroundImageDiskPath: null })}
+              style={{ width: '100%', height: 22, marginTop: 4, background: 'transparent', border: '1px solid #FF444422', borderRadius: 3, color: '#FF4444', fontSize: 8, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              REMOVE THUMB
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─── Canvas Area ─────────────────────────────────────────────────────────────────
+
+function CanvasArea({ video, editorState, onChange }: {
+  video: Video | null
+  editorState: EditorState
+  onChange: (p: Partial<EditorState>) => void
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const [headerDragY, setHeaderDragY] = useState<number | null>(null)
-  const [bgSolidColor, setBgSolidColor] = useState<string>('#000000')
+
+  // Canvas dimensions — always exactly 9:16
+  // width = quality × 9/16, height = quality (for output quality)
+  const quality = editorState.exportQuality
+  const NATIVE_W = Math.round(quality * 9 / 16)   // e.g. 607 at 1080p
+  const NATIVE_H = quality                          // e.g. 1080 at 1080p
+
+  const [canvasW, setCanvasW] = useState(0)
+  const [canvasH, setCanvasH] = useState(0)
 
   // Video player state
   const [playing, setPlaying] = useState(false)
@@ -71,165 +572,111 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
   const [videoDuration, setVideoDuration] = useState(0)
   const [isReady, setIsReady] = useState(false)
   const [showControls, setShowControls] = useState(true)
-  const [isDragging, setIsDragging] = useState(false)
   const [volume, setVolume] = useState(1)
   const [muted, setMuted] = useState(false)
   const [videoError, setVideoError] = useState(false)
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const progressRef = useRef<HTMLDivElement>(null)
 
-  // Video source state
+  // Video source
   const [videoSrc, setVideoSrc] = useState('')
   const [videoNotAvailable, setVideoNotAvailable] = useState(false)
   const [localThumbSrc, setLocalThumbSrc] = useState<string | null>(null)
 
-  // 9:16 canvas sizing
-  const [canvasW, setCanvasW] = useState(0)
-  const [canvasH, setCanvasH] = useState(0)
+  // Header drag
+  const [headerDragY, setHeaderDragY] = useState<number | null>(null)
 
-  // Stable ref for canvas dimensions (used in resize calc)
-  const canvasDimsRef = useRef({ w: 0, h: 0 })
-
+  // Canvas sizing: guarantee 9:16 ratio
   useEffect(() => {
-    const el = canvasWrapRef.current
+    const el = containerRef.current
     if (!el) return
-
     const calc = () => {
       const rect = el.getBoundingClientRect()
-      // Account for: 16px padding top+bottom, 16px padding left+right, ~48px for controls bar
-      const availW = rect.width - 32
-      const availH = rect.height - 32 - 48
+      const availW = rect.width - 32  // padding
+      const availH = rect.height - 32 - 40 // padding + controls
       if (availW <= 0 || availH <= 0) return
-
-      // Try fit to height first (9:16 portrait)
-      const targetH = availH
-      const targetW = targetH * (9 / 16)
-      if (targetW <= availW) {
-        canvasDimsRef.current = { w: Math.floor(targetW), h: Math.floor(targetH) }
-        setCanvasW(Math.floor(targetW))
-        setCanvasH(Math.floor(targetH))
-      } else {
-        // Too narrow — fit to width instead
-        canvasDimsRef.current = { w: Math.floor(availW), h: Math.floor(availW * (16 / 9)) }
-        setCanvasW(Math.floor(availW))
-        setCanvasH(Math.floor(availW * (16 / 9)))
-      }
+      // Scale to fit available space, always maintaining 9:16
+      const scaleW = availW / NATIVE_W
+      const scaleH = availH / NATIVE_H
+      const scale = Math.min(scaleW, scaleH)
+      setCanvasW(Math.floor(NATIVE_W * scale))
+      setCanvasH(Math.floor(NATIVE_H * scale))
     }
-
-    // Run calc synchronously BEFORE first paint
     requestAnimationFrame(() => {
       calc()
       const ro = new ResizeObserver(calc)
       ro.observe(el)
       return () => ro.disconnect()
     })
-  }, [])
+  }, [NATIVE_W, NATIVE_H])
 
   // Load video when workspace changes
   useEffect(() => {
     if (!video?.id) {
-      setVideoSrc('')
-      setVideoNotAvailable(false)
-      setLocalThumbSrc(null)
-      setIsReady(false)
-      setPlaying(false)
-      setCurrentTime(0)
-      setVideoDuration(0)
-      setVideoError(false)
+      setVideoSrc(''); setVideoNotAvailable(false); setLocalThumbSrc(null)
+      setIsReady(false); setPlaying(false); setCurrentTime(0); setVideoDuration(0); setVideoError(false)
       return
     }
+    setVideoNotAvailable(false); setVideoSrc(''); setLocalThumbSrc(null)
+    setIsReady(false); setPlaying(false); setCurrentTime(0); setVideoDuration(0); setVideoError(false)
 
-    setVideoNotAvailable(false)
-    setVideoSrc('')
-    setLocalThumbSrc(null)
-    setIsReady(false)
-    setPlaying(false)
-    setCurrentTime(0)
-    setVideoDuration(0)
-    setVideoError(false)
-
-    // Load video file URL + local thumbnail in parallel
-    Promise.all([
-      ipc.getVideoFile(video.id),
-      ipc.getImageFile(video.id),
-    ]).then(([videoResult, imgResult]) => {
-      if (videoResult?.url) {
-        setVideoSrc(videoResult.url)
+    // Try blob URL first (most reliable in Electron)
+    let cancelled = false
+    ipc.getVideoBlob(video.id).then((bytes) => {
+      if (cancelled) return
+      if (bytes && bytes.length > 0) {
+        const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'video/mp4' })
+        const url = URL.createObjectURL(blob)
+        setVideoSrc(url)
       } else {
-        setVideoNotAvailable(true)
-      }
-      if (imgResult?.dataUrl) {
-        setLocalThumbSrc(imgResult.dataUrl)
+        // Fallback: try file URL protocol
+        return ipc.getVideoFile(video.id).then((result) => {
+          if (cancelled) return
+          if (result?.url) {
+            setVideoSrc(result.url)
+          } else {
+            setVideoNotAvailable(true)
+          }
+        })
       }
     })
+
+    ipc.getImageFile(video.id).then((imgResult) => {
+      if (!cancelled && imgResult?.dataUrl) setLocalThumbSrc(imgResult.dataUrl)
+    })
+
+    return () => { cancelled = true }
   }, [video?.id])
 
-  // Apply speed multiplier when ready
+  // Apply speed
   useEffect(() => {
-    if (videoRef.current && isReady) {
-      videoRef.current.playbackRate = editorState.speedMultiplier
-    }
+    if (videoRef.current && isReady) videoRef.current.playbackRate = editorState.speedMultiplier
   }, [editorState.speedMultiplier, isReady])
 
-  // Sync play/pause — use ref to avoid stale closure
+  // Play/pause sync
   useEffect(() => {
     if (!videoRef.current || !isReady) return
-    if (playing) {
-      videoRef.current.play().catch(() => setPlaying(false))
-    } else {
-      videoRef.current.pause()
-    }
+    if (playing) videoRef.current.play().catch(() => setPlaying(false))
+    else videoRef.current.pause()
   }, [playing, isReady])
 
   // Auto-hide controls
   useEffect(() => {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
-    if (playing && !isDragging) {
+    if (playing) {
       hideTimerRef.current = setTimeout(() => setShowControls(false), 3000)
     } else {
       setShowControls(true)
     }
     return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current) }
-  }, [playing, isDragging])
-
-  // Mouse move on canvas wrap — show controls
-  const handleMouseMove = useCallback(() => {
-    setShowControls(true)
-    if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
-    if (playing) {
-      hideTimerRef.current = setTimeout(() => setShowControls(false), 3000)
-    }
   }, [playing])
 
-  // Toggle play/pause
-  const handleTogglePlay = useCallback(() => {
-    if (!videoRef.current || !isReady) return
-    setPlaying(p => !p)
-  }, [isReady])
-
-  // Toggle mute
-  const handleToggleMute = useCallback(() => {
-    if (!videoRef.current) return
-    const next = !muted
-    videoRef.current.muted = next
-    setMuted(next)
-  }, [muted])
-
-  // Seek video to ratio (0-1)
-  const handleSeekTo = useCallback((ratio: number) => {
-    if (!videoRef.current || !isReady || videoDuration === 0) return
-    const t = Math.max(0, Math.min(videoDuration, ratio * videoDuration))
-    videoRef.current.currentTime = t
-    setCurrentTime(t)
-  }, [isReady, videoDuration])
-
-  // Keyboard shortcuts — stable, no stale closure
+  // Keyboard shortcuts
   useEffect(() => {
     if (!isReady) return
     const handleKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
-      if (e.key === ' ') { e.preventDefault(); handleTogglePlay() }
+      if (e.key === ' ') { e.preventDefault(); setPlaying(p => !p) }
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
         if (videoRef.current) {
@@ -246,600 +693,598 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
           setCurrentTime(videoRef.current.currentTime)
         }
       }
-      if (e.key === 'm' || e.key === 'M') { e.preventDefault(); handleToggleMute() }
+      if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault()
+        const next = !muted
+        if (videoRef.current) videoRef.current.muted = next
+        setMuted(next)
+      }
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [isReady, handleTogglePlay, handleToggleMute, videoDuration])
+  }, [isReady, muted, videoDuration])
 
-  // Sync bgSolidColor
-  useEffect(() => {
-    if (editorState.backgroundType === 'solid') setBgSolidColor(editorState.backgroundColor)
-  }, [editorState.backgroundType])
+  const handleSeekTo = useCallback((ratio: number) => {
+    if (!videoRef.current || !isReady || videoDuration === 0) return
+    const t = Math.max(0, Math.min(videoDuration, ratio * videoDuration))
+    videoRef.current.currentTime = t
+    setCurrentTime(t)
+  }, [isReady, videoDuration])
 
-  if (!video) return <EmptyState />
+  const handleTogglePlay = useCallback(() => {
+    if (!videoRef.current || !isReady) return
+    setPlaying(p => !p)
+  }, [isReady])
 
-  const isDark = editorState.canvasBg === 'black'
-  const headerHeightPct = 20
-  const titleHeightPct = 20
-  const titleFontPx = editorState.titleFontSize
-  const totalSec = parseDuration(video.duration)
+  const handleToggleMute = useCallback(() => {
+    if (!videoRef.current) return
+    const next = !muted
+    videoRef.current.muted = next
+    setMuted(next)
+  }, [muted])
+
+  const totalSec = parseDuration(video?.duration || 0)
   const trimStartSec = (editorState.trimStart / 100) * totalSec
   const trimEndSec = (editorState.trimEnd / 100) * totalSec
   const selectedDuration = trimEndSec - trimStartSec
   const progress = videoDuration > 0 ? (currentTime / videoDuration) * 100 : 0
+  const isDark = editorState.canvasBg === 'black'
+  // SHORT: header(20%) + video(60%) + title(20%)
+  // LANDSCAPE: thumbnail(30%) + video(40%) + part(30%)
+  const isShort = video.isShort !== false
+  const headerH = isShort ? Math.round(quality * 0.20) : Math.round(quality * 0.30)
+  const titleH = isShort ? Math.round(quality * 0.20) : Math.round(quality * 0.30)
+  const videoH = quality - headerH - titleH
+  // Title font: clamp to not overflow the zone
+  const maxTitleFont = Math.floor(titleH * 0.15)
 
-  // Show spinner: videoSrc exists + not ready + not error
   const showSpinner = !isReady && !videoError && (!!videoSrc || videoNotAvailable)
 
+  if (!video) return <EmptyState />
+
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#121212' }}>
-
-      {/* Slim Header */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        paddingLeft: 20, paddingRight: 20, height: 44,
-        borderBottom: '1px solid #1A1A1A', background: '#0D0D0D', flexShrink: 0
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 10, height: 10, background: '#00B4FF', borderRadius: 2 }} />
-          <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', color: '#555' }}>EDITOR</span>
-          <div style={{ width: 1, height: 12, background: '#222' }} />
-          <span style={{ fontSize: 11, color: '#999', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{video.title}</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontFamily: 'monospace', fontSize: 9 }}>
-          <span style={{ color: '#333' }}>SPEED</span>
-          <span style={{ color: '#00FF88', fontWeight: 700 }}>{editorState.speedMultiplier.toFixed(1)}x</span>
-          <div style={{ width: 1, height: 12, background: '#222' }} />
-          <span style={{ color: editorState.exportQuality === 1080 ? '#00FF88' : editorState.exportQuality === 720 ? '#FFB800' : '#555', fontWeight: 700, fontFamily: 'monospace' }}>
-            {editorState.exportQuality}p
-          </span>
-          <span style={{ color: '#444' }}>· H:{Math.round(editorState.exportQuality * 0.2)} V:{Math.round(editorState.exportQuality * 0.6)} T:{Math.round(editorState.exportQuality * 0.2)}</span>
-          <span style={{ color: '#333', fontSize: 8 }}>· {fmtTime(selectedDuration)} trim</span>
-        </div>
-      </div>
-
-      {/* Body: LEFT preview + RIGHT controls */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-
-        {/* LEFT: 9:16 canvas with embedded video player */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#0A0A0A' }}>
+    <div
+      ref={containerRef}
+      style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#0A0A0A', position: 'relative' }}
+      onMouseMove={() => setShowControls(true)}
+    >
+      {/* Centered canvas container */}
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        {canvasW > 0 && canvasH > 0 && (
           <div
-            ref={canvasWrapRef}
-            style={{ flex: 1, position: 'relative', overflow: 'hidden', padding: 16 }}
-            onMouseMove={handleMouseMove}
-          >
-            {/* Grid bg */}
-            <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(#111 1px, transparent 1px)', backgroundSize: '24px 24px', opacity: 0.5 }} />
-
-            {/* 9:16 Canvas */}
-            <div style={{
-              position: 'absolute',
-              top: 16, bottom: 16, left: 16, right: 16,
-              width: canvasW || undefined,
-              height: canvasH || undefined,
-              margin: 'auto',
+            style={{
+              width: canvasW,
+              height: canvasH,
               background: isDark ? '#000' : '#FFF',
-              borderRadius: 4,
-              boxShadow: '0 30px 100px rgba(0,0,0,0.8), 0 0 0 1px #1A1A1A',
+              borderRadius: 3,
               display: 'flex', flexDirection: 'column',
-              zIndex: 1, overflow: 'hidden',
-            }}>
-
-              {/* Zone 1: Header Image */}
-              <div
-                style={{
-                  width: '100%', height: `${headerHeightPct}%`,
-                  background: isDark ? '#050505' : '#F0F0F0',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  overflow: 'hidden', flexShrink: 0,
-                  cursor: headerDragY !== null ? 'grabbing' : 'ns-resize',
-                  position: 'relative',
-                }}
-                onMouseDown={(e) => {
-                  const rect = e.currentTarget.parentElement!.getBoundingClientRect()
-                  setHeaderDragY(e.clientY)
-                  const move = (ev: MouseEvent) => {
-                    const dy = (ev.clientY - rect.top) / rect.height * 100
-                    onChange({ headerImageOffsetY: Math.max(0, Math.min(100, dy)) })
-                  }
-                  const up = () => {
-                    setHeaderDragY(null)
-                    window.removeEventListener('mousemove', move)
-                    window.removeEventListener('mouseup', up)
-                  }
-                  window.addEventListener('mousemove', move)
-                  window.addEventListener('mouseup', up)
-                }}
-              >
-                {editorState.headerImageUrl ? (
+              position: 'relative', overflow: 'hidden',
+              boxShadow: '0 20px 80px rgba(0,0,0,0.9), 0 0 0 1px #1A1A1A',
+            }}
+          >
+            {/* Zone 1: Header Image (short) / Thumbnail (landscape) */}
+            <div
+              style={{
+                width: '100%', height: `${(headerH / NATIVE_H) * 100}%`,
+                background: isDark ? '#050505' : '#F0F0F0',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                overflow: 'hidden', flexShrink: 0,
+                cursor: headerDragY !== null ? 'grabbing' : 'ns-resize',
+                position: 'relative',
+                borderBottom: '1px solid #1A1A1A',
+              }}
+              onMouseDown={(e) => {
+                const rect = e.currentTarget.parentElement!.getBoundingClientRect()
+                setHeaderDragY(e.clientY)
+                const move = (ev: MouseEvent) => {
+                  const dy = (ev.clientY - rect.top) / rect.height * 100
+                  onChange({ headerImageOffsetY: Math.max(0, Math.min(100, dy)) })
+                }
+                const up = () => {
+                  setHeaderDragY(null)
+                  window.removeEventListener('mousemove', move)
+                  window.removeEventListener('mouseup', up)
+                }
+                window.addEventListener('mousemove', move)
+                window.addEventListener('mouseup', up)
+              }}
+            >
+              {isShort ? (
+                // SHORT mode: header image zone
+                editorState.headerImageUrl ? (
                   <img src={editorState.headerImageUrl} alt="header"
                     style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: `center ${editorState.headerImageOffsetY}%`, pointerEvents: 'none' }}
                   />
                 ) : (
                   <div style={{ textAlign: 'center', opacity: 0.06 }}>
-                    <div style={{ fontSize: 20 }}>🖼️</div>
-                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.15em', marginTop: 4, color: '#444' }}>HEADER IMAGE</div>
+                    <div style={{ fontSize: 16 }}>🖼</div>
+                    <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.12em', marginTop: 3, color: '#444' }}>HEADER</div>
                   </div>
-                )}
-                <div style={{ position: 'absolute', top: 3, left: 4, fontSize: 7, color: '#333', fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.05em' }}>
-                  H:{Math.round(editorState.exportQuality * 0.2)}
-                </div>
-                <div style={{ position: 'absolute', bottom: -3, left: '50%', transform: 'translateX(-50%)', width: 24, height: 6, background: '#00B4FF', borderRadius: 3, opacity: 0.5, cursor: 'ns-resize' }} />
-                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 1, background: '#1A1A1A' }} />
-              </div>
+                )
+              ) : (
+                // LANDSCAPE mode: thumbnail zone (always shows thumbnail)
+                <img
+                  src={localThumbSrc || video.thumbnail}
+                  alt="thumbnail"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', pointerEvents: 'none' }}
+                />
+              )}
+              {isShort && <div style={{ position: 'absolute', bottom: -3, left: '50%', transform: 'translateX(-50%)', width: 24, height: 5, background: '#00B4FF', borderRadius: 3, opacity: 0.6, cursor: 'ns-resize' }} />}
+            </div>
 
-              {/* Zone 2: Video */}
-              <div
-                style={{
-                  width: '100%', height: '60%',
-                  background: '#000', position: 'relative',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  cursor: 'pointer',
-                }}
-                onClick={handleTogglePlay}
-              >
-                {/* HTML5 video element — plays directly inside the 9:16 canvas */}
-                {videoSrc && !videoNotAvailable && !videoError ? (
-                  <video
-                    key={videoSrc} // Force remount when src changes — prevents stale element
-                    ref={videoRef}
-                    src={videoSrc}
-                    style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
-                    onTimeUpdate={() => { if (videoRef.current) setCurrentTime(videoRef.current.currentTime) }}
-                    onLoadedMetadata={() => {
-                      if (videoRef.current) {
-                        setVideoDuration(videoRef.current.duration)
-                        setIsReady(true)
-                        videoRef.current.playbackRate = editorState.speedMultiplier
-                      }
-                    }}
-                    onPlay={() => setPlaying(true)}
-                    onPause={() => setPlaying(false)}
-                    onWaiting={() => setPlaying(false)}
-                    onEnded={() => { setPlaying(false); if (videoRef.current) videoRef.current.currentTime = 0 }}
-                    onError={() => { setVideoError(true); setIsReady(false) }}
-                    preload="auto"
-                  />
-                ) : (
-                  <img
-                    src={localThumbSrc || video.thumbnail}
-                    alt="thumbnail"
-                    style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', pointerEvents: 'none' }}
-                  />
-                )}
-
-                {/* Loading spinner */}
-                {showSpinner && (
-                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <div style={{ width: 28, height: 28, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.15)', borderTopColor: '#00B4FF', animation: 'spin 0.8s linear infinite' }} />
-                  </div>
-                )}
-
-                {/* Center play/pause overlay */}
-                {isReady && !playing && (
-                  <div style={{
-                    position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    pointerEvents: 'none',
-                  }}>
-                    <div style={{
-                      width: 48, height: 48, borderRadius: '50%',
-                      background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(8px)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      <div style={{ width: 0, height: 0, borderTop: '9px solid transparent', borderBottom: '9px solid transparent', borderLeft: '16px solid #FFF', marginLeft: 4 }} />
-                    </div>
-                  </div>
-                )}
-
-                {/* Error / Not available badge */}
-                {(videoError || videoNotAvailable) && (
-                  <div style={{
-                    position: 'absolute', bottom: 6, left: 6, right: 6,
-                    padding: '3px 6px', borderRadius: 3,
-                    background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
-                    fontSize: 8, color: videoError ? '#FF4444' : '#FFB800', fontWeight: 700, textAlign: 'center',
-                    letterSpacing: '0.1em',
-                  }}>
-                    {videoError ? 'VIDEO ERROR — Kiểm tra file' : 'CHƯA TẢI — Preview không khả dụng'}
-                  </div>
-                )}
-
-                {/* Speed badge */}
-                {isReady && (
-                  <div style={{
-                    position: 'absolute', top: 5, right: 5,
-                    padding: '2px 5px', borderRadius: 3,
-                    background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
-                    fontSize: 8, fontWeight: 700, color: '#00FF88', fontFamily: 'monospace',
-                  }}>
-                    {editorState.speedMultiplier.toFixed(1)}x
-                  </div>
-                )}
-
-                {/* Zone label */}
-                <div style={{ position: 'absolute', bottom: 4, right: 4, fontSize: 7, color: '#333', fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.05em' }}>
-                  V:{Math.round(editorState.exportQuality * 0.6)}
-                </div>
-              </div>
-
-              {/* Zone 3: Title */}
-              <div style={{
-                width: '100%', height: `${titleHeightPct}%`,
-                background: isDark ? '#000' : '#FFF',
+            {/* Zone 2: Video */}
+            <div
+              style={{
+                width: '100%', height: `${(videoH / NATIVE_H) * 100}%`,
+                background: '#000', position: 'relative',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                flexShrink: 0, position: 'relative',
-              }}>
-                <div style={{ position: 'absolute', top: 3, left: 4, fontSize: 7, color: '#333', fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.05em' }}>
-                  T:{Math.round(editorState.exportQuality * 0.2)}
+                cursor: 'pointer', flexShrink: 0,
+              }}
+              onClick={handleTogglePlay}
+            >
+              {videoSrc && !videoNotAvailable && !videoError ? (
+                <video
+                  key={videoSrc}
+                  ref={videoRef}
+                  src={videoSrc}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    // SHORT: contain (show 16:9 video in 9:16 zone)
+                    // LANDSCAPE: cover + center = crop to square (match FFmpeg pad output)
+                    objectFit: isShort ? 'contain' : 'cover',
+                    objectPosition: 'center',
+                    display: 'block',
+                  }}
+                  onTimeUpdate={() => { if (videoRef.current) setCurrentTime(videoRef.current.currentTime) }}
+                  onLoadedMetadata={() => {
+                    if (videoRef.current) {
+                      setVideoDuration(videoRef.current.duration)
+                      setIsReady(true)
+                      videoRef.current.playbackRate = editorState.speedMultiplier
+                    }
+                  }}
+                  onPlay={() => setPlaying(true)}
+                  onPause={() => setPlaying(false)}
+                  onWaiting={() => setPlaying(false)}
+                  onEnded={() => { setPlaying(false); if (videoRef.current) videoRef.current.currentTime = 0 }}
+                  onError={() => { setVideoError(true); setIsReady(false) }}
+                  preload="auto"
+                />
+              ) : (
+                <img
+                  src={localThumbSrc || video.thumbnail}
+                  alt="thumbnail"
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: isShort ? 'contain' : 'cover',
+                    objectPosition: 'center',
+                    display: 'block',
+                    pointerEvents: 'none',
+                  }}
+                />
+              )}
+
+              {/* Spinner */}
+              {showSpinner && (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ width: 28, height: 28, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.15)', borderTopColor: '#00B4FF', animation: 'spin 0.8s linear infinite' }} />
                 </div>
-                {editorState.titleText ? (
-                  <div style={{
-                    width: '66%',
-                    background: editorState.titleBgColor,
-                    borderWidth: 2, borderStyle: 'solid', borderColor: editorState.titleBorderColor,
-                    borderRadius: editorState.titleShape === 'rounded' ? 999 : 4,
-                    padding: `${Math.round(titleFontPx * 0.6)}px ${Math.round(titleFontPx * 0.8)}px`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    overflow: 'hidden',
-                  }}>
-                    <span style={{ fontSize: titleFontPx, fontWeight: 700, color: isDark ? '#FFF' : '#000', textAlign: 'center', lineHeight: 1.2, wordBreak: 'break-word' }}>
-                      {editorState.titleText}
-                    </span>
+              )}
+
+              {/* Center play button */}
+              {isReady && !playing && (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                  <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <IconPlay />
                   </div>
-                ) : (
-                  <div style={{ textAlign: 'center', opacity: 0.06 }}>
-                    <div style={{ fontSize: 14 }}>✎</div>
-                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', marginTop: 3, color: '#444' }}>NHẬP TIÊU ĐỀ</div>
-                  </div>
-                )}
+                </div>
+              )}
+
+              {/* Error badge */}
+              {(videoError || videoNotAvailable) && (
+                <div style={{ position: 'absolute', bottom: 4, left: 4, right: 4, padding: '2px 6px', borderRadius: 2, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', fontSize: 8, color: videoError ? '#FF4444' : '#FFB800', fontWeight: 700, textAlign: 'center', letterSpacing: '0.08em' }}>
+                  {videoError ? 'VIDEO ERROR' : 'PREVIEW UNAVAILABLE'}
+                </div>
+              )}
+
+              {/* Speed badge */}
+              {isReady && editorState.speedMultiplier !== 1.0 && (
+                <div style={{ position: 'absolute', top: 4, right: 4, padding: '2px 5px', borderRadius: 2, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', fontSize: 8, fontWeight: 700, color: '#00FF88', fontFamily: 'monospace' }}>
+                  {editorState.speedMultiplier.toFixed(1)}x
+                </div>
+              )}
+
+              {/* Zone label */}
+              <div style={{ position: 'absolute', bottom: 3, right: 4, fontSize: 7, color: '#333', fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.05em' }}>
+                VIDEO
               </div>
+            </div>
 
-              {/* Controls bar — overlaid at bottom of canvas */}
-              {isReady && (
+            {/* Zone 3: Title (short) / Part Number (landscape) */}
+            <div style={{
+              width: '100%', height: `${(titleH / NATIVE_H) * 100}%`,
+              background: isDark ? '#000' : '#FFF',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0, position: 'relative',
+            }}>
+              <div style={{ position: 'absolute', top: 3, left: 4, fontSize: 7, color: '#333', fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.05em' }}>
+                {isShort ? 'TITLE' : 'PART'}
+              </div>
+              {editorState.titleText ? (
                 <div style={{
-                  position: 'absolute', bottom: 0, left: 0, right: 0,
-                  background: 'linear-gradient(transparent, rgba(0,0,0,0.9))',
-                  padding: '20px 8px 6px',
-                  opacity: showControls ? 1 : 0,
-                  transition: 'opacity 0.25s',
-                  pointerEvents: showControls ? 'auto' : 'none',
+                  width: '70%',
+                  background: editorState.titleBgColor,
+                  borderWidth: 2, borderStyle: 'solid', borderColor: editorState.titleBorderColor,
+                  borderRadius: editorState.titleShape === 'rounded' ? 999 : 4,
+                  padding: `${Math.round(editorState.titleFontSize * 0.6)}px ${Math.round(editorState.titleFontSize * 0.8)}px`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
                 }}>
-                  {/* Progress bar */}
-                  <div
-                    ref={progressRef}
-                    onClick={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect()
-                      handleSeekTo((e.clientX - rect.left) / rect.width)
-                    }}
-                    onMouseDown={(e) => {
-                      e.stopPropagation()
-                      const rect = e.currentTarget.getBoundingClientRect()
-                      handleSeekTo((e.clientX - rect.left) / rect.width)
-                      setIsDragging(true)
-
-                      const onMove = (ev: MouseEvent) => {
-                        const r = ev.currentTarget as HTMLDivElement
-                        const re = r.getBoundingClientRect()
-                        handleSeekTo((ev.clientX - re.left) / re.width)
-                      }
-                      const onUp = () => {
-                        setIsDragging(false)
-                        window.removeEventListener('mousemove', onMove)
-                        window.removeEventListener('mouseup', onUp)
-                      }
-                      window.addEventListener('mousemove', onMove)
-                      window.addEventListener('mouseup', onUp)
-                    }}
-                    style={{ position: 'relative', height: 14, cursor: 'pointer', marginBottom: 2 }}
-                  >
-                    <div style={{ position: 'absolute', inset: 0, top: '50%', transform: 'translateY(-50%)', height: 3, background: 'rgba(255,255,255,0.2)', borderRadius: 2 }}>
-                      {/* Trim range */}
-                      <div style={{ position: 'absolute', left: `${editorState.trimStart}%`, width: `${editorState.trimEnd - editorState.trimStart}%`, height: '100%', background: 'rgba(255,255,136,0.2)', borderRadius: 2 }} />
-                      <div style={{ height: '100%', width: `${progress}%`, background: '#FF0000', borderRadius: 2, transition: isDragging ? 'none' : 'width 0.1s linear' }} />
-                    </div>
-                    <div style={{ position: 'absolute', top: '50%', transform: 'translate(-50%, -50%)', left: `${progress}%`, width: 10, height: 10, borderRadius: '50%', background: '#FF0000', opacity: showControls ? 1 : 0, transition: 'opacity 0.25s' }} />
-                    <div style={{ position: 'absolute', left: `${editorState.trimStart}%`, top: '50%', transform: 'translate(-50%, -50%)', width: 2, height: 8, background: '#00FF88', borderRadius: 1 }} />
-                    <div style={{ position: 'absolute', left: `${editorState.trimEnd}%`, top: '50%', transform: 'translate(-50%, -50%)', width: 2, height: 8, background: '#00FF88', borderRadius: 1 }} />
-                  </div>
-
-                  {/* Controls row */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                    {/* Rewind 5s */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); if (videoRef.current) handleSeekTo((videoRef.current.currentTime - 5) / videoDuration) }}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, display: 'flex', alignItems: 'center', flexShrink: 0 }}
-                      title="-5s"
-                    >
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFF" strokeWidth="2">
-                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                        <path d="M3 3v5h5" />
-                        <text x="7" y="15" fontSize="7" fill="#FFF" stroke="none" fontWeight="700">5</text>
-                      </svg>
-                    </button>
-
-                    {/* Play/Pause */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleTogglePlay() }}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, display: 'flex', alignItems: 'center', flexShrink: 0 }}
-                      title={playing ? 'Pause' : 'Play'}
-                    >
-                      {playing ? (
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="#FFF">
-                          <rect x="6" y="4" width="4" height="16" rx="1" />
-                          <rect x="14" y="4" width="4" height="16" rx="1" />
-                        </svg>
-                      ) : (
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="#FFF">
-                          <polygon points="5 3 19 12 5 21 5 3" />
-                        </svg>
-                      )}
-                    </button>
-
-                    {/* Forward 5s */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); if (videoRef.current) handleSeekTo((videoRef.current.currentTime + 5) / videoDuration) }}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, display: 'flex', alignItems: 'center', flexShrink: 0 }}
-                      title="+5s"
-                    >
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFF" strokeWidth="2">
-                        <path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-                        <path d="M21 3v5h-5" />
-                        <text x="7" y="15" fontSize="7" fill="#FFF" stroke="none" fontWeight="700">5</text>
-                      </svg>
-                    </button>
-
-                    {/* Time */}
-                    <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#FFF', opacity: 0.9, minWidth: 82, flexShrink: 0 }}>
-                      {fmtTime(currentTime)} / {fmtTime(videoDuration)}
-                    </span>
-
-                    <div style={{ flex: 1 }} />
-
-                    {/* Volume */}
-                    <button onClick={(e) => { e.stopPropagation(); handleToggleMute() }}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-                      {muted || volume === 0 ? (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFF" strokeWidth="2">
-                          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="#FFF" />
-                          <line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" />
-                        </svg>
-                      ) : volume < 0.5 ? (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFF" strokeWidth="2">
-                          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="#FFF" />
-                          <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                        </svg>
-                      ) : (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFF" strokeWidth="2">
-                          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="#FFF" />
-                          <path d="M15.54 8.46a5 5 0 0 1 0 7.07" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                        </svg>
-                      )}
-                    </button>
-                    <input
-                      type="range" min={0} max={1} step={0.05}
-                      value={muted ? 0 : volume}
-                      onChange={(e) => {
-                        const v = +e.target.value
-                        setVolume(v)
-                        setMuted(v === 0)
-                        if (videoRef.current) videoRef.current.volume = v
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      style={{ width: 50, accentColor: '#FF0000', flexShrink: 0 }}
-                    />
-                  </div>
+                  <span style={{ fontSize: Math.min(editorState.titleFontSize, maxTitleFont), fontWeight: 700, color: isDark ? '#FFF' : '#000', textAlign: 'center', lineHeight: 1.2, wordBreak: 'break-word' }}>
+                    {editorState.titleText}
+                  </span>
+                </div>
+              ) : isShort ? (
+                <div style={{ textAlign: 'center', opacity: 0.06 }}>
+                  <div style={{ fontSize: 12, color: '#444' }}>T</div>
+                  <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.1em', marginTop: 2, color: '#444' }}>TITLE</div>
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', opacity: 0.06 }}>
+                  <div style={{ fontSize: 12, color: '#444' }}>#</div>
+                  <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.1em', marginTop: 2, color: '#444' }}>PART</div>
                 </div>
               )}
             </div>
 
-            {/* Dimension badge */}
-            <div style={{ position: 'absolute', bottom: 16, left: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: editorState.exportQuality === 1080 ? '#00FF88' : editorState.exportQuality === 720 ? '#FFB800' : '#555' }}>
-                {editorState.exportQuality}×{Math.round(editorState.exportQuality * 16 / 9)}
-              </span>
-              <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#333' }}>H:{Math.round(editorState.exportQuality * 0.2)}</span>
-              <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#333' }}>V:{Math.round(editorState.exportQuality * 0.6)}</span>
-              <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#333' }}>T:{Math.round(editorState.exportQuality * 0.2)}</span>
+            {/* Video controls overlay */}
+            {isReady && (
+              <div style={{
+                position: 'absolute', bottom: 0, left: 0, right: 0,
+                background: 'linear-gradient(transparent, rgba(0,0,0,0.92))',
+                padding: '20px 6px 6px',
+                opacity: showControls ? 1 : 0,
+                transition: 'opacity 0.25s',
+                pointerEvents: showControls ? 'auto' : 'none',
+              }}>
+                {/* Progress bar */}
+                <div
+                  onClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    handleSeekTo((e.clientX - rect.left) / rect.width)
+                  }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation()
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    handleSeekTo((e.clientX - rect.left) / rect.width)
+                    const onMove = (me: MouseEvent) => {
+                      handleSeekTo((me.clientX - rect.left) / rect.width)
+                    }
+                    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+                    window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
+                  }}
+                  style={{ position: 'relative', height: 12, cursor: 'pointer', marginBottom: 2 }}
+                >
+                  <div style={{ position: 'absolute', inset: 0, top: '50%', transform: 'translateY(-50%)', height: 3, background: 'rgba(255,255,255,0.2)', borderRadius: 2 }}>
+                    <div style={{ position: 'absolute', left: `${editorState.trimStart}%`, width: `${editorState.trimEnd - editorState.trimStart}%`, height: '100%', background: 'rgba(255,255,136,0.2)', borderRadius: 2 }} />
+                    <div style={{ height: '100%', width: `${progress}%`, background: '#FF0000', borderRadius: 2, transition: 'width 0.1s linear' }} />
+                  </div>
+                  <div style={{ position: 'absolute', top: '50%', transform: 'translate(-50%, -50%)', left: `${progress}%`, width: 8, height: 8, borderRadius: '50%', background: '#FF0000' }} />
+                  <div style={{ position: 'absolute', left: `${editorState.trimStart}%`, top: '50%', transform: 'translate(-50%, -50%)', width: 2, height: 7, background: '#00FF88', borderRadius: 1 }} />
+                  <div style={{ position: 'absolute', left: `${editorState.trimEnd}%`, top: '50%', transform: 'translate(-50%, -50%)', width: 2, height: 7, background: '#00FF88', borderRadius: 1 }} />
+                </div>
+
+                {/* Controls row */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <button onClick={(e) => { e.stopPropagation(); if (videoRef.current) handleSeekTo((videoRef.current.currentTime - 5) / videoDuration) }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                    <IconRewind size={16} />
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); handleTogglePlay() }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                    {playing ? <IconPause /> : <IconPlay />}
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); if (videoRef.current) handleSeekTo((videoRef.current.currentTime + 5) / videoDuration) }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                    <IconForward size={16} />
+                  </button>
+                  <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#FFF', opacity: 0.9, minWidth: 80, flexShrink: 0 }}>
+                    {fmtTime(currentTime)} / {fmtTime(videoDuration)}
+                  </span>
+                  <div style={{ flex: 1 }} />
+                  <button onClick={(e) => { e.stopPropagation(); handleToggleMute() }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                    <IconVolume size={14} muted={muted} />
+                  </button>
+                  <input type="range" min={0} max={1} step={0.05}
+                    value={muted ? 0 : volume}
+                    onChange={(e) => {
+                      e.stopPropagation()
+                      const v = +e.target.value
+                      setVolume(v); setMuted(v === 0)
+                      if (videoRef.current) videoRef.current.volume = v
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ width: 44, accentColor: '#FF0000', flexShrink: 0 }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Dimension badge */}
+      <div style={{ position: 'absolute', bottom: 20, left: 16, display: 'flex', gap: 6, alignItems: 'center' }}>
+        <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: editorState.exportQuality === 1080 ? '#00FF88' : editorState.exportQuality === 720 ? '#FFB800' : '#555' }}>
+          {canvasW}×{canvasH}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+// ─── Controls Panel ─────────────────────────────────────────────────────────────
+
+function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRendering, systemStats, editorIsShort }: {
+  editorState: EditorState
+  onChange: (p: Partial<EditorState>) => void
+  onRender: () => void
+  onExportChunked?: () => void
+  isRendering: boolean
+  systemStats?: SystemStats
+  editorIsShort: boolean
+}) {
+  const totalSec = 1 // dummy, won't show if no video
+
+  return (
+    <div style={{ width: 280, borderLeft: '1px solid #1A1A1A', display: 'flex', flexDirection: 'column', background: '#111' }}>
+      {/* Scrollable content */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0 12px' }} className="scrollbar">
+
+        {/* TRIM */}
+        <SectionHeader icon={<IconScissors size={11} color="#555" />} label="TRIM" />
+        <TrimSection
+          start={editorState.trimStart}
+          end={editorState.trimEnd}
+          duration={1}
+          onChange={(s, e) => onChange({ trimStart: s, trimEnd: e })}
+        />
+
+        {/* HEADER IMAGE (short mode only) */}
+        {editorIsShort && (
+          <>
+            <SectionHeader icon={<IconImage size={11} color="#555" />} label="HEADER" />
+            <HeaderSection
+              headerImageUrl={editorState.headerImageUrl}
+              headerImageOffsetY={editorState.headerImageOffsetY}
+              onChange={onChange}
+            />
+          </>
+        )}
+
+        {/* TITLE */}
+        <SectionHeader icon={<IconType size={11} color="#555" />} label="TITLE" />
+        <TitleSection
+          titleText={editorState.titleText}
+          titleShape={editorState.titleShape}
+          titleBorderColor={editorState.titleBorderColor}
+          titleBgColor={editorState.titleBgColor}
+          titleFontSize={editorState.titleFontSize}
+          onChange={onChange}
+        />
+
+        {/* SPEED */}
+        <SectionHeader icon={<IconZap size={11} color="#555" />} label="SPEED" />
+        <SpeedSection
+          speedMultiplier={editorState.speedMultiplier}
+          onChange={onChange}
+        />
+
+        {/* BACKGROUND */}
+        <SectionHeader icon={<IconPalette size={11} color="#555" />} label="BACKGROUND" />
+        <BackgroundSection
+          backgroundType={editorState.backgroundType}
+          backgroundColor={editorState.backgroundColor}
+          backgroundImageUrl={editorState.backgroundImageUrl}
+          editorIsShort={editorIsShort}
+          onChange={onChange}
+        />
+
+        {/* CANVAS MODE */}
+        <div style={{ padding: '8px 0', borderBottom: '1px solid #1A1A1A' }}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {(['black', 'white'] as const).map(bg => {
+              const active = editorState.canvasBg === bg
+              return (
+                <button key={bg} onClick={() => onChange({ canvasBg: bg })}
+                  style={{ flex: 1, height: 28, fontSize: 9, fontWeight: 700, cursor: 'pointer', background: active ? '#00B4FF15' : '#1A1A1A', borderWidth: 1, borderStyle: 'solid', borderColor: active ? '#00B4FF' : '#222', borderRadius: 3, color: active ? '#00B4FF' : '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                  <div style={{ width: 8, height: 8, background: bg === 'black' ? '#000' : '#FFF', borderWidth: 1, borderStyle: 'solid', borderColor: '#333', borderRadius: 1 }} />
+                  {bg === 'black' ? 'TỐI' : 'SÁNG'}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Bottom padding for export buttons */}
+        <div style={{ height: 100 }} />
+      </div>
+
+      {/* Sticky export section */}
+      <div style={{ padding: '12px', borderTop: '1px solid #1A1A1A', background: '#111', flexShrink: 0 }}>
+        {/* Quality + Codec row */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 9, color: '#444', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 4 }}>QUALITY</div>
+            <div style={{ display: 'flex', gap: 3 }}>
+              {([1080, 720, 360] as const).map(q => {
+                const active = editorState.exportQuality === q
+                return (
+                  <button key={q} onClick={() => onChange({ exportQuality: q as 1080 | 720 | 360 })}
+                    style={{
+                      flex: 1, height: 22, background: active ? '#00B4FF' : '#1A1A1A',
+                      border: `1px solid ${active ? '#00B4FF' : '#222'}`,
+                      borderRadius: 2, fontSize: 10, fontWeight: 700,
+                      color: active ? '#000' : '#444', cursor: 'pointer', fontFamily: 'monospace',
+                    }}>
+                    {q}p
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 9, color: '#444', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 4 }}>CODEC</div>
+            <div style={{ display: 'flex', gap: 3 }}>
+              {(['h264', 'hevc'] as const).map(c => {
+                const active = editorState.exportCodec === c
+                return (
+                  <button key={c} onClick={() => onChange({ exportCodec: c })}
+                    style={{
+                      flex: 1, height: 22, background: active ? '#7C3AED' : '#1A1A1A',
+                      border: `1px solid ${active ? '#7C3AED' : '#222'}`,
+                      borderRadius: 2, fontSize: 9, fontWeight: 700,
+                      color: active ? '#fff' : '#444', cursor: 'pointer', fontFamily: 'monospace',
+                    }}>
+                    {c === 'h264' ? 'H.264' : 'HEVC'}
+                  </button>
+                )
+              })}
             </div>
           </div>
         </div>
 
-        {/* RIGHT: Controls */}
-        <div style={{ width: 300, borderLeft: '1px solid #1A1A1A', display: 'flex', flexDirection: 'column', background: '#111' }}>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '12px 12px' }} className="scrollbar">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 8px' }}>
-
-              {/* TRIM */}
-              <div style={{ gridColumn: '1 / -1' }}>
-                <div style={{ fontSize: 9, color: '#444', fontWeight: 800, letterSpacing: '0.1em', marginBottom: 6 }}>00. TRIM</div>
-                <TrimControls
-                  start={editorState.trimStart}
-                  end={editorState.trimEnd}
-                  duration={totalSec}
-                  onChange={(start, end) => onChange({ trimStart: start, trimEnd: end })}
-                />
-              </div>
-
-              {/* LEFT COL */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {/* Title */}
-                <div>
-                  <div style={{ fontSize: 9, color: '#444', fontWeight: 800, letterSpacing: '0.1em', marginBottom: 6 }}>01. TIÊU ĐỀ</div>
-                  <textarea
-                    value={editorState.titleText}
-                    onChange={(e) => onChange({ titleText: e.target.value })}
-                    placeholder="VD: Part 1..."
-                    rows={2}
-                    style={{
-                      width: '100%', background: '#080808', borderWidth: 1, borderStyle: 'solid', borderColor: '#1A1A1A',
-                      borderRadius: 3, color: '#AAA', fontSize: 10, padding: '6px 8px',
-                      resize: 'none', outline: 'none', fontFamily: 'Inter',
-                    }}
-                  />
-                  <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
-                    {SHAPE_PRESETS.map(s => {
-                      const active = editorState.titleShape === s.id
-                      return (
-                        <button key={s.id} onClick={() => onChange({ titleShape: s.id } as any)}
-                          style={{ flex: 1, height: 26, fontSize: 9, fontWeight: 700, cursor: 'pointer', background: active ? '#00B4FF15' : '#1A1A1A', borderWidth: 1, borderStyle: 'solid', borderColor: active ? '#00B4FF' : '#222', borderRadius: 3, color: active ? '#00B4FF' : '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
-                          <span>{s.icon}</span>{s.label}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 6 }}>
-                    <div>
-                      <div style={{ fontSize: 9, color: '#444', marginBottom: 3 }}>VIỀN</div>
-                      <div style={{ position: 'relative', height: 22, borderRadius: 2, background: editorState.titleBorderColor, border: '1px solid #222' }}>
-                        <input type="color" value={editorState.titleBorderColor} onChange={(e) => onChange({ titleBorderColor: e.target.value })} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 9, color: '#444', marginBottom: 3 }}>NỀN</div>
-                      <div style={{ position: 'relative', height: 22, borderRadius: 2, background: editorState.titleBgColor.startsWith('rgba') ? '#000' : editorState.titleBgColor, border: '1px solid #222' }}>
-                        <input type="color" value={editorState.titleBgColor.startsWith('rgba') ? '#000000' : editorState.titleBgColor} onChange={(e) => onChange({ titleBgColor: e.target.value })} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
-                    <span style={{ fontSize: 9, color: '#444' }}>CỠ CHỮ</span>
-                    <span style={{ fontSize: 9, color: '#555', fontFamily: 'monospace' }}>{editorState.titleFontSize}px</span>
-                  </div>
-                  <input type="range" min={8} max={32} value={editorState.titleFontSize}
-                    onChange={(e) => onChange({ titleFontSize: +e.target.value })}
-                    style={{ width: '100%', height: 3, marginTop: 4 }} />
-                </div>
-
-                {/* Speed */}
-                <div>
-                  <div style={{ fontSize: 9, color: '#444', fontWeight: 800, letterSpacing: '0.1em', marginBottom: 6 }}>02. TỐC ĐỘ</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <button onClick={() => { const idx = SPEED_STEPS.indexOf(+editorState.speedMultiplier.toFixed(1)); if (idx > 0) onChange({ speedMultiplier: SPEED_STEPS[idx - 1] }) }}
-                      style={{ width: 24, height: 24, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, color: '#555', fontSize: 12, cursor: 'pointer' }}>−</button>
-                    <div style={{ flex: 1, textAlign: 'center' }}>
-                      <span style={{ fontSize: 16, fontWeight: 800, color: '#00FF88', fontFamily: 'monospace' }}>{editorState.speedMultiplier.toFixed(1)}</span>
-                      <span style={{ fontSize: 9, color: '#555', marginLeft: 2 }}>x</span>
-                    </div>
-                    <button onClick={() => { const idx = SPEED_STEPS.indexOf(+editorState.speedMultiplier.toFixed(1)); if (idx < SPEED_STEPS.length - 1) onChange({ speedMultiplier: SPEED_STEPS[idx + 1] }) }}
-                      style={{ width: 24, height: 24, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, color: '#555', fontSize: 12, cursor: 'pointer' }}>+</button>
-                  </div>
-                  <input type="range" min={10} max={20} value={Math.round(editorState.speedMultiplier * 10)}
-                    onChange={(e) => onChange({ speedMultiplier: +((+e.target.value) / 10).toFixed(1) })}
-                    style={{ width: '100%', height: 3, marginTop: 6 }} />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
-                    <span style={{ fontSize: 8, color: '#333' }}>1.0x</span>
-                    <span style={{ fontSize: 8, color: '#333' }}>2.0x</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* RIGHT COL */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {/* Header Image */}
-                <div>
-                  <div style={{ fontSize: 9, color: '#444', fontWeight: 800, letterSpacing: '0.1em', marginBottom: 6 }}>03. HEADER IMAGE</div>
-                  <input type="file" accept="image/*" ref={headerFileRef} className="hidden"
-                    onChange={async (e) => {
-                      const f = e.target.files?.[0]
-                      if (f) {
-                        const arrayBuffer = await f.arrayBuffer()
-                        const uint8 = new Uint8Array(arrayBuffer)
-                        const ext = f.name.split('.').pop() || 'png'
-                        const result = await ipc.saveBlobToFile(uint8, `header_${Date.now()}.${ext}`)
-                        const blobUrl = URL.createObjectURL(f)
-                        onChange({ headerImageUrl: blobUrl, headerImageDiskPath: result?.diskPath ?? null })
-                      }
-                    }}
-                  />
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    <button onClick={() => headerFileRef.current?.click()}
-                      style={{ flex: 1, height: 28, background: editorState.headerImageUrl ? '#00B4FF15' : 'transparent', borderWidth: 1, borderStyle: 'solid', borderColor: editorState.headerImageUrl ? '#00B4FF' : '#222', borderRadius: 3, color: editorState.headerImageUrl ? '#00B4FF' : '#444', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>
-                      {editorState.headerImageUrl ? '✓ ĐÃ TẢI' : '↑ TẢI LÊN'}
-                    </button>
-                    {editorState.headerImageUrl && (
-                      <button onClick={() => onChange({ headerImageUrl: null, headerImageDiskPath: null })}
-                        style={{ width: 28, height: 28, background: 'transparent', border: '1px solid #FF444433', borderRadius: 3, color: '#FF4444', fontSize: 12, cursor: 'pointer' }}>×</button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Background */}
-                <div>
-                  <div style={{ fontSize: 9, color: '#444', fontWeight: 800, letterSpacing: '0.1em', marginBottom: 6 }}>04. NỀN</div>
-                  <BackgroundControls
-                    type={editorState.backgroundType}
-                    color={bgSolidColor}
-                    onTypeChange={(t) => onChange({ backgroundType: t })}
-                    onRegenerateBlur={() => onChange({ backgroundType: 'blur' })}
-                    onUploadImage={() => bgImageFileRef.current?.click()}
-                  />
-                  {editorState.backgroundType === 'solid' && (
-                    <div style={{ position: 'relative', height: 26, borderRadius: 3, background: bgSolidColor, border: '1px solid #222', marginTop: 6 }}>
-                      <input type="color" value={bgSolidColor}
-                        onChange={(e) => { setBgSolidColor(e.target.value); onChange({ backgroundColor: e.target.value }) }}
-                        style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
-                    </div>
-                  )}
-                  <input type="file" accept="image/*" ref={bgImageFileRef} className="hidden"
-                    onChange={async (e) => {
-                      const f = e.target.files?.[0]
-                      if (f) {
-                        const arrayBuffer = await f.arrayBuffer()
-                        const uint8 = new Uint8Array(arrayBuffer)
-                        const ext = f.name.split('.').pop() || 'png'
-                        const result = await ipc.saveBlobToFile(uint8, `bg_${Date.now()}.${ext}`)
-                        const blobUrl = URL.createObjectURL(f)
-                        onChange({ backgroundImageUrl: blobUrl, backgroundImageDiskPath: result?.diskPath ?? null, backgroundType: 'image' })
-                      }
-                    }}
-                  />
-                </div>
-
-                {/* Canvas mode */}
-                <div>
-                  <div style={{ fontSize: 9, color: '#444', fontWeight: 800, letterSpacing: '0.1em', marginBottom: 6 }}>05. CHẾ ĐỘ</div>
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    {(['black', 'white'] as const).map(bg => {
-                      const active = editorState.canvasBg === bg
-                      return (
-                        <button key={bg} onClick={() => onChange({ canvasBg: bg })}
-                          style={{ flex: 1, height: 28, fontSize: 9, fontWeight: 700, cursor: 'pointer', background: active ? '#00B4FF15' : '#1A1A1A', borderWidth: 1, borderStyle: 'solid', borderColor: active ? '#00B4FF' : '#222', borderRadius: 3, color: active ? '#00B4FF' : '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                          <div style={{ width: 8, height: 8, background: bg === 'black' ? '#000' : '#FFF', borderWidth: 1, borderStyle: 'solid', borderColor: '#333', borderRadius: 1 }} />
-                          {bg === 'black' ? 'TỐI' : 'SÁNG'}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              {/* RENDER */}
-              <div style={{ gridColumn: '1 / -1', paddingTop: 4, borderTop: '1px solid #1A1A1A', marginTop: 2 }}>
-                <div style={{ fontSize: 9, color: '#444', fontWeight: 800, letterSpacing: '0.1em', marginBottom: 8 }}>06. RENDER</div>
-                <ExportPanel
-                  quality={editorState.exportQuality}
-                  onChange={(q) => onChange({ exportQuality: q as 1080 | 720 | 360 })}
-                  onExport={onRender}
-                  isRendering={video?.status === 'rendering'}
-                  codec={editorState.exportCodec}
-                  onCodecChange={(c) => onChange({ exportCodec: c })}
-                  preset={editorState.exportPreset}
-                  onPresetChange={(p) => onChange({ exportPreset: p })}
-                  tune={editorState.exportTune}
-                  onTuneChange={(t) => onChange({ exportTune: t })}
-                  enableChunked={editorState.enableChunked}
-                  onChunkedChange={(v) => onChange({ enableChunked: v })}
-                  onExportChunked={onExportChunked}
-                  maxChunkWorkers={systemStats?.maxChunkWorkers}
-                />
-              </div>
-
+        {/* GPU MAX toggle */}
+        {onExportChunked && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{ fontSize: 9, color: '#444', fontWeight: 700, letterSpacing: '0.1em' }}>GPU MAX</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 9, color: editorState.enableChunked ? '#00FF88' : '#444', fontWeight: 700 }}>
+                {editorState.enableChunked ? `${systemStats?.maxChunkWorkers || 8}x PARALLEL` : 'OFF'}
+              </span>
+              <button
+                onClick={() => !isRendering && onChange({ enableChunked: !editorState.enableChunked })}
+                disabled={isRendering}
+                style={{
+                  width: 32, height: 16, background: editorState.enableChunked ? '#00FF88' : '#1A1A1A',
+                  border: `1px solid ${editorState.enableChunked ? '#00FF8844' : '#222'}`,
+                  borderRadius: 8, cursor: isRendering ? 'not-allowed' : 'pointer', position: 'relative', transition: 'all 0.2s',
+                }}
+              >
+                <div style={{ width: 10, height: 10, borderRadius: '50%', background: editorState.enableChunked ? '#000' : '#444', position: 'absolute', top: 2, left: editorState.enableChunked ? 18 : 3, transition: 'left 0.2s' }} />
+              </button>
             </div>
           </div>
+        )}
+
+        {/* Single render button */}
+        <button
+          onClick={editorState.enableChunked && onExportChunked ? onExportChunked : onRender}
+          disabled={isRendering}
+          style={{
+            width: '100%', height: 44,
+            background: isRendering
+              ? '#FF444440'
+              : editorState.enableChunked
+                ? '#7C3AED'
+                : '#00B4FF',
+            borderWidth: 0, borderRadius: 4,
+            fontSize: 12, fontWeight: 800,
+            color: isRendering ? '#FF4444' : '#fff',
+            cursor: isRendering ? 'not-allowed' : 'pointer',
+            letterSpacing: '0.06em',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
+            transition: 'all 0.15s',
+          }}
+        >
+          <span>{isRendering ? 'RENDERING...' : editorState.enableChunked ? 'GPU MAX' : 'RENDER'}</span>
+          {!isRendering && (
+            <span style={{ fontSize: 9, fontWeight: 500, opacity: 0.7, letterSpacing: '0.04em' }}>
+              {editorState.enableChunked
+                ? `${systemStats?.maxChunkWorkers || 8}x parallel · RTX 5080`
+                : `${editorState.exportQuality}p · ${editorState.exportCodec === 'hevc' ? 'HEVC' : 'H.264'}`
+              }
+            </span>
+          )}
+          {isRendering && (
+            <div style={{ width: 12, height: 12, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#FF4444', animation: 'spin 1s linear infinite', marginTop: 2 }} />
+          )}
+        </button>
+        <div style={{ fontSize: 9, color: '#2A2A2A', textAlign: 'center', letterSpacing: '0.04em', marginTop: 5 }}>
+          NVENC · CUDA DECODE
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Section Header ─────────────────────────────────────────────────────────────
+
+function SectionHeader({ icon, label }: { icon: React.ReactNode; label: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 0 4px', borderBottom: '1px solid #1A1A1A' }}>
+      {icon}
+      <span style={{ fontSize: 9, fontWeight: 800, color: '#444', letterSpacing: '0.1em' }}>{label}</span>
+    </div>
+  )
+}
+
+// ─── Main DetailEditor ──────────────────────────────────────────────────────────
+
+export function DetailEditor({ video, editorState, onChange, onRender, onExportChunked, systemStats }: Props) {
+  if (!video) return <EmptyState />
+
+  const isRendering = video?.status === 'rendering'
+  const editorIsShort = video.isShort !== false
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#121212' }}>
+      {/* Header bar */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        paddingLeft: 16, paddingRight: 16, height: 40,
+        borderBottom: '1px solid #1A1A1A', background: '#0D0D0D', flexShrink: 0,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 8, height: 8, background: '#00B4FF', borderRadius: 2, flexShrink: 0 }} />
+          <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.12em', color: '#555' }}>EDITOR</span>
+          <div style={{ width: 1, height: 10, background: '#222' }} />
+          <span style={{ fontSize: 11, color: '#999', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {video.title}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'monospace', fontSize: 9, color: '#444' }}>
+          <span style={{ color: editorState.exportQuality === 1080 ? '#00FF88' : editorState.exportQuality === 720 ? '#FFB800' : '#555', fontWeight: 700 }}>
+            {editorState.exportQuality}p
+          </span>
+          <span>·</span>
+          <span style={{ color: '#00FF88', fontWeight: 600 }}>{editorState.speedMultiplier.toFixed(1)}x</span>
         </div>
       </div>
 
+      {/* Body: Canvas + Controls */}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        <CanvasArea video={video} editorState={editorState} onChange={onChange} />
+        <ControlsPanel
+          editorState={editorState}
+          onChange={onChange}
+          onRender={onRender}
+          onExportChunked={onExportChunked}
+          isRendering={isRendering}
+          systemStats={systemStats}
+          editorIsShort={editorIsShort}
+        />
+      </div>
+
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .scrollbar::-webkit-scrollbar { width: 3px; }
+        .scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .scrollbar::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
+        .scrollbar::-webkit-scrollbar-thumb:hover { background: #333; }
+      `}</style>
     </div>
   )
 }
