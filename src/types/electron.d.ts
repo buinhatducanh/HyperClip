@@ -24,6 +24,7 @@ export interface ElectronAPI {
   getTrackers: () => Promise<unknown[]>
   getChannelInfo: (url: string) => Promise<unknown>
   getChannels: () => Promise<unknown[]>
+  syncChannels: () => Promise<{ added: number; removed: number }>
   addChannel: (url: string) => Promise<unknown>
   updateChannel: (id: string, patch: object) => Promise<unknown>
   removeChannel: (id: string) => Promise<unknown>
@@ -77,6 +78,11 @@ export interface ElectronAPI {
   addProject: (data: { projectId: string; clientId: string; clientSecret: string; apiKey: string; apiKeyName?: string }) => Promise<{ success: boolean; projectId: string; error?: string }>
   removeProject: (projectId: string) => Promise<{ success: boolean }>
   resetProjectQuota: (projectId: string) => Promise<{ success: boolean }>
+  reauthorizeProject: (projectId: string) => Promise<{ success: boolean; error?: string }>
+  // Chrome session management (Innertube API)
+  getSessionStatus: () => Promise<unknown>
+  refreshAllSessions: () => Promise<{ success: boolean; refreshedCount: number }>
+  openSessionLogin: (profileId: string) => Promise<{ success: boolean }>
 }
 
 declare global {

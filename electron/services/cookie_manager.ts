@@ -55,6 +55,7 @@ export interface CookieManager {
   logout(): Promise<void>
   getLastRefreshTime(): number
   startOAuthFlow(): Promise<void>
+  syncSubscriptionList(): Promise<{ added: number; removed: number }>
 }
 
 export interface AuthStatus {
@@ -179,17 +180,15 @@ class ElectronCookieManager implements CookieManager {
     this._doRefresh(onRefresh)
     // Check OAuth tokens every 5 minutes
     this._refreshTimer = setInterval(() => { this._doRefresh(onRefresh) }, 5 * 60 * 1000)
-    // Subscription sync every 15 minutes
-    this._syncSubscriptions().catch(() => {})
-    this._subSyncTimer = setInterval(() => { this._syncSubscriptions().catch(() => {}) }, 15 * 60 * 1000)
+    // NOTE: Subscription sync is MANUAL ONLY (Settings → "Refresh kênh").
+    // Auto-sync would overwrite user-added channels and import channels from whatever
+    // account the OAuth token belongs to — which is NOT the intended behavior.
+    // The poller uses the LOCAL channel list (store.ts), not YouTube API subscriptions.
   }
 
   private async _syncSubscriptions(): Promise<void> {
-    if (!this._oauthReady) return
-    const result = await this.syncSubscriptionList()
-    if (result.added > 0 || result.removed > 0) {
-      authEvents.emit('authUpdated', this.getAuthStatus())
-    }
+    // Sync is now manual-only. Auto-sync removed — see startAutoRefresh().
+    return
   }
 
   stopAutoRefresh(): void {
@@ -197,6 +196,11 @@ class ElectronCookieManager implements CookieManager {
     if (this._subSyncTimer) { clearInterval(this._subSyncTimer); this._subSyncTimer = null }
   }
 
+  /**
+   * Sync YouTube subscriptions from OAuth token — ADD NEW channels only.
+   * NEVER removes existing channels. Existing channels are preserved.
+   * Called manually from Settings → "Refresh kênh" button.
+   */
   async syncSubscriptionList(): Promise<{ added: number; removed: number }> {
     try {
       const { getTokenManager } = await import('./token_manager.js')
@@ -205,19 +209,16 @@ class ElectronCookieManager implements CookieManager {
       if (!best) return { added: 0, removed: 0 }
 
       const remoteSubs = await fetchMySubscriptions(best.token)
-      const remoteChannelIds = new Set(remoteSubs.map(s => s.channelId))
       const localChannels = getChannels()
       const localChannelIds = new Set(localChannels.map(c => c.channelId))
 
-      let added = 0, removed = 0
+      let added = 0
       for (const sub of remoteSubs) {
         if (!localChannelIds.has(sub.channelId)) {
           const CHANNEL_COLORS = ['#00B4FF', '#7C3AED', '#00FF88', '#FF6B35', '#FF0080', '#FFB800']
           addChannel({
             id: `ch${Date.now()}_${sub.channelId.slice(-8)}`,
             name: sub.channelName,
-            // Only store a handle if it's a real YouTube handle (not a channelId).
-            // The YouTube subscriptions API doesn't provide handles, so we leave it empty.
             handle: '',
             avatarColor: CHANNEL_COLORS[added % CHANNEL_COLORS.length],
             channelId: sub.channelId,
@@ -229,22 +230,17 @@ class ElectronCookieManager implements CookieManager {
         }
       }
 
-      for (const ch of localChannels) {
-        if (ch.channelId && !remoteChannelIds.has(ch.channelId)) {
-          if (ch.id.startsWith('ch1') || ch.id.startsWith('ch2') || ch.id.startsWith('ch3')) continue
-          removeChannel(ch.id)
-          removed++
-        }
-      }
+      // NOTE: We NEVER remove channels here. The local channel list is the source of truth.
+      // Only ADD new channels that aren't already tracked.
 
-      if (added > 0 || removed > 0) {
+      if (added > 0) {
         channelEvents.emit('channelsSynced')
         const { refreshChannelCache } = await import('./subscription_feed.js')
         refreshChannelCache()
-        console.log(`[SubSync] Done: +${added} -${removed}`)
+        console.log(`[SubSync] Done: +${added} (existing channels preserved)`)
       }
 
-      return { added, removed }
+      return { added, removed: 0 }
     } catch (e) {
       console.warn('[SubSync] Failed:', e)
       return { added: 0, removed: 0 }

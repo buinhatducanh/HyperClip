@@ -44,6 +44,7 @@ const IPC = {
   // Channel
   CHANNEL_INFO: 'channel:info',
   CHANNEL_LIST: 'channel:list',
+  CHANNEL_SYNC: 'channel:sync',
   CHANNEL_ADD: 'channel:add',
   CHANNEL_UPDATE: 'channel:update',
   CHANNEL_REMOVE: 'channel:remove',
@@ -66,6 +67,12 @@ const IPC = {
   PROJECT_ADD: 'project:add',
   PROJECT_REMOVE: 'project:remove',
   PROJECT_RESET_QUOTA: 'project:reset-quota',
+  PROJECT_REAUTHORIZE: 'project:reauthorize',
+
+  // Chrome sessions (Innertube API)
+  SESSION_LIST: 'session:list',
+  SESSION_REFRESH_ALL: 'session:refresh-all',
+  SESSION_OPEN_LOGIN: 'session:open-login',
 
   // Admin password
   ADMIN_CHECK_PASSWORD: 'admin:check-password',
@@ -103,6 +110,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Channel
   getChannelInfo: (url: string) => ipcRenderer.invoke(IPC.CHANNEL_INFO, url),
   getChannels: () => ipcRenderer.invoke(IPC.CHANNEL_LIST),
+  syncChannels: () => ipcRenderer.invoke(IPC.CHANNEL_SYNC),
   addChannel: (url: string) => ipcRenderer.invoke(IPC.CHANNEL_ADD, url),
   updateChannel: (id: string, patch: object) => ipcRenderer.invoke(IPC.CHANNEL_UPDATE, id, patch),
   removeChannel: (id: string) => ipcRenderer.invoke(IPC.CHANNEL_REMOVE, id),
@@ -258,6 +266,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC.PROJECT_REMOVE, projectId) as Promise<{ success: boolean }>,
   resetProjectQuota: (projectId: string) =>
     ipcRenderer.invoke(IPC.PROJECT_RESET_QUOTA, projectId) as Promise<{ success: boolean }>,
+  reauthorizeProject: (projectId: string) =>
+    ipcRenderer.invoke(IPC.PROJECT_REAUTHORIZE, projectId) as Promise<{ success: boolean; error?: string }>,
+
+  // Chrome sessions (Innertube API — no quota limit)
+  getSessionStatus: () =>
+    ipcRenderer.invoke(IPC.SESSION_LIST) as Promise<{
+      ready: boolean; sessionCount: number; loggedInCount: number
+      sessions: Array<{
+        profileId: string; profileName: string; isLoggedIn: boolean
+        usedToday: number; lastUsed: number; error?: string
+      }>
+    }>,
+  refreshAllSessions: () =>
+    ipcRenderer.invoke(IPC.SESSION_REFRESH_ALL) as Promise<{ success: boolean; refreshedCount: number }>,
+  openSessionLogin: (profileId: string) =>
+    ipcRenderer.invoke(IPC.SESSION_OPEN_LOGIN, profileId) as Promise<{ success: boolean }>,
 
   // Admin password
   adminCheckPassword: (password: string) =>

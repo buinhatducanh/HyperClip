@@ -37,6 +37,7 @@ export const IPC_CHANNELS = {
 
   // Channel CRUD
   CHANNEL_LIST: 'channel:list',
+  CHANNEL_SYNC: 'channel:sync',
   CHANNEL_ADD: 'channel:add',
   CHANNEL_UPDATE: 'channel:update',
   CHANNEL_REMOVE: 'channel:remove',
@@ -91,6 +92,12 @@ export const IPC_CHANNELS = {
   PROJECT_ADD: 'project:add',
   PROJECT_REMOVE: 'project:remove',
   PROJECT_RESET_QUOTA: 'project:reset-quota',
+  PROJECT_REAUTHORIZE: 'project:reauthorize',
+
+  // Chrome session management (SAPISIDHASH + Innertube API)
+  SESSION_LIST: 'session:list',
+  SESSION_REFRESH_ALL: 'session:refresh-all',
+  SESSION_OPEN_LOGIN: 'session:open-login',
 
   // Admin password
   ADMIN_CHECK_PASSWORD: 'admin:check-password',

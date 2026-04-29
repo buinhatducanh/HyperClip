@@ -42,7 +42,7 @@ export interface PollerStatus {
 
 const DEFAULT_POLL_INTERVAL_MS = 20000 // 20 seconds
 const MAX_VIDEOS_PER_POLl = 5
-const MAX_VIDEO_AGE_MS = 60 * 1000 // 1 minute — only auto-download videos posted < 1 min ago
+const MAX_VIDEO_AGE_MS = 10 * 60 * 1000 // 10 minutes — accounts for YouTube processing delay after upload
 
 class YouTubePoller {
   private _pollTimer: NodeJS.Timeout | null = null

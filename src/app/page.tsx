@@ -147,7 +147,7 @@ export default function DashboardPage() {
             status: data.status || 'new',
             renderProgress: data.renderProgress,
             fileSize: typeof data.fileSize === 'number' ? formatFileSizeRaw(data.fileSize) : String(data.fileSize || ''),
-            trimLimit: data.trimLimit || '10min',
+            trimLimit: data.trimLimit !== undefined ? data.trimLimit : 10,
             quality: data.quality || 1080,
             downloadedPath: data.downloadedPath,
             blurBackgroundPath: data.blurBackgroundPath,
@@ -276,7 +276,7 @@ export default function DashboardPage() {
     resetEditorState()
   }
 
-  const handleAddTracker = async (url: string, trimLimit: '5min' | '10min' | 'full') => {
+  const handleAddTracker = async (url: string, trimLimit: number | 'full') => {
     showToast('Adding video...')
     try {
       const result = await ipc.addTracker(url, trimLimit)

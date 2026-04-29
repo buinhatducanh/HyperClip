@@ -15,6 +15,7 @@ interface AppSettingsStore {
   videoStoragePath?: string
   outputPath?: string
   adminPasswordHash?: string
+  defaultTrimLimit?: number | 'full'  // minutes for auto-download
 }
 
 let _settings: AppSettingsStore | null = null

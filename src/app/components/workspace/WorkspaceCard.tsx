@@ -208,7 +208,7 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
                 fontFamily: 'monospace',
               }}
             >
-              {workspace.trimLimit === '5min' ? '5MIN' : workspace.trimLimit === '10min' ? '10MIN' : 'FULL'}
+              {workspace.trimLimit === 'full' ? 'FULL' : `${workspace.trimLimit}MIN`}
             </span>
             {/* Quality indicator */}
             <span

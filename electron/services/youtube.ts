@@ -241,7 +241,7 @@ export interface YtdlpOptions {
   workspaceId: string
   videoUrl: string
   outputDir: string
-  trimLimit: '5min' | '10min' | 'full'
+  trimLimit: number | 'full'  // number = minutes, 'full' = no limit
   onProgress?: (progress: DownloadProgress) => void
 }
 
@@ -411,7 +411,7 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
   // Check if file already exists (user may have manually saved it or app restarted mid-download)
   const existingFiles = (() => {
     try {
-      return fs.readdirSync(outputDir).filter(f => f.startsWith(workspaceId + '_'))
+      return fs.readdirSync(outputDir).filter(f => f.startsWith(workspaceId + '_') && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f))
     } catch { return [] }
   })()
   if (existingFiles.length > 0) {
@@ -429,12 +429,16 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
   }
 
   // Map trimLimit to section range in HH:MM:SS
-  // Use explicit format — "*0-600" (seconds) was misinterpreted by yt-dlp
+  // number = minutes (e.g., 10 → *00:00:00-00:10:00), 'full' = no trim
   let sectionArg: string | null = null
-  if (trimLimit === '5min') {
-    sectionArg = '*00:00:00-00:05:00'
-  } else if (trimLimit === '10min') {
-    sectionArg = '*00:00:00-00:10:00'
+  if (typeof trimLimit === 'number' && trimLimit > 0) {
+    const hh = Math.floor(trimLimit / 3600)
+    const mm = Math.floor((trimLimit % 3600) / 60)
+    const ss = trimLimit % 60
+    const endHH = String(hh).padStart(2, '0')
+    const endMM = String(mm).padStart(2, '0')
+    const endSS = String(ss).padStart(2, '0')
+    sectionArg = `*00:00:00-${endHH}:${endMM}:${endSS}`
   }
   // 'full' = null (download entire video)
 
@@ -445,7 +449,13 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
     const args: string[] = [
       videoUrl,
       ...getJsRuntimeArgs(),
-      '-f', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+      // Format selector for Shorts (9:16 reels) + regular videos:
+      // 1. best video+audio with MP4 (standard)
+      // 2. best video+audio any format (Shorts sometimes in different containers)
+      // 3. video-only any format (Shorts often lack separate audio track)
+      // 4. audio-only fallback
+      // 5. best available (anything)
+      '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/bestvideo/bestaudio/best',
       '--output', outputTemplate,
       '--no-playlist',
       '--merge-output-format', 'mp4',
@@ -532,7 +542,8 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
         if (!downloadedFile) {
           try {
             const files = fs.readdirSync(outputDir)
-            const match = files.find(f => f.startsWith(workspaceId + '_') && f.endsWith('.mp4'))
+            // Accept any video extension — yt-dlp may produce .webm, .mkv, .mp4, etc.
+        const match = files.find(f => f.startsWith(workspaceId + '_') && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f))
             if (match) downloadedFile = path.join(outputDir, match)
           } catch {}
         }

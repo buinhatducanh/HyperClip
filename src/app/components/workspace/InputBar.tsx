@@ -3,14 +3,15 @@
 import { useState } from 'react'
 
 interface Props {
-  defaultTrimLimit: '5min' | '10min' | 'full'
-  onAddTracker: (url: string, trimLimit: '5min' | '10min' | 'full') => void
+  defaultTrimLimit: number | 'full'
+  onAddTracker: (url: string, trimLimit: number | 'full') => void
   onAddChannel: (url: string) => void
 }
 
 export function InputBar({ defaultTrimLimit, onAddTracker, onAddChannel }: Props) {
   const [url, setUrl] = useState('')
-  const [trimLimit, setTrimLimit] = useState<'5min' | '10min' | 'full'>(defaultTrimLimit)
+  const [trimMinutes, setTrimMinutes] = useState<number>(typeof defaultTrimLimit === 'number' ? defaultTrimLimit : 10)
+  const [isFull, setIsFull] = useState(defaultTrimLimit === 'full')
   const [loading, setLoading] = useState(false)
 
   const isValidUrl = (u: string) =>
@@ -33,7 +34,7 @@ export function InputBar({ defaultTrimLimit, onAddTracker, onAddChannel }: Props
       if (isChannelUrl(url)) {
         await onAddChannel(url.trim())
       } else {
-        await onAddTracker(url.trim(), trimLimit)
+        await onAddTracker(url.trim(), isFull ? 'full' : trimMinutes)
       }
       setUrl('')
     } finally {
@@ -44,12 +45,6 @@ export function InputBar({ defaultTrimLimit, onAddTracker, onAddChannel }: Props
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleSubmit()
   }
-
-  const trimOptions: { label: string; value: '5min' | '10min' | 'full' }[] = [
-    { label: 'Auto-Trim: Max 5 Min', value: '5min' },
-    { label: 'Auto-Trim: Max 10 Min', value: '10min' },
-    { label: 'Full Video', value: 'full' },
-  ]
 
   const canAdd = isValidUrl(url) && !loading
   const isChannel = isChannelUrl(url)
@@ -102,31 +97,71 @@ export function InputBar({ defaultTrimLimit, onAddTracker, onAddChannel }: Props
         </svg>
       </div>
 
-      {/* Trim dropdown — only for video URLs */}
+      {/* Trim input — only for video URLs */}
       {!isChannel && (
-        <select
-          value={trimLimit}
-          onChange={(e) => setTrimLimit(e.target.value as '5min' | '10min' | 'full')}
-          style={{
-            height: 36,
-            background: '#1A1A1A',
-            border: '1px solid #252525',
-            borderRadius: 4,
-            paddingLeft: 10,
-            paddingRight: 10,
-            fontSize: 11,
-            fontWeight: 600,
-            color: '#888',
-            outline: 'none',
-            cursor: 'pointer',
-            fontFamily: 'Inter, sans-serif',
-            minWidth: 160,
-          }}
-        >
-          {trimOptions.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
+        <div className="flex items-center gap-1" style={{ height: 36 }}>
+          {/* Numeric minutes input */}
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <input
+              type="number"
+              min={1}
+              max={60}
+              value={isFull ? '' : trimMinutes}
+              onChange={(e) => {
+                const v = parseInt(e.target.value)
+                if (!isNaN(v) && v > 0) {
+                  setTrimMinutes(v)
+                  setIsFull(false)
+                }
+              }}
+              onFocus={() => setIsFull(false)}
+              disabled={isFull}
+              style={{
+                width: 52,
+                height: 36,
+                background: isFull ? '#151515' : '#1A1A1A',
+                border: '1px solid #252525',
+                borderRadius: 4,
+                paddingRight: 28,
+                paddingLeft: 8,
+                fontSize: 11,
+                fontWeight: 600,
+                color: isFull ? '#444' : '#888',
+                outline: 'none',
+                fontFamily: 'Inter, sans-serif',
+                textAlign: 'right',
+              }}
+            />
+            <span style={{
+              position: 'absolute',
+              right: 8,
+              fontSize: 10,
+              color: '#444',
+              fontFamily: 'Inter, sans-serif',
+              pointerEvents: 'none',
+            }}>min</span>
+          </div>
+
+          {/* Full toggle */}
+          <button
+            onClick={() => setIsFull(f => !f)}
+            style={{
+              height: 36,
+              paddingLeft: 8,
+              paddingRight: 8,
+              background: isFull ? '#00FF8822' : 'transparent',
+              border: `1px solid ${isFull ? '#00FF8844' : '#252525'}`,
+              borderRadius: 4,
+              fontSize: 10,
+              fontWeight: 600,
+              color: isFull ? '#00FF88' : '#555',
+              cursor: 'pointer',
+              fontFamily: 'Inter, sans-serif',
+            }}
+          >
+            FULL
+          </button>
+        </div>
       )}
 
       {/* Add Button */}
@@ -143,7 +178,7 @@ export function InputBar({ defaultTrimLimit, onAddTracker, onAddChannel }: Props
           borderRadius: 4,
           fontSize: 11,
           fontWeight: 700,
-          color: canAdd ? (isChannel ? '#000' : '#000') : '#444',
+          color: canAdd ? '#000' : '#444',
           cursor: canAdd ? 'pointer' : 'not-allowed',
           letterSpacing: '0.05em',
           fontFamily: 'Inter, sans-serif',

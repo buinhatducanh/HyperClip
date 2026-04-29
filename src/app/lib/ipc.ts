@@ -4,8 +4,8 @@
 import type { KeyStatus } from '../types'
 
 export const ipc = {
-  async addTracker(url: string, trimLimit: string) {
-    return window.electronAPI?.addTracker(url, trimLimit)
+  async addTracker(url: string, trimLimit: number | 'full') {
+    return window.electronAPI?.addTracker(url, String(trimLimit))
   },
   async removeTracker(id: string) {
     return window.electronAPI?.removeTracker(id)
@@ -18,6 +18,10 @@ export const ipc = {
   },
   async getChannels() {
     return window.electronAPI?.getChannels()
+  },
+
+  async syncChannels() {
+    return window.electronAPI?.syncChannels() ?? { added: 0, removed: 0 }
   },
   async addChannel(url: string) {
     return window.electronAPI?.addChannel(url)
@@ -161,5 +165,23 @@ export const ipc = {
 
   async resetProjectQuota(projectId: string) {
     return window.electronAPI?.resetProjectQuota(projectId) ?? { success: false }
+  },
+
+  async reauthorizeProject(projectId: string) {
+    return window.electronAPI?.reauthorizeProject(projectId) ?? { success: false, error: 'electronAPI not available' }
+  },
+
+  // ─── Chrome Sessions ──────────────────────────────────────────────────────────
+
+  async getSessionStatus() {
+    return window.electronAPI?.getSessionStatus() ?? { ready: false, sessionCount: 0, loggedInCount: 0, sessions: [] }
+  },
+
+  async refreshAllSessions() {
+    return window.electronAPI?.refreshAllSessions() ?? { success: false, refreshedCount: 0 }
+  },
+
+  async openSessionLogin(profileId: string) {
+    return window.electronAPI?.openSessionLogin(profileId) ?? { success: false }
   },
 }

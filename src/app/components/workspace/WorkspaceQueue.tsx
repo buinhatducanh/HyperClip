@@ -10,9 +10,9 @@ interface Props {
   selectedId: string | null
   onSelect: (id: string) => void
   onQuickAction?: (action: 'open' | 'delete', id: string) => void
-  onAddTracker: (url: string, trimLimit: '5min' | '10min' | 'full') => void
+  onAddTracker: (url: string, trimLimit: number | 'full') => void
   onAddChannel: (url: string) => void
-  defaultTrimLimit: '5min' | '10min' | 'full'
+  defaultTrimLimit: number | 'full'
   onRetry?: (id: string) => void
 }
 

@@ -25,6 +25,8 @@ import { refreshChannelCache } from './services/subscription_feed.js'
 import { initCookieManager, getCookieManager, authEvents, channelEvents } from './services/cookie_manager.js'
 import { getKeyManager } from './services/key_manager.js'
 import { getTokenManager } from './services/token_manager.js'
+import { getSessionManager } from './services/chrome_cookies.js'
+import type { SessionStatus } from './services/chrome_cookies.js'
 
 // Fix UTF-8 console output on Windows — set code page to 65001 (UTF-8)
 if (process.platform === 'win32') {
@@ -131,6 +133,10 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
     const storagePath = getVideoStoragePath()
     ensureStorageDirs()
 
+    // Respect user's configured trim limit from settings (default: 10 minutes)
+    const settings = loadSettings()
+    const autoTrimLimit: number | 'full' = settings.defaultTrimLimit ?? 10
+
     // Check if workspace already exists for this video
     const existingWorkspaces = getWorkspaces()
     const existing = existingWorkspaces.find(ws => ws.videoId === videoId)
@@ -163,7 +169,7 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
       videoUrl: 'https://www.youtube.com/watch?v=' + videoId,
       thumbnail: `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
       duration: 0,
-      trimLimit: '10min',
+      trimLimit: autoTrimLimit,
       status: 'downloading',
       renderProgress: 0,
       downloadedAt: detectedAt,
@@ -183,7 +189,7 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
       workspaceId: workspace.id,
       videoUrl: 'https://www.youtube.com/watch?v=' + videoId,
       outputDir: storagePath,
-      trimLimit: '10min',
+      trimLimit: autoTrimLimit,
       onProgress: (progress) => {
         broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
           workspaceId: workspace.id,
@@ -282,7 +288,7 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
     workspaceId: ws.id,
     videoUrl,
     outputDir: storagePath,
-    trimLimit: ws.trimLimit || '10min',
+    trimLimit: ws.trimLimit || 10,
     onProgress: (progress) => {
       broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
         workspaceId: ws.id,
@@ -707,7 +713,7 @@ function findDownloadedFileAbs(workspaceId: string): string | null {
     try {
       if (!fs.existsSync(dir)) continue
       const files = fs.readdirSync(dir).filter(f =>
-        (f.startsWith(workspaceId + '_') || f.startsWith(workspaceId + '.')) && f.endsWith('.mp4')
+        (f.startsWith(workspaceId + '_') || f.startsWith(workspaceId + '.')) && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f)
       )
       if (files.length > 0) {
         return path.join(dir, files[0])
@@ -771,7 +777,7 @@ async function registerIPCHandlers() {
         workspaceId: id,
         videoUrl,
         outputDir: storagePath,
-        trimLimit: ws.trimLimit || '10min',
+        trimLimit: ws.trimLimit || 10,
         onProgress: (progress) => {
           broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
             workspaceId: id,
@@ -811,7 +817,7 @@ async function registerIPCHandlers() {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.TRACKER_ADD, async (_, url: string, trimLimit: '5min' | '10min' | 'full'): Promise<WorkspaceData | null> => {
+  ipcMain.handle(IPC_CHANNELS.TRACKER_ADD, async (_, url: string, trimLimit: number | 'full'): Promise<WorkspaceData | null> => {
     try {
       const info = await getVideoInfo(url)
       if (!info) {
@@ -940,6 +946,15 @@ async function registerIPCHandlers() {
 
   ipcMain.handle(IPC_CHANNELS.CHANNEL_LIST, async (): Promise<StoredChannel[]> => {
     return getChannels()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.CHANNEL_SYNC, async () => {
+    const cm = getCookieManager()
+    const result = await cm.syncSubscriptionList()
+    // Refresh channel cache so new channels are picked up by poller immediately
+    const { refreshChannelCache } = await import('./services/subscription_feed.js')
+    refreshChannelCache()
+    return result
   })
 
   ipcMain.handle(IPC_CHANNELS.CHANNEL_ADD, async (_, url: string): Promise<StoredChannel | null> => {
@@ -1403,6 +1418,25 @@ async function registerIPCHandlers() {
     const tm = getTokenManager()
     const km = getKeyManager()
 
+    // 0. Save credentials to oauth_config.json so re-authorize works later
+    const fs = await import('fs')
+    const pathMod = await import('path')
+    const os = await import('os')
+    const configFile = pathMod.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json')
+    let config: Record<string, any> = {}
+    try {
+      if (fs.existsSync(configFile)) config = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
+    } catch {}
+    config[projectId] = { clientId: clientId.trim(), clientSecret: clientSecret.trim() }
+    // Also save legacy fields for backward compat
+    config['client_id'] = clientId.trim()
+    config['client_secret'] = clientSecret.trim()
+    if (!fs.existsSync(pathMod.dirname(configFile))) {
+      fs.mkdirSync(pathMod.dirname(configFile), { recursive: true })
+    }
+    fs.writeFileSync(configFile, JSON.stringify(config, null, 2), 'utf-8')
+    console.log(`[Project] Credentials saved for ${projectId}`)
+
     // 1. Save API key
     const name = apiKeyName?.trim() || `Project ${projectId}`
     km.addKey(apiKey.trim(), projectId, name)
@@ -1464,6 +1498,71 @@ async function registerIPCHandlers() {
         token_type: token.token_type,
       })
     }
+    return { success: true }
+  })
+
+  /**
+   * Re-authorize a project: read credentials from oauth_config.json and trigger OAuth flow.
+   */
+  ipcMain.handle(IPC_CHANNELS.PROJECT_REAUTHORIZE, async (_, projectId: string) => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const os = await import('os')
+    const configFile = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json')
+
+    let clientId = ''
+    let clientSecret = ''
+
+    try {
+      if (fs.existsSync(configFile)) {
+        const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
+        // Try per-project credentials first, then legacy fields
+        const proj = config[projectId]
+        if (proj?.clientId && proj?.clientSecret) {
+          clientId = proj.clientId
+          clientSecret = proj.clientSecret
+        } else if (config.client_id && config.client_secret) {
+          clientId = config.client_id
+          clientSecret = config.client_secret
+        }
+      }
+    } catch (e) {
+      console.warn(`[Project] Failed to read credentials for ${projectId}:`, e)
+    }
+
+    if (!clientId || !clientSecret) {
+      return { success: false, error: 'Không tìm thấy OAuth credentials cho project này. Vui lòng xóa và thêm lại project.' }
+    }
+
+    const { startOAuthFlow } = await import('./services/youtube_auth.js')
+    const result = await startOAuthFlow(clientId, clientSecret, projectId)
+
+    if (result.success && result.tokens) {
+      getTokenManager().addToken(projectId, clientId, clientSecret, result.tokens)
+      console.log(`[Project] Re-authorized ${projectId}`)
+      return { success: true }
+    }
+
+    return { success: false, error: result.error || 'OAuth failed' }
+  })
+
+  // ─── Chrome Session Management ───────────────────────────────────────────────
+
+  ipcMain.handle(IPC_CHANNELS.SESSION_LIST, async () => {
+    const sm = getSessionManager()
+    await sm.ensureInit()
+    return sm.getStatus()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.SESSION_REFRESH_ALL, async () => {
+    const sm = getSessionManager()
+    const count = await sm.refreshAll()
+    return { success: true, refreshedCount: count }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.SESSION_OPEN_LOGIN, async (_, profileId: string) => {
+    const sm = getSessionManager()
+    sm.openLoginWindow(profileId)
     return { success: true }
   })
 }
@@ -1566,9 +1665,8 @@ app.whenReady().then(async () => {
   // Start auto-refresh timer (cookies + subscription sync)
   getCookieManager().startAutoRefresh()
 
-  // Poll every 4s — activities?home=true (1 unit) + batched playlistItems (8 channels/poll)
-  // All 46 channels covered in ~23 seconds: 6 polls × 8 channels = 48
-  startYouTubePoller(4000, (videos) => {
+  // Poll every 20s — playlistItems per channel batch
+  startYouTubePoller(20000, (videos) => {
     for (const v of videos) {
       showWindowsToast('📥 Video mới!', `${v.channelName}: ${v.title}`)
       autoDownloadFromWebSub(v.videoId, v.channelId, v.channelName, v.title)

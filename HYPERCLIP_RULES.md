@@ -10,9 +10,14 @@
 
 ### NGUYÊN LÝ HOẠT ĐỘNG CỐT LÕI (ĐỂ ĐẠT ĐƯỢC MỤC TIÊU TRÊN)
 
-1. **Quét full scan bằng YouTube Data API v3 (Nhiều Projects):** Mỗi poll check TẤT CẢ kênh (100 kênh × 2 units = 200 units/poll). Mỗi project = 10,000 units/ngày. Poll interval 20s.
-2. **Strict 1-Min Window:** Chỉ tải video upload trong vòng **1 phút** trở lại.
-3. **Tải xuống siêu tốc:** yt-dlp + Direct IP binding, RAM Disk.
+1. **Detection: Innertube API via Chrome Session Cookies (NO QUOTA LIMIT):**
+   - 30 dedicated Chrome profiles — user logs in YouTube once per profile
+   - Extract SAPISID + __Secure-1PSID cookies via DPAPI (Windows) + sql.js (SQLite)
+   - SAPISIDHASH = SHA1(timestamp + " " + SAPISID + " " + "https://www.youtube.com") header
+   - YouTube Innertube API (`/youtubei/v1/browse`) — no 10k/day quota limit
+   - Fallback: Data API v3 OAuth (10k units/day) nếu Innertube trả 0 video
+2. **Strict 10-Min Window:** Chỉ tải video upload trong vòng **10 phút** trở lại.
+3. **Tải xuống siêu tốc:** yt-dlp + `--download-sections *00:00:00-MM:SS` (chỉ tải đúng số phút cần thiết), Direct IP binding.
 4. **Render ép phần cứng:** FFmpeg + NVENC (RTX 5080), không x264.
 
 ---
@@ -21,8 +26,8 @@
 
 | # | Tầng | Công nghệ | Target |
 |---|-------|-----------|--------|
-| 1 | **Trigger** | YouTube Data API 20s (N Keys) | < 20s |
-| 2 | **Download** | yt-dlp + Direct IP Binding (bypass VPN) | < 30s |
+| 1 | **Trigger** | Innertube API (30 Chrome sessions) + OAuth fallback | < 20s |
+| 2 | **Download** | yt-dlp + `--download-sections` (chỉ tải N phút) + Direct IP Binding | < 30s |
 | 3 | **Pre-process** | Static blur (1 frame, cache vĩnh viễn) | < 3s |
 | 4 | **Edit** | React-Konva Canvas 2D (60fps) | < 16ms/frame |
 | 5 | **Render** | FFmpeg + NVENC (RTX 5080) | < 2 phút |
@@ -38,44 +43,42 @@ YouTubePoller (20s)
          ↓
 fetchSubscriptionFeed() → ALL channels (parallel, max 20 concurrent)
          ↓
-Mỗi channel: channels API (1 unit) → uploads playlist ID
-              playlistItems (1 unit) → latest 5 videos
+1. Innertube API (SAPISIDHASH cookies): /youtubei/v1/browse per channel
+   → fallback OAuth Data API v3 (10k units/day) nếu Innertube trả 0
          ↓
-Filter: age < 1 min, unseen, not deleted
+Filter: age < 10 min, unseen, not deleted
          ↓
-autoDownload()
+autoDownload() → yt-dlp --download-sections (chỉ N phút cần thiết)
 ```
 
-### Quota Math (20s poll, 100 kênh)
+### Quota Math (Innertube = NO LIMIT)
 
-| Thông số | Giá trị |
-|----------|---------|
-| Số kênh | 100 |
-| Units/channel | 2 (channels + playlistItems) |
-| Units/poll | 200 |
-| Poll interval | 20s |
-| Polls/ngày | 4,320 |
-| **Total units/ngày** | **864,000** |
-| 1 project | 10,000 units |
-| **Projects cần cho 100 kênh** | **87** |
-| 30 projects → polls/ngày | 1,500 |
-| 30 projects → poll interval | ~58s |
-| 50 projects → polls/ngày | 2,500 |
-| 50 projects → poll interval | ~35s |
+- **Innertube API (session cookies)**: KHÔNG có quota limit — dùng cho detection
+- **OAuth Data API v3 fallback**: 10k units/ngày — chỉ dùng khi Innertube fail
+- Chrome sessions: 30 profiles → mỗi profile user đăng nhập YouTube 1 lần
+- SAPISIDHASH = SHA1(timestamp + " " + SAPISID + " " + "https://www.youtube.com")
 
-### Cơ chế Key Rotation
+### Trim Limit (auto-download)
 
-- Mỗi API call: `getBestAvailable()` → chọn key có quota dư nhiều nhất
-- Key gần hết quota (≥ 9,500 used) → tạm skip
-- Tất cả keys hết quota → poll skip, đợi quota reset (midnight PT)
-- Uploads playlist ID: cache 24h trong memory → tiết kiệm 1 API call/channel/poll
+- User cấu hình số phút trim (default: 10 phút)
+- yt-dlp dùng `--download-sections *00:00:00-MM:SS` — chỉ tải đúng N phút đầu
+- Video ngắn hơn trim → yt-dlp tải hết video (không lỗi)
+- Auto-download dùng `defaultTrimLimit` từ settings
 
-### Cơ chế Thêm Google Project
+### Cơ chế Thêm Google Project (OAuth fallback)
 
-Settings cho phép thêm N Google project:
-- Mỗi project = OAuth Client ID + OAuth Client Secret + API Key (từ cùng 1 project)
-- Thêm project = quota tăng thêm 10,000 units/ngày → poll interval giảm
+Settings cho phép thêm N Google project (OAuth + API Key):
+- Mỗi project = 10,000 units/ngày (OAuth fallback path)
 - Token + key phải cùng project — không dùng chéo
+- OAuth tokens lưu trong `oauth_tokens.json` (multi-project array format)
+
+### Chrome Sessions Management (Settings UI)
+
+Settings page → Chrome Sessions section:
+- Danh sách 30 profiles (HyperClip-Chrome-Profile-{1..30})
+- Nút "+ Mở Chrome login" → launch Chrome với profile để user đăng nhập
+- Sau khi login, cookies được extract tự động (DPAPI + sql.js)
+- SOCS cookie: `CAI` = đã accept consent
 
 ### Không dùng
 
@@ -243,18 +246,22 @@ npm run electron:build  # Production .exe
 |--------|-----------|---------|
 | **Xác thực / Đăng nhập** | OAuth 2.0 (N lần, mỗi project 1 lần) | Refresh token tự động. Credentials lưu trong `oauth_tokens.json`. |
 | **Lấy danh sách kênh đăng ký** | YouTube Data API v3 (`/subscriptions`) | Chỉ gọi **1 lần** khi setup → lưu vào store. **KHÔNG gọi lại** sau khi setup xong. |
-| **Phát hiện video mới** | **playlistItems per ALL channels** (full scan mỗi poll) | 200 units/poll (100 kênh × 2). N projects × 10k units = quota pool. |
-| **Download video** | yt-dlp + OAuth auth | Direct IP binding, bypass VPN. |
+| **Phát hiện video mới (PRIMARY)** | **Innertube API via Chrome Session Cookies** | 30 Chrome profiles → SAPISIDHASH → Innertube `/youtubei/v1/browse`. NO QUOTA LIMIT. |
+| **Phát hiện video mới (FALLBACK)** | Data API v3 OAuth playlistItems per channel | 10k units/day — chỉ dùng khi Innertube trả 0 video |
+| **Download video** | yt-dlp + OAuth auth + `--download-sections` | Trim chỉ N phút (user config), bypass VPN. |
 | **Render video** | FFmpeg + NVENC (RTX 5080) | Hardware encode, KHÔNG x264. |
 
-### Settings — Quản lý Google Projects
+### Settings — Quản lý Chrome Sessions + Google Projects
 
-Settings page cho phép:
-- **Thêm Google project**: nhập OAuth Client ID + Client Secret + API Key (cùng 1 project)
-- **Xem quota per project**: usedToday / 10,000 units, % sử dụng, status
-- **Reset quota per project**: xóa stats của 1 project cụ thể
-- **Reset tất cả quota**: clear all key_stats.json
-- **Xóa project**: remove key + token khỏi pool
+**Chrome Sessions section** (Innertube primary):
+- 30 HyperClip Chrome profiles — user đăng nhập YouTube 1 lần per profile
+- Nút "Mở Chrome login" để mở Chrome với profile chưa có cookies
+- Cookie extraction: DPAPI (Windows) + sql.js (SQLite) → SOCS cookie phải là CAI
+
+**Google Projects section** (OAuth fallback):
+- Thêm project: OAuth Client ID + Client Secret + API Key
+- Xem quota per project: usedToday / 10,000 units
+- OAuth tokens lưu multi-project array format (KHÔNG overwrite khi add project mới)
 
 ### Luồng dữ liệu đúng
 
@@ -262,24 +269,26 @@ Settings page cho phép:
 App khởi động
   ├─ Load OAuth tokens từ oauth_tokens.json (N projects)
   ├─ Load API keys từ api_keys.json (N keys)
+  ├─ Chrome: extract session cookies từ 30 profiles (DPAPI + sql.js)
   ├─ Data API: fetch subscriptions → lưu vào store (1 LẦN)
   └─ Poller loop (20s jitter)
-        ├─ getBestAvailable() → key+token có quota dư nhiều nhất
-        ├─ parallel fetch: ALL channels (20 concurrent)
-        │     ├─ channels API → uploads playlist ID (cache 24h)
-        │     └─ playlistItems → latest 5 videos
-        ├─ Filter: age < 1 min, unseen, not deleted
-        └─ autoDownload()
+        ├─ Innertube API (primary, NO quota) per channel
+        │     └─ Fallback: OAuth playlistItems per channel
+        ├─ Filter: age < 10 min, unseen, not deleted
+        └─ autoDownload() → yt-dlp --download-sections (defaultTrimLimit minutes)
 ```
 
 ### Key Facts
 
 - ✅ activities?home=true **DEPRECATED** — không dùng nữa
-- ✅ playlistItems per channel là **ONLY WORKING METHOD**
-- ✅ Full scan = check TẤT CẢ kênh mỗi poll
-- ✅ Key rotation = mỗi API call dùng key có quota dư nhiều nhất
+- ✅ playlistItems per channel là **ONLY WORKING METHOD** cho OAuth fallback
+- ✅ Innertube API (session cookies) = **NO QUOTA LIMIT** cho detection
+- ✅ Full scan = check TẤT CẢ kênh mỗi poll (Innertube primary, OAuth fallback)
 - ✅ Uploads playlist ID cache 24h → tiết kiệm 1 call/channel/poll
-- ✅ N projects = N × 10,000 units quota
+- ✅ OAuth Data API v3 = fallback path (10k units/day) — không phải primary
+- ✅ trimLimit numeric (phút) thay vì '5min'/'10min'/'full'
+- ✅ Auto-download dùng `defaultTrimLimit` từ settings (default: 10 phút)
+- ✅ SAPISIDHASH = SHA1(timestamp + " " + SAPISID + " " + "https://www.youtube.com")
 
 ---
 

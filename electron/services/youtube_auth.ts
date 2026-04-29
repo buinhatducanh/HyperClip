@@ -100,7 +100,11 @@ export function loadTokens(): OAuthTokens | null {
     if (fs.existsSync(file)) {
       const data = JSON.parse(fs.readFileSync(file, 'utf-8'))
       console.log('[OAuth] Tokens loaded from:', file)
-      return data
+      // Legacy single-token format (object) — return as-is
+      if (!Array.isArray(data)) return data
+      // Multi-project array: return first valid token (legacy compat)
+      const first = Array.isArray(data) ? data.find((t: OAuthTokens) => t.access_token) : null
+      return first || null
     }
   } catch (e) {
     console.warn('[OAuth] Failed to load tokens from', file, ':', e)
@@ -111,15 +115,40 @@ export function loadTokens(): OAuthTokens | null {
 
 export function saveTokens(tokens: OAuthTokens, clientId?: string, clientSecret?: string, projectId?: string): void {
   const file = getTokenFile()
-  const toSave: OAuthTokens & { projectId?: string } = {
-    ...tokens,
-    clientId: clientId || tokens.clientId,
-    clientSecret: clientSecret || tokens.clientSecret,
-    projectId: projectId || tokens.projectId,
-  }
+  const resolvedProjectId = projectId || tokens.projectId || 'proj-01'
+
   try {
-    fs.writeFileSync(file, JSON.stringify(toSave, null, 2), 'utf-8')
-    console.log('[OAuth] Tokens saved to:', file, '— expires at:', new Date(tokens.expires_at).toISOString(), projectId ? ` (project: ${projectId})` : '')
+    // Always use multi-project array format. Read existing tokens, merge, write back.
+    // This prevents overwriting all tokens when startOAuthFlow is called without projectId.
+    let existingTokens: Array<OAuthTokens & { clientId?: string; clientSecret?: string; projectId?: string }> = []
+    if (fs.existsSync(file)) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(file, 'utf-8'))
+        if (Array.isArray(raw)) {
+          existingTokens = raw
+        } else if (raw && typeof raw === 'object' && raw.access_token) {
+          // Legacy single-token format — migrate to array
+          existingTokens = [raw as OAuthTokens]
+        }
+      } catch {}
+    }
+
+    const entry = {
+      ...tokens,
+      clientId: clientId || tokens.clientId,
+      clientSecret: clientSecret || tokens.clientSecret,
+      projectId: resolvedProjectId,
+    }
+
+    const idx = existingTokens.findIndex(t => (t.projectId || 'proj-01') === resolvedProjectId)
+    if (idx !== -1) {
+      existingTokens[idx] = entry
+    } else {
+      existingTokens.push(entry)
+    }
+
+    fs.writeFileSync(file, JSON.stringify(existingTokens, null, 2), 'utf-8')
+    console.log('[OAuth] Tokens saved to:', file, '— expires at:', new Date(tokens.expires_at).toISOString(), ` (project: ${resolvedProjectId})`)
   } catch (e) {
     console.error('[OAuth] FAILED to save tokens to', file, ':', e)
     throw e

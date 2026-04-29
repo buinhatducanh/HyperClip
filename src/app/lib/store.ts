@@ -26,7 +26,7 @@ export interface Workspace {
   status: WorkspaceStatus
   renderProgress?: number
   fileSize: string
-  trimLimit: '5min' | '10min' | 'full'
+  trimLimit: number | 'full'  // number = minutes
   /** Export quality for this workspace — set when user edits in editor */
   quality: 1080 | 720 | 360
   /** Path to downloaded video file — populated after download */
@@ -41,7 +41,7 @@ export interface Workspace {
 
 export interface AppSettings {
   outputFolder: string
-  defaultTrimLimit: '5min' | '10min' | 'full'
+  defaultTrimLimit: number | 'full'  // number = minutes
   defaultQuality: 1080 | 720
   autoRender: boolean
   minimizeToTray: boolean
@@ -144,7 +144,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   systemStats: INIT_STATS,
   settings: {
     outputFolder: '~/HyperClip/output',
-    defaultTrimLimit: '10min',
+    defaultTrimLimit: 10,  // 10 minutes — auto-download respects this
     defaultQuality: 1080,
     autoRender: false,
     minimizeToTray: true,

@@ -2,23 +2,19 @@
  * Subscription Feed — HyperClip
  *
  * Full scan: checks ALL subscribed channels every poll via playlistItems.
- * Each channel call uses the best-available key with remaining quota.
+ * Uses OAuth-only (no API key) — avoids "API Key and authentication credential
+ * from different projects" errors when key and token belong to different GCP projects.
  *
- * Quota math (full scan, 20s interval, 100 channels):
- *   100 channels × 2 units = 200 units/poll
- *   4,320 polls/day × 200 = 864,000 units/day
- *   1 project = 10,000 units → needs 87 projects
- *
- * With 30 projects = 300,000 units → poll ~58s
+ * Quota: OAuth tokens track per-project quota (10k units/day per project).
  *
  * activities?home=true is DEPRECATED (Google removed it).
  * No replacement in Data API v3. Only playlistItems per channel works.
  */
 
 import https from 'https'
-import { getKeyManager } from './key_manager.js'
 import { getTokenManager } from './token_manager.js'
 import { getChannels } from './store.js'
+import { getSessionManager, computeSAPISIDHASH, type ChromeSession } from './chrome_cookies.js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -47,22 +43,19 @@ export interface SubFeedOptions {
 
 // ─── Config ─────────────────────────────────────────────────────────────────────
 
-const MAX_VIDEO_AGE_MS = 60 * 1000 // 1 minute — only auto-download videos posted < 1 min ago
+const MAX_VIDEO_AGE_MS = 10 * 60 * 1000 // 10 minutes — auto-download videos posted < 10 min ago (accounts for YouTube processing delay)
 const PLAYLIST_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24h uploads playlist cache
 const MAX_CONCURRENT = 20 // max parallel API calls per poll
 
 // ─── API Helper ────────────────────────────────────────────────────────────────
 
-function apiGet(
-  urlStr: string, apiKey: string, token: string,
+function apiGetOAuth(
+  urlStr: string, token: string,
 ): Promise<any> {
   return new Promise((resolve) => {
-    const url = new URL(urlStr)
-    url.searchParams.set('key', apiKey)
-
     const req = https.get({
-      hostname: url.hostname,
-      path: url.pathname + url.search,
+      hostname: 'www.googleapis.com',
+      path: urlStr,
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
@@ -72,7 +65,16 @@ function apiGet(
       res.on('data', (c) => { data += c })
       res.on('end', () => {
         try {
-          resolve(JSON.parse(data))
+          const json = JSON.parse(data)
+          // Debug: log first item's age in playlistItems — shows if newest video is within 10min window
+          if (urlStr.includes('playlistItems') && json.items?.length > 0) {
+            const now = Date.now()
+            const first = json.items[0].snippet
+            const ms = first?.publishedAt ? new Date(first.publishedAt).getTime() : 0
+            const age = ms > 0 ? Math.round((now - ms) / 60000) : -1
+            console.log(`[apiGet] newest="${first?.title?.slice(0,35)}" age=${age}m (cutoff=10m)`)
+          }
+          resolve(json)
         } catch {
           resolve({ error: 'Parse error', data: data.slice(0, 200) })
         }
@@ -81,6 +83,81 @@ function apiGet(
 
     req.on('error', (e) => resolve({ error: e.message }))
     req.setTimeout(10000, () => { req.destroy(); resolve({ error: 'Request timeout' }) })
+  })
+}
+
+// ─── Innertube API (cookie-based, no quota limit) ─────────────────────────────
+
+const INNERTUBE_CLIENT = {
+  clientName: 'WEB',
+  clientVersion: '2.20240718',
+}
+
+function apiGetInnertube(
+  browseId: string,
+  session: ChromeSession,
+): Promise<any> {
+  return new Promise((resolve) => {
+    if (!session.cookies) {
+      resolve({ error: 'No cookies in session' })
+      return
+    }
+
+    const { SAPISID, PSID, PSIDCC, PSIDTS } = session.cookies
+    const ts = Math.floor(Date.now() / 1000)
+    const hash = computeSAPISIDHASH(SAPISID, ts)
+
+    const body = JSON.stringify({
+      context: {
+        client: {
+          clientName: INNERTUBE_CLIENT.clientName,
+          clientVersion: INNERTUBE_CLIENT.clientVersion,
+        },
+      },
+      browseId,
+    })
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Content-Length': String(Buffer.byteLength(body)),
+      'X-YouTube-Client-Name': '2',
+      'X-YouTube-Client-Version': INNERTUBE_CLIENT.clientVersion,
+    }
+
+    // Build Cookie header
+    const cookieParts: string[] = [`SAPISID=${SAPISID}`, `__Secure-1PSID=${PSID}`]
+    if (PSIDCC) cookieParts.push(`__Secure-1PSIDCC=${PSIDCC}`)
+    if (PSIDTS) cookieParts.push(`__Secure-1PSIDTS=${PSIDTS}`)
+    // SOCS consent cookie — CAI = accepted, CAA = not logged in
+    if (session.cookies.socs) cookieParts.push(`SOCS=${session.cookies.socs}`)
+
+    headers['Authorization'] = `SAPISIDHASH ${hash}`
+    headers['Cookie'] = cookieParts.join('; ')
+    // SAPISID cookie also needed on some endpoints
+    headers['Cookie'] += `; SAPISID=${SAPISID}`
+
+    const req = https.request({
+      hostname: 'www.youtube.com',
+      path: '/youtubei/v1/browse',
+      method: 'POST',
+      headers,
+    }, (res) => {
+      let data = ''
+      res.on('data', (c) => { data += c })
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data)
+          resolve(json)
+        } catch {
+          resolve({ error: 'Parse error', data: data.slice(0, 200) })
+        }
+      })
+    })
+
+    req.on('error', (e) => resolve({ error: e.message }))
+    req.setTimeout(15000, () => { req.destroy(); resolve({ error: 'Request timeout' }) })
+    req.write(body)
+    req.end()
   })
 }
 
@@ -143,31 +220,61 @@ async function fetchChannelVideos(
   const channelId = ch.channelId || ch.id
   if (!channelId) return []
 
-  const km = getKeyManager()
-  const tm = getTokenManager()
+  // ── Try Innertube API (cookie-based, no quota limit) ──
+  const sm = getSessionManager()
+  await sm.ensureInit()
 
-  // Get best available key+token for this call
+  const session = sm.getNextSession()
+  if (session?.cookies) {
+    // Step 1: get uploads playlist ID via Innertube browse
+    let uploadsId = getCachedUploadsId(channelId)
+    if (!uploadsId) {
+      const browseJson = await apiGetInnertube(channelId, session)
+      if (!browseJson.error) {
+        // Parse uploads playlist from Innertube browse response
+        // Response: { metadata: { channelMetadataRenderer: { uploadsId } } }
+        const uploads = browseJson.metadata?.channelMetadataRenderer?.uploadId
+          || browseJson.metadata?.microformat?.channelMicrophoneFallbackRenderer?.channelId
+        if (uploads) {
+          uploadsId = uploads
+          setCachedUploadsId(channelId, uploads)
+        }
+      }
+    }
+
+    if (uploadsId) {
+      // Step 2: get recent playlist items via Innertube
+      const playlistJson = await apiGetInnertube(uploadsId, session)
+      if (!playlistJson.error) {
+        const videos = parseInnertubePlaylistVideos(playlistJson, channelId, ch.name, seenVideoIds, sinceMs)
+        if (videos.length > 0) {
+          const ageLabel = videos[0].publishedAt > 0
+            ? ((Date.now() - videos[0].publishedAt) / 60000 < 1 ? 'vua xong' : Math.floor((Date.now() - videos[0].publishedAt) / 60000) + 'm ago')
+            : '?'
+          console.log(`[SubFeed] ✓ "${videos[0].title.slice(0, 40)}" from ${ch.name} (${ageLabel})`)
+          return videos
+        }
+      }
+    }
+
+    // Innertube worked but returned 0 videos — try OAuth fallback for this channel
+    console.log(`[SubFeed] Innertube 0 videos for ${ch.name} — trying OAuth fallback`)
+  }
+
+  // ── OAuth fallback (Data API v3, has quota) ──
+  const tm = getTokenManager()
   const best = await tm.getBestAvailable()
   if (!best) return []
 
-  const key = km.getKeyForProject(best.projectId)
-  if (!key) return []
+  const token = best.token
 
-  // Check quota for this key
-  const used = km.getUsedToday(key.key)
-  if (used >= 9500) {
-    // Key exhausted — skip this channel
-    return []
-  }
-
-  // Step 1: get uploads playlist ID (use cache if available)
+  // Step 1: get uploads playlist ID
   let uploadsId = getCachedUploadsId(channelId)
   if (!uploadsId) {
-    const channelJson = await apiGet(
-      `https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id=${encodeURIComponent(channelId)}&key=${key.key}`,
-      key.key, best.token,
+    const channelJson = await apiGetOAuth(
+      `/youtube/v3/channels?part=contentDetails&id=${encodeURIComponent(channelId)}`,
+      token,
     )
-    km.track(key.key, 1)
     if (channelJson.error || !channelJson.items?.[0]) return []
     uploadsId = channelJson.items[0].contentDetails?.relatedPlaylists?.uploads || null
     if (uploadsId) setCachedUploadsId(channelId, uploadsId)
@@ -176,29 +283,37 @@ async function fetchChannelVideos(
   if (!uploadsId) return []
 
   // Step 2: get recent playlist items
-  const playlistJson = await apiGet(
-    `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsId}&maxResults=5&key=${key.key}`,
-    key.key, best.token,
+  const playlistJson = await apiGetOAuth(
+    `/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsId}&maxResults=5`,
+    token,
   )
-  km.track(key.key, 1)
+  if (playlistJson.error) {
+    console.warn(`[SubFeed] OAuth error for ${ch.name}: ${playlistJson.error}`)
+    return []
+  }
 
-  if (playlistJson.error) return []
+  if (!playlistJson.items || playlistJson.items.length === 0) {
+    console.log(`[SubFeed] OAuth: no items in uploads playlist for ${ch.name}`)
+  }
+
+  // Track token quota
+  tm.track(best.projectId)
 
   const videos: SubscriptionVideo[] = []
+
   for (const item of playlistJson.items || []) {
     const snippet = item.snippet || {}
     const videoId = snippet.resourceId?.videoId
     if (!videoId) continue
 
-    const title = snippet.title || ''
-    if (!title || title.includes('[deleted]') || title.includes('[private]')) continue
+    const title = snippet.title || '(no title)'
+    if (title.includes('[deleted]') || title.includes('[private]')) continue
     if (seenVideoIds?.has(videoId)) continue
 
     const publishedAt = snippet.publishedAt
       ? new Date(snippet.publishedAt).getTime()
       : 0
 
-    // Filter by age
     if (publishedAt > 0 && publishedAt < sinceMs) continue
 
     videos.push({
@@ -221,6 +336,89 @@ async function fetchChannelVideos(
   }
 
   return videos
+}
+
+function parseInnertubePlaylistVideos(
+  json: any,
+  channelId: string,
+  channelName: string,
+  seenVideoIds: Set<string> | undefined,
+  sinceMs: number,
+): SubscriptionVideo[] {
+  const videos: SubscriptionVideo[] = []
+
+  // Innertube playlist response structure:
+  // { tabs: [{ tabRenderer: { content: { sectionListRenderer: { contents: [...] } } } }] }
+  const tabs = json.tabs || json.contents?.tabs
+  if (!tabs) return []
+
+  const tabContent = tabs[0]?.tabRenderer?.content
+  const sections = tabContent?.sectionListRenderer?.contents || []
+
+  for (const section of sections) {
+    const items = section.itemSectionRenderer?.contents || []
+    for (const item of items) {
+      const vr = item.playlistVideoRenderer
+      if (!vr) continue
+
+      const videoId = vr.videoId
+      if (!videoId || seenVideoIds?.has(videoId)) continue
+
+      const title = vr.title?.runs?.[0]?.text || '(no title)'
+      if (title.includes('[deleted]') || title.includes('[private]')) continue
+
+      // Extract published time from text runs (e.g. "2 minutes ago", "1 hour ago")
+      const publishedText = vr.publishedTimeText?.simpleText || vr.publishedTimeText?.runs?.[0]?.text || ''
+      const publishedAt = parseInnertubeRelativeTime(publishedText, sinceMs)
+
+      if (publishedAt === 0 && publishedText) {
+        // Couldn't parse time — skip if it looks old
+        continue
+      }
+      if (publishedAt > 0 && publishedAt < sinceMs) continue
+
+      const thumbnail = vr.thumbnail?.thumbnails?.[0]?.url || ''
+
+      videos.push({
+        videoId,
+        title,
+        channelId,
+        channelName,
+        thumbnail,
+        publishedAt,
+        publishedText,
+        duration: vr.lengthText?.simpleText || '',
+      })
+    }
+  }
+
+  return videos
+}
+
+function parseInnertubeRelativeTime(text: string, sinceMs: number): number {
+  if (!text) return 0
+
+  // Patterns: "2 minutes ago", "1 hour ago", "2 days ago", "Streamed 2 hours ago"
+  const cleaned = text.replace(/^Streamed\s*/i, '').trim()
+  const match = cleaned.match(/^(\d+)\s*(second|minute|hour|day|week|month|year)s?\s*ago$/i)
+  if (!match) return 0
+
+  const value = parseInt(match[1])
+  const unit = match[2].toLowerCase()
+
+  const now = Date.now()
+  const multipliers: Record<string, number> = {
+    second: 1000,
+    minute: 60000,
+    hour: 3600000,
+    day: 86400000,
+    week: 604800000,
+    month: 2592000000,
+    year: 31536000000,
+  }
+
+  const ageMs = (multipliers[unit] || 60000) * value
+  return now - ageMs
 }
 
 // ─── Main Export ─────────────────────────────────────────────────────────────

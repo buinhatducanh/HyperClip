@@ -7,7 +7,12 @@
       "WebFetch(domain:developers.google.com)",
       "WebFetch(domain:support.google.com)",
       "WebFetch(domain:www.youtube.com)",
-      "WebFetch(domain:web.archive.org)"
+      "WebFetch(domain:web.archive.org)",
+      "WebFetch(domain:console.cloud.google.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:webcache.googleusercontent.com)",
+      "WebFetch(domain:docs.cloud.google.com)"
     ]
   },
   "enabledMcpjsonServers": [

@@ -282,16 +282,6 @@ class TokenManager {
   async getBestAvailable(): Promise<{ token: string; projectId: string; clientId: string; clientSecret: string } | null> {
     this._checkReset()
 
-    // LOG 1: Entry state
-    console.log(`[TokenManager] getBestAvailable: ${this._tokens.length} tokens loaded, ${this._stats.size} stats entries, _lastReset=${this._lastReset}`)
-    for (const t of this._tokens) {
-      const s = this._stats.get(t.projectId)
-      const usedToday = s?.usedToday ?? 0
-      const errors = s?.errors ?? 0
-      const expiresIn = Math.round((t.expires_at - Date.now()) / 60000)
-      console.log(`  → ${t.projectId}: expires_in=${expiresIn}min, usedToday=${usedToday}, errors=${errors}`)
-    }
-
     if (this._tokens.length === 0) {
       console.warn('[TokenManager] getBestAvailable: NO tokens in _tokens — returning null')
       return null
@@ -303,8 +293,6 @@ class TokenManager {
       if (!s) return true
       return s.usedToday < MAX_UNITS_PER_TOKEN && s.errors < MAX_ERRORS
     })
-
-    console.log(`[TokenManager] getBestAvailable: ${candidates.length}/${this._tokens.length} tokens pass filter`)
 
     if (candidates.length === 0) {
       console.warn('[TokenManager] getBestAvailable: All tokens filtered out — returning null')
@@ -319,7 +307,6 @@ class TokenManager {
     })
 
     const chosen = candidates[0]
-    console.log(`[TokenManager] getBestAvailable: chose ${chosen.projectId}`)
 
     // Check expiry — refresh if needed (5 min buffer)
     const now = Date.now()

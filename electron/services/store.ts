@@ -200,7 +200,7 @@ export interface WorkspaceData {
   videoUrl: string
   thumbnail: string
   duration: number       // seconds
-  trimLimit: '5min' | '10min' | 'full'
+  trimLimit: number | 'full'  // number = minutes (auto-download default), 'full' = no trim
   status: 'waiting' | 'downloading' | 'ready' | 'editing' | 'rendering' | 'done' | 'error'
   renderProgress: number // 0-100
   downloadProgress?: number // 0-100

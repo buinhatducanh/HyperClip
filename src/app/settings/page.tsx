@@ -24,6 +24,22 @@ interface Project {
   apiKeyStatus: string
 }
 
+interface ChromeSession {
+  profileId: string
+  profileName: string
+  isLoggedIn: boolean
+  usedToday: number
+  lastUsed: number
+  error?: string
+}
+
+interface SessionStatus {
+  ready: boolean
+  sessionCount: number
+  loggedInCount: number
+  sessions: ChromeSession[]
+}
+
 // ─── Password Gate ──────────────────────────────────────────────────────────────
 
 function PasswordGate({ onUnlock }: { onUnlock: () => void }) {
@@ -142,7 +158,7 @@ function AddProjectForm({ onClose, onAdded }: { onClose: () => void; onAdded: ()
     }
   }
 
-  const rowStyle = { display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 10 }
+  const rowStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 10 }
   const labelStyle = { fontSize: 9, color: '#555', letterSpacing: '0.05em', fontWeight: 600 }
   const inputStyle = {
     width: '100%', height: 30, background: '#0a0a0a', border: '1px solid #222',
@@ -249,8 +265,17 @@ function ProjectCard({ project, onRefresh }: { project: Project; onRefresh: () =
   }
 
   const handleAuthorize = async () => {
-    // TODO: open OAuth flow for existing project
-    showToast('Chức năng re-authorize đang phát triển')
+    try {
+      const result = await ipc.reauthorizeProject(project.projectId)
+      if (result.success) {
+        showToast(`Đã re-authorize ${project.projectId}`)
+        onRefresh()
+      } else {
+        showToast(`Lỗi: ${result.error}`)
+      }
+    } catch (e: any) {
+      showToast(`Lỗi: ${e.message}`)
+    }
   }
 
   return (
@@ -371,6 +396,7 @@ function ProjectsSection() {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
+  const [syncing, setSyncing] = useState(false)
 
   const load = () => {
     setLoading(true)
@@ -385,6 +411,22 @@ function ProjectsSection() {
     const interval = setInterval(load, 8000)
     return () => clearInterval(interval)
   }, [])
+
+  const handleSyncChannels = async () => {
+    setSyncing(true)
+    try {
+      const result = await ipc.syncChannels()
+      if (result.added > 0 || result.removed > 0) {
+        useAppStore.getState().showToast(`Đã đồng bộ: +${result.added} kênh mới, -${result.removed} kênh đã xóa`)
+      } else {
+        useAppStore.getState().showToast('Không có kênh mới để đồng bộ')
+      }
+    } catch (e: any) {
+      useAppStore.getState().showToast(`Lỗi sync: ${e.message}`)
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   const totalUsed = projects.reduce((s, p) => s + p.usedToday + p.apiKeyUsed, 0)
   const totalQuota = projects.length * 9500 * 2
@@ -415,6 +457,18 @@ function ProjectsSection() {
             onMouseEnter={e => { e.currentTarget.style.background = '#00B4FF22' }}
             onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
           >+ Thêm Project</button>
+          <button
+            onClick={handleSyncChannels}
+            disabled={syncing}
+            style={{
+              height: 22, paddingLeft: 8, paddingRight: 8,
+              background: 'transparent', border: '1px solid #00FF8844', borderRadius: 3,
+              cursor: syncing ? 'not-allowed' : 'pointer', color: '#00FF88', fontSize: 9, fontWeight: 600,
+              opacity: syncing ? 0.5 : 1,
+            }}
+            onMouseEnter={e => { if (!syncing) { e.currentTarget.style.background = '#00FF8822' } }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+          >{syncing ? 'Đang sync...' : '↻ Refresh kênh'}</button>
         </div>
       )}
 
@@ -456,6 +510,146 @@ function ProjectsSection() {
   )
 }
 
+// ─── Chrome Sessions Section ────────────────────────────────────────────────────
+
+function SessionsSection() {
+  const [status, setStatus] = useState<SessionStatus | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const { showToast } = useAppStore()
+
+  const load = () => {
+    setLoading(true)
+    ipc.getSessionStatus().then((s: any) => {
+      setStatus(s as SessionStatus)
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [])
+  useEffect(() => {
+    const interval = setInterval(load, 10000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    const result = await ipc.refreshAllSessions()
+    showToast(result.success ? `Đã refresh ${result.refreshedCount} sessions` : 'Refresh thất bại')
+    setRefreshing(false)
+    load()
+  }
+
+  const handleOpenLogin = async (profileId: string) => {
+    const result = await ipc.openSessionLogin(profileId)
+    if (result.success) {
+      showToast(`Đã mở Chrome — đăng nhập YouTube, HyperClip sẽ tự đọc cookies`)
+    }
+  }
+
+  const loggedIn = status?.sessions.filter(s => s.isLoggedIn) ?? []
+  const notLoggedIn = status?.sessions.filter(s => !s.isLoggedIn) ?? []
+
+  return (
+    <div>
+      {/* Summary bar */}
+      {!loading && status && (
+        <div style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div className="flex items-center gap-2">
+            <div style={{
+              width: 5, height: 5, borderRadius: '50%',
+              background: loggedIn.length > 0 ? '#00FF88' : '#FF4444',
+              boxShadow: `0 0 4px ${loggedIn.length > 0 ? '#00FF88' : '#FF4444'}66`,
+            }} />
+            <span style={{ fontSize: 9, color: '#555', fontFamily: 'monospace' }}>
+              {status.loggedInCount}/{status.sessionCount} sessions logged in
+              {loggedIn.length > 0 && ' · Innertube API: active'}
+            </span>
+          </div>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            style={{
+              height: 22, paddingLeft: 8, paddingRight: 8,
+              background: 'transparent', border: '1px solid #2a2a2a', borderRadius: 3,
+              cursor: refreshing ? 'not-allowed' : 'pointer', color: '#555', fontSize: 9, fontWeight: 600,
+              opacity: refreshing ? 0.5 : 1,
+            }}
+            onMouseEnter={e => { if (!refreshing) { e.currentTarget.style.background = '#1a1a1a'; e.currentTarget.style.color = '#888' } }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#555' }}
+          >{refreshing ? 'Refreshing...' : '↻ Refresh all'}</button>
+        </div>
+      )}
+
+      {/* Info */}
+      <div style={{ padding: '0 14px 12px', fontSize: 9, color: '#444', lineHeight: '14px' }}>
+        Session cookies → YouTube Innertube API (không quota limit). Dùng cho detection.
+        OAuth projects → Data API v3 (10k units/ngày). Dùng cho download + fallback.
+        <br />Click &quot;Mở Chrome&quot; để đăng nhập YouTube cho profile đó.
+      </div>
+
+      {loading ? (
+        <div style={{ fontSize: 10, color: '#444', textAlign: 'center', padding: '16px' }}>Đang tải sessions...</div>
+      ) : (
+        <div style={{ padding: '0 14px 14px' }}>
+          {/* Logged in sessions */}
+          {loggedIn.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 8, color: '#333', letterSpacing: '0.08em', marginBottom: 6, fontWeight: 700 }}>LOGGED IN ({loggedIn.length})</div>
+              {loggedIn.map(s => (
+                <div key={s.profileId} style={{
+                  background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 4,
+                  padding: '6px 10px', marginBottom: 5, display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00FF88', flexShrink: 0 }} />
+                  <span style={{ fontSize: 10, color: '#888', flex: 1 }}>{s.profileName}</span>
+                  <span style={{ fontSize: 8, color: '#333', fontFamily: 'monospace' }}>
+                    used {s.usedToday}x
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Not logged in — show all in compact grid */}
+          {notLoggedIn.length > 0 && (
+            <div>
+              <div style={{ fontSize: 8, color: '#333', letterSpacing: '0.08em', marginBottom: 6, fontWeight: 700 }}>
+                NEEDS LOGIN ({notLoggedIn.length})
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 5 }}>
+                {notLoggedIn.map(s => (
+                  <button
+                    key={s.profileId}
+                    onClick={() => handleOpenLogin(s.profileId)}
+                    title={s.error || 'Open Chrome and log in to YouTube'}
+                    style={{
+                      background: '#0d0d0d', border: '1px solid #222', borderRadius: 4,
+                      padding: '6px 8px', textAlign: 'left', cursor: 'pointer',
+                      display: 'flex', flexDirection: 'column', gap: 2,
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = '#00B4FF44'; e.currentTarget.style.background = '#0d1520' }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = '#222'; e.currentTarget.style.background = '#0d0d0d' }}
+                  >
+                    <span style={{ fontSize: 9, color: '#555', fontWeight: 600 }}>{s.profileName}</span>
+                    <span style={{ fontSize: 8, color: '#00B4FF' }}>+ Mở Chrome login</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {status?.sessionCount === 0 && (
+            <div style={{ fontSize: 10, color: '#333', textAlign: 'center', padding: '8px' }}>
+              Chưa khởi tạo sessions.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Settings Page ─────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -492,9 +686,17 @@ export default function SettingsPage() {
       <div style={{ flex: 1, overflow: 'auto', padding: '24px 20px' }}>
         <div style={{ maxWidth: 600 }}>
 
+          {/* Chrome Sessions */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.15em', marginBottom: 10 }}>CHROME SESSIONS (INNERTUBE)</div>
+            <div style={{ background: '#0F0F0F', border: '1px solid #181818', borderRadius: 4, overflow: 'hidden' }}>
+              <SessionsSection />
+            </div>
+          </div>
+
           {/* Projects */}
           <div style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.15em', marginBottom: 10 }}>GOOGLE PROJECTS</div>
+            <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.15em', marginBottom: 10 }}>GOOGLE PROJECTS (OAUTH FALLBACK)</div>
             <div style={{ background: '#0F0F0F', border: '1px solid #181818', borderRadius: 4, overflow: 'hidden' }}>
               <ProjectsSection />
             </div>
