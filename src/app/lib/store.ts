@@ -134,6 +134,7 @@ const INIT_EDITOR: EditorState = {
   backgroundImageUrl: null,
   backgroundImageDiskPath: null,
   backgroundColor: '#000000',
+  vidHeightPct: 50,
 }
 
 // ─── Store ─────────────────────────────────────────────────────────────────────

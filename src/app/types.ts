@@ -59,6 +59,8 @@ export interface EditorState {
   backgroundImageDiskPath: string | null;
   /** Solid background color hex */
   backgroundColor: string;
+  // Landscape video zone height (30-100% of canvas) — larger = video bigger, less thumbnail
+  vidHeightPct: number;
 }
 
 export interface KeyStatus {

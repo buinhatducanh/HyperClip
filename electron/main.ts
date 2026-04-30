@@ -807,6 +807,12 @@ async function registerIPCHandlers() {
           duration: result.duration || videoInfo?.duration || 0,
         })
         broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id))
+
+        // Generate blur background
+        const { blurPath } = generateWorkspacePaths(id)
+        const blurResult = await generateBlurBackground(result.filePath, blurPath)
+        updateWorkspace(id, { blurBackgroundPath: blurResult.success ? blurPath : '' })
+        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id))
         return { success: true }
       } else {
         const errorMsg = result.error || ''

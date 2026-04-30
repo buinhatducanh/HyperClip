@@ -441,13 +441,15 @@ function SpeedSection({ speedMultiplier, onChange }: { speedMultiplier: number; 
 
 // ─── Background Section ─────────────────────────────────────────────────────────
 
-function BackgroundSection({ backgroundType, backgroundColor, backgroundImageUrl, editorIsShort, onChange }: {
+function BackgroundSection({ backgroundType, backgroundColor, backgroundImageUrl, editorIsShort, onChange, vidHeightPct }: {
   backgroundType: 'blur' | 'solid' | 'image'; backgroundColor: string
   backgroundImageUrl: string | null
   editorIsShort: boolean
   onChange: (p: Partial<EditorState>) => void
+  vidHeightPct: number
 }) {
   const bgImageFileRef = useRef<HTMLInputElement>(null)
+  const thumbImageFileRef = useRef<HTMLInputElement>(null)
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
@@ -523,12 +525,12 @@ function BackgroundSection({ backgroundType, backgroundColor, backgroundImageUrl
       )}
 
       {/* Thumbnail upload for landscape mode — always available */}
-      {!editorIsShort && backgroundType !== 'image' && (
+      {!editorIsShort && (
         <>
-          <input type="file" accept="image/*" ref={bgImageFileRef} className="hidden"
+          <input type="file" accept="image/*" ref={thumbImageFileRef} className="hidden"
             onChange={handleImageUpload}
           />
-          <button onClick={() => bgImageFileRef.current?.click()}
+          <button onClick={() => thumbImageFileRef.current?.click()}
             style={{ width: '100%', height: 28, marginTop: 6, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, color: '#555', fontSize: 9, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
           >
             <IconUpload size={10} color="currentColor" />
@@ -541,6 +543,18 @@ function BackgroundSection({ backgroundType, backgroundColor, backgroundImageUrl
               REMOVE THUMB
             </button>
           )}
+
+          {/* Video height slider for landscape */}
+          <div style={{ marginTop: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+              <span style={{ fontSize: 9, color: '#444', fontWeight: 700 }}>VIDEO</span>
+              <span style={{ fontSize: 9, color: '#555', fontFamily: 'monospace' }}>{vidHeightPct}%</span>
+            </div>
+            <input type="range" min={30} max={85} value={vidHeightPct}
+              onChange={(e) => onChange({ vidHeightPct: +e.target.value })}
+              style={{ width: '100%', height: 3 }}
+            />
+          </div>
         </>
       )}
     </div>
@@ -729,12 +743,12 @@ function CanvasArea({ video, editorState, onChange }: {
   const selectedDuration = trimEndSec - trimStartSec
   const progress = videoDuration > 0 ? (currentTime / videoDuration) * 100 : 0
   const isDark = editorState.canvasBg === 'black'
-  // SHORT: header(20%) + video(60%) + title(20%)
-  // LANDSCAPE: thumbnail(30%) + video(40%) + part(30%)
+  // Short: header(20%) + video(60%) + title(20%)
+  // Landscape: thumb + video(vidHeightPct%) + part
   const isShort = video.isShort !== false
-  const headerH = isShort ? Math.round(quality * 0.20) : Math.round(quality * 0.30)
-  const titleH = isShort ? Math.round(quality * 0.20) : Math.round(quality * 0.30)
-  const videoH = quality - headerH - titleH
+  const headerH = isShort ? Math.round(quality * 0.20) : Math.round(quality * (100 - editorState.vidHeightPct) / 2 / 100)
+  const titleH = isShort ? Math.round(quality * 0.20) : Math.round(quality * (100 - editorState.vidHeightPct) / 2 / 100)
+  const videoH = isShort ? Math.round(quality * 0.60) : Math.round(quality * editorState.vidHeightPct / 100)
   // Title font: clamp to not overflow the zone
   const maxTitleFont = Math.floor(titleH * 0.15)
 
@@ -802,11 +816,16 @@ function CanvasArea({ video, editorState, onChange }: {
                   </div>
                 )
               ) : (
-                // LANDSCAPE mode: thumbnail zone (always shows thumbnail)
+                // LANDSCAPE mode: thumbnail zone with crop offset
                 <img
                   src={localThumbSrc || video.thumbnail}
                   alt="thumbnail"
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', pointerEvents: 'none' }}
+                  style={{
+                    width: '100%', height: '100%',
+                    objectFit: 'cover',
+                    objectPosition: 'center',
+                    pointerEvents: 'none',
+                  }}
                 />
               )}
               {isShort && <div style={{ position: 'absolute', bottom: -3, left: '50%', transform: 'translateX(-50%)', width: 24, height: 5, background: '#00B4FF', borderRadius: 3, opacity: 0.6, cursor: 'ns-resize' }} />}
@@ -912,30 +931,27 @@ function CanvasArea({ video, editorState, onChange }: {
               <div style={{ position: 'absolute', top: 3, left: 4, fontSize: 7, color: '#333', fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.05em' }}>
                 {isShort ? 'TITLE' : 'PART'}
               </div>
-              {editorState.titleText ? (
-                <div style={{
-                  width: '70%',
-                  background: editorState.titleBgColor,
-                  borderWidth: 2, borderStyle: 'solid', borderColor: editorState.titleBorderColor,
-                  borderRadius: editorState.titleShape === 'rounded' ? 999 : 4,
-                  padding: `${Math.round(editorState.titleFontSize * 0.6)}px ${Math.round(editorState.titleFontSize * 0.8)}px`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-                }}>
+              {/* Always show box: filled if has text, dashed border placeholder if empty */}
+              <div style={{
+                width: '70%',
+                background: editorState.titleBgColor,
+                borderWidth: 2, borderStyle: editorState.titleText ? 'solid' : 'dashed',
+                borderColor: editorState.titleBorderColor,
+                borderRadius: editorState.titleShape === 'rounded' ? 999 : 4,
+                padding: `${Math.round(editorState.titleFontSize * 0.6)}px ${Math.round(editorState.titleFontSize * 0.8)}px`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                minHeight: maxTitleFont * 2,
+              }}>
+                {editorState.titleText ? (
                   <span style={{ fontSize: Math.min(editorState.titleFontSize, maxTitleFont), fontWeight: 700, color: isDark ? '#FFF' : '#000', textAlign: 'center', lineHeight: 1.2, wordBreak: 'break-word' }}>
                     {editorState.titleText}
                   </span>
-                </div>
-              ) : isShort ? (
-                <div style={{ textAlign: 'center', opacity: 0.06 }}>
-                  <div style={{ fontSize: 12, color: '#444' }}>T</div>
-                  <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.1em', marginTop: 2, color: '#444' }}>TITLE</div>
-                </div>
-              ) : (
-                <div style={{ textAlign: 'center', opacity: 0.06 }}>
-                  <div style={{ fontSize: 12, color: '#444' }}>#</div>
-                  <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.1em', marginTop: 2, color: '#444' }}>PART</div>
-                </div>
-              )}
+                ) : (
+                  <span style={{ fontSize: Math.min(editorState.titleFontSize, maxTitleFont), fontWeight: 600, color: isDark ? '#333' : '#999', textAlign: 'center', lineHeight: 1.2 }}>
+                    {isShort ? 'Nhập tiêu đề...' : 'Part 1, 2, 3...'}
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Video controls overlay */}
@@ -1027,7 +1043,7 @@ function CanvasArea({ video, editorState, onChange }: {
 
 // ─── Controls Panel ─────────────────────────────────────────────────────────────
 
-function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRendering, systemStats, editorIsShort }: {
+function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRendering, systemStats, editorIsShort, videoDuration }: {
   editorState: EditorState
   onChange: (p: Partial<EditorState>) => void
   onRender: () => void
@@ -1035,9 +1051,8 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
   isRendering: boolean
   systemStats?: SystemStats
   editorIsShort: boolean
+  videoDuration: number
 }) {
-  const totalSec = 1 // dummy, won't show if no video
-
   return (
     <div style={{ width: 280, borderLeft: '1px solid #1A1A1A', display: 'flex', flexDirection: 'column', background: '#111' }}>
       {/* Scrollable content */}
@@ -1048,7 +1063,7 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
         <TrimSection
           start={editorState.trimStart}
           end={editorState.trimEnd}
-          duration={1}
+          duration={videoDuration}
           onChange={(s, e) => onChange({ trimStart: s, trimEnd: e })}
         />
 
@@ -1090,6 +1105,7 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
           backgroundImageUrl={editorState.backgroundImageUrl}
           editorIsShort={editorIsShort}
           onChange={onChange}
+          vidHeightPct={editorState.vidHeightPct}
         />
 
         {/* CANVAS MODE */}
@@ -1239,6 +1255,9 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
   const isRendering = video?.status === 'rendering'
   const editorIsShort = video.isShort !== false
 
+  // Compute actual video duration for TrimSection
+  const totalSec = parseDuration(video.duration || 0)
+
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#121212' }}>
       {/* Header bar */}
@@ -1275,6 +1294,7 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
           isRendering={isRendering}
           systemStats={systemStats}
           editorIsShort={editorIsShort}
+          videoDuration={totalSec}
         />
       </div>
 

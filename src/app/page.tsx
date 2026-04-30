@@ -293,7 +293,9 @@ export default function DashboardPage() {
     if (!selectedWorkspaceId) return
     const ws = workspaces.find(w => w.id === selectedWorkspaceId)
     if (!ws || !ws.downloadedPath) { showToast('Video not downloaded yet'); return }
-    if (editorState.backgroundType === 'blur' && !ws.blurBackgroundPath) { showToast('Blur background not ready yet'); return }
+    if (editorState.backgroundType === 'blur' && !ws.blurBackgroundPath) {
+      // Fallback: render will use solid color if blur is not ready yet
+    }
 
     const parseDur = (d: string): number => {
       const parts = d.split(':').map(Number)
@@ -306,7 +308,12 @@ export default function DashboardPage() {
     const trimEndSec = Math.round((editorState.trimEnd / 100) * totalSec)
 
     const overlays: object[] = []
-    if (editorState.headerImageDiskPath) overlays.push({ type: 'header', src: editorState.headerImageDiskPath })
+    if (editorState.headerImageDiskPath) {
+      overlays.push({ type: 'header', src: editorState.headerImageDiskPath })
+    } else if ((ws.isShort === false) && (editorState.backgroundImageDiskPath || ws.blurBackgroundPath)) {
+      const thumbSrc = editorState.backgroundImageDiskPath || ws.blurBackgroundPath || ''
+      overlays.push({ type: 'header', src: thumbSrc })
+    }
     if (editorState.titleText) overlays.push({
       type: 'title', content: editorState.titleText, shape: editorState.titleShape,
       borderColor: editorState.titleBorderColor, bgColor: editorState.titleBgColor, fontSize: editorState.titleFontSize,
@@ -322,6 +329,7 @@ export default function DashboardPage() {
       backgroundImage: editorState.backgroundImageDiskPath || undefined,
       blur_background: ws.blurBackgroundPath || '',
       isShort: ws.isShort !== false,
+      vidHeightPct: editorState.vidHeightPct,
     }
 
     updateWorkspace(ws.id, { status: 'rendering', renderProgress: 0 })
@@ -343,7 +351,9 @@ export default function DashboardPage() {
     if (!selectedWorkspaceId) return
     const ws = workspaces.find(w => w.id === selectedWorkspaceId)
     if (!ws || !ws.downloadedPath) { showToast('Video not downloaded yet'); return }
-    if (editorState.backgroundType === 'blur' && !ws.blurBackgroundPath) { showToast('Blur background not ready'); return }
+    if (editorState.backgroundType === 'blur' && !ws.blurBackgroundPath) {
+      // Fallback: chunked render will use solid color if blur is not ready yet
+    }
 
     const parseDur = (d: string): number => {
       const parts = d.split(':').map(Number)
@@ -372,6 +382,7 @@ export default function DashboardPage() {
       backgroundImage: editorState.backgroundImageDiskPath || undefined,
       blur_background: ws.blurBackgroundPath || '',
       isShort: ws.isShort !== false,
+      vidHeightPct: editorState.vidHeightPct,
     }
 
     updateWorkspace(ws.id, { status: 'rendering', renderProgress: 0 })
