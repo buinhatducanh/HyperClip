@@ -24,10 +24,25 @@ interface Project {
   apiKeyStatus: string
 }
 
+interface ApiKeyStatus {
+  key: string
+  projectId: string
+  name: string
+  usedToday: number
+  quotaTotal: number
+  quotaPercent: number
+  errors: number
+  lastUsed: number | null
+  status: 'healthy' | 'warning' | 'error' | 'exhausted'
+  lastReset: number | null
+  nextReset: number | null
+}
+
 interface ChromeSession {
   profileId: string
   profileName: string
   isLoggedIn: boolean
+  isConsented: boolean
   usedToday: number
   lastUsed: number
   error?: string
@@ -37,6 +52,7 @@ interface SessionStatus {
   ready: boolean
   sessionCount: number
   loggedInCount: number
+  consentedCount: number
   sessions: ChromeSession[]
 }
 
@@ -390,6 +406,693 @@ function ProjectCard({ project, onRefresh }: { project: Project; onRefresh: () =
   )
 }
 
+// ─── API Keys Dashboard ─────────────────────────────────────────────────────────
+
+// ─── Helpers ────────────────────────────────────────────────────────────────────
+
+function formatNextReset(ts: number | null): string {
+  if (!ts) return '—'
+  const diff = ts - Date.now()
+  if (diff <= 0) return 'sắp reset'
+  const h = Math.floor(diff / 3600000)
+  const m = Math.floor((diff % 3600000) / 60000)
+  return h > 0 ? `${h}h ${m}m` : `${m}m`
+}
+
+function formatTimeAgo(ts: number | null): string {
+  if (!ts) return '—'
+  const diff = Date.now() - ts
+  if (diff < 60000) return `${Math.floor(diff / 1000)}s`
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m`
+  return `${Math.floor(diff / 3600000)}h`
+}
+
+function getPTDateStr(): { hour: number; dayStr: string } {
+  const now = new Date()
+  const utcHour = now.getUTCHours()
+  const utcYear = now.getUTCFullYear()
+  const march1 = new Date(Date.UTC(utcYear, 2, 1))
+  const firstSundayMarch = new Date(Date.UTC(utcYear, 2, march1.getUTCDay() === 0 ? 1 : 8 - march1.getUTCDay()))
+  const nov1 = new Date(Date.UTC(utcYear, 10, 1))
+  const firstSundayNov = new Date(Date.UTC(utcYear, 10, nov1.getUTCDay() === 0 ? 1 : 8 - nov1.getUTCDay()))
+  const isPDT = now >= firstSundayMarch && now < firstSundayNov
+  const ptOffsetHours = isPDT ? -7 : -8
+  const ptHour = utcHour + ptOffsetHours
+  const adjustedHour = ptHour < 0 ? ptHour + 24 : ptHour
+  const dayStr = ptHour < 0
+    ? `${utcYear}-${String(new Date(now.getTime() - 86400000).getUTCMonth() + 1).padStart(2, '0')}-${String(new Date(now.getTime() - 86400000).getUTCDate()).padStart(2, '0')}`
+    : `${utcYear}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
+  return { hour: Math.floor(adjustedHour), dayStr }
+}
+
+// ─── Usage Timeline Chart ───────────────────────────────────────────────────────
+
+function UsageTimeline({ events }: { events: number[] }) {
+  // Build 24 hourly buckets based on PT time
+  const buckets = Array.from({ length: 24 }, () => 0)
+  for (const ts of events) {
+    const d = new Date(ts)
+    const utcHour = d.getUTCHours()
+    const utcYear = d.getUTCFullYear()
+    const march1 = new Date(Date.UTC(utcYear, 2, 1))
+    const firstSundayMarch = new Date(Date.UTC(utcYear, 2, march1.getUTCDay() === 0 ? 1 : 8 - march1.getUTCDay()))
+    const nov1 = new Date(Date.UTC(utcYear, 10, 1))
+    const firstSundayNov = new Date(Date.UTC(utcYear, 10, nov1.getUTCDay() === 0 ? 1 : 8 - nov1.getUTCDay()))
+    const isPDT = d >= firstSundayMarch && d < firstSundayNov
+    const ptOffsetHours = isPDT ? -7 : -8
+    let ptHour = utcHour + ptOffsetHours
+    if (ptHour < 0) ptHour += 24
+    buckets[Math.floor(ptHour)]++
+  }
+
+  const maxBucket = Math.max(...buckets, 1)
+  const { hour: currentHour } = getPTDateStr()
+
+  const axisLabels = [0, 6, 12, 18]
+  const bucketsPerLabel: Record<number, string> = { 0: '00', 6: '06', 12: '12', 18: '18' }
+
+  return (
+    <div style={{ padding: '0 2px' }}>
+      {/* Time axis labels */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3, paddingLeft: 2, paddingRight: 2 }}>
+        {axisLabels.map(h => (
+          <span key={h} style={{ fontSize: 7, color: '#2A2A2A', fontFamily: 'monospace' }}>{bucketsPerLabel[h]}</span>
+        ))}
+        <span style={{ fontSize: 7, color: '#1A1A1A', fontFamily: 'monospace' }}>PT</span>
+      </div>
+
+      {/* Bars */}
+      <div style={{
+        display: 'flex', alignItems: 'flex-end', gap: 1,
+        height: 36, borderBottom: '1px solid #1A1A1A',
+      }}>
+        {buckets.map((count, i) => {
+          const heightPct = (count / maxBucket) * 100
+          const isCurrent = i === currentHour
+          const isPast = i < currentHour
+          const barColor = isCurrent
+            ? '#00B4FF'
+            : isPast
+              ? count > 0 ? `rgba(0,180,255,${Math.max(0.15, count / maxBucket * 0.7)})` : '#0d0d0d'
+              : '#111'
+          return (
+            <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: '100%', position: 'relative' }} title={`${String(i).padStart(2, '0')}:00 PT — ${count} calls`}>
+              {heightPct > 0 && (
+                <div style={{
+                  width: '100%',
+                  height: `${Math.max(heightPct, 3)}%`,
+                  background: barColor,
+                  borderRadius: '1px 1px 0 0',
+                  transition: 'height 0.3s ease',
+                  ...(isCurrent ? { boxShadow: '0 0 4px #00B4FF88' } : {}),
+                }} />
+              )}
+              {heightPct === 0 && <div style={{ width: '100%', flex: 1 }} />}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Current hour indicator */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2 }}>
+        <span style={{ fontSize: 7, color: '#00B4FF88', fontFamily: 'monospace' }}>
+          now {String(currentHour).padStart(2, '0')}:00 PT
+        </span>
+      </div>
+    </div>
+  )
+}
+
+// ─── Stats Card ─────────────────────────────────────────────────────────────────
+
+function StatCard({ label, value, sub, color, icon }: { label: string; value: string; sub?: string; color?: string; icon?: React.ReactNode }) {
+  return (
+    <div style={{
+      flex: 1, minWidth: 120, padding: '12px 14px',
+      background: '#0D0D0D', border: '1px solid #1A1A1A', borderRadius: 6,
+      display: 'flex', flexDirection: 'column', gap: 4,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        {icon}
+        <span style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.1em' }}>{label}</span>
+      </div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: color || '#ccc', fontFamily: 'monospace', lineHeight: 1.2 }}>{value}</div>
+      {sub && <div style={{ fontSize: 8, color: '#333' }}>{sub}</div>}
+    </div>
+  )
+}
+
+// ─── Overall Quota Bar ──────────────────────────────────────────────────────────
+
+function QuotaBar({ used, total }: { used: number; total: number }) {
+  const pct = total > 0 ? Math.round((used / total) * 100) : 0
+  const barColor = pct >= 90 ? '#FF4444' : pct >= 75 ? '#FFB800' : '#00FF88'
+
+  return (
+    <div style={{ padding: '12px 16px', background: '#0D0D0D', borderBottom: '1px solid #141414' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, alignItems: 'baseline' }}>
+        <span style={{ fontSize: 9, color: '#555', fontWeight: 700, letterSpacing: '0.08em' }}>OVERALL QUOTA</span>
+        <span style={{ fontFamily: 'monospace', fontSize: 11, color: barColor, fontWeight: 700 }}>
+          {used.toLocaleString()} <span style={{ color: '#333' }}>/</span> {total.toLocaleString()} <span style={{ color: '#333', fontSize: 9 }}>units</span>
+          <span style={{ color: '#222', fontSize: 9, marginLeft: 8 }}>({pct}%)</span>
+        </span>
+      </div>
+      <div style={{ height: 8, background: '#141414', borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
+        <div style={{
+          width: `${Math.min(pct, 100)}%`, height: '100%', background: barColor,
+          borderRadius: 4, transition: 'width 0.6s ease',
+          boxShadow: `0 0 8px ${barColor}55`,
+        }} />
+        {/* 75% and 90% threshold markers */}
+        {[75, 90].map(t => (
+          <div key={t} style={{
+            position: 'absolute', top: 0, left: `${t}%`, width: 1, height: '100%',
+            background: t === 75 ? '#333' : '#555',
+          }} />
+        ))}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+        <span style={{ fontSize: 7, color: '#2A2A2A' }}>0%</span>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <span style={{ fontSize: 7, color: '#2A2A2A' }}>75%</span>
+          <span style={{ fontSize: 7, color: '#2A2A2A' }}>90%</span>
+          <span style={{ fontSize: 7, color: '#2A2A2A' }}>100%</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Key Card ───────────────────────────────────────────────────────────────────
+
+function KeyCard({ k, events, onRemove, onReset }: {
+  k: ApiKeyStatus
+  events: number[]
+  onRemove: (key: string) => void
+  onReset: (key: string) => void
+}) {
+  const [resetting, setResetting] = useState(false)
+  const [removing, setRemoving] = useState(false)
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false)
+
+  const sc: Record<string, string> = { healthy: '#00FF88', warning: '#FFB800', error: '#FF6644', exhausted: '#FF4444' }
+  const color = sc[k.status] || '#444'
+  const pct = k.quotaPercent
+
+  const handleReset = async () => {
+    setResetting(true)
+    await onReset(k.key)
+    setTimeout(() => setResetting(false), 800)
+  }
+
+  const handleRemove = async () => {
+    setRemoving(true)
+    await onRemove(k.key)
+  }
+
+  const wasJustReset = k.lastReset && (Date.now() - k.lastReset) < 5000
+  const estimatedCalls = Math.round(k.usedToday / 1.5)
+
+  return (
+    <div style={{
+      background: wasJustReset ? '#00FF8808' : '#0D0D0D',
+      border: `1px solid ${wasJustReset ? '#00FF8833' : '#181818'}`,
+      borderRadius: 8, padding: '14px',
+      transition: 'border-color 0.5s, background 0.5s',
+      display: 'flex', flexDirection: 'column', gap: 10,
+    }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <div style={{
+          width: 10, height: 10, borderRadius: '50%', background: color,
+          flexShrink: 0, marginTop: 4,
+          boxShadow: `0 0 8px ${color}66`,
+        }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            fontSize: 13, fontWeight: 700, color: '#ccc',
+            fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>{k.name}</div>
+          <div style={{ fontSize: 8, color: '#3A3A3A', fontFamily: 'monospace', marginTop: 2 }}>
+            {k.projectId} · {k.key.slice(0, 12)}…
+          </div>
+        </div>
+        <div style={{
+          padding: '3px 8px', borderRadius: 3, border: `1px solid ${color}44`,
+          background: color + '14',
+          fontSize: 8, fontWeight: 700, color, letterSpacing: '0.08em',
+          fontFamily: 'monospace', flexShrink: 0,
+        }}>
+          {k.status.toUpperCase()}
+        </div>
+      </div>
+
+      {/* Quota progress */}
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+          <span style={{ fontSize: 8, color: '#444', fontFamily: 'monospace' }}>
+            {k.usedToday.toLocaleString()} / {k.quotaTotal.toLocaleString()} units
+            <span style={{ color: '#222', marginLeft: 6 }}>≈{estimatedCalls} calls</span>
+          </span>
+          <span style={{ fontSize: 11, fontWeight: 800, color, fontFamily: 'monospace' }}>
+            {pct}%
+          </span>
+        </div>
+        <div style={{
+          height: 10, background: '#141414', borderRadius: 3, overflow: 'hidden',
+          position: 'relative',
+        }}>
+          <div style={{
+            width: `${pct}%`, height: '100%', background: color,
+            borderRadius: 3, transition: 'width 0.5s',
+            boxShadow: `0 0 6px ${color}44`,
+          }} />
+          <div style={{ position: 'absolute', top: 0, left: '75%', width: 1, height: '100%', background: '#2a2a2a' }} />
+          <div style={{ position: 'absolute', top: 0, left: '90%', width: 1, height: '100%', background: '#333' }} />
+        </div>
+      </div>
+
+      {/* Usage timeline */}
+      <div>
+        <div style={{ fontSize: 8, color: '#2A2A2A', letterSpacing: '0.08em', marginBottom: 4, fontWeight: 700 }}>USAGE TIMELINE (24H PT)</div>
+        <UsageTimeline events={events} />
+      </div>
+
+      {/* Metadata row */}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        {k.errors > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 8, color: '#FF6644' }}>⚠ {k.errors} errors</span>
+          </div>
+        )}
+        <span style={{ fontSize: 8, color: '#3A3A3A', fontFamily: 'monospace' }}>
+          last used {formatTimeAgo(k.lastUsed)}
+        </span>
+        {k.lastReset && (
+          <span style={{ fontSize: 8, color: '#00FF8877', fontFamily: 'monospace' }}>
+            ↺ reset {formatTimeAgo(k.lastReset)}
+          </span>
+        )}
+        <span style={{ fontSize: 8, color: '#222', marginLeft: 'auto', fontFamily: 'monospace' }}>
+          next reset {formatNextReset(k.nextReset)}
+        </span>
+      </div>
+
+      {/* Actions */}
+      {!showRemoveConfirm ? (
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            onClick={handleReset}
+            disabled={resetting}
+            style={{
+              flex: 1, height: 28,
+              background: resetting ? '#00FF8820' : 'transparent',
+              border: `1px solid ${resetting ? '#00FF88' : '#00FF8844'}`,
+              borderRadius: 4, fontSize: 9, fontWeight: 700, color: '#00FF88',
+              cursor: resetting ? 'default' : 'pointer', opacity: resetting ? 0.8 : 1,
+              transition: 'all 0.2s',
+            }}
+            onMouseEnter={e => { if (!resetting) { e.currentTarget.style.background = '#00FF8820' } }}
+            onMouseLeave={e => { if (!resetting) { e.currentTarget.style.background = 'transparent' } }}
+          >
+            {resetting ? '✓ RESET' : '↺ RESET QUOTA'}
+          </button>
+          <button
+            onClick={() => setShowRemoveConfirm(true)}
+            style={{
+              height: 28, width: 80,
+              background: 'transparent',
+              border: '1px solid #FF444444',
+              borderRadius: 4, fontSize: 9, fontWeight: 700, color: '#FF444466',
+              cursor: 'pointer', opacity: 0.7,
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.color = '#FF4444'; e.currentTarget.style.opacity = '1'; e.currentTarget.style.borderColor = '#FF4444' }}
+            onMouseLeave={e => { e.currentTarget.style.color = '#FF444466'; e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.borderColor = '#FF444444' }}
+          >
+            ✕ XÓA
+          </button>
+        </div>
+      ) : (
+        <div style={{
+          padding: '8px 10px',
+          background: '#1a0808', border: '1px solid #FF444433',
+          borderRadius: 4, display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <span style={{ fontSize: 9, color: '#FF6644', flex: 1 }}>
+            Xóa key này? Không thể hoàn tác.
+          </span>
+          <button onClick={handleRemove} style={{ height: 24, paddingLeft: 10, paddingRight: 10, background: '#aa2222', border: 'none', borderRadius: 3, color: '#fff', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>
+            Xóa
+          </button>
+          <button onClick={() => setShowRemoveConfirm(false)} style={{ height: 24, paddingLeft: 10, paddingRight: 10, background: 'transparent', border: '1px solid #333', borderRadius: 3, color: '#555', fontSize: 9, cursor: 'pointer' }}>
+            Hủy
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Add Key Form ───────────────────────────────────────────────────────────────
+
+function AddKeyForm({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+  const [newKey, setNewKey] = useState('')
+  const [newKeyName, setNewKeyName] = useState('')
+  const [newProjectId, setNewProjectId] = useState('proj-01')
+  const [addError, setAddError] = useState('')
+  const [adding, setAdding] = useState(false)
+  const { showToast } = useAppStore()
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setAddError('')
+    if (!newKey.trim()) { setAddError('API Key is required'); return }
+    if (!newKey.startsWith('AIza')) { setAddError('Invalid YouTube API Key format (must start with AIza)'); return }
+    setAdding(true)
+    try {
+      await ipc.addKey(newKey.trim(), newProjectId.trim() || 'proj-01', newKeyName.trim() || 'Default')
+      showToast(`Key "${newKeyName || newKey.slice(0, 12)}..." đã thêm`)
+      onAdded()
+    } catch (e: any) { setAddError(e.message) }
+    finally { setAdding(false) }
+  }
+
+  return (
+    <div style={{
+      background: '#0A0A0A', border: '1px solid #1E1E1E',
+      borderRadius: 8, padding: '16px',
+    }}>
+      <div style={{ fontSize: 9, fontWeight: 800, color: '#444', letterSpacing: '0.12em', marginBottom: 12 }}>THÊM API KEY MỚI</div>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <input
+          autoFocus value={newKey} onChange={e => setNewKey(e.target.value)}
+          placeholder="AIzaSy..."
+          style={{ width: '100%', height: 32, background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: 4, paddingLeft: 10, fontSize: 11, color: '#ccc', outline: 'none', fontFamily: 'monospace', boxSizing: 'border-box' }}
+        />
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            value={newProjectId} onChange={e => setNewProjectId(e.target.value)}
+            placeholder="proj-01"
+            style={{ flex: 1, height: 32, background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: 4, paddingLeft: 10, fontSize: 10, color: '#ccc', outline: 'none', fontFamily: 'monospace' }}
+          />
+          <input
+            value={newKeyName} onChange={e => setNewKeyName(e.target.value)}
+            placeholder="Tên key (tùy chọn)"
+            style={{ flex: 2, height: 32, background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: 4, paddingLeft: 10, fontSize: 10, color: '#ccc', outline: 'none' }}
+          />
+        </div>
+        {addError && <div style={{ fontSize: 9, color: '#FF6644' }}>{addError}</div>}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button type="submit" disabled={adding} style={{ flex: 1, height: 30, background: '#00B4FF', border: 'none', borderRadius: 4, fontSize: 10, fontWeight: 700, color: '#000', cursor: adding ? 'not-allowed' : 'pointer', opacity: adding ? 0.6 : 1 }}>
+            {adding ? '...' : 'Thêm Key'}
+          </button>
+          <button type="button" onClick={onClose} style={{ height: 30, paddingLeft: 14, paddingRight: 14, background: 'transparent', border: '1px solid #2a2a2a', borderRadius: 4, fontSize: 10, color: '#555', cursor: 'pointer' }}>
+            Hủy
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+// ─── API Keys Dashboard ─────────────────────────────────────────────────────────
+
+function ApiKeysSection() {
+  const [keys, setKeys] = useState<ApiKeyStatus[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [filter, setFilter] = useState<'all' | 'healthy' | 'warning' | 'exhausted'>('all')
+  // Track hourly events per key: record timestamp each poll where usedToday increased
+  const [hourlyEvents, setHourlyEvents] = useState<Record<string, number[]>>({})
+  const [prevUsedToday, setPrevUsedToday] = useState<Record<string, number>>({})
+  const { showToast } = useAppStore()
+
+  const load = () => {
+    ipc.getKeys().then((k: any) => {
+      const newKeys = k as ApiKeyStatus[]
+      setKeys(newKeys)
+
+      // Track events: if usedToday increased since last poll, record a timestamp
+      setHourlyEvents(prev => {
+        const next = { ...prev }
+        for (const keyData of newKeys) {
+          const prevVal = prevUsedToday[keyData.key] ?? -1
+          if (keyData.usedToday > prevVal) {
+            const events = next[keyData.key] || []
+            // Record up to 24 events max (one per bucket)
+            const MAX_EVENTS = 24
+            const newEvents = [...events, Date.now()].slice(-MAX_EVENTS)
+            next[keyData.key] = newEvents
+          }
+        }
+        return next
+      })
+
+      // Update prevUsedToday
+      const next: Record<string, number> = {}
+      for (const keyData of newKeys) next[keyData.key] = keyData.usedToday
+      setPrevUsedToday(next)
+
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [])
+  useEffect(() => {
+    const t = setInterval(load, 8000)
+    return () => clearInterval(t)
+  }, [])
+
+  const handleReset = async (key: string) => {
+    const result = await ipc.resetKey(key)
+    if (result.success) {
+      load()
+      showToast(`Reset thành công! Next auto-reset: ${formatNextReset(result.nextReset)}`)
+    }
+  }
+
+  const handleRemove = async (key: string) => {
+    await ipc.removeKey(key)
+    setHourlyEvents(prev => {
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+    load()
+    showToast('Key đã xóa')
+  }
+
+  const handleResetAll = async () => {
+    await ipc.resetKey()
+    load()
+    showToast('Đã reset tất cả quotas!')
+  }
+
+  // Summary stats
+  const totalKeys = keys.length
+  const healthyKeys = keys.filter(k => k.status === 'healthy').length
+  const warningKeys = keys.filter(k => k.status === 'warning').length
+  const exhaustedKeys = keys.filter(k => k.status === 'exhausted').length
+  const totalUsed = keys.reduce((s, k) => s + k.usedToday, 0)
+  const totalQuota = keys.length * 9500
+  const overallPct = totalQuota > 0 ? Math.round((totalUsed / totalQuota) * 100) : 0
+  const nextReset = keys[0]?.nextReset || null
+
+  // Filter keys
+  const dedupedKeys = (() => {
+    const seen = new Set<string>()
+    return keys.filter(k => {
+      if (seen.has(k.key)) return false
+      seen.add(k.key)
+      return true
+    })
+  })()
+
+  const filteredKeys = filter === 'all' ? dedupedKeys
+    : filter === 'healthy' ? dedupedKeys.filter(k => k.status === 'healthy')
+    : filter === 'warning' ? dedupedKeys.filter(k => k.status === 'warning')
+    : dedupedKeys.filter(k => k.status === 'exhausted')
+
+  const filterCounts = {
+    all: dedupedKeys.length,
+    healthy: dedupedKeys.filter(k => k.status === 'healthy').length,
+    warning: dedupedKeys.filter(k => k.status === 'warning').length,
+    exhausted: dedupedKeys.filter(k => k.status === 'exhausted').length,
+  }
+
+  const now = new Date()
+  const refreshTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+      {/* Full-width header */}
+      <div style={{
+        padding: '14px 20px',
+        background: '#0B0B0B',
+        borderBottom: '1px solid #1A1A1A',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: '#fff', letterSpacing: '0.1em' }}>API KEY MANAGEMENT</div>
+          <div style={{ width: 1, height: 12, background: '#222' }} />
+          <span style={{ fontSize: 8, color: '#333' }}>last refresh {refreshTime}</span>
+          {loading && <span style={{ fontSize: 8, color: '#00B4FF44' }}>● polling...</span>}
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <button
+            onClick={handleResetAll}
+            style={{
+              height: 26, paddingLeft: 10, paddingRight: 10,
+              background: 'transparent', border: '1px solid #FFB80033', borderRadius: 4,
+              fontSize: 8, fontWeight: 700, color: '#FFB80066', cursor: 'pointer', letterSpacing: '0.06em',
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.color = '#FFB800'; e.currentTarget.style.borderColor = '#FFB80066' }}
+            onMouseLeave={e => { e.currentTarget.style.color = '#FFB80066'; e.currentTarget.style.borderColor = '#FFB80033' }}
+          >
+            ↺ RESET ALL
+          </button>
+          <button
+            onClick={() => setShowAddForm(v => !v)}
+            style={{
+              height: 26, paddingLeft: 10, paddingRight: 10,
+              background: showAddForm ? '#00B4FF22' : 'transparent',
+              border: `1px solid ${showAddForm ? '#00B4FF66' : '#00B4FF33'}`, borderRadius: 4,
+              fontSize: 8, fontWeight: 700, color: '#00B4FF', cursor: 'pointer',
+              transition: 'all 0.15s',
+            }}
+          >
+            + THÊM KEY
+          </button>
+        </div>
+      </div>
+
+      {/* Add form */}
+      {showAddForm && (
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #141414', background: '#0A0A0A' }}>
+          <AddKeyForm onClose={() => setShowAddForm(false)} onAdded={() => { setShowAddForm(false); load() }} />
+        </div>
+      )}
+
+      {/* Stats row */}
+      <div style={{ display: 'flex', gap: 8, padding: '12px 20px', borderBottom: '1px solid #141414', background: '#0C0C0C' }}>
+        <StatCard
+          label="TOTAL KEYS"
+          value={String(totalKeys)}
+          sub={`${totalKeys > 0 ? Math.round(totalUsed / totalKeys) : 0} units/key avg`}
+          color="#ccc"
+          icon={<div style={{ width: 6, height: 6, borderRadius: 1, background: '#444' }} />}
+        />
+        <StatCard
+          label="HEALTHY"
+          value={`${healthyKeys}/${totalKeys}`}
+          sub="keys available"
+          color="#00FF88"
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00FF88' }} />}
+        />
+        <StatCard
+          label="WARNING"
+          value={String(warningKeys)}
+          sub="75-90% quota"
+          color={warningKeys > 0 ? '#FFB800' : '#2a2a2a'}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: warningKeys > 0 ? '#FFB800' : '#2a2a2a' }} />}
+        />
+        <StatCard
+          label="EXHAUSTED"
+          value={String(exhaustedKeys)}
+          sub="needs reset"
+          color={exhaustedKeys > 0 ? '#FF4444' : '#2a2a2a'}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: exhaustedKeys > 0 ? '#FF4444' : '#2a2a2a' }} />}
+        />
+        <StatCard
+          label="NEXT RESET"
+          value={formatNextReset(nextReset)}
+          sub="midnight PT"
+          color="#555"
+          icon={
+            <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
+              <circle cx="5" cy="5" r="4" stroke="#333" strokeWidth="1" />
+              <path d="M5 2 L5 5 L7 5" stroke="#333" strokeWidth="1" strokeLinecap="round" />
+            </svg>
+          }
+        />
+      </div>
+
+      {/* Overall quota bar */}
+      <QuotaBar used={totalUsed} total={totalQuota} />
+
+      {/* Filter tabs */}
+      <div style={{ display: 'flex', gap: 2, padding: '8px 20px', borderBottom: '1px solid #141414', background: '#0C0C0C' }}>
+        {(['all', 'healthy', 'warning', 'exhausted'] as const).map(f => {
+          const isActive = filter === f
+          const count = filterCounts[f]
+          const tabColors: Record<string, string> = { all: '#888', healthy: '#00FF88', warning: '#FFB800', exhausted: '#FF4444' }
+          return (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              style={{
+                height: 24, paddingLeft: 10, paddingRight: 10,
+                background: isActive ? '#141414' : 'transparent',
+                border: `1px solid ${isActive ? '#222' : 'transparent'}`,
+                borderRadius: 4, cursor: 'pointer', fontSize: 8, fontWeight: 700,
+                color: isActive ? tabColors[f] : '#444',
+                letterSpacing: '0.08em', transition: 'all 0.15s',
+              }}
+            >
+              {f.toUpperCase()} ({count})
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Keys grid */}
+      <div style={{ padding: '14px 20px', background: '#0A0A0A' }}>
+        {loading && keys.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <div style={{ fontSize: 10, color: '#333' }}>Đang tải...</div>
+          </div>
+        ) : filteredKeys.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <div style={{ fontSize: 10, color: '#2a2a2a', marginBottom: 8 }}>
+              {filter !== 'all' ? `Không có key nào ở trạng thái "${filter}"` : 'Chưa có API key nào'}
+            </div>
+            {filter === 'all' && (
+              <button
+                onClick={() => setShowAddForm(true)}
+                style={{
+                  height: 28, paddingLeft: 14, paddingRight: 14,
+                  background: '#00B4FF22', border: '1px solid #00B4FF44', borderRadius: 4,
+                  fontSize: 9, fontWeight: 700, color: '#00B4FF', cursor: 'pointer',
+                }}
+              >
+                + Thêm API Key đầu tiên
+              </button>
+            )}
+          </div>
+        ) : (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+            gap: 12,
+          }}>
+            {filteredKeys.map(k => (
+              <KeyCard
+                key={k.key}
+                k={k}
+                events={hourlyEvents[k.key] || []}
+                onRemove={handleRemove}
+                onReset={handleReset}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Projects Section ───────────────────────────────────────────────────────────
 
 function ProjectsSection() {
@@ -547,8 +1250,9 @@ function SessionsSection() {
     }
   }
 
-  const loggedIn = status?.sessions.filter(s => s.isLoggedIn) ?? []
+  const consented = status?.sessions.filter(s => s.isConsented) ?? []
   const notLoggedIn = status?.sessions.filter(s => !s.isLoggedIn) ?? []
+  const notConsented = status?.sessions.filter(s => s.isLoggedIn && !s.isConsented) ?? []
 
   return (
     <div>
@@ -558,12 +1262,12 @@ function SessionsSection() {
           <div className="flex items-center gap-2">
             <div style={{
               width: 5, height: 5, borderRadius: '50%',
-              background: loggedIn.length > 0 ? '#00FF88' : '#FF4444',
-              boxShadow: `0 0 4px ${loggedIn.length > 0 ? '#00FF88' : '#FF4444'}66`,
+              background: consented.length > 0 ? '#00FF88' : '#FF4444',
+              boxShadow: `0 0 4px ${consented.length > 0 ? '#00FF88' : '#FF4444'}66`,
             }} />
             <span style={{ fontSize: 9, color: '#555', fontFamily: 'monospace' }}>
-              {status.loggedInCount}/{status.sessionCount} sessions logged in
-              {loggedIn.length > 0 && ' · Innertube API: active'}
+              {status.consentedCount}/{status.sessionCount} sessions ready
+              {consented.length > 0 && ' · Innertube API: active'}
             </span>
           </div>
           <button
@@ -586,6 +1290,7 @@ function SessionsSection() {
         Session cookies → YouTube Innertube API (không quota limit). Dùng cho detection.
         OAuth projects → Data API v3 (10k units/ngày). Dùng cho download + fallback.
         <br />Click &quot;Mở Chrome&quot; để đăng nhập YouTube cho profile đó.
+        <br />Nếu thấy &quot;SOCS&quot; → mở YouTube trong Chrome, chấp nhận các điều khoản.
       </div>
 
       {loading ? (
@@ -593,10 +1298,10 @@ function SessionsSection() {
       ) : (
         <div style={{ padding: '0 14px 14px' }}>
           {/* Logged in sessions */}
-          {loggedIn.length > 0 && (
+          {consented.length > 0 && (
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 8, color: '#333', letterSpacing: '0.08em', marginBottom: 6, fontWeight: 700 }}>LOGGED IN ({loggedIn.length})</div>
-              {loggedIn.map(s => (
+              <div style={{ fontSize: 8, color: '#333', letterSpacing: '0.08em', marginBottom: 6, fontWeight: 700 }}>READY ({consented.length})</div>
+              {consented.map(s => (
                 <div key={s.profileId} style={{
                   background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 4,
                   padding: '6px 10px', marginBottom: 5, display: 'flex', alignItems: 'center', gap: 8,
@@ -605,6 +1310,25 @@ function SessionsSection() {
                   <span style={{ fontSize: 10, color: '#888', flex: 1 }}>{s.profileName}</span>
                   <span style={{ fontSize: 8, color: '#333', fontFamily: 'monospace' }}>
                     used {s.usedToday}x
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Not consented (cookies but terms not accepted) */}
+          {notConsented.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 8, color: '#FFB800', letterSpacing: '0.08em', marginBottom: 6, fontWeight: 700 }}>NEEDS ACCEPT TERMS ({notConsented.length})</div>
+              {notConsented.map(s => (
+                <div key={s.profileId} style={{
+                  background: '#1a1500', border: '1px solid #3a2a00', borderRadius: 4,
+                  padding: '6px 10px', marginBottom: 5, display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#FFB800', flexShrink: 0 }} />
+                  <span style={{ fontSize: 10, color: '#888', flex: 1 }}>{s.profileName}</span>
+                  <span style={{ fontSize: 8, color: '#FFB800', fontFamily: 'monospace' }}>
+                    Open YouTube → accept terms
                   </span>
                 </div>
               ))}
@@ -653,8 +1377,16 @@ function SessionsSection() {
 // ─── Settings Page ─────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
-  const { settings, systemStats } = useAppStore()
+  const { settings, systemStats, setSettings } = useAppStore()
   const [gateState, setGateState] = useState<'loading' | 'setup' | 'locked' | 'unlocked'>('loading')
+  // Always declare all hooks before any early returns to satisfy Rules of Hooks
+  const [activeTab, setActiveTab] = useState<'keys' | 'projects' | 'system'>('keys')
+
+  const TABS = [
+    { id: 'keys' as const, label: 'API KEYS', color: '#00B4FF' },
+    { id: 'projects' as const, label: 'GOOGLE PROJECTS', color: '#00FF88' },
+    { id: 'system' as const, label: 'SYSTEM', color: '#FFB800' },
+  ]
 
   useEffect(() => {
     ipc.adminHasPassword().then(result => {
@@ -671,58 +1403,112 @@ export default function SettingsPage() {
   if (gateState === 'locked') return <PasswordGate onUnlock={() => setGateState('unlocked')} />
 
   return (
-    <div style={{ height: '100vh', background: '#0E0E0E', fontFamily: 'Inter, sans-serif', color: '#fff', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100vh', background: '#0A0A0A', fontFamily: 'Inter, sans-serif', color: '#fff', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
       <div style={{
-        height: 48, background: '#0D0D0D', borderBottom: '1px solid #1E1E1E',
-        display: 'flex', alignItems: 'center', paddingLeft: 20, gap: 24, flexShrink: 0,
+        height: 48, background: '#0D0D0D', borderBottom: '1px solid #1A1A1A',
+        display: 'flex', alignItems: 'center', paddingLeft: 20, gap: 16, flexShrink: 0,
       }}>
         <Link href="/" style={{ fontSize: 10, color: '#444', textDecoration: 'none', fontWeight: 600, letterSpacing: '0.08em' }}>← BACK</Link>
         <div style={{ width: 1, height: 12, background: '#222' }} />
-        <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.06em' }}>SETTINGS</span>
+        <span style={{ fontSize: 11, fontWeight: 800, color: '#fff', letterSpacing: '0.1em' }}>SETTINGS</span>
+        <div style={{ width: 1, height: 12, background: '#222' }} />
+
+        {/* Tabs */}
+        {TABS.map(tab => {
+          const isActive = activeTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                height: 28, paddingLeft: 12, paddingRight: 12,
+                background: isActive ? '#141414' : 'transparent',
+                border: `1px solid ${isActive ? tab.color + '44' : 'transparent'}`,
+                borderRadius: 4, cursor: 'pointer',
+                fontSize: 8, fontWeight: 700,
+                color: isActive ? tab.color : '#444',
+                letterSpacing: '0.08em', transition: 'all 0.15s',
+              }}
+            >
+              {tab.label}
+            </button>
+          )
+        })}
       </div>
 
       {/* Content */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '24px 20px' }}>
-        <div style={{ maxWidth: 600 }}>
+      <div style={{ flex: 1, overflow: 'auto' }}>
+        {/* API Keys — full width */}
+        {activeTab === 'keys' && (
+          <ApiKeysSection />
+        )}
 
-          {/* Chrome Sessions */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.15em', marginBottom: 10 }}>CHROME SESSIONS (INNERTUBE)</div>
-            <div style={{ background: '#0F0F0F', border: '1px solid #181818', borderRadius: 4, overflow: 'hidden' }}>
-              <SessionsSection />
-            </div>
-          </div>
-
-          {/* Projects */}
-          <div style={{ marginBottom: 24 }}>
+        {/* Projects */}
+        {activeTab === 'projects' && (
+          <div style={{ padding: '20px', maxWidth: 900 }}>
             <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.15em', marginBottom: 10 }}>GOOGLE PROJECTS (OAUTH FALLBACK)</div>
             <div style={{ background: '#0F0F0F', border: '1px solid #181818', borderRadius: 4, overflow: 'hidden' }}>
               <ProjectsSection />
             </div>
-          </div>
 
-          {/* Output */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.15em', marginBottom: 10 }}>OUTPUT</div>
-            <div style={{ background: '#0F0F0F', border: '1px solid #181818', borderRadius: 4, overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
-                <span style={{ fontSize: 11, color: '#888', flexShrink: 0 }}>Output Folder</span>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1 }}>
-                  <input type="text" value={settings.outputFolder} readOnly style={{ flex: 1, height: 30, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, paddingLeft: 8, fontSize: 11, color: '#888', fontFamily: 'monospace', outline: 'none' }} />
-                  <button onClick={() => ipc.openFolder(settings.outputFolder)} style={{ height: 30, paddingLeft: 10, paddingRight: 10, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, fontSize: 9, fontWeight: 600, color: '#555', cursor: 'pointer' }}>OPEN</button>
+            {/* Auto-download */}
+            <div style={{ marginTop: 20 }}>
+              <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.15em', marginBottom: 10 }}>AUTO-DOWNLOAD</div>
+              <div style={{ background: '#0F0F0F', border: '1px solid #181818', borderRadius: 4, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #181818' }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>Trim Limit</div>
+                    <div style={{ fontSize: 9, color: '#444' }}>Video dài hơn sẽ được cắt trước khi tải</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    {([5, 8, 10, 15, 20, 'full'] as const).map(val => (
+                      <button
+                        key={val}
+                        onClick={async () => {
+                          await ipc.updateSettings({ defaultTrimLimit: val })
+                          setSettings({ defaultTrimLimit: val })
+                        }}
+                        style={{
+                          height: 26, minWidth: 42,
+                          background: settings.defaultTrimLimit === val ? '#00B4FF22' : 'transparent',
+                          border: `1px solid ${settings.defaultTrimLimit === val ? '#00B4FF66' : '#2a2a2a'}`,
+                          borderRadius: 3, cursor: 'pointer',
+                          fontSize: 9, fontWeight: 700, color: settings.defaultTrimLimit === val ? '#00B4FF' : '#555',
+                          fontFamily: 'monospace',
+                        }}
+                      >
+                        {val === 'full' ? 'FULL' : `${val}m`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Output folder */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
+                  <span style={{ fontSize: 11, color: '#888', flexShrink: 0 }}>Output Folder</span>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1 }}>
+                    <input type="text" value={settings.outputFolder} readOnly style={{ flex: 1, height: 30, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, paddingLeft: 8, fontSize: 11, color: '#888', fontFamily: 'monospace', outline: 'none' }} />
+                    <button onClick={() => ipc.openFolder(settings.outputFolder)} style={{ height: 30, paddingLeft: 10, paddingRight: 10, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, fontSize: 9, fontWeight: 600, color: '#555', cursor: 'pointer' }}>OPEN</button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
+        )}
 
-          {/* System */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.15em', marginBottom: 10 }}>SYSTEM</div>
-            <div style={{ background: '#0F0F0F', border: '1px solid #181818', borderRadius: 4, overflow: 'hidden' }}>
+        {/* System tab */}
+        {activeTab === 'system' && (
+          <div style={{ padding: '20px', maxWidth: 700 }}>
+            <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.15em', marginBottom: 10 }}>SYSTEM INFO</div>
+            <div style={{ background: '#0F0F0F', border: '1px solid #181818', borderRadius: 4, overflow: 'hidden', marginBottom: 20 }}>
               {[
                 ['RAM Disk', '#FFB800', '64GB DDR5'],
-                ['GPU', '#00FF88', (systemStats as any).gpuEncoder?.toUpperCase() ?? 'NVENC'],
+                [
+                  'GPU',
+                  (systemStats as any).gpuEncoder === 'nvenc' ? '#00FF88' : '#FFB800',
+                  `${(systemStats as any).gpuName || 'Unknown'} [${(systemStats as any).gpuEncoder?.toUpperCase() || '?'}] · tier: ${(systemStats as any).gpuTier || '?'} · workers: ${(systemStats as any).maxChunkWorkers || 2}`,
+                ],
               ].map(([label, color, value]) => (
                 <div key={label as string} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #181818' }}>
                   <span style={{ fontSize: 11, color: '#888' }}>{label as string}</span>
@@ -733,10 +1519,8 @@ export default function SettingsPage() {
                 </div>
               ))}
             </div>
-          </div>
 
-          {/* About */}
-          <div>
+            {/* About */}
             <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.15em', marginBottom: 10 }}>ABOUT</div>
             <div style={{ background: '#0F0F0F', border: '1px solid #181818', borderRadius: 4, overflow: 'hidden' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 12 }}>
@@ -749,8 +1533,7 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
-
-        </div>
+        )}
       </div>
 
       <style>{`

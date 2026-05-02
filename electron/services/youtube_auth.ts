@@ -54,35 +54,80 @@ function getTokenFile(): string {
 const DEFAULT_CLIENT_ID = 'REMOVED_CLIENT_ID'
 
 export function getOAuthClientId(): string {
-  // Read from config file first (user can override)
+  // ── Single-source: read from oauth_tokens.json (authoritative for credentials + tokens)
+  // ── Fall back to oauth_config.json for legacy compat, then embedded default
+  const tokenFile = getTokenFile()
   const configFile = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json')
+
+  // 1. Check oauth_tokens.json — use the first token that has credentials
+  try {
+    if (fs.existsSync(tokenFile)) {
+      const raw = JSON.parse(fs.readFileSync(tokenFile, 'utf-8'))
+      const tokens = Array.isArray(raw) ? raw : (raw?.access_token ? [raw] : [])
+      for (const t of tokens) {
+        if ((t as any).clientId) return (t as any).clientId
+      }
+    }
+  } catch {}
+
+  // 2. Fall back to oauth_config.json
   try {
     if (fs.existsSync(configFile)) {
       const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
-      if (config.client_id) return config.client_id
+      // Per-project format: { proj-01: { clientId }, client_id: '...' }
+      if (typeof config === 'object') {
+        if (config.client_id) return config.client_id
+        for (const pid of ['proj-01', 'proj-02', 'proj-03', 'proj-04']) {
+          if (config[pid]?.clientId) return config[pid].clientId
+        }
+      }
     }
   } catch {}
-  // Fall back to embedded default
+
+  // 3. Embedded default (unverified app warning — user should create their own project)
   return DEFAULT_CLIENT_ID
 }
 
 export function getOAuthClientSecret(): string {
-  // Read from config file — user must provide client_secret for token exchange
+  const tokenFile = getTokenFile()
   const configFile = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json')
+
+  // 1. Check oauth_tokens.json first
+  try {
+    if (fs.existsSync(tokenFile)) {
+      const raw = JSON.parse(fs.readFileSync(tokenFile, 'utf-8'))
+      const tokens = Array.isArray(raw) ? raw : (raw?.access_token ? [raw] : [])
+      for (const t of tokens) {
+        if ((t as any).clientSecret) return (t as any).clientSecret
+      }
+    }
+  } catch {}
+
+  // 2. Fall back to oauth_config.json
   try {
     if (fs.existsSync(configFile)) {
       const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
-      if (config.client_secret) return config.client_secret
+      if (typeof config === 'object') {
+        if (config.client_secret) return config.client_secret
+        for (const pid of ['proj-01', 'proj-02', 'proj-03', 'proj-04']) {
+          if (config[pid]?.clientSecret) return config[pid].clientSecret
+        }
+      }
     }
   } catch {}
+
   return ''
 }
 
 export function setOAuthClientId(clientId: string): void {
+  // Write to oauth_config.json (legacy compat) AND update oauth_tokens.json entries
   const configFile = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json')
+  const tokenFile = getTokenFile()
   const dir = path.dirname(configFile)
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-  const existing: Record<string, string> = {}
+
+  // 1. Update oauth_config.json
+  const existing: Record<string, any> = {}
   try {
     if (fs.existsSync(configFile)) {
       Object.assign(existing, JSON.parse(fs.readFileSync(configFile, 'utf-8')))
@@ -90,6 +135,25 @@ export function setOAuthClientId(clientId: string): void {
   } catch {}
   existing.client_id = clientId
   fs.writeFileSync(configFile, JSON.stringify(existing, null, 2), 'utf-8')
+
+  // 2. Update credentials in oauth_tokens.json for all entries that don't have credentials
+  try {
+    if (fs.existsSync(tokenFile)) {
+      const raw = JSON.parse(fs.readFileSync(tokenFile, 'utf-8'))
+      const tokens = Array.isArray(raw) ? raw : []
+      let updated = false
+      for (const t of tokens) {
+        if (!(t as any).clientId) {
+          (t as any).clientId = clientId
+          updated = true
+        }
+      }
+      if (updated) {
+        fs.writeFileSync(tokenFile, JSON.stringify(tokens, null, 2), 'utf-8')
+        console.log('[OAuth] Updated clientId in oauth_tokens.json for', tokens.length, 'token(s)')
+      }
+    }
+  } catch {}
 }
 
 // ─── Token Storage ─────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import type { Workspace } from '../../lib/store'
 import { ipc } from '../../lib/ipc'
+import { useAppStore } from '../../lib/store'
 
 type WorkspaceStatus = 'waiting' | 'downloading' | 'ready' | 'editing' | 'rendering' | 'done' | 'error'
 
@@ -12,6 +13,8 @@ interface Props {
   onClick: () => void
   onQuickAction?: (action: 'open' | 'delete', id: string) => void
   onRetry?: (id: string) => void
+  onSplit?: (id: string, partMinutes: number) => void
+  trimLimitMinutes?: number
 }
 
 const STATUS_CONFIG: Record<WorkspaceStatus, { label: string; color: string; bg: string; border: string }> = {
@@ -20,13 +23,13 @@ const STATUS_CONFIG: Record<WorkspaceStatus, { label: string; color: string; bg:
   ready:       { label: 'READY',     color: '#00FF88', bg: '#00FF8810', border: '#00FF8822' },
   editing:     { label: 'EDITING',   color: '#7C3AED', bg: '#7C3AED10', border: '#7C3AED22' },
   rendering:   { label: 'RENDERING', color: '#FF4444', bg: '#FF444410', border: '#FF444422' },
-  done:        { label: 'DONE',      color: '#444444', bg: '#1A1A1A',   border: '#222222' },
+  done:        { label: 'DONE',      color: '#888888', bg: '#1A1A1A',   border: '#2A2A2A' },
   error:       { label: 'ERROR',     color: '#FF4444', bg: '#FF444410', border: '#FF444422' },
 }
 
 function StatusBadge({ status, progress }: { status: WorkspaceStatus; progress?: number }) {
   const cfg = STATUS_CONFIG[status]
-  const label = status === 'rendering' && progress !== undefined
+  const label = (status === 'rendering' || status === 'downloading') && progress !== undefined
     ? `${progress}%`
     : cfg.label
 
@@ -43,29 +46,64 @@ function StatusBadge({ status, progress }: { status: WorkspaceStatus; progress?:
   )
 }
 
-export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, onRetry }: Props) {
+function formatTimeAgo(isoString?: string): string {
+  if (!isoString) return ''
+  const diff = Date.now() - new Date(isoString).getTime()
+  const m = Math.floor(diff / 60000)
+  const h = Math.floor(m / 60)
+  const d = Math.floor(h / 24)
+  if (m < 1) return 'vừa xong'
+  if (m < 60) return `${m}m trước`
+  if (h < 24) return `${h}h trước`
+  return `${d}d trước`
+}
+
+export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, onRetry, onSplit, trimLimitMinutes = 10 }: Props) {
+  const isLocalThumb = workspace.thumbnail.startsWith('local-video://')
   const status = workspace.status as WorkspaceStatus
   const [thumbSrc, setThumbSrc] = useState<string>(workspace.thumbnail || '')
+  // Default to placeholder for external URLs — prevents browser from fetching YouTube thumbnails
+  const [thumbFailed, setThumbFailed] = useState(!isLocalThumb)
 
-  // Resolve local thumbnail
-  useEffect(() => {
-    const thumb = workspace.thumbnail || ''
-    if (thumb.startsWith('local-video://')) {
-      setThumbSrc(thumb)
-    } else {
-      setThumbSrc(thumb)
-    }
-  }, [workspace.thumbnail])
+  // Live download speed + ETA from progress events
+  const [downloadMeta, setDownloadMeta] = useState<{ speed?: string; eta?: string }>({})
 
+  // Resolve local thumbnail after download
   useEffect(() => {
-    if (thumbSrc.startsWith('local-video://')) {
+    if (isLocalThumb) {
+      setThumbSrc(workspace.thumbnail)
+      setThumbFailed(false)
       ipc.getImageFile(workspace.id).then(result => {
         if (result?.dataUrl) setThumbSrc(result.dataUrl)
       })
+    } else {
+      setThumbSrc(workspace.thumbnail || '')
+      setThumbFailed(true)
     }
-  }, [thumbSrc, workspace.id])
+  }, [workspace.thumbnail, workspace.id, isLocalThumb])
+
+  // Listen to download/render progress events
+  useEffect(() => {
+    const unsub = ipc.onRenderProgress((progress: any) => {
+      if (progress.workspaceId !== workspace.id) return
+      setDownloadMeta({ speed: progress.speed, eta: progress.eta })
+    })
+    return unsub
+  }, [workspace.id])
 
   const showRetry = (status === 'waiting' || status === 'error') && !!onRetry
+
+  // Split: available for ready videos longer than trim limit
+  const parseDur = (d: string | number | undefined) => {
+    if (!d) return 0
+    if (typeof d === 'number') return d
+    const parts = d.split(':')
+    if (parts.length === 3) return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2])
+    if (parts.length === 2) return parseInt(parts[0]) * 60 + parseInt(parts[1])
+    return parseFloat(d) || 0
+  }
+  const durSec = parseDur(workspace.duration)
+  const showSplit = status === 'ready' && durSec > trimLimitMinutes * 60
 
   return (
     <div
@@ -98,22 +136,33 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
           width: 40, height: 72, borderRadius: 3, overflow: 'hidden', flexShrink: 0,
           background: '#111', border: '1px solid #222', position: 'relative',
         }}>
-          <img
-            src={thumbSrc || 'https://via.placeholder.com/40x72/1A1A1A/333?text=?'}
-            alt=""
-            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-            onError={(e) => {
-              const img = e.currentTarget
-              if (!img.dataset.fallbacked) {
-                img.dataset.fallbacked = '1'
-                const src = img.src
-                if (src.includes('/hqdefault.jpg')) img.src = src.replace('/hqdefault.jpg', '/mqdefault.jpg')
-                else if (src.includes('/mqdefault.jpg')) img.src = src.replace('/mqdefault.jpg', '/sddefault.jpg')
-                else if (src.includes('/sddefault.jpg')) img.src = src.replace('/sddefault.jpg', '/maxresdefault.jpg')
-                else img.src = 'https://via.placeholder.com/40x72/1A1A1A/333?text=▶'
-              }
-            }}
-          />
+          {thumbSrc && !thumbFailed ? (
+            <img
+              src={thumbSrc}
+              alt=""
+              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+              onError={() => setThumbFailed(true)}
+            />
+          ) : (
+            /* Colored placeholder — shown for new videos where YouTube hasn't generated thumbnails yet */
+            <div style={{
+              width: '100%', height: '100%',
+              background: `linear-gradient(135deg, ${workspace.channelColor || '#00B4FF'}22 0%, ${workspace.channelColor || '#00B4FF'}08 100%)`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              borderLeft: `2px solid ${workspace.channelColor || '#00B4FF'}`,
+            }}>
+              <div style={{
+                width: 16, height: 16, borderRadius: 2,
+                background: `${workspace.channelColor || '#00B4FF'}30`,
+                border: `1px solid ${workspace.channelColor || '#00B4FF'}60`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                  <polygon points="2,1 7,4 2,7" fill={workspace.channelColor || '#00B4FF'} opacity="0.8" />
+                </svg>
+              </div>
+            </div>
+          )}
           {/* Duration */}
           <div style={{
             position: 'absolute', bottom: 3, right: 3,
@@ -162,18 +211,52 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
             </span>
           </div>
 
-          {/* Download progress bar */}
+          {/* Download progress bar + metadata */}
           {status === 'downloading' && (
             <div style={{ marginTop: 6 }}>
-              <div style={{ height: 2, background: '#1A1A1A', borderRadius: 1, overflow: 'hidden' }}>
+              {/* Progress bar */}
+              <div style={{ height: 3, background: '#1A1A1A', borderRadius: 2, overflow: 'hidden', marginBottom: 4 }}>
                 <div style={{
                   width: `${workspace.downloadProgress || 0}%`, height: '100%',
-                  background: '#00B4FF', borderRadius: 1, transition: 'width 0.5s',
-                  boxShadow: '0 0 4px #00B4FF88',
+                  background: '#00B4FF', borderRadius: 2, transition: 'width 0.4s',
+                  boxShadow: '0 0 6px #00B4FF88',
                 }} />
+              </div>
+              {/* Speed + ETA row */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 8, color: '#00B4FF', fontFamily: 'monospace' }}>
+                  {downloadMeta.speed || ''} {workspace.videoResolution || ''}
+                </span>
+                <span style={{ fontSize: 8, color: '#00B4FF55', fontFamily: 'monospace' }}>
+                  {downloadMeta.eta ? `ETA ${downloadMeta.eta}` : ''}
+                </span>
               </div>
             </div>
           )}
+
+          {/* Ready/other: show metadata below channel — also visible during download */}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 3, flexWrap: 'wrap' }}>
+            {workspace.videoResolution && (
+              <span style={{ fontSize: 8, color: '#444', fontFamily: 'monospace' }}>
+                {workspace.videoResolution}
+              </span>
+            )}
+            {workspace.publishedAt && (
+              <span style={{ fontSize: 8, color: '#333' }}>
+                YT {formatTimeAgo(workspace.publishedAt)}
+              </span>
+            )}
+            {workspace.detectedAt && (
+              <span style={{ fontSize: 8, color: '#2a2a2a' }}>
+                / {formatTimeAgo(workspace.detectedAt)}
+              </span>
+            )}
+            {workspace.duration && workspace.duration !== '0' && (
+              <span style={{ fontSize: 8, color: '#333', fontFamily: 'monospace' }}>
+                / {workspace.duration}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -214,6 +297,16 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
             onMouseLeave={e => (e.currentTarget.style.color = '#666')}
           >
             THỬ LẠI
+          </button>
+        )}
+        {showSplit && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onSplit?.(workspace.id, trimLimitMinutes) }}
+            style={{ fontSize: 9, fontWeight: 600, color: '#666', background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0' }}
+            onMouseEnter={e => (e.currentTarget.style.color = '#00FF88')}
+            onMouseLeave={e => (e.currentTarget.style.color = '#666')}
+          >
+            TÁCH
           </button>
         )}
       </div>

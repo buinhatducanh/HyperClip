@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import type { Channel, SystemStats } from '../types'
 import { NotificationCenter } from './NotificationCenter'
 
@@ -20,6 +20,33 @@ interface Props {
   }
   pollerStatus?: { active: boolean; newVideoCount: number; lastError: string | null } | null
   onLogout?: () => void
+}
+
+function AvatarWithFallback({ url, name, color }: { url: string; name: string; color: string }) {
+  const [failed, setFailed] = useState(false)
+  const handleError = useCallback(() => setFailed(true), [])
+  if (failed || !url) {
+    return (
+      <div style={{
+        width: 24, height: 24, borderRadius: '50%',
+        background: `${color}22`, border: `1px solid ${color}44`,
+        fontSize: 10, fontWeight: 700, color,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+      }}>
+        {name.charAt(0)}
+      </div>
+    )
+  }
+  return (
+    <img
+      src={url}
+      alt={name}
+      width={24}
+      height={24}
+      style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: `1px solid ${color}44` }}
+      onError={handleError}
+    />
+  )
 }
 
 export function Sidebar({
@@ -108,7 +135,7 @@ export function Sidebar({
             </div>
             <div style={{ flex: 1, background: '#1A1A1A', borderRadius: 3, padding: '3px 6px', textAlign: 'center' }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: '#00FF88' }}>
-                {pollerStatus?.active ? '4s' : '—'}
+                {pollerStatus?.active ? `${Math.round(((pollerStatus as any).pollIntervalMs || 20000) / 1000)}s` : '—'}
               </div>
               <div style={{ fontSize: 8, color: '#555', letterSpacing: '0.06em' }}>INTERVAL</div>
             </div>
@@ -148,7 +175,18 @@ export function Sidebar({
 
         {/* Channel items */}
         <div style={{ flex: 1, overflowY: 'auto' }}>
-          {channels
+          {channels.length === 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '24px 16px' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#222" strokeWidth="1.5">
+                <path d="M15 10l4.553-2.276A1 1 0 0 1 21 8.618v6.764a1 1 0 0 1-1.447.894L15 14v-4z" />
+                <rect x="3" y="6" width="12" height="12" rx="2" ry="2" />
+              </svg>
+              <span style={{ fontSize: 10, color: '#2A2A2A', textAlign: 'center', lineHeight: 1.5 }}>
+                No channels yet<br />
+                <a href="/settings" style={{ color: '#00B4FF', textDecoration: 'none', fontSize: 9 }}>Add in Settings →</a>
+              </span>
+            </div>
+          ) : channels
             .filter(ch => {
               if (showAll) return true
               return (newCounts[ch.id] ?? 0) > 0
@@ -174,22 +212,7 @@ export function Sidebar({
                   >
                     {/* Avatar */}
                     {ch.avatarUrl ? (
-                      <img
-                        src={ch.avatarUrl}
-                        alt={ch.name}
-                        width={24}
-                        height={24}
-                        style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: `1px solid ${ch.avatarColor}44` }}
-                        onError={e => {
-                          const img = e.currentTarget as HTMLImageElement
-                          img.style.display = 'none'
-                          const parent = img.parentElement!
-                          const fallback = document.createElement('div')
-                          fallback.style.cssText = `width:24px;height:24px;border-radius:50%;background:${ch.avatarColor}22;border:1px solid ${ch.avatarColor}44;font-size:10px;font-weight:700;color:${ch.avatarColor};display:flex;align-items:center;justify-content:center;flex-shrink:0`
-                          fallback.textContent = ch.name.charAt(0)
-                          parent.appendChild(fallback)
-                        }}
-                      />
+                      <AvatarWithFallback url={ch.avatarUrl} name={ch.name} color={ch.avatarColor} />
                     ) : (
                       <div style={{
                         width: 24, height: 24, borderRadius: '50%',

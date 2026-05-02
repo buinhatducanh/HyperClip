@@ -11,6 +11,9 @@ interface Props {
   onRender: () => void
   onExportChunked?: () => void
   systemStats?: SystemStats
+  onShowToast?: (msg: string) => void
+  onSplit?: (id: string, partMinutes: number) => void
+  settings?: { defaultTrimLimit: number | 'full' }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────────
@@ -183,33 +186,47 @@ function IconChevronLeft({ size = 12, color = '#333' }: { size?: number; color?:
 
 function EmptyState() {
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, background: '#0A0A0A' }}>
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#1E1E1E" strokeWidth="1.5">
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: '#0A0A0A' }}>
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#1E1E1E" strokeWidth="1.5">
         <polygon points="5 3 19 12 5 21 5 3" />
       </svg>
       <div style={{ fontSize: 12, color: '#333', fontWeight: 500 }}>Chọn video để chỉnh sửa</div>
+      <div style={{ fontSize: 10, color: '#222', lineHeight: 1.6, textAlign: 'center' }}>
+        Danh sách video ở panel bên trái<br />
+        <span style={{ color: '#1A1A1A' }}>Kênh mới sẽ xuất hiện tự động trong vài phút</span>
+      </div>
     </div>
   )
 }
 
 // ─── Trim Controls ───────────────────────────────────────────────────────────────
 
-function TrimSection({ start, end, duration, onChange }: { start: number; end: number; duration: number; onChange: (s: number, e: number) => void }) {
+function TrimSection({ start, end, duration, currentTime, onChange, speedMultiplier = 1.0 }: { start: number; end: number; duration: number; currentTime: number; onChange: (s: number, e: number) => void; speedMultiplier?: number }) {
   const startSec = (start / 100) * duration
   const endSec = (end / 100) * duration
   const selectedSec = Math.max(0, endSec - startSec)
+  const spedUpSec = selectedSec / speedMultiplier
+  const playbackPct = duration > 0 ? (currentTime / duration) * 100 : 0
 
   return (
-    <div style={{ padding: '8px 0' }}>
+    <div style={{ padding: '10px 0 8px' }}>
       {/* Dual handle slider */}
       <div style={{ position: 'relative', height: 20, marginBottom: 6 }}>
         <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', left: 0, right: 0, height: 4, background: '#1A1A1A', borderRadius: 2 }} />
         <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', left: `${start}%`, width: `${end - start}%`, height: 4, background: '#00B4FF', borderRadius: 2 }} />
+        {/* Playback position indicator */}
+        {playbackPct > 0 && (
+          <div style={{
+            position: 'absolute', top: '50%', left: `${Math.min(playbackPct, 100)}%`,
+            transform: 'translate(-50%, -50%)', width: 2, height: 12,
+            background: '#FF4444', borderRadius: 1, zIndex: 3, pointerEvents: 'none',
+          }} />
+        )}
         {/* Start handle */}
         <div
           style={{ position: 'absolute', top: '50%', left: `${start}%`, transform: 'translate(-50%, -50%)', width: 12, height: 12, borderRadius: '50%', background: '#fff', border: '2px solid #00B4FF', cursor: 'ew-resize', zIndex: 2 }}
           onMouseDown={(e) => {
-            e.stopPropagation()
+            e.stopPropagation(); e.preventDefault()
             const container = e.currentTarget.parentElement!
             const rect = container.getBoundingClientRect()
             const onMove = (me: MouseEvent) => {
@@ -224,7 +241,7 @@ function TrimSection({ start, end, duration, onChange }: { start: number; end: n
         <div
           style={{ position: 'absolute', top: '50%', left: `${end}%`, transform: 'translate(-50%, -50%)', width: 12, height: 12, borderRadius: '50%', background: '#fff', border: '2px solid #00B4FF', cursor: 'ew-resize', zIndex: 2 }}
           onMouseDown={(e) => {
-            e.stopPropagation()
+            e.stopPropagation(); e.preventDefault()
             const container = e.currentTarget.parentElement!
             const rect = container.getBoundingClientRect()
             const onMove = (me: MouseEvent) => {
@@ -237,16 +254,41 @@ function TrimSection({ start, end, duration, onChange }: { start: number; end: n
         />
       </div>
       {/* Time chips */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontSize: 9, color: '#444', fontWeight: 600 }}>IN</span>
+          <span style={{ fontSize: 10, color: '#444', fontWeight: 600 }}>IN</span>
           <span style={{ fontSize: 11, color: '#888', fontFamily: 'monospace', fontWeight: 600 }}>{fmtTime(startSec)}</span>
         </div>
         <span style={{ fontSize: 11, color: '#00B4FF', fontFamily: 'monospace', fontWeight: 700 }}>{fmtTime(selectedSec)}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <span style={{ fontSize: 11, color: '#888', fontFamily: 'monospace', fontWeight: 600 }}>{fmtTime(endSec)}</span>
-          <span style={{ fontSize: 9, color: '#444', fontWeight: 600 }}>OUT</span>
+          <span style={{ fontSize: 10, color: '#444', fontWeight: 600 }}>OUT</span>
         </div>
+      </div>
+      {/* Sped-up duration */}
+      {speedMultiplier !== 1.0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+          padding: '5px 8px', background: '#00FF8808', border: '1px solid #00FF8820', borderRadius: 3,
+        }}>
+          <span style={{ fontSize: 9, color: '#444', fontWeight: 600 }}>OUTPUT</span>
+          <span style={{ fontSize: 13, fontWeight: 800, color: '#00FF88', fontFamily: 'monospace' }}>
+            {fmtTime(spedUpSec)}
+          </span>
+          <span style={{ fontSize: 9, color: '#00FF8866', fontWeight: 600 }}>
+            @{speedMultiplier.toFixed(1)}x
+          </span>
+          <span style={{ fontSize: 9, color: '#333' }}>
+            ({Math.round(spedUpSec)}s)
+          </span>
+        </div>
+      )}
+      {/* Total duration */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+        <span style={{ fontSize: 9, color: '#2a2a2a' }}>TỔNG: {fmtTime(duration)}</span>
+        {speedMultiplier !== 1.0 && (
+          <span style={{ fontSize: 9, color: '#222' }}>SPEED → OUTPUT</span>
+        )}
       </div>
     </div>
   )
@@ -254,11 +296,286 @@ function TrimSection({ start, end, duration, onChange }: { start: number; end: n
 
 // ─── Header Image Section ────────────────────────────────────────────────────────
 
+function SplitIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+      <line x1="4" y1="1" x2="4" y2="11" stroke="#555" strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="8" y1="1" x2="8" y2="11" stroke="#555" strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="1" y1="6" x2="11" y2="6" stroke="#555" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
+function fmtDuration(sec: number): string {
+  if (sec < 60) return `${Math.floor(sec)}s`
+  const m = Math.floor(sec / 60)
+  const s = Math.floor(sec % 60)
+  return s > 0 ? `${m}m ${s}s` : `${m}m`
+}
+
+interface SplitSectionProps {
+  videoDuration: number
+  trimLimitMinutes: number
+  speedMultiplier?: number
+  onSplit: (partMinutes: number) => void
+}
+
+function SplitSection({ videoDuration, trimLimitMinutes, speedMultiplier = 1.0, onSplit }: SplitSectionProps) {
+  const [numParts, setNumParts] = useState(2)
+  const [splitMode, setSplitMode] = useState<'count' | 'duration'>('count')
+  const [customPartMin, setCustomPartMin] = useState(trimLimitMinutes)
+  const [isSplitting, setIsSplitting] = useState(false)
+
+  const speed = speedMultiplier
+
+  // Compute parts based on mode
+  const parts: Array<{ index: number; start: number; end: number }> = (() => {
+    if (splitMode === 'count') {
+      const count = Math.max(2, Math.min(numParts, 10))
+      const partDur = videoDuration / count
+      return Array.from({ length: count }, (_, i) => ({
+        index: i + 1,
+        start: Math.floor(i * partDur),
+        end: i === count - 1 ? videoDuration : Math.floor((i + 1) * partDur),
+      }))
+    } else {
+      const partDur = customPartMin * 60
+      const count = Math.ceil(videoDuration / partDur)
+      return Array.from({ length: count }, (_, i) => ({
+        index: i + 1,
+        start: Math.floor(i * partDur),
+        end: i === count - 1 ? videoDuration : Math.floor((i + 1) * partDur),
+      }))
+    }
+  })()
+
+  const handleSplit = async () => {
+    setIsSplitting(true)
+    const actualPartMin = splitMode === 'duration' ? customPartMin : Math.ceil(videoDuration / numParts / 60)
+    await onSplit(actualPartMin)
+    setIsSplitting(false)
+  }
+
+  const maxParts = Math.min(10, Math.floor(videoDuration / 30)) || 2
+
+  return (
+    <div style={{ padding: '10px 0 8px' }}>
+      {/* Mode toggle */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+        <button
+          onClick={() => setSplitMode('count')}
+          style={{
+            flex: 1, height: 26,
+            background: splitMode === 'count' ? '#00B4FF15' : '#1A1A1A',
+            border: `1px solid ${splitMode === 'count' ? '#00B4FF' : '#222'}`,
+            borderRadius: 3, fontSize: 9, fontWeight: 700,
+            color: splitMode === 'count' ? '#00B4FF' : '#555',
+            cursor: 'pointer',
+          }}
+        >
+          SỐ PHẦN
+        </button>
+        <button
+          onClick={() => setSplitMode('duration')}
+          style={{
+            flex: 1, height: 26,
+            background: splitMode === 'duration' ? '#00B4FF15' : '#1A1A1A',
+            border: `1px solid ${splitMode === 'duration' ? '#00B4FF' : '#222'}`,
+            borderRadius: 3, fontSize: 9, fontWeight: 700,
+            color: splitMode === 'duration' ? '#00B4FF' : '#555',
+            cursor: 'pointer',
+          }}
+        >
+          ĐỘ DÀI
+        </button>
+      </div>
+
+      {/* Count mode */}
+      {splitMode === 'count' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <input
+              type="range"
+              min={2} max={maxParts} value={numParts}
+              onChange={(e) => setNumParts(Number(e.target.value))}
+              style={{ flex: 1, accentColor: '#00B4FF', cursor: 'pointer' }}
+            />
+            <span style={{ fontSize: 13, fontWeight: 800, color: '#00B4FF', fontFamily: 'monospace', minWidth: 24, textAlign: 'right' }}>
+              {numParts}
+            </span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 9, color: '#333' }}>
+              Mỗi phần: {fmtDuration(Math.ceil(videoDuration / numParts))}
+            </span>
+            {speed !== 1.0 && (
+              <span style={{ fontSize: 9, fontWeight: 700, color: '#00FF88' }}>
+                → OUTPUT: {fmtDuration(Math.ceil(videoDuration / numParts / speed))}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Duration mode */}
+      {splitMode === 'duration' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <input
+              type="number"
+              min={1} max={Math.floor(videoDuration / 60)} value={customPartMin}
+              onChange={(e) => setCustomPartMin(Math.max(1, Number(e.target.value)))}
+              style={{
+                width: 52, height: 26, background: '#1A1A1A', border: '1px solid #222',
+                borderRadius: 3, color: '#00B4FF', fontSize: 12, fontWeight: 700,
+                fontFamily: 'monospace', textAlign: 'center', outline: 'none',
+              }}
+            />
+            <span style={{ fontSize: 9, color: '#444' }}>phút / phần</span>
+            <span style={{ fontSize: 9, color: '#333', marginLeft: 'auto' }}>
+              {Math.ceil(videoDuration / customPartMin / 60)} phần
+              {speed !== 1.0 && (
+                <span style={{ color: '#00FF88', fontWeight: 700 }}>
+                  {' '}→ {fmtDuration(Math.ceil(videoDuration / speed))} out
+                </span>
+              )}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Total output summary */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        padding: '5px 8px', background: '#1A1A1A', borderRadius: 3, marginBottom: 6,
+        border: '1px solid #222',
+      }}>
+        <span style={{ fontSize: 9, color: '#444', fontWeight: 600 }}>TỔNG OUTPUT</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {speed !== 1.0 && (
+            <span style={{ fontSize: 9, color: '#555', textDecoration: 'line-through' }}>
+              {fmtDuration(videoDuration)}
+            </span>
+          )}
+          <span style={{ fontSize: 13, fontWeight: 800, color: '#00FF88', fontFamily: 'monospace' }}>
+            {fmtDuration(videoDuration / speed)}
+          </span>
+          {speed !== 1.0 && (
+            <span style={{ fontSize: 9, color: '#00FF8866', fontWeight: 600 }}>
+              @{speed.toFixed(1)}x
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Timeline preview */}
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ height: 20, background: '#1A1A1A', borderRadius: 3, position: 'relative', overflow: 'hidden' }}>
+          {parts.map((p, i) => {
+            const colors = ['#00B4FF', '#00FF88', '#FFB800', '#FF6B35', '#7C3AED']
+            const color = colors[i % colors.length]
+            const left = (p.start / videoDuration) * 100
+            const width = ((p.end - p.start) / videoDuration) * 100
+            return (
+              <div key={p.index} style={{
+                position: 'absolute', left: `${left}%`, width: `${width}%`,
+                height: '100%', background: color + '44',
+                borderLeft: i > 0 ? `2px solid ${color}` : 'none',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                overflow: 'hidden',
+              }}>
+                <span style={{ fontSize: 7, fontWeight: 700, color, letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>
+                  {width > 8 ? `${p.index}` : ''}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+        {/* Time labels */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3 }}>
+          <span style={{ fontSize: 8, color: '#333', fontFamily: 'monospace' }}>0:00</span>
+          <span style={{ fontSize: 8, color: '#333', fontFamily: 'monospace' }}>{fmtTime(videoDuration)}</span>
+        </div>
+      </div>
+
+      {/* Parts list */}
+      <div style={{ marginBottom: 8, maxHeight: 120, overflowY: 'auto' }} className="scrollbar">
+        {parts.map((p) => {
+          const origDur = p.end - p.start
+          const outDur = origDur / speed
+          return (
+            <div key={p.index} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '4px 0', borderBottom: '1px solid #1A1A1A',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{
+                  width: 16, height: 16, borderRadius: 3, fontSize: 7, fontWeight: 800,
+                  background: '#00B4FF22', color: '#00B4FF', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {p.index}
+                </span>
+                <span style={{ fontSize: 9, color: '#555', fontFamily: 'monospace' }}>
+                  {fmtTime(p.start)} – {fmtTime(p.end)}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                {speed !== 1.0 && (
+                  <span style={{ fontSize: 8, color: '#333', textDecoration: 'line-through' }}>
+                    {fmtDuration(origDur)}
+                  </span>
+                )}
+                <span style={{ fontSize: 9, fontWeight: 700, color: '#00FF88', fontFamily: 'monospace' }}>
+                  {fmtDuration(outDur)}
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Split button */}
+      <button
+        onClick={handleSplit}
+        disabled={isSplitting}
+        style={{
+          width: '100%', height: 30,
+          background: isSplitting ? '#00B4FF22' : '#00B4FF15',
+          border: '1px solid #00B4FF44',
+          borderRadius: 3, fontSize: 10, fontWeight: 800, color: '#00B4FF',
+          cursor: isSplitting ? 'default' : 'pointer', letterSpacing: '0.06em',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+        }}
+      >
+        {isSplitting ? (
+          <>
+            <svg width="10" height="10" viewBox="0 0 10 10" style={{ animation: 'spin 1s linear infinite' }}>
+              <circle cx="5" cy="5" r="4" stroke="#00B4FF44" strokeWidth="1.5" fill="none"/>
+              <path d="M5 1 A4 4 0 0 1 9 5" stroke="#00B4FF" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+            </svg>
+            ĐANG TÁCH...
+          </>
+        ) : (
+          <>
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <line x1="3" y1="1" x2="3" y2="9" stroke="#00B4FF" strokeWidth="1.5" strokeLinecap="round"/>
+              <line x1="7" y1="1" x2="7" y2="9" stroke="#00B4FF" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+            TÁCH {parts.length} PHẦN
+          </>
+        )}
+      </button>
+    </div>
+  )
+}
+
+
+
 function HeaderSection({ headerImageUrl, headerImageOffsetY, onChange }: { headerImageUrl: string | null; headerImageOffsetY: number; onChange: (p: Partial<EditorState>) => void }) {
   const headerFileRef = useRef<HTMLInputElement>(null)
 
   return (
-    <div style={{ padding: '8px 0' }}>
+    <div style={{ padding: '10px 0 8px' }}>
       <input type="file" accept="image/*" ref={headerFileRef} className="hidden"
         onChange={async (e) => {
           const f = e.target.files?.[0]
@@ -300,8 +617,8 @@ function HeaderSection({ headerImageUrl, headerImageOffsetY, onChange }: { heade
       {headerImageUrl && (
         <div style={{ marginTop: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-            <span style={{ fontSize: 9, color: '#444' }}>POSITION</span>
-            <span style={{ fontSize: 9, color: '#555', fontFamily: 'monospace' }}>
+            <span style={{ fontSize: 10, color: '#444' }}>POSITION</span>
+            <span style={{ fontSize: 10, color: '#555', fontFamily: 'monospace' }}>
               {headerImageOffsetY < 33 ? 'TOP' : headerImageOffsetY < 66 ? 'CENTER' : 'BOTTOM'}
             </span>
           </div>
@@ -328,7 +645,7 @@ function TitleSection({ titleText, titleShape, titleBorderColor, titleBgColor, t
   onChange: (p: Partial<EditorState>) => void
 }) {
   return (
-    <div style={{ padding: '8px 0' }}>
+    <div style={{ padding: '10px 0 8px' }}>
       {/* Textarea */}
       <textarea
         value={titleText}
@@ -358,19 +675,19 @@ function TitleSection({ titleText, titleShape, titleBorderColor, titleBgColor, t
       {/* Colors + Font size */}
       <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 9, color: '#444', marginBottom: 3 }}>VIỀN</div>
+          <div style={{ fontSize: 10, color: '#444', marginBottom: 3 }}>VIỀN</div>
           <div style={{ position: 'relative', height: 24, borderRadius: 2, background: titleBorderColor, border: '1px solid #222', overflow: 'hidden' }}>
             <input type="color" value={titleBorderColor} onChange={(e) => onChange({ titleBorderColor: e.target.value })} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
           </div>
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 9, color: '#444', marginBottom: 3 }}>NỀN</div>
+          <div style={{ fontSize: 10, color: '#444', marginBottom: 3 }}>NỀN</div>
           <div style={{ position: 'relative', height: 24, borderRadius: 2, background: titleBgColor.startsWith('rgba') ? '#000' : titleBgColor, border: '1px solid #222', overflow: 'hidden' }}>
             <input type="color" value={titleBgColor.startsWith('rgba') ? '#000000' : titleBgColor} onChange={(e) => onChange({ titleBgColor: e.target.value })} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
           </div>
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 9, color: '#444', marginBottom: 3 }}>CỠ</div>
+          <div style={{ fontSize: 10, color: '#444', marginBottom: 3 }}>CỠ</div>
           <div style={{ height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#1A1A1A', border: '1px solid #222', borderRadius: 2 }}>
             <span style={{ fontSize: 11, color: '#888', fontFamily: 'monospace', fontWeight: 700 }}>{titleFontSize}</span>
           </div>
@@ -388,11 +705,24 @@ function TitleSection({ titleText, titleShape, titleBorderColor, titleBgColor, t
 
 const SPEED_PRESETS = [1.0, 1.5, 2.0]
 
-function SpeedSection({ speedMultiplier, onChange }: { speedMultiplier: number; onChange: (p: Partial<EditorState>) => void }) {
+interface SpeedSectionProps {
+  speedMultiplier: number
+  onChange: (p: Partial<EditorState>) => void
+  videoDuration: number
+  trimStart: number
+  trimEnd: number
+}
+
+function SpeedSection({ speedMultiplier, onChange, videoDuration, trimStart, trimEnd }: SpeedSectionProps) {
   const fmt = (v: number) => v.toFixed(1)
+  const startSec = (trimStart / 100) * videoDuration
+  const endSec = (trimEnd / 100) * videoDuration
+  const selectedSec = Math.max(0, endSec - startSec)
+  const spedUpSec = selectedSec / speedMultiplier
+  const totalSpedUp = videoDuration / speedMultiplier
 
   return (
-    <div style={{ padding: '8px 0' }}>
+    <div style={{ padding: '10px 0 8px' }}>
       {/* Main display + controls */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         <button
@@ -435,18 +765,47 @@ function SpeedSection({ speedMultiplier, onChange }: { speedMultiplier: number; 
           )
         })}
       </div>
+      {/* Output duration preview */}
+      {speedMultiplier !== 1.0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          marginTop: 8, padding: '6px 8px',
+          background: '#00FF8808', border: '1px solid #00FF8820', borderRadius: 3,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ fontSize: 9, color: '#444', fontWeight: 600 }}>TRIM OUT</span>
+            {selectedSec > 0 && (
+              <span style={{ fontSize: 9, color: '#333', textDecoration: 'line-through' }}>
+                {fmtTime(selectedSec)}
+              </span>
+            )}
+            {selectedSec > 0 ? (
+              <span style={{ fontSize: 12, fontWeight: 800, color: '#00FF88', fontFamily: 'monospace' }}>
+                {fmtTime(spedUpSec)}
+              </span>
+            ) : (
+              <span style={{ fontSize: 12, fontWeight: 800, color: '#00FF88', fontFamily: 'monospace' }}>
+                {fmtTime(totalSpedUp)}
+              </span>
+            )}
+            <span style={{ fontSize: 9, color: '#00FF8866', fontWeight: 600 }}>@{speedMultiplier.toFixed(1)}x</span>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 // ─── Background Section ─────────────────────────────────────────────────────────
 
-function BackgroundSection({ backgroundType, backgroundColor, backgroundImageUrl, editorIsShort, onChange, vidHeightPct }: {
+function BackgroundSection({ backgroundType, backgroundColor, backgroundImageUrl, editorIsShort, onChange, vidHeightPct, videoId, onShowToast }: {
   backgroundType: 'blur' | 'solid' | 'image'; backgroundColor: string
   backgroundImageUrl: string | null
   editorIsShort: boolean
   onChange: (p: Partial<EditorState>) => void
   vidHeightPct: number
+  videoId?: string
+  onShowToast?: (msg: string) => void
 }) {
   const bgImageFileRef = useRef<HTMLInputElement>(null)
   const thumbImageFileRef = useRef<HTMLInputElement>(null)
@@ -464,7 +823,7 @@ function BackgroundSection({ backgroundType, backgroundColor, backgroundImageUrl
   }
 
   return (
-    <div style={{ padding: '8px 0' }}>
+    <div style={{ padding: '10px 0 8px' }}>
       {/* Type toggle */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
         {(['blur', 'solid', 'image'] as const).map(t => {
@@ -475,7 +834,7 @@ function BackgroundSection({ backgroundType, backgroundColor, backgroundImageUrl
                 flex: 1, height: 26,
                 background: active ? '#00B4FF15' : '#1A1A1A',
                 border: `1px solid ${active ? '#00B4FF' : '#222'}`,
-                borderRadius: 3, fontSize: 9, fontWeight: 700,
+                borderRadius: 3, fontSize: 10, fontWeight: 700,
                 color: active ? '#00B4FF' : '#555',
                 cursor: 'pointer', letterSpacing: '0.04em',
               }}
@@ -499,8 +858,18 @@ function BackgroundSection({ backgroundType, backgroundColor, backgroundImageUrl
       {/* Blur regenerate */}
       {backgroundType === 'blur' && (
         <button
-          onClick={() => onChange({ backgroundType: 'blur' })}
-          style={{ width: '100%', height: 28, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, color: '#555', fontSize: 9, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+          onClick={async () => {
+            if (!videoId) return
+            onChange({ backgroundType: 'blur' })
+            onShowToast?.('Regenerating blur...')
+            const result = await ipc.regenerateWorkspaceBlur(videoId)
+            if (result?.success) {
+              onShowToast?.('Blur regenerated')
+            } else {
+              onShowToast?.(`Blur failed: ${result?.error || 'Unknown error'}`)
+            }
+          }}
+          style={{ width: '100%', height: 28, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, color: '#555', fontSize: 10, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
           onMouseEnter={e => { e.currentTarget.style.borderColor = '#00B4FF44'; e.currentTarget.style.color = '#00B4FF' }}
           onMouseLeave={e => { e.currentTarget.style.borderColor = '#222'; e.currentTarget.style.color = '#555' }}
         >
@@ -517,28 +886,28 @@ function BackgroundSection({ backgroundType, backgroundColor, backgroundImageUrl
       )}
       {backgroundType === 'image' && (
         <button onClick={() => bgImageFileRef.current?.click()}
-          style={{ width: '100%', height: 28, background: '#1A1A1A', border: '1px solid dashed #222', borderRadius: 3, color: '#444', fontSize: 9, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+          style={{ width: '100%', height: 28, background: '#1A1A1A', border: '1px solid dashed #222', borderRadius: 3, color: '#444', fontSize: 10, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
         >
           <IconUpload size={10} color="currentColor" />
           UPLOAD {editorIsShort ? 'IMAGE' : 'THUMB'}
         </button>
       )}
 
-      {/* Thumbnail upload for landscape mode — always available */}
-      {!editorIsShort && (
+      {/* Thumbnail upload for landscape mode — only when NOT in image mode */}
+      {!editorIsShort && backgroundType !== 'image' && (
         <>
           <input type="file" accept="image/*" ref={thumbImageFileRef} className="hidden"
             onChange={handleImageUpload}
           />
           <button onClick={() => thumbImageFileRef.current?.click()}
-            style={{ width: '100%', height: 28, marginTop: 6, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, color: '#555', fontSize: 9, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+            style={{ width: '100%', height: 28, marginTop: 6, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, color: '#555', fontSize: 10, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
           >
             <IconUpload size={10} color="currentColor" />
             {backgroundImageUrl ? 'CHANGE THUMB' : 'ADD THUMBNAIL'}
           </button>
           {backgroundImageUrl && (
             <button onClick={() => onChange({ backgroundImageUrl: null, backgroundImageDiskPath: null })}
-              style={{ width: '100%', height: 22, marginTop: 4, background: 'transparent', border: '1px solid #FF444422', borderRadius: 3, color: '#FF4444', fontSize: 8, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              style={{ width: '100%', height: 22, marginTop: 4, background: 'transparent', border: '1px solid #FF444422', borderRadius: 3, color: '#FF4444', fontSize: 9, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               REMOVE THUMB
             </button>
@@ -547,8 +916,8 @@ function BackgroundSection({ backgroundType, backgroundColor, backgroundImageUrl
           {/* Video height slider for landscape */}
           <div style={{ marginTop: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-              <span style={{ fontSize: 9, color: '#444', fontWeight: 700 }}>VIDEO</span>
-              <span style={{ fontSize: 9, color: '#555', fontFamily: 'monospace' }}>{vidHeightPct}%</span>
+              <span style={{ fontSize: 10, color: '#444', fontWeight: 700 }}>VIDEO</span>
+              <span style={{ fontSize: 10, color: '#555', fontFamily: 'monospace' }}>{vidHeightPct}%</span>
             </div>
             <input type="range" min={30} max={85} value={vidHeightPct}
               onChange={(e) => onChange({ vidHeightPct: +e.target.value })}
@@ -563,10 +932,11 @@ function BackgroundSection({ backgroundType, backgroundColor, backgroundImageUrl
 
 // ─── Canvas Area ─────────────────────────────────────────────────────────────────
 
-function CanvasArea({ video, editorState, onChange }: {
+function CanvasArea({ video, editorState, onChange, onTimeUpdate }: {
   video: Video | null
   editorState: EditorState
   onChange: (p: Partial<EditorState>) => void
+  onTimeUpdate?: (sec: number) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -811,14 +1181,14 @@ function CanvasArea({ video, editorState, onChange }: {
                   />
                 ) : (
                   <div style={{ textAlign: 'center', opacity: 0.06 }}>
-                    <div style={{ fontSize: 16 }}>🖼</div>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
                     <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.12em', marginTop: 3, color: '#444' }}>HEADER</div>
                   </div>
                 )
               ) : (
-                // LANDSCAPE mode: thumbnail zone with crop offset
+                // LANDSCAPE mode: thumbnail zone — prefer custom uploaded image, then extracted thumb, then YouTube thumbnail
                 <img
-                  src={localThumbSrc || video.thumbnail}
+                  src={editorState.backgroundImageUrl || localThumbSrc || video.thumbnail}
                   alt="thumbnail"
                   style={{
                     width: '100%', height: '100%',
@@ -855,7 +1225,7 @@ function CanvasArea({ video, editorState, onChange }: {
                     objectPosition: 'center',
                     display: 'block',
                   }}
-                  onTimeUpdate={() => { if (videoRef.current) setCurrentTime(videoRef.current.currentTime) }}
+                  onTimeUpdate={() => { if (videoRef.current) { setCurrentTime(videoRef.current.currentTime); onTimeUpdate?.(videoRef.current.currentTime) } }}
                   onLoadedMetadata={() => {
                     if (videoRef.current) {
                       setVideoDuration(videoRef.current.duration)
@@ -973,6 +1343,7 @@ function CanvasArea({ video, editorState, onChange }: {
                   onMouseDown={(e) => {
                     e.stopPropagation()
                     const rect = e.currentTarget.getBoundingClientRect()
+                    if (videoRef.current) videoRef.current.pause()
                     handleSeekTo((e.clientX - rect.left) / rect.width)
                     const onMove = (me: MouseEvent) => {
                       handleSeekTo((me.clientX - rect.left) / rect.width)
@@ -1043,86 +1414,139 @@ function CanvasArea({ video, editorState, onChange }: {
 
 // ─── Controls Panel ─────────────────────────────────────────────────────────────
 
-function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRendering, systemStats, editorIsShort, videoDuration }: {
+function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRendering, systemStats, editorIsShort, videoDuration, currentTime, videoId, onShowToast, renderProgress, workspaceId, isReady, trimLimitMinutes, onSplit }: {
   editorState: EditorState
   onChange: (p: Partial<EditorState>) => void
   onRender: () => void
   onExportChunked?: () => void
   isRendering: boolean
+  currentTime?: number
+  videoId?: string
+  onShowToast?: (msg: string) => void
   systemStats?: SystemStats
   editorIsShort: boolean
   videoDuration: number
+  renderProgress?: number
+  workspaceId?: string
+  isReady?: boolean
+  trimLimitMinutes?: number
+  onSplit?: (id: string, partMinutes: number) => void
 }) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set(['trim']))
+
+  const toggle = (id: string) =>
+    setExpanded(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+
+  const is = (id: string) => expanded.has(id)
   return (
     <div style={{ width: 280, borderLeft: '1px solid #1A1A1A', display: 'flex', flexDirection: 'column', background: '#111' }}>
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 12px' }} className="scrollbar">
 
         {/* TRIM */}
-        <SectionHeader icon={<IconScissors size={11} color="#555" />} label="TRIM" />
-        <TrimSection
-          start={editorState.trimStart}
-          end={editorState.trimEnd}
-          duration={videoDuration}
-          onChange={(s, e) => onChange({ trimStart: s, trimEnd: e })}
-        />
+        <SectionHeader icon={<IconScissors size={11} color="#555" />} label="TRIM" isExpanded={is('trim')} onToggle={() => toggle('trim')} />
+        {is('trim') && (
+          <TrimSection
+            start={editorState.trimStart}
+            end={editorState.trimEnd}
+            duration={videoDuration}
+            currentTime={currentTime || 0}
+            onChange={(s, e) => onChange({ trimStart: s, trimEnd: e })}
+            speedMultiplier={editorState.speedMultiplier}
+          />
+        )}
+
+        {/* SPLIT — only for ready workspaces longer than trim limit */}
+        {isReady && workspaceId && videoDuration > ((trimLimitMinutes ?? 10) * 60) && (
+          <>
+            <SectionHeader icon={<SplitIcon />} label="SPLIT" isExpanded={is('split')} onToggle={() => toggle('split')} />
+            {is('split') && (
+              <SplitSection
+                videoDuration={videoDuration}
+                trimLimitMinutes={trimLimitMinutes || 10}
+                speedMultiplier={editorState.speedMultiplier}
+                onSplit={(partMinutes) => onSplit?.(workspaceId, partMinutes)}
+              />
+            )}
+          </>
+        )}
 
         {/* HEADER IMAGE (short mode only) */}
         {editorIsShort && (
           <>
-            <SectionHeader icon={<IconImage size={11} color="#555" />} label="HEADER" />
-            <HeaderSection
-              headerImageUrl={editorState.headerImageUrl}
-              headerImageOffsetY={editorState.headerImageOffsetY}
-              onChange={onChange}
-            />
+            <SectionHeader icon={<IconImage size={11} color="#555" />} label="HEADER" isExpanded={is('header')} onToggle={() => toggle('header')} />
+            {is('header') && (
+              <HeaderSection
+                headerImageUrl={editorState.headerImageUrl}
+                headerImageOffsetY={editorState.headerImageOffsetY}
+                onChange={onChange}
+              />
+            )}
           </>
         )}
 
         {/* TITLE */}
-        <SectionHeader icon={<IconType size={11} color="#555" />} label="TITLE" />
-        <TitleSection
-          titleText={editorState.titleText}
-          titleShape={editorState.titleShape}
-          titleBorderColor={editorState.titleBorderColor}
-          titleBgColor={editorState.titleBgColor}
-          titleFontSize={editorState.titleFontSize}
-          onChange={onChange}
-        />
+        <SectionHeader icon={<IconType size={11} color="#555" />} label="TITLE" isExpanded={is('title')} onToggle={() => toggle('title')} />
+        {is('title') && (
+          <TitleSection
+            titleText={editorState.titleText}
+            titleShape={editorState.titleShape}
+            titleBorderColor={editorState.titleBorderColor}
+            titleBgColor={editorState.titleBgColor}
+            titleFontSize={editorState.titleFontSize}
+            onChange={onChange}
+          />
+        )}
 
         {/* SPEED */}
-        <SectionHeader icon={<IconZap size={11} color="#555" />} label="SPEED" />
-        <SpeedSection
-          speedMultiplier={editorState.speedMultiplier}
-          onChange={onChange}
-        />
+        <SectionHeader icon={<IconZap size={11} color="#555" />} label="SPEED" isExpanded={is('speed')} onToggle={() => toggle('speed')} />
+        {is('speed') && (
+          <SpeedSection
+            speedMultiplier={editorState.speedMultiplier}
+            onChange={onChange}
+            videoDuration={videoDuration}
+            trimStart={editorState.trimStart}
+            trimEnd={editorState.trimEnd}
+          />
+        )}
 
         {/* BACKGROUND */}
-        <SectionHeader icon={<IconPalette size={11} color="#555" />} label="BACKGROUND" />
-        <BackgroundSection
-          backgroundType={editorState.backgroundType}
-          backgroundColor={editorState.backgroundColor}
-          backgroundImageUrl={editorState.backgroundImageUrl}
-          editorIsShort={editorIsShort}
-          onChange={onChange}
-          vidHeightPct={editorState.vidHeightPct}
-        />
+        <SectionHeader icon={<IconPalette size={11} color="#555" />} label="BACKGROUND" isExpanded={is('bg')} onToggle={() => toggle('bg')} />
+        {is('bg') && (
+          <BackgroundSection
+            backgroundType={editorState.backgroundType}
+            backgroundColor={editorState.backgroundColor}
+            backgroundImageUrl={editorState.backgroundImageUrl}
+            editorIsShort={editorIsShort}
+            onChange={onChange}
+            vidHeightPct={editorState.vidHeightPct}
+            videoId={videoId}
+            onShowToast={onShowToast}
+          />
+        )}
 
-        {/* CANVAS MODE */}
-        <div style={{ padding: '8px 0', borderBottom: '1px solid #1A1A1A' }}>
-          <div style={{ display: 'flex', gap: 4 }}>
-            {(['black', 'white'] as const).map(bg => {
-              const active = editorState.canvasBg === bg
-              return (
-                <button key={bg} onClick={() => onChange({ canvasBg: bg })}
-                  style={{ flex: 1, height: 28, fontSize: 9, fontWeight: 700, cursor: 'pointer', background: active ? '#00B4FF15' : '#1A1A1A', borderWidth: 1, borderStyle: 'solid', borderColor: active ? '#00B4FF' : '#222', borderRadius: 3, color: active ? '#00B4FF' : '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-                  <div style={{ width: 8, height: 8, background: bg === 'black' ? '#000' : '#FFF', borderWidth: 1, borderStyle: 'solid', borderColor: '#333', borderRadius: 1 }} />
-                  {bg === 'black' ? 'TỐI' : 'SÁNG'}
-                </button>
-              )
-            })}
+        {/* CANVAS */}
+        <SectionHeader icon={<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>} label="CANVAS" isExpanded={is('canvas')} onToggle={() => toggle('canvas')} />
+        {is('canvas') && (
+          <div style={{ padding: '10px 0 8px' }}>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {(['black', 'white'] as const).map(bg => {
+                const active = editorState.canvasBg === bg
+                return (
+                  <button key={bg} onClick={() => onChange({ canvasBg: bg })}
+                    style={{ flex: 1, height: 28, fontSize: 9, fontWeight: 700, cursor: 'pointer', background: active ? '#00B4FF15' : '#1A1A1A', borderWidth: 1, borderStyle: 'solid', borderColor: active ? '#00B4FF' : '#222', borderRadius: 3, color: active ? '#00B4FF' : '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                    <div style={{ width: 8, height: 8, background: bg === 'black' ? '#000' : '#FFF', borderWidth: 1, borderStyle: 'solid', borderColor: '#333', borderRadius: 1 }} />
+                    {bg === 'black' ? 'TỐI' : 'SÁNG'}
+                  </button>
+                )
+              })}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Bottom padding for export buttons */}
         <div style={{ height: 100 }} />
@@ -1130,106 +1554,100 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
 
       {/* Sticky export section */}
       <div style={{ padding: '12px', borderTop: '1px solid #1A1A1A', background: '#111', flexShrink: 0 }}>
-        {/* Quality + Codec row */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 9, color: '#444', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 4 }}>QUALITY</div>
-            <div style={{ display: 'flex', gap: 3 }}>
-              {([1080, 720, 360] as const).map(q => {
-                const active = editorState.exportQuality === q
-                return (
-                  <button key={q} onClick={() => onChange({ exportQuality: q as 1080 | 720 | 360 })}
-                    style={{
-                      flex: 1, height: 22, background: active ? '#00B4FF' : '#1A1A1A',
-                      border: `1px solid ${active ? '#00B4FF' : '#222'}`,
-                      borderRadius: 2, fontSize: 10, fontWeight: 700,
-                      color: active ? '#000' : '#444', cursor: 'pointer', fontFamily: 'monospace',
-                    }}>
-                    {q}p
-                  </button>
-                )
-              })}
-            </div>
+        {/* Row 1: QUALITY + GPU MAX */}
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 8 }}>
+          {/* Quality */}
+          <div style={{ display: 'flex', gap: 3 }}>
+            {([1080, 720, 360] as const).map(q => {
+              const active = editorState.exportQuality === q
+              return (
+                <button key={q} onClick={() => onChange({ exportQuality: q as 1080 | 720 | 360 })}
+                  style={{
+                    height: 22, padding: '0 8px', background: active ? '#00B4FF' : '#1A1A1A',
+                    border: `1px solid ${active ? '#00B4FF' : '#222'}`,
+                    borderRadius: 2, fontSize: 10, fontWeight: 700,
+                    color: active ? '#000' : '#444', cursor: 'pointer', fontFamily: 'monospace',
+                  }}>
+                  {q}p
+                </button>
+              )
+            })}
           </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 9, color: '#444', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 4 }}>CODEC</div>
-            <div style={{ display: 'flex', gap: 3 }}>
-              {(['h264', 'hevc'] as const).map(c => {
-                const active = editorState.exportCodec === c
-                return (
-                  <button key={c} onClick={() => onChange({ exportCodec: c })}
-                    style={{
-                      flex: 1, height: 22, background: active ? '#7C3AED' : '#1A1A1A',
-                      border: `1px solid ${active ? '#7C3AED' : '#222'}`,
-                      borderRadius: 2, fontSize: 9, fontWeight: 700,
-                      color: active ? '#fff' : '#444', cursor: 'pointer', fontFamily: 'monospace',
-                    }}>
-                    {c === 'h264' ? 'H.264' : 'HEVC'}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
+
+          {/* GPU MAX toggle */}
+          {onExportChunked && (
+            <button
+              onClick={() => !isRendering && onChange({ enableChunked: !editorState.enableChunked })}
+              disabled={isRendering}
+              style={{
+                marginLeft: 'auto', height: 22, padding: '0 10px',
+                background: editorState.enableChunked ? '#00FF8820' : '#1A1A1A',
+                border: `1px solid ${editorState.enableChunked ? '#00FF88' : '#222'}`,
+                borderRadius: 2, fontSize: 9, fontWeight: 700,
+                color: editorState.enableChunked ? '#00FF88' : '#444',
+                cursor: isRendering ? 'not-allowed' : 'pointer',
+                fontFamily: 'monospace', letterSpacing: '0.04em',
+              }}
+            >
+              {editorState.enableChunked ? `${systemStats?.maxChunkWorkers || 8}x GPU MAX` : 'GPU MAX'}
+            </button>
+          )}
         </div>
 
-        {/* GPU MAX toggle */}
-        {onExportChunked && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ fontSize: 9, color: '#444', fontWeight: 700, letterSpacing: '0.1em' }}>GPU MAX</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 9, color: editorState.enableChunked ? '#00FF88' : '#444', fontWeight: 700 }}>
-                {editorState.enableChunked ? `${systemStats?.maxChunkWorkers || 8}x PARALLEL` : 'OFF'}
-              </span>
-              <button
-                onClick={() => !isRendering && onChange({ enableChunked: !editorState.enableChunked })}
-                disabled={isRendering}
+        {/* Row 2: CODEC */}
+        <div style={{ display: 'flex', gap: 3, marginBottom: 8 }}>
+          {(['h264', 'hevc'] as const).map(c => {
+            const active = editorState.exportCodec === c
+            return (
+              <button key={c} onClick={() => onChange({ exportCodec: c })}
                 style={{
-                  width: 32, height: 16, background: editorState.enableChunked ? '#00FF88' : '#1A1A1A',
-                  border: `1px solid ${editorState.enableChunked ? '#00FF8844' : '#222'}`,
-                  borderRadius: 8, cursor: isRendering ? 'not-allowed' : 'pointer', position: 'relative', transition: 'all 0.2s',
-                }}
-              >
-                <div style={{ width: 10, height: 10, borderRadius: '50%', background: editorState.enableChunked ? '#000' : '#444', position: 'absolute', top: 2, left: editorState.enableChunked ? 18 : 3, transition: 'left 0.2s' }} />
+                  flex: 1, height: 22, background: active ? '#7C3AED' : '#1A1A1A',
+                  border: `1px solid ${active ? '#7C3AED' : '#222'}`,
+                  borderRadius: 2, fontSize: 10, fontWeight: 700,
+                  color: active ? '#fff' : '#444', cursor: 'pointer', fontFamily: 'monospace',
+                }}>
+                {c === 'h264' ? 'H.264' : 'HEVC'}
               </button>
-            </div>
-          </div>
-        )}
+            )
+          })}
+        </div>
 
-        {/* Single render button */}
+        {/* Row 3: Render button */}
         <button
           onClick={editorState.enableChunked && onExportChunked ? onExportChunked : onRender}
           disabled={isRendering}
           style={{
-            width: '100%', height: 44,
+            width: '100%', height: 40,
             background: isRendering
-              ? '#FF444440'
+              ? '#FF444430'
               : editorState.enableChunked
                 ? '#7C3AED'
                 : '#00B4FF',
-            borderWidth: 0, borderRadius: 4,
-            fontSize: 12, fontWeight: 800,
+            borderWidth: 0, borderRadius: 3,
+            fontSize: 11, fontWeight: 800,
             color: isRendering ? '#FF4444' : '#fff',
             cursor: isRendering ? 'not-allowed' : 'pointer',
             letterSpacing: '0.06em',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
             transition: 'all 0.15s',
           }}
         >
-          <span>{isRendering ? 'RENDERING...' : editorState.enableChunked ? 'GPU MAX' : 'RENDER'}</span>
-          {!isRendering && (
-            <span style={{ fontSize: 9, fontWeight: 500, opacity: 0.7, letterSpacing: '0.04em' }}>
-              {editorState.enableChunked
-                ? `${systemStats?.maxChunkWorkers || 8}x parallel · RTX 5080`
-                : `${editorState.exportQuality}p · ${editorState.exportCodec === 'hevc' ? 'HEVC' : 'H.264'}`
-              }
-            </span>
-          )}
-          {isRendering && (
-            <div style={{ width: 12, height: 12, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#FF4444', animation: 'spin 1s linear infinite', marginTop: 2 }} />
+          {isRendering ? (
+            <>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#FF4444', animation: 'spin 1s linear infinite' }} />
+              {renderProgress !== undefined ? `${renderProgress}%` : 'RENDERING...'}
+            </>
+          ) : (
+            <>
+              {editorState.enableChunked ? 'GPU MAX' : 'RENDER'}
+              <span style={{ fontSize: 9, fontWeight: 500, opacity: 0.7 }}>
+                · {editorState.exportQuality}p · {editorState.exportCodec === 'hevc' ? 'HEVC' : 'H.264'}
+              </span>
+            </>
           )}
         </button>
         <div style={{ fontSize: 9, color: '#2A2A2A', textAlign: 'center', letterSpacing: '0.04em', marginTop: 5 }}>
-          NVENC · CUDA DECODE
+          NVENC · RTX 5080
         </div>
       </div>
     </div>
@@ -1238,18 +1656,35 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
 
 // ─── Section Header ─────────────────────────────────────────────────────────────
 
-function SectionHeader({ icon, label }: { icon: React.ReactNode; label: string }) {
+function SectionHeader({ icon, label, isExpanded, onToggle }: { icon: React.ReactNode; label: string; isExpanded: boolean; onToggle: () => void }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 0 4px', borderBottom: '1px solid #1A1A1A' }}>
+    <button
+      onClick={onToggle}
+      title={isExpanded ? 'Collapse' : 'Expand'}
+      style={{
+        width: '100%', display: 'flex', alignItems: 'center', gap: 6, padding: '8px 0',
+        background: 'transparent', border: 'none', borderBottom: '1px solid #1A1A1A',
+        cursor: 'pointer', textAlign: 'left',
+      }}
+    >
       {icon}
-      <span style={{ fontSize: 9, fontWeight: 800, color: '#444', letterSpacing: '0.1em' }}>{label}</span>
-    </div>
+      <span style={{ flex: 1, fontSize: 10, fontWeight: 800, color: '#444', letterSpacing: '0.1em' }}>{label}</span>
+      <svg
+        width="10" height="10" viewBox="0 0 10 10" fill="none"
+        stroke="#333" strokeWidth="1.5" strokeLinecap="round"
+        style={{ transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.2s', flexShrink: 0 }}
+      >
+        <polyline points="2,3 5,7 8,3" />
+      </svg>
+    </button>
   )
 }
 
 // ─── Main DetailEditor ──────────────────────────────────────────────────────────
 
-export function DetailEditor({ video, editorState, onChange, onRender, onExportChunked, systemStats }: Props) {
+export function DetailEditor({ video, editorState, onChange, onRender, onExportChunked, systemStats, onShowToast, onSplit, settings }: Props) {
+  const [currentTime, setCurrentTime] = useState(0)
+
   if (!video) return <EmptyState />
 
   const isRendering = video?.status === 'rendering'
@@ -1285,7 +1720,7 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
 
       {/* Body: Canvas + Controls */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <CanvasArea video={video} editorState={editorState} onChange={onChange} />
+        <CanvasArea video={video} editorState={editorState} onChange={onChange} onTimeUpdate={setCurrentTime} />
         <ControlsPanel
           editorState={editorState}
           onChange={onChange}
@@ -1295,6 +1730,14 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
           systemStats={systemStats}
           editorIsShort={editorIsShort}
           videoDuration={totalSec}
+          currentTime={currentTime}
+          videoId={video?.id}
+          onShowToast={onShowToast}
+          renderProgress={video?.renderProgress}
+          workspaceId={video?.id}
+          isReady={(video as any)?.status === 'ready'}
+          trimLimitMinutes={settings.defaultTrimLimit as number}
+          onSplit={onSplit}
         />
       </div>
 

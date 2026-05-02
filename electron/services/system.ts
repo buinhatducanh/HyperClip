@@ -1,7 +1,26 @@
 import os from 'os'
+import path from 'path'
 import { execSync } from 'child_process'
 import { getRamDiskInfo, getAutoRamDiskSize } from './ramdisk.js'
 import { getPoolStatus } from './worker-pool.js'
+
+// Inline FFmpeg path resolution (avoid circular import from ffmpeg-paths)
+function getFfmpegBin(): string {
+  const candidates = [
+    'C:/ffmpeg/ffmpeg-8.1-essentials_build/bin/ffmpeg.exe',
+    'C:/ffmpeg/bin/ffmpeg.exe',
+    'C:/Program Files/ffmpeg/bin/ffmpeg.exe',
+    'C:/Program Files (x86)/ffmpeg/bin/ffmpeg.exe',
+    path.join(process.cwd(), 'node_modules', '.bin', 'ffmpeg.exe'),
+    'C:/Users/MSI/AppData/Local/CapCut/Apps/8.1.1.3417/ffmpeg.exe',
+    'C:/Users/MSI/AppData/Local/CapCut/Apps/8.0.1.3366/ffmpeg.exe',
+  ]
+  const fsCheck = (fp: string) => { try { return require('fs').existsSync(fp) } catch { return false } }
+  for (const fp of candidates) {
+    if (fsCheck(fp)) return fp
+  }
+  return 'ffmpeg'
+}
 
 export type GPUTier = 'high' | 'mid' | 'low' | 'software'
 
@@ -63,41 +82,61 @@ function detectGPUOnce(): GPUStatic {
       const parts = nvOutput.split('\n')[0].split(',').map((s: string) => s.trim())
       gpuName = parts[0] || 'NVIDIA GPU'
       memory = parseInt(parts[1]) || 0
+      console.log(`[GPU] Found: ${gpuName} (${memory}MB VRAM)`)
     }
-  } catch {}
+  } catch (e) {
+    console.log('[GPU] nvidia-smi not found or failed — using CPU encoding')
+  }
 
   // NVENC check (only if GPU detected)
   if (hasGPU) {
+    const ffmpeg = getFfmpegBin()
     try {
-      const encodersOut = execSync('ffmpeg -hide_banner -encoders 2>&1', {
+      const encodersOut = execSync(`"${ffmpeg}" -hide_banner -encoders 2>&1`, {
         encoding: 'utf-8', timeout: 5000,
       }).toString()
       if (encodersOut.includes('h264_nvenc') || encodersOut.includes('hevc_nvenc')) {
         encoder = 'nvenc'
         if (gpuName.includes('RTX 50') || gpuName.includes('RTX 40')) {
           tier = 'high'; maxChunkWorkers = 8; preset = 'fast'
+          console.log(`[GPU] NVENC found — tier=high, workers=8, preset=fast`)
         } else if (gpuName.includes('RTX 30') || gpuName.includes('RTX 20')) {
           tier = 'mid'; maxChunkWorkers = 4; preset = 'fast'
+          console.log(`[GPU] NVENC found — tier=mid, workers=4, preset=fast`)
         } else {
           tier = 'low'; maxChunkWorkers = 2; preset = 'medium'
+          console.log(`[GPU] NVENC found (legacy GPU) — tier=low, workers=2, preset=medium`)
         }
+      } else {
+        console.log(`[GPU] No NVENC in ffmpeg build — falling back to software/QSV/VAAPI`)
       }
-    } catch {}
+    } catch (e) {
+      console.warn('[GPU] FFmpeg encoder check failed:', e)
+    }
   }
 
-  // Fallback: QSV / VAAPI (no GPU needed for encoder check)
+  // Fallback: QSV / VAAPI
   if (encoder === 'software') {
+    const ffmpeg = getFfmpegBin()
     try {
-      const encodersOut = execSync('ffmpeg -hide_banner -encoders 2>&1', {
+      const encodersOut = execSync(`"${ffmpeg}" -hide_banner -encoders 2>&1`, {
         encoding: 'utf-8', timeout: 5000,
       }).toString()
       if (encodersOut.includes('h264_qsv')) {
         encoder = 'qsv'; preset = 'fast'; tier = 'low'; maxChunkWorkers = 2
+        console.log('[GPU] QSV encoder found — tier=low, workers=2')
       } else if (encodersOut.includes('h264_vaapi')) {
         encoder = 'vaapi'; preset = 'fast'; tier = 'low'; maxChunkWorkers = 2
+        console.log('[GPU] VAAPI encoder found — tier=low, workers=2')
+      } else {
+        console.log('[GPU] No hardware encoder found — using CPU (software tier)')
       }
-    } catch {}
+    } catch (e) {
+      console.warn('[GPU] FFmpeg fallback check failed:', e)
+    }
   }
+
+  console.log(`[GPU] Detection result: ${gpuName} [${encoder}] tier=${tier} workers=${maxChunkWorkers}`)
 
   _cachedGPU = { encoder, preset, gpuName, memory, tier, maxChunkWorkers, hasGPU }
   return _cachedGPU

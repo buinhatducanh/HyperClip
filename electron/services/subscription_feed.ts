@@ -32,6 +32,8 @@ export interface SubscriptionVideo {
 export interface SubFeedResult {
   videos: SubscriptionVideo[]
   error?: string
+  /** True when Innertube returned 0 videos AND all OAuth tokens are exhausted */
+  allTokensExhausted?: boolean
   source: 'playlist'
 }
 
@@ -39,13 +41,18 @@ export interface SubFeedOptions {
   seenVideoIds?: Set<string>
   sinceMs?: number
   maxVideos?: number
+  /** When true, stops fetching more channels once we have this many new videos.
+   * Early termination — saves latency when we already found enough. */
+  stopAfterCount?: number
 }
 
 // ─── Config ─────────────────────────────────────────────────────────────────────
 
 const MAX_VIDEO_AGE_MS = 10 * 60 * 1000 // 10 minutes — auto-download videos posted < 10 min ago (accounts for YouTube processing delay)
+const MIN_VIDEO_DURATION_MS = 60 * 1000 // Skip auto-download for videos < 60s (YouTube Shorts)
 const PLAYLIST_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24h uploads playlist cache
 const MAX_CONCURRENT = 20 // max parallel API calls per poll
+const MAX_VIDEOS_PER_POLL = 5
 
 // ─── API Helper ────────────────────────────────────────────────────────────────
 
@@ -196,17 +203,29 @@ function setCachedUploadsId(channelId: string, uploadsId: string): void {
 
 // ─── Concurrency Limiter ───────────────────────────────────────────────────────
 
+/**
+ * Parallel execution with optional early termination.
+ * When stopAfterCount is set, returns as soon as we have enough results.
+ */
 async function parallel<T, R>(
   items: T[],
   concurrency: number,
   fn: (item: T) => Promise<R[]>,
+  stopAfterCount?: number,
 ): Promise<R[]> {
   const results: R[][] = []
+
   for (let i = 0; i < items.length; i += concurrency) {
     const batch = items.slice(i, i + concurrency)
     const batchResults = await Promise.all(batch.map(fn))
-    results.push(...batchResults)
+    for (const br of batchResults) {
+      results.push(br)
+      if (stopAfterCount !== undefined && results.flat().length >= stopAfterCount) {
+        return results.flat()
+      }
+    }
   }
+
   return results.flat()
 }
 
@@ -264,7 +283,10 @@ async function fetchChannelVideos(
   // ── OAuth fallback (Data API v3, has quota) ──
   const tm = getTokenManager()
   const best = await tm.getBestAvailable()
-  if (!best) return []
+  if (!best) {
+    // All tokens exhausted — signal to poller
+    return []
+  }
 
   const token = best.token
 
@@ -275,26 +297,32 @@ async function fetchChannelVideos(
       `/youtube/v3/channels?part=contentDetails&id=${encodeURIComponent(channelId)}`,
       token,
     )
-    if (channelJson.error || !channelJson.items?.[0]) return []
+    if (channelJson.error || !channelJson.items?.[0]) {
+      // Track quota even on error so exhausted tokens get filtered out
+      if (channelJson.error) tm.trackError(best.projectId)
+      return []
+    }
     uploadsId = channelJson.items[0].contentDetails?.relatedPlaylists?.uploads || null
     if (uploadsId) setCachedUploadsId(channelId, uploadsId)
   }
 
   if (!uploadsId) return []
 
-  // Step 2: get recent playlist items
+  // Step 2: get recent playlist items (maxResults=1 — only need the newest)
   const playlistJson = await apiGetOAuth(
-    `/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsId}&maxResults=5`,
+    `/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsId}&maxResults=1`,
     token,
   )
   if (playlistJson.error) {
     console.warn(`[SubFeed] OAuth error for ${ch.name}: ${playlistJson.error}`)
+    // Track quota on error — pushes token toward exhaustion so getBestAvailable skips it
+    tm.trackError(best.projectId)
     // Invalidate cache so next poll can retry with potentially fresh token
     _uploadsPlaylistCache.delete(channelId)
     return []
   }
 
-  // Track token quota — only on successful API call (even if 0 items)
+  // Track token quota on successful API call (even if 0 items)
   tm.track(best.projectId)
 
   if (!playlistJson.items || playlistJson.items.length === 0) {
@@ -318,6 +346,12 @@ async function fetchChannelVideos(
       : 0
 
     if (publishedAt > 0 && publishedAt < sinceMs) continue
+
+    // Skip if we can't determine age
+    if (publishedAt === 0) {
+      console.log(`[SubFeed] OAuth: no valid timestamp for "${title}" from ${ch.name} — skipping`)
+      continue
+    }
 
     videos.push({
       videoId,
@@ -374,11 +408,22 @@ function parseInnertubePlaylistVideos(
       const publishedText = vr.publishedTimeText?.simpleText || vr.publishedTimeText?.runs?.[0]?.text || ''
       const publishedAt = parseInnertubeRelativeTime(publishedText, sinceMs)
 
-      if (publishedAt === 0 && publishedText) {
-        // Couldn't parse time — skip if it looks old
+      // Skip if we can't determine age — could be very old video with no timestamp
+      if (publishedAt === 0) continue
+      if (publishedAt > 0 && publishedAt < sinceMs) continue
+
+      // Skip live streams — yt-dlp can't use --download-sections on live content
+      const badges: Array<{ metadataBadgeRenderer?: { label?: { simpleText?: string } } }> = vr.badges || []
+      const isLive = badges.some(b => b.metadataBadgeRenderer?.label?.simpleText?.toLowerCase().includes('live'))
+      if (isLive) {
+        console.log(`[SubFeed] Skipping live stream: "${title}" from ${channelName}`)
         continue
       }
-      if (publishedAt > 0 && publishedAt < sinceMs) continue
+
+      // Skip upcoming streams (not yet started)
+      if (vr.upcomingDateText) {
+        continue
+      }
 
       const thumbnail = vr.thumbnail?.thumbnails?.[0]?.url || ''
 
@@ -429,7 +474,7 @@ function parseInnertubeRelativeTime(text: string, sinceMs: number): number {
 export async function fetchSubscriptionFeed(
   options: SubFeedOptions = {},
 ): Promise<SubFeedResult> {
-  const { seenVideoIds, sinceMs } = options
+  const { seenVideoIds, sinceMs, maxVideos, stopAfterCount } = options
   const cutoff = sinceMs ?? (Date.now() - MAX_VIDEO_AGE_MS)
 
   const channels = getChannels()
@@ -437,12 +482,21 @@ export async function fetchSubscriptionFeed(
     return { videos: [], source: 'playlist' }
   }
 
-  console.log(`[SubFeed] Scanning ${channels.length} channels (max ${MAX_CONCURRENT} concurrent)...`)
+  // Non-consuming check: is any OAuth token available?
+  // If not, signal poller so it can notify user and back off
+  const tm = getTokenManager()
+  const tmStatuses = tm.getAllStatuses()
+  const hasAnyToken = tmStatuses.some(ts => ts.hasToken && ts.status !== 'exhausted')
+  const allTokensExhausted = !hasAnyToken
+
+  const targetStop = stopAfterCount ?? maxVideos ?? MAX_VIDEOS_PER_POLL
+  console.log(`[SubFeed] Scanning ${channels.length} channels (max ${MAX_CONCURRENT} concurrent, stop after ${targetStop})...`)
 
   const allVideos = await parallel(
     channels,
     MAX_CONCURRENT,
     (ch) => fetchChannelVideos(ch, seenVideoIds, cutoff),
+    targetStop,
   )
 
   // Deduplicate (same video from different channels)
@@ -458,8 +512,16 @@ export async function fetchSubscriptionFeed(
   if (unique.length > 0) {
     console.log(`[SubFeed] Total: ${unique.length} new videos from ${channels.length} channels`)
   } else {
-    console.log(`[SubFeed] No new videos (scanned ${channels.length} channels)`)
+    if (allTokensExhausted) {
+      console.warn(`[SubFeed] No new videos — ALL OAuth tokens exhausted. Will retry at midnight PT.`)
+    } else {
+      console.log(`[SubFeed] No new videos (scanned ${channels.length} channels)`)
+    }
   }
 
-  return { videos: unique, source: 'playlist' }
+  return {
+    videos: unique,
+    allTokensExhausted,
+    source: 'playlist',
+  }
 }

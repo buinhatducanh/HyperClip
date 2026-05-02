@@ -103,4 +103,17 @@ export const IPC_CHANNELS = {
   ADMIN_CHECK_PASSWORD: 'admin:check-password',
   ADMIN_SET_PASSWORD: 'admin:set-password',
   ADMIN_HAS_PASSWORD: 'admin:has-password',
+
+  // Rendered videos
+  RENDERED_LIST: 'rendered:list',
+  RENDERED_ARCHIVE: 'rendered:archive',
+  RENDERED_REMOVE: 'rendered:remove',
+  RENDERED_OPEN_FOLDER: 'rendered:openFolder',
+  RENDERED_SET_ARCHIVE_PATH: 'rendered:setArchivePath',
+
+  // Workspace blur regeneration
+  WORKSPACE_REGENERATE_BLUR: 'workspace:regenerate-blur',
+
+  // Workspace split (split long video into multiple workspaces by trim limit)
+  WORKSPACE_SPLIT: 'workspace:split',
 } as const

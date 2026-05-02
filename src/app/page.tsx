@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Sidebar } from './components/Sidebar'
 import { WorkspaceQueue } from './components/workspace/WorkspaceQueue'
+import { RenderQueueBar } from './components/workspace/RenderQueueBar'
 import { DetailEditor } from './components/DetailEditor'
 import { LoginScreen } from './components/LoginScreen'
 import type { Channel, Video, SystemStats, EditorState } from './types'
@@ -14,10 +15,12 @@ export const dynamic = 'force-dynamic'
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
-function formatDurationRaw(seconds: number): string {
+function formatDurationRaw(seconds: string | number | undefined): string {
   if (!seconds) return '0:00'
-  const m = Math.floor(seconds / 60)
-  const s = Math.floor(seconds % 60)
+  const n = typeof seconds === 'string' ? parseFloat(seconds) : seconds
+  if (isNaN(n) || n <= 0) return '0:00'
+  const m = Math.floor(n / 60)
+  const s = Math.floor(n % 60)
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
@@ -52,6 +55,7 @@ function formatDateRaw(iso: string): string {
 export default function DashboardPage() {
   const {
     workspaces,
+    renderedVideos,
     channels,
     selectedWorkspaceId,
     systemStats,
@@ -62,12 +66,15 @@ export default function DashboardPage() {
     removeWorkspace,
     initChannels,
     initWorkspaces,
+    initRenderedVideos,
+    removeRenderedVideo,
     selectWorkspace,
     updateSystemStats,
     showToast,
     addNotification,
     updateEditorState,
     resetEditorState,
+    addRenderedVideo,
     settings,
   } = useAppStore()
 
@@ -80,7 +87,9 @@ export default function DashboardPage() {
     active: boolean; newVideoCount: number; lastError: string | null
   } | null>(null)
   const quotaToastShown = useRef(false)
+  const lastRenderCodec = useRef<string>('hevc')
   const router = useRouter()
+  const [renderQueueExpanded, setRenderQueueExpanded] = useState(false)
 
   // Fetch auth status on mount + listen for updates
   useEffect(() => {
@@ -119,6 +128,7 @@ export default function DashboardPage() {
         const patch: Partial<Workspace> = { ...data }
         if (typeof patch.fileSize === 'number') patch.fileSize = formatFileSizeRaw(patch.fileSize)
         if (patch.downloadedAt) patch.downloadedAt = formatDateRaw(patch.downloadedAt)
+        if (typeof patch.duration === 'number') patch.duration = formatDurationRaw(patch.duration)
         updateWorkspace(data.id, patch)
       } else {
         const formatted: Workspace = {
@@ -132,6 +142,9 @@ export default function DashboardPage() {
           quality: data.quality || 1080,
           downloadedPath: data.downloadedPath, blurBackgroundPath: data.blurBackgroundPath,
           outputPath: data.outputPath,
+          publishedAt: data.publishedAt,
+          detectedAt: data.detectedAt,
+          videoResolution: data.videoResolution,
         }
         addWorkspace(formatted)
       }
@@ -168,7 +181,8 @@ export default function DashboardPage() {
   useEffect(() => {
     initChannels()
     initWorkspaces()
-  }, [initChannels, initWorkspaces])
+    initRenderedVideos()
+  }, [initChannels, initWorkspaces, initRenderedVideos])
 
   // Render + download progress
   useEffect(() => {
@@ -176,9 +190,11 @@ export default function DashboardPage() {
       const p = progress as { workspaceId: string; percent: number }
       if (p.workspaceId && p.percent !== undefined) {
         const ws = useAppStore.getState().workspaces.find(w => w.id === p.workspaceId)
-        const patch = ws?.status === 'downloading'
-          ? { downloadProgress: p.percent }
-          : { renderProgress: p.percent }
+        // Always update downloadProgress (covers 'downloading', 'ready', 'editing' states)
+        // Only update renderProgress for 'rendering' status
+        const patch: Partial<import('./lib/store').Workspace> = ws?.status === 'rendering'
+          ? { renderProgress: p.percent }
+          : { downloadProgress: p.percent }
         updateWorkspace(p.workspaceId, patch)
       }
     })
@@ -219,6 +235,36 @@ export default function DashboardPage() {
     return cleanup
   }, [showToast, addNotification])
 
+  // Render-complete → add to rendered videos list
+  useEffect(() => {
+    const cleanup = ipc.onNotification((n) => {
+      const notif = n as { type: string; message: string; workspaceId?: string }
+      if ((notif.type === 'success') && notif.workspaceId &&
+          (notif.message?.startsWith('Done') || notif.message?.startsWith('Render done'))) {
+        const ws = useAppStore.getState().workspaces.find(w => w.id === notif.workspaceId)
+        if (ws) {
+          addRenderedVideo({
+            id: `rv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            workspaceId: ws.id,
+            channelId: ws.channelId,
+            channelName: ws.channelName,
+            videoTitle: ws.videoTitle,
+            archivedPath: ws.outputPath || '',
+            outputPath: ws.outputPath || '',
+            quality: ws.quality,
+            codec: lastRenderCodec.current,
+            fileSize: ws.fileSize,
+            fileSizeBytes: 0,
+            duration: 0,
+            thumbnail: ws.thumbnail,
+            renderedAt: new Date().toISOString(),
+          })
+        }
+      }
+    })
+    return cleanup
+  }, [addRenderedVideo])
+
   // Map workspaces to videos for DetailEditor
   const videos: Video[] = workspaces.map((ws) => ({
     id: ws.id, channelId: ws.channelId, title: ws.videoTitle, thumbnail: ws.thumbnail,
@@ -238,24 +284,6 @@ export default function DashboardPage() {
     setActiveChannelId(id || null)
     selectWorkspace(null)
     resetEditorState()
-  }
-
-  const handleAddTracker = async (url: string, trimLimit: number | 'full') => {
-    showToast('Adding video...')
-    try {
-      const result = await ipc.addTracker(url, trimLimit)
-      if (result) showToast('Video queued!')
-      else showToast('Failed to add video')
-    } catch { showToast('Error adding video') }
-  }
-
-  const handleAddChannel = async (url: string) => {
-    showToast('Adding channel...')
-    try {
-      const result = (await ipc.addChannel(url)) as { name?: string } | null
-      if (result) { showToast(`Channel "${result.name ?? url}" added`); initChannels() }
-      else showToast('Failed to add channel')
-    } catch { showToast('Error adding channel') }
   }
 
   const handleVideoSelect = (id: string) => {
@@ -291,6 +319,7 @@ export default function DashboardPage() {
 
   const handleRender = async () => {
     if (!selectedWorkspaceId) return
+    lastRenderCodec.current = editorState.exportCodec
     const ws = workspaces.find(w => w.id === selectedWorkspaceId)
     if (!ws || !ws.downloadedPath) { showToast('Video not downloaded yet'); return }
     if (editorState.backgroundType === 'blur' && !ws.blurBackgroundPath) {
@@ -347,8 +376,20 @@ export default function DashboardPage() {
     }
   }
 
+  const handleSplit = async (workspaceId: string, partMinutes: number) => {
+    showToast(`Đang tách video thành các phần...`)
+    const result = await ipc.splitWorkspace(workspaceId, partMinutes)
+    if (result?.success) {
+      const count = result.newWorkspaces?.length || 0
+      showToast(`Đã tách thành ${count} phần mới!`)
+    } else {
+      showToast(`Tách thất bại: ${result?.error || 'Lỗi không xác định'}`)
+    }
+  }
+
   const handleExportChunked = async () => {
     if (!selectedWorkspaceId) return
+    lastRenderCodec.current = editorState.exportCodec
     const ws = workspaces.find(w => w.id === selectedWorkspaceId)
     if (!ws || !ws.downloadedPath) { showToast('Video not downloaded yet'); return }
     if (editorState.backgroundType === 'blur' && !ws.blurBackgroundPath) {
@@ -366,7 +407,13 @@ export default function DashboardPage() {
     const trimEndSec = Math.round((editorState.trimEnd / 100) * totalSec)
 
     const overlays: object[] = []
-    if (editorState.headerImageUrl) overlays.push({ type: 'header', src: editorState.headerImageUrl })
+    // Use disk path (FFmpeg-readable) not blob URL
+    if (editorState.headerImageDiskPath) {
+      overlays.push({ type: 'header', src: editorState.headerImageDiskPath })
+    } else if ((ws.isShort === false) && editorState.backgroundImageDiskPath) {
+      // Landscape: header overlay = custom thumbnail image
+      overlays.push({ type: 'header', src: editorState.backgroundImageDiskPath })
+    }
     if (editorState.titleText) overlays.push({
       type: 'title', content: editorState.titleText, shape: editorState.titleShape,
       borderColor: editorState.titleBorderColor, bgColor: editorState.titleBgColor, fontSize: editorState.titleFontSize,
@@ -451,13 +498,15 @@ export default function DashboardPage() {
         }}>
           <WorkspaceQueue
             workspaces={filteredWorkspaces}
+            renderedVideos={renderedVideos}
             selectedId={selectedWorkspaceId}
             onSelect={(id) => handleVideoSelect(id)}
             onQuickAction={handleQuickAction}
-            onAddTracker={handleAddTracker}
-            onAddChannel={handleAddChannel}
-            defaultTrimLimit={settings.defaultTrimLimit}
             onRetry={handleRetry}
+            onRemoveRendered={(id) => removeRenderedVideo(id)}
+            onShowToast={showToast}
+            onSplit={handleSplit}
+            trimLimitMinutes={settings.defaultTrimLimit as number}
           />
         </div>
 
@@ -470,6 +519,9 @@ export default function DashboardPage() {
             onRender={handleRender}
             onExportChunked={handleExportChunked}
             systemStats={systemStats}
+            onShowToast={showToast}
+            onSplit={handleSplit}
+            settings={settings}
           />
         </div>
       </div>
@@ -489,6 +541,14 @@ export default function DashboardPage() {
           {toast}
         </div>
       )}
+
+      {/* Render queue bar */}
+      <RenderQueueBar
+        workspaces={workspaces}
+        isExpanded={renderQueueExpanded}
+        onToggle={() => setRenderQueueExpanded(v => !v)}
+        onCancel={handleCancelRender}
+      />
 
       <style>{`
         @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }

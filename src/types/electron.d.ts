@@ -32,6 +32,8 @@ export interface ElectronAPI {
   updateWorkspace: (id: string, patch: object) => Promise<unknown>
   deleteWorkspace: (id: string) => Promise<unknown>
   retryWorkspace: (id: string) => Promise<unknown>
+  regenerateWorkspaceBlur: (id: string) => Promise<{ success: boolean; blurPath?: string; error?: string }>
+  splitWorkspace: (id: string, partMinutes?: number) => Promise<{ success: boolean; newWorkspaces?: unknown[]; error?: string }>
   getVideoFile: (workspaceId: string) => Promise<{ path: string; url: string } | null>
   getVideoBlob: (workspaceId: string) => Promise<Uint8Array | null>
   getImageFile: (workspaceId: string) => Promise<{ path: string; dataUrl: string } | null>
@@ -64,7 +66,7 @@ export interface ElectronAPI {
   getKeys: () => Promise<unknown[]>
   addKey: (key: string, projectId: string, name: string) => Promise<{ success: boolean; keys: unknown[] }>
   removeKey: (key: string) => Promise<{ success: boolean; keys: unknown[] }>
-  resetKey: (key?: string) => Promise<{ success: boolean; keys: unknown[] }>
+  resetKey: (key?: string) => Promise<{ success: boolean; keys: unknown[]; nextReset: number }>
   adminCheckPassword: (password: string) => Promise<{ ok: boolean }>
   adminSetPassword: (password: string) => Promise<{ success: boolean }>
   adminHasPassword: () => Promise<{ has: boolean }>
@@ -83,6 +85,12 @@ export interface ElectronAPI {
   getSessionStatus: () => Promise<unknown>
   refreshAllSessions: () => Promise<{ success: boolean; refreshedCount: number }>
   openSessionLogin: (profileId: string) => Promise<{ success: boolean }>
+  // Rendered videos
+  getRenderedVideos: () => Promise<unknown[]>
+  archiveRendered: (workspaceId: string, customArchiveDir?: string) => Promise<{ success: boolean; archivedPath?: string; error?: string }>
+  removeRenderedVideo: (id: string) => Promise<{ success: boolean }>
+  openRenderedFolder: (id?: string) => Promise<{ success: boolean }>
+  setRenderedArchivePath: (path: string) => Promise<{ success: boolean }>
 }
 
 declare global {

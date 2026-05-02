@@ -1,8 +1,11 @@
 import { spawn, ChildProcess } from 'child_process'
 import path from 'path'
 import fs from 'fs'
-import { getFfmpegPath } from './ffmpeg-paths.js'
+import { getFfmpegPath, validateFfmpeg } from './ffmpeg-paths.js'
 import { getGPUCapabilities } from './system.js'
+
+// Cache validation result — check once at startup
+let _ffmpegValidated = false
 
 // ─── Worker Pool ────────────────────────────────────────────────────────────────
 // Manages concurrent FFmpeg processes with queue, cancel, and resource limits.
@@ -151,7 +154,7 @@ export interface FfmpegRunOptions {
 }
 
 function quotePath(p: string): string {
-  return '"' + p.replace(/"/g, '""') + '"'
+  return '"' + p.replace(/\\/g, '/').replace(/"/g, '""') + '"'
 }
 
 function buildArgs(program: string, args: string[]): string {
@@ -164,18 +167,37 @@ export async function runFfmpeg(opts: FfmpegRunOptions): Promise<PoolResult> {
   return new Promise((resolve) => {
     const ffmpeg = getFfmpegPath()
     const cmd = buildArgs(ffmpeg, args)
-    const proc = spawn('cmd', ['/c', cmd], { shell: false, stdio: ['ignore', 'pipe', 'pipe'] })
+    const proc = spawn(cmd, [], { shell: true, stdio: ['ignore', 'pipe', 'pipe'] })
 
     // Register with pool for cancellation support
     renderPool.track(jobId, proc)
 
-    let stderr = ''
+    // Startup validation: check FFmpeg actually works (first render only)
+    if (!_ffmpegValidated) {
+      _ffmpegValidated = true
+      validateFfmpeg(ffmpeg).catch(e => console.warn('[FFmpeg] Validation warning:', e))
+    }
+
+    // Track last N lines of stderr for progress parsing
+    // Using a ring buffer avoids the bug where early banner text matches our regex
+    const LINE_BUF_SIZE = 200
+    const lineBuf: string[] = []
+
     const startTime = Date.now()
 
-    // Extract total duration from args for progress calculation
-    const ssIdx = args.indexOf('-ss')
+    // Extract total duration from args for progress calculation.
+    // FFmpeg accepts both plain seconds ("300") and HH:MM:SS format.
+    let totalSec = 300
     const tIdx = args.indexOf('-t')
-    const totalSec = (tIdx !== -1 ? parseFloat(args[tIdx + 1]) || 300 : 300)
+    if (tIdx !== -1 && tIdx + 1 < args.length) {
+      const raw = args[tIdx + 1]
+      const parts = raw.split(':')
+      if (parts.length === 3) {
+        totalSec = parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseFloat(parts[2])
+      } else {
+        totalSec = parseFloat(raw) || 300
+      }
+    }
 
     const timeout = setTimeout(() => {
       if (!proc.killed) proc.kill()
@@ -184,11 +206,21 @@ export async function runFfmpeg(opts: FfmpegRunOptions): Promise<PoolResult> {
     }, timeoutMs)
 
     proc.stderr?.on('data', (data: Buffer) => {
-      stderr += data.toString()
+      const chunk = data.toString()
+      const lines = chunk.split('\n')
+      for (const line of lines) {
+        if (line.trim()) {
+          lineBuf.push(line)
+          if (lineBuf.length > LINE_BUF_SIZE) lineBuf.shift()
+        }
+      }
 
-      const timeMatch = stderr.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d+)/)
-      const fpsMatch = stderr.match(/fps=\s*(\d+)/)
-      const speedMatch = stderr.match(/speed=\s*([\d.]+)x/)
+      // Only scan the most recent lines — avoids stale matches from version banner
+      const recent = lineBuf.slice(-30).join('\n')
+
+      const timeMatch = recent.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d+)/)
+      const fpsMatch = recent.match(/fps=\s*(\d+)/)
+      const speedMatch = recent.match(/speed=\s*([\d.]+)x/)
 
       if (timeMatch) {
         const h = parseInt(timeMatch[1])
@@ -220,7 +252,8 @@ export async function runFfmpeg(opts: FfmpegRunOptions): Promise<PoolResult> {
         try { size = fs.statSync(cleanPath).size } catch {}
         resolve({ success: true, outputFile, fileSize: size })
       } else {
-        resolve({ success: false, error: stderr || `FFmpeg exited ${code}` })
+        const recent = lineBuf.slice(-20).join(' | ')
+        resolve({ success: false, error: recent || `FFmpeg exited ${code}` })
       }
     })
   })

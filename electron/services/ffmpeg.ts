@@ -70,21 +70,46 @@ function quotePath(p: string): string {
   return '"' + p.replace(/"/g, '""') + '"'
 }
 
-function buildArgs(args: string[]): string {
-  // Join args into a single cmd.exe command string with proper quoting
-  return args.map(a => {
-    if (a.startsWith('"') && a.endsWith('"')) return a
-    if (a.includes(' ') || a.includes('(') || a.includes(')')) return quotePath(a)
-    return a
-  }).join(' ')
+function buildArgs(program: string, args: string[]): string {
+  // Build a command string for cmd.exe (shell: true).
+  // - Forward slashes only: backslashes in paths cause issues with cmd.exe parsing.
+  // - Double-quotes in cmd.exe protect semicolons from being treated as command
+  //   separators — no caret escaping needed.
+  // - Quote args that contain spaces, parens, or semicolons.
+  const toShellPath = (s: string) => s.replace(/\\/g, '/')
+  const needsQuote = (s: string) =>
+    s.includes(' ') || s.includes(';') || s.includes('(') || s.includes(')') || s.startsWith('"')
+  const quoteArg = (s: string) => '"' + s.replace(/"/g, '""') + '"'
+
+  const prog = quoteArg(toShellPath(program))
+  const shellArgs = args.map(a => {
+    const normalized = toShellPath(a)
+    if (!needsQuote(normalized)) return normalized
+    return quoteArg(normalized)
+  })
+  return [prog, ...shellArgs].join(' ')
+}
+
+// Run FFmpeg via execSync — only use this for simple one-shot commands (no complex quoting issues).
+// For anything with multiple inputs or filter_complex, use spawn() + buildArgs() instead.
+function runSimpleFfmpeg(ffmpeg: string, ffArgs: string[]): { code: number; stderr: string } {
+  const cmd = `"${ffmpeg}" ${ffArgs.join(' ')}`
+  try {
+    const out = execSync(cmd, { encoding: 'utf-8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] })
+    return { code: 0, stderr: out }
+  } catch (err: any) {
+    return { code: err.status ?? 1, stderr: err.stderr?.toString() || err.message }
+  }
 }
 
 // ─── Probe video dimensions ─────────────────────────────────────────────────────
 
 export async function probeVideoAspect(videoPath: string): Promise<{ width: number; height: number; isShort: boolean } | null> {
   const ffprobe = getFfprobePath()
+  const normalizedFfprobe = ffprobe.replace(/\\/g, '/')
+  const normalizedVideoPath = videoPath.replace(/\\/g, '/')
   try {
-    const out = execSync(`"${ffprobe}" -v error -select_streams v:0 -show_entries stream=width,height -of json "${videoPath}"`, {
+    const out = execSync(`"${normalizedFfprobe}" -v error -select_streams v:0 -show_entries stream=width,height -of json "${normalizedVideoPath}"`, {
       encoding: 'utf-8',
       timeout: 15000,
     })
@@ -101,6 +126,46 @@ export async function probeVideoAspect(videoPath: string): Promise<{ width: numb
   return null
 }
 
+// ─── Post-download: trim video with FFmpeg (fast re-mux, no re-encode) ──────────
+// Uses -ss before -i for fast seek, then -t to limit duration.
+// Output is stream-copied (not re-encoded) so it's very fast.
+// Returns the path to the trimmed file.
+
+export async function trimVideo(
+  sourcePath: string,
+  outputPath: string,
+  startSec: number,
+  durationSec: number,
+): Promise<{ success: boolean; error?: string }> {
+  const ffmpeg = getFfmpegPath()
+
+  return new Promise((resolve) => {
+    const args = [
+      '-ss', String(startSec),
+      '-i', quotePath(sourcePath),
+      '-t', String(durationSec),
+      '-c', 'copy',
+      '-avoid_negative_ts', 'make_zero',
+      '-y', quotePath(outputPath),
+    ]
+    const cmd = buildArgs(ffmpeg, args)
+    const proc = spawn(cmd, [], { shell: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    let stderr = ''
+    proc.stderr?.on('data', (d) => { stderr += d.toString() })
+    proc.on('close', (code) => {
+      if (code === 0 && fs.existsSync(outputPath)) {
+        resolve({ success: true })
+      } else {
+        resolve({ success: false, error: stderr || `trim failed (code ${code})` })
+      }
+    })
+    setTimeout(() => {
+      if (!proc.killed) proc.kill()
+      resolve({ success: false, error: 'trim timeout' })
+    }, 120_000)
+  })
+}
+
 // ─── Pre-process: Blur background generation ───────────────────────────────────
 
 export async function generateBlurBackground(
@@ -112,9 +177,9 @@ export async function generateBlurBackground(
   const ffmpeg = getFfmpegPath()
 
   const run = (ffArgs: string[]): Promise<{ code: number; stderr: string }> => new Promise((resolve) => {
-    const cmd = buildArgs([ffmpeg, ...ffArgs])
-    const proc = spawn('cmd', ['/c', cmd], {
-      shell: false,
+    const cmd = buildArgs(ffmpeg, ffArgs)
+    const proc = spawn(cmd, [], {
+      shell: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stderr = ''
@@ -178,9 +243,9 @@ export async function extractVideoThumbnail(
       '-y', outputPath,
     ]
 
-    const cmd = buildArgs([ffmpeg, ...args])
-    const proc = spawn('cmd', ['/c', cmd], {
-      shell: false,
+    const cmd = buildArgs(ffmpeg, args)
+    const proc = spawn(cmd, [], {
+      shell: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stderr = ''
@@ -252,7 +317,8 @@ function buildFilterComplex(opts: {
       videoChain2 = `[0:v]scale=${canvasW}:-2,pad=ow:${videoH}:0:${targetY}${speedFilter}[vid]`
     }
     // [1:v] thumbnail → fill entire canvas background
-    const bgChain2 = `[1:v]scale=${canvasW}:${canvasH}:force_original_aspect_ratio=exact[bg]`
+    // NOTE: use decrease (not exact) — exact requires -exact flag in FFmpeg essentials build
+    const bgChain2 = `[1:v]scale=${canvasW}:${canvasH}:force_original_aspect_ratio=decrease[bg]`
     // Video over thumbnail bg, positioned at videoTop
     const vzChain2 = `[bg][vid]overlay=0:${videoTop}[vz]`
     // Title overlay (part number) at bottom
@@ -300,43 +366,52 @@ function buildFilterComplex(opts: {
 
 // ─── Optimized NVENC parameters ─────────────────────────────────────────────────
 
-function getNvencParams(codec: 'h264' | 'hevc', preset: string, isChunked: boolean): string[] {
-  // RTX 5080: ULL tune for chunked (speed), HQ tune for single (quality)
-  // Key optimizations:
-  //   -bf 0: disable B-frames → faster encode, slightly larger file
-  //   -refs 1: single reference frame → fastest possible
-  //   -g 60: GOP every 60 frames → fewer reference overhead
-  //   -tune ull: ultra-low-latency → maximum throughput
-  //   -rc-lookahead 0: disable lookahead → fastest encode
-  //   -spatial-aq 1: adaptive quantization for quality
-  if (isChunked) {
-    return [
-      '-preset', preset,
-      '-rc', 'vbr',
-      '-cq', codec === 'hevc' ? '26' : '22',
-      '-tune', 'ull',
-      '-bf', '0',
-      '-refs', '1',
-      '-g', '60',
-      '-rc-lookahead', '0',
-      '-spatial-aq', '1',
-      '-aq-strength', '8',
-      '-delay', '0',           // Zero-delay encoding — minimum buffering
-      '-surfaces', '32',      // Hardware surface pool — max throughput
-      '-extra_hw_frames', '3', // GPU surface buffering overlap
-    ]
-  }
-  return [
+function getNvencParams(codec: 'h264' | 'hevc', isChunked: boolean, gpuTier: 'high' | 'mid' | 'low' | 'software' = 'software'): string[] {
+  // GPU-aware preset selection:
+  //   RTX 5080 (high): p1 for chunked (speed), p3 for single (quality)
+  //   RTX 3060 (mid):  p2 for chunked, p3 for single
+  //   others (low):   p3 for both
+  const preset = isChunked
+    ? (gpuTier === 'high' ? 'p1' : gpuTier === 'mid' ? 'p2' : 'p3')
+    : 'p3'
+
+  // CQ tuning (lower = higher quality, larger file):
+  //   RTX 5080: chunked uses aggressive CQ for smaller files
+  //   Quality-focused: higher CQ = better quality per bitrate
+  const cq = codec === 'hevc'
+    ? (isChunked ? '28' : '26')
+    : (isChunked ? '24' : '22')
+
+  const tune = isChunked
+    ? (gpuTier === 'high' ? 'ull' : gpuTier === 'mid' ? 'll' : 'll')
+    : 'hq'
+
+  const params: string[] = [
     '-preset', preset,
     '-rc', 'vbr',
-    '-cq', codec === 'hevc' ? '28' : '23',
-    '-tune', 'hq',
-    '-bf', '0',
-    '-refs', '1',
-    '-g', '60',
-    '-rc-lookahead', '16',
-    '-spatial-aq', '1',
+    '-cq', cq,
+    '-tune', tune,
+    '-bf', '0',         // No B-frames → faster encode, hardware-compatible
+    '-refs', '1',       // Single reference frame → minimum latency
   ]
+
+  if (isChunked) {
+    params.push(
+      '-rc-lookahead', '0',  // Disable lookahead → zero-latency encode
+      '-spatial-aq', '1',    // Adaptive quantization for quality
+      '-aq-strength', '8',
+    )
+    // Hardware surface pool — RTX 5080: 32 surfaces (16GB VRAM), RTX 3060: 16 (12GB VRAM)
+    const surfaceCount = gpuTier === 'high' ? '32' : '16'
+    params.push('-surfaces', surfaceCount)
+  } else {
+    params.push(
+      '-rc-lookahead', '16', // Quality-focused lookahead
+      '-spatial-aq', '1',
+    )
+  }
+
+  return params
 }
 
 // ─── Pre-render text overlay to PNG (avoids CPU drawtext per-frame) ──────────────
@@ -393,8 +468,8 @@ export async function renderTextOverlay(
       '-y', quotePath(outputPath),
     ]
 
-    const cmd = buildArgs([ffmpeg, ...args])
-    const proc = spawn('cmd', ['/c', cmd], { shell: false, stdio: ['ignore', 'pipe', 'pipe'] })
+    const cmd = buildArgs(ffmpeg, args)
+    const proc = spawn(cmd, [], { shell: true, stdio: ['ignore', 'pipe', 'pipe'] })
     let stderr = ''
     proc.stderr?.on('data', (d) => { stderr += d.toString() })
     proc.on('close', (code) => {
@@ -479,8 +554,7 @@ async function findKeyframeSmart(
     let resolved = 0
     for (const targetTime of probePositions) {
       const seekFrom = Math.max(0, targetTime - 2)
-      const cmd = buildArgs([
-        ffprobe,
+      const args = [
         '-v', 'quiet',
         '-select_streams', 'v:0',
         '-show_entries', 'packet=pts_time,flags',
@@ -489,8 +563,9 @@ async function findKeyframeSmart(
         '-to', String(targetTime + 2),
         '-of', 'csv=p=0',
         quotePath(videoPath),
-      ])
-      const proc = spawn('cmd', ['/c', cmd], { shell: false, stdio: ['pipe', 'pipe', 'pipe'] })
+      ]
+      const cmd = buildArgs(ffprobe, args)
+      const proc = spawn(cmd, [], { shell: true, stdio: ['pipe', 'pipe', 'pipe'] })
       let stdout = ''
       proc.stdout?.on('data', (d) => { stdout += d.toString() })
       proc.on('close', () => {
@@ -524,12 +599,13 @@ async function findKeyframeSmart(
 export async function renderVideo(
   metadata: RenderMetadata,
   outputDir: string,
-  onProgress?: (progress: RenderProgress) => void
+  onProgress?: (progress: RenderProgress) => void,
+  gpuTier: 'high' | 'mid' | 'low' | 'software' = 'software',
 ): Promise<RenderResult> {
   const {
     workspace_id, source_video, export_resolution,
     video_speed, fps_target, overlays, trim,
-    codec = 'hevc', preset = 'p1', tune = 'hq', canvasBg = 'black',
+    codec = 'hevc', canvasBg = 'black',
     backgroundType = 'blur', backgroundColor = '#000000', backgroundImage,
     blur_background,
     isShort = true,
@@ -601,10 +677,10 @@ export async function renderVideo(
     isShort,
   })
 
-  // Determine output label
+  // Determine output label — [td] only valid when titleOverlayPath was actually generated.
+  // [fh] exists only when headerOl.src is set. Otherwise fall back to [vz].
   let mapOutput = '[vz]'
   if (titleOverlayPath) mapOutput = '[td]'
-  else if (titleOl?.content) mapOutput = '[td]'
   else if (headerOl?.src) mapOutput = '[fh]'
 
   // Build ffmpeg args
@@ -616,12 +692,9 @@ export async function renderVideo(
     // NVDEC GPU decode + threading for video processing
     '-c:v', codec === 'hevc' ? 'hevc_cuvid' : 'h264_cuvid',
     '-threads', '8',
-    '-fps_mode', 'cfr',
     '-avoid_negative_ts', 'make_zero',
     '-i', quotePath(source_video),
-    '-filter_hw_device', 'cuda',
-    // Multi-threaded filter pipeline — parallel CUDA filter execution
-    '-filter_threads', '16',
+    // NVDEC GPU decode via per-stream -c:v, filter runs on CPU
     ...(backgroundType === 'solid'
       ? ['-f', 'lavfi', '-i', `color=c=${backgroundColor}:s=${canvasW}x${canvasH}:d=1:r=1`]
       : backgroundType === 'image' && backgroundImage
@@ -638,7 +711,7 @@ export async function renderVideo(
     '-filter_complex', filterComplex,
     '-map', mapOutput,
     '-c:v', nvencCodec,
-    ...getNvencParams(codec, preset, false),
+    ...getNvencParams(codec, false, gpuTier),
     '-c:a', 'aac',
     '-b:a', '192k',
     '-r', String(fps_target),
@@ -701,6 +774,7 @@ export interface ChunkConfig {
   workers?: number
   chunkDuration?: number
   minChunkDuration?: number
+  gpuTier?: 'high' | 'mid' | 'low' | 'software'
 }
 
 export interface ChunkedResult extends RenderResult {
@@ -717,8 +791,6 @@ function buildChunkArgs(
   trimDuration: number,
   outputFile: string,
   codec: 'h264' | 'hevc',
-  preset: 'p1' | 'p2' | 'p3',
-  tune: 'hq' | 'll' | 'film',
   canvasW: number,
   canvasH: number,
   headerH: number,
@@ -729,6 +801,10 @@ function buildChunkArgs(
   titleOverlayPath: string | undefined,
   isShort: boolean | undefined,
   videoSpeed: number | undefined,
+  gpuTier: 'high' | 'mid' | 'low' | 'software' = 'software',
+  backgroundType?: 'blur' | 'solid' | 'image',
+  backgroundColor?: string,
+  backgroundImage?: string,
 ): string[] {
   const nvencCodec = codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'
 
@@ -736,9 +812,18 @@ function buildChunkArgs(
     ? ',setpts=' + (1 / videoSpeed) + '*PTS'
     : ''
 
-  const bgInput: string[] = blurBg
-    ? ['-i', quotePath(blurBg)]
-    : ['-f', 'lavfi', '-i', 'color=c=black:s=' + canvasW + 'x' + canvasH + ':d=1:r=1']
+  // Build background input based on type: blur (blurBg image), solid (lavfi color), image (image file)
+  let bgInput: string[]
+  if (backgroundType === 'solid') {
+    bgInput = ['-f', 'lavfi', '-i', `color=c=${backgroundColor || '#000000'}:s=${canvasW}x${canvasH}:d=1:r=1`]
+  } else if (backgroundType === 'image' && backgroundImage) {
+    bgInput = ['-i', quotePath(backgroundImage)]
+  } else {
+    // Default: blur background image (or fallback to black)
+    bgInput = blurBg
+      ? ['-i', quotePath(blurBg)]
+      : ['-f', 'lavfi', '-i', 'color=c=black:s=' + canvasW + 'x' + canvasH + ':d=1:r=1']
+  }
 
   if (!isShort) {
     const scaledAfterScaleH = Math.round(canvasW * 9 / 16)
@@ -753,7 +838,7 @@ function buildChunkArgs(
       sections.push('[0:v]scale=' + canvasW + ':-2,pad=ow:' + videoH + ':0:' + targetY + speedFilter + '[vid]')
     }
 
-    sections.push('[1:v]scale=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=exact[bg]')
+    sections.push('[1:v]scale=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease[bg]')
     sections.push('[bg][vid]overlay=0:' + videoTop + '[vz]')
 
     if (titleOverlayPath) {
@@ -762,19 +847,35 @@ function buildChunkArgs(
     }
     const filterChain = sections.join('; ')
     const mapOutput = titleOverlayPath ? '[final]' : '[vz]'
+
+    // Background input index: [0]=video, [1]=bg, [2]=titleOverlay
+    // For landscape, background is scaled to full canvas
+    let bgScaleFilter = '[1:v]scale=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease[bg]'
+    if (backgroundType === 'solid') {
+      // Solid bg: bgInput IS the full-canvas color, no extra scale needed
+      bgScaleFilter = '[1:v]null[bg]'
+    } else if (backgroundType === 'image' && backgroundImage) {
+      // Image bg: scale to full canvas
+      bgScaleFilter = '[1:v]scale=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease[bg]'
+    }
+    // Reorder filter sections: build sections[1] based on bgType
+    // Replace sections[1] with bgScaleFilter
+    const fixedSections = [sections[0], bgScaleFilter, ...sections.slice(2)]
+    const fixedFilterChain = fixedSections.join('; ')
+
     return [
       '-ss', String(trimStart), '-t', String(trimDuration),
       '-c:v', codec === 'hevc' ? 'hevc_cuvid' : 'h264_cuvid',
-      '-threads', '8', '-fps_mode', 'cfr',
+      '-threads', '8',
       '-avoid_negative_ts', 'make_zero',
       '-i', quotePath(sourceVideo),
       ...bgInput,
       ...(titleOverlayPath ? ['-i', quotePath(titleOverlayPath)] : []),
-      '-filter_hw_device', 'cuda', '-filter_threads', '16',
-      '-filter_complex', filterChain,
+      '-filter_threads', '16',
+      '-filter_complex', fixedFilterChain,
       '-map', mapOutput, '-map', '0:a?',
       '-c:v', nvencCodec,
-      ...getNvencParams(codec, preset, true),
+      ...getNvencParams(codec, true, gpuTier),
       '-max_muxing_queue_size', '512',
       '-c:a', 'aac', '-b:a', '192k',
       '-r', '30',
@@ -786,9 +887,19 @@ function buildChunkArgs(
   const padChain = ',pad=' + canvasW + ':' + canvasH + ':(ow-iw)/2:' + videoTop + '[vid]'
   const videoChain = scaleChain + speedFilter + padChain
 
+  // Build background filter for short mode based on background type
+  let bgFilter: string
+  if (backgroundType === 'solid') {
+    bgFilter = '[1:v]null[bg]'
+  } else if (backgroundType === 'image' && backgroundImage) {
+    bgFilter = '[1:v]scale=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease[bg]'
+  } else {
+    bgFilter = '[1:v]scale=' + canvasW + ':' + canvasH + '[bg]'
+  }
+
   const sections: string[] = [
     videoChain,
-    '[1:v]scale=' + canvasW + ':' + canvasH + '[bg]',
+    bgFilter,
     '[bg][vid]overlay=0:' + videoTop + '[vz]',
   ]
 
@@ -804,17 +915,15 @@ function buildChunkArgs(
     '-t', String(trimDuration),
     '-c:v', codec === 'hevc' ? 'hevc_cuvid' : 'h264_cuvid',
     '-threads', '8',
-    '-fps_mode', 'cfr',
     '-avoid_negative_ts', 'make_zero',
     '-i', quotePath(sourceVideo),
     ...bgInput,
     ...(titleOverlayPath ? ['-i', quotePath(titleOverlayPath)] : []),
-    '-filter_hw_device', 'cuda',
     '-filter_threads', '16',
     '-filter_complex', filterChain,
     '-map', mapOutput, '-map', '0:a?',
     '-c:v', nvencCodec,
-    ...getNvencParams(codec, preset, true),
+    ...getNvencParams(codec, true, gpuTier),
     '-max_muxing_queue_size', '512',
     '-c:a', 'aac', '-b:a', '192k',
     '-r', '30',
@@ -831,8 +940,6 @@ async function encodeChunk(
   durationSec: number,
   outputFile: string,
   codec: 'h264' | 'hevc',
-  preset: 'p1' | 'p2' | 'p3',
-  tune: 'hq' | 'll' | 'film',
   canvasW: number,
   canvasH: number,
   headerH: number,
@@ -844,18 +951,23 @@ async function encodeChunk(
   onProgress?: (percent: number) => void,
   isShort?: boolean,
   videoSpeed?: number,
+  gpuTier?: 'high' | 'mid' | 'low' | 'software',
+  backgroundType?: 'blur' | 'solid' | 'image',
+  backgroundColor?: string,
+  backgroundImage?: string,
 ): Promise<{ success: boolean; fileSize: number; encodeMs: number; error?: string; decodeFps?: number; encodeFps?: number }> {
   const ffmpeg = getFfmpegPath()
   const args = buildChunkArgs(
     sourceVideo, blurBg, startSec, durationSec, outputFile,
-    codec, preset, tune, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW,
-    titleOverlayPath, isShort, videoSpeed,
+    codec, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW,
+    titleOverlayPath, isShort, videoSpeed, gpuTier,
+    backgroundType, backgroundColor, backgroundImage,
   )
 
   return new Promise((resolve) => {
     const t0 = Date.now()
-    const cmd = buildArgs([ffmpeg, ...args])
-    const proc = spawn('cmd', ['/c', cmd], { shell: false, stdio: ['ignore', 'pipe', 'pipe'] })
+    const cmd = buildArgs(ffmpeg, args)
+    const proc = spawn(cmd, [], { shell: true, stdio: ['ignore', 'pipe', 'pipe'] })
 
     if (!chunkedProcesses.has(workspaceId)) chunkedProcesses.set(workspaceId, [])
     chunkedProcesses.get(workspaceId)!.push({ proc, outputFile })
@@ -863,25 +975,37 @@ async function encodeChunk(
     let lastPct = 0
     let decodeFps = 0
     let encodeFps = 0
+    // Ring buffer for stderr — scan recent lines only to avoid stale banner matches
+    const LINE_BUF_SIZE = 100
+    const lineBuf: string[] = []
+
     proc.stderr?.on('data', (data) => {
-      const text = data.toString()
-      // Parse fps=X and speed=X from FFmpeg progress line
-      const fpsM = text.match(/fps=\s*([\d.]+)/)
-      const speedM = text.match(/speed=\s*([\d.]+)x/)
+      const chunk = data.toString()
+      const lines = chunk.split('\n')
+      for (const line of lines) {
+        if (line.trim()) {
+          lineBuf.push(line)
+          if (lineBuf.length > LINE_BUF_SIZE) lineBuf.shift()
+        }
+      }
+
+      // Scan only recent lines (avoids early banner matching)
+      const recent = lineBuf.slice(-20).join('\n')
+      const fpsM = recent.match(/fps=\s*([\d.]+)/)
+      const speedM = recent.match(/speed=\s*([\d.]+)x/)
       if (fpsM) {
         const v = parseFloat(fpsM[1])
         if (speedM) {
           const spd = parseFloat(speedM[1])
-          // During decode, fps ~= decode speed; later it reflects encode speed
-          if (spd < 0.5) decodeFps = v // very slow = decode phase
-          else encodeFps = v           // normal/encode phase
+          if (spd < 0.5) decodeFps = v
+          else encodeFps = v
         }
       }
-      const m = text.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d+)/)
+      const m = recent.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d+)/)
       if (m && onProgress) {
         const h = parseInt(m[1]), min = parseInt(m[2]), s = parseFloat(m[3])
         const cur = h * 3600 + min * 60 + s
-        const pct = Math.min(100, (cur / durationSec) * 100)
+        const pct = Math.min(99, (cur / durationSec) * 100)
         if (Math.abs(pct - lastPct) >= 1) { lastPct = pct; onProgress(pct) }
       }
     })
@@ -915,6 +1039,7 @@ async function mergeChunks(
   workspaceId: string,
   chunkFiles: string[],
   outputFile: string,
+  totalDuration: number,
   onProgress?: (pct: number) => void,
 ): Promise<{ success: boolean; fileSize: number; error?: string }> {
   if (chunkFiles.length === 1) {
@@ -938,21 +1063,32 @@ async function mergeChunks(
   ]
 
   return new Promise((resolve) => {
-    const cmd = buildArgs([ffmpeg, ...args])
-    const proc = spawn('cmd', ['/c', cmd], { shell: false, stdio: ['ignore', 'pipe', 'pipe'] })
+    const cmd = buildArgs(ffmpeg, args)
+    const proc = spawn(cmd, [], { shell: true, stdio: ['ignore', 'pipe', 'pipe'] })
     mergeProcess.set(workspaceId, proc)
 
-    let stderr = ''
+    // Ring buffer for stderr (same approach as runFfmpeg)
+    const LINE_BUF_SIZE = 100
+    const lineBuf: string[] = []
     let lastPct = 0
 
     proc.stderr?.on('data', (data) => {
-      const text = data.toString()
-      stderr += text
-      const m = text.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d+)/)
+      const chunk = data.toString()
+      const lines = chunk.split('\n')
+      for (const line of lines) {
+        if (line.trim()) {
+          lineBuf.push(line)
+          if (lineBuf.length > LINE_BUF_SIZE) lineBuf.shift()
+        }
+      }
+
+      // Only scan recent lines for progress (avoids stale banner matches)
+      const recent = lineBuf.slice(-20).join('\n')
+      const m = recent.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d+)/)
       if (m && onProgress) {
         const h = parseInt(m[1]), min = parseInt(m[2]), s = parseFloat(m[3])
         const cur = h * 3600 + min * 60 + s
-        const pct = Math.min(98, ((cur / (chunkFiles.length * 10)) * 100))
+        const pct = Math.min(100, (cur / totalDuration) * 100)
         if (Math.abs(pct - lastPct) >= 1) { lastPct = pct; onProgress(pct) }
       }
     })
@@ -961,7 +1097,8 @@ async function mergeChunks(
       mergeProcess.delete(workspaceId)
       try { fs.unlinkSync(listFile) } catch {}
       if (code !== 0 || !fs.existsSync(outputFile)) {
-        resolve({ success: false, fileSize: 0, error: stderr || `Concat ${code}` })
+        const recent = lineBuf.slice(-10).join(' | ')
+        resolve({ success: false, fileSize: 0, error: recent || `Concat ${code}` })
       } else {
         let size = 0
         try { size = fs.statSync(outputFile).size } catch {}
@@ -969,16 +1106,21 @@ async function mergeChunks(
       }
     })
 
+    // Timeout: 1s per minute of content + 30s overhead (min 60s)
+    const timeout = Math.max(60_000, Math.ceil(totalDuration * 1000) + 30_000)
     setTimeout(() => {
       if (!proc.killed) proc.kill()
       mergeProcess.delete(workspaceId)
       try { fs.unlinkSync(listFile) } catch {}
       resolve({ success: false, fileSize: 0, error: 'Concat timeout' })
-    }, 60_000)
+    }, timeout)
   })
 }
 
 // ─── Chunked render ────────────────────────────────────────────────────────────
+// LIMITATION: Only supports blur background. Solid/image backgrounds fall back
+// to black (lavfi color). If non-blur backgrounds are needed, use single-pass
+// render instead.
 
 export async function renderChunked(
   metadata: RenderMetadata,
@@ -987,12 +1129,11 @@ export async function renderChunked(
   onProgress?: (progress: RenderProgress & { phase: 'split' | 'encode' | 'merge'; chunkIndex?: number }) => void,
 ): Promise<ChunkedResult> {
   const {
-    workspace_id, source_video, blur_background, trim, export_resolution, codec = 'hevc', preset = 'p1',
-    backgroundType = 'blur', backgroundColor = '#000000', backgroundImage,
+    workspace_id, source_video, blur_background, trim, export_resolution, codec = 'hevc',
     isShort = true, overlays, video_speed,
   } = metadata
   const vidHeightPct = metadata.vidHeightPct ?? 50
-  const { workers = 8, chunkDuration = 120, minChunkDuration = 10 } = config
+  const { workers = 8, chunkDuration = 120, minChunkDuration = 10, gpuTier = 'software' } = config
 
   const [outW, outH] = metadata.export_resolution.split('x').map(Number)
   const canvasW = outW || 1080
@@ -1007,8 +1148,10 @@ export async function renderChunked(
   const trimEnd = trim.end
   const totalDuration = trimEnd - trimStart
 
+  // Short duration → single-pass (no chunking overhead needed)
+  // All background types (blur, solid, image) now support chunked mode.
   if (totalDuration <= 60) {
-    const simple = await renderVideo(metadata, outputDir, onProgress as any)
+    const simple = await renderVideo(metadata, outputDir, onProgress as any, gpuTier)
     return { ...simple, chunks: [], totalEncodeMs: 0 }
   }
 
@@ -1037,7 +1180,6 @@ export async function renderChunked(
       }
     }
   } else {
-    const targetChunks = Math.ceil(totalDuration / chunkDuration)
     for (let i = 1; i < targetChunks; i++) {
       splitPoints.push(trimStart + i * (totalDuration / targetChunks))
     }
@@ -1075,7 +1217,7 @@ export async function renderChunked(
 
       const result = await encodeChunk(
         workspace_id, source_video, blur_background || '', startSec, durationSec, chunkFile,
-        codec as 'h264' | 'hevc', preset as 'p1' | 'p2' | 'p3', (metadata.tune as 'hq' | 'll' | 'film') ?? 'hq',
+        codec as 'h264' | 'hevc',
         canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW,
         titleOverlayPath ?? undefined,
         (pct) => {
@@ -1084,6 +1226,10 @@ export async function renderChunked(
         },
         isShort,
         video_speed,
+        gpuTier,
+        metadata.backgroundType,
+        metadata.backgroundColor,
+        metadata.backgroundImage,
       )
 
       return { idx, startSec, endSec, chunkFile, result }
@@ -1110,6 +1256,7 @@ export async function renderChunked(
     workspace_id,
     chunks.map(c => c.outputPath),
     outputFile,
+    totalDuration,
     (pct) => onProgress?.({ workspaceId: workspace_id, percent: 95 + pct * 0.05, currentTime: 0, totalTime: 0, fps: 0, speed: '', bitrate: '', phase: 'merge' }),
   )
 
@@ -1125,6 +1272,15 @@ export async function renderChunked(
   if (!mergeResult.success) {
     return { success: false, workspaceId: workspace_id, chunks, totalEncodeMs, error: mergeResult.error }
   }
+
+  // Cleanup chunk files and workspace directory after successful merge
+  try {
+    for (const chunk of chunks) {
+      try { fs.unlinkSync(chunk.outputPath) } catch {}
+    }
+    const workspaceDir = path.join(outputDir, 'chunks', workspace_id)
+    try { fs.rmSync(workspaceDir, { recursive: true, force: true }) } catch {}
+  } catch {}
 
   return {
     success: true,

@@ -44,6 +44,12 @@ export const ipc = {
   async retryWorkspace(id: string) {
     return window.electronAPI?.retryWorkspace(id)
   },
+  async regenerateWorkspaceBlur(id: string) {
+    return window.electronAPI?.regenerateWorkspaceBlur(id)
+  },
+  async splitWorkspace(id: string, partMinutes = 10) {
+    return window.electronAPI?.splitWorkspace(id, partMinutes)
+  },
   async getVideoFile(workspaceId: string) {
     return window.electronAPI?.getVideoFile(workspaceId) ?? null
   },
@@ -105,7 +111,7 @@ export const ipc = {
   async getSettings() {
     return window.electronAPI?.getSettings() ?? { videoStoragePath: undefined, outputPath: undefined }
   },
-  async updateSettings(patch: { videoStoragePath?: string; outputPath?: string }) {
+  async updateSettings(patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full' }) {
     return window.electronAPI?.updateSettings(patch)
   },
   async getAuthStatus() {
@@ -134,7 +140,7 @@ export const ipc = {
     return window.electronAPI?.removeKey(key) ?? { success: false, keys: [] }
   },
   async resetKey(key?: string) {
-    return window.electronAPI?.resetKey(key) ?? { success: false, keys: [] }
+    return window.electronAPI?.resetKey(key) ?? { success: false, keys: [], nextReset: 0 }
   },
   async adminCheckPassword(password: string) {
     return window.electronAPI?.adminCheckPassword(password) ?? { ok: false }
@@ -183,5 +189,27 @@ export const ipc = {
 
   async openSessionLogin(profileId: string) {
     return window.electronAPI?.openSessionLogin(profileId) ?? { success: false }
+  },
+
+  // ─── Rendered Videos ────────────────────────────────────────────────────────────
+
+  async getRenderedVideos() {
+    return window.electronAPI?.getRenderedVideos() ?? []
+  },
+
+  async archiveRendered(workspaceId: string, customArchiveDir?: string) {
+    return window.electronAPI?.archiveRendered(workspaceId, customArchiveDir) ?? { success: false, error: 'electronAPI not available' }
+  },
+
+  async removeRenderedVideo(id: string) {
+    return window.electronAPI?.removeRenderedVideo(id) ?? { success: false }
+  },
+
+  async openRenderedFolder(id?: string) {
+    return window.electronAPI?.openRenderedFolder(id) ?? { success: false }
+  },
+
+  async setRenderedArchivePath(path: string) {
+    return window.electronAPI?.setRenderedArchivePath(path) ?? { success: false }
   },
 }

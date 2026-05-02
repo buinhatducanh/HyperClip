@@ -12,7 +12,59 @@ import path from 'path'
 import fs from 'fs'
 import os from 'os'
 import https from 'https'
-import { getOAuthClientId, getOAuthClientSecret } from './youtube_auth.js'
+
+// Direct fallback helpers that don't depend on token_manager state
+function _getDefaultClientId(): string {
+  // Try oauth_tokens.json first (credentials embedded per token entry)
+  try {
+    if (fs.existsSync(TOKENS_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf-8'))
+      const tokens = Array.isArray(raw) ? raw : (raw?.access_token ? [raw] : [])
+      for (const t of tokens) {
+        if ((t as any).clientId) return (t as any).clientId
+      }
+    }
+  } catch {}
+  // Fall back to oauth_config.json
+  const configFile = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json')
+  try {
+    if (fs.existsSync(configFile)) {
+      const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
+      if (typeof config === 'object') {
+        if (config.client_id) return config.client_id
+        for (const pid of ['proj-01', 'proj-02', 'proj-03', 'proj-04']) {
+          if (config[pid]?.clientId) return config[pid].clientId
+        }
+      }
+    }
+  } catch {}
+  return ''
+}
+
+function _getDefaultClientSecret(): string {
+  try {
+    if (fs.existsSync(TOKENS_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf-8'))
+      const tokens = Array.isArray(raw) ? raw : (raw?.access_token ? [raw] : [])
+      for (const t of tokens) {
+        if ((t as any).clientSecret) return (t as any).clientSecret
+      }
+    }
+  } catch {}
+  const configFile = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json')
+  try {
+    if (fs.existsSync(configFile)) {
+      const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
+      if (typeof config === 'object') {
+        if (config.client_secret) return config.client_secret
+        for (const pid of ['proj-01', 'proj-02', 'proj-03', 'proj-04']) {
+          if (config[pid]?.clientSecret) return config[pid].clientSecret
+        }
+      }
+    }
+  } catch {}
+  return ''
+}
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -58,6 +110,7 @@ class TokenManager {
   private _tokens: OAuthTokenSet[] = []
   private _stats: Map<string, TokenStats> = new Map()
   private _lastReset: number = Date.now()
+  private _lastResetPTDate: string = ''  // tracks PT date for midnight-PT reset
   private _initialized: boolean = false
   private _refreshTimer: ReturnType<typeof setInterval> | null = null
 
@@ -80,8 +133,9 @@ class TokenManager {
   }
 
   private _loadTokens(): void {
-    const defaultClientId = getOAuthClientId()
-    const defaultClientSecret = getOAuthClientSecret()
+    // Use direct helpers that read from oauth_tokens.json first, avoiding circular import
+    const defaultClientId = _getDefaultClientId()
+    const defaultClientSecret = _getDefaultClientSecret()
     try {
       if (fs.existsSync(TOKENS_FILE)) {
         const raw = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf-8'))
@@ -140,6 +194,7 @@ class TokenManager {
         const raw = JSON.parse(fs.readFileSync(STATS_FILE, 'utf-8'))
         this._stats = new Map(Object.entries(raw.stats || {}))
         this._lastReset = raw.lastReset || Date.now()
+        this._lastResetPTDate = raw.lastResetPTDate || ''
       }
     } catch {}
   }
@@ -159,18 +214,45 @@ class TokenManager {
       for (const [k, v] of this._stats) obj[k] = v
       const dir = path.dirname(STATS_FILE)
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-      fs.writeFileSync(STATS_FILE, JSON.stringify({ stats: obj, lastReset: this._lastReset }, null, 2), 'utf-8')
+      fs.writeFileSync(STATS_FILE, JSON.stringify({ stats: obj, lastReset: this._lastReset, lastResetPTDate: this._lastResetPTDate }, null, 2), 'utf-8')
     } catch (e) {
       console.error('[TokenManager] Failed to persist stats:', e)
     }
   }
 
+  /**
+   * Check if we need to reset daily stats.
+   * Resets at midnight PT (Pacific Time), aligned with Google's quota reset.
+   * Uses UTC + DST offset to compute PT without external timezone APIs.
+   */
   private _checkReset(): void {
-    if (Date.now() - this._lastReset > 24 * 60 * 60 * 1000) {
+    const now = new Date()
+    const utcHour = now.getUTCHours()
+
+    // PT is UTC-7 (PDT, summer) or UTC-8 (PST, winter)
+    // DST: second Sunday in March → first Sunday in November
+    const utcYear = now.getUTCFullYear()
+    const march1 = new Date(Date.UTC(utcYear, 2, 1))
+    const firstSundayMarch = new Date(Date.UTC(utcYear, 2, march1.getUTCDay() === 0 ? 1 : 8 - march1.getUTCDay()))
+    const dstStart = new Date(Date.UTC(utcYear, 2, firstSundayMarch.getUTCDate()))
+    const nov1 = new Date(Date.UTC(utcYear, 10, 1))
+    const firstSundayNov = new Date(Date.UTC(utcYear, 10, nov1.getUTCDay() === 0 ? 1 : 8 - nov1.getUTCDay()))
+    const dstEnd = new Date(Date.UTC(utcYear, 10, firstSundayNov.getUTCDate()))
+
+    const isPDT = now >= dstStart && now < dstEnd
+    const ptOffsetHours = isPDT ? -7 : -8
+    const ptHour = utcHour + ptOffsetHours
+
+    const ptDateStr = ptHour >= 0
+      ? `${utcYear}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
+      : `${utcYear}-${String(new Date(now.getTime() - 86400000).getUTCMonth() + 1).padStart(2, '0')}-${String(new Date(now.getTime() - 86400000).getUTCDate()).padStart(2, '0')}`
+
+    if (this._lastResetPTDate !== ptDateStr) {
       this._stats.clear()
       this._lastReset = Date.now()
+      this._lastResetPTDate = ptDateStr
       this._saveStats()
-      console.log('[TokenManager] Daily reset — all token quotas refreshed')
+      console.log(`[TokenManager] Daily reset at midnight PT (${ptDateStr}) — all token quotas refreshed`)
     }
   }
 
@@ -355,13 +437,27 @@ class TokenManager {
     this._saveStats()
   }
 
-  /** Record an error for a project */
+  /** Record an error for a project — increments error count without consuming quota units */
   recordError(projectId: string): void {
     const s = this._stats.get(projectId) || { usedToday: 0, errors: 0, lastUsed: 0 }
     s.errors++
     this._stats.set(projectId, s)
     this._saveStats()
     console.warn(`[TokenManager] Error on ${projectId} — errors: ${s.errors}`)
+  }
+
+  /** Track an API error (e.g., 403 quota exceeded) — increments usedToday to push exhausted tokens out of rotation */
+  trackError(projectId: string): void {
+    const s = this._stats.get(projectId) || { usedToday: 0, errors: 0, lastUsed: 0 }
+    // Add 100 units to simulate quota hit — pushes exhausted tokens above MAX_UNITS_PER_KEY threshold
+    // This ensures getBestAvailable() skips them even without an actual quota error from the API
+    const QUOTA_HIT_UNITS = 100
+    s.usedToday += QUOTA_HIT_UNITS
+    s.errors++
+    s.lastUsed = Date.now()
+    this._stats.set(projectId, s)
+    this._saveStats()
+    console.warn(`[TokenManager] trackError(${projectId}): +${QUOTA_HIT_UNITS} units, errors: ${s.errors} → usedToday: ${s.usedToday}`)
   }
 
   // ── CRUD ─────────────────────────────────────────────────────────────────

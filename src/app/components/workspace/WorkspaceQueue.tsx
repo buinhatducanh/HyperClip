@@ -2,18 +2,21 @@
 
 import { useState } from 'react'
 import type { Workspace } from '../../lib/store'
+import type { RenderedVideo } from '../../types'
 import { WorkspaceCard } from './WorkspaceCard'
-import { InputBar } from './InputBar'
+import { RenderedVideos } from '../RenderedVideos'
 
 interface Props {
   workspaces: Workspace[]
+  renderedVideos?: RenderedVideo[]
   selectedId: string | null
   onSelect: (id: string) => void
   onQuickAction?: (action: 'open' | 'delete', id: string) => void
-  onAddTracker: (url: string, trimLimit: number | 'full') => void
-  onAddChannel: (url: string) => void
-  defaultTrimLimit: number | 'full'
   onRetry?: (id: string) => void
+  onRemoveRendered?: (id: string) => void
+  onShowToast?: (msg: string) => void
+  onSplit?: (id: string, partMinutes: number) => void
+  trimLimitMinutes?: number
 }
 
 type GroupStatus = 'ready' | 'rendering' | 'downloading' | 'waiting' | 'editing' | 'done'
@@ -43,8 +46,8 @@ function groupByStatus(workspaces: Workspace[]): Map<GroupStatus, Workspace[]> {
   return groups
 }
 
-export function WorkspaceQueue({ workspaces, selectedId, onSelect, onQuickAction, onAddTracker, onAddChannel, defaultTrimLimit, onRetry }: Props) {
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<GroupStatus>>(new Set(['done']))
+export function WorkspaceQueue({ workspaces, renderedVideos = [], selectedId, onSelect, onQuickAction, onRetry, onRemoveRendered, onShowToast, onSplit, trimLimitMinutes = 10 }: Props) {
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<GroupStatus>>(new Set<GroupStatus>(['done']))
   const groups = groupByStatus(workspaces)
 
   const toggleGroup = (status: GroupStatus) => {
@@ -64,9 +67,6 @@ export function WorkspaceQueue({ workspaces, selectedId, onSelect, onQuickAction
 
   return (
     <div className="flex flex-col h-full" style={{ background: '#121212' }}>
-      {/* Top Input Bar */}
-      <InputBar defaultTrimLimit={defaultTrimLimit} onAddTracker={onAddTracker} onAddChannel={onAddChannel} />
-
       {/* Queue header */}
       <div
         className="flex items-center justify-between px-4 shrink-0"
@@ -107,7 +107,7 @@ export function WorkspaceQueue({ workspaces, selectedId, onSelect, onQuickAction
             </svg>
             <span style={{ fontSize: 11, color: '#333', textAlign: 'center', lineHeight: 1.5 }}>
               No videos yet<br />
-              <span style={{ color: '#2A2A2A', fontSize: 10 }}>Add a channel to start automation</span>
+              <span style={{ color: '#2A2A2A', fontSize: 10 }}>Add a channel in Settings →</span>
             </span>
           </div>
         ) : (
@@ -181,6 +181,8 @@ export function WorkspaceQueue({ workspaces, selectedId, onSelect, onQuickAction
                     onClick={() => onSelect(ws.id)}
                     onQuickAction={onQuickAction}
                     onRetry={onRetry}
+                    onSplit={onSplit}
+                    trimLimitMinutes={trimLimitMinutes}
                   />
                 ))}
               </div>
@@ -188,6 +190,13 @@ export function WorkspaceQueue({ workspaces, selectedId, onSelect, onQuickAction
           })
         )}
       </div>
+
+      {/* Rendered videos section */}
+      <RenderedVideos
+        videos={renderedVideos}
+        onRemove={(id) => onRemoveRendered?.(id)}
+        onShowToast={(msg) => onShowToast?.(msg)}
+      />
     </div>
   )
 }

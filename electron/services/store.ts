@@ -75,6 +75,7 @@ function makeStorableDownloadedPath(absPath: string): string {
 const SUBS_FILE = path.join(STORE_DIR, 'subscriptions.json')
 const CHANNELS_FILE = path.join(STORE_DIR, 'channels.json')
 const SEEN_VIDEOS_FILE = path.join(STORE_DIR, 'seen-videos.json')
+const RENDERED_FILE = path.join(STORE_DIR, 'rendered.json')
 
 // ─── Channel store ───────────────────────────────────────────────────────────────
 
@@ -215,6 +216,14 @@ export interface WorkspaceData {
   updatedAt: string
   /** Detected on download: true = vertical 9:16 short, false = landscape 16:9+ video */
   isShort?: boolean
+  /** When YouTube posted this video (ISO timestamp from API) */
+  publishedAt?: string
+  /** When HyperClip first detected this video (ISO timestamp) */
+  detectedAt?: string
+  /** ISO timestamp — retryableAt must be in the past before retrying a 'waiting' workspace */
+  retryableAt?: string
+  /** Video resolution (e.g. "1920x1080", "1080x1920") */
+  videoResolution?: string
 }
 
 interface Store {
@@ -281,20 +290,41 @@ function resolveWorkspacePaths(ws: WorkspaceData): WorkspaceData {
 }
 
 // Scan known storage directories for a file matching {workspaceId}_*.mp4
-function findDownloadedFile(workspaceId: string): string | null {
+// Uses in-memory cache with 60s TTL to avoid O(n) scans on every workspace load.
+const _fileIndexCache = new Map<string, { absPath: string; cachedAt: number }>()
+let _fileIndexLastBuild = 0
+
+function rebuildFileIndex(): void {
+  _fileIndexCache.clear()
   for (const dir of getKnownStorageDirs()) {
     try {
       if (!fs.existsSync(dir)) continue
-      const files = fs.readdirSync(dir).filter(f =>
-        (f.startsWith(workspaceId + '_') || f.startsWith(workspaceId + '.')) && f.endsWith('.mp4')
-      )
-      if (files.length > 0) {
-        console.log(`[store] Found file for ${workspaceId}: ${files[0]} (in ${dir})`)
-        return path.join(dir, files[0])
+      const files = fs.readdirSync(dir).filter(f => f.endsWith('.mp4'))
+      for (const file of files) {
+        // Pattern: workspaceId_filename.mp4 or workspaceId.mp4
+        const base = file.replace(/\.mp4$/, '')
+        const underscoreIdx = base.indexOf('_')
+        const workspaceId = underscoreIdx !== -1 ? base.slice(0, underscoreIdx) : base
+        if (workspaceId) {
+          _fileIndexCache.set(workspaceId, { absPath: path.join(dir, file), cachedAt: Date.now() })
+        }
       }
     } catch {}
   }
-  return null
+  _fileIndexLastBuild = Date.now()
+}
+
+function findDownloadedFile(workspaceId: string): string | null {
+  // Serve from cache if fresh
+  const now = Date.now()
+  if (now - _fileIndexLastBuild > FILE_INDEX_TTL_MS) {
+    rebuildFileIndex()
+  }
+  const cached = _fileIndexCache.get(workspaceId)
+  if (cached) return cached.absPath
+  // Not in cache — rebuild and check again (new file)
+  rebuildFileIndex()
+  return _fileIndexCache.get(workspaceId)?.absPath ?? null
 }
 
 // Add new workspace
@@ -384,7 +414,74 @@ export function clearDoneWorkspaces(): number {
   return before - store.workspaces.length
 }
 
-// ─── Seen videos persistence ─────────────────────────────────────────────────────
+// ─── Rendered videos store ───────────────────────────────────────────────────────
+
+const MAX_RENDERED_ENTRIES = 500
+const MAX_RENDERED_DAYS = 30
+const FILE_INDEX_TTL_MS = 60_000
+
+export interface RenderedVideoRecord {
+  id: string
+  workspaceId: string
+  channelId: string
+  channelName: string
+  videoTitle: string
+  archivedPath: string
+  outputPath: string   // original output path (before archive)
+  quality: number      // 360, 720, or 1080
+  codec: string        // 'h264' or 'hevc'
+  fileSize: number     // bytes
+  duration: number     // seconds
+  thumbnail: string
+  /** base64 JPEG data URI — populated on render completion, survives workspace deletion */
+  thumbnailData?: string
+  renderedAt: string   // ISO timestamp
+}
+
+function loadRendered(): RenderedVideoRecord[] {
+  ensureDir()
+  if (!fs.existsSync(RENDERED_FILE)) return []
+  try {
+    return JSON.parse(fs.readFileSync(RENDERED_FILE, 'utf-8')) as RenderedVideoRecord[]
+  } catch { return [] }
+}
+
+function saveRendered(videos: RenderedVideoRecord[]): void {
+  ensureDir()
+  fs.writeFileSync(RENDERED_FILE, JSON.stringify(videos, null, 2), 'utf-8')
+}
+
+// Prune oldest entries if over limit or older than MAX_RENDERED_DAYS
+function pruneRenderedVideos(videos: RenderedVideoRecord[]): RenderedVideoRecord[] {
+  const cutoffMs = Date.now() - MAX_RENDERED_DAYS * 24 * 60 * 60 * 1000
+  const pruned = videos
+    .filter(v => new Date(v.renderedAt).getTime() > cutoffMs)
+    .slice(0, MAX_RENDERED_ENTRIES)
+  return pruned
+}
+
+export function getRenderedVideos(): RenderedVideoRecord[] {
+  return loadRendered()
+}
+
+export function addRenderedVideo(video: RenderedVideoRecord): void {
+  const all = loadRendered()
+  all.unshift(video) // newest first
+  const pruned = pruneRenderedVideos(all)
+  saveRendered(pruned)
+}
+
+export function removeRenderedVideo(id: string): boolean {
+  const all = loadRendered()
+  const before = all.length
+  saveRendered(all.filter(v => v.id !== id))
+  return all.length !== before
+}
+
+export function getRenderedVideosByChannel(channelId: string): RenderedVideoRecord[] {
+  return loadRendered().filter(v => v.channelId === channelId)
+}
+
 // Tracks which videoIds have been triggered for auto-download, persisted to disk.
 // Prevents re-downloading the same video across app restarts.
 // Map<channelId, { videoIds: string[], expiresAt: number }>

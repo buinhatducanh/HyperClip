@@ -428,22 +428,7 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
     return { success: true, workspaceId, filePath: existingFile, duration, fileSize }
   }
 
-  // Map trimLimit to section range in HH:MM:SS
-  // number = minutes (e.g., 10 → *00:00:00-00:10:00), 'full' = no trim
-  let sectionArg: string | null = null
-  if (typeof trimLimit === 'number' && trimLimit > 0) {
-    const totalSeconds = trimLimit * 60
-    const hh = Math.floor(totalSeconds / 3600)
-    const mm = Math.floor((totalSeconds % 3600) / 60)
-    const ss = totalSeconds % 60
-    const endHH = String(hh).padStart(2, '0')
-    const endMM = String(mm).padStart(2, '0')
-    const endSS = String(ss).padStart(2, '0')
-    sectionArg = `*00:00:00-${endHH}:${endMM}:${endSS}`
-  }
-  // 'full' = null (download entire video)
-
-  // Core download: spawns yt-dlp with given extra args, resolves with result
+  // Core download: spawns yt-dlp, resolves with result
   const doDownload = (extraArgs: string[]): Promise<DownloadResult> => {
     const outputTemplate = path.join(outputDir, `${workspaceId}_%(id)s.%(ext)s`)
 
@@ -451,9 +436,6 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
       videoUrl,
       ...getJsRuntimeArgs(),
       // Format selector: prefer H.264+AAC, fallback to best available.
-      // - Avoid VP9/AV1 first to ensure broad compatibility
-      // - Avoid forcing MP4 remux (--merge-output-format removed) — WebM plays fine
-      // - yt-dlp picks the best available format naturally after exclusions
       '-f', 'bestvideo[vcodec!=vp9][vcodec!=av1]+bestaudio[acodec!=opus]/bestvideo+bestaudio/bestvideo/bestaudio/best',
       '--output', outputTemplate,
       '--no-playlist',
@@ -473,7 +455,7 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
       let stdout = ''
       let stderr = ''
       let downloadedFile = ''
-      let procStarted = false
+      let progressEmitted = false
 
       const proc = spawn(ytdlp, args, {
         env: { ...process.env, PATH: enrichedPath },
@@ -483,16 +465,25 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
         resolve({ success: false, workspaceId, error: `spawn error: ${err.message}` })
       })
 
+      // Emit progress IMMEDIATELY when process spawns.
+      // yt-dlp outputs no % lines while YouTube is "processing" (fresh uploads).
+      // Users see 0% forever without this — so show "downloading" right away.
+      onProgress?.({ workspaceId, percent: 0, speed: '...', eta: '...', downloaded: '', total: '' })
+
       proc.stdout?.on('data', (data) => {
         const text = data.toString()
         stdout += text
+        // Parse standard progress line: "  25.3% of   45.00MiB at  1.23MiB/s ETA 0:32"
         const progressMatch = text.match(/(\d+\.?\d*)%.*at\s+([\d.]+\w+)\s+ETA\s+([\d:]+)/)
-        const destMatch = text.match(/Destination:\s+(.+)/)
+        // Fallback: just percent + file size (for section downloads that omit speed/ETA)
+        const pctMatch = text.match(/(\d+\.?\d*)%.*(?:of\s+[^\s]+\s+)?(?:at\s+([\d.]+\w+)\/s)?\s*(?:ETA\s+([\d:]+))?/)
+        const destMatch = text.match(/(?:Dest(?:ination)?):\s*(.+)/)
         const mergeMatch = text.match(/Merging formats into "(.+)"/)
         const errorMatch = text.match(/ERROR.*?:?\s*(.+)/)
 
+
         if (progressMatch) {
-          if (!procStarted) { console.log(`[yt-dlp] Download started!`); procStarted = true }
+          if (!progressEmitted) { console.log(`[yt-dlp] Download started!`); progressEmitted = true }
           onProgress?.({
             workspaceId,
             percent: parseFloat(progressMatch[1]),
@@ -501,6 +492,19 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
             downloaded: '',
             total: '',
           })
+        } else if (pctMatch) {
+          const pct = parseFloat(pctMatch[1])
+          if (pct >= 0 && pct <= 100) {
+            if (!progressEmitted) { console.log(`[yt-dlp] Download started!`); progressEmitted = true }
+            onProgress?.({
+              workspaceId,
+              percent: pct,
+              speed: pctMatch[2] ? pctMatch[2] + '/s' : '',
+              eta: pctMatch[3] || '',
+              downloaded: '',
+              total: '',
+            })
+          }
         } else if (destMatch) {
           console.log(`[yt-dlp] Dest: ${destMatch[1].trim()}`)
         } else if (mergeMatch) {
@@ -508,20 +512,57 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
           console.log(`[yt-dlp] Merged to: ${downloadedFile}`)
         } else if (errorMatch) {
           stderr += errorMatch[1] + '\n'
+        } else if (text.includes('[download]') && !text.includes('%') && !text.includes('ERROR')) {
+          // Log interesting download events: fragment info, merge steps, etc.
+          const trimmed = text.trim().slice(0, 120)
+          if (trimmed) console.log(`[yt-dlp] ${trimmed}`)
         }
       })
 
       proc.stderr?.on('data', (data) => {
         const text = data.toString()
         stderr += text
-        const destMatch = text.match(/\[download\]\s+Destination:\s+(.+)/)
-        if (destMatch && !downloadedFile) downloadedFile = destMatch[1].trim()
+
+        // On Windows, yt-dlp sends progress to stderr — parse it here
+        const progressMatch = text.match(/(\d+\.?\d*)%.*at\s+([\d.]+\w+)\s+ETA\s+([\d:]+)/)
+        const pctMatch = text.match(/(\d+\.?\d*)%.*(?:of\s+[^\s]+\s+)?(?:at\s+([\d.]+\w+)\/s)?\s*(?:ETA\s+([\d:]+))?/)
+        // Match both formats: "[download] Destination: ..." and "[yt-dlp] Dest: ..."
+        const destMatch = text.match(/(?:\[download\]\s*Dest(?:ination)?:|\[yt-dlp\]\s*Dest:)\s*(.+)/)
         const mergeMatch = text.match(/\[download\] Merging formats into "(.+)"/)
-        if (mergeMatch) downloadedFile = mergeMatch[1]
+
+        if (progressMatch) {
+          if (!progressEmitted) { console.log(`[yt-dlp] Download started!`); progressEmitted = true }
+          onProgress?.({
+            workspaceId,
+            percent: parseFloat(progressMatch[1]),
+            speed: progressMatch[2],
+            eta: progressMatch[3],
+            downloaded: '',
+            total: '',
+          })
+        } else if (pctMatch) {
+          const pct = parseFloat(pctMatch[1])
+          if (pct >= 0 && pct <= 100) {
+            if (!progressEmitted) { console.log(`[yt-dlp] Download started!`); progressEmitted = true }
+            onProgress?.({
+              workspaceId,
+              percent: pct,
+              speed: pctMatch[2] ? pctMatch[2] + '/s' : '',
+              eta: pctMatch[3] || '',
+              downloaded: '',
+              total: '',
+            })
+          }
+        } else if (destMatch && !downloadedFile) {
+          downloadedFile = destMatch[1].trim()
+        } else if (mergeMatch) {
+          downloadedFile = mergeMatch[1]
+        }
       })
 
-      // Timeout: 5 min for section download (much faster), 30 min for full download
-      const timeout = extraArgs.length > 0 ? 5 * 60 * 1000 : 30 * 60 * 1000
+      // Timeout: 15 min for section download (YouTube processing delay),
+      // 30 min for full download
+      const timeout = extraArgs.length > 0 ? 15 * 60 * 1000 : 30 * 60 * 1000
       const timer = setTimeout(() => {
         if (!proc.killed) proc.kill()
         resolve({ success: false, workspaceId, error: 'Download timeout' })
@@ -549,7 +590,18 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
         const isFatalError = code !== 0 && code !== 2
         if (isFatalError || !downloadedFile) {
           const errorLines = stderr.trim().split('\n').filter(l => l.includes('ERROR'))
-          resolve({ success: false, workspaceId, error: errorLines.join(' | ') || `yt-dlp code ${code}` })
+          const fullError = errorLines.join(' | ') || `yt-dlp code ${code}`
+          // Classify error for better debugging
+          if (fullError.includes('429') || fullError.includes('Too Many Requests')) {
+            console.log(`[yt-dlp] 429 Rate Limit — YouTube is throttling this request`)
+          } else if (fullError.includes('processing this video') || fullError.includes('processing this video')) {
+            console.log(`[yt-dlp] Video still processing — YouTube hasn't finished encoding yet`)
+          } else if (fullError.includes('not available')) {
+            console.log(`[yt-dlp] Video unavailable or deleted`)
+          } else {
+            console.log(`[yt-dlp] Download failed: ${fullError.slice(0, 200)}`)
+          }
+          resolve({ success: false, workspaceId, error: fullError })
           return
         }
 
@@ -568,7 +620,18 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
     })
   }
 
-  // Step 1: try section download (fast — downloads only needed portion)
+  // Step 1: try section download (fast — downloads only needed portion).
+  // NOTE: section download is skipped for videos > trimLimit because yt-dlp can't
+  // append sections. In that case we download full, then FFmpeg cuts the trim.
+  const sectionArg = (() => {
+    if (typeof trimLimit !== 'number' || trimLimit <= 0) return null
+    const totalSeconds = trimLimit * 60
+    const hh = String(Math.floor(totalSeconds / 3600)).padStart(2, '0')
+    const mm = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0')
+    const ss = String(totalSeconds % 60).padStart(2, '0')
+    return `*00:00:00-${hh}:${mm}:${ss}`
+  })()
+
   if (sectionArg) {
     const sectionResult = await doDownload(['--download-sections', sectionArg])
     if (sectionResult.success && sectionResult.filePath) {

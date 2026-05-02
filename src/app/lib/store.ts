@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Channel, Video, SystemStats, EditorState } from '../types'
+import type { Channel, Video, SystemStats, EditorState, RenderedVideo } from '../types'
 import { ipc } from './ipc'
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
@@ -26,6 +26,12 @@ export interface Workspace {
   status: WorkspaceStatus
   renderProgress?: number
   fileSize: string
+  /** When YouTube posted this video */
+  publishedAt?: string
+  /** When HyperClip first detected this video */
+  detectedAt?: string
+  /** Video resolution (e.g. "1920x1080") */
+  videoResolution?: string
   trimLimit: number | 'full'  // number = minutes
   /** Export quality for this workspace — set when user edits in editor */
   quality: 1080 | 720 | 360
@@ -52,6 +58,7 @@ export interface AppSettings {
 export interface AppStore {
   // Data
   workspaces: Workspace[]
+  renderedVideos: RenderedVideo[]
   channels: Channel[]
   selectedWorkspaceId: string | null
   systemStats: SystemStats
@@ -78,6 +85,11 @@ export interface AppStore {
   removeWorkspace: (id: string) => void
   selectWorkspace: (id: string | null) => void
 
+  // Actions — Rendered Videos
+  initRenderedVideos: () => Promise<void>
+  addRenderedVideo: (v: RenderedVideo) => void
+  removeRenderedVideo: (id: string) => void
+
   // Actions — Channel
   initChannels: () => Promise<void>
   addChannel: (url: string) => Promise<void>
@@ -93,6 +105,7 @@ export interface AppStore {
 
   // Actions — UI
   setRenderQueueExpanded: (expanded: boolean) => void
+  setSettings: (patch: Partial<AppSettings>) => void
   showToast: (msg: string) => void
 
   // Actions — Editor
@@ -142,6 +155,7 @@ const INIT_EDITOR: EditorState = {
 export const useAppStore = create<AppStore>((set, get) => ({
   // Initial state
   workspaces: [],
+  renderedVideos: [],
   channels: [],
   selectedWorkspaceId: null,
   systemStats: INIT_STATS,
@@ -173,7 +187,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         status: w.status || 'new',
         renderProgress: w.renderProgress,
         fileSize: formatFileSize(w.fileSize),
-        trimLimit: w.trimLimit || '10min',
+        trimLimit: w.trimLimit !== undefined ? w.trimLimit : 10,
         quality: w.quality || 1080,
         downloadedPath: w.downloadedPath,
         blurBackgroundPath: w.blurBackgroundPath,
@@ -203,6 +217,38 @@ export const useAppStore = create<AppStore>((set, get) => ({
     })),
 
   selectWorkspace: (id) => set({ selectedWorkspaceId: id }),
+
+  // Actions — Rendered Videos
+  initRenderedVideos: async () => {
+    try {
+      const raw = await ipc.getRenderedVideos() as any[] || []
+      const videos: RenderedVideo[] = raw.map((v: any) => ({
+        id: v.id,
+        workspaceId: v.workspaceId,
+        channelId: v.channelId,
+        channelName: v.channelName,
+        videoTitle: v.videoTitle,
+        archivedPath: v.archivedPath,
+        outputPath: v.outputPath,
+        quality: v.quality || 1080,
+        codec: v.codec || 'hevc',
+        fileSize: formatFileSize(v.fileSizeBytes || v.fileSize || 0),
+        fileSizeBytes: Number(v.fileSizeBytes) || Number(v.fileSize) || 0,
+        duration: v.duration || 0,
+        thumbnail: v.thumbnail || '',
+        renderedAt: v.renderedAt ? formatDate(v.renderedAt) : '',
+      }))
+      set({ renderedVideos: videos })
+    } catch (e) {
+      console.warn('[store] initRenderedVideos failed:', e)
+    }
+  },
+
+  addRenderedVideo: (v) =>
+    set((s) => ({ renderedVideos: [v, ...s.renderedVideos] })),
+
+  removeRenderedVideo: (id) =>
+    set((s) => ({ renderedVideos: s.renderedVideos.filter((v) => v.id !== id) })),
 
   // Actions — Channel
   initChannels: async () => {
@@ -272,6 +318,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   // Actions — UI
   setRenderQueueExpanded: (expanded) => set({ renderQueueExpanded: expanded }),
+  setSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
 
   showToast: (msg) => {
     set({ toast: msg })

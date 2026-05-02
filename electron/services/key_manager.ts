@@ -26,6 +26,7 @@ interface KeyStats {
   errors: number       // consecutive errors
   lastUsed: number    // timestamp
   lastErrorAt: number  // timestamp
+  lastResetAt: number  // timestamp of last manual reset
 }
 
 export interface KeyStatus {
@@ -38,6 +39,8 @@ export interface KeyStatus {
   errors: number
   lastUsed: number | null
   status: 'healthy' | 'warning' | 'error' | 'exhausted'
+  lastReset: number | null  // timestamp of last manual reset
+  nextReset: number | null   // timestamp of next midnight PT reset
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -48,7 +51,6 @@ const STATS_FILE = path.join(KEYS_DIR, 'key_stats.json')
 
 const MAX_UNITS_PER_KEY = 9500   // 500 unit buffer per key
 const MAX_ERRORS = 3             // mark unhealthy after 3 consecutive errors
-const RESET_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
 
 // ─── Key Manager ─────────────────────────────────────────────────────────────
 
@@ -56,6 +58,7 @@ class KeyManager {
   private _keys: APIKey[] = []
   private _stats: Map<string, KeyStats> = new Map()
   private _lastReset: number = Date.now()
+  private _lastResetPTDate: string = ''  // tracks PT date for midnight-PT reset
   private _initialized: boolean = false
 
   constructor() {
@@ -96,6 +99,7 @@ class KeyManager {
         const data = JSON.parse(fs.readFileSync(STATS_FILE, 'utf-8'))
         this._stats = new Map(Object.entries(data.stats || {}))
         this._lastReset = data.lastReset || Date.now()
+        this._lastResetPTDate = data.lastResetPTDate || ''
       }
     } catch {}
   }
@@ -114,18 +118,50 @@ class KeyManager {
     try {
       const obj: Record<string, KeyStats> = {}
       for (const [k, v] of this._stats) obj[k] = v
-      fs.writeFileSync(STATS_FILE, JSON.stringify({ stats: obj, lastReset: this._lastReset }, null, 2), 'utf-8')
+      fs.writeFileSync(STATS_FILE, JSON.stringify({ stats: obj, lastReset: this._lastReset, lastResetPTDate: this._lastResetPTDate }, null, 2), 'utf-8')
     } catch (e) {
       console.error('[KeyManager] Failed to persist stats:', e)
     }
   }
 
+  /**
+   * Check if we need to reset daily stats.
+   * Resets at midnight PT (Pacific Time), aligned with Google's quota reset.
+   * Uses UTC + DST offset to compute PT without external timezone APIs.
+   */
   private _checkReset(): void {
-    if (Date.now() - this._lastReset > RESET_INTERVAL_MS) {
+    const now = new Date()
+    const utcHour = now.getUTCHours()
+
+    // PT is UTC-7 (PDT, summer) or UTC-8 (PST, winter)
+    // DST: second Sunday in March → first Sunday in November
+    const utcYear = now.getUTCFullYear()
+    const march1 = new Date(Date.UTC(utcYear, 2, 1))
+    // Find first Sunday of March
+    const firstSundayMarch = new Date(Date.UTC(utcYear, 2, march1.getUTCDay() === 0 ? 1 : 8 - march1.getUTCDay()))
+    const dstStart = new Date(Date.UTC(utcYear, 2, firstSundayMarch.getUTCDate()))
+    // Find first Sunday of November
+    const nov1 = new Date(Date.UTC(utcYear, 10, 1))
+    const firstSundayNov = new Date(Date.UTC(utcYear, 10, nov1.getUTCDay() === 0 ? 1 : 8 - nov1.getUTCDay()))
+    const dstEnd = new Date(Date.UTC(utcYear, 10, firstSundayNov.getUTCDate()))
+
+    const isPDT = now >= dstStart && now < dstEnd
+    const ptOffsetHours = isPDT ? -7 : -8
+    const ptHour = utcHour + ptOffsetHours
+
+    // PT date: if PT hour rolled negative, we're in previous PT day
+    // If PT hour is >= 0 and UTC, we're in same PT day
+    // Compare PT date strings to detect day change
+    const ptDateStr = ptHour >= 0
+      ? `${utcYear}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
+      : `${utcYear}-${String(new Date(now.getTime() - 86400000).getUTCMonth() + 1).padStart(2, '0')}-${String(new Date(now.getTime() - 86400000).getUTCDate()).padStart(2, '0')}`
+
+    if (this._lastResetPTDate !== ptDateStr) {
       this._stats.clear()
       this._lastReset = Date.now()
+      this._lastResetPTDate = ptDateStr
       this._persistStats()
-      console.log('[KeyManager] Daily reset — all key quotas refreshed')
+      console.log(`[KeyManager] Daily reset at midnight PT (${ptDateStr}) — all key quotas refreshed`)
     }
   }
 
@@ -163,7 +199,7 @@ class KeyManager {
     })
 
     const chosen = candidates[0]
-    const stat = this._stats.get(chosen.key) || { key: chosen.key, usedToday: 0, errors: 0, lastUsed: 0, lastErrorAt: 0 }
+    const stat = this._stats.get(chosen.key) || { key: chosen.key, usedToday: 0, errors: 0, lastUsed: 0, lastErrorAt: 0, lastResetAt: 0 }
     stat.lastUsed = Date.now()
     this._stats.set(chosen.key, stat)
     this._persistStats()
@@ -174,7 +210,7 @@ class KeyManager {
 
   /** Track units consumed by a key */
   track(key: string, units: number): void {
-    const stat = this._stats.get(key) || { key, usedToday: 0, errors: 0, lastUsed: 0, lastErrorAt: 0 }
+    const stat = this._stats.get(key) || { key, usedToday: 0, errors: 0, lastUsed: 0, lastErrorAt: 0, lastResetAt: 0 }
     stat.usedToday += units
     this._stats.set(key, stat)
     this._persistStats()
@@ -182,12 +218,24 @@ class KeyManager {
 
   /** Record an error for a key (increments consecutive error count) */
   recordError(key: string): void {
-    const stat = this._stats.get(key) || { key, usedToday: 0, errors: 0, lastUsed: 0, lastErrorAt: 0 }
+    const stat = this._stats.get(key) || { key, usedToday: 0, errors: 0, lastUsed: 0, lastErrorAt: 0, lastResetAt: 0 }
     stat.errors++
     stat.lastErrorAt = Date.now()
     this._stats.set(key, stat)
     this._persistStats()
     console.warn(`[KeyManager] Error on key ${key.slice(0, 12)}... — errors: ${stat.errors}`)
+  }
+
+  /** Track an API error (e.g., 403 quota exceeded) — increments usedToday to push exhausted keys out of rotation */
+  trackError(key: string): void {
+    const stat = this._stats.get(key) || { key, usedToday: 0, errors: 0, lastUsed: 0, lastErrorAt: 0, lastResetAt: 0 }
+    const QUOTA_HIT_UNITS = 100
+    stat.usedToday += QUOTA_HIT_UNITS
+    stat.errors++
+    stat.lastErrorAt = Date.now()
+    this._stats.set(key, stat)
+    this._persistStats()
+    console.warn(`[KeyManager] trackError(${key.slice(0, 12)}...): +${QUOTA_HIT_UNITS} units → usedToday: ${stat.usedToday}`)
   }
 
   // ── CRUD ──────────────────────────────────────────────────────────────────
@@ -215,23 +263,48 @@ class KeyManager {
   }
 
   /** Reset quota for a specific key */
-  resetKey(key: string): void {
+  resetKey(key: string): { success: boolean; nextReset: number } {
     const stat = this._stats.get(key)
     if (stat) {
       stat.usedToday = 0
       stat.errors = 0
+      stat.lastUsed = 0
+      stat.lastResetAt = Date.now()
       this._stats.set(key, stat)
       this._persistStats()
       console.log(`[KeyManager] Reset quota for key ${key.slice(0, 12)}...`)
     }
+    return { success: true, nextReset: this._getNextResetTime() }
   }
 
   /** Reset all key quotas */
-  resetAll(): void {
+  resetAll(): { success: boolean; nextReset: number } {
     this._stats.clear()
     this._lastReset = Date.now()
     this._persistStats()
     console.log('[KeyManager] Reset all key quotas')
+    return { success: true, nextReset: this._getNextResetTime() }
+  }
+
+  /** Compute timestamp of next midnight PT reset */
+  _getNextResetTime(): number {
+    const now = new Date()
+    const utcHour = now.getUTCHours()
+    const utcYear = now.getUTCFullYear()
+    const march1 = new Date(Date.UTC(utcYear, 2, 1))
+    const firstSundayMarch = new Date(Date.UTC(utcYear, 2, march1.getUTCDay() === 0 ? 1 : 8 - march1.getUTCDay()))
+    const dstStart = new Date(Date.UTC(utcYear, 2, firstSundayMarch.getUTCDate()))
+    const nov1 = new Date(Date.UTC(utcYear, 10, 1))
+    const firstSundayNov = new Date(Date.UTC(utcYear, 10, nov1.getUTCDay() === 0 ? 1 : 8 - nov1.getUTCDay()))
+    const dstEnd = new Date(Date.UTC(utcYear, 10, firstSundayNov.getUTCDate()))
+    const isPDT = now >= dstStart && now < dstEnd
+    const ptOffsetHours = isPDT ? -7 : -8
+    const ptHour = utcHour + ptOffsetHours
+    // Next midnight PT
+    const msUntilMidnightPT = ptHour >= 0
+      ? (24 - ptHour) * 3600 * 1000 - now.getUTCMinutes() * 60000 - now.getUTCSeconds() * 1000
+      : Math.abs(ptHour) * 3600 * 1000 - now.getUTCMinutes() * 60000 - now.getUTCSeconds() * 1000
+    return Date.now() + msUntilMidnightPT
   }
 
   // ── Query ─────────────────────────────────────────────────────────────────
@@ -260,6 +333,8 @@ class KeyManager {
         errors,
         lastUsed: stat?.lastUsed ?? null,
         status,
+        lastReset: stat?.lastResetAt ?? null,
+        nextReset: this._getNextResetTime(),
       }
     })
   }

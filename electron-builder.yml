@@ -10,6 +10,9 @@ files:
 extraResources:
   - from: resources/
     to: resources/
+asarUnpack:
+  # sql.js WASM binary must be outside asar archive for Node.js fs access
+  - node_modules/sql.js/dist/sql-wasm.wasm
 win:
   target:
     - target: portable

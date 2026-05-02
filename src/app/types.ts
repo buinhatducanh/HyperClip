@@ -97,3 +97,24 @@ export interface SystemStats {
   isOnline: boolean;
   activeWorkers: number;
 }
+
+export interface RenderedVideo {
+  id: string;
+  workspaceId: string;
+  channelId: string;
+  channelName: string;
+  videoTitle: string;
+  archivedPath: string;
+  outputPath: string;
+  quality: number;
+  codec: string;
+  /** Human-readable file size (e.g. "245.3 MB") */
+  fileSize: string;
+  /** Raw file size in bytes */
+  fileSizeBytes: number;
+  duration: number;
+  thumbnail: string;
+  /** base64 JPEG data URI of thumbnail — survives workspace deletion */
+  thumbnailData?: string;
+  renderedAt: string;
+}

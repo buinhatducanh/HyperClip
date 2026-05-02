@@ -39,7 +39,7 @@
 ### Cơ chế: Full Scan mỗi Poll
 
 ```
-YouTubePoller (4 giây ± jitter)
+YouTubePoller (4 giây ± 1s jitter)
          ↓
 fetchSubscriptionFeed() → ALL channels (parallel, max 20 concurrent)
          ↓
@@ -50,6 +50,17 @@ Filter: age < 10 min, unseen, not deleted
          ↓
 autoDownload() → yt-dlp --download-sections (chỉ N phút cần thiết)
 ```
+
+### Optimizations (2026-04-30)
+
+| # | Optimization | Impact |
+|---|-------------|--------|
+| 1 | Poll interval: 20s → 4s ± 1s jitter | Detection latency giảm 5x |
+| 2 | Cookie preloading at startup | Loại bỏ ~1-2s delay poll đầu |
+| 3 | OAuth maxResults: 5 → 1 | Giảm 80% data OAuth fallback |
+| 4 | seenVideoIds persist to disk | Không re-detect sau restart |
+| 5 | Early termination (stop after 5 videos) | OAuth gọi ít hơn ~50-80% |
+| 6 | seenVideoIds cap 10,000 | Chống leak memory dài hạn |
 
 ### Chi tiết Quota System
 
@@ -432,4 +443,4 @@ App khởi động
 
 ---
 
-## 14. Ngày cập nhật: 2026-04-29
+## 14. Ngày cập nhật: 2026-04-30

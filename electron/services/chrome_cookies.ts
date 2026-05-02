@@ -41,12 +41,14 @@ export interface ChromeSession {
   lastUsed: number
   error?: string
   isLoggedIn: boolean
+  isConsented: boolean  // true if SOCS cookie = CAI (user accepted Google terms)
 }
 
 export interface SessionStatus {
   ready: boolean
   sessionCount: number
   loggedInCount: number
+  consentedCount: number
   sessions: ChromeSession[]
 }
 
@@ -229,6 +231,29 @@ function decryptCookieValue(encrypted: Buffer, aesKeyB64: string): string | null
   }
 }
 
+// ─── SOCS Consent Validation ────────────────────────────────────────────────────
+
+/**
+ * Validate Google SOCS (Terms of Service) consent cookie.
+ * CAI = user consented (OK)
+ * CAA = user has NOT consented (will cause YouTube API failures)
+ *
+ * Returns the SOCS value if valid (CAI), or logs warning and returns null if not consented.
+ */
+function validateSocsConsent(socs: string | undefined): string | undefined {
+  if (!socs) {
+    console.warn('[Cookie] ⚠️ No SOCS cookie found — user may not be logged in to YouTube')
+    return undefined
+  }
+  if (socs.startsWith('CAA')) {
+    console.warn(`[Cookie] ⚠️ SOCS=${socs} — User has NOT accepted Google/YouTube terms. ` +
+      `Session will likely fail. Please open Chrome, log into YouTube, and accept any terms prompts.`)
+    return undefined
+  }
+  // CAI or other valid value
+  return socs
+}
+
 // ─── SQLite Cookie Parsing ────────────────────────────────────────────────────
 
 /**
@@ -265,20 +290,37 @@ async function extractYouTubeCookiesFromPath(
   }
 
   // Read cookie DB (may be locked by Chrome)
-  let dbBuffer: Buffer
-  const copyPath = cookieDbPath + '.hyperclip'
+// Retry up to 3 times with 500ms delay to handle transient locks.
+let dbBuffer: Buffer | null = null
+const copyPath = cookieDbPath + '.hyperclip'
+const MAX_RETRIES = 3
+const RETRY_DELAY_MS = 500
 
+for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
   try {
     dbBuffer = fs.readFileSync(cookieDbPath)
+    break  // Success
   } catch (e: unknown) {
-    // File locked — Chrome is running. Try to make a copy.
-    try {
-      fs.copyFileSync(cookieDbPath, copyPath)
-      dbBuffer = fs.readFileSync(copyPath)
-    } catch {
-      return null // Can't read — Chrome is running
+    if (attempt === MAX_RETRIES) {
+      // File locked — Chrome is running. Copy it.
+      try {
+        fs.copyFileSync(cookieDbPath, copyPath)
+        dbBuffer = fs.readFileSync(copyPath)
+        console.log(`[Cookie] Chrome locked (attempt ${attempt}), copied DB to temp file`)
+        break
+      } catch {
+        console.error(`[Cookie] ⚠️ Failed to read cookie DB after ${MAX_RETRIES} attempts (Chrome is running). ` +
+          `Close Chrome and click "Refresh all" to extract cookies.`)
+        return null
+      }
     }
+    // Wait before retry
+    const waitUntil = Date.now() + RETRY_DELAY_MS
+    while (Date.now() < waitUntil) { /* busy wait */ }
   }
+}
+
+if (!dbBuffer) return null
 
   try {
     // For sql.js in Node.js, we need to pass the binary directly
@@ -339,6 +381,8 @@ async function extractYouTubeCookiesFromPath(
     db.close()
 
     if (cookies.SAPISID && cookies.PSID) {
+      // Validate SOCS consent before returning
+      cookies.socs = validateSocsConsent(cookies.socs)
       return cookies as YouTubeCookies
     }
     return null
@@ -447,31 +491,42 @@ export class ChromeSessionManager {
         usedToday: 0,
         lastUsed: 0,
         isLoggedIn: profileExists,
+        isConsented: false,
         error: profileExists ? undefined : 'Profile not initialized',
       })
     }
 
-    // Try to extract cookies from existing profiles (non-blocking)
-    this._extractAllCookies().catch(() => {})
-
-    this._initialized = true
-  }
-
-  private async _extractAllCookies(): Promise<void> {
-    const promises = this._sessions.map(async (session) => {
-      try {
-        const cookies = await extractYouTubeCookies(session.profileDir)
-        session.cookies = cookies
-        session.isLoggedIn = !!cookies
-        session.error = cookies ? undefined : 'No YouTube cookies found (login required)'
-      } catch (e) {
-        session.error = String(e)
-      }
-    })
-    await Promise.all(promises)
+    // PROACTIVE: extract cookies for ALL profiles at startup.
+    // This eliminates the ~1-2s cookie-extraction delay on first poll.
+    // Run in parallel batches so startup isn't blocked by slow profiles.
+    console.log('[SessionManager] Preloading cookies for all profiles...')
+    const BATCH = 10
+    for (let i = 0; i < this._sessions.length; i += BATCH) {
+      const batch = this._sessions.slice(i, i + BATCH)
+      await Promise.all(batch.map(async (session) => {
+        try {
+          const cookies = await extractYouTubeCookies(session.profileDir)
+          session.cookies = cookies
+          session.isLoggedIn = !!cookies && !!cookies.socs
+          session.isConsented = !!cookies?.socs && !cookies.socs.startsWith('CAA')
+          if (!cookies) {
+            session.error = 'No YouTube cookies found — click "Mở Chrome" to login'
+          } else if (!session.isConsented) {
+            session.error = 'SOCS cookie indicates terms not accepted — open YouTube in Chrome and accept any prompts'
+            session.isLoggedIn = false
+          } else {
+            session.error = undefined
+          }
+        } catch (e) {
+          session.error = String(e)
+        }
+      }))
+    }
 
     const valid = this._sessions.filter(s => s.cookies)
-    console.log(`[SessionManager] ${valid.length}/${this._sessionCount} sessions have YouTube cookies`)
+    console.log(`[SessionManager] ${valid.length}/${this._sessionCount} sessions ready (cookies preloaded)`)
+
+    this._initialized = true
   }
 
   async ensureInit(): Promise<void> {
@@ -487,18 +542,19 @@ export class ChromeSessionManager {
       ready: this.isReady(),
       sessionCount: this._sessions.length,
       loggedInCount: this._sessions.filter(s => s.cookies).length,
+      consentedCount: this._sessions.filter(s => s.isConsented).length,
       sessions: this._sessions,
     }
   }
 
   /**
-   * Get the next session in round-robin order (sessions with cookies only).
+   * Get the next session in round-robin order (sessions with cookies AND consented).
+   * Safe for concurrent calls from parallel channel fetches.
    */
   getNextSession(): ChromeSession | null {
-    const valid = this._sessions.filter(s => s.cookies)
+    const valid = this._sessions.filter(s => s.cookies && s.isConsented)
     if (valid.length === 0) return null
 
-    // Rotate through valid sessions
     const session = valid[this._index % valid.length]
     this._index = (this._index + 1) % valid.length
     return session
@@ -524,7 +580,8 @@ export class ChromeSessionManager {
     try {
       const cookies = await extractYouTubeCookies(session.profileDir)
       session.cookies = cookies
-      session.isLoggedIn = !!cookies
+      session.isLoggedIn = !!cookies && !!cookies.socs
+      session.isConsented = !!cookies?.socs && !cookies.socs.startsWith('CAA')
       session.error = cookies ? undefined : 'No YouTube cookies'
       session.usedToday = 0
       return !!cookies

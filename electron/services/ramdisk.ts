@@ -16,6 +16,7 @@ interface AppSettingsStore {
   outputPath?: string
   adminPasswordHash?: string
   defaultTrimLimit?: number | 'full'  // minutes for auto-download
+  renderedOutputPath?: string  // archive directory for rendered videos
 }
 
 let _settings: AppSettingsStore | null = null
@@ -301,4 +302,99 @@ export function getWorkspaceStorageSize(workspaceId: string): { video: number; b
     blur: parseFloat((blurSize / (1024**2)).toFixed(1)),
     total: parseFloat(((videoSize + blurSize) / (1024**2)).toFixed(1)),
   }
+}
+
+// ─── Archive / Rendered files ──────────────────────────────────────────────────────
+
+const DEFAULT_ARCHIVE_PATH = 'D:\\HyperClip\\Rendered'
+
+export function getArchivePath(): string {
+  const settings = loadSettings()
+  return settings.renderedOutputPath || DEFAULT_ARCHIVE_PATH
+}
+
+export function getConfiguredArchivePath(): string | undefined {
+  return loadSettings().renderedOutputPath
+}
+
+// Sanitize filename: remove characters invalid on Windows filenames
+function sanitizeFilename(name: string): string {
+  return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim().slice(0, 120)
+}
+
+// Copy rendered output file to archive directory with descriptive filename.
+// Returns the archived absolute path, or null if copy failed.
+export async function archiveRenderedFile(
+  sourcePath: string,
+  channelName: string,
+  videoTitle: string,
+  quality: number,
+  codec: string,
+  fileSize: number,
+  duration: number,
+): Promise<{ success: boolean; archivedPath?: string; error?: string }> {
+  const archiveDir = getArchivePath()
+
+  // Ensure archive directory exists
+  try {
+    if (!fs.existsSync(archiveDir)) {
+      fs.mkdirSync(archiveDir, { recursive: true })
+    }
+  } catch (e) {
+    return { success: false, error: `Cannot create archive directory: ${e}` }
+  }
+
+  // Check source exists
+  if (!fs.existsSync(sourcePath)) {
+    return { success: false, error: `Source file not found: ${sourcePath}` }
+  }
+
+  // Get source file size for integrity check
+  const sourceSize = fs.statSync(sourcePath).size
+
+  // Build descriptive filename: {channel}_{title}_{quality}p_{codec}_{timestamp}.mp4
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  const ext = path.extname(sourcePath) || '.mp4'
+  const safeChannel = sanitizeFilename(channelName) || 'Unknown'
+  const safeTitle = sanitizeFilename(videoTitle) || 'Video'
+  const baseName = `${safeChannel}_${safeTitle}_${quality}p_${codec}_${timestamp}${ext}`
+  const destPath = path.join(archiveDir, baseName)
+
+  // Copy file (async via execSync cp)
+  try {
+    // Use Windows copy command for reliability
+    execSync(`copy /Y "${sourcePath}" "${destPath}"`, { stdio: 'ignore' })
+  } catch {
+    return { success: false, error: 'Failed to copy file to archive' }
+  }
+
+  // Verify copy succeeded: check file exists AND size matches
+  if (!fs.existsSync(destPath)) {
+    return { success: false, error: 'Copy verification failed: destination not found' }
+  }
+  const destStat = fs.statSync(destPath)
+  if (destStat.size !== sourceSize) {
+    // Cleanup failed copy and return error
+    try { fs.unlinkSync(destPath) } catch {}
+    return { success: false, error: `Copy verification failed: size mismatch (expected ${sourceSize}, got ${destStat.size})` }
+  }
+
+  // Delete original after successful copy
+  try {
+    if (sourcePath !== destPath) fs.unlinkSync(sourcePath)
+  } catch {}
+
+  return { success: true, archivedPath: destPath }
+}
+
+// Open archive folder in file explorer
+export function openArchiveFolder(): void {
+  const { shell } = require('electron')
+  shell.openPath(getArchivePath())
+}
+
+// Open a specific rendered file's containing folder
+export function showInFolder(filePath: string): void {
+  const { shell } = require('electron')
+  shell.showItemInFolder(filePath)
 }

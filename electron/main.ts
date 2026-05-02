@@ -14,12 +14,14 @@ import {
   getWorkspaces, getWorkspace, addWorkspace, updateWorkspace, deleteWorkspace,
   getSubscription,
   getChannels, getChannel, addChannel, updateChannel, removeChannel, markVideoSeen, loadSeenVideos, type StoredChannel,
-  type WorkspaceData
+  type WorkspaceData,
+  getRenderedVideos, addRenderedVideo, removeRenderedVideo, type RenderedVideoRecord,
 } from './services/store.js'
 import { downloadVideo, getVideoInfo, getChannelInfo, getChannelId, type YtdlpVideoInfo, type YtdlpChannelInfo } from './services/youtube.js'
-import { renderVideo, renderChunked, generateBlurBackground, extractVideoThumbnail, cancelChunked, cancelAllChunked, probeVideoAspect, type RenderMetadata, type RenderProgress, type ChunkConfig } from './services/ffmpeg.js'
+import { renderVideo, renderChunked, generateBlurBackground, extractVideoThumbnail, cancelChunked, cancelAllChunked, probeVideoAspect, trimVideo, type RenderMetadata, type RenderProgress, type ChunkConfig } from './services/ffmpeg.js'
 import { cancelFfmpeg, cancelAllFfmpeg, getPoolStatus } from './services/worker-pool.js'
-import { getVideoStoragePath, getOutputPath, generateWorkspacePaths, cleanupWorkspace, ensureStorageDirs, loadSettings, saveSettings } from './services/ramdisk.js'
+import { getFfmpegPath, validateFfmpeg } from './services/ffmpeg-paths.js'
+import { getVideoStoragePath, getOutputPath, generateWorkspacePaths, cleanupWorkspace, ensureStorageDirs, loadSettings, saveSettings, archiveRenderedFile, getArchivePath, openArchiveFolder, showInFolder } from './services/ramdisk.js'
 import { createYouTubePoller, stopYouTubePoller, getYouTubePoller } from './services/youtube_poller.js'
 import { refreshChannelCache } from './services/subscription_feed.js'
 import { initCookieManager, getCookieManager, authEvents, channelEvents } from './services/cookie_manager.js'
@@ -72,23 +74,111 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
   const workspace = getWorkspace(workspaceId)
   if (!workspace) { resolve({ success: false, error: 'Workspace not found' }); startNextQueuedRender(); return }
 
+  // Resolve video path: disk store only saves filename, scan storage dirs to find actual file
+  const videoPath = findDownloadedFileAbs(workspaceId) || metadata.source_video
+  if (!fs.existsSync(videoPath)) {
+    console.error(`[RENDER] Source video not found: ${videoPath}`)
+    resolve({ success: false, error: `Source video not found: ${path.basename(videoPath)}` })
+    startNextQueuedRender()
+    return
+  }
+
+  const renderStartMs = Date.now()
+  const renderQuality = parseInt((metadata.export_resolution || '1080x1920').split('x')[1]) || 1080
+  const renderSpeed = metadata.video_speed ?? 1.0
+  const trimStart = metadata.trim?.start ?? 0
+  const trimEnd = metadata.trim?.end ?? 0
+  const trimDuration = trimEnd - trimStart
+  console.log(`[TIMER] ═══════════════════════════════════════════════`)
+  console.log(`[TIMER] RENDER START: "${workspace.videoTitle}"`)
+  console.log(`[TIMER]   Quality: ${renderQuality}p | Speed: ${renderSpeed}x | Trim: ${trimDuration}s (${trimStart}s–${trimEnd}s)`)
+  console.log(`[TIMER]   Codec: ${metadata.codec ?? 'hevc'} | Source: ${path.basename(videoPath)}`)
+  console.log(`[TIMER]   ═══════════════════════════════════════════════`)
+
   updateWorkspace(workspaceId, { status: 'rendering', renderProgress: 0 })
   sendNotification('info', `Rendering: ${workspace.videoTitle}`, workspaceId)
 
   const outputDir = getOutputPath()
   ensureStorageDirs()
 
-  renderVideo(metadata, outputDir, (progress: RenderProgress) => {
+  // Build resolved metadata with absolute video path for FFmpeg
+  const resolvedMetadata = { ...metadata, source_video: videoPath }
+
+  const gpuTier = getGPUCapabilities().tier
+  renderVideo(resolvedMetadata, outputDir, (progress: RenderProgress) => {
     updateWorkspace(workspaceId, { renderProgress: progress.percent })
     broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, progress)
-  }).then((result) => {
+  }, gpuTier).then((result) => {
+    const renderElapsed = ((Date.now() - renderStartMs) / 1000).toFixed(1)
     if (result.success) {
       updateWorkspace(workspaceId, { status: 'done', renderProgress: 100, outputPath: result.outputPath || '' })
       sendNotification('success', `Done: ${workspace.videoTitle}`, workspaceId)
-      if (result.outputPath) shell.showItemInFolder(result.outputPath)
+      // Auto-archive to D:\HyperClip\Rendered
+      ;(async () => {
+        try {
+          const quality = parseInt((metadata.export_resolution || '1080x1920').split('x')[1])
+          const codec = (metadata.codec as string) || 'hevc'
+
+          // Capture thumbnail as base64 data URI before workspace is deleted
+          const thumbPath = path.join(getVideoStoragePath(), `thumb_${workspace.id}.jpg`)
+          const thumbData = fs.existsSync(thumbPath)
+            ? 'data:image/jpeg;base64,' + fs.readFileSync(thumbPath).toString('base64')
+            : undefined
+
+          const archiveResult = await archiveRenderedFile(
+            result.outputPath!,
+            workspace.channelName,
+            workspace.videoTitle,
+            quality || 1080,
+            codec,
+            workspace.fileSize || 0,
+            workspace.duration || 0,
+          )
+          if (archiveResult.success && archiveResult.archivedPath) {
+            const record: RenderedVideoRecord = {
+              id: `rv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              workspaceId: workspace.id,
+              channelId: workspace.channelId,
+              channelName: workspace.channelName,
+              videoTitle: workspace.videoTitle,
+              archivedPath: archiveResult.archivedPath,
+              outputPath: result.outputPath!,
+              quality: quality || 1080,
+              codec,
+              fileSize: workspace.fileSize || 0,
+              duration: workspace.duration || 0,
+              thumbnail: workspace.thumbnail,
+              thumbnailData: thumbData,
+              renderedAt: new Date().toISOString(),
+            }
+            addRenderedVideo(record)
+            cleanupWorkspace(workspace.id, workspace.downloadedPath)
+            deleteWorkspace(workspace.id)
+            broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, null)
+            const _fileSizeMB = ((workspace.fileSize || 0) / 1024 / 1024).toFixed(1)
+            const totalElapsed = ((Date.now() - renderStartMs) / 1000).toFixed(1)
+            console.log(`[TIMER] ARCHIVE DONE: ${archiveResult.archivedPath}`)
+            console.log(`[TIMER]   Archive file size: ${_fileSizeMB} MB | Total elapsed: ${totalElapsed}s`)
+            console.log(`[TIMER] ═══════════════════════════════════════════════`)
+          } else {
+            // Archive failed but render succeeded — notify user, keep workspace
+            sendNotification('warning', `Render done, archive failed: ${archiveResult.error || 'unknown'}`, workspaceId)
+            console.warn(`[AutoArchive] failed: ${archiveResult.error} — workspace ${workspace.id} NOT deleted`)
+            updateWorkspace(workspaceId, { status: 'done', renderProgress: 100, outputPath: result.outputPath || '' })
+          }
+        } catch (e) {
+          sendNotification('error', `Archive error: ${e}`, workspaceId)
+          console.warn('[AutoArchive] failed:', e)
+        }
+      })()
     } else {
       updateWorkspace(workspaceId, { status: 'ready', renderProgress: 0 })
       sendNotification('error', `Render failed: ${result.error}`, workspaceId)
+    }
+    if (result.success) {
+      console.log(`[TIMER] RENDER DONE: "${workspace.videoTitle}" — ${renderElapsed}s (${renderQuality}p @ ${renderSpeed}x speed)`)
+    } else {
+      console.log(`[TIMER] RENDER FAILED: "${workspace.videoTitle}" — ${renderElapsed}s — ${result.error}`)
     }
     resolve({ success: result.success, outputPath: result.outputPath })
     startNextQueuedRender()
@@ -111,7 +201,7 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
  */
 export function startYouTubePoller(
   intervalMs: number,
-  onVideos: (videos: Array<{ videoId: string; channelId: string; channelName: string; title: string }>) => void
+  onVideos: (videos: Array<{ videoId: string; channelId: string; channelName: string; title: string; publishedAt?: number; detectedAt?: number }>) => void
 ): void {
   const poller = createYouTubePoller({
     pollIntervalMs: intervalMs,
@@ -121,6 +211,8 @@ export function startYouTubePoller(
         channelId: v.channelId,
         channelName: v.channelName,
         title: v.title,
+        publishedAt: v.publishedAt,
+        detectedAt: v.detectedAt,
       })))
     },
   })
@@ -128,7 +220,7 @@ export function startYouTubePoller(
 }
 
 // ─── Auto-download from new video detected by poller ────────────────────────────
-async function autoDownloadFromWebSub(videoId: string, channelId: string, channelName: string, title: string) {
+async function autoDownloadFromWebSub(videoId: string, channelId: string, channelName: string, title: string, publishedAt?: string, detectedAt?: string) {
   try {
     const storagePath = getVideoStoragePath()
     ensureStorageDirs()
@@ -141,12 +233,15 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
     const existingWorkspaces = getWorkspaces()
     const existing = existingWorkspaces.find(ws => ws.videoId === videoId)
 
-    // Mark as seen to prevent duplicate detection
-    markVideoSeen(channelId, videoId)
-
     if (existing) {
       // Retry 'waiting' or 'error' workspaces — they failed to download before
       if ((existing.status === 'waiting' || existing.status === 'error') && !inProgressAutoRetries.has(existing.id)) {
+        // Backoff: don't retry 'waiting' workspaces until retryableAt has passed
+        if (existing.status === 'waiting' && existing.retryableAt && Date.now() < new Date(existing.retryableAt).getTime()) {
+          const remainingMin = Math.ceil((new Date(existing.retryableAt).getTime() - Date.now()) / 60000)
+          console.log(`[Poll] Skipping retry for ${title} — retryableAt not reached (${remainingMin}m remaining)`)
+          return
+        }
         console.log(`[Poll] Retrying existing workspace ${existing.id} (${existing.status}): ${title}`)
         await retryAutoDownload(existing)
         return
@@ -172,19 +267,23 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
       trimLimit: autoTrimLimit,
       status: 'downloading',
       renderProgress: 0,
-      downloadedAt: detectedAt,
+      downloadedAt: detectedAt || new Date().toISOString(),
       downloadedPath: '',
       blurBackgroundPath: '',
       outputPath: '',
       metadataPath: '',
       fileSize: 0,
       renderMetadata: null,
+      publishedAt,
+      detectedAt: detectedAt || new Date().toISOString(),
     })
 
     broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, workspace)
     sendNotification('info', `Auto: ${finalChannelName} — ${title}`, workspace.id)
-    console.log(`[Auto] Starting download: ${workspace.id} → ${'https://www.youtube.com/watch?v=' + videoId}`)
+    console.log(`[TIMER] DETECT: "${title}" from ${finalChannelName} at ${new Date().toISOString()}`)
+    console.log(`[TIMER] DOWNLOAD START: "${title}" (trimLimit: ${autoTrimLimit} min)`)
 
+    const downloadStartMs = Date.now()
     const result = await downloadVideo({
       workspaceId: workspace.id,
       videoUrl: 'https://www.youtube.com/watch?v=' + videoId,
@@ -201,7 +300,11 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
     })
 
     if (result.success && result.filePath) {
-      console.log(`[Auto] Download success: ${title} → ${result.filePath}`)
+      const downloadElapsed = ((Date.now() - downloadStartMs) / 1000).toFixed(1)
+      const fileSizeMB = result.fileSize ? (result.fileSize / 1024 / 1024).toFixed(1) : '?'
+      console.log(`[TIMER] DOWNLOAD DONE: "${title}"`)
+      console.log(`[TIMER]   Download time: ${downloadElapsed}s | File size: ${fileSizeMB} MB | Duration: ${result.duration}s`)
+      console.log(`[TIMER]   Trim limit: ${autoTrimLimit} min | Trimmed to: ${result.duration}s`)
       playSuccessBeep()
 
       // Extract local thumbnail from downloaded video (YouTube thumbnail may 404 for fresh uploads)
@@ -220,20 +323,58 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
       // Probe video dimensions to detect if it's a short (vertical) or landscape
       const aspect = await probeVideoAspect(result.filePath)
 
+      // Post-download FFmpeg trim: if video is longer than trim limit, cut it with stream-copy.
+      // This is much faster than section-download for long videos because yt-dlp downloads
+      // the full content anyway. Stream-copy (-c copy) re-muxes without re-encoding.
+      let finalFilePath = result.filePath
+      let finalFileSize = result.fileSize || 0
+      const trimLimitSec = typeof autoTrimLimit === 'number' ? autoTrimLimit * 60 : 0
+      let finalDuration = realDuration
+
+      // Short video check: if downloaded video < 60s, mark as error (YouTube Shorts)
+      if (realDuration > 0 && realDuration < 60) {
+        console.log(`[Auto] Video too short (${realDuration}s < 60s) — skipping (YouTube Short)`)
+        try { fs.unlinkSync(result.filePath) } catch {}
+        updateWorkspace(workspace.id, { status: 'error' })
+        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(workspace.id))
+        sendNotification('error', `Too short: ${title}`, workspace.id)
+        markVideoSeen(channelId, videoId)
+        return
+      }
+
+      if (trimLimitSec > 0 && realDuration > trimLimitSec) {
+        const trimmedPath = result.filePath.replace(/(\.\w+)$/, `_trimmed$1`)
+        console.log(`[Auto] Video ${realDuration}s > trim limit ${trimLimitSec}s — trimming with FFmpeg...`)
+        const trimResult = await trimVideo(result.filePath, trimmedPath, 0, trimLimitSec)
+        if (trimResult.success) {
+          const trimmedSize = fs.statSync(trimmedPath).size
+          console.log(`[Auto] FFmpeg trim OK: ${trimmedPath} (${(trimmedSize / 1024 / 1024).toFixed(1)} MB)`)
+          finalFilePath = trimmedPath
+          finalFileSize = trimmedSize
+          finalDuration = trimLimitSec
+          // Clean up original full file to save disk space
+          try { fs.unlinkSync(result.filePath) } catch {}
+        } else {
+          console.warn(`[Auto] FFmpeg trim failed (${trimResult.error}) — using full video`)
+          finalDuration = realDuration
+        }
+      }
+
       updateWorkspace(workspace.id, {
         status: 'ready',
         downloadedAt: new Date().toISOString(),
-        downloadedPath: result.filePath,
-        fileSize: result.fileSize || 0,
+        downloadedPath: finalFilePath,
+        fileSize: finalFileSize,
         thumbnail: localThumbnail,
         videoTitle: realTitle,
         duration: realDuration,
         isShort: aspect?.isShort ?? true,
+        videoResolution: aspect ? `${aspect.width}x${aspect.height}` : undefined,
       })
       broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(workspace.id))
 
       const { blurPath } = generateWorkspacePaths(workspace.id)
-      const blurResult = await generateBlurBackground(result.filePath, blurPath)
+      const blurResult = await generateBlurBackground(finalFilePath, blurPath)
 
       updateWorkspace(workspace.id, {
         status: 'ready',
@@ -243,6 +384,8 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
       sendNotification('success', `Auto-ready: ${realTitle}`, workspace.id)
       broadcast(IPC_CHANNELS.AUTO_DOWNLOAD_EVENT, { videoId, title: realTitle, channelName: finalChannelName, detectedAt })
       showWindowsToast('✅ Download xong!', `${realTitle}`)
+      // Only mark as seen AFTER successful download — so YouTube processing delay doesn't block retry
+      markVideoSeen(channelId, videoId)
     } else {
       // Permanent failure → error, retryable failure → waiting
       const errorMsg = result.error || ''
@@ -251,8 +394,9 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
         updateWorkspace(workspace.id, { status: 'error' })
         console.log(`[Auto] Video permanently unavailable: ${title} (${videoId})`)
       } else {
-        updateWorkspace(workspace.id, { status: 'waiting' })
-        console.log(`[Auto] Download failed (retryable): ${result.error} — status → waiting`)
+        updateWorkspace(workspace.id, { status: 'waiting', retryableAt: new Date(Date.now() + 5 * 60 * 1000).toISOString() })
+        console.log(`[Auto] Download failed (retryable): ${result.error} — status → waiting (retryableAt: +5min)`)
+        console.log(`[Auto] Video will auto-retry at ~${new Date(Date.now() + 5 * 60 * 1000).toLocaleTimeString()}`)
         sendNotification('error', `Auto-download failed: ${result.error}`, workspace.id)
       }
     }
@@ -307,38 +451,67 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
     const thumbPath = path.join(storagePath, `thumb_${ws.id}.jpg`)
     const thumbResult = await extractVideoThumbnail(result.filePath, thumbPath)
     const videoInfo = await getVideoInfo(videoUrl)
+    const realDuration = result.duration || videoInfo?.duration || 0
     const localThumbnail = thumbResult.success
       ? 'local-video:///' + thumbPath.replace(/\\/g, '/')
       : (videoInfo?.thumbnail || `https://img.youtube.com/vi/${ws.videoId}/mqdefault.jpg`)
 
     const aspect = await probeVideoAspect(result.filePath)
 
+    // Short video check
+    if (realDuration > 0 && realDuration < 60) {
+      console.log(`[Retry] Video too short (${realDuration}s < 60s) — skipping (YouTube Short)`)
+      try { fs.unlinkSync(result.filePath) } catch {}
+      updateWorkspace(ws.id, { status: 'error' })
+      broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
+      sendNotification('error', `Too short: ${ws.videoTitle}`, ws.id)
+      markVideoSeen(ws.channelId, ws.videoId)
+      return
+    }
+
+    // FFmpeg trim if video is longer than trim limit
+    let finalFilePath = result.filePath
+    let finalFileSize = result.fileSize || 0
+    let finalDuration = realDuration
+    const trimLimitSec = typeof ws.trimLimit === 'number' ? ws.trimLimit * 60 : 0
+    if (trimLimitSec > 0 && realDuration > trimLimitSec) {
+      const trimmedPath = result.filePath.replace(/(\.\w+)$/, `_trimmed$1`)
+      const trimResult = await trimVideo(result.filePath, trimmedPath, 0, trimLimitSec)
+      if (trimResult.success) {
+        finalFilePath = trimmedPath
+        finalFileSize = fs.statSync(trimmedPath).size
+        finalDuration = trimLimitSec
+        try { fs.unlinkSync(result.filePath) } catch {}
+      }
+    }
+
     updateWorkspace(ws.id, {
       status: 'ready',
       downloadedAt: new Date().toISOString(),
-      downloadedPath: result.filePath,
-      fileSize: result.fileSize || 0,
+      downloadedPath: finalFilePath,
+      fileSize: finalFileSize,
       thumbnail: localThumbnail,
       videoTitle: videoInfo?.title || ws.videoTitle,
-      duration: result.duration || videoInfo?.duration || 0,
+      duration: finalDuration,
       isShort: aspect?.isShort ?? true,
     })
     broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
 
     const { blurPath } = generateWorkspacePaths(ws.id)
-    const blurResult = await generateBlurBackground(result.filePath, blurPath)
+    const blurResult = await generateBlurBackground(finalFilePath, blurPath)
     updateWorkspace(ws.id, { status: 'ready', blurBackgroundPath: blurResult.success ? blurPath : '' })
     broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
     sendNotification('success', `Auto-ready (retry): ${ws.videoTitle}`, ws.id)
     showWindowsToast('✅ Retry xong!', `${ws.videoTitle}`)
+    markVideoSeen(ws.channelId, ws.videoId)
   } else {
     const errorMsg = result.error || ''
     const isNotAvailable = errorMsg.includes('not available') || errorMsg.includes('Video unavailable')
     if (isNotAvailable) {
       updateWorkspace(ws.id, { status: 'error' })
     } else {
-      // Still retryable — stay in waiting for next poll retry
-      updateWorkspace(ws.id, { status: 'waiting' })
+      // Still retryable — stay in waiting with next retryableAt
+      updateWorkspace(ws.id, { status: 'waiting', retryableAt: new Date(Date.now() + 5 * 60 * 1000).toISOString() })
     }
     broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
   }
@@ -830,6 +1003,125 @@ async function registerIPCHandlers() {
     }
   })
 
+  ipcMain.handle(IPC_CHANNELS.WORKSPACE_REGENERATE_BLUR, async (_, id: string) => {
+    const ws = getWorkspace(id)
+    if (!ws) return { success: false, error: 'Workspace not found' }
+    if (!ws.downloadedPath || !fs.existsSync(ws.downloadedPath)) {
+      return { success: false, error: 'Video file not found' }
+    }
+    try {
+      const { blurPath } = generateWorkspacePaths(id)
+      // Overwrite existing blur
+      const result = await generateBlurBackground(ws.downloadedPath, blurPath)
+      const blurBgPath = result.success ? blurPath : ''
+      updateWorkspace(id, { blurBackgroundPath: blurBgPath })
+      broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id))
+      return { success: result.success, blurPath: blurBgPath }
+    } catch (err) {
+      return { success: false, error: (err as Error).message }
+    }
+  })
+
+  // ─── Split workspace into multiple workspaces by trim limit ─────────────────────
+  ipcMain.handle(IPC_CHANNELS.WORKSPACE_SPLIT, async (_, id: string, partMinutes = 10): Promise<{ success: boolean; newWorkspaces?: WorkspaceData[]; error?: string }> => {
+    try {
+      const ws = getWorkspace(id)
+      if (!ws) return { success: false, error: 'Workspace not found' }
+      if (ws.status !== 'ready' || !ws.downloadedPath || !fs.existsSync(ws.downloadedPath)) {
+        return { success: false, error: 'Video not ready' }
+      }
+
+      const totalSec = typeof ws.duration === 'number' ? ws.duration : 0
+      if (totalSec === 0) return { success: false, error: 'Unknown video duration' }
+
+      const partSec = partMinutes * 60
+      if (totalSec <= partSec) {
+        return { success: false, error: `Video is ${Math.floor(totalSec / 60)}m — no split needed (trim limit: ${partMinutes}m)` }
+      }
+
+      const numParts = Math.ceil(totalSec / partSec)
+      if (numParts < 2) return { success: false, error: 'No split needed' }
+
+      console.log(`[Split] Splitting "${ws.videoTitle}" (${totalSec}s) into ${numParts} parts of ${partMinutes}m each`)
+      console.log(`[Split] Original workspace ${ws.id} = Part 1 (0s – ${partSec}s)`)
+      console.log(`[Split] Will create ${numParts - 1} new workspaces for remaining parts`)
+
+      const newWorkspaces: WorkspaceData[] = []
+
+      // For each part (0 = original workspace, 1..n-1 = new workspaces)
+      for (let i = 1; i < numParts; i++) {
+        const startSec = i * partSec
+        const endSec = Math.min((i + 1) * partSec, totalSec)
+        const partDuration = endSec - startSec
+        const partFileName = `${ws.id}_part${i + 1}.${path.extname(ws.downloadedPath).slice(1) || 'mp4'}`
+        const partFilePath = path.join(path.dirname(ws.downloadedPath), partFileName)
+
+        console.log(`[Split] Part ${i + 1}/${numParts}: ${startSec}s – ${endSec}s (${partDuration}s)`)
+
+        // FFmpeg stream-copy the part (no re-encode, very fast)
+        const trimResult = await trimVideo(ws.downloadedPath, partFilePath, startSec, partDuration)
+        if (!trimResult.success) {
+          console.error(`[Split] FFmpeg trim failed for part ${i + 1}: ${trimResult.error}`)
+          // Clean up already-created parts
+          for (const nw of newWorkspaces) {
+            try { if (nw.downloadedPath) fs.unlinkSync(nw.downloadedPath) } catch {}
+          }
+          return { success: false, error: `Part ${i + 1} FFmpeg failed: ${trimResult.error}` }
+        }
+
+        const partSize = fs.statSync(partFilePath).size
+
+        // Create workspace with its own ID BEFORE generating paths that reference it
+        const newWs = addWorkspace({
+          channelId: ws.channelId,
+          channelName: ws.channelName,
+          channelColor: ws.channelColor || '#00B4FF',
+          videoId: ws.videoId,
+          videoTitle: ws.videoTitle,
+          videoUrl: ws.videoUrl,
+          thumbnail: ws.thumbnail,
+          duration: partDuration,
+          trimLimit: ws.trimLimit,
+          status: 'ready',
+          renderProgress: 0,
+          downloadedAt: new Date().toISOString(),
+          downloadedPath: partFilePath,
+          blurBackgroundPath: '',
+          outputPath: '',
+          metadataPath: '',
+          fileSize: partSize,
+          renderMetadata: null,
+          publishedAt: ws.publishedAt,
+          detectedAt: ws.detectedAt,
+          isShort: ws.isShort,
+          videoResolution: ws.videoResolution,
+        })
+
+        // Extract thumbnail for this part
+        const partThumbPath = path.join(path.dirname(ws.downloadedPath), `thumb_${newWs.id}.jpg`)
+        const partThumbResult = await extractVideoThumbnail(partFilePath, partThumbPath)
+
+        // Generate blur for this part — use new workspace's own ID
+        const { blurPath: partBlurPath } = generateWorkspacePaths(newWs.id)
+        const partBlurResult = await generateBlurBackground(partFilePath, partBlurPath)
+
+        updateWorkspace(newWs.id, {
+          thumbnail: partThumbResult.success ? 'local-video:///' + partThumbPath.replace(/\\/g, '/') : ws.thumbnail,
+          blurBackgroundPath: partBlurResult.success ? partBlurPath : '',
+        });
+
+        newWorkspaces.push(newWs)
+        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, newWs)
+        console.log(`[Split] Created workspace ${newWs.id} (${newWs.videoTitle})`)
+      }
+
+      sendNotification('success', `Split "${ws.videoTitle}" into ${numParts} parts`, ws.id)
+      return { success: true, newWorkspaces }
+    } catch (err) {
+      return { success: false, error: (err as Error).message }
+    }
+  })
+
   ipcMain.handle(IPC_CHANNELS.TRACKER_ADD, async (_, url: string, trimLimit: number | 'full'): Promise<WorkspaceData | null> => {
     try {
       const info = await getVideoInfo(url)
@@ -1143,22 +1435,44 @@ async function registerIPCHandlers() {
     if (!workspace) return { success: false, workspaceId, error: 'Workspace not found' }
     if (!workspace.downloadedPath) return { success: false, workspaceId, error: 'Video not downloaded' }
 
+    // Resolve video path: disk store only saves filename, scan storage dirs to find actual file
+    const videoPath = findDownloadedFileAbs(workspaceId) || metadata.source_video
+    if (!fs.existsSync(videoPath)) {
+      return { success: false, workspaceId, error: `Source video not found: ${path.basename(videoPath)}` }
+    }
+
     // GPU-aware config injection — RTX 5080 tier gets 8 workers / 120s chunks
     const gpuCaps = getGPUCapabilities()
     const effectiveConfig: ChunkConfig = {
       workers: config?.workers ?? gpuCaps.maxChunkWorkers,
       chunkDuration: config?.chunkDuration ?? (gpuCaps.tier === 'high' ? 120 : 30),
       minChunkDuration: config?.minChunkDuration ?? (gpuCaps.tier === 'high' ? 10 : 5),
+      gpuTier: gpuCaps.tier,
     }
 
     updateWorkspace(workspaceId, { status: 'rendering', renderProgress: 0 })
     sendNotification('info', `GPU MAX (${effectiveConfig.workers}x): ${workspace.videoTitle}`, workspaceId)
 
+    const chunkRenderStartMs = Date.now()
+    const chunkQuality = parseInt((metadata.export_resolution || '1080x1920').split('x')[1]) || 1080
+    const chunkSpeed = metadata.video_speed ?? 1.0
+    const chunkTrimStart = metadata.trim?.start ?? 0
+    const chunkTrimEnd = metadata.trim?.end ?? 0
+    const chunkTrimDuration = chunkTrimEnd - chunkTrimStart
+    console.log(`[TIMER] ═══════════════════════════════════════════════`)
+    console.log(`[TIMER] RENDER START (GPU MAX CHUNKED): "${workspace.videoTitle}"`)
+    console.log(`[TIMER]   Quality: ${chunkQuality}p | Speed: ${chunkSpeed}x | Trim: ${chunkTrimDuration}s (${chunkTrimStart}s–${chunkTrimEnd}s)`)
+    console.log(`[TIMER]   Codec: ${metadata.codec ?? 'hevc'} | Workers: ${effectiveConfig.workers}x | Chunk duration: ${effectiveConfig.chunkDuration}s | Source: ${path.basename(videoPath)}`)
+    console.log(`[TIMER]   ═══════════════════════════════════════════════`)
+
     const outputDir = getOutputPath()
     ensureStorageDirs()
 
+    // Build resolved metadata with absolute video path for FFmpeg
+    const resolvedMetadata = { ...metadata, source_video: videoPath }
+
     const result = await renderChunked(
-      metadata,
+      resolvedMetadata,
       outputDir,
       effectiveConfig,
       (progress) => {
@@ -1170,25 +1484,85 @@ async function registerIPCHandlers() {
     if (result.success) {
       updateWorkspace(workspaceId, { status: 'done', renderProgress: 100, outputPath: result.outputPath || '' })
       sendNotification('success', `Done (chunked): ${workspace.videoTitle}`, workspaceId)
-      if (result.outputPath) shell.showItemInFolder(result.outputPath)
+      const chunkRenderElapsed = ((Date.now() - chunkRenderStartMs) / 1000).toFixed(1)
+      console.log(`[TIMER] RENDER DONE (GPU MAX CHUNKED): "${workspace.videoTitle}" — ${chunkRenderElapsed}s`)
+      // Capture thumbnail as base64 before workspace is deleted
+      const thumbPath = path.join(getVideoStoragePath(), `thumb_${workspace.id}.jpg`)
+      const thumbData = fs.existsSync(thumbPath)
+        ? 'data:image/jpeg;base64,' + fs.readFileSync(thumbPath).toString('base64')
+        : undefined
+      // Auto-archive to D:\HyperClip\Rendered
+      ;(async () => {
+        try {
+          const quality = parseInt((metadata.export_resolution || '1080x1920').split('x')[1])
+          const codec = (metadata.codec as string) || 'hevc'
+          const archiveResult = await archiveRenderedFile(
+            result.outputPath!,
+            workspace.channelName,
+            workspace.videoTitle,
+            quality || 1080,
+            codec,
+            workspace.fileSize || 0,
+            workspace.duration || 0,
+          )
+          if (archiveResult.success && archiveResult.archivedPath) {
+            const record: RenderedVideoRecord = {
+              id: `rv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              workspaceId: workspace.id,
+              channelId: workspace.channelId,
+              channelName: workspace.channelName,
+              videoTitle: workspace.videoTitle,
+              archivedPath: archiveResult.archivedPath,
+              outputPath: result.outputPath!,
+              quality: quality || 1080,
+              codec,
+              fileSize: workspace.fileSize || 0,
+              duration: workspace.duration || 0,
+              thumbnail: workspace.thumbnail,
+              thumbnailData: thumbData,
+              renderedAt: new Date().toISOString(),
+            }
+            addRenderedVideo(record)
+            cleanupWorkspace(workspace.id, workspace.downloadedPath)
+            deleteWorkspace(workspace.id)
+            broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, null)
+            const _fileSizeMB = ((workspace.fileSize || 0) / 1024 / 1024).toFixed(1)
+            console.log(`[TIMER] ARCHIVE DONE: ${archiveResult.archivedPath}`)
+            console.log(`[TIMER]   Archive file size: ${_fileSizeMB} MB`)
+            console.log(`[TIMER] ═══════════════════════════════════════════════`)
+          } else {
+            // Archive failed but render succeeded — notify user, keep workspace
+            sendNotification('warning', `Render done, archive failed: ${archiveResult.error || 'unknown'}`, workspaceId)
+            console.warn(`[AutoArchive] failed: ${archiveResult.error} — workspace ${workspace.id} NOT deleted`)
+            updateWorkspace(workspaceId, { status: 'done', renderProgress: 100, outputPath: result.outputPath || '' })
+          }
+        } catch (e) {
+          sendNotification('error', `Archive error: ${e}`, workspaceId)
+          console.warn('[AutoArchive] failed:', e)
+        }
+      })()
     } else {
       updateWorkspace(workspaceId, { status: 'ready', renderProgress: 0 })
       sendNotification('error', `Chunked render failed: ${result.error}`, workspaceId)
     }
 
+    // Advance standard queue after chunked render completes (whether success or fail)
+    startNextQueuedRender()
+
     return result
   })
 
   // ─── Admin Password ────────────────────────────────────────────────────────────
-  ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, async (): Promise<{ videoStoragePath?: string; outputPath?: string; adminPasswordHash?: string }> => {
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, async (): Promise<{ videoStoragePath?: string; outputPath?: string; adminPasswordHash?: string; defaultTrimLimit?: number | 'full' }> => {
     return loadSettings()
   })
 
-  ipcMain.handle(IPC_CHANNELS.SETTINGS_UPDATE, async (_, patch: { videoStoragePath?: string; outputPath?: string; adminPasswordHash?: string }): Promise<void> => {
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_UPDATE, async (_, patch: { videoStoragePath?: string; outputPath?: string; adminPasswordHash?: string; defaultTrimLimit?: number | 'full' }): Promise<void> => {
     const settings = loadSettings()
     if (patch.videoStoragePath !== undefined) settings.videoStoragePath = patch.videoStoragePath
     if (patch.outputPath !== undefined) settings.outputPath = patch.outputPath
     if (patch.adminPasswordHash !== undefined) settings.adminPasswordHash = patch.adminPasswordHash
+    if (patch.defaultTrimLimit !== undefined) settings.defaultTrimLimit = patch.defaultTrimLimit
     saveSettings(settings)
   })
 
@@ -1211,6 +1585,100 @@ async function registerIPCHandlers() {
   ipcMain.handle(IPC_CHANNELS.ADMIN_HAS_PASSWORD, async (): Promise<{ has: boolean }> => {
     const settings = loadSettings()
     return { has: !!settings.adminPasswordHash }
+  })
+
+  // ─── Rendered videos ───────────────────────────────────────────────────────────
+  ipcMain.handle(IPC_CHANNELS.RENDERED_LIST, () => {
+    return getRenderedVideos()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.RENDERED_ARCHIVE, async (_, workspaceId: string, customArchiveDir?: string): Promise<{ success: boolean; archivedPath?: string; error?: string }> => {
+    const ws = getWorkspace(workspaceId)
+    if (!ws) return { success: false, error: 'Workspace not found' }
+    if (!ws.outputPath) return { success: false, error: 'No output file' }
+
+    // Override archive path if custom path provided
+    let prevArchivePath: string | undefined
+    if (customArchiveDir) {
+      const settings = loadSettings()
+      prevArchivePath = settings.renderedOutputPath
+      saveSettings({ ...settings, renderedOutputPath: customArchiveDir })
+    }
+
+    const quality = (ws as any).quality || 1080
+    const codec = (ws as any).codec || 'hevc'
+
+    const result = await archiveRenderedFile(
+      ws.outputPath,
+      ws.channelName,
+      ws.videoTitle,
+      quality,
+      codec,
+      ws.fileSize,
+      ws.duration,
+    )
+
+    // Restore archive path
+    if (customArchiveDir && prevArchivePath !== undefined) {
+      const settings = loadSettings()
+      saveSettings({ ...settings, renderedOutputPath: prevArchivePath })
+    }
+
+    if (result.success && result.archivedPath) {
+      // Capture thumbnail as base64 before workspace is deleted
+      const thumbPath = path.join(getVideoStoragePath(), `thumb_${ws.id}.jpg`)
+      const thumbData = fs.existsSync(thumbPath)
+        ? 'data:image/jpeg;base64,' + fs.readFileSync(thumbPath).toString('base64')
+        : undefined
+      const renderedRecord: RenderedVideoRecord = {
+        id: `rv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        workspaceId: ws.id,
+        channelId: ws.channelId,
+        channelName: ws.channelName,
+        videoTitle: ws.videoTitle,
+        archivedPath: result.archivedPath,
+        outputPath: ws.outputPath,
+        quality,
+        codec,
+        fileSize: ws.fileSize,
+        duration: ws.duration,
+        thumbnail: ws.thumbnail,
+        thumbnailData: thumbData,
+        renderedAt: new Date().toISOString(),
+      }
+      addRenderedVideo(renderedRecord)
+      // Clean up workspace (input video, blur, output) but keep the archived file
+      cleanupWorkspace(ws.id, ws.downloadedPath)
+      // Delete the workspace record
+      deleteWorkspace(ws.id)
+      broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, null)
+    }
+
+    return result
+  })
+
+  ipcMain.handle(IPC_CHANNELS.RENDERED_REMOVE, (_, id: string) => {
+    return { success: removeRenderedVideo(id) }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.RENDERED_OPEN_FOLDER, (_, id?: string) => {
+    if (id) {
+      const videos = getRenderedVideos()
+      const video = videos.find(v => v.id === id)
+      if (video && fs.existsSync(video.archivedPath)) {
+        showInFolder(video.archivedPath)
+        return { success: true }
+      }
+    }
+    // Open the archive folder itself
+    openArchiveFolder()
+    return { success: true }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.RENDERED_SET_ARCHIVE_PATH, (_, newPath: string) => {
+    const settings = loadSettings()
+    saveSettings({ ...settings, renderedOutputPath: newPath })
+    return { success: true }
   })
 
   // Poller status: return current YouTubePoller state
@@ -1278,7 +1746,45 @@ async function registerIPCHandlers() {
     config['client_id'] = clientId
     config['client_secret'] = clientSecret
     fs2.writeFileSync(configFile, JSON.stringify(config, null, 2), 'utf-8')
-    console.log('[OAuth] Credentials saved (per-project format)')
+    console.log('[OAuth] Credentials saved to oauth_config.json (per-project format)')
+
+    // Also update credentials in oauth_tokens.json — this file is now the single source of truth
+    // for credentials. getOAuthClientId() reads from there first.
+    try {
+      const fs3 = await import('fs')
+      const path3 = await import('path')
+      const os3 = await import('os')
+      const tokensFile = path3.join(os3.tmpdir(), 'hyperclip-cookies', 'oauth_tokens.json')
+      if (fs3.existsSync(tokensFile)) {
+        const raw = JSON.parse(fs3.readFileSync(tokensFile, 'utf-8'))
+        const tokens = Array.isArray(raw) ? raw : []
+        let updated = 0
+        for (const t of tokens) {
+          // Only update entries that don't have explicit credentials (legacy migrated entries)
+          if (!(t as any).clientId && !(t as any).clientSecret) {
+            (t as any).clientId = clientId
+            ;(t as any).clientSecret = clientSecret
+            updated++
+          }
+        }
+        if (updated > 0) {
+          fs3.writeFileSync(tokensFile, JSON.stringify(tokens, null, 2), 'utf-8')
+          console.log(`[OAuth] Updated credentials in oauth_tokens.json for ${updated} token(s)`)
+        }
+      }
+    } catch (e) {
+      console.warn('[OAuth] Failed to update oauth_tokens.json:', e)
+    }
+
+    // Reload TokenManager so in-memory state reflects new credentials
+    try {
+      const tokens2 = await import('./services/token_manager.js')
+      tokens2.getTokenManager().reload()
+      console.log('[OAuth] TokenManager reloaded with new credentials')
+    } catch (e) {
+      console.warn('[OAuth] Failed to reload TokenManager:', e)
+    }
+
     return { success: true }
   })
 
@@ -1341,12 +1847,14 @@ async function registerIPCHandlers() {
   })
 
   ipcMain.handle(IPC_CHANNELS.KEY_RESET, (_, key?: string) => {
+    const km = getKeyManager()
+    let result: { success: boolean; nextReset: number }
     if (key) {
-      getKeyManager().resetKey(key)
+      result = km.resetKey(key)
     } else {
-      getKeyManager().resetAll()
+      result = km.resetAll()
     }
-    return { success: true, keys: getKeyManager().getAllKeys() }
+    return { success: result.success, keys: km.getAllKeys(), nextReset: result.nextReset }
   })
 
   // ─── Dynamic Project Management ─────────────────────────────────────────────
@@ -1634,6 +2142,15 @@ ensureStorageDirs()
 app.whenReady().then(async () => {
   console.log('[HyperClip] Starting...')
 
+  // Validate FFmpeg before any render can happen
+  const ffmpegPath = getFfmpegPath()
+  try {
+    await validateFfmpeg(ffmpegPath)
+  } catch (e) {
+    console.error('[HyperClip] FFmpeg validation failed — renders will NOT work:', e)
+    sendNotification('error', `FFmpeg not available: ${e}. Renders will fail.`)
+  }
+
   // Auto-boot Next.js if not already running on port 3000
   const nextRunning = await isPortOpen(NEXT_PORT)
   if (nextRunning) {
@@ -1667,7 +2184,7 @@ app.whenReady().then(async () => {
   // so poll won't re-download files already on disk
   scanExistingDownloadedFiles()
 
-  // Init cookie manager (auto-refresh every 15m + sub sync every 2m) then start polling
+  // Init cookie manager (auto-refresh every 15m + sub sync every 2m)
   const cookieResult = await initCookieManager()
   if (cookieResult.success) {
     console.log(`[HyperClip] Cookies ready (${cookieResult.browser}, ${cookieResult.cookies.length} cookies)`)
@@ -1678,16 +2195,27 @@ app.whenReady().then(async () => {
   // Start auto-refresh timer (cookies + subscription sync)
   getCookieManager().startAutoRefresh()
 
-  // Poll every 20s — playlistItems per channel batch
-  startYouTubePoller(20000, (videos) => {
-    for (const v of videos) {
-      showWindowsToast('📥 Video mới!', `${v.channelName}: ${v.title}`)
-      autoDownloadFromWebSub(v.videoId, v.channelId, v.channelName, v.title)
-    }
-  })
-  console.log('[HyperClip] Auto-ingestion active (YouTube API — 4s interval, batched channels)')
-
-  console.log(`[HyperClip] Ready → http://localhost:${NEXT_PORT}`)
+  // Start polling ONLY after the renderer page has fully loaded.
+  // This guarantees the window + frontend IPC listeners are ready before
+  // any broadcast() call, so workspaces are always created and shown in real-time.
+  if (mainWindow) {
+    // did-finish-load fires immediately if the page is already loaded
+    mainWindow.webContents.once('did-finish-load', () => {
+      startYouTubePoller(20000, (videos) => {
+        for (const v of videos) {
+          showWindowsToast('📥 Video mới!', `${v.channelName}: ${v.title}`)
+          autoDownloadFromWebSub(
+            v.videoId, v.channelId, v.channelName, v.title,
+            v.publishedAt ? new Date(v.publishedAt).toISOString() : undefined,
+            v.detectedAt ? new Date(v.detectedAt).toISOString() : undefined,
+          )
+        }
+      })
+      console.log('[HyperClip] Auto-ingestion active (YouTube API — 20s interval, batched channels)')
+      console.log(`[HyperClip] Ready → http://localhost:${NEXT_PORT}`)
+      startSystemMonitor()
+    })
+  }
 })
 
 app.on('window-all-closed', quitAll)

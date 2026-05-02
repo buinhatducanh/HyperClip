@@ -7,6 +7,9 @@
  */
 
 import { fetchSubscriptionFeed } from './subscription_feed.js'
+import fs from 'fs'
+import path from 'path'
+import os from 'os'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -19,10 +22,11 @@ export interface DetectedVideo {
   duration: string
   publishedTime: string
   detectedAt: number // timestamp
+  publishedAt?: number // YouTube publish timestamp (ms)
 }
 
 export interface PollerOptions {
-  pollIntervalMs?: number // default 3000 (3 seconds)
+  pollIntervalMs?: number // default 4000 (4 seconds)
   maxVideosPerPoll?: number // max new videos to report per poll, default 5
   onNewVideos?: (videos: DetectedVideo[]) => void
 }
@@ -40,30 +44,64 @@ export interface PollerStatus {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DEFAULT_POLL_INTERVAL_MS = 20000 // 20 seconds
-const MAX_VIDEOS_PER_POLl = 5
+const DEFAULT_POLL_INTERVAL_MS = 20000 // 20 seconds — matches main.ts call and spec target
+const MAX_VIDEOS_PER_POLL = 5
 const MAX_VIDEO_AGE_MS = 10 * 60 * 1000 // 10 minutes — accounts for YouTube processing delay after upload
+const SEEN_IDS_CAP = 10000 // cap to prevent unbounded memory growth
+const SEEN_IDS_FILE = path.join(os.homedir(), 'AppData', 'Roaming', 'HyperClip', 'seen-ids.json')
+
+// ─── SeenVideoIds persistence ─────────────────────────────────────────────────
+
+/**
+ * Load seen video IDs from disk.
+ * Prevents re-detecting videos after app restart (no duplicate downloads).
+ */
+function loadSeenVideoIds(): Set<string> {
+  try {
+    if (fs.existsSync(SEEN_IDS_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(SEEN_IDS_FILE, 'utf-8'))
+      return new Set<string>(Array.isArray(raw) ? raw : [])
+    }
+  } catch {}
+  return new Set()
+}
+
+/**
+ * Persist seen video IDs to disk.
+ * Called after every new detection to survive restarts.
+ */
+function saveSeenVideoIds(ids: Set<string>): void {
+  try {
+    const arr = Array.from(ids)
+    fs.writeFileSync(SEEN_IDS_FILE, JSON.stringify(arr), 'utf-8')
+  } catch {}
+}
+
+// ─── Poller ─────────────────────────────────────────────────────────────────────
 
 class YouTubePoller {
   private _pollTimer: NodeJS.Timeout | null = null
   private _pollIntervalMs: number
   private _maxVideosPerPoll: number
   private _onNewVideos?: (videos: DetectedVideo[]) => void
-  private _seenVideoIds: Set<string> = new Set()
+  private _seenVideoIds: Set<string>
   private _videoCount: number = 0
   private _newVideoCount: number = 0
   private _active: boolean = false
   private _lastPollAt: number | null = null
   private _lastNewVideosAt: number | null = null
   private _lastError: string | null = null
-  private _cookiesReady: boolean = false // removed, kept for compat
-  private _lastPollTime: number = 0
   private _pollsSinceLastLog: number = 0
+  private _exhaustedBackoffUntil: number = 0 // timestamp when backoff ends
+  private _lastExhaustedWarnAt: number = 0   // avoid spamming notifications
 
   constructor(options: PollerOptions) {
     this._pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
-    this._maxVideosPerPoll = options.maxVideosPerPoll ?? MAX_VIDEOS_PER_POLl
+    this._maxVideosPerPoll = options.maxVideosPerPoll ?? MAX_VIDEOS_PER_POLL
     this._onNewVideos = options.onNewVideos
+    // Load persisted seen IDs on startup — survives app restarts
+    this._seenVideoIds = loadSeenVideoIds()
+    console.log(`[YouTubePoller] Loaded ${this._seenVideoIds.size} seen video IDs from disk`)
   }
 
   getStatus(): PollerStatus {
@@ -86,23 +124,41 @@ class YouTubePoller {
   /** Manually add a video ID to the seen set (e.g., from existing workspaces) */
   markSeen(videoId: string): void {
     this._seenVideoIds.add(videoId)
+    saveSeenVideoIds(this._seenVideoIds)
+  }
+
+  private _capSeenIds(): void {
+    // Cap at SEEN_IDS_CAP to prevent unbounded memory growth
+    if (this._seenVideoIds.size > SEEN_IDS_CAP) {
+      const arr = Array.from(this._seenVideoIds)
+      this._seenVideoIds = new Set(arr.slice(-SEEN_IDS_CAP))
+      saveSeenVideoIds(this._seenVideoIds)
+    }
   }
 
   private async _pollOnce(): Promise<void> {
     this._lastError = null
     this._lastPollAt = Date.now()
 
+    // Backoff: if in exhausted backoff period, skip this poll
+    const now = Date.now()
+    if (now < this._exhaustedBackoffUntil) {
+      const remaining = Math.ceil((this._exhaustedBackoffUntil - now) / 60000)
+      if (this._pollsSinceLastLog === 0) {
+        console.log(`[YouTubePoller] All tokens exhausted — backing off (${remaining}m until midnight PT)`)
+      }
+      return
+    }
+
     // Log every poll start — confirms poller is alive and making API calls
     if (this._pollsSinceLastLog === 0) {
       console.log(`[YouTubePoller] Scanning...`)
     }
 
-    // API polling: YouTube Data API v3 with 30-key round-robin
-    // Always use a 10-minute window for age filtering — NOT _lastPollTime.
-    // _lastPollTime is only used for poll scheduling, not for filtering.
     const sinceMs = Date.now() - MAX_VIDEO_AGE_MS
     const subResult = await fetchSubscriptionFeed({
-      maxVideos: 20,
+      // Request enough to fill maxVideosPerPoll + buffer — early exit kicks in at channel level
+      maxVideos: this._maxVideosPerPoll + 5,
       seenVideoIds: this._seenVideoIds,
       sinceMs,
     })
@@ -112,6 +168,39 @@ class YouTubePoller {
         this._lastError = subResult.error.slice(0, 80)
         if (subResult.error.includes('OAuth') || subResult.error.includes('token')) {
           console.warn(`[YouTubePoller] API error: ${subResult.error}`)
+        }
+      }
+
+      // All tokens exhausted — enter backoff mode, notify user once
+      if (subResult.allTokensExhausted) {
+        this._lastError = 'All OAuth tokens exhausted — waiting for midnight PT reset'
+        console.warn(`[YouTubePoller] ALL OAuth tokens exhausted — backing off until midnight PT`)
+
+        // Calculate backoff: time until next midnight PT
+        const utcHour = new Date().getUTCHours()
+        const utcYear = new Date().getFullYear()
+        // DST in PT
+        const march1 = new Date(Date.UTC(utcYear, 2, 1))
+        const firstSundayMarch = new Date(Date.UTC(utcYear, 2, march1.getUTCDay() === 0 ? 1 : 8 - march1.getUTCDay()))
+        const dstStart = new Date(Date.UTC(utcYear, 2, firstSundayMarch.getUTCDate()))
+        const nov1 = new Date(Date.UTC(utcYear, 10, 1))
+        const firstSundayNov = new Date(Date.UTC(utcYear, 10, nov1.getUTCDay() === 0 ? 1 : 8 - nov1.getUTCDay()))
+        const dstEnd = new Date(Date.UTC(utcYear, 10, firstSundayNov.getUTCDate()))
+        const isPDT = new Date() >= dstStart && new Date() < dstEnd
+        const ptOffset = isPDT ? -7 : -8
+        const ptHour = utcHour + ptOffset
+        const hoursUntilMidnight = ptHour < 0 ? Math.abs(ptHour) : 24 + ptHour
+        const backoffMs = Math.min(hoursUntilMidnight * 60 * 60 * 1000, 8 * 60 * 60 * 1000)
+        this._exhaustedBackoffUntil = now + backoffMs
+
+        // Notify user once per backoff period (not every poll)
+        if (now - this._lastExhaustedWarnAt > 5 * 60 * 1000) {
+          this._lastExhaustedWarnAt = now
+          // Notify via IPC if available — main.ts wires this up to a notification callback
+          if (this._onNewVideos) {
+            this._onNewVideos([])
+          }
+          console.warn(`[YouTubePoller] QUOTA_EXHAUSTED: All OAuth tokens exhausted. Backoff until midnight PT (${Math.ceil(hoursUntilMidnight)}h). Add more projects in Settings.`)
         }
       }
       return
@@ -140,14 +229,17 @@ class YouTubePoller {
         duration: vid.duration || ageStr,
         publishedTime: ageStr,
         detectedAt: Date.now(),
+        publishedAt: vid.publishedAt,
       })
 
       if (newVideos.length >= this._maxVideosPerPoll) break
     }
 
-    this._lastPollTime = Date.now()
+    // Persist seen IDs after every detection — survives restarts
+    saveSeenVideoIds(this._seenVideoIds)
+    this._capSeenIds()
 
-    // Log alive status every 30 polls (~10 min at 20s)
+    // Log alive status every 30 polls (~2 min at 4s/poll)
     this._pollsSinceLastLog++
     if (this._pollsSinceLastLog >= 30) {
       const elapsed = this._lastPollAt
@@ -166,17 +258,19 @@ class YouTubePoller {
 
   private _scheduleNextPoll(): void {
     if (!this._active) return
-    const jitter = this._pollIntervalMs * (0.5 + Math.random())
+    // ±1s jitter around poll interval (spec: 4s ± jitter)
+    const jitter = this._pollIntervalMs + (Math.random() * 2000 - 1000)
+    const delay = Math.max(1000, jitter) // minimum 1s between polls
     this._pollTimer = setTimeout(async () => {
       await this._pollOnce()
       this._scheduleNextPoll()
-    }, jitter)
+    }, delay)
   }
 
   start(): void {
     if (this._active) return
     this._active = true
-    console.log(`[YouTubePoller] Starting (interval: ${this._pollIntervalMs / 1000}s)`)
+    console.log(`[YouTubePoller] Starting (interval: ${this._pollIntervalMs / 1000}s ± 1s jitter, seen IDs: ${this._seenVideoIds.size})`)
     this._pollOnce()
     this._scheduleNextPoll()
   }

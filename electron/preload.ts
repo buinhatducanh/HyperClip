@@ -22,6 +22,8 @@ const IPC = {
   WORKSPACE_ADD: 'workspace:add',
   WORKSPACE_UPDATE_EVENT: 'workspace:update-event',
   WORKSPACE_RETRY: 'workspace:retry',
+  WORKSPACE_REGENERATE_BLUR: 'workspace:regenerate-blur',
+  WORKSPACE_SPLIT: 'workspace:split',
 
   // Render
   RENDER_START: 'render:start',
@@ -97,6 +99,13 @@ const IPC = {
     TOKEN_STATUS_LIST: 'token:status-list',
   TOKEN_REMOVE: 'token:remove',
   TOKEN_GET_DEFAULT_CREDS: 'token:get-default-creds',
+
+  // Rendered videos
+  RENDERED_LIST: 'rendered:list',
+  RENDERED_ARCHIVE: 'rendered:archive',
+  RENDERED_REMOVE: 'rendered:remove',
+  RENDERED_OPEN_FOLDER: 'rendered:openFolder',
+  RENDERED_SET_ARCHIVE_PATH: 'rendered:setArchivePath',
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -131,6 +140,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC.WORKSPACE_DELETE, id),
   retryWorkspace: (id: string) =>
     ipcRenderer.invoke(IPC.WORKSPACE_RETRY, id),
+  regenerateWorkspaceBlur: (id: string) =>
+    ipcRenderer.invoke(IPC.WORKSPACE_REGENERATE_BLUR, id) as Promise<{ success: boolean; blurPath?: string; error?: string }>,
+  splitWorkspace: (id: string, partMinutes: number) =>
+    ipcRenderer.invoke(IPC.WORKSPACE_SPLIT, id, partMinutes) as Promise<{ success: boolean; newWorkspaces?: any[]; error?: string }>,
 
   // Rendering
   startRender: (workspaceId: string, metadata: Record<string, unknown>) =>
@@ -183,7 +196,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Settings
   getSettings: () => ipcRenderer.invoke(IPC.SETTINGS_GET),
-  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string }) =>
+  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full' }) =>
     ipcRenderer.invoke(IPC.SETTINGS_UPDATE, patch),
 
   // WebSub diagnostics
@@ -290,4 +303,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC.ADMIN_SET_PASSWORD, password) as Promise<{ success: boolean }>,
   adminHasPassword: () =>
     ipcRenderer.invoke(IPC.ADMIN_HAS_PASSWORD) as Promise<{ has: boolean }>,
+
+  // Rendered videos
+  getRenderedVideos: () =>
+    ipcRenderer.invoke(IPC.RENDERED_LIST) as Promise<unknown[]>,
+  archiveRendered: (workspaceId: string, customArchiveDir?: string) =>
+    ipcRenderer.invoke(IPC.RENDERED_ARCHIVE, workspaceId, customArchiveDir) as Promise<{ success: boolean; archivedPath?: string; error?: string }>,
+  removeRenderedVideo: (id: string) =>
+    ipcRenderer.invoke(IPC.RENDERED_REMOVE, id) as Promise<{ success: boolean }>,
+  openRenderedFolder: (id?: string) =>
+    ipcRenderer.invoke(IPC.RENDERED_OPEN_FOLDER, id) as Promise<{ success: boolean }>,
+  setRenderedArchivePath: (path: string) =>
+    ipcRenderer.invoke(IPC.RENDERED_SET_ARCHIVE_PATH, path) as Promise<{ success: boolean }>,
 })

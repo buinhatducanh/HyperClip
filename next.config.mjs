@@ -4,15 +4,15 @@ const nextConfig = {
     unoptimized: true,
   },
   eslint: {
-    ignoreDuringBuilds: true,
+    ignoreBuildErrors: true,
   },
   typescript: {
     ignoreBuildErrors: true,
   },
-  // Disable static page generation — Electron runs `next start` (fully dynamic server)
-  // Pages use Zustand which calls useContext (not available during SSR prerender)
-  // Setting output manual + force-dynamic on all pages prevents prerender attempts
-  output: 'standalone',
+  // Electron main.ts spawns Next.js directly: node_modules/.bin/next dev/start.
+  // Prerender errors are expected for 'use client' pages with Zustand (useContext during SSR).
+  // These pages are served dynamically at runtime.
+  // electron-builder bundles .next/ directory — no standalone output needed.
 }
 
 export default nextConfig
