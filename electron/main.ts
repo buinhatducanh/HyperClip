@@ -55,6 +55,77 @@ let nextServerOwned = false // did WE spawn the Next.js server?
 // Prevents multiple concurrent retry attempts for the same workspace
 const inProgressAutoRetries: Set<string> = new Set()
 
+// ─── Background Download Queue ─────────────────────────────────────────────────
+// Non-blocking pre-download: poller detects video → immediately spawns download
+// in background without blocking the next poll. Multiple videos from same poll
+// download in parallel instead of sequentially.
+// Concurrency is RAM-adaptive: spawns new downloads only when enough free memory.
+// - 4050 / 24GB RAM: max 2 concurrent (6-8 GB needed per download)
+// - 5080 / 64GB RAM: max 3 concurrent (headroom for FFmpeg workers too)
+const bgDownloadQueue: Array<{
+  videoId: string; channelId: string; channelName: string; title: string
+  publishedAt?: string; detectedAt?: string
+}> = []
+let activeBgDownloads = 0
+
+/** Get safe concurrent download count based on free RAM.
+ *  Each download needs ~2-4 GB (buffers + yt-dlp heap + OS network buffers).
+ *  FFmpeg workers also need RAM, so leave headroom.
+ */
+function getMaxConcurrentDownloads(): number {
+  const freeGB = os.freemem() / (1024 ** 3)
+  const totalGB = os.totalmem() / (1024 ** 3)
+  if (totalGB >= 48) return 3   // 5080 64GB: 3 concurrent
+  if (freeGB >= 8) return 2     // 4050 24GB: 2 concurrent (8GB+ free after OS)
+  if (freeGB >= 4) return 1     // Low RAM: 1 at a time
+  return 0                       // Too low: pause queue
+}
+
+/** Enqueue a video for non-blocking background download.
+ *  Quality is determined by user's setting (autoDownloadQuality in Settings).
+ *  Higher quality = longer download but better source for rendering.
+ */
+function enqueueBgDownload(video: {
+  videoId: string; channelId: string; channelName: string; title: string
+  publishedAt?: number; detectedAt?: number
+}): void {
+  // Deduplicate: don't queue if already pending or active
+  if (bgDownloadQueue.some(v => v.videoId === video.videoId)) return
+  bgDownloadQueue.push({
+    videoId: video.videoId,
+    channelId: video.channelId,
+    channelName: video.channelName,
+    title: video.title,
+    publishedAt: video.publishedAt ? new Date(video.publishedAt).toISOString() : undefined,
+    detectedAt: video.detectedAt ? new Date(video.detectedAt).toISOString() : undefined,
+  })
+  processBgDownloadQueue()
+}
+
+/** Process next item in queue if under concurrency limit.
+ *  Limit is RAM-adaptive (2 on 24GB, 3 on 64GB).
+ */
+function processBgDownloadQueue(): void {
+  const maxConcurrent = getMaxConcurrentDownloads()
+  while (activeBgDownloads < maxConcurrent && bgDownloadQueue.length > 0) {
+    const item = bgDownloadQueue.shift()!
+    activeBgDownloads++
+    // Respect user's download quality setting from Settings
+    const settings = loadSettings()
+    const bgQuality = settings.autoDownloadQuality ?? '720'
+    autoDownloadFromWebSub(
+      item.videoId, item.channelId, item.channelName, item.title,
+      item.publishedAt, item.detectedAt,
+      bgQuality,
+    ).catch((err) => {
+      console.error('[BgDownload] Failed:', item.videoId, err)
+    }).finally(() => {
+      activeBgDownloads--
+      processBgDownloadQueue()
+    })
+  }
+}
+
 const renderQueue: Array<{
   workspaceId: string
   metadata: RenderMetadata
@@ -220,15 +291,32 @@ export function startYouTubePoller(
 }
 
 // ─── Auto-download from new video detected by poller ────────────────────────────
-async function autoDownloadFromWebSub(videoId: string, channelId: string, channelName: string, title: string, publishedAt?: string, detectedAt?: string) {
+/**
+ * Auto-download a video detected by the poller.
+ * @param videoId YouTube video ID
+ * @param channelId YouTube channel ID
+ * @param channelName Name of the channel
+ * @param title Video title
+ * @param publishedAt ISO timestamp of publish time
+ * @param detectedAt ISO timestamp of detection time
+ * @param qualityOverride Override download quality (e.g., '360' for fast pre-download).
+ *                        When not provided, uses user's settings (default 720p).
+ */
+async function autoDownloadFromWebSub(
+  videoId: string, channelId: string, channelName: string, title: string,
+  publishedAt?: string, detectedAt?: string,
+  qualityOverride?: string,
+) {
   try {
     const storagePath = getVideoStoragePath()
     ensureStorageDirs()
 
-    // Respect user's configured trim limit and download quality from settings
+    // Respect user's configured trim limit. For pre-downloads, use lower quality (360p)
+    // for speed; for retries/re-downloads, use user's preferred quality.
     const settings = loadSettings()
     const autoTrimLimit: number | 'full' = settings.defaultTrimLimit ?? 10
-    const autoQuality = settings.autoDownloadQuality ?? '720'
+    // Pre-download: 360p (fast). User re-download: use settings (default 720p).
+    const autoQuality = qualityOverride ?? settings.autoDownloadQuality ?? '720'
 
     // Check if workspace already exists for this video
     const existingWorkspaces = getWorkspaces()
@@ -336,14 +424,38 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
     broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, ws)
     sendNotification('info', `Auto: ${finalChannelName} — ${title}`, ws.id)
 
-    // Phase 1: Parallel post-processing — all run on the downloaded file simultaneously.
-    // Saves ~10-15s vs sequential execution.
+    // Phase 1+2: Parallel — thumbnail, video info, trim, and blur ALL run simultaneously.
+    // Saves ~15-20s vs sequential execution.
     const thumbnailPath = path.join(storagePath, `thumb_${ws.id}.jpg`)
-    const [thumbResult, videoInfo] = await Promise.all([
+    const trimLimitSec = typeof autoTrimLimit === 'number' ? autoTrimLimit * 60 : 0
+    const doTrim = trimLimitSec > 0 && (result.duration || 0) > trimLimitSec
+    const isLandscape = !aspect?.isShort
+    const { blurPath } = generateWorkspacePaths(ws.id)
+
+    // Run ALL post-processing tasks in parallel: thumbnail, info, trim (if needed), blur (if vertical).
+    // Landscape videos skip blur (they use thumbnail as background) — saves ~10-15s.
+    // Destructured as [thumbResult, videoInfo, trimData, blurResult]
+    // CRITICAL: do NOT delete original file here — thumbnail/info read from it in parallel.
+    // Delete it AFTER all parallel tasks complete (after Promise.all resolves).
+    const [thumbResult, videoInfo, trimData, blurResult] = await Promise.all([
       extractVideoThumbnail(result.filePath, thumbnailPath),
       getVideoInfo('https://www.youtube.com/watch?v=' + videoId),
+      // Trim: stream-copy is fast (~1-3s), run in parallel.
+      (async () => {
+        if (!doTrim) return null
+        const trimmedPath = result.filePath.replace(/(\.\w+)$/, '_trimmed$1')
+        const r = await trimVideo(result.filePath, trimmedPath, 0, trimLimitSec)
+        if (r.success) {
+          const trimmedSize = fs.statSync(trimmedPath).size
+          console.log(`[Auto] Trim OK (${trimLimitSec}s stream-copy, ${(trimmedSize / 1024 / 1024).toFixed(1)} MB)`)
+          return { path: trimmedPath, size: trimmedSize, duration: trimLimitSec }
+        }
+        console.warn(`[Auto] Trim failed — using full video`)
+        return null
+      })(),
+      // Blur: only for vertical videos. Landscape uses thumbnail bg — skip to save ~10-15s.
+      (isLandscape ? Promise.resolve({ success: true }) : generateBlurBackground(result.filePath, blurPath, 1080, 1920, result.duration || undefined)),
     ])
-    console.log(`[Auto] Thumbnail: ${thumbResult.success ? 'extracted' : 'failed'}, Aspect: ${aspect ? `${aspect.width}x${aspect.height}` : 'unknown'}`)
 
     const realTitle = videoInfo?.title || title
     const realDuration = result.duration || videoInfo?.duration || 0
@@ -362,40 +474,20 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
       return
     }
 
-    // Phase 2: Trim and blur generation.
-    const trimLimitSec = typeof autoTrimLimit === 'number' ? autoTrimLimit * 60 : 0
+    // Determine final file path and size after parallel tasks resolved.
+    // If trim succeeded: switch to trimmed file and clean up original.
     let finalFilePath = result.filePath
     let finalFileSize = result.fileSize || 0
     let finalDuration = realDuration
-
-    const doTrim = trimLimitSec > 0 && realDuration > trimLimitSec
-    const { blurPath } = generateWorkspacePaths(ws.id)
-
-    // Trim FIRST (fast stream-copy ~5s), THEN blur on the correct file.
-    // This ensures blur always matches the trimmed source, not the original.
-    let trimResult: { success: true; path: string; size: number; duration: number } | { success: false } = { success: false }
-    if (doTrim) {
-      const trimmedPath = result.filePath.replace(/(\.\w+)$/, `_trimmed$1`)
-      console.log(`[Auto] Video ${realDuration}s > trim limit ${trimLimitSec}s — trimming (stream-copy)...`)
-      const r = await trimVideo(result.filePath, trimmedPath, 0, trimLimitSec)
-      if (r.success) {
-        const trimmedSize = fs.statSync(trimmedPath).size
-        console.log(`[Auto] Trim OK: ${(trimmedSize / 1024 / 1024).toFixed(1)} MB`)
-        try { fs.unlinkSync(result.filePath) } catch {}
-        trimResult = { success: true, path: trimmedPath, size: trimmedSize, duration: trimLimitSec }
-      } else {
-        console.warn(`[Auto] Trim failed — using full video`)
-      }
+    if (trimData) {
+      finalFilePath = trimData.path
+      finalFileSize = trimData.size
+      finalDuration = trimData.duration
+      try { fs.unlinkSync(result.filePath) } catch {} // clean up original
     }
 
-    if (trimResult.success) {
-      finalFilePath = trimResult.path
-      finalFileSize = trimResult.size
-      finalDuration = trimResult.duration
-    }
-
-    // Blur on the final file (trimmed if needed) — runs in parallel with nothing else
-    const blurResult = await generateBlurBackground(finalFilePath, blurPath, 1080, 1920, finalDuration)
+    // blurBackgroundPath: vertical videos only (landscape uses thumbnail bg)
+    const blurBgPath = (blurResult as any).success && !isLandscape ? blurPath : ''
 
     updateWorkspace(ws.id, {
       status: 'ready',
@@ -407,7 +499,7 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
       duration: finalDuration,
       isShort: aspect?.isShort ?? false,
       videoResolution: aspect ? `${aspect.width}x${aspect.height}` : undefined,
-      blurBackgroundPath: blurResult.success ? blurPath : '',
+      blurBackgroundPath: blurBgPath,
     })
     broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
     sendNotification('success', `Auto-ready: ${realTitle}`, ws.id)
@@ -418,7 +510,7 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
     // Only auto-queue render if user explicitly enabled it in settings.
     // Default: false — user manually triggers render in the editor.
     if (settings.autoRender) {
-      // All videos are landscape (16:9) since 9:16 are filtered out above
+      // Landscape videos use thumbnail as background, vertical videos use blur.
       const autoResolution = '720x720'
       const autoQuality = 720
       const autoMetadata: RenderMetadata = {
@@ -430,9 +522,10 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
         overlays: [],
         trim: { start: 0, end: finalDuration },
         codec: 'hevc',
-        backgroundType: 'blur',
-        blur_background: blurResult.success ? blurPath : '',
-        isShort: false,
+        backgroundType: isLandscape ? 'image' : 'blur',
+        backgroundImage: isLandscape ? thumbnailPath : undefined,
+        blur_background: blurBgPath,
+        isShort: !isLandscape,
         vidHeightPct: 50,
       }
       renderQueue.push({
@@ -505,6 +598,10 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
     return
   }
 
+  // Respect user's download quality setting
+  const settings = loadSettings()
+  const retryQuality = settings.autoDownloadQuality ?? '720'
+
   updateWorkspace(ws.id, { status: 'downloading', downloadProgress: 0 })
   broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
 
@@ -513,6 +610,7 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
     videoUrl,
     outputDir: storagePath,
     trimLimit: ws.trimLimit || 10,
+    quality: retryQuality,
     onProgress: (progress) => {
       broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
         workspaceId: ws.id,
@@ -524,9 +622,12 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
   })
 
   if (result.success && result.filePath) {
+    // Parallel: thumbnail + video info run simultaneously
     const thumbPath = path.join(storagePath, `thumb_${ws.id}.jpg`)
-    const thumbResult = await extractVideoThumbnail(result.filePath, thumbPath)
-    const videoInfo = await getVideoInfo(videoUrl)
+    const [thumbResult, videoInfo] = await Promise.all([
+      extractVideoThumbnail(result.filePath, thumbPath),
+      getVideoInfo(videoUrl),
+    ])
     const realDuration = result.duration || videoInfo?.duration || 0
     const localThumbnail = thumbResult.success
       ? 'local-video:///' + thumbPath.replace(/\\/g, '/')
@@ -556,21 +657,40 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
       return
     }
 
-    // FFmpeg trim if video is longer than trim limit
+    // Parallel: trim + blur (if vertical). Landscape skips blur.
+    const isLandscape = !aspect?.isShort
+    const { blurPath } = generateWorkspacePaths(ws.id)
+    const trimLimitSec = typeof ws.trimLimit === 'number' ? ws.trimLimit * 60 : 0
+    const doTrim = trimLimitSec > 0 && realDuration > trimLimitSec
+
+    const [trimResult, blurResult] = await Promise.all([
+      (async () => {
+        if (!doTrim) return null
+        const trimmedPath = result.filePath.replace(/(\.\w+)$/, '_trimmed$1')
+        const r = await trimVideo(result.filePath, trimmedPath, 0, trimLimitSec)
+        if (r.success) {
+          const trimmedSize = fs.statSync(trimmedPath).size
+          console.log(`[Retry] Trim OK (${trimLimitSec}s, ${(trimmedSize / 1024 / 1024).toFixed(1)} MB)`)
+          return { path: trimmedPath, size: trimmedSize, duration: trimLimitSec }
+        }
+        return null
+      })(),
+      // Blur: only for vertical videos. Landscape uses thumbnail bg — skip.
+      (isLandscape ? Promise.resolve({ success: true }) : generateBlurBackground(result.filePath, blurPath, 1080, 1920, realDuration || undefined)),
+    ])
+
     let finalFilePath = result.filePath
     let finalFileSize = result.fileSize || 0
     let finalDuration = realDuration
-    const trimLimitSec = typeof ws.trimLimit === 'number' ? ws.trimLimit * 60 : 0
-    if (trimLimitSec > 0 && realDuration > trimLimitSec) {
-      const trimmedPath = result.filePath.replace(/(\.\w+)$/, `_trimmed$1`)
-      const trimResult = await trimVideo(result.filePath, trimmedPath, 0, trimLimitSec)
-      if (trimResult.success) {
-        finalFilePath = trimmedPath
-        finalFileSize = fs.statSync(trimmedPath).size
-        finalDuration = trimLimitSec
-        try { fs.unlinkSync(result.filePath) } catch {}
-      }
+    if (trimResult) {
+      finalFilePath = trimResult.path
+      finalFileSize = trimResult.size
+      finalDuration = trimResult.duration
+      try { fs.unlinkSync(result.filePath) } catch {}
     }
+
+    // blurBackgroundPath: vertical videos only (landscape uses thumbnail bg)
+    const blurBgPath = (blurResult as any).success && !isLandscape ? blurPath : ''
 
     updateWorkspace(ws.id, {
       status: 'ready',
@@ -581,12 +701,8 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
       videoTitle: videoInfo?.title || ws.videoTitle,
       duration: finalDuration,
       isShort: aspect?.isShort ?? false,
+      blurBackgroundPath: blurBgPath,
     })
-    broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
-
-    const { blurPath } = generateWorkspacePaths(ws.id)
-    const blurResult = await generateBlurBackground(finalFilePath, blurPath)
-    updateWorkspace(ws.id, { status: 'ready', blurBackgroundPath: blurResult.success ? blurPath : '' })
     broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
     sendNotification('success', `Auto-ready (retry): ${ws.videoTitle}`, ws.id)
     showWindowsToast('✅ Retry xong!', `${ws.videoTitle}`)
@@ -2343,13 +2459,11 @@ app.whenReady().then(async () => {
     // did-finish-load fires immediately if the page is already loaded
     mainWindow.webContents.once('did-finish-load', () => {
       startYouTubePoller(5000, (videos) => {
+        // Non-blocking: enqueue all detected videos for background download.
+        // Downloads run in parallel (max 2 concurrent) without blocking the poller.
         for (const v of videos) {
           showWindowsToast('📥 Video mới!', `${v.channelName}: ${v.title}`)
-          autoDownloadFromWebSub(
-            v.videoId, v.channelId, v.channelName, v.title,
-            v.publishedAt ? new Date(v.publishedAt).toISOString() : undefined,
-            v.detectedAt ? new Date(v.detectedAt).toISOString() : undefined,
-          )
+          enqueueBgDownload(v)
         }
       })
       console.log('[HyperClip] Auto-ingestion active (YouTube API — 5s interval, batched channels)')

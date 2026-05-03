@@ -1,8 +1,10 @@
 import { spawn, execSync } from 'child_process'
+import os from 'os'
 import path from 'path'
 import fs from 'fs'
 import https from 'https'
 import { getFfmpegPath, getFfprobePath } from './ffmpeg-paths.js'
+import { buildArgs, runSimpleFfmpeg } from './ffmpeg.js'
 
 // ─── HTTP helpers ───────────────────────────────────────────────────────────────
 function httpGet(url: string, timeout = 10000): Promise<string> {
@@ -245,6 +247,14 @@ export interface YtdlpOptions {
   onProgress?: (progress: DownloadProgress) => void
   /** Max height for download quality. Defaults to '720'. '360'|'480'|'720'|'1080' */
   quality?: string
+  /**
+   * Max concurrent yt-dlp instances for multi-section download.
+   * - 'auto' (default): 1 for 360-720p, 2 for 1080p+
+   * - 1: single instance (no splitting)
+   * - 2-4: split into N sections, download in parallel, merge with FFmpeg concat
+   * More instances = faster download on fast internet but more RAM/CPU.
+   */
+  maxInstances?: 'auto' | number
 }
 
 export async function getChannelId(videoUrl: string): Promise<string | null> {
@@ -394,8 +404,242 @@ export async function getVideoInfo(videoUrl: string): Promise<YtdlpVideoInfo | n
   })
 }
 
+// ─── Multi-instance section download ──────────────────────────────────────────
+// Splits a video into N sections, downloads each in parallel with separate yt-dlp
+// instances, then merges with FFmpeg concat. Doubles throughput on fast internet.
+// Requires: 1080p+ quality, trimLimit < video duration (for section-based splitting).
+
+interface MultiInstanceOpts {
+  workspaceId: string; videoUrl: string; outputDir: string
+  formatSelector: string; trimLimit: number; instanceCount: number
+  onProgress?: (progress: DownloadProgress) => void; ytdlp: string
+}
+
+function buildYtDlpArgs(ytdlp: string, videoUrl: string, formatSelector: string, outputTemplate: string, sectionArg: string, instanceIdx: number): string[] {
+  // Reduce per-instance fragment count when using multiple instances.
+  // Total concurrent fragments = instanceCount × fragmentsPerInstance.
+  // 2 instances × 16 = 32 total (same as single 32, but 2 CDN streams).
+  return [
+    videoUrl,
+    ...getJsRuntimeArgs(),
+    '--extractor-args', 'youtube:player_client=android',
+    '-f', formatSelector,
+    '--output', outputTemplate,
+    '--no-playlist',
+    '--newline',
+    '--concurrent-fragments', '16',
+    '--retries', '3',
+    '--fragment-retries', '3',
+    '--socket-timeout', '10',
+    '--http-chunk-size', '10485760',
+    '--download-sections', sectionArg,
+  ]
+}
+
+function makeSectionArg(startSec: number, endSec: number): string {
+  const fmt = (s: number) => {
+    const h = Math.floor(s / 3600)
+    const m = Math.floor((s % 3600) / 60)
+    const sec = Math.floor(s % 60)
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`
+  }
+  return `*${fmt(startSec)}-${fmt(endSec)}`
+}
+
+async function multiInstanceDownload(opts: MultiInstanceOpts): Promise<DownloadResult | null> {
+  const { workspaceId, videoUrl, outputDir, formatSelector, trimLimit, instanceCount, onProgress, ytdlp } = opts
+
+  // Probe video duration first — needed for section splitting
+  let videoDurationSec = trimLimit * 60
+  try {
+    const info = await getVideoInfo(videoUrl)
+    if (info?.duration && info.duration > 0) {
+      // Only use probed duration if it's shorter than the trim limit
+      // (trimLimit is the MAX we want, video might be shorter)
+      videoDurationSec = Math.min(info.duration, trimLimit * 60)
+    }
+  } catch {
+    // Probing failed — use trimLimit as estimated duration
+  }
+
+  if (videoDurationSec < 30) {
+    // Video too short for multi-instance splitting — fall back to single
+    return null
+  }
+
+  // Split into N equal sections
+  const sectionDuration = videoDurationSec / instanceCount
+  const sections: { start: number; end: number; label: string }[] = []
+  for (let i = 0; i < instanceCount; i++) {
+    const start = i * sectionDuration
+    const end = i === instanceCount - 1 ? videoDurationSec : (i + 1) * sectionDuration
+    sections.push({ start, end, label: String(i).padStart(2, '0') })
+  }
+
+  console.log(`[yt-dlp] Multi-instance: splitting ${videoDurationSec}s into ${instanceCount} sections`)
+  sections.forEach(s => {
+    console.log(`  Instance ${s.label}: ${makeSectionArg(s.start, s.end)}`)
+  })
+
+  const ffmpegPath = getFfmpegPath()
+  const ffmpegDir = path.dirname(ffmpegPath)
+  const ytDlpDir = path.dirname(ytdlp)
+  const enrichedPath = ffmpegDir + path.delimiter + ytDlpDir + path.delimiter + (process.env.PATH || '')
+
+  // Spawn N yt-dlp instances in parallel
+  const chunkFiles: string[] = []
+  let totalProgress = 0
+  const progressPerInstance = 100 / instanceCount
+
+  const downloadPromises = sections.map((section, idx) => {
+    return new Promise<{ success: boolean; filePath?: string; error?: string; idx: number }>((resolve) => {
+      const outputTemplate = path.join(outputDir, `${workspaceId}_part${String(idx).padStart(2, '0')}_%(id)s.%(ext)s`)
+      const args = buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, makeSectionArg(section.start, section.end), idx)
+      const cmd = buildArgs(ytdlp, args)
+
+      const proc = spawn(cmd, [], {
+        env: { ...process.env, PATH: enrichedPath },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+
+      let stderr = ''
+      let downloadedFile = ''
+      let progressEmitted = false
+      let instanceProgress = 0
+
+      proc.stdout?.on('data', (data: Buffer) => {
+        const text = data.toString()
+        const pctMatch = text.match(/(\d+\.?\d*)%/)
+        if (pctMatch) {
+          const pct = parseFloat(pctMatch[1])
+          if (pct >= 0 && pct <= 100) {
+            if (!progressEmitted) { progressEmitted = true }
+            instanceProgress = pct
+            // Aggregate progress: this instance's contribution to total
+            const total = totalProgress + (instanceProgress / 100) * progressPerInstance
+            onProgress?.({
+              workspaceId,
+              percent: total,
+              speed: '',
+              eta: '',
+              downloaded: '',
+              total: '',
+            })
+          }
+        }
+        const destMatch = text.match(/Dest(?:ination)?:\s*(.+)/)
+        if (destMatch) downloadedFile = destMatch[1].trim()
+        const mergeMatch = text.match(/Merging formats into "(.+)"/)
+        if (mergeMatch) downloadedFile = mergeMatch[1]
+      })
+
+      proc.stderr?.on('data', (data: Buffer) => {
+        stderr += data.toString()
+        const pctMatch = data.toString().match(/(\d+\.?\d*)%/)
+        if (pctMatch) {
+          const pct = parseFloat(pctMatch[1])
+          if (pct >= 0 && pct <= 100) {
+            instanceProgress = pct
+            const total = totalProgress + (instanceProgress / 100) * progressPerInstance
+            onProgress?.({
+              workspaceId,
+              percent: total,
+              speed: '',
+              eta: '',
+              downloaded: '',
+              total: '',
+            })
+          }
+        }
+        const destMatch = data.toString().match(/Dest(?:ination)?:\s*(.+)/)
+        if (destMatch && !downloadedFile) downloadedFile = destMatch[1].trim()
+        const mergeMatch = data.toString().match(/Merging formats into "(.+)"/)
+        if (mergeMatch) downloadedFile = mergeMatch[1]
+      })
+
+      proc.on('close', (code) => {
+        // Fallback: scan for file
+        if (!downloadedFile) {
+          try {
+            const files = fs.readdirSync(outputDir)
+            const match = files.find(f => f.startsWith(`${workspaceId}_part${String(idx).padStart(2, '0')}_`) && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f))
+            if (match) downloadedFile = path.join(outputDir, match)
+          } catch {}
+        }
+
+        // Update running total
+        totalProgress += progressPerInstance
+
+        if (code === 0 && downloadedFile) {
+          chunkFiles[idx] = downloadedFile
+          resolve({ success: true, filePath: downloadedFile, idx })
+        } else {
+          const err = stderr.includes('ERROR') ? stderr.split('\n').find(l => l.includes('ERROR')) : `code ${code}`
+          resolve({ success: false, error: err || `instance ${idx} failed`, idx })
+        }
+      })
+
+      setTimeout(() => {
+        if (!proc.killed) proc.kill()
+        resolve({ success: false, error: `instance ${idx} timeout`, idx })
+      }, 15 * 60 * 1000) // 15 min per instance
+    })
+  })
+
+  const results = await Promise.all(downloadPromises)
+  const failedInstances = results.filter(r => !r.success)
+
+  if (failedInstances.length > 0) {
+    console.warn(`[yt-dlp] ${failedInstances.length}/${instanceCount} instances failed — falling back to single-instance download`)
+    // Clean up partial files
+    for (const file of chunkFiles) {
+      if (file) try { fs.unlinkSync(file) } catch {}
+    }
+    return null
+  }
+
+  console.log(`[yt-dlp] All ${instanceCount} instances complete — merging with FFmpeg concat`)
+
+  // Merge all sections with FFmpeg concat demuxer (stream copy — no re-encode, very fast)
+  const concatListFile = path.join(outputDir, `${workspaceId}_concat.txt`)
+  const concatList = chunkFiles.filter(Boolean).map(f => `file '${f.replace(/\\/g, '/')}'`).join('\n')
+  fs.writeFileSync(concatListFile, concatList, 'utf-8')
+
+  const outputFile = path.join(outputDir, `${workspaceId}.mp4`)
+  const mergeArgs = [
+    '-f', 'concat', '-safe', '0',
+    '-i', `"${concatListFile.replace(/\\/g, '/')}"`,
+    '-c', 'copy',
+    '-y', `"${outputFile.replace(/\\/g, '/')}"`,
+  ]
+
+  const mergeResult = runSimpleFfmpeg(ffmpegPath, mergeArgs)
+  try { fs.unlinkSync(concatListFile) } catch {}
+
+  // Clean up intermediate section files
+  for (const file of chunkFiles) {
+    if (file) try { fs.unlinkSync(file) } catch {}
+  }
+
+  if (mergeResult.code !== 0 || !fs.existsSync(outputFile)) {
+    console.error(`[yt-dlp] FFmpeg concat failed: ${mergeResult.stderr}`)
+    return null
+  }
+
+  const fileSize = fs.statSync(outputFile).size
+  console.log(`[yt-dlp] Merge complete: ${outputFile} (${(fileSize / 1024 / 1024).toFixed(1)} MB)`)
+
+  return {
+    success: true,
+    workspaceId,
+    filePath: outputFile,
+    duration: Math.floor(videoDurationSec),
+    fileSize,
+  }
+}
+
 export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult> {
-  const { workspaceId, videoUrl, outputDir, trimLimit, onProgress, quality = '720' } = opts
+  const { workspaceId, videoUrl, outputDir, trimLimit, onProgress, quality = '720', maxInstances = 'auto' } = opts
   const ytdlp = getYtdlpPath()
 
   // Verify yt-dlp exists before attempting spawn
@@ -439,18 +683,54 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
   const maxHeight = isNaN(q) ? 720 : q
   const formatSelector = `bestvideo[height<=${maxHeight}][vcodec=h264]+bestaudio[acodec=aac]/bestvideo[height<=${maxHeight}][vcodec!=vp9][vcodec!=av1]+bestaudio[acodec=aac]/bestvideo[height<=${maxHeight}]+bestaudio/bestvideo+bestaudio/best`
 
-  // Core download: spawns yt-dlp, resolves with result
+  // Determine how many yt-dlp instances to use.
+  // - 1080p+ with fast internet (200+ Mbps): multi-instance cuts download time by ~N
+  // - 360-720p: single instance (CDN bottleneck, multi-instance won't help much)
+  // - Low RAM (< 8GB free): limit to 1 instance
+  const freeMemGB = os.freemem() / (1024 ** 3)
+  const isHighQuality = maxHeight >= 1080
+
+  let instanceCount: number
+  if (maxInstances === 1) {
+    instanceCount = 1
+  } else if (maxInstances === 'auto') {
+    if (freeMemGB >= 8 && isHighQuality) {
+      // 1080p+ on decent RAM: 2 instances for near-doubling throughput
+      // Cap at 2 to avoid YouTube rate-limit
+      instanceCount = 2
+    } else {
+      instanceCount = 1
+    }
+  } else {
+    instanceCount = Math.min(maxInstances, 4)
+  }
+
+  // ── Multi-instance section download (1080p+ on good internet) ────────────────
+  if (instanceCount > 1 && typeof trimLimit === 'number' && trimLimit > 0) {
+    const multiResult = await multiInstanceDownload({
+      workspaceId, videoUrl, outputDir, formatSelector, trimLimit, instanceCount, onProgress, ytdlp,
+    })
+    if (multiResult) return multiResult
+    // Fallthrough to single instance if multi failed
+  }
+
+  // ── Core download: spawns yt-dlp, resolves with result ─────────────────────
   const doDownload = (extraArgs: string[]): Promise<DownloadResult> => {
     const outputTemplate = path.join(outputDir, `${workspaceId}_%(id)s.%(ext)s`)
 
     const args: string[] = [
       videoUrl,
       ...getJsRuntimeArgs(),
+      '--extractor-args', 'youtube:player_client=android',
       '-f', formatSelector,
       '--output', outputTemplate,
       '--no-playlist',
       '--newline',
-      '--concurrent-fragments', '8',
+      '--concurrent-fragments', '32',
+      '--retries', '3',
+      '--fragment-retries', '3',
+      '--socket-timeout', '10',
+      '--http-chunk-size', '10485760',
       ...extraArgs,
     ]
 

@@ -109,7 +109,7 @@ function quotePath(p: string): string {
   return '"' + p.replace(/"/g, '""') + '"'
 }
 
-function buildArgs(program: string, args: string[]): string {
+export function buildArgs(program: string, args: string[]): string {
   // Build a command string for cmd.exe (shell: true).
   // - Forward slashes only: backslashes in paths cause issues with cmd.exe parsing.
   // - Double-quotes in cmd.exe protect semicolons from being treated as command
@@ -133,7 +133,7 @@ function buildArgs(program: string, args: string[]): string {
 
 // Run FFmpeg via execSync — only use this for simple one-shot commands (no complex quoting issues).
 // For anything with multiple inputs or filter_complex, use spawn() + buildArgs() instead.
-function runSimpleFfmpeg(ffmpeg: string, ffArgs: string[]): { code: number; stderr: string } {
+export function runSimpleFfmpeg(ffmpeg: string, ffArgs: string[]): { code: number; stderr: string } {
   const cmd = `"${ffmpeg}" ${ffArgs.join(' ')}`
   try {
     const out = execSync(cmd, { encoding: 'utf-8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] })
