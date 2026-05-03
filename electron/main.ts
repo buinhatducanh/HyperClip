@@ -256,7 +256,62 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
     const detectedAt = new Date().toISOString()
     console.log(`[Poll] Auto-downloading: ${title} (${videoId}) from ${finalChannelName}`)
 
-    const workspace = addWorkspace({
+    // Download FIRST, then probe aspect ratio — before creating workspace.
+    // This avoids wasting a workspace slot + post-processing on 9:16 vertical videos.
+    console.log(`[TIMER] DETECT: "${title}" from ${finalChannelName} at ${new Date().toISOString()}`)
+    console.log(`[TIMER] DOWNLOAD START: "${title}" (trimLimit: ${autoTrimLimit} min, probe only)`)
+
+    const downloadStartMs = Date.now()
+    const result = await downloadVideo({
+      workspaceId: videoId,
+      videoUrl: 'https://www.youtube.com/watch?v=' + videoId,
+      outputDir: storagePath,
+      trimLimit: autoTrimLimit,
+      quality: autoQuality,
+      onProgress: (progress) => {
+        broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
+          workspaceId: videoId,
+          percent: progress.percent,
+          speed: progress.speed,
+          eta: progress.eta,
+        })
+      },
+    })
+
+    if (!result.success || !result.filePath) {
+      // Download failed — no workspace created yet, just log and return
+      const errorMsg = result.error || ''
+      const isNotAvailable = errorMsg.includes('not available') || errorMsg.includes('Video unavailable')
+      if (isNotAvailable) {
+        console.log(`[Auto] Video permanently unavailable: ${title} (${videoId})`)
+        markVideoSeen(channelId, videoId)
+      } else {
+        console.log(`[Auto] Download failed (retryable): ${result.error} — will retry on next poll`)
+      }
+      return
+    }
+
+    // Download succeeded — probe aspect ratio to determine if this is a 9:16 vertical video
+    const aspect = await probeVideoAspect(result.filePath)
+    console.log(`[Auto] Aspect: ${aspect ? `${aspect.width}x${aspect.height} (${aspect.isShort ? '9:16 VERTICAL — skipping' : '16:9 LANDSCAPE — OK'})` : 'unknown'}`)
+
+    // Skip 9:16 vertical videos — user only wants landscape 16:9 content
+    if (aspect?.isShort) {
+      console.log(`[Auto] Skipping 9:16 vertical video: ${title}`)
+      try { fs.unlinkSync(result.filePath) } catch {}
+      markVideoSeen(channelId, videoId)
+      return
+    }
+
+    const downloadElapsed = ((Date.now() - downloadStartMs) / 1000).toFixed(1)
+    const fileSizeMB = result.fileSize ? (result.fileSize / 1024 / 1024).toFixed(1) : '?'
+    console.log(`[TIMER] DOWNLOAD DONE: "${title}"`)
+    console.log(`[TIMER]   Download time: ${downloadElapsed}s | File size: ${fileSizeMB} MB | Duration: ${result.duration}s`)
+    console.log(`[TIMER]   Trim limit: ${autoTrimLimit} min | Trimmed to: ${result.duration}s`)
+    playSuccessBeep()
+
+    // Create workspace only AFTER confirming landscape aspect ratio
+    const ws = addWorkspace({
       channelId,
       channelName: finalChannelName,
       channelColor: '#00B4FF',
@@ -278,123 +333,96 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
       publishedAt,
       detectedAt: detectedAt || new Date().toISOString(),
     })
+    broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, ws)
+    sendNotification('info', `Auto: ${finalChannelName} — ${title}`, ws.id)
 
-    broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, workspace)
-    sendNotification('info', `Auto: ${finalChannelName} — ${title}`, workspace.id)
-    console.log(`[TIMER] DETECT: "${title}" from ${finalChannelName} at ${new Date().toISOString()}`)
-    console.log(`[TIMER] DOWNLOAD START: "${title}" (trimLimit: ${autoTrimLimit} min)`)
+    // Phase 1: Parallel post-processing — all run on the downloaded file simultaneously.
+    // Saves ~10-15s vs sequential execution.
+    const thumbnailPath = path.join(storagePath, `thumb_${ws.id}.jpg`)
+    const [thumbResult, videoInfo] = await Promise.all([
+      extractVideoThumbnail(result.filePath, thumbnailPath),
+      getVideoInfo('https://www.youtube.com/watch?v=' + videoId),
+    ])
+    console.log(`[Auto] Thumbnail: ${thumbResult.success ? 'extracted' : 'failed'}, Aspect: ${aspect ? `${aspect.width}x${aspect.height}` : 'unknown'}`)
 
-    const downloadStartMs = Date.now()
-    const result = await downloadVideo({
-      workspaceId: workspace.id,
-      videoUrl: 'https://www.youtube.com/watch?v=' + videoId,
-      outputDir: storagePath,
-      trimLimit: autoTrimLimit,
-      quality: autoQuality,
-      onProgress: (progress) => {
-        broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
-          workspaceId: workspace.id,
-          percent: progress.percent,
-          speed: progress.speed,
-          eta: progress.eta,
-        })
-      },
-    })
+    const realTitle = videoInfo?.title || title
+    const realDuration = result.duration || videoInfo?.duration || 0
+    const localThumbnail = thumbResult.success
+      ? 'local-video:///' + thumbnailPath.replace(/\\/g, '/')
+      : (videoInfo?.thumbnail || `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`)
 
-    if (result.success && result.filePath) {
-      const downloadElapsed = ((Date.now() - downloadStartMs) / 1000).toFixed(1)
-      const fileSizeMB = result.fileSize ? (result.fileSize / 1024 / 1024).toFixed(1) : '?'
-      console.log(`[TIMER] DOWNLOAD DONE: "${title}"`)
-      console.log(`[TIMER]   Download time: ${downloadElapsed}s | File size: ${fileSizeMB} MB | Duration: ${result.duration}s`)
-      console.log(`[TIMER]   Trim limit: ${autoTrimLimit} min | Trimmed to: ${result.duration}s`)
-      playSuccessBeep()
+    // Short video check: if downloaded video < 60s, mark as error (YouTube Shorts)
+    if (realDuration > 0 && realDuration < 60) {
+      console.log(`[Auto] Video too short (${realDuration}s < 60s) — skipping (YouTube Short)`)
+      try { fs.unlinkSync(result.filePath) } catch {}
+      updateWorkspace(ws.id, { status: 'error' })
+      broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
+      sendNotification('error', `Too short: ${title}`, ws.id)
+      markVideoSeen(channelId, videoId)
+      return
+    }
 
-      // Phase 1: Parallel post-processing — all run on the downloaded file simultaneously.
-      // Saves ~10-15s vs sequential execution.
-      const thumbnailPath = path.join(storagePath, `thumb_${workspace.id}.jpg`)
-      const [thumbResult, videoInfo, aspect] = await Promise.all([
-        extractVideoThumbnail(result.filePath, thumbnailPath),
-        getVideoInfo('https://www.youtube.com/watch?v=' + videoId),
-        probeVideoAspect(result.filePath),
-      ])
-      console.log(`[Auto] Thumbnail: ${thumbResult.success ? 'extracted' : 'failed'}, Aspect: ${aspect ? `${aspect.width}x${aspect.height}` : 'unknown'}`)
+    // Phase 2: Trim and blur generation.
+    const trimLimitSec = typeof autoTrimLimit === 'number' ? autoTrimLimit * 60 : 0
+    let finalFilePath = result.filePath
+    let finalFileSize = result.fileSize || 0
+    let finalDuration = realDuration
 
-      const realTitle = videoInfo?.title || title
-      const realDuration = result.duration || videoInfo?.duration || 0
-      const localThumbnail = thumbResult.success
-        ? 'local-video:///' + thumbnailPath.replace(/\\/g, '/')
-        : (videoInfo?.thumbnail || `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`)
+    const doTrim = trimLimitSec > 0 && realDuration > trimLimitSec
+    const { blurPath } = generateWorkspacePaths(ws.id)
 
-      // Short video check: if downloaded video < 60s, mark as error (YouTube Shorts)
-      if (realDuration > 0 && realDuration < 60) {
-        console.log(`[Auto] Video too short (${realDuration}s < 60s) — skipping (YouTube Short)`)
+    // Trim FIRST (fast stream-copy ~5s), THEN blur on the correct file.
+    // This ensures blur always matches the trimmed source, not the original.
+    let trimResult: { success: true; path: string; size: number; duration: number } | { success: false } = { success: false }
+    if (doTrim) {
+      const trimmedPath = result.filePath.replace(/(\.\w+)$/, `_trimmed$1`)
+      console.log(`[Auto] Video ${realDuration}s > trim limit ${trimLimitSec}s — trimming (stream-copy)...`)
+      const r = await trimVideo(result.filePath, trimmedPath, 0, trimLimitSec)
+      if (r.success) {
+        const trimmedSize = fs.statSync(trimmedPath).size
+        console.log(`[Auto] Trim OK: ${(trimmedSize / 1024 / 1024).toFixed(1)} MB`)
         try { fs.unlinkSync(result.filePath) } catch {}
-        updateWorkspace(workspace.id, { status: 'error' })
-        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(workspace.id))
-        sendNotification('error', `Too short: ${title}`, workspace.id)
-        markVideoSeen(channelId, videoId)
-        return
+        trimResult = { success: true, path: trimmedPath, size: trimmedSize, duration: trimLimitSec }
+      } else {
+        console.warn(`[Auto] Trim failed — using full video`)
       }
+    }
 
-      // Phase 2: Trim and blur generation in parallel — both independent after Phase 1 resolves.
-      const trimLimitSec = typeof autoTrimLimit === 'number' ? autoTrimLimit * 60 : 0
-      let finalFilePath = result.filePath
-      let finalFileSize = result.fileSize || 0
-      let finalDuration = realDuration
+    if (trimResult.success) {
+      finalFilePath = trimResult.path
+      finalFileSize = trimResult.size
+      finalDuration = trimResult.duration
+    }
 
-      const doTrim = trimLimitSec > 0 && realDuration > trimLimitSec
-      const { blurPath } = generateWorkspacePaths(workspace.id)
+    // Blur on the final file (trimmed if needed) — runs in parallel with nothing else
+    const blurResult = await generateBlurBackground(finalFilePath, blurPath, 1080, 1920, finalDuration)
 
-      // Trim FIRST (fast stream-copy ~5s), THEN blur on the correct file.
-      // This ensures blur always matches the trimmed source, not the original.
-      let trimResult: { success: true; path: string; size: number; duration: number } | { success: false } = { success: false }
-      if (doTrim) {
-        const trimmedPath = result.filePath.replace(/(\.\w+)$/, `_trimmed$1`)
-        console.log(`[Auto] Video ${realDuration}s > trim limit ${trimLimitSec}s — trimming (stream-copy)...`)
-        const r = await trimVideo(result.filePath, trimmedPath, 0, trimLimitSec)
-        if (r.success) {
-          const trimmedSize = fs.statSync(trimmedPath).size
-          console.log(`[Auto] Trim OK: ${(trimmedSize / 1024 / 1024).toFixed(1)} MB`)
-          try { fs.unlinkSync(result.filePath) } catch {}
-          trimResult = { success: true, path: trimmedPath, size: trimmedSize, duration: trimLimitSec }
-        } else {
-          console.warn(`[Auto] Trim failed — using full video`)
-        }
-      }
+    updateWorkspace(ws.id, {
+      status: 'ready',
+      downloadedAt: new Date().toISOString(),
+      downloadedPath: finalFilePath,
+      fileSize: finalFileSize,
+      thumbnail: localThumbnail,
+      videoTitle: realTitle,
+      duration: finalDuration,
+      isShort: aspect?.isShort ?? false,
+      videoResolution: aspect ? `${aspect.width}x${aspect.height}` : undefined,
+      blurBackgroundPath: blurResult.success ? blurPath : '',
+    })
+    broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
+    sendNotification('success', `Auto-ready: ${realTitle}`, ws.id)
+    broadcast(IPC_CHANNELS.AUTO_DOWNLOAD_EVENT, { videoId, title: realTitle, channelName: finalChannelName, detectedAt })
+    showWindowsToast('✅ Download xong!', `${realTitle}`)
 
-      if (trimResult.success) {
-        finalFilePath = trimResult.path
-        finalFileSize = trimResult.size
-        finalDuration = trimResult.duration
-      }
-
-      // Blur on the final file (trimmed if needed) — runs in parallel with nothing else
-      const blurResult = await generateBlurBackground(finalFilePath, blurPath, 1080, 1920, finalDuration)
-
-      updateWorkspace(workspace.id, {
-        status: 'ready',
-        downloadedAt: new Date().toISOString(),
-        downloadedPath: finalFilePath,
-        fileSize: finalFileSize,
-        thumbnail: localThumbnail,
-        videoTitle: realTitle,
-        duration: finalDuration,
-        isShort: aspect?.isShort ?? true,
-        videoResolution: aspect ? `${aspect.width}x${aspect.height}` : undefined,
-        blurBackgroundPath: blurResult.success ? blurPath : '',
-      })
-      broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(workspace.id))
-      sendNotification('success', `Auto-ready: ${realTitle}`, workspace.id)
-      broadcast(IPC_CHANNELS.AUTO_DOWNLOAD_EVENT, { videoId, title: realTitle, channelName: finalChannelName, detectedAt })
-      showWindowsToast('✅ Download xong!', `${realTitle}`)
-
-      // ── Auto-render trigger ──────────────────────────────────────────────────
-      // Automatically queue render immediately after workspace is ready.
-      // This eliminates manual render trigger, reducing end-to-end pipeline to detection → output.
-      const autoResolution = aspect?.isShort ? '720x1280' : '720x720'
-      const autoQuality = parseInt(autoResolution.split('x')[1])
+    // ── Auto-render trigger (opt-in) ─────────────────────────────────────────
+    // Only auto-queue render if user explicitly enabled it in settings.
+    // Default: false — user manually triggers render in the editor.
+    if (settings.autoRender) {
+      // All videos are landscape (16:9) since 9:16 are filtered out above
+      const autoResolution = '720x720'
+      const autoQuality = 720
       const autoMetadata: RenderMetadata = {
-        workspace_id: workspace.id,
+        workspace_id: ws.id,
         source_video: finalFilePath,
         export_resolution: autoResolution,
         video_speed: 1.0,
@@ -404,12 +432,11 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
         codec: 'hevc',
         backgroundType: 'blur',
         blur_background: blurResult.success ? blurPath : '',
-        isShort: aspect?.isShort ?? true,
+        isShort: false,
         vidHeightPct: 50,
       }
-      const autoOutputDir = getOutputPath()
       renderQueue.push({
-        workspaceId: workspace.id,
+        workspaceId: ws.id,
         metadata: autoMetadata,
         resolve: async (r) => {
           if (r.success && r.outputPath) {
@@ -422,20 +449,20 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
               finalFileSize,
               finalDuration,
             )
-            updateWorkspace(workspace.id, {
+            updateWorkspace(ws.id, {
               status: 'done',
               outputPath: archiveResult.success && archiveResult.archivedPath ? archiveResult.archivedPath : r.outputPath,
               renderProgress: 100,
             })
-            broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(workspace.id))
-            sendNotification('success', `Render xong!`, workspace.id)
+            broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
+            sendNotification('success', `Render xong!`, ws.id)
             showWindowsToast('🎉 Render hoàn tất!', `${realTitle}`)
             console.log(`[TIMER] RENDER DONE: "${realTitle}" — output: ${archiveResult.success && archiveResult.archivedPath ? archiveResult.archivedPath : r.outputPath}`)
           } else {
-            updateWorkspace(workspace.id, { status: 'error', renderProgress: 0 })
-            broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(workspace.id))
+            updateWorkspace(ws.id, { status: 'error', renderProgress: 0 })
+            broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
             console.error(`[Auto] Render failed: ${r.error}`)
-            sendNotification('error', `Render thất bại: ${r.error}`, workspace.id)
+            sendNotification('error', `Render thất bại: ${r.error}`, ws.id)
           }
         },
       })
@@ -443,23 +470,12 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
         startNextQueuedRender()
       }
       console.log(`[Auto] Render queued: ${realTitle} → ${autoResolution}`)
-
-      // Only mark as seen AFTER successful download — so YouTube processing delay doesn't block retry
-      markVideoSeen(channelId, videoId)
     } else {
-      // Permanent failure → error, retryable failure → waiting
-      const errorMsg = result.error || ''
-      const isNotAvailable = errorMsg.includes('not available') || errorMsg.includes('Video unavailable')
-      if (isNotAvailable) {
-        updateWorkspace(workspace.id, { status: 'error' })
-        console.log(`[Auto] Video permanently unavailable: ${title} (${videoId})`)
-      } else {
-        updateWorkspace(workspace.id, { status: 'waiting', retryableAt: new Date(Date.now() + 5 * 60 * 1000).toISOString() })
-        console.log(`[Auto] Download failed (retryable): ${result.error} — status → waiting (retryableAt: +5min)`)
-        console.log(`[Auto] Video will auto-retry at ~${new Date(Date.now() + 5 * 60 * 1000).toLocaleTimeString()}`)
-        sendNotification('error', `Auto-download failed: ${result.error}`, workspace.id)
-      }
+      console.log(`[Auto] Auto-render disabled — workspace ready for manual render`)
     }
+
+    // Only mark as seen AFTER successful download — so YouTube processing delay doesn't block retry
+    markVideoSeen(channelId, videoId)
   } catch (err) {
     console.error('[Poll] Auto-download error:', err)
   }
@@ -518,6 +534,17 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
 
     const aspect = await probeVideoAspect(result.filePath)
 
+    // Skip 9:16 vertical videos — user only wants landscape 16:9 content
+    if (aspect?.isShort) {
+      console.log(`[Retry] Skipping 9:16 vertical video: ${ws.videoTitle}`)
+      try { fs.unlinkSync(result.filePath) } catch {}
+      updateWorkspace(ws.id, { status: 'error' })
+      broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
+      sendNotification('error', `9:16 vertical: ${ws.videoTitle}`, ws.id)
+      markVideoSeen(ws.channelId, ws.videoId)
+      return
+    }
+
     // Short video check
     if (realDuration > 0 && realDuration < 60) {
       console.log(`[Retry] Video too short (${realDuration}s < 60s) — skipping (YouTube Short)`)
@@ -553,7 +580,7 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
       thumbnail: localThumbnail,
       videoTitle: videoInfo?.title || ws.videoTitle,
       duration: finalDuration,
-      isShort: aspect?.isShort ?? true,
+      isShort: aspect?.isShort ?? false,
     })
     broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
 

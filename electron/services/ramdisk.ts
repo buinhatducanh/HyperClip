@@ -19,6 +19,8 @@ interface AppSettingsStore {
   renderedOutputPath?: string  // archive directory for rendered videos
   /** Auto-download quality cap: '360' | '480' | '720' | '1080'. Defaults to '720'. */
   autoDownloadQuality?: string
+  /** Auto-render after auto-download. Defaults to false. */
+  autoRender?: boolean
 }
 
 let _settings: AppSettingsStore | null = null

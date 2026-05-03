@@ -95,7 +95,7 @@ class YouTubePoller {
   private _pollsSinceLastLog: number = 0
   private _exhaustedBackoffUntil: number = 0 // timestamp when backoff ends
   private _lastExhaustedWarnAt: number = 0   // avoid spamming notifications
-  private _backoffReason: 'oauth' | 'innertube' | 'both' | null = null
+  private _backoffReason: 'oauth' | null = null
 
   constructor(options: PollerOptions) {
     this._pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
@@ -132,24 +132,17 @@ class YouTubePoller {
 
   /**
    * Quick non-consuming check of resource availability.
-   * Used during backoff to detect if user added tokens/sessions mid-session.
+   * Used during backoff to detect if user added tokens mid-session.
    */
-  private async _checkResources(): Promise<{ hasOAuth: boolean; hasInnertube: boolean }> {
+  private async _checkResources(): Promise<{ hasOAuth: boolean }> {
     try {
       const { getTokenManager } = await import('./token_manager.js')
       const tm = getTokenManager()
       const statuses = tm.getAllStatuses()
       const hasOAuth = statuses.some(ts => ts.hasToken && ts.status !== 'exhausted')
-
-      const { getSessionManager } = await import('./chrome_cookies.js')
-      const sm = getSessionManager()
-      await sm.ensureInit()
-      const sessions = sm.getSessions()
-      const hasInnertube = sessions.some(s => s.cookies && s.isConsented)
-
-      return { hasOAuth, hasInnertube }
+      return { hasOAuth }
     } catch {
-      return { hasOAuth: false, hasInnertube: false }
+      return { hasOAuth: false }
     }
   }
 
@@ -183,15 +176,15 @@ class YouTubePoller {
     if (now < this._exhaustedBackoffUntil) {
       // Re-check availability every 5 polls (~100s) even during backoff
       if (this._pollsSinceLastLog === 0) {
-        const { hasOAuth, hasInnertube } = await this._checkResources()
+        const { hasOAuth } = await this._checkResources()
         const remaining = Math.ceil((this._exhaustedBackoffUntil - now) / 60000)
-        if (hasInnertube || hasOAuth) {
+        if (hasOAuth) {
           // Resources recovered — clear backoff immediately
           this._exhaustedBackoffUntil = 0
           this._backoffReason = null
-          console.log(`[YouTubePoller] Resources recovered — Innertube: ${hasInnertube ? '✓' : '✗'}, OAuth: ${hasOAuth ? '✓' : '✗'} — resuming polling`)
+          console.log(`[YouTubePoller] OAuth recovered ✓ — resuming polling`)
         } else {
-          console.log(`[YouTubePoller] Still backed off (${remaining}m until midnight PT) — Innertube: ${hasInnertube ? '✓' : '✗'}, OAuth: ${hasOAuth ? '✓' : '✗'}`)
+          console.log(`[YouTubePoller] Still backed off (${remaining}m until midnight PT) — OAuth: available`)
         }
       }
       return
@@ -220,16 +213,11 @@ class YouTubePoller {
 
       // All detection sources exhausted — enter backoff mode, notify user once
       if (subResult.allSourcesExhausted) {
-        // Determine which resources are actually exhausted
-        const { hasOAuth, hasInnertube } = await this._checkResources()
-        let reason = 'OAuth tokens exhausted'
-        if (!hasOAuth && !hasInnertube) reason = 'OAuth tokens exhausted AND no Innertube sessions'
-        else if (!hasInnertube) reason = 'OAuth tokens exhausted (Innertube sessions not initialized)'
-        else reason = 'OAuth tokens exhausted'
-
-        this._backoffReason = !hasOAuth ? 'oauth' : (!hasInnertube ? 'innertube' : 'both')
+        const { hasOAuth } = await this._checkResources()
+        const reason = 'OAuth tokens exhausted'
+        this._backoffReason = 'oauth'
         this._lastError = reason
-        console.warn(`[YouTubePoller] ${reason}. Add more OAuth tokens or initialize Chrome sessions in Settings.`)
+        console.warn(`[YouTubePoller] ${reason}. Add more GCP projects in Settings.`)
 
         // Calculate backoff: time until next midnight PT
         const utcHour = new Date().getUTCHours()
@@ -255,7 +243,7 @@ class YouTubePoller {
           if (this._onNewVideos) {
             this._onNewVideos([])
           }
-          console.warn(`[YouTubePoller] QUOTA_EXHAUSTED: All OAuth tokens exhausted. Backoff until midnight PT (${Math.ceil(hoursUntilMidnight)}h). Add more projects in Settings.`)
+          console.warn(`[YouTubePoller] QUOTA_EXHAUSTED: OAuth tokens exhausted. Backoff until midnight PT (${Math.ceil(hoursUntilMidnight)}h). Add more GCP projects in Settings.`)
         }
       }
       return

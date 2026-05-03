@@ -165,4 +165,4 @@ Luôn chạy `npx tsc --noEmit` sau khi sửa backend Electron. IDE diagnostics 
 
 ---
 
-## Cập nhật: 2026-04-27
+## Cập nhật: 2026-05-03

@@ -10,12 +10,12 @@
 
 ### NGUYÊN LÝ HOẠT ĐỘNG CỐT LÕI (ĐỂ ĐẠT ĐƯỢC MỤC TIÊU TRÊN)
 
-1. **Detection: Innertube API via Chrome Session Cookies (NO QUOTA LIMIT):**
-   - 30 dedicated Chrome profiles — user logs in YouTube once per profile
-   - Extract SAPISID + __Secure-1PSID cookies via DPAPI (Windows) + sql.js (SQLite)
-   - SAPISIDHASH = SHA1(timestamp + " " + SAPISID + " " + "https://www.youtube.com") header
-   - YouTube Innertube API (`/youtubei/v1/browse`) — no 10k/day quota limit
-   - Fallback: Data API v3 OAuth (10k units/day) nếu Innertube trả 0 video
+1. **Detection: OAuth Data API v3 (primary) via playlistItems per channel:**
+   - Uses TokenManager (N GCP projects, each 10,000 units/day)
+   - Full scan all channels per poll (max 20 concurrent)
+   - Early termination once 5 new videos found — saves quota
+   - Uploads playlist ID cached 24h — saves 1 API call/channel/poll
+   - OAuth tokens smart rotation (lowest usedToday wins)
 2. **Strict 10-Min Window:** Chỉ tải video upload trong vòng **10 phút** trở lại.
 3. **Tải xuống siêu tốc:** yt-dlp + `--download-sections *00:00:00-MM:SS` (chỉ tải đúng số phút cần thiết), Direct IP binding.
 4. **Render ép phần cứng:** FFmpeg + NVENC (RTX 5080), không x264.
@@ -26,7 +26,7 @@
 
 | # | Tầng | Công nghệ | Target |
 |---|-------|-----------|--------|
-| 1 | **Trigger** | Innertube API (30 Chrome sessions) + OAuth fallback | < 20s |
+| 1 | **Trigger** | OAuth Data API v3 playlistItems per channel (N GCP projects) | < 20s |
 | 2 | **Download** | yt-dlp + `--download-sections` (chỉ tải N phút) + Direct IP Binding | < 30s |
 | 3 | **Pre-process** | Static blur (1 frame, cache vĩnh viễn) | < 3s |
 | 4 | **Edit** | React-Konva Canvas 2D (60fps) | < 16ms/frame |
@@ -39,12 +39,12 @@
 ### Cơ chế: Full Scan mỗi Poll
 
 ```
-YouTubePoller (4 giây ± 1s jitter)
+YouTubePoller (5 giây ± 1s jitter)
          ↓
 fetchSubscriptionFeed() → ALL channels (parallel, max 20 concurrent)
          ↓
-1. Innertube API (SAPISIDHASH cookies): /youtubei/v1/browse per channel
-   → OAuth Data API v3 fallback (10k units/day) nếu Innertube trả 0 video
+OAuth Data API v3 playlistItems per channel (TokenManager, smart rotation)
+  → Fallback: next available token (exhausted tokens auto-skipped)
          ↓
 Filter: age < 10 min, unseen, not deleted
          ↓
@@ -61,6 +61,11 @@ autoDownload() → yt-dlp --download-sections (chỉ N phút cần thiết)
 | 4 | seenVideoIds persist to disk | Không re-detect sau restart |
 | 5 | Early termination (stop after 5 videos) | OAuth gọi ít hơn ~50-80% |
 | 6 | seenVideoIds cap 10,000 | Chống leak memory dài hạn |
+
+### ⚠️ Innertube (DEPRECATED — 2026-05-03)
+
+~~Innertube API via Chrome Session Cookies was the primary detection path.~~
+**Removed in favor of OAuth-only detection.** Chrome sessions still exist in the codebase for Settings UI but are NOT used for detection.
 
 ### Chi tiết Quota System
 
@@ -79,7 +84,7 @@ Dùng cho **OAuth Data API v3** — fallback path.
 | Error threshold | **3 lỗi liên tiếp** → token bị skip |
 | Storage | `%APPDATA%/HyperClip/token_stats.json` |
 
-**TokenManager chỉ dùng khi Innertube trả 0 video.**
+**TokenManager is the primary detection path — no Innertube anymore (2026-05-03).**
 
 #### Lớp 2 — KeyManager (API keys, 10,000 units/key/ngày)
 
@@ -177,18 +182,16 @@ async function fetchChannelVideos(ch, seenVideoIds, sinceMs) {
 }
 ```
 
-### Quota Math thực tế
+### Quota Math thực tế (OAuth-only)
 
-| Kịch bản | Innertube reliability | OAuth calls/ngày | Units/ngày |
-|---------|----------------------|-------------------|-----------|
-| Innertube 100% | 100% | 0 | 0 |
-| Innertube 95% | Thỉnh thoảng 0 video | ~2,160 | ~2,160 |
-| Innertube 50% | Nửa số poll thất bại | ~21,600 | ~21,600 |
-| Innertube 0% | Tất cả → OAuth | ~43,200 | ~43,200 |
+| Kịch bản | Channels | Calls/poll | Polls/day | Units/day |
+|---------|----------|-----------|-----------|-----------|
+| Early termination (5 videos found) | 49 | ~5 | 4,320 | ~21,600 |
+| All channels scanned (no new videos) | 49 | 49 | 4,320 | ~211,680 |
+| 1 GCP project (9,500 cap) | 49 | ~10 avg | 4,320 | ~43,200 |
+| 2 GCP projects (19,000 cap) | 49 | ~10 avg | 4,320 | ~43,200 (comfortable) |
 
-Với 300,000 units (30 GCP projects × 10,000), ngay cả khi Innertube hoàn toàn fail, vẫn còn **thặng dư quota gấp ~7 lần** nhu cầu thực tế.
-
-**Kết luận:** Với Innertube là primary path và >50% reliability, OAuth quota gần như không bao giờ hết. Mục tiêu tối ưu: **đảm bảo Innertube cookie sessions ổn định** thay vì thêm nhiều GCP projects.
+**Kết luận:** Với early termination, trung bình chỉ ~5-10 calls/poll. Cần **2+ GCP projects** để đạt budget 9,500/project. Thêm càng nhiều project → quota càng thoải mái.
 
 ### Trim Limit (auto-download)
 
@@ -219,6 +222,7 @@ Settings page → Chrome Sessions section:
 - ~~activities?home=true~~ — **DEPRECATED** (Google đã xóa endpoint này)
 - ~~RSS feeds~~ — YouTube indexing delay 5-30 phút
 - ~~activities?mine=true~~ — chỉ trả uploads của chính tài khoản OAuth
+- ~~Innertube API (Chrome cookies)~~ — **DEPRECATED 2026-05-03** (removed, OAuth-only now)
 
 ---
 
@@ -378,8 +382,7 @@ npm run electron:build  # Production .exe
 |--------|-----------|---------|
 | **Xác thực / Đăng nhập** | OAuth 2.0 (N lần, mỗi project 1 lần) | Refresh token tự động. Credentials lưu trong `oauth_tokens.json`. |
 | **Lấy danh sách kênh đăng ký** | YouTube Data API v3 (`/subscriptions`) | Chỉ gọi **1 lần** khi setup → lưu vào store. **KHÔNG gọi lại** sau khi setup xong. |
-| **Phát hiện video mới (PRIMARY)** | **Innertube API via Chrome Session Cookies** | 30 Chrome profiles → SAPISIDHASH → Innertube `/youtubei/v1/browse`. NO QUOTA LIMIT. |
-| **Phát hiện video mới (FALLBACK)** | Data API v3 OAuth playlistItems per channel | 10k units/day — chỉ dùng khi Innertube trả 0 video |
+| **Phát hiện video mới (PRIMARY)** | **OAuth Data API v3 playlistItems per channel** | TokenManager smart rotation, 10k units/day per project, early termination |
 | **Download video** | yt-dlp + OAuth auth + `--download-sections` | Trim chỉ N phút (user config), bypass VPN. |
 | **Render video** | FFmpeg + NVENC (RTX 5080) | Hardware encode, KHÔNG x264. |
 
@@ -401,26 +404,24 @@ npm run electron:build  # Production .exe
 App khởi động
   ├─ Load OAuth tokens từ oauth_tokens.json (N projects)
   ├─ Load API keys từ api_keys.json (N keys)
-  ├─ Chrome: extract session cookies từ 30 profiles (DPAPI + sql.js)
-  ├─ Data API: fetch subscriptions → lưu vào store (1 LẦN)
-  └─ Poller loop (20s jitter)
-        ├─ Innertube API (primary, NO quota) per channel
-        │     └─ Fallback: OAuth playlistItems per channel
+  └─ Poller loop (5s ± 1s jitter)
+        ├─ OAuth playlistItems per channel (TokenManager, max 20 concurrent)
+        │     └─ Early termination: stop after 5 new videos found
         ├─ Filter: age < 10 min, unseen, not deleted
         └─ autoDownload() → yt-dlp --download-sections (defaultTrimLimit minutes)
 ```
 
 ### Key Facts
 
-- ✅ activities?home=true **DEPRECATED** — không dùng nữa
-- ✅ playlistItems per channel là **ONLY WORKING METHOD** cho OAuth fallback
-- ✅ Innertube API (session cookies) = **NO QUOTA LIMIT** cho detection
-- ✅ Full scan = check TẤT CẢ kênh mỗi poll (Innertube primary, OAuth fallback)
+- ✅ playlistItems per channel là **ONLY WORKING METHOD** cho detection (OAuth-only, 2026-05-03)
+- ✅ Full scan = check TẤT CẢ kênh mỗi poll (OAuth primary, no Innertube)
 - ✅ Uploads playlist ID cache 24h → tiết kiệm 1 call/channel/poll
-- ✅ OAuth Data API v3 = fallback path (10k units/day) — không phải primary
+- ✅ OAuth Data API v3 = primary detection (10k units/day per project)
 - ✅ trimLimit numeric (phút) thay vì '5min'/'10min'/'full'
 - ✅ Auto-download dùng `defaultTrimLimit` từ settings (default: 10 phút)
-- ✅ SAPISIDHASH = SHA1(timestamp + " " + SAPISID + " " + "https://www.youtube.com")
+- ✅ **Auto-render opt-in** — `settings.autoRender` (default: false, user manually triggers)
+- ⚠️ activities?home=true **DEPRECATED** — không dùng nữa
+- ⚠️ Innertube **DEPRECATED** (2026-05-03) — Chrome sessions chỉ còn cho Settings UI
 
 ---
 
@@ -443,4 +444,4 @@ App khởi động
 
 ---
 
-## 14. Ngày cập nhật: 2026-04-30
+## 14. Ngày cập nhật: 2026-05-03

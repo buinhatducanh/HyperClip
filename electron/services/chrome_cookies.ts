@@ -64,7 +64,8 @@ function getHyperClipProfileDir(profileId: string): string {
 
 // User's default Chrome profile (already logged in)
 function getDefaultChromeProfileDir(): string {
-  return path.join(LOCALAPPDATA, 'Google', 'Chrome', 'User Data', 'Default')
+  // Chrome stores the default profile at User Data\Default\Default
+  return path.join(LOCALAPPDATA, 'Google', 'Chrome', 'User Data', 'Default', 'Default')
 }
 
 // Chrome installation path

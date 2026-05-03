@@ -2,19 +2,22 @@
  * Subscription Feed — HyperClip
  *
  * Full scan: checks ALL subscribed channels every poll via playlistItems.
- * Uses OAuth-only (no API key) — avoids "API Key and authentication credential
- * from different projects" errors when key and token belong to different GCP projects.
+ * OAuth-only — no Innertube (cookies), no API key. TokenManager handles
+ * per-project quota (10k units/day) and smart rotation across N projects.
  *
- * Quota: OAuth tokens track per-project quota (10k units/day per project).
- *
- * activities?home=true is DEPRECATED (Google removed it).
- * No replacement in Data API v3. Only playlistItems per channel works.
+ * Quota math (49 channels):
+ *   - With early termination (stopAfter=5): most polls use 5 calls per channel batch
+ *   - Worst case (no new videos, all 49 scanned): 49 calls/poll
+ *   - Poll every 5s: 4,320 polls/day → ~282k calls worst case
+ *   - But since early termination kicks in at channel level (stopAfter=5),
+ *     actual avg ~5-10 calls/poll → ~21k-43k units/day
+ *   - With 1 GCP project: 9,500/day → sufficient if early termination works well
+ *   - With 2+ GCP projects: 19,000+/day → comfortable
  */
 
 import https from 'https'
 import { getTokenManager } from './token_manager.js'
 import { getChannels } from './store.js'
-import { getSessionManager, computeSAPISIDHASH, type ChromeSession } from './chrome_cookies.js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -32,9 +35,9 @@ export interface SubscriptionVideo {
 export interface SubFeedResult {
   videos: SubscriptionVideo[]
   error?: string
-  /** True when ALL detection sources are unavailable (no Innertube sessions AND no OAuth tokens) */
+  /** True when ALL detection sources are unavailable (no OAuth tokens) */
   allSourcesExhausted?: boolean
-  source: 'playlist'
+  source: 'oauth'
 }
 
 export interface SubFeedOptions {
@@ -42,13 +45,13 @@ export interface SubFeedOptions {
   sinceMs?: number
   maxVideos?: number
   /** When true, stops fetching more channels once we have this many new videos.
-   * Early termination — saves latency when we already found enough. */
+   * Early termination — saves quota when we already found enough. */
   stopAfterCount?: number
 }
 
 // ─── Config ─────────────────────────────────────────────────────────────────────
 
-const MAX_VIDEO_AGE_MS = 10 * 60 * 1000 // 10 minutes — auto-download videos posted < 10 min ago (accounts for YouTube processing delay)
+const MAX_VIDEO_AGE_MS = 10 * 60 * 1000 // 10 minutes — auto-download videos posted < 10 min ago
 const MIN_VIDEO_DURATION_MS = 60 * 1000 // Skip auto-download for videos < 60s (YouTube Shorts)
 const PLAYLIST_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24h uploads playlist cache
 const MAX_CONCURRENT = 20 // max parallel API calls per poll
@@ -56,8 +59,22 @@ const MAX_VIDEOS_PER_POLL = 5
 
 // ─── API Helper ────────────────────────────────────────────────────────────────
 
-function apiGetOAuth(
-  urlStr: string, token: string,
+interface TokenInfo {
+  projectId: string
+  token: string
+}
+
+/** Get a fresh token for each channel fetch (round-robin across available tokens). */
+async function getChannelToken(): Promise<TokenInfo | null> {
+  const tm = getTokenManager()
+  const best = await tm.getBestAvailable()
+  if (!best) return null
+  return { projectId: best.projectId, token: best.token }
+}
+
+function apiGet(
+  urlStr: string,
+  token: string,
 ): Promise<any> {
   return new Promise((resolve) => {
     const req = https.get({
@@ -73,13 +90,13 @@ function apiGetOAuth(
       res.on('end', () => {
         try {
           const json = JSON.parse(data)
-          // Debug: log first item's age in playlistItems — shows if newest video is within 10min window
+          // Debug: log newest video's age in playlistItems — shows if within 10min window
           if (urlStr.includes('playlistItems') && json.items?.length > 0) {
             const now = Date.now()
             const first = json.items[0].snippet
             const ms = first?.publishedAt ? new Date(first.publishedAt).getTime() : 0
             const age = ms > 0 ? Math.round((now - ms) / 60000) : -1
-            console.log(`[apiGet] newest="${first?.title?.slice(0,35)}" age=${age}m (cutoff=10m)`)
+            console.log(`[apiGet] newest="${first?.title?.slice(0, 35)}" age=${age}m (cutoff=10m)`)
           }
           resolve(json)
         } catch {
@@ -89,82 +106,7 @@ function apiGetOAuth(
     })
 
     req.on('error', (e) => resolve({ error: e.message }))
-    req.setTimeout(10000, () => { req.destroy(); resolve({ error: 'Request timeout' }) })
-  })
-}
-
-// ─── Innertube API (cookie-based, no quota limit) ─────────────────────────────
-
-const INNERTUBE_CLIENT = {
-  clientName: 'WEB',
-  clientVersion: '2.20240718',
-}
-
-function apiGetInnertube(
-  browseId: string,
-  session: ChromeSession,
-): Promise<any> {
-  return new Promise((resolve) => {
-    if (!session.cookies) {
-      resolve({ error: 'No cookies in session' })
-      return
-    }
-
-    const { SAPISID, PSID, PSIDCC, PSIDTS } = session.cookies
-    const ts = Math.floor(Date.now() / 1000)
-    const hash = computeSAPISIDHASH(SAPISID, ts)
-
-    const body = JSON.stringify({
-      context: {
-        client: {
-          clientName: INNERTUBE_CLIENT.clientName,
-          clientVersion: INNERTUBE_CLIENT.clientVersion,
-        },
-      },
-      browseId,
-    })
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'Content-Length': String(Buffer.byteLength(body)),
-      'X-YouTube-Client-Name': '2',
-      'X-YouTube-Client-Version': INNERTUBE_CLIENT.clientVersion,
-    }
-
-    // Build Cookie header
-    const cookieParts: string[] = [`SAPISID=${SAPISID}`, `__Secure-1PSID=${PSID}`]
-    if (PSIDCC) cookieParts.push(`__Secure-1PSIDCC=${PSIDCC}`)
-    if (PSIDTS) cookieParts.push(`__Secure-1PSIDTS=${PSIDTS}`)
-    // SOCS consent cookie — CAI = accepted, CAA = not logged in
-    if (session.cookies.socs) cookieParts.push(`SOCS=${session.cookies.socs}`)
-
-    headers['Authorization'] = `SAPISIDHASH ${hash}`
-    headers['Cookie'] = cookieParts.join('; ')
-    // SAPISID cookie also needed on some endpoints
-    headers['Cookie'] += `; SAPISID=${SAPISID}`
-
-    const req = https.request({
-      hostname: 'www.youtube.com',
-      path: '/youtubei/v1/browse',
-      method: 'POST',
-      headers,
-    }, (res) => {
-      let data = ''
-      res.on('data', (c) => { data += c })
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data)
-          resolve(json)
-        } catch {
-          resolve({ error: 'Parse error', data: data.slice(0, 200) })
-        }
-      })
-    })
-
-    req.on('error', (e) => resolve({ error: e.message }))
     req.setTimeout(15000, () => { req.destroy(); resolve({ error: 'Request timeout' }) })
-    req.write(body)
-    req.end()
   })
 }
 
@@ -203,10 +145,6 @@ function setCachedUploadsId(channelId: string, uploadsId: string): void {
 
 // ─── Concurrency Limiter ───────────────────────────────────────────────────────
 
-/**
- * Parallel execution with optional early termination.
- * When stopAfterCount is set, returns as soon as we have enough results.
- */
 async function parallel<T, R>(
   items: T[],
   concurrency: number,
@@ -239,82 +177,26 @@ async function fetchChannelVideos(
   const channelId = ch.channelId || ch.id
   if (!channelId) return []
 
-  // ── Try Innertube API (cookie-based, no quota limit) ──
-  const sm = getSessionManager()
-  await sm.ensureInit()
-
-  const session = sm.getNextSession()
-  if (session?.cookies) {
-    // Step 1: get uploads playlist ID via Innertube browse
-    let uploadsId = getCachedUploadsId(channelId)
-    if (!uploadsId) {
-      const browseJson = await apiGetInnertube(channelId, session)
-      if (browseJson.error) {
-        console.warn(`[SubFeed] Innertube browse error for ${ch.name}: ${browseJson.error}`)
-      } else {
-        // Parse uploads playlist from Innertube browse response
-        // Response: { metadata: { channelMetadataRenderer: { uploadsId } } }
-        const uploads = browseJson.metadata?.channelMetadataRenderer?.uploadId
-          || browseJson.metadata?.microformat?.channelMicrophoneFallbackRenderer?.channelId
-        if (uploads) {
-          uploadsId = uploads
-          setCachedUploadsId(channelId, uploads)
-        } else {
-          console.warn(`[SubFeed] Innertube browse: no uploadsId for ${ch.name} — response keys: ${Object.keys(browseJson).join(', ')}`)
-        }
-      }
-    }
-
-    if (uploadsId) {
-      // Step 2: get recent playlist items via Innertube
-      const playlistJson = await apiGetInnertube(uploadsId, session)
-      if (playlistJson.error) {
-        console.warn(`[SubFeed] Innertube playlist error for ${ch.name}: ${playlistJson.error}`)
-      } else {
-        const videos = parseInnertubePlaylistVideos(playlistJson, channelId, ch.name, seenVideoIds, sinceMs)
-        if (videos.length > 0) {
-          const ageLabel = videos[0].publishedAt > 0
-            ? ((Date.now() - videos[0].publishedAt) / 60000 < 1 ? 'vua xong' : Math.floor((Date.now() - videos[0].publishedAt) / 60000) + 'm ago')
-            : '?'
-          console.log(`[SubFeed] ✓ "${videos[0].title.slice(0, 40)}" from ${ch.name} (${ageLabel})`)
-          return videos
-        }
-        // Innertube returned 0 videos — trust this result, do NOT burn OAuth quota
-        // Only fallback to OAuth when Innertube session is unavailable, not when it returns 0
-      }
-    }
-  }
-  // No Innertube session available — try OAuth fallback
-  // Innertube has NO quota limit. OAuth has 10k units/day.
-  // We only use OAuth when Innertube sessions are unavailable.
-  if (!session?.cookies) {
-    const sessions2 = sm.getSessions()
-    const consentedCount = sessions2.filter(s => s.isConsented).length
-    if (consentedCount === 0) {
-      console.warn(`[SubFeed] No Innertube sessions available (0 consented). Falling back to OAuth — quota will be consumed.`)
-    }
-  }
-
-  // ── OAuth fallback (Data API v3, has quota) ──
-  const tm = getTokenManager()
-  const best = await tm.getBestAvailable()
-  if (!best) {
-    // All tokens exhausted — signal to poller
+  const tokenInfo = await getChannelToken()
+  if (!tokenInfo) {
+    // No tokens available
     return []
   }
+  const { token } = tokenInfo
 
-  const token = best.token
-
-  // Step 1: get uploads playlist ID
+  // Step 1: get uploads playlist ID (check cache first)
   let uploadsId = getCachedUploadsId(channelId)
   if (!uploadsId) {
-    const channelJson = await apiGetOAuth(
+    const channelJson = await apiGet(
       `/youtube/v3/channels?part=contentDetails&id=${encodeURIComponent(channelId)}`,
       token,
     )
     if (channelJson.error || !channelJson.items?.[0]) {
       // Track quota even on error so exhausted tokens get filtered out
-      if (channelJson.error) tm.trackError(best.projectId)
+      if (channelJson.error) {
+        const tm = getTokenManager()
+        tm.trackError(tokenInfo.projectId)
+      }
       return []
     }
     uploadsId = channelJson.items[0].contentDetails?.relatedPlaylists?.uploads || null
@@ -324,24 +206,26 @@ async function fetchChannelVideos(
   if (!uploadsId) return []
 
   // Step 2: get recent playlist items (maxResults=1 — only need the newest)
-  const playlistJson = await apiGetOAuth(
+  const playlistJson = await apiGet(
     `/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsId}&maxResults=1`,
     token,
   )
+
   if (playlistJson.error) {
     console.warn(`[SubFeed] OAuth error for ${ch.name}: ${playlistJson.error}`)
     // Track quota on error — pushes token toward exhaustion so getBestAvailable skips it
-    tm.trackError(best.projectId)
+    const tm = getTokenManager()
+    tm.trackError(tokenInfo.projectId)
     // Invalidate cache so next poll can retry with potentially fresh token
     _uploadsPlaylistCache.delete(channelId)
     return []
   }
 
   // Track token quota on successful API call (even if 0 items)
-  tm.track(best.projectId)
+  const tm = getTokenManager()
+  tm.track(tokenInfo.projectId)
 
   if (!playlistJson.items || playlistJson.items.length === 0) {
-    console.log(`[SubFeed] OAuth: no items in uploads playlist for ${ch.name}`)
     return []
   }
 
@@ -390,100 +274,6 @@ async function fetchChannelVideos(
   return videos
 }
 
-function parseInnertubePlaylistVideos(
-  json: any,
-  channelId: string,
-  channelName: string,
-  seenVideoIds: Set<string> | undefined,
-  sinceMs: number,
-): SubscriptionVideo[] {
-  const videos: SubscriptionVideo[] = []
-
-  // Innertube playlist response structure:
-  // { tabs: [{ tabRenderer: { content: { sectionListRenderer: { contents: [...] } } } }] }
-  const tabs = json.tabs || json.contents?.tabs
-  if (!tabs) return []
-
-  const tabContent = tabs[0]?.tabRenderer?.content
-  const sections = tabContent?.sectionListRenderer?.contents || []
-
-  for (const section of sections) {
-    const items = section.itemSectionRenderer?.contents || []
-    for (const item of items) {
-      const vr = item.playlistVideoRenderer
-      if (!vr) continue
-
-      const videoId = vr.videoId
-      if (!videoId || seenVideoIds?.has(videoId)) continue
-
-      const title = vr.title?.runs?.[0]?.text || '(no title)'
-      if (title.includes('[deleted]') || title.includes('[private]')) continue
-
-      // Extract published time from text runs (e.g. "2 minutes ago", "1 hour ago")
-      const publishedText = vr.publishedTimeText?.simpleText || vr.publishedTimeText?.runs?.[0]?.text || ''
-      const publishedAt = parseInnertubeRelativeTime(publishedText, sinceMs)
-
-      // Skip if we can't determine age — could be very old video with no timestamp
-      if (publishedAt === 0) continue
-      if (publishedAt > 0 && publishedAt < sinceMs) continue
-
-      // Skip live streams — yt-dlp can't use --download-sections on live content
-      const badges: Array<{ metadataBadgeRenderer?: { label?: { simpleText?: string } } }> = vr.badges || []
-      const isLive = badges.some(b => b.metadataBadgeRenderer?.label?.simpleText?.toLowerCase().includes('live'))
-      if (isLive) {
-        console.log(`[SubFeed] Skipping live stream: "${title}" from ${channelName}`)
-        continue
-      }
-
-      // Skip upcoming streams (not yet started)
-      if (vr.upcomingDateText) {
-        continue
-      }
-
-      const thumbnail = vr.thumbnail?.thumbnails?.[0]?.url || ''
-
-      videos.push({
-        videoId,
-        title,
-        channelId,
-        channelName,
-        thumbnail,
-        publishedAt,
-        publishedText,
-        duration: vr.lengthText?.simpleText || '',
-      })
-    }
-  }
-
-  return videos
-}
-
-function parseInnertubeRelativeTime(text: string, sinceMs: number): number {
-  if (!text) return 0
-
-  // Patterns: "2 minutes ago", "1 hour ago", "2 days ago", "Streamed 2 hours ago"
-  const cleaned = text.replace(/^Streamed\s*/i, '').trim()
-  const match = cleaned.match(/^(\d+)\s*(second|minute|hour|day|week|month|year)s?\s*ago$/i)
-  if (!match) return 0
-
-  const value = parseInt(match[1])
-  const unit = match[2].toLowerCase()
-
-  const now = Date.now()
-  const multipliers: Record<string, number> = {
-    second: 1000,
-    minute: 60000,
-    hour: 3600000,
-    day: 86400000,
-    week: 604800000,
-    month: 2592000000,
-    year: 31536000000,
-  }
-
-  const ageMs = (multipliers[unit] || 60000) * value
-  return now - ageMs
-}
-
 // ─── Main Export ─────────────────────────────────────────────────────────────
 
 export async function fetchSubscriptionFeed(
@@ -494,23 +284,15 @@ export async function fetchSubscriptionFeed(
 
   const channels = getChannels()
   if (channels.length === 0) {
-    return { videos: [], source: 'playlist' }
+    return { videos: [], source: 'oauth' }
   }
 
-  // Non-consuming check: is any OAuth token OR Innertube session available?
-  // If neither is available, signal poller so it can notify user and back off.
-  // Note: Innertube (cookie-based) has NO quota limit — it's the primary detection path.
-  // OAuth (Data API v3) is fallback with 10k units/day quota.
+  // Check: is any OAuth token available?
   const tm = getTokenManager()
   const tmStatuses = tm.getAllStatuses()
   const hasOAuth = tmStatuses.some(ts => ts.hasToken && ts.status !== 'exhausted')
 
-  const sm = getSessionManager()
-  await sm.ensureInit()
-  const sessions = sm.getSessions()
-  const hasInnertube = sessions.some(s => s.cookies && s.isConsented)
-
-  const allSourcesExhausted = !hasOAuth && !hasInnertube
+  const allSourcesExhausted = !hasOAuth
 
   const targetStop = stopAfterCount ?? maxVideos ?? MAX_VIDEOS_PER_POLL
   console.log(`[SubFeed] Scanning ${channels.length} channels (max ${MAX_CONCURRENT} concurrent, stop after ${targetStop})...`)
@@ -536,15 +318,15 @@ export async function fetchSubscriptionFeed(
     console.log(`[SubFeed] Total: ${unique.length} new videos from ${channels.length} channels`)
   } else {
     if (allSourcesExhausted) {
-      console.warn(`[SubFeed] Exhausted: Innertube unavailable AND OAuth tokens exhausted.`)
+      console.warn(`[SubFeed] Exhausted: all OAuth tokens exhausted. Add more GCP projects in Settings.`)
     } else {
-      console.log(`[SubFeed] No new videos — scanned ${channels.length} channels. Innertube: ${hasInnertube ? 'available' : 'no sessions'}, OAuth: ${hasOAuth ? 'available' : 'tokens exhausted'}`)
+      console.log(`[SubFeed] No new videos — scanned ${channels.length} channels. OAuth: available`)
     }
   }
 
   return {
     videos: unique,
     allSourcesExhausted,
-    source: 'playlist',
+    source: 'oauth',
   }
 }
