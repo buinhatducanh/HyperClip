@@ -56,10 +56,12 @@ function _getDefaultClientSecret(): string {
     if (fs.existsSync(configFile)) {
       const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
       if (typeof config === 'object') {
-        if (config.client_secret) return config.client_secret
+        // Try per-project credentials first (matching the projectId of stored tokens)
         for (const pid of ['proj-01', 'proj-02', 'proj-03', 'proj-04']) {
           if (config[pid]?.clientSecret) return config[pid].clientSecret
         }
+        // Fall back to legacy single-project field
+        if (config.client_secret) return config.client_secret
       }
     }
   } catch {}
@@ -93,7 +95,7 @@ export interface TokenStatus {
   quotaTotal: number
   quotaPercent: number
   errors: number
-  status: 'healthy' | 'warning' | 'error' | 'exhausted' | 'unauthorized'
+  status: 'healthy' | 'warning' | 'error' | 'exhausted' | 'unauthorized' | 'no_oauth'
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -113,6 +115,7 @@ class TokenManager {
   private _lastResetPTDate: string = ''  // tracks PT date for midnight-PT reset
   private _initialized: boolean = false
   private _refreshTimer: ReturnType<typeof setInterval> | null = null
+  private _unauthorizedTokens: Set<string> = new Set()
 
   constructor() {
     this._loadTokens()
@@ -195,6 +198,7 @@ class TokenManager {
         this._stats = new Map(Object.entries(raw.stats || {}))
         this._lastReset = raw.lastReset || Date.now()
         this._lastResetPTDate = raw.lastResetPTDate || ''
+        this._unauthorizedTokens = new Set(raw.unauthorizedTokens || [])
       }
     } catch {}
   }
@@ -214,7 +218,12 @@ class TokenManager {
       for (const [k, v] of this._stats) obj[k] = v
       const dir = path.dirname(STATS_FILE)
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-      fs.writeFileSync(STATS_FILE, JSON.stringify({ stats: obj, lastReset: this._lastReset, lastResetPTDate: this._lastResetPTDate }, null, 2), 'utf-8')
+      fs.writeFileSync(STATS_FILE, JSON.stringify({
+        stats: obj,
+        lastReset: this._lastReset,
+        lastResetPTDate: this._lastResetPTDate,
+        unauthorizedTokens: [...this._unauthorizedTokens],
+      }, null, 2), 'utf-8')
     } catch (e) {
       console.error('[TokenManager] Failed to persist stats:', e)
     }
@@ -247,7 +256,9 @@ class TokenManager {
       ? `${utcYear}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
       : `${utcYear}-${String(new Date(now.getTime() - 86400000).getUTCMonth() + 1).padStart(2, '0')}-${String(new Date(now.getTime() - 86400000).getUTCDate()).padStart(2, '0')}`
 
-    if (this._lastResetPTDate !== ptDateStr) {
+    // Reset if stored date is older than current PT date (handles app restart across midnight PT boundary,
+    // or when _lastResetPTDate is stale/empty from a previous run that didn't cross midnight).
+    if (this._lastResetPTDate < ptDateStr) {
       this._stats.clear()
       this._lastReset = Date.now()
       this._lastResetPTDate = ptDateStr
@@ -371,6 +382,7 @@ class TokenManager {
 
     // Filter candidates
     const candidates = this._tokens.filter(t => {
+      if (this._unauthorizedTokens.has(t.projectId)) return false
       const s = this._stats.get(t.projectId)
       if (!s) return true
       return s.usedToday < MAX_UNITS_PER_TOKEN && s.errors < MAX_ERRORS
@@ -499,6 +511,49 @@ class TokenManager {
     console.log('[TokenManager] Reset all token quotas')
   }
 
+  /** Reset stats for a specific project (keeps the token, only clears usedToday/errors) */
+  resetTokenStats(projectId: string): void {
+    this._stats.delete(projectId)
+    this._saveStats()
+    console.log(`[TokenManager] Reset quota stats for ${projectId}`)
+  }
+
+  /** Mark a token as unauthorized (401 — token revoked or invalid) */
+  markUnauthorized(projectId: string): void {
+    this._unauthorizedTokens.add(projectId)
+    this._saveStats()
+    console.warn(`[TokenManager] Token ${projectId} marked as unauthorized`)
+  }
+
+  /** Mark a token as authorized — clears unauthorized flag */
+  markAuthorized(projectId: string): void {
+    if (this._unauthorizedTokens.has(projectId)) {
+      this._unauthorizedTokens.delete(projectId)
+      this._saveStats()
+      console.log(`[TokenManager] Token ${projectId} authorized`)
+    }
+  }
+
+  /** Test an OAuth token by making a lightweight API call */
+  async testToken(projectId: string): Promise<{ valid: boolean; error?: string; errorType?: string }> {
+    const token = this._tokens.find(t => t.projectId === projectId)
+    if (!token) return { valid: false, error: 'Token not found', errorType: 'not_found' }
+
+    // Try to refresh to verify token is valid
+    const refreshed = await this.refreshToken(token)
+    if (!refreshed) {
+      this.markUnauthorized(projectId)
+      return { valid: false, error: 'Token expired or revoked', errorType: 'unauthorized' }
+    }
+
+    // Update token in memory
+    const idx = this._tokens.findIndex(t => t.projectId === projectId)
+    if (idx !== -1) this._tokens[idx] = refreshed
+    this._saveTokens()
+    this.markAuthorized(projectId)
+    return { valid: true }
+  }
+
   /** Stop background timer — call on app quit */
   dispose(): void {
     if (this._refreshTimer) {
@@ -520,7 +575,8 @@ class TokenManager {
       const quotaPercent = Math.round((usedToday / MAX_UNITS_PER_TOKEN) * 100)
 
       let status: TokenStatus['status'] = 'healthy'
-      if (usedToday >= MAX_UNITS_PER_TOKEN || errors >= MAX_ERRORS) status = 'exhausted'
+      if (this._unauthorizedTokens.has(t.projectId)) status = 'unauthorized'
+      else if (usedToday >= MAX_UNITS_PER_TOKEN || errors >= MAX_ERRORS) status = 'exhausted'
       else if (quotaPercent >= 80) status = 'warning'
       else if (errors > 0) status = 'error'
 

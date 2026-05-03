@@ -40,11 +40,12 @@ export interface PollerStatus {
   videoCount: number // total unique videos seen this session
   newVideoCount: number // total new videos detected this session
   lastError: string | null
+  exhaustedUntil: number | null // timestamp when backoff ends (null = not backing off)
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DEFAULT_POLL_INTERVAL_MS = 20000 // 20 seconds — matches main.ts call and spec target
+const DEFAULT_POLL_INTERVAL_MS = 5000 // 5 seconds — aggressive detection latency for fast pipeline
 const MAX_VIDEOS_PER_POLL = 5
 const MAX_VIDEO_AGE_MS = 10 * 60 * 1000 // 10 minutes — accounts for YouTube processing delay after upload
 const SEEN_IDS_CAP = 10000 // cap to prevent unbounded memory growth
@@ -94,6 +95,7 @@ class YouTubePoller {
   private _pollsSinceLastLog: number = 0
   private _exhaustedBackoffUntil: number = 0 // timestamp when backoff ends
   private _lastExhaustedWarnAt: number = 0   // avoid spamming notifications
+  private _backoffReason: 'oauth' | 'innertube' | 'both' | null = null
 
   constructor(options: PollerOptions) {
     this._pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
@@ -114,6 +116,40 @@ class YouTubePoller {
       videoCount: this._videoCount,
       newVideoCount: this._newVideoCount,
       lastError: this._lastError,
+      exhaustedUntil: this._exhaustedBackoffUntil > Date.now() ? this._exhaustedBackoffUntil : null,
+    }
+  }
+
+  /** Resume polling immediately — clears exhaustion backoff */
+  resume(): void {
+    if (this._exhaustedBackoffUntil > Date.now()) {
+      this._exhaustedBackoffUntil = 0
+      this._backoffReason = null
+      this._lastExhaustedWarnAt = 0
+      console.log('[YouTubePoller] Backoff cleared — resuming polling')
+    }
+  }
+
+  /**
+   * Quick non-consuming check of resource availability.
+   * Used during backoff to detect if user added tokens/sessions mid-session.
+   */
+  private async _checkResources(): Promise<{ hasOAuth: boolean; hasInnertube: boolean }> {
+    try {
+      const { getTokenManager } = await import('./token_manager.js')
+      const tm = getTokenManager()
+      const statuses = tm.getAllStatuses()
+      const hasOAuth = statuses.some(ts => ts.hasToken && ts.status !== 'exhausted')
+
+      const { getSessionManager } = await import('./chrome_cookies.js')
+      const sm = getSessionManager()
+      await sm.ensureInit()
+      const sessions = sm.getSessions()
+      const hasInnertube = sessions.some(s => s.cookies && s.isConsented)
+
+      return { hasOAuth, hasInnertube }
+    } catch {
+      return { hasOAuth: false, hasInnertube: false }
     }
   }
 
@@ -140,12 +176,23 @@ class YouTubePoller {
     this._lastError = null
     this._lastPollAt = Date.now()
 
-    // Backoff: if in exhausted backoff period, skip this poll
     const now = Date.now()
+
+    // Backoff: if in exhausted backoff period, STILL check if resources recovered
+    // (user may have added tokens or initialized Chrome profiles mid-session)
     if (now < this._exhaustedBackoffUntil) {
-      const remaining = Math.ceil((this._exhaustedBackoffUntil - now) / 60000)
+      // Re-check availability every 5 polls (~100s) even during backoff
       if (this._pollsSinceLastLog === 0) {
-        console.log(`[YouTubePoller] All tokens exhausted — backing off (${remaining}m until midnight PT)`)
+        const { hasOAuth, hasInnertube } = await this._checkResources()
+        const remaining = Math.ceil((this._exhaustedBackoffUntil - now) / 60000)
+        if (hasInnertube || hasOAuth) {
+          // Resources recovered — clear backoff immediately
+          this._exhaustedBackoffUntil = 0
+          this._backoffReason = null
+          console.log(`[YouTubePoller] Resources recovered — Innertube: ${hasInnertube ? '✓' : '✗'}, OAuth: ${hasOAuth ? '✓' : '✗'} — resuming polling`)
+        } else {
+          console.log(`[YouTubePoller] Still backed off (${remaining}m until midnight PT) — Innertube: ${hasInnertube ? '✓' : '✗'}, OAuth: ${hasOAuth ? '✓' : '✗'}`)
+        }
       }
       return
     }
@@ -171,10 +218,18 @@ class YouTubePoller {
         }
       }
 
-      // All tokens exhausted — enter backoff mode, notify user once
-      if (subResult.allTokensExhausted) {
-        this._lastError = 'All OAuth tokens exhausted — waiting for midnight PT reset'
-        console.warn(`[YouTubePoller] ALL OAuth tokens exhausted — backing off until midnight PT`)
+      // All detection sources exhausted — enter backoff mode, notify user once
+      if (subResult.allSourcesExhausted) {
+        // Determine which resources are actually exhausted
+        const { hasOAuth, hasInnertube } = await this._checkResources()
+        let reason = 'OAuth tokens exhausted'
+        if (!hasOAuth && !hasInnertube) reason = 'OAuth tokens exhausted AND no Innertube sessions'
+        else if (!hasInnertube) reason = 'OAuth tokens exhausted (Innertube sessions not initialized)'
+        else reason = 'OAuth tokens exhausted'
+
+        this._backoffReason = !hasOAuth ? 'oauth' : (!hasInnertube ? 'innertube' : 'both')
+        this._lastError = reason
+        console.warn(`[YouTubePoller] ${reason}. Add more OAuth tokens or initialize Chrome sessions in Settings.`)
 
         // Calculate backoff: time until next midnight PT
         const utcHour = new Date().getUTCHours()
@@ -258,7 +313,7 @@ class YouTubePoller {
 
   private _scheduleNextPoll(): void {
     if (!this._active) return
-    // ±1s jitter around poll interval (spec: 4s ± jitter)
+    // ±1s jitter around poll interval (scales with interval — keeps relative noise small)
     const jitter = this._pollIntervalMs + (Math.random() * 2000 - 1000)
     const delay = Math.max(1000, jitter) // minimum 1s between polls
     this._pollTimer = setTimeout(async () => {

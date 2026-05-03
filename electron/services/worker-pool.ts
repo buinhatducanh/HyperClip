@@ -2,14 +2,15 @@ import { spawn, ChildProcess } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import { getFfmpegPath, validateFfmpeg } from './ffmpeg-paths.js'
-import { getGPUCapabilities } from './system.js'
+import { getGPUCapabilities, getEffectiveWorkers } from './system.js'
 
 // Cache validation result — check once at startup
 let _ffmpegValidated = false
 
 // ─── Worker Pool ────────────────────────────────────────────────────────────────
 // Manages concurrent FFmpeg processes with queue, cancel, and resource limits.
-// This isolates FFmpeg process management from the main Electron process logic.
+// GPU-aware: worker count scales with hardware tier and available VRAM.
+// RTX 5080 → up to 16 workers (VRAM-dependent), RTX 4080 → 14, RTX 3090 → 14.
 
 interface PoolJob {
   jobId: string
@@ -32,10 +33,14 @@ export interface PoolStatus {
 export class WorkerPool {
   private active: Map<string, ChildProcess> = new Map()
   private queue: PoolJob[] = []
-  private maxWorkers: number
+  private _maxWorkers: number
 
   constructor(maxWorkers = 2) {
-    this.maxWorkers = maxWorkers
+    this._maxWorkers = maxWorkers
+  }
+
+  get maxWorkers(): number {
+    return this._maxWorkers
   }
 
   get status(): PoolStatus {
@@ -46,7 +51,7 @@ export class WorkerPool {
     jobId: string,
     fn: () => Promise<PoolResult>,
   ): Promise<PoolResult> {
-    if (this.active.size < this.maxWorkers) {
+    if (this.active.size < this._maxWorkers) {
       return this._run(jobId, fn)
     }
     return new Promise((resolve) => {
@@ -92,7 +97,7 @@ export class WorkerPool {
   }
 
   private _drain(): void {
-    while (this.queue.length > 0 && this.active.size < this.maxWorkers) {
+    while (this.queue.length > 0 && this.active.size < this._maxWorkers) {
       const job = this.queue.shift()!
       this._run(job.jobId, job.fn).then(job.resolve)
     }
@@ -100,7 +105,7 @@ export class WorkerPool {
 
   // Acquire a slot — returns true if slot available, false if queued
   acquire(jobId: string): boolean {
-    if (this.active.size < this.maxWorkers) {
+    if (this.active.size < this._maxWorkers) {
       return true // caller responsible for releasing
     }
     return false
@@ -120,20 +125,52 @@ export class WorkerPool {
   }
 }
 
-export const renderPool = new WorkerPool(2)
+// Render pool — GPU-aware single-pass worker count.
+// Lazy init to avoid circular dependency (renderPool → ffmpeg-paths → system → ramdisk → renderPool)
+let _renderPool: WorkerPool | null = null
+let _renderPoolWorkers = 0
+
+function getRenderPool(): WorkerPool {
+  if (!_renderPool) {
+    const caps = getGPUCapabilities()
+    // Single-pass: ~50% of chunked workers since each process is heavier
+    // (full filter chain vs per-chunk filter chain)
+    // RTX 5080: 16 → 8 single-pass, RTX 4090: 16 → 8
+    // RTX 4080: 14 → 7, RTX 3090: 14 → 7
+    // Low-tier: 2 → 2
+    const singleWorkers = Math.max(2, Math.ceil(caps.maxChunkWorkers * 0.5))
+    _renderPool = new WorkerPool(singleWorkers)
+    _renderPoolWorkers = singleWorkers
+    console.log(`[WorkerPool] Render pool initialized: ${singleWorkers} workers (GPU: ${caps.gpuName}, encoder: ${caps.encoder})`)
+  }
+  return _renderPool
+}
+
+export const renderPool = {
+  get pool() { return getRenderPool() },
+  get status(): PoolStatus { return getRenderPool().status },
+  get maxWorkers(): number { return _renderPoolWorkers },
+  enqueue: (jobId: string, fn: () => Promise<PoolResult>) => getRenderPool().enqueue(jobId, fn),
+  cancel: (jobId: string) => getRenderPool().cancel(jobId),
+  cancelAll: () => getRenderPool().cancelAll(),
+  acquire: (jobId: string) => getRenderPool().acquire(jobId),
+  track: (jobId: string, proc: ChildProcess) => getRenderPool().track(jobId, proc),
+  release: (jobId: string) => getRenderPool().release(jobId),
+}
 
 // ─── Dedicated Chunk Worker Pool ───────────────────────────────────────────────
 // GPU-tier-sized pool for parallel chunk encoding.
-// Lazy init: avoids circular dependency (worker-pool → system → ramdisk → worker-pool)
-// at module load time. Pool is created on first use.
+// Uses VRAM-aware effective worker count.
+
 let _chunkPool: WorkerPool | null = null
-let _gpuCaps: { tier: string; maxChunkWorkers: number; encoder: string } | null = null
 
 function getChunkPool(): WorkerPool {
   if (!_chunkPool) {
-    _gpuCaps = getGPUCapabilities()
-    _chunkPool = new WorkerPool(_gpuCaps.maxChunkWorkers)
-    console.log(`[GPU] tier=${_gpuCaps.tier} workers=${_gpuCaps.maxChunkWorkers} encoder=${_gpuCaps.encoder}`)
+    const caps = getGPUCapabilities()
+    // Use VRAM-aware effective workers
+    const effective = getEffectiveWorkers()
+    _chunkPool = new WorkerPool(effective)
+    console.log(`[WorkerPool] Chunk pool initialized: ${effective} workers (GPU: ${caps.gpuName}, encoder: ${caps.encoder}, base=${caps.maxChunkWorkers})`)
   }
   return _chunkPool
 }
@@ -153,21 +190,21 @@ export interface FfmpegRunOptions {
   timeoutMs?: number
 }
 
-function quotePath(p: string): string {
-  return '"' + p.replace(/\\/g, '/').replace(/"/g, '""') + '"'
-}
-
-function buildArgs(program: string, args: string[]): string {
-  return [quotePath(program), ...args].join(' ')
+// Normalize paths to forward slashes for cross-platform FFmpeg compatibility.
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, '/')
 }
 
 export async function runFfmpeg(opts: FfmpegRunOptions): Promise<PoolResult> {
   const { jobId, args, outputFile, onProgress, onFps, timeoutMs = 2 * 60 * 60 * 1000 } = opts
 
   return new Promise((resolve) => {
-    const ffmpeg = getFfmpegPath()
-    const cmd = buildArgs(ffmpeg, args)
-    const proc = spawn(cmd, [], { shell: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    const ffmpeg = normalizePath(getFfmpegPath())
+    const normalizedArgs = args.map(a => {
+      if (a.startsWith('"')) return normalizePath(a.slice(1, a.length - 1))
+      return a
+    })
+    const proc = spawn(ffmpeg, normalizedArgs, { shell: false, stdio: ['ignore', 'pipe', 'pipe'] })
 
     // Register with pool for cancellation support
     renderPool.track(jobId, proc)
@@ -178,15 +215,10 @@ export async function runFfmpeg(opts: FfmpegRunOptions): Promise<PoolResult> {
       validateFfmpeg(ffmpeg).catch(e => console.warn('[FFmpeg] Validation warning:', e))
     }
 
-    // Track last N lines of stderr for progress parsing
-    // Using a ring buffer avoids the bug where early banner text matches our regex
     const LINE_BUF_SIZE = 200
     const lineBuf: string[] = []
 
-    const startTime = Date.now()
-
     // Extract total duration from args for progress calculation.
-    // FFmpeg accepts both plain seconds ("300") and HH:MM:SS format.
     let totalSec = 300
     const tIdx = args.indexOf('-t')
     if (tIdx !== -1 && tIdx + 1 < args.length) {
@@ -215,9 +247,7 @@ export async function runFfmpeg(opts: FfmpegRunOptions): Promise<PoolResult> {
         }
       }
 
-      // Only scan the most recent lines — avoids stale matches from version banner
       const recent = lineBuf.slice(-30).join('\n')
-
       const timeMatch = recent.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d+)/)
       const fpsMatch = recent.match(/fps=\s*(\d+)/)
       const speedMatch = recent.match(/speed=\s*([\d.]+)x/)

@@ -17,6 +17,8 @@ interface AppSettingsStore {
   adminPasswordHash?: string
   defaultTrimLimit?: number | 'full'  // minutes for auto-download
   renderedOutputPath?: string  // archive directory for rendered videos
+  /** Auto-download quality cap: '360' | '480' | '720' | '1080'. Defaults to '720'. */
+  autoDownloadQuality?: string
 }
 
 let _settings: AppSettingsStore | null = null

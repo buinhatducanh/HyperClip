@@ -29,6 +29,13 @@ interface KeyStats {
   lastResetAt: number  // timestamp of last manual reset
 }
 
+interface KeyManagerData {
+  keys: APIKey[]
+  unauthorizedKeys: string[]
+  lastReset: number
+  lastResetPTDate: string
+}
+
 export interface KeyStatus {
   key: string
   projectId: string
@@ -38,7 +45,7 @@ export interface KeyStatus {
   quotaPercent: number   // 0-100
   errors: number
   lastUsed: number | null
-  status: 'healthy' | 'warning' | 'error' | 'exhausted'
+  status: 'healthy' | 'warning' | 'error' | 'exhausted' | 'unauthorized'
   lastReset: number | null  // timestamp of last manual reset
   nextReset: number | null   // timestamp of next midnight PT reset
 }
@@ -60,6 +67,7 @@ class KeyManager {
   private _lastReset: number = Date.now()
   private _lastResetPTDate: string = ''  // tracks PT date for midnight-PT reset
   private _initialized: boolean = false
+  private _unauthorizedKeys: Set<string> = new Set()
 
   constructor() {
     this._load()
@@ -80,6 +88,7 @@ class KeyManager {
       if (fs.existsSync(KEYS_FILE)) {
         const data = JSON.parse(fs.readFileSync(KEYS_FILE, 'utf-8'))
         this._keys = (data.keys || []).filter((k: APIKey) => k.key && k.key !== 'YOUR_API_KEY_01')
+        this._unauthorizedKeys = new Set(data.unauthorizedKeys || [])
       }
     } catch (e) {
       console.warn('[KeyManager] Failed to load keys:', e)
@@ -90,6 +99,9 @@ class KeyManager {
       console.warn('[KeyManager] Run HyperClip with a valid api_keys.json in AppData/Roaming/HyperClip/')
     } else {
       console.log(`[KeyManager] Loaded ${this._keys.length} keys, smart rotation active`)
+      if (this._unauthorizedKeys.size > 0) {
+        console.warn(`[KeyManager] ${this._unauthorizedKeys.size} key(s) marked as unauthorized`)
+      }
     }
   }
 
@@ -107,7 +119,10 @@ class KeyManager {
   private _persist(): void {
     this._ensureDir()
     try {
-      fs.writeFileSync(KEYS_FILE, JSON.stringify({ keys: this._keys }, null, 2), 'utf-8')
+      fs.writeFileSync(KEYS_FILE, JSON.stringify({
+        keys: this._keys,
+        unauthorizedKeys: [...this._unauthorizedKeys],
+      }, null, 2), 'utf-8')
     } catch (e) {
       console.error('[KeyManager] Failed to persist keys:', e)
     }
@@ -179,6 +194,7 @@ class KeyManager {
     }
 
     const candidates = this._keys.filter(k => {
+      if (this._unauthorizedKeys.has(k.key)) return false
       const s = this._stats.get(k.key)
       if (!s) return true
       return s.usedToday < MAX_UNITS_PER_KEY && s.errors < MAX_ERRORS
@@ -286,6 +302,27 @@ class KeyManager {
     return { success: true, nextReset: this._getNextResetTime() }
   }
 
+  /** Mark a key as unauthorized (failed validation) */
+  markUnauthorized(key: string): void {
+    this._unauthorizedKeys.add(key)
+    this._persist()
+    console.warn(`[KeyManager] Key ${key.slice(0, 12)}... marked as unauthorized`)
+  }
+
+  /** Mark a key as authorized (passed validation) — clears unauthorized flag */
+  markAuthorized(key: string): void {
+    if (this._unauthorizedKeys.has(key)) {
+      this._unauthorizedKeys.delete(key)
+      this._persist()
+      console.log(`[KeyManager] Key ${key.slice(0, 12)}... authorized`)
+    }
+  }
+
+  /** Get unauthorized keys count */
+  getUnauthorizedCount(): number {
+    return this._unauthorizedKeys.size
+  }
+
   /** Compute timestamp of next midnight PT reset */
   _getNextResetTime(): number {
     const now = new Date()
@@ -319,7 +356,8 @@ class KeyManager {
       const quotaPercent = Math.round((usedToday / MAX_UNITS_PER_KEY) * 100)
 
       let status: KeyStatus['status'] = 'healthy'
-      if (usedToday >= MAX_UNITS_PER_KEY || errors >= MAX_ERRORS) status = 'exhausted'
+      if (this._unauthorizedKeys.has(k.key)) status = 'unauthorized'
+      else if (usedToday >= MAX_UNITS_PER_KEY || errors >= MAX_ERRORS) status = 'exhausted'
       else if (quotaPercent >= 80) status = 'warning'
       else if (errors > 0) status = 'error'
 
@@ -358,6 +396,54 @@ class KeyManager {
   /** Get usedToday for a specific key (for quota guard checks) */
   getUsedToday(key: string): number {
     return this._stats.get(key)?.usedToday ?? 0
+  }
+
+  /**
+   * Test a key by making a lightweight API call.
+   * Returns result indicating: unauthorized (401), quota_exhausted (403), invalid_key, or ok.
+   */
+  async testKey(key: string): Promise<{ valid: boolean; error?: string; errorType?: 'unauthorized' | 'quota_exhausted' | 'invalid_key' | 'network_error' }> {
+    const https = await import('https')
+    const url = new URL('https://www.googleapis.com/youtube/v3/channels')
+    url.searchParams.set('part', 'id')
+    url.searchParams.set('id', 'UC_l1KzR9ghnLFm47W6a_BUA') // HyperClip official channel — stable ID
+    url.searchParams.set('key', key)
+
+    return new Promise((resolve) => {
+      const req = https.get(url.toString(), { timeout: 10000 }, (res: any) => {
+        let data = ''
+        res.on('data', (c: string) => { data += c })
+        res.on('end', () => {
+          if (res.statusCode === 401) {
+            resolve({ valid: false, error: 'Unauthorized — key is invalid or has been revoked', errorType: 'unauthorized' })
+          } else if (res.statusCode === 403) {
+            try {
+              const json = JSON.parse(data)
+              if (json?.error?.errors?.[0]?.reason === 'quotaExceeded') {
+                resolve({ valid: false, error: 'Quota exceeded', errorType: 'quota_exhausted' })
+              } else {
+                resolve({ valid: false, error: 'Forbidden — check key permissions', errorType: 'quota_exhausted' })
+              }
+            } catch {
+              resolve({ valid: false, error: 'Forbidden (403)', errorType: 'quota_exhausted' })
+            }
+          } else if (res.statusCode === 400) {
+            resolve({ valid: false, error: 'Invalid API key format', errorType: 'invalid_key' })
+          } else if (res.statusCode === 200) {
+            resolve({ valid: true })
+          } else {
+            resolve({ valid: false, error: `Unexpected status: ${res.statusCode}`, errorType: 'invalid_key' })
+          }
+        })
+      })
+      req.on('error', (e: Error) => {
+        resolve({ valid: false, error: e.message, errorType: 'network_error' })
+      })
+      req.on('timeout', () => {
+        req.destroy()
+        resolve({ valid: false, error: 'Request timed out', errorType: 'network_error' })
+      })
+    })
   }
 }
 

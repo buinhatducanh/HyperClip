@@ -90,6 +90,7 @@ export default function DashboardPage() {
   const lastRenderCodec = useRef<string>('hevc')
   const router = useRouter()
   const [renderQueueExpanded, setRenderQueueExpanded] = useState(false)
+  const [keyHealth, setKeyHealth] = useState<{ exhausted: number; unauthorized: number }>({ exhausted: 0, unauthorized: 0 })
 
   // Fetch auth status on mount + listen for updates
   useEffect(() => {
@@ -102,6 +103,20 @@ export default function DashboardPage() {
     })
     return () => { cleanupAuth(); cleanupCritical() }
   }, [showToast, addNotification, router])
+
+  // Poll key health every 30s
+  useEffect(() => {
+    const loadKeyHealth = () => {
+      ipc.getKeys().then((keys: any) => {
+        const exhausted = keys.filter((k: any) => k.status === 'exhausted').length
+        const unauthorized = keys.filter((k: any) => k.status === 'unauthorized').length
+        setKeyHealth({ exhausted, unauthorized })
+      }).catch(() => {})
+    }
+    loadKeyHealth()
+    const t = setInterval(loadKeyHealth, 30000)
+    return () => clearInterval(t)
+  }, [])
 
   // Quota exceeded notification
   useEffect(() => {
@@ -487,6 +502,7 @@ export default function DashboardPage() {
         authStatus={authStatus}
         pollerStatus={pollerStatus}
         onLogout={handleLogout}
+        keyHealth={keyHealth}
       />
 
       {/* Main: workspace queue + editor */}

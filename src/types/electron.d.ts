@@ -67,6 +67,11 @@ export interface ElectronAPI {
   addKey: (key: string, projectId: string, name: string) => Promise<{ success: boolean; keys: unknown[] }>
   removeKey: (key: string) => Promise<{ success: boolean; keys: unknown[] }>
   resetKey: (key?: string) => Promise<{ success: boolean; keys: unknown[]; nextReset: number }>
+  testKey: (key: string) => Promise<{ valid: boolean; error?: string; errorType?: string }>
+  testAllKeys: () => Promise<{
+    results: Array<{ key: string; name: string; valid: boolean; error?: string; errorType?: string }>
+    keys: unknown[]
+  }>
   adminCheckPassword: (password: string) => Promise<{ ok: boolean }>
   adminSetPassword: (password: string) => Promise<{ success: boolean }>
   adminHasPassword: () => Promise<{ has: boolean }>
@@ -74,13 +79,16 @@ export interface ElectronAPI {
     active: boolean; pollIntervalMs: number; lastPollAt: number | null
     lastNewVideosAt: number | null; cookiesReady: boolean
     videoCount: number; newVideoCount: number; lastError: string | null
+    exhaustedUntil: number | null
   } | null>
+  resumePoller: () => Promise<{ success: boolean }>
   // Project management
   getProjects: () => Promise<unknown[]>
   addProject: (data: { projectId: string; clientId: string; clientSecret: string; apiKey: string; apiKeyName?: string }) => Promise<{ success: boolean; projectId: string; error?: string }>
   removeProject: (projectId: string) => Promise<{ success: boolean }>
   resetProjectQuota: (projectId: string) => Promise<{ success: boolean }>
   reauthorizeProject: (projectId: string) => Promise<{ success: boolean; error?: string }>
+  testToken: (projectId: string) => Promise<{ valid: boolean; error?: string; errorType?: string }>
   // Chrome session management (Innertube API)
   getSessionStatus: () => Promise<unknown>
   refreshAllSessions: () => Promise<{ success: boolean; refreshedCount: number }>

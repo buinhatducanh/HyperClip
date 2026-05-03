@@ -17,7 +17,7 @@ interface Project {
   usedToday: number
   quotaTotal: number
   errors: number
-  status: string
+  status: 'healthy' | 'warning' | 'error' | 'exhausted' | 'unauthorized' | 'no_oauth'
   apiKey: string | null
   apiKeyName: string | null
   apiKeyUsed: number
@@ -33,9 +33,11 @@ interface ApiKeyStatus {
   quotaPercent: number
   errors: number
   lastUsed: number | null
-  status: 'healthy' | 'warning' | 'error' | 'exhausted'
+  status: 'healthy' | 'warning' | 'error' | 'exhausted' | 'unauthorized'
   lastReset: number | null
   nextReset: number | null
+  /** Populated by Settings UI — not from backend */
+  isActive?: boolean
 }
 
 interface ChromeSession {
@@ -248,7 +250,7 @@ function AddProjectForm({ onClose, onAdded }: { onClose: () => void; onAdded: ()
 
 // ─── Project Card ───────────────────────────────────────────────────────────────
 
-function ProjectCard({ project, onRefresh }: { project: Project; onRefresh: () => void; key?: string }) {
+function ProjectCard({ project, onRefresh, onReset }: { project: Project; onRefresh: () => void; onReset?: () => void; key?: string }) {
   const { showToast } = useAppStore()
   const [showRemove, setShowRemove] = useState(false)
 
@@ -257,22 +259,31 @@ function ProjectCard({ project, onRefresh }: { project: Project; onRefresh: () =
     warning: '#FFB800',
     error: '#FF6644',
     exhausted: '#FF4444',
-    unauthorized: '#444',
-    no_oauth: '#FF6644',
+    unauthorized: '#FF6644',
+    no_oauth: '#FFB800',
   }
 
   const sc = statusColor[project.status] || '#444'
+  const oauthPct = project.quotaTotal > 0 ? Math.round((project.usedToday / project.quotaTotal) * 100) : 0
+
+  // Show exhausted/warning on OAuth card even when hasToken=true
+  const oauthLabel = (() => {
+    if (project.status === 'exhausted') return '⚠ Quá tải quota'
+    if (project.status === 'unauthorized') return '✗ Token không hợp lệ'
+    if (project.status === 'no_oauth') return '✗ Chưa authorize'
+    if (project.status === 'warning') return `⚠ ${oauthPct}% quota`
+    if (project.hasToken) return `✓ Authorized`
+    return '✗ Chưa authorize'
+  })()
+
+  const oauthColor = (() => {
+    if (project.status === 'exhausted' || project.status === 'unauthorized') return '#FF6644'
+    if (project.status === 'warning') return '#FFB800'
+    if (project.hasToken) return '#00FF88'
+    return '#FF6644'
+  })()
+
   const apiSc = statusColor[project.apiKeyStatus] || '#444'
-
-  const totalUsed = project.usedToday + project.apiKeyUsed
-  const totalQuota = project.quotaTotal * 2
-  const totalPct = totalQuota > 0 ? Math.round((totalUsed / totalQuota) * 100) : 0
-
-  const handleReset = async () => {
-    await ipc.resetProjectQuota(project.projectId)
-    showToast(`Quota ${project.projectId} đã reset`)
-    onRefresh()
-  }
 
   const handleRemove = async () => {
     await ipc.removeProject(project.projectId)
@@ -294,28 +305,50 @@ function ProjectCard({ project, onRefresh }: { project: Project; onRefresh: () =
     }
   }
 
+  const handleTest = async () => {
+    showToast('Đang kiểm tra token...')
+    const result = await ipc.testToken(project.projectId)
+    if (result.valid) {
+      showToast(`Token ${project.projectId} hợp lệ ✓`)
+    } else {
+      showToast(`Token lỗi: ${result.error}`)
+    }
+    onRefresh()
+  }
+
   return (
     <div style={{
-      background: '#0d0d0d', border: '1px solid #1a1a1a',
+      background: project.status === 'exhausted' ? '#1a0808' : '#0d0d0d',
+      border: `1px solid ${project.status === 'exhausted' ? '#FF444444' : project.status === 'no_oauth' ? '#FFB80022' : '#1a1a1a'}`,
       borderRadius: 6, padding: '14px', marginBottom: 10,
+      transition: 'border-color 0.3s, background 0.3s',
     }}>
       {/* Header row */}
-      <div className="flex justify-between items-center" style={{ marginBottom: 12 }}>
+      <div className="flex justify-between items-center" style={{ marginBottom: 10 }}>
         <div className="flex items-center gap-2">
           <div style={{
             width: 8, height: 8, borderRadius: '50%', background: sc,
             boxShadow: `0 0 4px ${sc}66`,
           }} />
           <span style={{ fontSize: 11, fontWeight: 700, color: '#ccc' }}>{project.projectId}</span>
+          {project.status !== 'healthy' && (
+            <div style={{
+              padding: '1px 6px', borderRadius: 3, border: `1px solid ${sc}44`,
+              background: sc + '14',
+              fontSize: 8, fontWeight: 700, color: sc, letterSpacing: '0.06em',
+            }}>
+              {project.status.toUpperCase()}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <span style={{ fontSize: 8, color: '#333', fontFamily: 'monospace' }}>
-            {(totalUsed / 1000).toFixed(1)}k / {(totalQuota / 1000).toFixed(0)}k
+            {(project.usedToday / 1000).toFixed(1)}k / {(project.quotaTotal / 1000).toFixed(0)}k
           </span>
           <div style={{ width: 60, height: 3, background: '#1a1a1a', borderRadius: 1 }}>
             <div style={{
-              width: `${Math.min(totalPct, 100)}%`, height: '100%',
-              background: totalPct > 80 ? '#FFB800' : '#00FF88', borderRadius: 1,
+              width: `${Math.min(oauthPct, 100)}%`, height: '100%',
+              background: oauthPct > 80 ? '#FFB800' : '#00FF88', borderRadius: 1,
               transition: 'width 0.8s ease',
             }} />
           </div>
@@ -325,25 +358,28 @@ function ProjectCard({ project, onRefresh }: { project: Project; onRefresh: () =
       {/* OAuth + API Key rows */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
         {/* OAuth */}
-        <div style={{ flex: 1, background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 4, padding: '8px 10px' }}>
+        <div style={{ flex: 1, background: '#0a0a0a', border: `1px solid ${oauthColor}22`, borderRadius: 4, padding: '8px 10px' }}>
           <div style={{ fontSize: 8, color: '#555', letterSpacing: '0.05em', fontWeight: 700, marginBottom: 4 }}>OAUTH</div>
-          {project.hasToken ? (
-            <div style={{ fontSize: 10, color: '#00FF88' }}>
-              ✓ Authorized
-              {project.tokenExpiry && <div style={{ fontSize: 8, color: '#444', marginTop: 2 }}>expires {new Date(project.tokenExpiry).toLocaleTimeString()}</div>}
-            </div>
-          ) : (
-            <div style={{ fontSize: 10, color: '#FF6644' }}>✗ Chưa authorize</div>
+          <div style={{ fontSize: 10, color: oauthColor }}>
+            {oauthLabel}
+            {project.tokenExpiry && project.status !== 'exhausted' && (
+              <div style={{ fontSize: 8, color: '#444', marginTop: 2 }}>expires {new Date(project.tokenExpiry).toLocaleTimeString()}</div>
+            )}
+          </div>
+          {project.status === 'exhausted' && (
+            <div style={{ fontSize: 8, color: '#FF444466', marginTop: 2 }}>auto-reset midnight PT</div>
           )}
         </div>
         {/* API Key */}
-        <div style={{ flex: 1, background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 4, padding: '8px 10px' }}>
+        <div style={{ flex: 1, background: '#0a0a0a', border: `1px solid ${apiSc}22`, borderRadius: 4, padding: '8px 10px' }}>
           <div style={{ fontSize: 8, color: '#555', letterSpacing: '0.05em', fontWeight: 700, marginBottom: 4 }}>API KEY</div>
           {project.apiKey ? (
             <div style={{ fontSize: 10, color: apiSc }}>
               {project.apiKey.slice(0, 10)}…
               <div style={{ fontSize: 8, color: '#444', marginTop: 2 }}>
                 {project.apiKeyName || project.projectId} · {(project.apiKeyUsed / 1000).toFixed(1)}k
+                {project.apiKeyStatus === 'exhausted' && <span style={{ color: '#FF4444' }}> ⚠ exhausted</span>}
+                {project.apiKeyStatus === 'unauthorized' && <span style={{ color: '#FF6644' }}> ✗ unauthorized</span>}
               </div>
             </div>
           ) : (
@@ -354,7 +390,7 @@ function ProjectCard({ project, onRefresh }: { project: Project; onRefresh: () =
 
       {/* Actions */}
       <div className="flex gap-1">
-        {!project.hasToken && (
+        {(project.status === 'no_oauth' || !project.hasToken) && (
           <button
             onClick={handleAuthorize}
             style={{
@@ -366,16 +402,33 @@ function ProjectCard({ project, onRefresh }: { project: Project; onRefresh: () =
             AUTHORIZE
           </button>
         )}
-        <button
-          onClick={handleReset}
-          style={{
-            height: 26, paddingLeft: 10, paddingRight: 10,
-            background: 'transparent', border: '1px solid #2a2a2a', borderRadius: 3,
-            fontSize: 9, color: '#555', cursor: 'pointer',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.color = '#888'; e.currentTarget.style.borderColor = '#444' }}
-          onMouseLeave={e => { e.currentTarget.style.color = '#555'; e.currentTarget.style.borderColor = '#2a2a2a' }}
-        >↺ Reset</button>
+        {(project.status === 'exhausted' || project.status === 'warning') && (
+          <button
+            onClick={() => { onReset?.(); onRefresh() }}
+            style={{
+              flex: 1, height: 26, background: '#FFB80022',
+              border: '1px solid #FFB80044', borderRadius: 3,
+              fontSize: 9, fontWeight: 600, color: '#FFB800', cursor: 'pointer',
+            }}
+          >
+            ↺ RESET QUOTA
+          </button>
+        )}
+        {project.hasToken && (
+          <button
+            onClick={handleTest}
+            style={{
+              flex: 1, height: 26, background: 'transparent',
+              border: '1px solid #00B4FF33', borderRadius: 3,
+              fontSize: 9, fontWeight: 600, color: '#00B4FF88', cursor: 'pointer',
+              opacity: project.status === 'exhausted' ? 1 : 0.7,
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#00B4FF15' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+          >
+            TEST
+          </button>
+        )}
         <button
           onClick={() => setShowRemove(true)}
           style={{
@@ -585,19 +638,22 @@ function QuotaBar({ used, total }: { used: number; total: number }) {
 
 // ─── Key Card ───────────────────────────────────────────────────────────────────
 
-function KeyCard({ k, events, onRemove, onReset }: {
+function KeyCard({ k, events, onRemove, onReset, onTest, isActive }: {
   k: ApiKeyStatus
   events: number[]
   onRemove: (key: string) => void
   onReset: (key: string) => void
+  onTest: (key: string) => void
+  isActive?: boolean
 }) {
   const [resetting, setResetting] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false)
 
-  const sc: Record<string, string> = { healthy: '#00FF88', warning: '#FFB800', error: '#FF6644', exhausted: '#FF4444' }
+  const sc: Record<string, string> = { healthy: '#00FF88', warning: '#FFB800', error: '#FF6644', exhausted: '#FF4444', unauthorized: '#FF6644' }
   const color = sc[k.status] || '#444'
   const pct = k.quotaPercent
+  const remaining = Math.max(0, k.quotaTotal - k.usedToday)
 
   const handleReset = async () => {
     setResetting(true)
@@ -611,28 +667,43 @@ function KeyCard({ k, events, onRemove, onReset }: {
   }
 
   const wasJustReset = k.lastReset && (Date.now() - k.lastReset) < 5000
-  const estimatedCalls = Math.round(k.usedToday / 1.5)
 
   return (
     <div style={{
-      background: wasJustReset ? '#00FF8808' : '#0D0D0D',
-      border: `1px solid ${wasJustReset ? '#00FF8833' : '#181818'}`,
+      background: wasJustReset ? '#00FF8808' : k.status === 'exhausted' ? '#1a0808' : k.status === 'unauthorized' ? '#1a0a08' : '#0D0D0D',
+      border: `1px solid ${wasJustReset ? '#00FF8833' : isActive ? '#00B4FF44' : k.status === 'exhausted' ? '#FF444444' : '#181818'}`,
       borderRadius: 8, padding: '14px',
       transition: 'border-color 0.5s, background 0.5s',
       display: 'flex', flexDirection: 'column', gap: 10,
     }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-        <div style={{
-          width: 10, height: 10, borderRadius: '50%', background: color,
-          flexShrink: 0, marginTop: 4,
-          boxShadow: `0 0 8px ${color}66`,
-        }} />
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+          <div style={{
+            width: 10, height: 10, borderRadius: '50%', background: color,
+            boxShadow: `0 0 8px ${color}66`,
+          }} />
+          {isActive && (
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%', background: '#00B4FF',
+              boxShadow: '0 0 4px #00B4FF',
+              animation: 'pulse 2s infinite',
+            }} />
+          )}
+        </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{
             fontSize: 13, fontWeight: 700, color: '#ccc',
             fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>{k.name}</div>
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            {k.name}
+            {isActive && (
+              <span style={{ fontSize: 8, fontWeight: 700, color: '#00B4FF', background: '#00B4FF14', border: '1px solid #00B4FF44', borderRadius: 2, padding: '1px 4px', letterSpacing: '0.06em', flexShrink: 0 }}>
+                ACTIVE
+              </span>
+            )}
+          </div>
           <div style={{ fontSize: 8, color: '#3A3A3A', fontFamily: 'monospace', marginTop: 2 }}>
             {k.projectId} · {k.key.slice(0, 12)}…
           </div>
@@ -647,28 +718,49 @@ function KeyCard({ k, events, onRemove, onReset }: {
         </div>
       </div>
 
-      {/* Quota progress */}
-      <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-          <span style={{ fontSize: 8, color: '#444', fontFamily: 'monospace' }}>
-            {k.usedToday.toLocaleString()} / {k.quotaTotal.toLocaleString()} units
-            <span style={{ color: '#222', marginLeft: 6 }}>≈{estimatedCalls} calls</span>
-          </span>
-          <span style={{ fontSize: 11, fontWeight: 800, color, fontFamily: 'monospace' }}>
-            {pct}%
-          </span>
+      {/* Per-key quota — large prominent display */}
+      <div style={{
+        background: '#0a0a0a', border: '1px solid #141414',
+        borderRadius: 6, padding: '10px 12px',
+      }}>
+        {/* Main quota bar */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+            <span style={{ fontSize: 18, fontWeight: 800, color: color, fontFamily: 'monospace' }}>
+              {remaining.toLocaleString()}
+            </span>
+            <span style={{ fontSize: 9, color: '#555' }}>remaining</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+            <span style={{ fontSize: 9, color: '#444', fontFamily: 'monospace' }}>
+              {k.usedToday.toLocaleString()} used
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 700, color, fontFamily: 'monospace' }}>
+              {pct}%
+            </span>
+          </div>
         </div>
+        {/* Progress bar */}
         <div style={{
-          height: 10, background: '#141414', borderRadius: 3, overflow: 'hidden',
+          height: 14, background: '#141414', borderRadius: 3, overflow: 'hidden',
           position: 'relative',
         }}>
           <div style={{
             width: `${pct}%`, height: '100%', background: color,
             borderRadius: 3, transition: 'width 0.5s',
-            boxShadow: `0 0 6px ${color}44`,
+            boxShadow: `0 0 8px ${color}44`,
           }} />
           <div style={{ position: 'absolute', top: 0, left: '75%', width: 1, height: '100%', background: '#2a2a2a' }} />
-          <div style={{ position: 'absolute', top: 0, left: '90%', width: 1, height: '100%', background: '#333' }} />
+          <div style={{ position: 'absolute', top: 0, left: '90%', width: 1, height: '100%', background: '#444' }} />
+        </div>
+        {/* Sub info */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+          <span style={{ fontSize: 8, color: '#2a2a2a', fontFamily: 'monospace' }}>
+            0 <span style={{ color: '#333' }}>|</span> {Math.round(9500 * 0.75).toLocaleString()} <span style={{ color: '#333' }}>|</span> {(9500 * 0.9).toLocaleString()} <span style={{ color: '#333' }}>|</span> 9,500
+          </span>
+          <span style={{ fontSize: 8, color: '#333', fontFamily: 'monospace' }}>
+            10,000 units/day
+          </span>
         </div>
       </div>
 
@@ -705,7 +797,7 @@ function KeyCard({ k, events, onRemove, onReset }: {
             onClick={handleReset}
             disabled={resetting}
             style={{
-              flex: 1, height: 28,
+              height: 28, paddingLeft: 10, paddingRight: 10,
               background: resetting ? '#00FF8820' : 'transparent',
               border: `1px solid ${resetting ? '#00FF88' : '#00FF8844'}`,
               borderRadius: 4, fontSize: 9, fontWeight: 700, color: '#00FF88',
@@ -715,12 +807,27 @@ function KeyCard({ k, events, onRemove, onReset }: {
             onMouseEnter={e => { if (!resetting) { e.currentTarget.style.background = '#00FF8820' } }}
             onMouseLeave={e => { if (!resetting) { e.currentTarget.style.background = 'transparent' } }}
           >
-            {resetting ? '✓ RESET' : '↺ RESET QUOTA'}
+            {resetting ? '✓' : '↺'}
+          </button>
+          <button
+            onClick={() => onTest(k.key)}
+            style={{
+              flex: 1, height: 28,
+              background: 'transparent',
+              border: '1px solid #00B4FF44',
+              borderRadius: 4, fontSize: 9, fontWeight: 700, color: '#00B4FF',
+              cursor: 'pointer', opacity: k.status === 'unauthorized' ? 1 : 0.7,
+              transition: 'all 0.2s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#00B4FF22' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+          >
+            {k.status === 'unauthorized' ? '⚠ TEST / AUTHORIZE' : 'TEST'}
           </button>
           <button
             onClick={() => setShowRemoveConfirm(true)}
             style={{
-              height: 28, width: 80,
+              height: 28, width: 70,
               background: 'transparent',
               border: '1px solid #FF444444',
               borderRadius: 4, fontSize: 9, fontWeight: 700, color: '#FF444466',
@@ -730,7 +837,7 @@ function KeyCard({ k, events, onRemove, onReset }: {
             onMouseEnter={e => { e.currentTarget.style.color = '#FF4444'; e.currentTarget.style.opacity = '1'; e.currentTarget.style.borderColor = '#FF4444' }}
             onMouseLeave={e => { e.currentTarget.style.color = '#FF444466'; e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.borderColor = '#FF444444' }}
           >
-            ✕ XÓA
+            ✕
           </button>
         </div>
       ) : (
@@ -771,9 +878,13 @@ function AddKeyForm({ onClose, onAdded }: { onClose: () => void; onAdded: () => 
     if (!newKey.startsWith('AIza')) { setAddError('Invalid YouTube API Key format (must start with AIza)'); return }
     setAdding(true)
     try {
-      await ipc.addKey(newKey.trim(), newProjectId.trim() || 'proj-01', newKeyName.trim() || 'Default')
-      showToast(`Key "${newKeyName || newKey.slice(0, 12)}..." đã thêm`)
-      onAdded()
+      const result = await ipc.addKey(newKey.trim(), newProjectId.trim() || 'proj-01', newKeyName.trim() || 'Default')
+      if (result.success) {
+        showToast(`Key "${newKeyName || newKey.slice(0, 12)}..." đã thêm và validated`)
+        onAdded()
+      } else {
+        setAddError(result.error || 'Key không hợp lệ')
+      }
     } catch (e: any) { setAddError(e.message) }
     finally { setAdding(false) }
   }
@@ -822,7 +933,8 @@ function ApiKeysSection() {
   const [keys, setKeys] = useState<ApiKeyStatus[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
-  const [filter, setFilter] = useState<'all' | 'healthy' | 'warning' | 'exhausted'>('all')
+  const [filter, setFilter] = useState<'all' | 'healthy' | 'warning' | 'exhausted' | 'unauthorized'>('all')
+  const [testingAll, setTestingAll] = useState(false)
   // Track hourly events per key: record timestamp each poll where usedToday increased
   const [hourlyEvents, setHourlyEvents] = useState<Record<string, number[]>>({})
   const [prevUsedToday, setPrevUsedToday] = useState<Record<string, number>>({})
@@ -883,10 +995,41 @@ function ApiKeysSection() {
     showToast('Key đã xóa')
   }
 
+  const handleTest = async (key: string) => {
+    showToast('Đang kiểm tra key...')
+    const result = await ipc.testKey(key)
+    if (result.valid) {
+      showToast(`Key hợp lệ ✓`)
+    } else {
+      const msg = result.errorType === 'unauthorized'
+        ? `Key không hợp lệ: ${result.error}`
+        : result.errorType === 'quota_exhausted'
+          ? `Key hết quota: ${result.error}`
+          : `Lỗi: ${result.error}`
+      showToast(msg)
+    }
+    load()
+  }
+
   const handleResetAll = async () => {
     await ipc.resetKey()
+    await ipc.resumePoller()
     load()
-    showToast('Đã reset tất cả quotas!')
+    showToast('Đã reset tất cả quotas! Poller tiếp tục.')
+  }
+
+  const handleTestAll = async () => {
+    setTestingAll(true)
+    const result = await ipc.testAllKeys()
+    const validCount = result.results.filter(r => r.valid).length
+    const invalidCount = result.results.length - validCount
+    if (invalidCount > 0) {
+      showToast(`Đã test ${result.results.length} keys: ${validCount} OK, ${invalidCount} có vấn đề`)
+    } else {
+      showToast(`Tất cả ${validCount} keys đều hợp lệ ✓`)
+    }
+    load()
+    setTestingAll(false)
   }
 
   // Summary stats
@@ -894,6 +1037,7 @@ function ApiKeysSection() {
   const healthyKeys = keys.filter(k => k.status === 'healthy').length
   const warningKeys = keys.filter(k => k.status === 'warning').length
   const exhaustedKeys = keys.filter(k => k.status === 'exhausted').length
+  const unauthorizedKeys = keys.filter(k => k.status === 'unauthorized').length
   const totalUsed = keys.reduce((s, k) => s + k.usedToday, 0)
   const totalQuota = keys.length * 9500
   const overallPct = totalQuota > 0 ? Math.round((totalUsed / totalQuota) * 100) : 0
@@ -909,16 +1053,22 @@ function ApiKeysSection() {
     })
   })()
 
+  // Find the most recently used key (active key)
+  const mostRecentTs = Math.max(...dedupedKeys.map(k => k.lastUsed || 0), 0)
+  const isKeyActive = (ts: number | null) => ts && mostRecentTs > 0 && (mostRecentTs - ts) < 30000
+
   const filteredKeys = filter === 'all' ? dedupedKeys
     : filter === 'healthy' ? dedupedKeys.filter(k => k.status === 'healthy')
     : filter === 'warning' ? dedupedKeys.filter(k => k.status === 'warning')
-    : dedupedKeys.filter(k => k.status === 'exhausted')
+    : filter === 'exhausted' ? dedupedKeys.filter(k => k.status === 'exhausted')
+    : dedupedKeys.filter(k => k.status === 'unauthorized')
 
   const filterCounts = {
     all: dedupedKeys.length,
     healthy: dedupedKeys.filter(k => k.status === 'healthy').length,
     warning: dedupedKeys.filter(k => k.status === 'warning').length,
     exhausted: dedupedKeys.filter(k => k.status === 'exhausted').length,
+    unauthorized: dedupedKeys.filter(k => k.status === 'unauthorized').length,
   }
 
   const now = new Date()
@@ -940,6 +1090,23 @@ function ApiKeysSection() {
           {loading && <span style={{ fontSize: 8, color: '#00B4FF44' }}>● polling...</span>}
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <button
+            onClick={handleTestAll}
+            disabled={testingAll}
+            style={{
+              height: 26, paddingLeft: 10, paddingRight: 10,
+              background: testingAll ? '#00B4FF14' : 'transparent',
+              border: '1px solid #00B4FF44', borderRadius: 4,
+              fontSize: 8, fontWeight: 700, color: testingAll ? '#00B4FF88' : '#00B4FF',
+              cursor: testingAll ? 'not-allowed' : 'pointer', letterSpacing: '0.06em',
+              transition: 'all 0.15s',
+              opacity: testingAll ? 0.7 : 1,
+            }}
+            onMouseEnter={e => { if (!testingAll) { e.currentTarget.style.background = '#00B4FF22' } }}
+            onMouseLeave={e => { if (!testingAll) { e.currentTarget.style.background = 'transparent' } }}
+          >
+            {testingAll ? '... TESTING' : '⚡ TEST ALL'}
+          </button>
           <button
             onClick={handleResetAll}
             style={{
@@ -975,6 +1142,41 @@ function ApiKeysSection() {
         </div>
       )}
 
+            {/* Exhausted / Unauthorized alert banner */}
+      {(exhaustedKeys > 0 || unauthorizedKeys > 0) && (
+        <div style={{
+          padding: '10px 20px',
+          background: '#1a0808',
+          borderBottom: '1px solid #2a1010',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 12,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FF4444', flexShrink: 0, boxShadow: '0 0 6px #FF444488' }} />
+            <span style={{ fontSize: 10, color: '#FF6644', fontWeight: 700 }}>
+              {exhaustedKeys > 0 && `${exhaustedKeys} key${exhaustedKeys > 1 ? 's' : ''} quá tải quota`}
+              {exhaustedKeys > 0 && unauthorizedKeys > 0 && ' · '}
+              {unauthorizedKeys > 0 && `${unauthorizedKeys} key${unauthorizedKeys > 1 ? 's' : ''} không hợp lệ`}
+            </span>
+            <span style={{ fontSize: 9, color: '#FF444466' }}>— auto-reset midnight PT</span>
+          </div>
+          <button
+            onClick={() => setFilter(exhaustedKeys > 0 ? 'exhausted' : 'unauthorized')}
+            style={{
+              height: 22, paddingLeft: 8, paddingRight: 8,
+              background: '#FF444422', border: '1px solid #FF444444',
+              borderRadius: 3, cursor: 'pointer',
+              fontSize: 9, fontWeight: 700, color: '#FF6644',
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#FF444433' }}
+            onMouseLeave={e => { e.currentTarget.style.background = '#FF444422' }}
+          >
+            XEM →
+          </button>
+        </div>
+      )}
+
       {/* Stats row */}
       <div style={{ display: 'flex', gap: 8, padding: '12px 20px', borderBottom: '1px solid #141414', background: '#0C0C0C' }}>
         <StatCard
@@ -1006,6 +1208,13 @@ function ApiKeysSection() {
           icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: exhaustedKeys > 0 ? '#FF4444' : '#2a2a2a' }} />}
         />
         <StatCard
+          label="UNAUTHORIZED"
+          value={String(unauthorizedKeys)}
+          sub="invalid keys"
+          color={unauthorizedKeys > 0 ? '#FF6644' : '#2a2a2a'}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: unauthorizedKeys > 0 ? '#FF6644' : '#2a2a2a' }} />}
+        />
+        <StatCard
           label="NEXT RESET"
           value={formatNextReset(nextReset)}
           sub="midnight PT"
@@ -1019,15 +1228,66 @@ function ApiKeysSection() {
         />
       </div>
 
-      {/* Overall quota bar */}
-      <QuotaBar used={totalUsed} total={totalQuota} />
+      {/* Per-key quota distribution chart */}
+      {dedupedKeys.length > 0 && (
+        <div style={{ padding: '12px 20px', background: '#0D0D0D', borderBottom: '1px solid #141414' }}>
+          <div style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 8 }}>KEY QUOTA DISTRIBUTION</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {dedupedKeys
+              .sort((a, b) => b.usedToday - a.usedToday)
+              .map(k => {
+                const pct = k.quotaPercent
+                const barColor = pct >= 90 ? '#FF4444' : pct >= 75 ? '#FFB800' : pct > 0 ? '#00B4FF' : '#2a2a2a'
+                const remaining = Math.max(0, k.quotaTotal - k.usedToday)
+                const isRecent = isKeyActive(k.lastUsed)
+                return (
+                  <div key={k.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {/* Key label */}
+                    <div style={{
+                      minWidth: 100, fontSize: 9, color: isRecent ? '#00B4FF' : '#555',
+                      fontFamily: 'monospace', fontWeight: isRecent ? 700 : 400,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {isRecent && <span style={{ color: '#00B4FF', marginRight: 3 }}>●</span>}
+                      {k.name}
+                    </div>
+                    {/* Used bar */}
+                    <div style={{ flex: 1, height: 12, background: '#141414', borderRadius: 2, position: 'relative' }}>
+                      <div style={{
+                        width: `${pct}%`, height: '100%', background: barColor,
+                        borderRadius: 2, transition: 'width 0.5s',
+                        boxShadow: pct > 0 ? `0 0 4px ${barColor}44` : 'none',
+                      }} />
+                      {/* 75% and 90% markers */}
+                      <div style={{ position: 'absolute', top: 0, left: '75%', width: 1, height: '100%', background: '#333' }} />
+                      <div style={{ position: 'absolute', top: 0, left: '90%', width: 1, height: '100%', background: '#555' }} />
+                    </div>
+                    {/* Stats */}
+                    <div style={{ minWidth: 140, fontSize: 8, color: '#333', fontFamily: 'monospace', textAlign: 'right' }}>
+                      <span style={{ color: barColor }}>{k.usedToday.toLocaleString()}</span>
+                      <span style={{ color: '#2a2a2a' }}>/</span>
+                      <span>{k.quotaTotal.toLocaleString()}</span>
+                      <span style={{ color: '#222', marginLeft: 4 }}>{remaining.toLocaleString()} left</span>
+                    </div>
+                  </div>
+                )
+              })}
+          </div>
+          {/* Legend */}
+          <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+            <span style={{ fontSize: 7, color: '#333' }}>● ACTIVE = used in last 30s</span>
+            <span style={{ fontSize: 7, color: '#2a2a2a' }}>| 75%</span>
+            <span style={{ fontSize: 7, color: '#333' }}>| 90%</span>
+          </div>
+        </div>
+      )}
 
-      {/* Filter tabs */}
+            {/* Filter tabs */}
       <div style={{ display: 'flex', gap: 2, padding: '8px 20px', borderBottom: '1px solid #141414', background: '#0C0C0C' }}>
-        {(['all', 'healthy', 'warning', 'exhausted'] as const).map(f => {
+        {(['all', 'healthy', 'warning', 'exhausted', 'unauthorized'] as const).map(f => {
           const isActive = filter === f
           const count = filterCounts[f]
-          const tabColors: Record<string, string> = { all: '#888', healthy: '#00FF88', warning: '#FFB800', exhausted: '#FF4444' }
+          const tabColors: Record<string, string> = { all: '#888', healthy: '#00FF88', warning: '#FFB800', exhausted: '#FF4444', unauthorized: '#FF6644' }
           return (
             <button
               key={f}
@@ -1084,6 +1344,8 @@ function ApiKeysSection() {
                 events={hourlyEvents[k.key] || []}
                 onRemove={handleRemove}
                 onReset={handleReset}
+                onTest={handleTest}
+                isActive={isKeyActive(k.lastUsed)}
               />
             ))}
           </div>
@@ -1100,6 +1362,8 @@ function ProjectsSection() {
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [filter, setFilter] = useState<'all' | 'healthy' | 'warning' | 'exhausted' | 'no_oauth' | 'unauthorized'>('all')
+  const { showToast } = useAppStore()
 
   const load = () => {
     setLoading(true)
@@ -1131,15 +1395,118 @@ function ProjectsSection() {
     }
   }
 
-  const totalUsed = projects.reduce((s, p) => s + p.usedToday + p.apiKeyUsed, 0)
-  const totalQuota = projects.length * 9500 * 2
+  const totalUsed = projects.reduce((s, p) => s + p.usedToday, 0)
+  const totalQuota = projects.length * 9500
   const totalPct = totalQuota > 0 ? Math.round((totalUsed / totalQuota) * 100) : 0
+
+  const healthyProjects = projects.filter(p => p.status === 'healthy').length
+  const warningProjects = projects.filter(p => p.status === 'warning').length
+  const exhaustedProjects = projects.filter(p => p.status === 'exhausted').length
+  const noOauthProjects = projects.filter(p => p.status === 'no_oauth').length
+  const unauthorizedProjects = projects.filter(p => p.status === 'unauthorized').length
+
+  const filterCounts = {
+    all: projects.length,
+    healthy: healthyProjects,
+    warning: warningProjects,
+    exhausted: exhaustedProjects,
+    no_oauth: noOauthProjects,
+    unauthorized: unauthorizedProjects,
+  }
+
+  const filteredProjects = filter === 'all' ? projects
+    : filter === 'healthy' ? projects.filter(p => p.status === 'healthy')
+    : filter === 'warning' ? projects.filter(p => p.status === 'warning')
+    : filter === 'exhausted' ? projects.filter(p => p.status === 'exhausted')
+    : filter === 'no_oauth' ? projects.filter(p => p.status === 'no_oauth')
+    : projects.filter(p => p.status === 'unauthorized')
+
+  const handleResetProject = async (projectId: string) => {
+    await ipc.resetProjectQuota(projectId)
+    await ipc.resumePoller()
+    showToast(`Quota ${projectId} đã reset — poller tiếp tục`)
+    load()
+  }
 
   return (
     <div>
+      {/* Alert banner for exhausted / no_oauth projects */}
+      {(exhaustedProjects > 0 || noOauthProjects > 0 || unauthorizedProjects > 0) && (
+        <div style={{
+          padding: '10px 14px',
+          background: '#1a0808',
+          borderBottom: '1px solid #2a1010',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FF4444', flexShrink: 0, boxShadow: '0 0 6px #FF444488' }} />
+            <span style={{ fontSize: 10, color: '#FF6644', fontWeight: 700 }}>
+              {exhaustedProjects > 0 && `${exhaustedProjects} project${exhaustedProjects > 1 ? 's' : ''} quá tải quota`}
+              {exhaustedProjects > 0 && noOauthProjects > 0 && ' · '}
+              {noOauthProjects > 0 && `${noOauthProjects} project${noOauthProjects > 1 ? 's' : ''} chưa authorize OAuth`}
+              {unauthorizedProjects > 0 && (exhaustedProjects > 0 || noOauthProjects > 0 ? ' · ' : '') + `${unauthorizedProjects} project${unauthorizedProjects > 1 ? 's' : ''} key không hợp lệ`}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Stats row */}
+      <div style={{ display: 'flex', gap: 8, padding: '10px 14px', borderBottom: '1px solid #141414', background: '#0C0C0C', overflowX: 'auto' }}>
+        <div style={{ minWidth: 80, padding: '8px 10px', background: '#0D0D0D', border: '1px solid #1A1A1A', borderRadius: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.08em' }}>TOTAL</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: '#888', fontFamily: 'monospace' }}>{projects.length}</div>
+        </div>
+        <div style={{ minWidth: 80, padding: '8px 10px', background: '#0D0D0D', border: '1px solid #1A1A1A', borderRadius: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.08em' }}>HEALTHY</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: healthyProjects > 0 ? '#00FF88' : '#2a2a2a', fontFamily: 'monospace' }}>{healthyProjects}</div>
+        </div>
+        <div style={{ minWidth: 80, padding: '8px 10px', background: '#0D0D0D', border: '1px solid #1A1A1A', borderRadius: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.08em' }}>WARNING</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: warningProjects > 0 ? '#FFB800' : '#2a2a2a', fontFamily: 'monospace' }}>{warningProjects}</div>
+        </div>
+        <div style={{ minWidth: 80, padding: '8px 10px', background: '#0D0D0D', border: '1px solid #1A1A1A', borderRadius: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.08em' }}>EXHAUSTED</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: exhaustedProjects > 0 ? '#FF4444' : '#2a2a2a', fontFamily: 'monospace' }}>{exhaustedProjects}</div>
+        </div>
+        <div style={{ minWidth: 80, padding: '8px 10px', background: '#0D0D0D', border: '1px solid #1A1A1A', borderRadius: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.08em' }}>NO OAUTH</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: noOauthProjects > 0 ? '#FFB800' : '#2a2a2a', fontFamily: 'monospace' }}>{noOauthProjects}</div>
+        </div>
+        {unauthorizedProjects > 0 && (
+          <div style={{ minWidth: 80, padding: '8px 10px', background: '#0D0D0D', border: '1px solid #1A1A1A', borderRadius: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.08em' }}>UNAUTH</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: '#FF6644', fontFamily: 'monospace' }}>{unauthorizedProjects}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Filter tabs */}
+      <div style={{ display: 'flex', gap: 2, padding: '6px 14px', borderBottom: '1px solid #141414', background: '#0B0B0B', overflowX: 'auto' }}>
+        {(['all', 'healthy', 'warning', 'exhausted', 'no_oauth'] as const).map(f => {
+          const isActive = filter === f
+          const tabColors: Record<string, string> = { all: '#888', healthy: '#00FF88', warning: '#FFB800', exhausted: '#FF4444', no_oauth: '#FFB800' }
+          return (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              style={{
+                height: 22, paddingLeft: 8, paddingRight: 8,
+                background: isActive ? '#141414' : 'transparent',
+                border: `1px solid ${isActive ? '#222' : 'transparent'}`,
+                borderRadius: 3, cursor: 'pointer', fontSize: 8, fontWeight: 700,
+                color: isActive ? tabColors[f] : '#444',
+                letterSpacing: '0.08em', whiteSpace: 'nowrap',
+              }}
+            >
+              {f === 'no_oauth' ? 'NO OAUTH' : f.toUpperCase()} ({filterCounts[f]})
+            </button>
+          )
+        })}
+      </div>
+
       {/* Summary bar */}
       {!loading && (
-        <div style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div className="flex items-center gap-2">
             <div style={{
               width: 5, height: 5, borderRadius: '50%',
@@ -1176,7 +1543,7 @@ function ProjectsSection() {
       )}
 
       {/* Info */}
-      <div style={{ padding: '0 14px 12px', fontSize: 9, color: '#444', lineHeight: '14px' }}>
+      <div style={{ padding: '0 14px 8px', fontSize: 9, color: '#444', lineHeight: '14px' }}>
         Mỗi project = OAuth + API Key = 10,000 units/ngày.
         Thêm project để tăng quota polling.
         <br />Quota reset mỗi 24h (midnight PT).
@@ -1185,25 +1552,26 @@ function ProjectsSection() {
       {/* Project list */}
       {loading ? (
         <div style={{ fontSize: 10, color: '#444', textAlign: 'center', padding: '16px' }}>Đang tải...</div>
-      ) : projects.length === 0 ? (
+      ) : filteredProjects.length === 0 ? (
         <div style={{ padding: '24px 14px', textAlign: 'center' }}>
           <div style={{ fontSize: 10, color: '#333', marginBottom: 12 }}>
-            Chưa có project nào.
-            <br />Thêm Google Cloud project để bắt đầu.
+            {filter !== 'all' ? `Không có project ở trạng thái "${filter}"` : 'Chưa có project nào. Thêm Google Cloud project để bắt đầu.'}
           </div>
-          <button
-            onClick={() => setShowAdd(true)}
-            style={{
-              height: 28, paddingLeft: 14, paddingRight: 14,
-              background: '#00B4FF', border: 'none', borderRadius: 4,
-              fontSize: 10, fontWeight: 700, color: '#000', cursor: 'pointer',
-            }}
-          >+ Thêm Project đầu tiên</button>
+          {filter === 'all' && (
+            <button
+              onClick={() => setShowAdd(true)}
+              style={{
+                height: 28, paddingLeft: 14, paddingRight: 14,
+                background: '#00B4FF', border: 'none', borderRadius: 4,
+                fontSize: 10, fontWeight: 700, color: '#000', cursor: 'pointer',
+              }}
+            >+ Thêm Project đầu tiên</button>
+          )}
         </div>
       ) : (
-        <div style={{ padding: '0 14px' }}>
-          {projects.map(p => (
-            <ProjectCard key={p.projectId} project={p} onRefresh={load} />
+        <div style={{ padding: '0 14px 14px' }}>
+          {filteredProjects.map(p => (
+            <ProjectCard key={p.projectId} project={p} onRefresh={load} onReset={() => handleResetProject(p.projectId)} />
           ))}
         </div>
       )}
@@ -1327,36 +1695,44 @@ function SessionsSection() {
                 }}>
                   <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#FFB800', flexShrink: 0 }} />
                   <span style={{ fontSize: 10, color: '#888', flex: 1 }}>{s.profileName}</span>
-                  <span style={{ fontSize: 8, color: '#FFB800', fontFamily: 'monospace' }}>
-                    Open YouTube → accept terms
-                  </span>
+                  <button
+                    onClick={() => handleOpenLogin(s.profileId)}
+                    style={{
+                      height: 22, paddingLeft: 8, paddingRight: 8,
+                      background: '#FFB80022', border: '1px solid #FFB80044',
+                      borderRadius: 3, cursor: 'pointer',
+                      fontSize: 8, fontWeight: 700, color: '#FFB800',
+                    }}
+                  >
+                    Mở YouTube
+                  </button>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Not logged in — show all in compact grid */}
+          {/* Not logged in — show all in grid */}
           {notLoggedIn.length > 0 && (
             <div>
               <div style={{ fontSize: 8, color: '#333', letterSpacing: '0.08em', marginBottom: 6, fontWeight: 700 }}>
                 NEEDS LOGIN ({notLoggedIn.length})
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 5 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 6 }}>
                 {notLoggedIn.map(s => (
                   <button
                     key={s.profileId}
                     onClick={() => handleOpenLogin(s.profileId)}
                     title={s.error || 'Open Chrome and log in to YouTube'}
                     style={{
-                      background: '#0d0d0d', border: '1px solid #222', borderRadius: 4,
-                      padding: '6px 8px', textAlign: 'left', cursor: 'pointer',
-                      display: 'flex', flexDirection: 'column', gap: 2,
+                      background: '#0d0d0d', border: '1px solid #222', borderRadius: 6,
+                      padding: '12px', textAlign: 'left', cursor: 'pointer',
+                      display: 'flex', flexDirection: 'column', gap: 4,
                     }}
-                    onMouseEnter={e => { e.currentTarget.style.borderColor = '#00B4FF44'; e.currentTarget.style.background = '#0d1520' }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = '#FF664466'; e.currentTarget.style.background = '#1a0a0a' }}
                     onMouseLeave={e => { e.currentTarget.style.borderColor = '#222'; e.currentTarget.style.background = '#0d0d0d' }}
                   >
-                    <span style={{ fontSize: 9, color: '#555', fontWeight: 600 }}>{s.profileName}</span>
-                    <span style={{ fontSize: 8, color: '#00B4FF' }}>+ Mở Chrome login</span>
+                    <span style={{ fontSize: 10, color: '#666', fontWeight: 600 }}>{s.profileName}</span>
+                    <span style={{ fontSize: 9, color: '#FF6644' }}>Mở Chrome & Đăng nhập YouTube</span>
                   </button>
                 ))}
               </div>
@@ -1364,10 +1740,264 @@ function SessionsSection() {
           )}
 
           {status?.sessionCount === 0 && (
-            <div style={{ fontSize: 10, color: '#333', textAlign: 'center', padding: '8px' }}>
-              Chưa khởi tạo sessions.
+            <div style={{ textAlign: 'center', padding: '24px' }}>
+              <div style={{ fontSize: 10, color: '#333', marginBottom: 8 }}>Chưa khởi tạo Chrome profiles.</div>
+              <div style={{ fontSize: 9, color: '#2a2a2a' }}>Khởi động lại app để tạo 30 HyperClip-Chrome-Profile folders.</div>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Poller Status Panel ────────────────────────────────────────────────────────
+
+function PollerStatusPanel() {
+  const { showToast } = useAppStore()
+  const [pollerStatus, setPollerStatus] = useState<any>(null)
+  const [sessionStatus, setSessionStatus] = useState<any>(null)
+  const [projectStatus, setProjectStatus] = useState<any>(null)
+  const [keyStatus, setKeyStatus] = useState<any>(null)
+
+  const load = () => {
+    ipc.getPollerStatus().then(setPollerStatus).catch(() => {})
+    ipc.getSessionStatus().then(setSessionStatus).catch(() => {})
+    ipc.getProjects().then(setProjectStatus).catch(() => {})
+    ipc.getKeys().then(setKeyStatus).catch(() => {})
+  }
+
+  useEffect(() => { load() }, [])
+  useEffect(() => { const t = setInterval(load, 8000); return () => clearInterval(t) }, [])
+
+  const backoffMs = pollerStatus?.exhaustedUntil ? pollerStatus.exhaustedUntil - Date.now() : 0
+  const backoffMin = backoffMs > 0 ? Math.round(backoffMs / 60000) : 0
+  const isBackedOff = backoffMin > 0
+
+  const consented = sessionStatus?.consentedCount ?? 0
+  const totalSessions = sessionStatus?.sessionCount ?? 0
+  const hasInnertube = consented > 0
+
+  const healthyProjects = projectStatus?.filter((p: any) => p.status === 'healthy').length ?? 0
+  const totalProjects = projectStatus?.length ?? 0
+  const hasOAuth = healthyProjects > 0
+
+  const totalKeys = keyStatus?.length ?? 0
+
+  const detectionPath = hasInnertube ? 'innertube' : hasOAuth ? 'oauth' : null
+  const primaryFix = !hasInnertube ? 'sessions' : !hasOAuth ? 'projects' : null
+
+  const handleResume = async () => {
+    await ipc.resumePoller()
+    showToast('Đã resume poller — sẽ thử lại sau vài giây')
+    load()
+  }
+
+  // Determine banner type
+  let bannerColor: string
+  let bannerBg: string
+  let bannerBorder: string
+  let statusLabel: string
+  let statusIcon: string
+
+  if (isBackedOff) {
+    if (!hasInnertube && !hasOAuth) {
+      bannerColor = '#FF6644'; bannerBg = '#1a0808'; bannerBorder = '#FF444444'
+      statusLabel = `BACKED OFF — ${backoffMin}m until midnight PT`
+      statusIcon = '✗'
+    } else if (!hasInnertube) {
+      bannerColor = '#FFB800'; bannerBg = '#1a1500'; bannerBorder = '#FFB80044'
+      statusLabel = `BACKED OFF — ${backoffMin}m (OAuth fallback active)`
+      statusIcon = '⚠'
+    } else {
+      bannerColor = '#FFB800'; bannerBg = '#1a1500'; bannerBorder = '#FFB80044'
+      statusLabel = `BACKED OFF — ${backoffMin}m (Innertube active after recovery)`
+      statusIcon = '⚠'
+    }
+  } else {
+    bannerColor = '#00FF88'; bannerBg = '#0a1a0a'; bannerBorder = '#00FF8844'
+    statusLabel = 'RUNNING'
+    statusIcon = '●'
+  }
+
+  return (
+    <div style={{ padding: '20px', maxWidth: 800 }}>
+      {/* Main banner */}
+      <div style={{
+        background: bannerBg,
+        border: `1px solid ${bannerBorder}`,
+        borderRadius: 8,
+        padding: '16px 20px',
+        marginBottom: 16,
+      }}>
+        {/* Header row */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: bannerColor, boxShadow: `0 0 8px ${bannerColor}66` }} />
+            <span style={{ fontSize: 12, fontWeight: 800, color: bannerColor, letterSpacing: '0.06em' }}>
+              POLLER: {statusLabel}
+            </span>
+          </div>
+          {isBackedOff && (
+            <button
+              onClick={handleResume}
+              style={{
+                height: 28, paddingLeft: 12, paddingRight: 12,
+                background: bannerColor + '22', border: `1px solid ${bannerColor}66`,
+                borderRadius: 4, cursor: 'pointer',
+                fontSize: 9, fontWeight: 700, color: bannerColor,
+                letterSpacing: '0.06em',
+              }}
+            >
+              ▶ FORCE RESUME
+            </button>
+          )}
+        </div>
+
+        {/* Detection path status */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {/* Innertube */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: hasInnertube ? '#00FF88' : '#FF4444' }}>
+              {hasInnertube ? '✓' : '✗'}
+            </span>
+            <span style={{ fontSize: 10, color: '#888', width: 160 }}>Innertube Sessions</span>
+            <span style={{ fontSize: 9, color: hasInnertube ? '#00FF88' : '#444', fontFamily: 'monospace' }}>
+              {consented}/{totalSessions} consented
+            </span>
+            <span style={{ fontSize: 9, color: '#333' }}>
+              {hasInnertube ? '— PRIMARY [ACTIVE]' : totalSessions === 0 ? '— chưa khởi tạo' : '— cần đăng nhập Chrome'}
+            </span>
+          </div>
+
+          {/* OAuth */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: hasOAuth ? '#00FF88' : '#FF6644' }}>
+              {hasOAuth ? '✓' : '✗'}
+            </span>
+            <span style={{ fontSize: 10, color: '#888', width: 160 }}>OAuth Projects</span>
+            <span style={{ fontSize: 9, color: hasOAuth ? '#00FF88' : '#444', fontFamily: 'monospace' }}>
+              {healthyProjects}/{totalProjects} healthy
+            </span>
+            <span style={{ fontSize: 9, color: '#333' }}>
+              {hasOAuth ? '— FALLBACK [ACTIVE]' : totalProjects === 0 ? '— chưa có project' : '— quota hết hoặc chưa authorize'}
+            </span>
+          </div>
+
+          {/* API Keys */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: totalKeys > 0 ? '#00B4FF' : '#333' }}>
+              {totalKeys > 0 ? '●' : '○'}
+            </span>
+            <span style={{ fontSize: 10, color: '#888', width: 160 }}>API Keys</span>
+            <span style={{ fontSize: 9, color: totalKeys > 0 ? '#00B4FF' : '#333', fontFamily: 'monospace' }}>
+              {totalKeys} key{totalKeys !== 1 ? 's' : ''}
+            </span>
+            <span style={{ fontSize: 9, color: '#333' }}>
+              {totalKeys > 0 ? '— Data API fallback' : '— chưa có key'}
+            </span>
+          </div>
+        </div>
+
+        {/* Fix call-to-action */}
+        {isBackedOff && primaryFix && (
+          <div style={{
+            marginTop: 14, padding: '10px 14px',
+            background: '#0a0a0a', border: '1px solid #1a1a1a',
+            borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <span style={{ fontSize: 11, color: '#555' }}>→</span>
+            <span style={{ fontSize: 10, color: '#888' }}>
+              Fix:{' '}
+              <span style={{ color: '#00B4FF', fontWeight: 700 }}>
+                Đăng nhập 1 Chrome profile
+              </span>
+              {' '}→ tab{' '}
+              <button
+                onClick={() => { const btn = document.querySelector('[data-tab="sessions"]') as HTMLButtonElement; btn?.click() }}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  fontSize: 10, fontWeight: 700, color: '#FF6644', padding: 0,
+                }}
+              >
+                INNERTUBE SESSIONS
+              </button>
+              <span style={{ color: '#555' }}> (chỉ cần 1-2 profile là đủ)</span>
+            </span>
+          </div>
+        )}
+
+        {/* Running but no Innertube warning */}
+        {!isBackedOff && !hasInnertube && hasOAuth && (
+          <div style={{
+            marginTop: 14, padding: '10px 14px',
+            background: '#1a1500', border: '1px solid #FFB80044',
+            borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <span style={{ fontSize: 11, color: '#FFB800' }}>⚠</span>
+            <span style={{ fontSize: 10, color: '#888' }}>
+              Poller đang chạy với OAuth (có quota limit). Khuyến nghị: thêm Innertube Sessions để không cần OAuth quota.
+            </span>
+          </div>
+        )}
+
+        {/* Running with Innertube */}
+        {!isBackedOff && hasInnertube && (
+          <div style={{
+            marginTop: 14, padding: '10px 14px',
+            background: '#0a1a0a', border: '1px solid #00FF8844',
+            borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <span style={{ fontSize: 11, color: '#00FF88' }}>✓</span>
+            <span style={{ fontSize: 10, color: '#666' }}>
+              Innertube Sessions đang active — không cần OAuth quota để poll.
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Quick action cards */}
+      {!hasInnertube && (
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button
+            onClick={() => { const btn = document.querySelector('[data-tab="sessions"]') as HTMLButtonElement; btn?.click() }}
+            style={{
+              flex: 1, padding: '14px 16px',
+              background: '#0d1520', border: '1px solid #FF664444',
+              borderRadius: 6, cursor: 'pointer', textAlign: 'left',
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#0d1a2a'; e.currentTarget.style.borderColor = '#FF664466' }}
+            onMouseLeave={e => { e.currentTarget.style.background = '#0d1520'; e.currentTarget.style.borderColor = '#FF664444' }}
+          >
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#FF6644', letterSpacing: '0.08em', marginBottom: 4 }}>
+              INNERUBE SESSIONS — KHẮC PHỤC NGAY
+            </div>
+            <div style={{ fontSize: 9, color: '#666', lineHeight: '14px' }}>
+              Chỉ cần đăng nhập <span style={{ color: '#FF6644', fontWeight: 700 }}>1 Chrome profile</span> là đủ.
+              Mỗi session không có quota limit — thay thế hoàn toàn OAuth.
+            </div>
+          </button>
+
+          <button
+            onClick={() => { const btn = document.querySelector('[data-tab="projects"]') as HTMLButtonElement; btn?.click() }}
+            style={{
+              flex: 1, padding: '14px 16px',
+              background: '#0d1520', border: '1px solid #00FF8844',
+              borderRadius: 6, cursor: 'pointer', textAlign: 'left',
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#0d1f15'; e.currentTarget.style.borderColor = '#00FF8866' }}
+            onMouseLeave={e => { e.currentTarget.style.background = '#0d1520'; e.currentTarget.style.borderColor = '#00FF8844' }}
+          >
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#00FF88', letterSpacing: '0.08em', marginBottom: 4 }}>
+              GOOGLE PROJECTS — FALLBACK
+            </div>
+            <div style={{ fontSize: 9, color: '#666', lineHeight: '14px' }}>
+              Thêm Google Cloud project để có thêm quota (10k units/project/ngày).
+              OAuth cần refresh token và có giới hạn.
+            </div>
+          </button>
         </div>
       )}
     </div>
@@ -1380,11 +2010,13 @@ export default function SettingsPage() {
   const { settings, systemStats, setSettings } = useAppStore()
   const [gateState, setGateState] = useState<'loading' | 'setup' | 'locked' | 'unlocked'>('loading')
   // Always declare all hooks before any early returns to satisfy Rules of Hooks
-  const [activeTab, setActiveTab] = useState<'keys' | 'projects' | 'system'>('keys')
+  const [activeTab, setActiveTab] = useState<'status' | 'keys' | 'projects' | 'sessions' | 'system'>('status')
 
   const TABS = [
-    { id: 'keys' as const, label: 'API KEYS', color: '#00B4FF' },
+    { id: 'status' as const, label: 'STATUS', color: '#00FF88' },
+    { id: 'sessions' as const, label: 'INNERUBE SESSIONS', color: '#FF6644' },
     { id: 'projects' as const, label: 'GOOGLE PROJECTS', color: '#00FF88' },
+    { id: 'keys' as const, label: 'API KEYS', color: '#00B4FF' },
     { id: 'system' as const, label: 'SYSTEM', color: '#FFB800' },
   ]
 
@@ -1420,6 +2052,7 @@ export default function SettingsPage() {
           return (
             <button
               key={tab.id}
+              data-tab={tab.id}
               onClick={() => setActiveTab(tab.id)}
               style={{
                 height: 28, paddingLeft: 12, paddingRight: 12,
@@ -1439,9 +2072,22 @@ export default function SettingsPage() {
 
       {/* Content */}
       <div style={{ flex: 1, overflow: 'auto' }}>
+        {/* STATUS — Poller health dashboard */}
+        {activeTab === 'status' && <PollerStatusPanel />}
+
         {/* API Keys — full width */}
         {activeTab === 'keys' && (
           <ApiKeysSection />
+        )}
+
+        {/* Innertube Sessions */}
+        {activeTab === 'sessions' && (
+          <div style={{ padding: '20px', maxWidth: 900 }}>
+            <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.15em', marginBottom: 10 }}>INNERUBE SESSIONS (CHROME COOKIES — NO QUOTA)</div>
+            <div style={{ background: '#0F0F0F', border: '1px solid #181818', borderRadius: 4, overflow: 'hidden' }}>
+              <SessionsSection />
+            </div>
+          </div>
         )}
 
         {/* Projects */}
@@ -1479,6 +2125,34 @@ export default function SettingsPage() {
                         }}
                       >
                         {val === 'full' ? 'FULL' : `${val}m`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>Download Quality</div>
+                    <div style={{ fontSize: 9, color: '#444' }}>Chỉ tải video ≤ chất lượng này, ưu tiên H.264</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    {(['360', '480', '720', '1080'] as const).map(val => (
+                      <button
+                        key={val}
+                        onClick={async () => {
+                          await ipc.updateSettings({ autoDownloadQuality: val })
+                          setSettings({ autoDownloadQuality: val })
+                        }}
+                        style={{
+                          height: 26, minWidth: 42,
+                          background: (settings.autoDownloadQuality ?? '720') === val ? '#00B4FF22' : 'transparent',
+                          border: `1px solid ${(settings.autoDownloadQuality ?? '720') === val ? '#00B4FF66' : '#2a2a2a'}`,
+                          borderRadius: 3, cursor: 'pointer',
+                          fontSize: 9, fontWeight: 700, color: (settings.autoDownloadQuality ?? '720') === val ? '#00B4FF' : '#555',
+                          fontFamily: 'monospace',
+                        }}
+                      >
+                        {val}p
                       </button>
                     ))}
                   </div>
@@ -1541,6 +2215,10 @@ export default function SettingsPage() {
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #1A1A1A; border-radius: 2px; }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
       `}</style>
     </div>
   )

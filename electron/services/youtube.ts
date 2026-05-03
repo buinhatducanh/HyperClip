@@ -243,6 +243,8 @@ export interface YtdlpOptions {
   outputDir: string
   trimLimit: number | 'full'  // number = minutes, 'full' = no limit
   onProgress?: (progress: DownloadProgress) => void
+  /** Max height for download quality. Defaults to '720'. '360'|'480'|'720'|'1080' */
+  quality?: string
 }
 
 export async function getChannelId(videoUrl: string): Promise<string | null> {
@@ -393,7 +395,7 @@ export async function getVideoInfo(videoUrl: string): Promise<YtdlpVideoInfo | n
 }
 
 export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult> {
-  const { workspaceId, videoUrl, outputDir, trimLimit, onProgress } = opts
+  const { workspaceId, videoUrl, outputDir, trimLimit, onProgress, quality = '720' } = opts
   const ytdlp = getYtdlpPath()
 
   // Verify yt-dlp exists before attempting spawn
@@ -428,6 +430,15 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
     return { success: true, workspaceId, filePath: existingFile, duration, fileSize }
   }
 
+  // Quality-aware format selector:
+  // Priority 1: H.264 (fast decode) at or below quality cap
+  // Priority 2: any codec at or below quality cap
+  // Priority 3: best available at quality cap (no H.264 available)
+  // Priority 4: best available without quality cap (corrupted/inaccessible video)
+  const q = parseInt(quality)
+  const maxHeight = isNaN(q) ? 720 : q
+  const formatSelector = `bestvideo[height<=${maxHeight}][vcodec=h264]+bestaudio[acodec=aac]/bestvideo[height<=${maxHeight}][vcodec!=vp9][vcodec!=av1]+bestaudio[acodec=aac]/bestvideo[height<=${maxHeight}]+bestaudio/bestvideo+bestaudio/best`
+
   // Core download: spawns yt-dlp, resolves with result
   const doDownload = (extraArgs: string[]): Promise<DownloadResult> => {
     const outputTemplate = path.join(outputDir, `${workspaceId}_%(id)s.%(ext)s`)
@@ -435,11 +446,11 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
     const args: string[] = [
       videoUrl,
       ...getJsRuntimeArgs(),
-      // Format selector: prefer H.264+AAC, fallback to best available.
-      '-f', 'bestvideo[vcodec!=vp9][vcodec!=av1]+bestaudio[acodec!=opus]/bestvideo+bestaudio/bestvideo/bestaudio/best',
+      '-f', formatSelector,
       '--output', outputTemplate,
       '--no-playlist',
       '--newline',
+      '--concurrent-fragments', '8',
       ...extraArgs,
     ]
 

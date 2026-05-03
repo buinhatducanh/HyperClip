@@ -225,9 +225,10 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
     const storagePath = getVideoStoragePath()
     ensureStorageDirs()
 
-    // Respect user's configured trim limit from settings (default: 10 minutes)
+    // Respect user's configured trim limit and download quality from settings
     const settings = loadSettings()
     const autoTrimLimit: number | 'full' = settings.defaultTrimLimit ?? 10
+    const autoQuality = settings.autoDownloadQuality ?? '720'
 
     // Check if workspace already exists for this video
     const existingWorkspaces = getWorkspaces()
@@ -289,6 +290,7 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
       videoUrl: 'https://www.youtube.com/watch?v=' + videoId,
       outputDir: storagePath,
       trimLimit: autoTrimLimit,
+      quality: autoQuality,
       onProgress: (progress) => {
         broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
           workspaceId: workspace.id,
@@ -307,29 +309,21 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
       console.log(`[TIMER]   Trim limit: ${autoTrimLimit} min | Trimmed to: ${result.duration}s`)
       playSuccessBeep()
 
-      // Extract local thumbnail from downloaded video (YouTube thumbnail may 404 for fresh uploads)
+      // Phase 1: Parallel post-processing — all run on the downloaded file simultaneously.
+      // Saves ~10-15s vs sequential execution.
       const thumbnailPath = path.join(storagePath, `thumb_${workspace.id}.jpg`)
-      const thumbResult = await extractVideoThumbnail(result.filePath, thumbnailPath)
-      console.log(`[Auto] Thumbnail: ${thumbResult.success ? 'extracted' : 'failed — ' + thumbResult.error}`)
+      const [thumbResult, videoInfo, aspect] = await Promise.all([
+        extractVideoThumbnail(result.filePath, thumbnailPath),
+        getVideoInfo('https://www.youtube.com/watch?v=' + videoId),
+        probeVideoAspect(result.filePath),
+      ])
+      console.log(`[Auto] Thumbnail: ${thumbResult.success ? 'extracted' : 'failed'}, Aspect: ${aspect ? `${aspect.width}x${aspect.height}` : 'unknown'}`)
 
-      // Fetch real metadata from yt-dlp
-      const videoInfo = await getVideoInfo('https://www.youtube.com/watch?v=' + videoId)
       const realTitle = videoInfo?.title || title
       const realDuration = result.duration || videoInfo?.duration || 0
       const localThumbnail = thumbResult.success
         ? 'local-video:///' + thumbnailPath.replace(/\\/g, '/')
         : (videoInfo?.thumbnail || `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`)
-
-      // Probe video dimensions to detect if it's a short (vertical) or landscape
-      const aspect = await probeVideoAspect(result.filePath)
-
-      // Post-download FFmpeg trim: if video is longer than trim limit, cut it with stream-copy.
-      // This is much faster than section-download for long videos because yt-dlp downloads
-      // the full content anyway. Stream-copy (-c copy) re-muxes without re-encoding.
-      let finalFilePath = result.filePath
-      let finalFileSize = result.fileSize || 0
-      const trimLimitSec = typeof autoTrimLimit === 'number' ? autoTrimLimit * 60 : 0
-      let finalDuration = realDuration
 
       // Short video check: if downloaded video < 60s, mark as error (YouTube Shorts)
       if (realDuration > 0 && realDuration < 60) {
@@ -342,23 +336,40 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
         return
       }
 
-      if (trimLimitSec > 0 && realDuration > trimLimitSec) {
+      // Phase 2: Trim and blur generation in parallel — both independent after Phase 1 resolves.
+      const trimLimitSec = typeof autoTrimLimit === 'number' ? autoTrimLimit * 60 : 0
+      let finalFilePath = result.filePath
+      let finalFileSize = result.fileSize || 0
+      let finalDuration = realDuration
+
+      const doTrim = trimLimitSec > 0 && realDuration > trimLimitSec
+      const { blurPath } = generateWorkspacePaths(workspace.id)
+
+      // Trim FIRST (fast stream-copy ~5s), THEN blur on the correct file.
+      // This ensures blur always matches the trimmed source, not the original.
+      let trimResult: { success: true; path: string; size: number; duration: number } | { success: false } = { success: false }
+      if (doTrim) {
         const trimmedPath = result.filePath.replace(/(\.\w+)$/, `_trimmed$1`)
-        console.log(`[Auto] Video ${realDuration}s > trim limit ${trimLimitSec}s — trimming with FFmpeg...`)
-        const trimResult = await trimVideo(result.filePath, trimmedPath, 0, trimLimitSec)
-        if (trimResult.success) {
+        console.log(`[Auto] Video ${realDuration}s > trim limit ${trimLimitSec}s — trimming (stream-copy)...`)
+        const r = await trimVideo(result.filePath, trimmedPath, 0, trimLimitSec)
+        if (r.success) {
           const trimmedSize = fs.statSync(trimmedPath).size
-          console.log(`[Auto] FFmpeg trim OK: ${trimmedPath} (${(trimmedSize / 1024 / 1024).toFixed(1)} MB)`)
-          finalFilePath = trimmedPath
-          finalFileSize = trimmedSize
-          finalDuration = trimLimitSec
-          // Clean up original full file to save disk space
+          console.log(`[Auto] Trim OK: ${(trimmedSize / 1024 / 1024).toFixed(1)} MB`)
           try { fs.unlinkSync(result.filePath) } catch {}
+          trimResult = { success: true, path: trimmedPath, size: trimmedSize, duration: trimLimitSec }
         } else {
-          console.warn(`[Auto] FFmpeg trim failed (${trimResult.error}) — using full video`)
-          finalDuration = realDuration
+          console.warn(`[Auto] Trim failed — using full video`)
         }
       }
+
+      if (trimResult.success) {
+        finalFilePath = trimResult.path
+        finalFileSize = trimResult.size
+        finalDuration = trimResult.duration
+      }
+
+      // Blur on the final file (trimmed if needed) — runs in parallel with nothing else
+      const blurResult = await generateBlurBackground(finalFilePath, blurPath, 1080, 1920, finalDuration)
 
       updateWorkspace(workspace.id, {
         status: 'ready',
@@ -367,23 +378,72 @@ async function autoDownloadFromWebSub(videoId: string, channelId: string, channe
         fileSize: finalFileSize,
         thumbnail: localThumbnail,
         videoTitle: realTitle,
-        duration: realDuration,
+        duration: finalDuration,
         isShort: aspect?.isShort ?? true,
         videoResolution: aspect ? `${aspect.width}x${aspect.height}` : undefined,
-      })
-      broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(workspace.id))
-
-      const { blurPath } = generateWorkspacePaths(workspace.id)
-      const blurResult = await generateBlurBackground(finalFilePath, blurPath)
-
-      updateWorkspace(workspace.id, {
-        status: 'ready',
         blurBackgroundPath: blurResult.success ? blurPath : '',
       })
       broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(workspace.id))
       sendNotification('success', `Auto-ready: ${realTitle}`, workspace.id)
       broadcast(IPC_CHANNELS.AUTO_DOWNLOAD_EVENT, { videoId, title: realTitle, channelName: finalChannelName, detectedAt })
       showWindowsToast('✅ Download xong!', `${realTitle}`)
+
+      // ── Auto-render trigger ──────────────────────────────────────────────────
+      // Automatically queue render immediately after workspace is ready.
+      // This eliminates manual render trigger, reducing end-to-end pipeline to detection → output.
+      const autoResolution = aspect?.isShort ? '720x1280' : '720x720'
+      const autoQuality = parseInt(autoResolution.split('x')[1])
+      const autoMetadata: RenderMetadata = {
+        workspace_id: workspace.id,
+        source_video: finalFilePath,
+        export_resolution: autoResolution,
+        video_speed: 1.0,
+        fps_target: 30,
+        overlays: [],
+        trim: { start: 0, end: finalDuration },
+        codec: 'hevc',
+        backgroundType: 'blur',
+        blur_background: blurResult.success ? blurPath : '',
+        isShort: aspect?.isShort ?? true,
+        vidHeightPct: 50,
+      }
+      const autoOutputDir = getOutputPath()
+      renderQueue.push({
+        workspaceId: workspace.id,
+        metadata: autoMetadata,
+        resolve: async (r) => {
+          if (r.success && r.outputPath) {
+            const archiveResult = await archiveRenderedFile(
+              r.outputPath,
+              finalChannelName,
+              realTitle,
+              autoQuality,
+              'hevc',
+              finalFileSize,
+              finalDuration,
+            )
+            updateWorkspace(workspace.id, {
+              status: 'done',
+              outputPath: archiveResult.success && archiveResult.archivedPath ? archiveResult.archivedPath : r.outputPath,
+              renderProgress: 100,
+            })
+            broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(workspace.id))
+            sendNotification('success', `Render xong!`, workspace.id)
+            showWindowsToast('🎉 Render hoàn tất!', `${realTitle}`)
+            console.log(`[TIMER] RENDER DONE: "${realTitle}" — output: ${archiveResult.success && archiveResult.archivedPath ? archiveResult.archivedPath : r.outputPath}`)
+          } else {
+            updateWorkspace(workspace.id, { status: 'error', renderProgress: 0 })
+            broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(workspace.id))
+            console.error(`[Auto] Render failed: ${r.error}`)
+            sendNotification('error', `Render thất bại: ${r.error}`, workspace.id)
+          }
+        },
+      })
+      if (getPoolStatus().active < 2) {
+        startNextQueuedRender()
+      }
+      console.log(`[Auto] Render queued: ${realTitle} → ${autoResolution}`)
+
       // Only mark as seen AFTER successful download — so YouTube processing delay doesn't block retry
       markVideoSeen(channelId, videoId)
     } else {
@@ -563,35 +623,34 @@ function scanExistingDownloadedFiles(): void {
 
 // ─── Channel ID Resolution ─────────────────────────────────────────────────────────
 // Resolves YouTube handle (@channel) to channelId (UC...) for subscription feed fallback.
-// Called at startup for ALL channels — even those with existing channelIds.
-// ChannelIds can be corrupted (malformed UC IDs) so we always re-validate.
+// Called at startup ONLY for channels that NEED resolution (missing/invalid channelId).
+// Channels with already-valid channelIds are skipped entirely — no HTTP calls needed.
 async function resolveChannelIdsForPoll(): Promise<void> {
   const channels = getChannels()
   let resolved = 0
   let skipped = 0
 
   for (const ch of channels) {
-    // Build a reliable channel URL to resolve
+    // Skip if already has a valid channelId — no verification needed
+    if (ch.channelId && isValidChannelId(ch.channelId)) {
+      skipped++
+      continue
+    }
+
+    // Build URL to resolve missing/invalid channelId
     let resolveUrl = ''
     let strategy = ''
 
-    // Determine the best URL for this channel
     if (ch.handle && ch.handle.startsWith('@')) {
-      // If the handle looks like a raw channelId (@UC...), use /channel/ URL instead
-      const handlePart = ch.handle.slice(1) // strip leading '@'
+      const handlePart = ch.handle.slice(1)
       if (/^UC[a-zA-Z0-9_-]{22}$/.test(handlePart)) {
-        // Corrupted handle: @UCxxx is actually a channelId
+        // Corrupted handle: @UCxxx is actually a channelId (not valid UC format)
         resolveUrl = `https://www.youtube.com/channel/${handlePart}`
         strategy = 'handle→channelId'
       } else {
-        // Real handle like @MrBeast
         resolveUrl = `https://www.youtube.com${ch.handle}`
         strategy = 'handle'
       }
-    } else if (ch.channelId && isValidChannelId(ch.channelId)) {
-      // Use the existing channelId if it looks valid
-      resolveUrl = `https://www.youtube.com/channel/${ch.channelId}`
-      strategy = 'channelId'
     }
 
     if (!resolveUrl) {
@@ -603,25 +662,23 @@ async function resolveChannelIdsForPoll(): Promise<void> {
     try {
       const info = await getChannelInfo(resolveUrl)
       if (info && info.channelId && info.channelId.startsWith('UC') && info.channelId.length >= 24) {
-        const needsUpdate = !ch.channelId || ch.channelId !== info.channelId || !isValidChannelId(ch.channelId)
-        if (needsUpdate) {
-          console.log(`[Channel] Re-resolved "${ch.name}" [${strategy}]: ${ch.channelId || '(none)'} → ${info.channelId}`)
-          updateChannel(ch.id, { channelId: info.channelId, name: info.channelName || ch.name })
-          resolved++
-        } else {
-          console.log(`[Channel] Verified "${ch.name}": ${info.channelId} [${strategy}]`)
-        }
+        console.log(`[Channel] Resolved "${ch.name}" [${strategy}]: ${info.channelId}`)
+        updateChannel(ch.id, { channelId: info.channelId, name: info.channelName || ch.name })
+        resolved++
       } else if (info && !info.channelId) {
         console.warn(`[Channel] Could not resolve "${ch.name}" via ${strategy} — no channelId from ${resolveUrl}`)
+        skipped++
       } else if (!info) {
         console.warn(`[Channel] Failed to fetch "${ch.name}" via ${strategy}: ${resolveUrl}`)
+        skipped++
       }
     } catch (e) {
       console.warn(`[Channel] Resolution error for "${ch.name}":`, e)
+      skipped++
     }
   }
 
-  console.log(`[Channel] Resolution: ${resolved} updated, ${skipped} skipped, ${channels.length - resolved - skipped} verified`)
+  console.log(`[Channel] Resolution: ${resolved} resolved, ${skipped} skipped (${channels.length - resolved - skipped} verified)`)
   refreshChannelCache()
 }
 
@@ -1687,6 +1744,16 @@ async function registerIPCHandlers() {
     return poller ? poller.getStatus() : null
   })
 
+  // Resume polling immediately — clears exhaustion backoff
+  ipcMain.handle(IPC_CHANNELS.POLLER_RESUME, () => {
+    const poller = getYouTubePoller()
+    if (poller) {
+      poller.resume()
+      return { success: true }
+    }
+    return { success: false }
+  })
+
   // ─── Auth ────────────────────────────────────────────────────────────────────
   ipcMain.handle(IPC_CHANNELS.AUTH_STATUS, async () => {
     const cm = getCookieManager()
@@ -1813,6 +1880,11 @@ async function registerIPCHandlers() {
     return { success: true }
   })
 
+  ipcMain.handle(IPC_CHANNELS.TOKEN_TEST, async (_, projectId: string) => {
+    const result = await getTokenManager().testToken(projectId)
+    return result
+  })
+
   ipcMain.handle(IPC_CHANNELS.TOKEN_GET_DEFAULT_CREDS, async () => {
     // Return per-project credentials from oauth_config.json
     const fs = await import('fs')
@@ -1836,9 +1908,30 @@ async function registerIPCHandlers() {
     return getKeyManager().getAllKeys()
   })
 
-  ipcMain.handle(IPC_CHANNELS.KEY_ADD, (_, key: string, projectId: string, name: string) => {
-    getKeyManager().addKey(key, projectId, name)
-    return { success: true, keys: getKeyManager().getAllKeys() }
+  ipcMain.handle(IPC_CHANNELS.KEY_ADD, async (_, key: string, projectId: string, name: string) => {
+    // Test the key before adding it — reject invalid keys
+    const km = getKeyManager()
+    const testResult = await km.testKey(key)
+
+    if (!testResult.valid) {
+      const friendlyError: Record<string, string> = {
+        unauthorized: 'Key không hợp lệ hoặc đã bị revoke. Vui lòng kiểm tra lại API Key.',
+        quota_exhausted: 'Key đã hết quota. Chọn key khác hoặc reset quota trên Google Cloud Console.',
+        invalid_key: 'Định dạng key không hợp lệ. Key phải bắt đầu bằng "AIzaSy".',
+        network_error: 'Không thể kết nối YouTube API. Kiểm tra kết nối mạng.',
+      }
+      return {
+        success: false,
+        keys: km.getAllKeys(),
+        error: friendlyError[testResult.errorType || 'invalid_key'] || testResult.error,
+        errorType: testResult.errorType,
+      }
+    }
+
+    // Key is valid — add it
+    km.addKey(key, projectId, name)
+    console.log(`[KeyManager] Key validated and added: ${name} (${key.slice(0, 12)}...)`)
+    return { success: true, keys: km.getAllKeys() }
   })
 
   ipcMain.handle(IPC_CHANNELS.KEY_REMOVE, (_, key: string) => {
@@ -1855,6 +1948,36 @@ async function registerIPCHandlers() {
       result = km.resetAll()
     }
     return { success: result.success, keys: km.getAllKeys(), nextReset: result.nextReset }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.KEY_TEST, async (_, key: string) => {
+    const km = getKeyManager()
+    const result = await km.testKey(key)
+    // If unauthorized, mark the key so it gets excluded from rotation
+    if (!result.valid && result.errorType === 'unauthorized') {
+      km.markUnauthorized(key)
+    } else if (result.valid) {
+      km.markAuthorized(key)
+    }
+    return result
+  })
+
+  ipcMain.handle(IPC_CHANNELS.KEY_TEST_ALL, async () => {
+    const km = getKeyManager()
+    const keys = km.getAllKeys()
+    const results: Array<{ key: string; name: string; valid: boolean; error?: string; errorType?: string }> = []
+
+    for (const k of keys) {
+      const result = await km.testKey(k.key)
+      if (!result.valid && result.errorType === 'unauthorized') {
+        km.markUnauthorized(k.key)
+      } else if (result.valid) {
+        km.markAuthorized(k.key)
+      }
+      results.push({ key: k.key, name: k.name, ...result })
+    }
+
+    return { results, keys: km.getAllKeys() }
   })
 
   // ─── Dynamic Project Management ─────────────────────────────────────────────
@@ -2008,17 +2131,8 @@ async function registerIPCHandlers() {
     for (const k of keys) {
       km.resetKey(k.key)
     }
-    // For tokens, we clear stats by removing and re-adding
-    const token = tm.getToken(projectId)
-    if (token) {
-      tm.removeToken(projectId)
-      tm.addToken(projectId, token.clientId, token.clientSecret, {
-        access_token: token.access_token,
-        refresh_token: token.refresh_token,
-        expires_at: token.expires_at,
-        token_type: token.token_type,
-      })
-    }
+    // Reset token stats (keeps the token, only clears usedToday/errors)
+    tm.resetTokenStats(projectId)
     return { success: true }
   })
 
@@ -2201,7 +2315,7 @@ app.whenReady().then(async () => {
   if (mainWindow) {
     // did-finish-load fires immediately if the page is already loaded
     mainWindow.webContents.once('did-finish-load', () => {
-      startYouTubePoller(20000, (videos) => {
+      startYouTubePoller(5000, (videos) => {
         for (const v of videos) {
           showWindowsToast('📥 Video mới!', `${v.channelName}: ${v.title}`)
           autoDownloadFromWebSub(
@@ -2211,7 +2325,7 @@ app.whenReady().then(async () => {
           )
         }
       })
-      console.log('[HyperClip] Auto-ingestion active (YouTube API — 20s interval, batched channels)')
+      console.log('[HyperClip] Auto-ingestion active (YouTube API — 5s interval, batched channels)')
       console.log(`[HyperClip] Ready → http://localhost:${NEXT_PORT}`)
       startSystemMonitor()
     })

@@ -63,6 +63,8 @@ const IPC = {
   KEY_ADD: 'key:add',
   KEY_REMOVE: 'key:remove',
   KEY_RESET: 'key:reset',
+  KEY_TEST: 'key:test',
+  KEY_TEST_ALL: 'key:test-all',
 
   // Dynamic projects
   PROJECT_LIST: 'project:list',
@@ -83,6 +85,7 @@ const IPC = {
 
   // Poller
   POLLER_STATUS: 'poller:status',
+  POLLER_RESUME: 'poller:resume',
 
   // Auth
   AUTH_STATUS: 'auth:status',
@@ -97,6 +100,7 @@ const IPC = {
   // Per-project OAuth
   AUTH_OAUTH_START_PER_PROJECT: 'auth:oauth-start-per-project',
     TOKEN_STATUS_LIST: 'token:status-list',
+  TOKEN_TEST: 'token:test',
   TOKEN_REMOVE: 'token:remove',
   TOKEN_GET_DEFAULT_CREDS: 'token:get-default-creds',
 
@@ -213,7 +217,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     videoCount: number
     newVideoCount: number
     lastError: string | null
+    exhaustedUntil: number | null
   } | null>,
+  resumePoller: () => ipcRenderer.invoke(IPC.POLLER_RESUME) as Promise<{ success: boolean }>,
 
   // Auth
   getAuthStatus: () => ipcRenderer.invoke(IPC.AUTH_STATUS) as Promise<{
@@ -239,6 +245,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startOAuthFlowPerProject: (clientId: string, clientSecret: string, projectId: string) =>
     ipcRenderer.invoke(IPC.AUTH_OAUTH_START_PER_PROJECT, clientId, clientSecret, projectId) as Promise<{ success: boolean; error?: string }>,
   getTokenStatuses: () => ipcRenderer.invoke(IPC.TOKEN_STATUS_LIST) as Promise<unknown[]>,
+  testToken: (projectId: string) =>
+    ipcRenderer.invoke(IPC.TOKEN_TEST, projectId) as Promise<{ valid: boolean; error?: string; errorType?: string }>,
   removeToken: (projectId: string) =>
     ipcRenderer.invoke(IPC.TOKEN_REMOVE, projectId) as Promise<{ success: boolean }>,
   getDefaultOAuthCredentials: () =>
@@ -269,6 +277,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC.KEY_REMOVE, key) as Promise<{ success: boolean; keys: unknown[] }>,
   resetKey: (key?: string) =>
     ipcRenderer.invoke(IPC.KEY_RESET, key) as Promise<{ success: boolean; keys: unknown[] }>,
+  testKey: (key: string) =>
+    ipcRenderer.invoke(IPC.KEY_TEST, key) as Promise<{ valid: boolean; error?: string; errorType?: string }>,
+  testAllKeys: () =>
+    ipcRenderer.invoke(IPC.KEY_TEST_ALL) as Promise<{
+      results: Array<{ key: string; name: string; valid: boolean; error?: string; errorType?: string }>
+      keys: unknown[]
+    }>,
 
   // Dynamic projects
   getProjects: () =>
@@ -285,9 +300,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Chrome sessions (Innertube API — no quota limit)
   getSessionStatus: () =>
     ipcRenderer.invoke(IPC.SESSION_LIST) as Promise<{
-      ready: boolean; sessionCount: number; loggedInCount: number
+      ready: boolean; sessionCount: number; loggedInCount: number; consentedCount: number
       sessions: Array<{
-        profileId: string; profileName: string; isLoggedIn: boolean
+        profileId: string; profileName: string; isLoggedIn: boolean; isConsented: boolean
         usedToday: number; lastUsed: number; error?: string
       }>
     }>,

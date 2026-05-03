@@ -20,6 +20,7 @@ interface Props {
   }
   pollerStatus?: { active: boolean; newVideoCount: number; lastError: string | null } | null
   onLogout?: () => void
+  keyHealth?: { exhausted: number; unauthorized: number }
 }
 
 function AvatarWithFallback({ url, name, color }: { url: string; name: string; color: string }) {
@@ -56,6 +57,7 @@ export function Sidebar({
   authStatus,
   pollerStatus,
   onLogout,
+  keyHealth,
 }: Props) {
   const [showAll, setShowAll] = useState(true)
 
@@ -78,6 +80,27 @@ export function Sidebar({
         </div>
         <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.06em', flex: 1 }}>HyperClip</span>
         <NotificationCenter />
+        {/* Key health badge */}
+        {keyHealth && (keyHealth.exhausted > 0 || keyHealth.unauthorized > 0) && (
+          <div
+            onClick={() => { window.location.href = '/settings' }}
+            title={`${keyHealth.exhausted} exhausted, ${keyHealth.unauthorized} unauthorized`}
+            style={{
+              minWidth: 16, height: 16, borderRadius: 8,
+              background: '#FF4444',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: '0 4px', flexShrink: 0, cursor: 'pointer',
+              boxShadow: '0 0 4px #FF444466',
+              transition: 'transform 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.1)' }}
+            onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}
+          >
+            <span style={{ fontSize: 8, fontWeight: 800, color: '#fff' }}>
+              {keyHealth.exhausted + keyHealth.unauthorized}
+            </span>
+          </div>
+        )}
         <a href="/settings" title="Settings" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: 3, color: '#444', textDecoration: 'none', transition: 'color 0.15s' }}
           onMouseEnter={e => { e.currentTarget.style.color = '#888'; e.currentTarget.style.background = '#1a1a1a' }}
           onMouseLeave={e => { e.currentTarget.style.color = '#444'; e.currentTarget.style.background = 'transparent' }}

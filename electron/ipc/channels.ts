@@ -49,6 +49,7 @@ export const IPC_CHANNELS = {
 
   // Poller
   POLLER_STATUS: 'poller:status',
+  POLLER_RESUME: 'poller:resume',
 
   // WebSub
   WEBSUB_TEST: 'websub:test',
@@ -66,6 +67,7 @@ export const IPC_CHANNELS = {
   // Per-project OAuth
   AUTH_OAUTH_START_PER_PROJECT: 'auth:oauth-start-per-project',
   TOKEN_STATUS_LIST: 'token:status-list',
+  TOKEN_TEST: 'token:test',
   TOKEN_ADD: 'token:add',
   TOKEN_REMOVE: 'token:remove',
   TOKEN_GET_DEFAULT_CREDS: 'token:get-default-creds',
@@ -86,6 +88,8 @@ export const IPC_CHANNELS = {
   KEY_ADD: 'key:add',
   KEY_REMOVE: 'key:remove',
   KEY_RESET: 'key:reset',
+  KEY_TEST: 'key:test',
+  KEY_TEST_ALL: 'key:test-all',
 
   // Dynamic project management (OAuth + API key per project)
   PROJECT_LIST: 'project:list',

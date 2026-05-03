@@ -412,6 +412,8 @@ export async function startOAuthFlow(clientId: string, clientSecret?: string, pr
       const configPath = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json')
       if (fs.existsSync(configPath)) {
         const cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+        // Prefer per-project secret if projectId is known
+        if (projectId && cfg[projectId]?.clientSecret) return cfg[projectId].clientSecret
         return cfg.client_secret || ''
       }
     } catch {}

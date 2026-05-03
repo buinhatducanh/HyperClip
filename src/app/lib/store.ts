@@ -53,6 +53,7 @@ export interface AppSettings {
   defaultQuality: 1080 | 720
   autoRender: boolean
   minimizeToTray: boolean
+  autoDownloadQuality: string  // '360'|'480'|'720'|'1080'
 }
 
 export interface AppStore {
@@ -165,6 +166,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     defaultQuality: 1080,
     autoRender: false,
     minimizeToTray: true,
+    autoDownloadQuality: '720',
   },
   renderQueueExpanded: false,
   toast: '',

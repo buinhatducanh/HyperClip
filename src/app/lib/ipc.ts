@@ -111,7 +111,7 @@ export const ipc = {
   async getSettings() {
     return window.electronAPI?.getSettings() ?? { videoStoragePath: undefined, outputPath: undefined }
   },
-  async updateSettings(patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full' }) {
+  async updateSettings(patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string }) {
     return window.electronAPI?.updateSettings(patch)
   },
   async getAuthStatus() {
@@ -133,14 +133,20 @@ export const ipc = {
     const result = await window.electronAPI?.getKeys()
     return (result as KeyStatus[]) ?? []
   },
-  async addKey(key: string, projectId: string, name: string) {
-    return window.electronAPI?.addKey(key, projectId, name) ?? { success: false, keys: [] }
+  async addKey(key: string, projectId: string, name: string): Promise<{ success: boolean; keys: unknown[]; error?: string; errorType?: string }> {
+    return window.electronAPI?.addKey(key, projectId, name) ?? { success: false, keys: [], error: 'electronAPI not available' }
   },
   async removeKey(key: string) {
     return window.electronAPI?.removeKey(key) ?? { success: false, keys: [] }
   },
   async resetKey(key?: string) {
     return window.electronAPI?.resetKey(key) ?? { success: false, keys: [], nextReset: 0 }
+  },
+  async testKey(key: string) {
+    return window.electronAPI?.testKey(key) ?? { valid: false, error: 'electronAPI not available', errorType: 'network_error' }
+  },
+  async testAllKeys() {
+    return window.electronAPI?.testAllKeys() ?? { results: [], keys: [] }
   },
   async adminCheckPassword(password: string) {
     return window.electronAPI?.adminCheckPassword(password) ?? { ok: false }
@@ -151,8 +157,11 @@ export const ipc = {
   async adminHasPassword() {
     return window.electronAPI?.adminHasPassword() ?? { has: false }
   },
-  async getPollerStatus(): Promise<{ active: boolean; lastPollAt: number | null; newVideoCount: number; lastError: string | null } | null> {
+  async getPollerStatus(): Promise<{ active: boolean; lastPollAt: number | null; newVideoCount: number; lastError: string | null; exhaustedUntil: number | null } | null> {
     return window.electronAPI?.getPollerStatus() ?? null
+  },
+  async resumePoller() {
+    return window.electronAPI?.resumePoller() ?? { success: false }
   },
 
   // ─── Project Management ──────────────────────────────────────────────────────
@@ -175,6 +184,10 @@ export const ipc = {
 
   async reauthorizeProject(projectId: string) {
     return window.electronAPI?.reauthorizeProject(projectId) ?? { success: false, error: 'electronAPI not available' }
+  },
+
+  async testToken(projectId: string) {
+    return window.electronAPI?.testToken(projectId) ?? { valid: false, error: 'electronAPI not available' }
   },
 
   // ─── Chrome Sessions ──────────────────────────────────────────────────────────

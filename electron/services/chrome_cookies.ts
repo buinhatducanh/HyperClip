@@ -62,6 +62,11 @@ function getHyperClipProfileDir(profileId: string): string {
   return path.join(LOCALAPPDATA, `HyperClip-Chrome-Profile-${profileId}`)
 }
 
+// User's default Chrome profile (already logged in)
+function getDefaultChromeProfileDir(): string {
+  return path.join(LOCALAPPDATA, 'Google', 'Chrome', 'User Data', 'Default')
+}
+
 // Chrome installation path
 function getChromeExe(): string {
   const chromePath = path.join(
@@ -90,29 +95,27 @@ function getChromeExe(): string {
  *
  * @returns 32-byte AES key as base64 string, or null if decryption fails.
  */
-export function decryptDPAPIKey(localStatePath: string): string | null {
+export async function decryptDPAPIKey(localStatePath: string): Promise<string | null> {
   try {
     const raw = fs.readFileSync(localStatePath, 'utf-8')
     const json = JSON.parse(raw)
     const encryptedKeyB64 = json.os_crypt?.encrypted_key
-    if (!encryptedKeyB64) return null
+    if (!encryptedKeyB64) {
+      console.log(`[DPAPI] No os_crypt.encrypted_key in ${localStatePath}. Keys: ${Object.keys(json).join(', ')}`)
+      return null
+    }
 
     const encryptedKey = Buffer.from(encryptedKeyB64, 'base64')
-    // Chrome v80+: encrypted_key format is "DPAPI" prefix (5 bytes) + raw encrypted data
-    // Chrome v79-: just raw DPAPI blob (no prefix)
     const prefix = encryptedKey.slice(0, 5).toString('hex')
 
     let keyData: string
     if (prefix === '4450415049') {
-      // "DPAPI" prefix — strip it
       keyData = encryptedKey.slice(5).toString('base64')
     } else {
-      // Already raw
       keyData = encryptedKey.toString('base64')
     }
 
-    // Call PowerShell to decrypt with DPAPI
-    const result = runPowerShellSync(
+    const result = await runPowerShellSync(
       `Add-Type -AssemblyName System.Security; ` +
       `$encrypted = [Convert]::FromBase64String('${keyData}'); ` +
       `$decrypted = [System.Security.Cryptography.ProtectedData]::Unprotect(` +
@@ -120,9 +123,15 @@ export function decryptDPAPIKey(localStatePath: string): string | null {
       `[Convert]::ToBase64String($decrypted)`
     )
 
-    if (!result) return null
-    return result.trim()
-  } catch {
+    if (!result) {
+      console.log(`[DPAPI] PowerShell returned null/empty`)
+      return null
+    }
+
+    console.log(`[DPAPI] Decrypted key OK (${result.length} chars)`)
+    return result
+  } catch (e) {
+    console.log(`[DPAPI] Exception: ${e}`)
     return null
   }
 }
@@ -267,16 +276,18 @@ export async function extractYouTubeCookies(profileDir: string): Promise<YouTube
   const cookieDbPath = path.join(profileDir, 'Default', 'Network', 'Cookies')
   const localStatePath = path.join(profileDir, 'Local State')
 
+  console.log(`[Cookie] extractYouTubeCookies: dir=${profileDir}, dbExists=${fs.existsSync(cookieDbPath)}, localStateExists=${fs.existsSync(localStatePath)}`)
+
   if (!fs.existsSync(cookieDbPath)) {
-    // Try the parent-level Local State (newer Chrome versions)
     const altLocalState = path.join(profileDir, '..', 'Local State')
+    console.log(`[Cookie] No Cookies DB at ${cookieDbPath}, alt Local State exists: ${fs.existsSync(altLocalState)}`)
     if (fs.existsSync(altLocalState)) {
       return extractYouTubeCookiesFromPath(cookieDbPath, altLocalState)
     }
     return null
   }
 
-  return extractYouTubeCookiesFromPath(cookieDbPath, localStatePath)
+  return await extractYouTubeCookiesFromPath(cookieDbPath, localStatePath)
 }
 
 async function extractYouTubeCookiesFromPath(
@@ -284,10 +295,12 @@ async function extractYouTubeCookiesFromPath(
   localStatePath: string
 ): Promise<YouTubeCookies | null> {
   // Get DPAPI key
-  const aesKeyB64 = decryptDPAPIKey(localStatePath)
+  const aesKeyB64 = await decryptDPAPIKey(localStatePath)
   if (!aesKeyB64) {
+    console.log(`[Cookie] decryptDPAPIKey returned null for ${localStatePath}`)
     return null
   }
+  console.log(`[Cookie] DPAPI key OK, path=${localStatePath}`)
 
   // Read cookie DB (may be locked by Chrome)
 // Retry up to 3 times with 500ms delay to handle transient locks.
@@ -323,19 +336,18 @@ for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
 if (!dbBuffer) return null
 
   try {
-    // For sql.js in Node.js, we need to pass the binary directly
-    // Try loading from node_modules
-    const sqlJsDist = path.join(
-      app.isPackaged
-        ? path.join(process.resourcesPath!, 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist')
-        : path.join(__dirname, '..', '..', 'node_modules', 'sql.js', 'dist')
-    )
+    // Use app.getAppPath() which works in both dev and packaged modes (ESM-compatible)
+    const sqlJsDist = app.isPackaged
+      ? path.join(process.resourcesPath!, 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist')
+      : path.join(app.getAppPath(), 'node_modules', 'sql.js', 'dist')
 
-    // Use sql.js with the WASM binary loaded from disk
+    console.log(`[Cookie] sql.js loading WASM from: ${sqlJsDist}`)
     const SqlJs = await initSqlJs({
       locateFile: (f: string) => path.join(sqlJsDist, f),
     })
+    console.log(`[Cookie] sql.js loaded, opening DB...`)
     const db = new SqlJs.Database(dbBuffer)
+    console.log(`[Cookie] sql.js DB opened, querying...`)
 
     // Query YouTube cookies
     // Chrome stores encrypted values in the 'encrypted_value' column
@@ -348,9 +360,11 @@ if (!dbBuffer) return null
     `)
 
     if (!result.length || !result[0].values.length) {
+      console.log(`[Cookie] No YouTube cookies found in DB for ${cookieDbPath}`)
       db.close()
       return null
     }
+    console.log(`[Cookie] Found ${result[0].values.length} cookie rows: ${result[0].values.map((r: any) => String(r[0])).join(', ')}`)
 
     const cookies: Partial<YouTubeCookies> = {}
 
@@ -387,6 +401,7 @@ if (!dbBuffer) return null
     }
     return null
   } catch (e) {
+    console.log(`[Cookie] sql.js error: ${e}`)
     return null
   }
 }
@@ -417,12 +432,17 @@ export function launchChromeForLogin(profileId: string): { process: ReturnType<t
     return null
   }
 
-  const profileDir = getHyperClipProfileDir(profileId)
+  const isDefaultChrome = profileId === '1'
+  const profileDir = isDefaultChrome
+    ? getDefaultChromeProfileDir()
+    : getHyperClipProfileDir(profileId)
 
-  // Ensure profile directory exists
-  const defaultDir = path.join(profileDir, 'Default')
-  if (!fs.existsSync(defaultDir)) {
-    fs.mkdirSync(defaultDir, { recursive: true })
+  // Ensure profile directory exists (for non-default profiles)
+  if (!isDefaultChrome) {
+    const defaultDir = path.join(profileDir, 'Default')
+    if (!fs.existsSync(defaultDir)) {
+      fs.mkdirSync(defaultDir, { recursive: true })
+    }
   }
 
   const args = [
@@ -478,21 +498,26 @@ export class ChromeSessionManager {
   private async _init(): Promise<void> {
     console.log(`[SessionManager] Initializing ${this._sessionCount} Chrome profiles...`)
 
+    // Session 1: use user's existing Chrome profile (already logged in)
+    // Sessions 2-30: use dedicated HyperClip profiles
     for (let i = 1; i <= this._sessionCount; i++) {
       const profileId = String(i)
-      const profileDir = getHyperClipProfileDir(profileId)
+      const isDefaultChrome = i === 1
+      const profileDir = isDefaultChrome
+        ? getDefaultChromeProfileDir()
+        : getHyperClipProfileDir(profileId)
       const profileExists = fs.existsSync(path.join(profileDir, 'Default', 'Network', 'Cookies'))
 
       this._sessions.push({
         profileId,
-        profileName: `HyperClip Profile ${i}`,
+        profileName: isDefaultChrome ? 'Chrome (Default)' : `HyperClip Profile ${i}`,
         profileDir,
         cookies: null,
         usedToday: 0,
         lastUsed: 0,
         isLoggedIn: profileExists,
         isConsented: false,
-        error: profileExists ? undefined : 'Profile not initialized',
+        error: profileExists ? undefined : (isDefaultChrome ? 'Chrome profile not found' : 'Profile not initialized'),
       })
     }
 
@@ -584,9 +609,11 @@ export class ChromeSessionManager {
       session.isConsented = !!cookies?.socs && !cookies.socs.startsWith('CAA')
       session.error = cookies ? undefined : 'No YouTube cookies'
       session.usedToday = 0
+      console.log(`[SessionManager] refreshSession(${profileId}): cookies=${!!cookies}, isLoggedIn=${session.isLoggedIn}, isConsented=${session.isConsented}, socs=${cookies?.socs}`)
       return !!cookies
     } catch (e) {
       session.error = String(e)
+      console.log(`[SessionManager] refreshSession(${profileId}): ERROR — ${e}`)
       return false
     }
   }

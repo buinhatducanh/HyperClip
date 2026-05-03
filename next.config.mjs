@@ -3,9 +3,7 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  eslint: {
-    ignoreBuildErrors: true,
-  },
+
   typescript: {
     ignoreBuildErrors: true,
   },

@@ -32,8 +32,8 @@ export interface SubscriptionVideo {
 export interface SubFeedResult {
   videos: SubscriptionVideo[]
   error?: string
-  /** True when Innertube returned 0 videos AND all OAuth tokens are exhausted */
-  allTokensExhausted?: boolean
+  /** True when ALL detection sources are unavailable (no Innertube sessions AND no OAuth tokens) */
+  allSourcesExhausted?: boolean
   source: 'playlist'
 }
 
@@ -249,7 +249,9 @@ async function fetchChannelVideos(
     let uploadsId = getCachedUploadsId(channelId)
     if (!uploadsId) {
       const browseJson = await apiGetInnertube(channelId, session)
-      if (!browseJson.error) {
+      if (browseJson.error) {
+        console.warn(`[SubFeed] Innertube browse error for ${ch.name}: ${browseJson.error}`)
+      } else {
         // Parse uploads playlist from Innertube browse response
         // Response: { metadata: { channelMetadataRenderer: { uploadsId } } }
         const uploads = browseJson.metadata?.channelMetadataRenderer?.uploadId
@@ -257,6 +259,8 @@ async function fetchChannelVideos(
         if (uploads) {
           uploadsId = uploads
           setCachedUploadsId(channelId, uploads)
+        } else {
+          console.warn(`[SubFeed] Innertube browse: no uploadsId for ${ch.name} — response keys: ${Object.keys(browseJson).join(', ')}`)
         }
       }
     }
@@ -264,7 +268,9 @@ async function fetchChannelVideos(
     if (uploadsId) {
       // Step 2: get recent playlist items via Innertube
       const playlistJson = await apiGetInnertube(uploadsId, session)
-      if (!playlistJson.error) {
+      if (playlistJson.error) {
+        console.warn(`[SubFeed] Innertube playlist error for ${ch.name}: ${playlistJson.error}`)
+      } else {
         const videos = parseInnertubePlaylistVideos(playlistJson, channelId, ch.name, seenVideoIds, sinceMs)
         if (videos.length > 0) {
           const ageLabel = videos[0].publishedAt > 0
@@ -273,11 +279,20 @@ async function fetchChannelVideos(
           console.log(`[SubFeed] ✓ "${videos[0].title.slice(0, 40)}" from ${ch.name} (${ageLabel})`)
           return videos
         }
+        // Innertube returned 0 videos — trust this result, do NOT burn OAuth quota
+        // Only fallback to OAuth when Innertube session is unavailable, not when it returns 0
       }
     }
-
-    // Innertube worked but returned 0 videos — try OAuth fallback for this channel
-    console.log(`[SubFeed] Innertube 0 videos for ${ch.name} — trying OAuth fallback`)
+  }
+  // No Innertube session available — try OAuth fallback
+  // Innertube has NO quota limit. OAuth has 10k units/day.
+  // We only use OAuth when Innertube sessions are unavailable.
+  if (!session?.cookies) {
+    const sessions2 = sm.getSessions()
+    const consentedCount = sessions2.filter(s => s.isConsented).length
+    if (consentedCount === 0) {
+      console.warn(`[SubFeed] No Innertube sessions available (0 consented). Falling back to OAuth — quota will be consumed.`)
+    }
   }
 
   // ── OAuth fallback (Data API v3, has quota) ──
@@ -482,12 +497,20 @@ export async function fetchSubscriptionFeed(
     return { videos: [], source: 'playlist' }
   }
 
-  // Non-consuming check: is any OAuth token available?
-  // If not, signal poller so it can notify user and back off
+  // Non-consuming check: is any OAuth token OR Innertube session available?
+  // If neither is available, signal poller so it can notify user and back off.
+  // Note: Innertube (cookie-based) has NO quota limit — it's the primary detection path.
+  // OAuth (Data API v3) is fallback with 10k units/day quota.
   const tm = getTokenManager()
   const tmStatuses = tm.getAllStatuses()
-  const hasAnyToken = tmStatuses.some(ts => ts.hasToken && ts.status !== 'exhausted')
-  const allTokensExhausted = !hasAnyToken
+  const hasOAuth = tmStatuses.some(ts => ts.hasToken && ts.status !== 'exhausted')
+
+  const sm = getSessionManager()
+  await sm.ensureInit()
+  const sessions = sm.getSessions()
+  const hasInnertube = sessions.some(s => s.cookies && s.isConsented)
+
+  const allSourcesExhausted = !hasOAuth && !hasInnertube
 
   const targetStop = stopAfterCount ?? maxVideos ?? MAX_VIDEOS_PER_POLL
   console.log(`[SubFeed] Scanning ${channels.length} channels (max ${MAX_CONCURRENT} concurrent, stop after ${targetStop})...`)
@@ -512,16 +535,16 @@ export async function fetchSubscriptionFeed(
   if (unique.length > 0) {
     console.log(`[SubFeed] Total: ${unique.length} new videos from ${channels.length} channels`)
   } else {
-    if (allTokensExhausted) {
-      console.warn(`[SubFeed] No new videos — ALL OAuth tokens exhausted. Will retry at midnight PT.`)
+    if (allSourcesExhausted) {
+      console.warn(`[SubFeed] Exhausted: Innertube unavailable AND OAuth tokens exhausted.`)
     } else {
-      console.log(`[SubFeed] No new videos (scanned ${channels.length} channels)`)
+      console.log(`[SubFeed] No new videos — scanned ${channels.length} channels. Innertube: ${hasInnertube ? 'available' : 'no sessions'}, OAuth: ${hasOAuth ? 'available' : 'tokens exhausted'}`)
     }
   }
 
   return {
     videos: unique,
-    allTokensExhausted,
+    allSourcesExhausted,
     source: 'playlist',
   }
 }

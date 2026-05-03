@@ -1,26 +1,117 @@
 import path from 'path'
 import fs from 'fs'
 import { execSync } from 'child_process'
+import os from 'os'
 
 // Shared FFmpeg/FFprobe path resolution.
 // On Windows with Bash/Git environments, process.cwd() returns Unix-style paths
 // (/d/...). Node's fs.existsSync accepts both forward-slash and backslash paths,
 // but mixed/backslash paths may fail. We always normalize to forward slashes.
 function resolveBinary(name: string): string {
-  const candidates = [
+  const exists = (fp: string) => { try { return fs.existsSync(fp) } catch { return false } }
+
+  // Helper: probe a binary and score it for CUDA/NVENC capability.
+  // Higher score = more suitable for GPU-accelerated rendering.
+  function probeAndScore(fp: string): { ok: boolean; score: number; version: string } {
+    try {
+      const out = execSync(`"${fp}" -version 2>&1`, { encoding: 'utf-8', timeout: 5000 })
+      if (!out.includes(name)) return { ok: false, score: 0, version: '' }
+      // Quick CUDA score: prefer builds known to have CUDA support
+      // - full/build: high score
+      // - essentials/gpl/shared: medium score
+      // - generic: low score
+      let score = 10  // base score for being a valid binary
+      const lower = fp.toLowerCase()
+      if (lower.includes('cuda') || lower.includes('nvenc') || lower.includes('nvidia')) score += 50
+      if (lower.includes('full')) score += 30
+      if (lower.includes('share')) score += 20
+      if (lower.includes('essentials')) score += 15
+      if (lower.includes('gpl')) score += 10
+      if (lower.includes('git')) score += 25
+      // Version: prefer 7.x+
+      const verMatch = out.match(/(\d+)\.(\d+)/)
+      if (verMatch) {
+        const major = parseInt(verMatch[1])
+        if (major >= 7) score += 20
+        else if (major >= 5) score += 10
+      }
+      const version = out.split('\n')[0].trim()
+      return { ok: true, score, version }
+    } catch {
+      return { ok: false, score: 0, version: '' }
+    }
+  }
+
+  const candidates: string[] = []
+
+  // 1. Check PATH environment variable first — most reliable for installed ffmpeg
+  const pathEnv = process.env.PATH || process.env.Path || ''
+  for (const dir of pathEnv.split(path.delimiter)) {
+    if (!dir) continue
+    const fp = path.join(dir.trim(), `${name}.exe`)
+    if (exists(fp)) candidates.push(fp)
+  }
+
+  // 2. Common CapCut FFmpeg installations (bundled with video editor)
+  const capcutVersions = [
+    '8.1.1.3417',
+    '8.0.1.3366',
+    '8.0.0.3346',
+    '7.9.0.3200',
+  ]
+  for (const ver of capcutVersions) {
+    candidates.push(`C:/Users/MSI/AppData/Local/CapCut/Apps/${ver}/${name}.exe`)
+  }
+
+  // 3. Standalone ffmpeg builds — CUDA-enabled builds first (higher score from probeAndScore)
+  candidates.push(
+    `C:/ffmpeg/ffmpeg-full/bin/${name}.exe`,
+    `C:/ffmpeg/ffmpeg-git-full/bin/${name}.exe`,
+    `C:/Users/MSI/AppData/Local/CapCut/Apps/8.1.1.3417/${name}.exe`,
+    `C:/Users/MSI/AppData/Local/CapCut/Apps/8.0.1.3366/${name}.exe`,
     `C:/ffmpeg/ffmpeg-8.1-essentials_build/bin/${name}.exe`,
     `C:/ffmpeg/bin/${name}.exe`,
     `C:/Program Files/ffmpeg/bin/${name}.exe`,
     `C:/Program Files (x86)/ffmpeg/bin/${name}.exe`,
-    path.join(process.cwd(), 'node_modules', '.bin', name),
-    'C:/Users/MSI/AppData/Local/CapCut/Apps/8.1.1.3417/' + name + '.exe',
-    'C:/Users/MSI/AppData/Local/CapCut/Apps/8.0.1.3366/' + name + '.exe',
-  ]
-  const exists = (fp: string) => { try { return fs.existsSync(fp) } catch { return false } }
-  for (const fp of candidates) {
-    if (exists(fp)) return fp
+    `C:/msys64/mingw64/bin/${name}.exe`,
+    `C:/tools/${name}.exe`,
+  )
+
+  // 4. Local node_modules .bin (for development)
+  candidates.push(path.join(process.cwd(), 'node_modules', '.bin', name))
+
+  // 5. User-local AppData Roaming ffmpeg
+  const appdata = process.env.APPDATA || ''
+  if (appdata) {
+    candidates.push(path.join(appdata, 'ffmpeg', 'bin', name + '.exe'))
+    candidates.push(path.join(appdata, name, 'bin', name + '.exe'))
   }
-  return name
+
+  // 6. Chocolatey / Scoop package managers
+  candidates.push(`C:/ProgramData/chocolatey/bin/${name}.exe`)
+  candidates.push(`C:/Users/MSI/scoop/shims/${name}.exe`)
+
+  // Find best candidate by CUDA capability score
+  let bestFp = ''
+  let bestScore = -1
+  let bestVersion = ''
+  for (const fp of candidates) {
+    const { ok, score, version } = probeAndScore(fp)
+    if (ok && score > bestScore) {
+      bestScore = score
+      bestFp = fp
+      bestVersion = version
+    }
+  }
+
+  if (bestFp) {
+    console.log(`[FFmpeg] Resolved ${name}: ${bestFp}`)
+    console.log(`[FFmpeg] Binary: ${bestVersion} (CUDA score: ${bestScore})`)
+    return bestFp
+  }
+
+  console.warn(`[FFmpeg] Could not find ${name}.exe in any candidate path`)
+  return name  // fallback to PATH lookup
 }
 
 export function getFfprobePath(): string {
@@ -31,28 +122,106 @@ export function getFfmpegPath(): string {
   return resolveBinary('ffmpeg')
 }
 
-// Validate FFmpeg binary: verify it can be executed and has NVENC encoders.
-// Returns a resolved promise on success, rejected on failure.
+// FFmpeg version and capability info (parsed once, cached)
+export interface FfmpegVersion {
+  version: string
+  majorVersion: number
+  hasNvenc: boolean
+  hasNvdec: boolean
+  hasCuvid: boolean
+  hasQsv: boolean
+  hasVaapi: boolean
+  hasCudaFilters: boolean
+  hasNvencLookahead: boolean
+  hasHevcNvenc: boolean
+  hasH264Nvenc: boolean
+}
+
+let _cachedVersion: FfmpegVersion | null = null
+
+function parseVersion(versionStr: string): number {
+  const match = versionStr.match(/(\d+)\.(\d+)/)
+  if (match) return parseInt(match[1])
+  return 0
+}
+
+export function getFfmpegVersion(ffmpegPath: string): FfmpegVersion {
+  if (_cachedVersion) return _cachedVersion
+
+  const result: FfmpegVersion = {
+    version: 'unknown',
+    majorVersion: 0,
+    hasNvenc: false,
+    hasNvdec: false,
+    hasCuvid: false,
+    hasQsv: false,
+    hasVaapi: false,
+    hasCudaFilters: false,
+    hasNvencLookahead: false,
+    hasHevcNvenc: false,
+    hasH264Nvenc: false,
+  }
+
+  try {
+    const versionOut = execSync(`"${ffmpegPath}" -version 2>&1`, {
+      encoding: 'utf-8', timeout: 5000,
+    })
+    result.version = versionOut.split('\n')[0]
+    result.majorVersion = parseVersion(result.version)
+    console.log(`[FFmpeg] ${result.version} (major=${result.majorVersion})`)
+  } catch (e) {
+    console.warn('[FFmpeg] Could not get version:', e)
+    _cachedVersion = result
+    return result
+  }
+
+  try {
+    const encodersOut = execSync(`"${ffmpegPath}" -hide_banner -encoders 2>&1`, {
+      encoding: 'utf-8', timeout: 8000,
+    }).toString()
+
+    result.hasH264Nvenc = encodersOut.includes('h264_nvenc')
+    result.hasHevcNvenc = encodersOut.includes('hevc_nvenc')
+    result.hasNvenc = result.hasH264Nvenc || result.hasHevcNvenc
+    result.hasNvdec = encodersOut.includes('hevc_nvdec') || encodersOut.includes('h264_nvdec')
+    result.hasCuvid = encodersOut.includes('hevc_cuvid') || encodersOut.includes('h264_cuvid')
+    result.hasQsv = encodersOut.includes('hevc_qsv') || encodersOut.includes('h264_qsv')
+    result.hasVaapi = encodersOut.includes('hevc_vaapi') || encodersOut.includes('h264_vaapi')
+    result.hasNvencLookahead = encodersOut.includes('nvenc_lookahead')
+
+    console.log(`[FFmpeg] NVENC: ${result.hasNvenc ? '✓' : '✗'} | NVDEC: ${result.hasNvdec ? '✓' : '✗'} | CUVID: ${result.hasCuvid ? '✓' : '✗'} | QSV: ${result.hasQsv ? '✓' : '✗'} | VAAPI: ${result.hasVaapi ? '✓' : '✗'}`)
+    console.log(`[FFmpeg] CUDA filters: ${result.hasCudaFilters ? '✓' : '✗'} | NVENC lookahead: ${result.hasNvencLookahead ? '✓' : '✗'}`)
+  } catch (e) {
+    console.warn('[FFmpeg] Could not enumerate encoders:', e)
+  }
+
+  try {
+    const filtersOut = execSync(`"${ffmpegPath}" -hide_banner -filters 2>&1`, {
+      encoding: 'utf-8', timeout: 5000,
+    }).toString()
+    result.hasCudaFilters = filtersOut.includes('scale_cuda') || filtersOut.includes('overlay_cuda')
+    if (result.hasCudaFilters) {
+      console.log(`[FFmpeg] CUDA-accelerated filters detected (scale_cuda, overlay_cuda) — GPU filter pipeline enabled`)
+    }
+  } catch {}
+
+  _cachedVersion = result
+  return result
+}
+
+// Validate FFmpeg binary: verify it can be executed and has hardware encoders.
 // Call once at startup or before first render.
 export async function validateFfmpeg(ffmpegPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     try {
-      // Quick version check
-      const version = execSync(`"${ffmpegPath}" -version`, { encoding: 'utf-8', timeout: 5000 })
-        .split('\n')[0]
-      console.log(`[FFmpeg] Version: ${version}`)
+      const ver = getFfmpegVersion(ffmpegPath)
 
-      // Check encoder availability (non-blocking — just verify ffmpeg responds)
-      const encoders = execSync(`"${ffmpegPath}" -hide_banner -encoders 2>&1`, { encoding: 'utf-8', timeout: 8000 })
-      const hasNvenc = encoders.includes('hevc_nvenc') || encoders.includes('h264_nvenc')
-      const hasCuvid = encoders.includes('hevc_cuvid') || encoders.includes('h264_cuvid')
-      console.log(`[FFmpeg] NVENC: ${hasNvenc ? '✓' : '✗'} | NVDEC (CUVID): ${hasCuvid ? '✓' : '✗'}`)
-
-      if (!hasNvenc) {
-        console.warn('[FFmpeg] Warning: NVENC not found — will use software encoding')
+      if (!ver.hasNvenc && !ver.hasQsv && !ver.hasVaapi) {
+        console.warn('[FFmpeg] Warning: No hardware encoder found — will use software encoding')
       }
-      if (!hasCuvid) {
-        console.warn('[FFmpeg] Warning: NVDEC (CUVID) not found — will use software decoding')
+
+      if (ver.majorVersion > 0 && ver.majorVersion < 5) {
+        console.warn(`[FFmpeg] Warning: FFmpeg ${ver.majorVersion}.x detected. FFmpeg 7.x+ recommended for best RTX 5080 support`)
       }
 
       resolve()

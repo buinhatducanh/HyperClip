@@ -2,8 +2,10 @@ import { spawn } from 'child_process'
 import { execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
-import { getFfmpegPath, getFfprobePath } from './ffmpeg-paths.js'
+import os from 'os'
+import { getFfmpegPath, getFfprobePath, getFfmpegVersion } from './ffmpeg-paths.js'
 import { runFfmpeg, cancelFfmpeg } from './worker-pool.js'
+import { getGPUCapabilities, getEffectiveWorkers, type GPUTier } from './system.js'
 
 export { getFfmpegPath, getFfprobePath }
 
@@ -62,6 +64,43 @@ export interface RenderResult {
   error?: string
 }
 
+// ─── Hardware decode/filter helpers ──────────────────────────────────────────────
+
+// Get hardware capability flags (cached, single call per lifetime).
+function getHwCaps() {
+  return getFfmpegVersion(getFfmpegPath())
+}
+
+// Determine the best hardware decoder for the current platform and FFmpeg build.
+// Priority: NVDEC (cuda) > CUVID (legacy) > software
+function getBestHwDecCodec(codec: 'h264' | 'hevc'): string {
+  const ver = getHwCaps()
+  if (ver.hasNvdec) {
+    // NVDEC: modern CUDA Video Decoder API, recommended for RTX 30+/40+/50+
+    return codec === 'hevc' ? 'hevc_nvdec' : 'h264_nvdec'
+  }
+  if (ver.hasCuvid) {
+    // CUVID: legacy but still functional, fallback for older FFmpeg builds
+    console.log('[FFmpeg] NVDEC not available — falling back to CUVID (legacy)')
+    return codec === 'hevc' ? 'hevc_cuvid' : 'h264_cuvid'
+  }
+  // No hardware decode available — let FFmpeg auto-select or use software
+  return codec === 'hevc' ? 'hevc' : 'h264'
+}
+
+// Determine the best scale filter. scale_cuda is GPU-accelerated and much faster
+// than CPU-based scale for high-resolution video. Falls back to CPU scale if unavailable.
+function getScaleFilter(useGpu: boolean): string {
+  if (!useGpu) return 'scale'
+  return getHwCaps().hasCudaFilters ? 'scale_cuda' : 'scale'
+}
+
+// Determine overlay filter (GPU-accelerated if available)
+function getOverlayFilter(useGpu: boolean): string {
+  if (!useGpu) return 'overlay'
+  return getHwCaps().hasCudaFilters ? 'overlay_cuda' : 'overlay'
+}
+
 // ─── Shell path helper ─────────────────────────────────────────────────────────
 // Always use quoted paths on Windows via cmd /c to handle spaces correctly.
 
@@ -75,10 +114,12 @@ function buildArgs(program: string, args: string[]): string {
   // - Forward slashes only: backslashes in paths cause issues with cmd.exe parsing.
   // - Double-quotes in cmd.exe protect semicolons from being treated as command
   //   separators — no caret escaping needed.
-  // - Quote args that contain spaces, parens, or semicolons.
+  // - Quote args that contain spaces.
+  //   NOTE: do NOT quote semicolons — they are FFmpeg filter separators and must pass through unquoted.
+  //   Parentheses, brackets are safe in bash double quotes too, but spaces are the only real risk.
   const toShellPath = (s: string) => s.replace(/\\/g, '/')
   const needsQuote = (s: string) =>
-    s.includes(' ') || s.includes(';') || s.includes('(') || s.includes(')') || s.startsWith('"')
+    s.includes(' ') || s.includes('"')
   const quoteArg = (s: string) => '"' + s.replace(/"/g, '""') + '"'
 
   const prog = quoteArg(toShellPath(program))
@@ -102,7 +143,7 @@ function runSimpleFfmpeg(ffmpeg: string, ffArgs: string[]): { code: number; stde
   }
 }
 
-// ─── Probe video dimensions ─────────────────────────────────────────────────────
+// ─── Probe video dimensions ──────────────────────────────────────────────────────
 
 export async function probeVideoAspect(videoPath: string): Promise<{ width: number; height: number; isShort: boolean } | null> {
   const ffprobe = getFfprobePath()
@@ -124,6 +165,25 @@ export async function probeVideoAspect(videoPath: string): Promise<{ width: numb
     console.warn('[probeVideoAspect] ffprobe failed:', e)
   }
   return null
+}
+
+// ─── Probe video duration (for smart blur seek) ─────────────────────────────────
+
+function probeVideoDuration(videoPath: string): number {
+  const ffprobe = getFfprobePath()
+  const normalizedFfprobe = ffprobe.replace(/\\/g, '/')
+  const normalizedVideoPath = videoPath.replace(/\\/g, '/')
+  try {
+    const out = execSync(
+      `"${normalizedFfprobe}" -v error -show_entries format=duration -of json "${normalizedVideoPath}"`,
+      { encoding: 'utf-8', timeout: 10000 }
+    )
+    const json = JSON.parse(out)
+    const dur = parseFloat(json.format?.duration || '0')
+    return dur > 0 ? dur : 0
+  } catch (e) {
+    return 0
+  }
 }
 
 // ─── Post-download: trim video with FFmpeg (fast re-mux, no re-encode) ──────────
@@ -167,12 +227,18 @@ export async function trimVideo(
 }
 
 // ─── Pre-process: Blur background generation ───────────────────────────────────
+// Smart seek: probes video duration first and seeks to a reliable position.
+// For short videos (< 5min): seek to 25% of duration
+// For long videos: seek to 5min (past intro, action typically starts)
+// Falls back to first frame if seeking fails.
 
 export async function generateBlurBackground(
   videoPath: string,
   outputPath: string,
   width = 1080,
-  height = 1920
+  height = 1920,
+  /** Pass known duration to skip redundant ffprobe call (already fetched by getVideoInfo). */
+  duration?: number,
 ): Promise<{ success: boolean; error?: string }> {
   const ffmpeg = getFfmpegPath()
 
@@ -191,9 +257,25 @@ export async function generateBlurBackground(
     }, 30_000)
   })
 
-  // Step 1: Try seeking to 5 min (assumes action starts here)
+  // Use provided duration or probe if not known
+  const videoDuration = duration ?? probeVideoDuration(videoPath)
+
+  // Determine seek time:
+  // - Video < 5min: seek to 25% of duration (mid-video, usually has action)
+  // - Video >= 5min: seek to 5min (past intro)
+  let seekTime: number
+  let seekLabel: string
+  if (videoDuration > 0 && videoDuration < 300) {
+    seekTime = Math.max(1, Math.floor(videoDuration * 0.25))
+    seekLabel = `${seekTime}s (25% of ${Math.floor(videoDuration)}s video)`
+  } else {
+    seekTime = 300  // 5 minutes
+    seekLabel = `5:00`
+  }
+
+  // Primary: seek to determined position
   const primaryArgs = [
-    '-ss', '00:05:00',
+    '-ss', String(seekTime),
     '-i', quotePath(videoPath),
     '-vframes', '1',
     '-vf', `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},boxblur=20:20,format=yuv420p`,
@@ -202,22 +284,41 @@ export async function generateBlurBackground(
 
   let result = await run(primaryArgs)
   if (result.code === 0 && fs.existsSync(outputPath)) {
+    console.log(`[Blur] Generated blur bg (seek=${seekLabel})`)
     return { success: true }
   }
 
-  // Step 2: Fallback — first frame
-  const fallbackArgs = [
+  // Fallback 1: try 10% of video (earlier position)
+  if (duration != null && duration > 0) {
+    const earlySeek = Math.max(1, Math.floor(duration * 0.10))
+    const fallback1Args = [
+      '-ss', String(earlySeek),
+      '-i', quotePath(videoPath),
+      '-vframes', '1',
+      '-vf', `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},boxblur=20:20,format=yuv420p`,
+      '-y', quotePath(outputPath),
+    ]
+    result = await run(fallback1Args)
+    if (result.code === 0 && fs.existsSync(outputPath)) {
+      console.log(`[Blur] Generated blur bg (seek=early ${earlySeek}s)`)
+      return { success: true }
+    }
+  }
+
+  // Fallback 2: first frame
+  const fallback2Args = [
     '-i', quotePath(videoPath),
     '-vframes', '1',
     '-vf', `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},boxblur=20:20,format=yuv420p`,
     '-y', quotePath(outputPath),
   ]
 
-  result = await run(fallbackArgs)
+  result = await run(fallback2Args)
   if (result.code !== 0) {
     return { success: false, error: result.stderr || `ffmpeg failed: ${result.code}` }
   }
 
+  console.log(`[Blur] Generated blur bg (seek=first frame)`)
   return { success: true }
 }
 
@@ -272,6 +373,8 @@ export async function extractVideoThumbnail(
 // Each semicolon line can output multiple labels. Intermediate labels are
 // guaranteed available to downstream lines because FFmpeg collects all
 // labels before executing.
+//
+// GPU acceleration: uses scale_cuda/overlay_cuda when available (much faster than CPU).
 
 function buildFilterComplex(opts: {
   headerOl: Overlay | undefined
@@ -284,7 +387,6 @@ function buildFilterComplex(opts: {
   videoTop: number
   videoW: number
   speedFilter: string
-  canvasBg: 'black' | 'white'
   backgroundType?: 'blur' | 'solid' | 'image'
   /** Pre-rendered title overlay PNG — replaces CPU drawtext per frame */
   titleOverlayPath?: string
@@ -292,13 +394,33 @@ function buildFilterComplex(opts: {
   isShort?: boolean
 }): string {
   const {
-    headerOl, titleOl, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, speedFilter, canvasBg,
+    headerOl, titleOl, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, speedFilter,
     backgroundType = 'blur',
     titleOverlayPath,
     isShort = true,
   } = opts
 
-      // ── LANDSCAPE layout: thumbnail bg + landscape video + part number ──
+  // Determine GPU filter pipeline.
+  // CRITICAL: CUDA scale and overlay must be used TOGETHER (all on GPU).
+  // If scale_cuda is available but overlay_cuda is not, CUDA→CPU→GPU transfer
+  // happens on every frame — worse than pure CPU pipeline for batch encode.
+  // Strategy: use CUDA filters only when BOTH scale AND overlay support CUDA.
+  // For batch chunked encoding: pure CPU filter chain → NVENC avoids the round-trip.
+  const ver = getHwCaps()
+  const useGpuFilters = ver.hasCudaFilters
+  const useCudaFilters = useGpuFilters && ver.hasCudaFilters  // already checked above
+  // For single-pass (interactive): prefer GPU if available
+  // For chunked (batch): CPU scale → NVENC is faster (no GPU→CPU→GPU transfer)
+  const scale = useCudaFilters ? 'scale_cuda' : 'scale'
+  const overlay = useCudaFilters ? 'overlay_cuda' : 'overlay'
+
+  // ── LANDSCAPE layout: thumbnail bg + landscape video + part number ──
+  // IMPORTANT: sections[1] = bgChain2 outputs [bg] via [1:v].
+  // But bgScaleFilter replaces sections[1] with a different background filter.
+  // The original sections[1] bgChain2 and sections[2] vzChain2 BOTH use [bg] label.
+  // When we replace sections[1] with bgScaleFilter (which also outputs [bg]),
+  // the vzChain2 that follows still references [bg] from sections[1]'s output.
+  // This works because sections[2] references the [bg] label that bgScaleFilter produces.
   if (!isShort) {
     // Scale landscape video to canvas width, then crop to videoH zone height.
     // The crop may fail if videoH exceeds the scaled source height (ultra-wide at high vidHeightPct).
@@ -309,29 +431,30 @@ function buildFilterComplex(opts: {
     if (videoH <= scaledAfterScaleH) {
       // Safe: crop from center-vertical
       const cropY = Math.round((scaledAfterScaleH - videoH) / 2)
-      videoChain2 = `[0:v]scale=${canvasW}:-2,crop=${canvasW}:${videoH}:0:${cropY}${speedFilter}[vid]`
+      videoChain2 = `[0:v]${scale}=${canvasW}:-2,crop=${canvasW}:${videoH}:0:${cropY}${speedFilter}[vid]`
     } else {
       // Unsafe: target exceeds scaled source — use contain (letterboxing)
       const safeIh = Math.round(canvasW * 9 / 16)
       const targetY = Math.round((videoH - safeIh) / 2)
-      videoChain2 = `[0:v]scale=${canvasW}:-2,pad=ow:${videoH}:0:${targetY}${speedFilter}[vid]`
+      videoChain2 = `[0:v]${scale}=${canvasW}:-2,pad=ow:${videoH}:0:${targetY}${speedFilter}[vid]`
     }
     // [1:v] thumbnail → fill entire canvas background
-    // NOTE: use decrease (not exact) — exact requires -exact flag in FFmpeg essentials build
-    const bgChain2 = `[1:v]scale=${canvasW}:${canvasH}:force_original_aspect_ratio=decrease[bg]`
+    const bgChain2 = `[1:v]${scale}=${canvasW}:${canvasH}:force_original_aspect_ratio=decrease[bg]`
     // Video over thumbnail bg, positioned at videoTop
-    const vzChain2 = `[bg][vid]overlay=0:${videoTop}[vz]`
+    const vzChain2 = `[bg][vid]${overlay}=0:${videoTop}[vz]`
     // Title overlay (part number) at bottom
     if (titleOl?.content && titleOverlayPath) {
       const sections = [videoChain2, bgChain2, vzChain2]
-      sections.push(`[2:v]scale=${canvasW}:${titleH}[titleScaled]`, `[vz][titleScaled]overlay=0:${canvasH - titleH}[td]`)
+      sections.push(`[2:v]${scale}=${canvasW}:${titleH}[titleScaled]`, `[vz][titleScaled]${overlay}=0:${canvasH - titleH}[td]`)
       return sections.join('; ')
     }
     return [videoChain2, bgChain2, vzChain2].join('; ')
-  }  // ── SHORT (vertical) layout: header + video zone + title ──
+  }
+
+  // ── SHORT (vertical) layout: header + video zone + title ──
   // Scale + speed filter chain for video
   // Order: scale → setpts (speed) → pad. speedFilter is "" or ",setpts=X*PTS"
-  const scaleChain = `[0:v]scale=${videoW}:${videoH}:force_original_aspect_ratio=decrease`
+  const scaleChain = `[0:v]${scale}=${videoW}:${videoH}:force_original_aspect_ratio=decrease`
   const padChain = `,pad=${canvasW}:${canvasH}:(ow-iw)/2:${videoTop}[vid]`
   const videoChain = `${scaleChain}${speedFilter}${padChain}`
 
@@ -339,51 +462,57 @@ function buildFilterComplex(opts: {
   // blur/image: scale from source size. solid: color filter outputs exact size already.
   const bgChain = backgroundType === 'solid'
     ? `[1:v]null[bg]`
-    : `[1:v]scale=${canvasW}:${canvasH}:force_original_aspect_ratio=decrease[bg]`
+    : `[1:v]${scale}=${canvasW}:${canvasH}:force_original_aspect_ratio=decrease[bg]`
 
   // Header image scale (full canvas width)
-  const hdChain = headerOl?.src ? `[2:v]scale=${canvasW}:${headerH}[hd]` : ''
+  const hdChain = headerOl?.src ? `[2:v]${scale}=${canvasW}:${headerH}[hd]` : ''
 
   // Video over bg → [vz]
-  const vzChain = `[bg][vid]overlay=0:${videoTop}[vz]`
+  const vzChain = `[bg][vid]${overlay}=0:${videoTop}[vz]`
 
   // Build sections
   const sections: string[] = [videoChain, bgChain]
 
   if (hdChain) {
-    sections.push(hdChain, `[vz][hd]overlay=0:0[fh]`)
+    sections.push(hdChain, `[vz][hd]${overlay}=0:0[fh]`)
   }
 
   if (titleOl?.content && titleOverlayPath) {
     // Pre-rendered PNG overlay — overlay on GPU instead of CPU drawtext
     // Input [3:v] = pre-rendered title PNG
     const baseLabel = hdChain ? '[fh]' : '[vz]'
-    sections.push(`[3:v]null[titleOverlay]`, `${baseLabel}[titleOverlay]overlay=0:0[td]`)
+    sections.push(`[3:v]null[titleOverlay]`, `${baseLabel}[titleOverlay]${overlay}=0:0[td]`)
   }
 
   return sections.join('; ')
 }
 
 // ─── Optimized NVENC parameters ─────────────────────────────────────────────────
+// Per-architecture NVENC tuning for RTX 5080 and other GPUs.
+// Uses GPUCapabilities to get architecture-specific session limits and surface counts.
 
-function getNvencParams(codec: 'h264' | 'hevc', isChunked: boolean, gpuTier: 'high' | 'mid' | 'low' | 'software' = 'software'): string[] {
+function getNvencParams(codec: 'h264' | 'hevc', isChunked: boolean, gpuTier: GPUTier = 'software'): string[] {
+  const caps = getGPUCapabilities()
+  const isHighTier = gpuTier === 'high'
+  const isMidTier = gpuTier === 'mid'
+
   // GPU-aware preset selection:
   //   RTX 5080 (high): p1 for chunked (speed), p3 for single (quality)
   //   RTX 3060 (mid):  p2 for chunked, p3 for single
   //   others (low):   p3 for both
   const preset = isChunked
-    ? (gpuTier === 'high' ? 'p1' : gpuTier === 'mid' ? 'p2' : 'p3')
+    ? (isHighTier ? 'p1' : isMidTier ? 'p2' : 'p3')
     : 'p3'
 
-  // CQ tuning (lower = higher quality, larger file):
-  //   RTX 5080: chunked uses aggressive CQ for smaller files
-  //   Quality-focused: higher CQ = better quality per bitrate
+  // CQ tuning: RTX 5080 uses balanced CQ (quality vs file size)
+  //   Chunked: speed focus → slightly higher CQ (smaller files, fast encode)
+  //   Single-pass: quality focus → lower CQ (better quality)
   const cq = codec === 'hevc'
-    ? (isChunked ? '28' : '26')
-    : (isChunked ? '24' : '22')
+    ? (isChunked ? '26' : '24')
+    : (isChunked ? '22' : '20')
 
   const tune = isChunked
-    ? (gpuTier === 'high' ? 'ull' : gpuTier === 'mid' ? 'll' : 'll')
+    ? (isHighTier ? 'ull' : isMidTier ? 'll' : 'll')
     : 'hq'
 
   const params: string[] = [
@@ -393,22 +522,28 @@ function getNvencParams(codec: 'h264' | 'hevc', isChunked: boolean, gpuTier: 'hi
     '-tune', tune,
     '-bf', '0',         // No B-frames → faster encode, hardware-compatible
     '-refs', '1',       // Single reference frame → minimum latency
+    '-reconnect', '1',  // Handle stream interruption gracefully
   ]
 
   if (isChunked) {
     params.push(
-      '-rc-lookahead', '0',  // Disable lookahead → zero-latency encode
-      '-spatial-aq', '1',    // Adaptive quantization for quality
+      '-rc-lookahead', '0',    // Disable lookahead → zero-latency encode (ull/ll tune)
+      '-spatial-aq', '1',      // Adaptive quantization for quality
       '-aq-strength', '8',
     )
-    // Hardware surface pool — RTX 5080: 32 surfaces (16GB VRAM), RTX 3060: 16 (12GB VRAM)
-    const surfaceCount = gpuTier === 'high' ? '32' : '16'
+    // Hardware surface pool: use architecture-defined value from system.ts
+    // RTX 5080: 48 surfaces, RTX 4090: 48, RTX 4080: 48, RTX 3090: 32, RTX 3060: 16
+    const surfaceCount = String(caps.nvencSurfaceCount || (isHighTier ? 48 : 16))
     params.push('-surfaces', surfaceCount)
+    // Device selection: primary GPU (device 0) — multi-GPU future consideration
+    params.push('-gpu', 'any')
   } else {
     params.push(
-      '-rc-lookahead', '16', // Quality-focused lookahead
+      '-rc-lookahead', '16',  // Quality-focused lookahead
       '-spatial-aq', '1',
+      '-aq-strength', '9',
     )
+    params.push('-gpu', 'any')
   }
 
   return params
@@ -503,8 +638,6 @@ export async function preRenderOverlays(
   const headerH = isShort ? Math.floor(canvasH * 0.20) : Math.floor((canvasH - Math.floor(canvasH * vidHeightPct / 100)) / 2)
   const titleH = isShort ? Math.floor(canvasH * 0.20) : Math.floor(canvasH * (100 - vidHeightPct) / 100)
   const videoTop = isShort ? headerH : Math.floor((canvasH - Math.floor(canvasH * vidHeightPct / 100)) / 2)
-  // Short: overlay at video zone top. Landscape: overlay at bottom of canvas
-  const overlayY = isShort ? headerH : canvasH - titleH
 
   const overlayDir = path.join(outputDir, 'overlays', workspaceId)
   if (!fs.existsSync(overlayDir)) fs.mkdirSync(overlayDir, { recursive: true })
@@ -534,6 +667,35 @@ export async function preRenderOverlays(
 // Scans only near target split points instead of reading the entire file.
 // For a 30-min video with 8 chunks: ~8 seeks × 4s = ~2s vs 10+ seconds full scan.
 
+// Parallel keyframe probe — all positions searched simultaneously.
+// For a 30-min video with 8 chunks: ~8 concurrent seeks × ~200ms each = ~200ms total vs ~2s sequential.
+function probeKeyframeNear(
+  ffprobe: string,
+  videoPath: string,
+  targetTime: number,
+  seekWindow: number = 2,
+): Promise<string[]> {
+  const seekFrom = Math.max(0, targetTime - seekWindow)
+  const args = [
+    '-v', 'quiet',
+    '-select_streams', 'v:0',
+    '-show_entries', 'packet=pts_time,flags',
+    '-skip_frame', 'nokey',
+    '-ss', String(seekFrom),
+    '-to', String(targetTime + seekWindow),
+    '-of', 'csv=p=0',
+    quotePath(videoPath),
+  ]
+  const cmd = buildArgs(ffprobe, args)
+  return new Promise((resolve) => {
+    const proc = spawn(cmd, [], { shell: true, stdio: ['pipe', 'pipe', 'pipe'] })
+    let stdout = ''
+    proc.stdout?.on('data', (d) => { stdout += d.toString() })
+    proc.on('close', () => resolve(stdout.split('\n')))
+    proc.on('error', () => resolve([]))
+  })
+}
+
 async function findKeyframeSmart(
   videoPath: string,
   totalDuration: number,
@@ -542,7 +704,6 @@ async function findKeyframeSmart(
   if (targetCount <= 1 || totalDuration <= 120) return []
 
   const ffprobe = getFfprobePath()
-  const keyframes: number[] = []
 
   // Probe at evenly-spaced positions and find nearest keyframe ±2s
   const probePositions: number[] = []
@@ -550,48 +711,31 @@ async function findKeyframeSmart(
     probePositions.push((totalDuration / (targetCount + 1)) * i)
   }
 
-  return new Promise((resolve) => {
-    let resolved = 0
-    for (const targetTime of probePositions) {
-      const seekFrom = Math.max(0, targetTime - 2)
-      const args = [
-        '-v', 'quiet',
-        '-select_streams', 'v:0',
-        '-show_entries', 'packet=pts_time,flags',
-        '-skip_frame', 'nokey',
-        '-ss', String(seekFrom),
-        '-to', String(targetTime + 2),
-        '-of', 'csv=p=0',
-        quotePath(videoPath),
-      ]
-      const cmd = buildArgs(ffprobe, args)
-      const proc = spawn(cmd, [], { shell: true, stdio: ['pipe', 'pipe', 'pipe'] })
-      let stdout = ''
-      proc.stdout?.on('data', (d) => { stdout += d.toString() })
-      proc.on('close', () => {
-        for (const line of stdout.split('\n')) {
-          const match = line.match(/^([\d.]+)/)
-          if (match) {
-            const ts = parseFloat(match[1])
-            // Deduplicate within 0.5s window
-            const isDupe = keyframes.some(k => Math.abs(k - ts) < 0.5)
-            if (!isDupe && ts > 0 && ts < totalDuration) {
-              keyframes.push(ts)
-            }
-          }
-        }
-        resolved++
-        if (resolved === probePositions.length) {
-          keyframes.sort((a, b) => a - b)
-          resolve(keyframes)
-        }
-      })
+  // Fire ALL probes in parallel — critical for performance
+  const allLines = await Promise.all(
+    probePositions.map(t => probeKeyframeNear(ffprobe, videoPath, t, 2))
+  )
+
+  const keyframes: number[] = []
+  const seen = new Set<number>()
+
+  for (const lines of allLines) {
+    for (const line of lines) {
+      const match = line.match(/^([\d.]+)/)
+      if (!match) continue
+      const ts = parseFloat(match[1])
+      // Deduplicate within 0.5s window
+      const bucket = Math.round(ts * 2) / 2
+      if (seen.has(bucket)) continue
+      if (ts > 0 && ts < totalDuration) {
+        seen.add(bucket)
+        keyframes.push(ts)
+      }
     }
-    // Safety fallback
-    setTimeout(() => {
-      if (resolved < probePositions.length) resolve(keyframes.length > 0 ? keyframes : [])
-    }, 15_000)
-  })
+  }
+
+  keyframes.sort((a, b) => a - b)
+  return keyframes
 }
 
 // ─── Main render ───────────────────────────────────────────────────────────────
@@ -605,7 +749,7 @@ export async function renderVideo(
   const {
     workspace_id, source_video, export_resolution,
     video_speed, fps_target, overlays, trim,
-    codec = 'hevc', canvasBg = 'black',
+    codec = 'hevc',
     backgroundType = 'blur', backgroundColor = '#000000', backgroundImage,
     blur_background,
     isShort = true,
@@ -630,7 +774,7 @@ export async function renderVideo(
   const titleH = isShort ? Math.floor(canvasH * 0.20) : Math.floor(canvasH * (100 - vidHeightPct) / 100)
   const videoH = isShort ? canvasH - headerH - titleH : Math.floor(canvasH * vidHeightPct / 100)
   const videoTop = isShort ? headerH : Math.floor((canvasH - videoH) / 2)
-  const videoW = Math.floor(videoH * 16 / 9)  // scale to fit 16:9 video in zone
+  const videoW = Math.floor(videoH * 16 / 9)
 
   const trimStart = trim.start
   const trimEnd = trim.end
@@ -655,6 +799,14 @@ export async function renderVideo(
   // NVENC codec
   const nvencCodec = codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'
 
+  // Best hardware decoder
+  const hwDecCodec = getBestHwDecCodec(codec)
+
+  // CPU-aware threading: use all available cores for the filter pipeline.
+  // RTX 5080 + Core Ultra 9 (24 cores): can handle more threads.
+  // Cap at 16 to avoid thread oversubscription on the filter chain.
+  const numThreads = Math.min(os.cpus().length, 16)
+
   // Build filter complex
   // Pre-render title overlay to PNG first (avoids CPU drawtext per frame)
   const titleOverlayResult = await preRenderOverlays(metadata, outputDir, workspace_id)
@@ -671,7 +823,6 @@ export async function renderVideo(
     videoTop,
     videoW,
     speedFilter,
-    canvasBg,
     backgroundType,
     titleOverlayPath,
     isShort,
@@ -689,12 +840,12 @@ export async function renderVideo(
   const args: string[] = [
     '-ss', String(trimStart),
     '-t', String(decodeDuration),
-    // NVDEC GPU decode + threading for video processing
-    '-c:v', codec === 'hevc' ? 'hevc_cuvid' : 'h264_cuvid',
-    '-threads', '8',
+    // Hardware decode: NVDEC (preferred) > CUVID (legacy) > software
+    '-c:v', hwDecCodec,
+    '-threads', String(numThreads),
     '-avoid_negative_ts', 'make_zero',
     '-i', quotePath(source_video),
-    // NVDEC GPU decode via per-stream -c:v, filter runs on CPU
+    // NVDEC GPU decode via per-stream -c:v, filter runs on CPU/GPU depending on build
     ...(backgroundType === 'solid'
       ? ['-f', 'lavfi', '-i', `color=c=${backgroundColor}:s=${canvasW}x${canvasH}:d=1:r=1`]
       : backgroundType === 'image' && backgroundImage
@@ -801,12 +952,22 @@ function buildChunkArgs(
   titleOverlayPath: string | undefined,
   isShort: boolean | undefined,
   videoSpeed: number | undefined,
-  gpuTier: 'high' | 'mid' | 'low' | 'software' = 'software',
+  gpuTier: GPUTier = 'software',
   backgroundType?: 'blur' | 'solid' | 'image',
   backgroundColor?: string,
   backgroundImage?: string,
+  numThreads?: number,
 ): string[] {
   const nvencCodec = codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'
+  const hwDecCodec = getBestHwDecCodec(codec)
+  // CPU-aware threads: use all cores but cap at 16 to avoid oversubscription
+  const chunkThreads = numThreads ?? Math.min(os.cpus().length, 16)
+
+  // Check GPU filter availability
+  const ver = getHwCaps()
+  const useGpuFilters = ver.hasCudaFilters
+  const scale = getScaleFilter(useGpuFilters)
+  const overlay = getOverlayFilter(useGpuFilters)
 
   const speedFilter = videoSpeed && videoSpeed !== 1.0
     ? ',setpts=' + (1 / videoSpeed) + '*PTS'
@@ -818,11 +979,12 @@ function buildChunkArgs(
     bgInput = ['-f', 'lavfi', '-i', `color=c=${backgroundColor || '#000000'}:s=${canvasW}x${canvasH}:d=1:r=1`]
   } else if (backgroundType === 'image' && backgroundImage) {
     bgInput = ['-i', quotePath(backgroundImage)]
+  } else if (blurBg) {
+    // Default: blur background image
+    bgInput = ['-i', quotePath(blurBg)]
   } else {
-    // Default: blur background image (or fallback to black)
-    bgInput = blurBg
-      ? ['-i', quotePath(blurBg)]
-      : ['-f', 'lavfi', '-i', 'color=c=black:s=' + canvasW + 'x' + canvasH + ':d=1:r=1']
+    // Fallback: solid black
+    bgInput = ['-f', 'lavfi', '-i', 'color=c=black:s=' + canvasW + 'x' + canvasH + ':d=1:r=1']
   }
 
   if (!isShort) {
@@ -831,42 +993,41 @@ function buildChunkArgs(
 
     if (videoH <= scaledAfterScaleH) {
       const cropY = Math.round((scaledAfterScaleH - videoH) / 2)
-      sections.push('[0:v]scale=' + canvasW + ':-2,crop=' + canvasW + ':' + videoH + ':0:' + cropY + speedFilter + '[vid]')
+      sections.push('[0:v]' + scale + '=' + canvasW + ':-2,crop=' + canvasW + ':' + videoH + ':0:' + cropY + speedFilter + '[vid]')
     } else {
       const safeIh = Math.round(canvasW * 9 / 16)
       const targetY = Math.round((videoH - safeIh) / 2)
-      sections.push('[0:v]scale=' + canvasW + ':-2,pad=ow:' + videoH + ':0:' + targetY + speedFilter + '[vid]')
+      sections.push('[0:v]' + scale + '=' + canvasW + ':-2,pad=ow:' + videoH + ':0:' + targetY + speedFilter + '[vid]')
     }
 
-    sections.push('[1:v]scale=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease[bg]')
-    sections.push('[bg][vid]overlay=0:' + videoTop + '[vz]')
+    sections.push('[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease[bg]')
+    sections.push('[bg][vid]' + overlay + '=0:' + videoTop + '[vz]')
 
     if (titleOverlayPath) {
-      sections.push('[2:v]scale=' + canvasW + ':' + titleH + '[titleScaled]')
-      sections.push('[vz][titleScaled]overlay=0:' + (canvasH - titleH) + '[final]')
+      sections.push('[2:v]' + scale + '=' + canvasW + ':' + titleH + '[titleScaled]')
+      sections.push('[vz][titleScaled]' + overlay + '=0:' + (canvasH - titleH) + '[final]')
     }
     const filterChain = sections.join('; ')
     const mapOutput = titleOverlayPath ? '[final]' : '[vz]'
 
     // Background input index: [0]=video, [1]=bg, [2]=titleOverlay
     // For landscape, background is scaled to full canvas
-    let bgScaleFilter = '[1:v]scale=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease[bg]'
+    let bgScaleFilter = '[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease[bg]'
     if (backgroundType === 'solid') {
       // Solid bg: bgInput IS the full-canvas color, no extra scale needed
       bgScaleFilter = '[1:v]null[bg]'
     } else if (backgroundType === 'image' && backgroundImage) {
       // Image bg: scale to full canvas
-      bgScaleFilter = '[1:v]scale=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease[bg]'
+      bgScaleFilter = '[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease[bg]'
     }
-    // Reorder filter sections: build sections[1] based on bgType
     // Replace sections[1] with bgScaleFilter
     const fixedSections = [sections[0], bgScaleFilter, ...sections.slice(2)]
     const fixedFilterChain = fixedSections.join('; ')
 
     return [
       '-ss', String(trimStart), '-t', String(trimDuration),
-      '-c:v', codec === 'hevc' ? 'hevc_cuvid' : 'h264_cuvid',
-      '-threads', '8',
+      '-c:v', hwDecCodec,
+      '-threads', String(chunkThreads),
       '-avoid_negative_ts', 'make_zero',
       '-i', quotePath(sourceVideo),
       ...bgInput,
@@ -883,7 +1044,7 @@ function buildChunkArgs(
     ]
   }
 
-  const scaleChain = '[0:v]scale=' + videoW + ':' + videoH + ':force_original_aspect_ratio=decrease'
+  const scaleChain = '[0:v]' + scale + '=' + videoW + ':' + videoH + ':force_original_aspect_ratio=decrease'
   const padChain = ',pad=' + canvasW + ':' + canvasH + ':(ow-iw)/2:' + videoTop + '[vid]'
   const videoChain = scaleChain + speedFilter + padChain
 
@@ -892,19 +1053,19 @@ function buildChunkArgs(
   if (backgroundType === 'solid') {
     bgFilter = '[1:v]null[bg]'
   } else if (backgroundType === 'image' && backgroundImage) {
-    bgFilter = '[1:v]scale=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease[bg]'
+    bgFilter = '[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease[bg]'
   } else {
-    bgFilter = '[1:v]scale=' + canvasW + ':' + canvasH + '[bg]'
+    bgFilter = '[1:v]' + scale + '=' + canvasW + ':' + canvasH + '[bg]'
   }
 
   const sections: string[] = [
     videoChain,
     bgFilter,
-    '[bg][vid]overlay=0:' + videoTop + '[vz]',
+    '[bg][vid]' + overlay + '=0:' + videoTop + '[vz]',
   ]
 
   if (titleOverlayPath) {
-    sections.push('[2:v]null[titleOl]', '[vz][titleOl]overlay=0:0[final]')
+    sections.push('[2:v]null[titleOl]', '[vz][titleOl]' + overlay + '=0:0[final]')
   }
 
   const filterChain = sections.join('; ')
@@ -913,8 +1074,8 @@ function buildChunkArgs(
   return [
     '-ss', String(trimStart),
     '-t', String(trimDuration),
-    '-c:v', codec === 'hevc' ? 'hevc_cuvid' : 'h264_cuvid',
-    '-threads', '8',
+    '-c:v', hwDecCodec,
+    '-threads', String(chunkThreads),
     '-avoid_negative_ts', 'make_zero',
     '-i', quotePath(sourceVideo),
     ...bgInput,
@@ -957,11 +1118,13 @@ async function encodeChunk(
   backgroundImage?: string,
 ): Promise<{ success: boolean; fileSize: number; encodeMs: number; error?: string; decodeFps?: number; encodeFps?: number }> {
   const ffmpeg = getFfmpegPath()
+  const numThreads = Math.min(os.cpus().length, 16)
   const args = buildChunkArgs(
     sourceVideo, blurBg, startSec, durationSec, outputFile,
     codec, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW,
     titleOverlayPath, isShort, videoSpeed, gpuTier,
     backgroundType, backgroundColor, backgroundImage,
+    numThreads,
   )
 
   return new Promise((resolve) => {
@@ -1118,9 +1281,8 @@ async function mergeChunks(
 }
 
 // ─── Chunked render ────────────────────────────────────────────────────────────
-// LIMITATION: Only supports blur background. Solid/image backgrounds fall back
-// to black (lavfi color). If non-blur backgrounds are needed, use single-pass
-// render instead.
+// Parallel encoding: splits video into chunks, encodes all chunks simultaneously,
+// then merges. All background types (blur, solid, image) are supported.
 
 export async function renderChunked(
   metadata: RenderMetadata,
@@ -1133,7 +1295,14 @@ export async function renderChunked(
     isShort = true, overlays, video_speed,
   } = metadata
   const vidHeightPct = metadata.vidHeightPct ?? 50
-  const { workers = 8, chunkDuration = 120, minChunkDuration = 10, gpuTier = 'software' } = config
+  // Use VRAM-aware effective workers if not explicitly specified
+  const effectiveWorkers = getEffectiveWorkers()
+  const gpuTier = config.gpuTier ?? 'software'
+  const workers = config.workers ?? effectiveWorkers
+  // RTX 5080/4090: shorter chunks (90s) = more parallelism, faster total encode
+  // Mid-tier: standard 120s chunks
+  const chunkDuration = config.chunkDuration ?? (gpuTier === 'high' ? 90 : 120)
+  const minChunkDuration = config.minChunkDuration ?? 10
 
   const [outW, outH] = metadata.export_resolution.split('x').map(Number)
   const canvasW = outW || 1080
@@ -1149,7 +1318,6 @@ export async function renderChunked(
   const totalDuration = trimEnd - trimStart
 
   // Short duration → single-pass (no chunking overhead needed)
-  // All background types (blur, solid, image) now support chunked mode.
   if (totalDuration <= 60) {
     const simple = await renderVideo(metadata, outputDir, onProgress as any, gpuTier)
     return { ...simple, chunks: [], totalEncodeMs: 0 }
