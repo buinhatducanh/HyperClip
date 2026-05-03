@@ -49,9 +49,9 @@ function getTokenFile(): string {
   return TOKEN_FILE
 }
 
-// Default Client ID — embedded for 1-click OAuth (no setup needed)
-// Google shows "unverified app" warning but user can still approve
-const DEFAULT_CLIENT_ID = 'REMOVED_CLIENT_ID'
+// Default Client ID — loaded from environment or config file (never hardcoded in source)
+// Users must set up their own Google Cloud project credentials
+const DEFAULT_CLIENT_ID = process.env.HYPERCLIP_OAUTH_CLIENT_ID || ''
 
 export function getOAuthClientId(): string {
   // ── Single-source: read from oauth_tokens.json (authoritative for credentials + tokens)
