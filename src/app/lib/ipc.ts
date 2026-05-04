@@ -109,7 +109,7 @@ export const ipc = {
     return window.electronAPI?.onChannelSynced(callback) ?? (() => {})
   },
   async getSettings() {
-    return window.electronAPI?.getSettings() ?? { videoStoragePath: undefined, outputPath: undefined }
+    return window.electronAPI?.getSettings() ?? { videoStoragePath: undefined, outputPath: undefined, defaultTrimLimit: undefined, autoDownloadQuality: undefined }
   },
   async updateSettings(patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string }) {
     return window.electronAPI?.updateSettings(patch)
@@ -224,5 +224,23 @@ export const ipc = {
 
   async setRenderedArchivePath(path: string) {
     return window.electronAPI?.setRenderedArchivePath(path) ?? { success: false }
+  },
+
+  // ─── Storage Management ───────────────────────────────────────────────────────
+
+  async getStorageSize(): Promise<{ downloads: number; blur: number; total: number; downloadPath: string; outputPath: string }> {
+    return window.electronAPI?.getStorageSize() ?? { downloads: 0, blur: 0, total: 0, downloadPath: '', outputPath: '' }
+  },
+
+  async clearDownloads(): Promise<{ success: boolean; freedMB: number }> {
+    return window.electronAPI?.clearDownloads() ?? { success: false, freedMB: 0 }
+  },
+
+  async clearBlur(): Promise<{ success: boolean; freedMB: number }> {
+    return window.electronAPI?.clearBlur() ?? { success: false, freedMB: 0 }
+  },
+
+  async pickFolder(currentPath?: string): Promise<{ path: string } | null> {
+    return window.electronAPI?.pickFolder(currentPath) ?? null
   },
 }

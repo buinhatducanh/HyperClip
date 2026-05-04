@@ -43,12 +43,22 @@ export interface Workspace {
   outputPath?: string
   /** Download progress 0–100 — populated during download */
   downloadProgress?: number
+  /** Live download speed from yt-dlp (e.g. "12.5MiB/s") */
+  downloadSpeed?: string
+  /** Estimated time remaining (e.g. "0:32") */
+  downloadEta?: string
+  /** True = 1080p download using 2× multi-instance acceleration */
+  isMultiInstance?: boolean
+  /** Path to pre-scaled source video (480p) — eliminates scale filter in render pipeline */
+  preScaledPath?: string
   /** Detected on download: true = vertical 9:16 short, false = landscape 16:9+ video */
   isShort?: boolean
 }
 
 export interface AppSettings {
   outputFolder: string
+  videoStoragePath: string    // where downloaded videos are stored
+  outputPath: string          // where rendered outputs go before archiving
   defaultTrimLimit: number | 'full'  // number = minutes
   defaultQuality: 1080 | 720
   autoRender: boolean
@@ -162,6 +172,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   systemStats: INIT_STATS,
   settings: {
     outputFolder: '~/HyperClip/output',
+    videoStoragePath: '',
+    outputPath: '',
     defaultTrimLimit: 10,  // 10 minutes — auto-download respects this
     defaultQuality: 1080,
     autoRender: false,
@@ -195,6 +207,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
         blurBackgroundPath: w.blurBackgroundPath,
         outputPath: w.outputPath,
         isShort: w.isShort,
+        isMultiInstance: w.isMultiInstance,
+        preScaledPath: w.preScaledPath,
       }))
       set({ workspaces: ws })
     } catch (e) {

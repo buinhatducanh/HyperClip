@@ -52,8 +52,8 @@ export interface ElectronAPI {
   onAutoDownload: (callback: (data: unknown) => void) => () => void
   onAuthUpdate: (callback: (status: unknown) => void) => () => void
   onChannelSynced: (callback: () => void) => () => void
-  getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string }>
-  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string }) => Promise<void>
+  getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string }>
+  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string }) => Promise<void>
   getAuthStatus: () => Promise<{
     isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean
     cookieCritical?: boolean; cookieError?: string
@@ -99,6 +99,11 @@ export interface ElectronAPI {
   removeRenderedVideo: (id: string) => Promise<{ success: boolean }>
   openRenderedFolder: (id?: string) => Promise<{ success: boolean }>
   setRenderedArchivePath: (path: string) => Promise<{ success: boolean }>
+  // Storage management
+  getStorageSize: () => Promise<{ downloads: number; blur: number; total: number; downloadPath: string; outputPath: string }>
+  clearDownloads: () => Promise<{ success: boolean; freedMB: number }>
+  clearBlur: () => Promise<{ success: boolean; freedMB: number }>
+  pickFolder: (currentPath?: string) => Promise<{ path: string } | null>
 }
 
 declare global {

@@ -26,7 +26,7 @@
 
 | # | Tầng | Công nghệ | Target |
 |---|-------|-----------|--------|
-| 1 | **Trigger** | OAuth Data API v3 playlistItems per channel (N GCP projects) | < 20s |
+| 1 | **Trigger** | OAuth Data API v3 playlistItems per channel (TokenManager, batched, N GCP projects) | < 30s |
 | 2 | **Download** | yt-dlp + `--download-sections` (chỉ tải N phút) + Direct IP Binding | < 30s |
 | 3 | **Pre-process** | Static blur (1 frame, cache vĩnh viễn) | < 3s |
 | 4 | **Edit** | React-Konva Canvas 2D (60fps) | < 16ms/frame |
@@ -39,7 +39,7 @@
 ### Cơ chế: Full Scan mỗi Poll
 
 ```
-YouTubePoller (5 giây ± 1s jitter)
+YouTubePoller (20 giây ± 1s jitter, adaptive)
          ↓
 fetchSubscriptionFeed() → ALL channels (parallel, max 20 concurrent)
          ↓
@@ -55,7 +55,9 @@ autoDownload() → yt-dlp --download-sections (chỉ N phút cần thiết)
 
 | # | Optimization | Impact |
 |---|-------------|--------|
-| 1 | Poll interval: 20s → 4s ± 1s jitter | Detection latency giảm 5x |
+| 1 | Poll interval: 4s → 20s (adaptive backoff) | 20s = ~21k units/day (fits 3 tokens), 5s = ~282k (exceeds 7 tokens × 9k) |
+| 2 | Token batching: 1 token per batch of 5 channels | Reduces getBestAvailable() calls from 49 → 10 per poll |
+| 3 | MAX_CONCURRENT = 5 (was 20) | Lower = catches quota exhaustion sooner, less wasted per exhausted token |
 | 2 | Cookie preloading at startup | Loại bỏ ~1-2s delay poll đầu |
 | 3 | OAuth maxResults: 5 → 1 | Giảm 80% data OAuth fallback |
 | 4 | seenVideoIds persist to disk | Không re-detect sau restart |
@@ -81,7 +83,7 @@ Dùng cho **OAuth Data API v3** — fallback path.
 | Reset | Mỗi 24h tự clear stats (kiểm tra khi app khởi động) |
 | Track | Mỗi lần gọi playlistItems → `track(projectId)` tăng `usedToday` |
 | Rotation | Chọn token có `usedToday` thấp nhất (most quota remaining) |
-| Error threshold | **3 lỗi liên tiếp** → token bị skip |
+| Error threshold | **3 lỗi quota** → token bị skip (MAX_ERRORS=3, trackError adds +100 units to push over threshold) |
 | Storage | `%APPDATA%/HyperClip/token_stats.json` |
 
 **TokenManager is the primary detection path — no Innertube anymore (2026-05-03).**
@@ -182,7 +184,7 @@ async function fetchChannelVideos(ch, seenVideoIds, sinceMs) {
 }
 ```
 
-### Quota Math thực tế (OAuth-only)
+### Quota Math thực tế (OAuth-only, 20s interval)
 
 | Kịch bản | Channels | Calls/poll | Polls/day | Units/day |
 |---------|----------|-----------|-----------|-----------|
@@ -190,8 +192,9 @@ async function fetchChannelVideos(ch, seenVideoIds, sinceMs) {
 | All channels scanned (no new videos) | 49 | 49 | 4,320 | ~211,680 |
 | 1 GCP project (9,500 cap) | 49 | ~10 avg | 4,320 | ~43,200 |
 | 2 GCP projects (19,000 cap) | 49 | ~10 avg | 4,320 | ~43,200 (comfortable) |
+| **3 GCP projects (20s interval)** | 49 | ~5 avg | 4,320 | **~21,600 ✓** |
 
-**Kết luận:** Với early termination, trung bình chỉ ~5-10 calls/poll. Cần **2+ GCP projects** để đạt budget 9,500/project. Thêm càng nhiều project → quota càng thoải mái.
+**Kết luận:** 5s interval quá nhanh cho quota. **20s interval** = ~21k units/ngày (early termination) → cần **3 tokens** là đủ. Token batching (1 token cho N channels) giảm overhead ~90%. Adaptive backoff: khi không tìm video, tăng interval dần từ 20s → 60s → 5 phút.
 
 ### Trim Limit (auto-download)
 

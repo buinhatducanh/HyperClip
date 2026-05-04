@@ -293,12 +293,19 @@ function ProjectCard({ project, onRefresh, onReset }: { project: Project; onRefr
 
   const handleAuthorize = async () => {
     try {
-      const result = await ipc.reauthorizeProject(project.projectId)
+      const result = await ipc.reauthorizeProject(project.projectId) as { success: boolean; error?: string; userHint?: string; refreshed?: boolean }
       if (result.success) {
-        showToast(`Đã re-authorize ${project.projectId}`)
+        const msg = result.refreshed
+          ? `Token còn valid — quota đã reset, không cần re-auth cho ${project.projectId}`
+          : `Đã re-authorize ${project.projectId}`
+        showToast(msg)
         onRefresh()
       } else {
-        showToast(`Lỗi: ${result.error}`)
+        if (result.userHint) {
+          window.alert(`Lỗi re-authorize "${project.projectId}":\n\n${result.error}\n\n${result.userHint}`)
+        } else {
+          showToast(`Lỗi: ${result.error}`)
+        }
       }
     } catch (e: any) {
       showToast(`Lỗi: ${e.message}`)
@@ -2004,6 +2011,146 @@ function PollerStatusPanel() {
   )
 }
 
+// ─── Storage Widget ─────────────────────────────────────────────────────────────
+
+function PathRow({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  const short = value.length > 50 ? '...' + value.slice(-47) : value
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #181818' }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>{label}</div>
+        <div style={{ fontSize: 9, color: '#444', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={value}>
+          {short || '— not set —'}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexShrink: 0, marginLeft: 12 }}>
+        <button
+          onClick={() => ipc.openFolder(value)}
+          style={{ height: 28, paddingLeft: 8, paddingRight: 8, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, fontSize: 9, fontWeight: 600, color: '#555', cursor: 'pointer' }}
+        >OPEN</button>
+        <button
+          onClick={async () => {
+            const result = await ipc.pickFolder(value)
+            if (result) onChange(result.path)
+          }}
+          style={{ height: 28, paddingLeft: 8, paddingRight: 8, background: '#1A1A1A', border: '1px solid #00B4FF44', borderRadius: 3, fontSize: 9, fontWeight: 700, color: '#00B4FF', cursor: 'pointer', letterSpacing: '0.04em' }}
+        >CHANGE</button>
+      </div>
+    </div>
+  )
+}
+
+function StorageWidget() {
+  const [stats, setStats] = useState<{ downloads: number; blur: number; total: number; downloadPath: string; outputPath: string }>({ downloads: 0, blur: 0, total: 0, downloadPath: '', outputPath: '' })
+  const [clearingDl, setClearingDl] = useState(false)
+  const [clearingBlr, setClearingBlr] = useState(false)
+  const { showToast } = useAppStore()
+
+  const load = () => { ipc.getStorageSize().then(s => setStats(s)) }
+
+  useEffect(() => { load() }, [])
+
+  const handleClearDownloads = async () => {
+    setClearingDl(true)
+    const result = await ipc.clearDownloads()
+    setClearingDl(false)
+    if (result.success) {
+      showToast(`Freed ${result.freedMB} MB`)
+      load()
+    } else {
+      showToast('Clear failed')
+    }
+  }
+
+  const handleClearBlur = async () => {
+    setClearingBlr(true)
+    const result = await ipc.clearBlur()
+    setClearingBlr(false)
+    if (result.success) {
+      showToast(`Freed ${result.freedMB} MB`)
+      load()
+    } else {
+      showToast('Clear failed')
+    }
+  }
+
+  const handleDownloadPathChange = async (newPath: string) => {
+    await ipc.updateSettings({ videoStoragePath: newPath })
+    showToast('Downloads path updated — restart app to apply')
+    load()
+  }
+
+  const handleOutputPathChange = async (newPath: string) => {
+    await ipc.updateSettings({ outputPath: newPath })
+    showToast('Output path updated — restart app to apply')
+    load()
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {/* Storage paths */}
+      <div style={{ padding: '8px 14px 4px', fontSize: 9, color: '#333', letterSpacing: '0.1em', fontWeight: 700 }}>PATHS</div>
+      <PathRow label="Downloads" value={stats.downloadPath} onChange={handleDownloadPathChange} />
+      <PathRow label="Output" value={stats.outputPath} onChange={handleOutputPathChange} />
+
+      {/* Storage usage */}
+      <div style={{ padding: '8px 14px 4px', fontSize: 9, color: '#333', letterSpacing: '0.1em', fontWeight: 700, marginTop: 6 }}>USAGE</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #181818' }}>
+        <span style={{ fontSize: 11, color: '#888' }}>Total used</span>
+        <span style={{ fontSize: 12, color: '#fff', fontFamily: 'monospace', fontWeight: 700 }}>
+          {stats.total} <span style={{ fontSize: 9, color: '#444' }}>MB</span>
+        </span>
+      </div>
+
+      {/* Downloads */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #181818' }}>
+        <div>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>Downloads</div>
+          <div style={{ fontSize: 9, color: '#444' }}>{stats.downloads} MB</div>
+        </div>
+        <button
+          onClick={handleClearDownloads}
+          disabled={clearingDl || stats.downloads === 0}
+          style={{
+            height: 28, paddingLeft: 12, paddingRight: 12,
+            background: clearingDl ? '#111' : '#FF444415',
+            border: '1px solid #FF444444',
+            borderRadius: 4, cursor: clearingDl || stats.downloads === 0 ? 'not-allowed' : 'pointer',
+            fontSize: 9, fontWeight: 700, color: '#FF4444',
+            opacity: stats.downloads === 0 ? 0.3 : 1,
+            letterSpacing: '0.06em',
+          }}
+        >
+          {clearingDl ? 'CLEARING...' : 'CLEAR'}
+        </button>
+      </div>
+
+      {/* Blur images */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #181818' }}>
+        <div>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>Blur images</div>
+          <div style={{ fontSize: 9, color: '#444' }}>{stats.blur} MB</div>
+        </div>
+        <button
+          onClick={handleClearBlur}
+          disabled={clearingBlr || stats.blur === 0}
+          style={{
+            height: 28, paddingLeft: 12, paddingRight: 12,
+            background: clearingBlr ? '#111' : '#FF444415',
+            border: '1px solid #FF444444',
+            borderRadius: 4, cursor: clearingBlr || stats.blur === 0 ? 'not-allowed' : 'pointer',
+            fontSize: 9, fontWeight: 700, color: '#FF4444',
+            opacity: stats.blur === 0 ? 0.3 : 1,
+            letterSpacing: '0.06em',
+          }}
+        >
+          {clearingBlr ? 'CLEARING...' : 'CLEAR'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Settings Page ─────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -2133,7 +2280,12 @@ export default function SettingsPage() {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
                   <div>
                     <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>Download Quality</div>
-                    <div style={{ fontSize: 9, color: '#444' }}>Chỉ tải video ≤ chất lượng này, ưu tiên H.264</div>
+                    <div style={{ fontSize: 9, color: '#444' }}>
+                      {settings.autoDownloadQuality === '360' && '⚡ Nhanh nhất · ~10-20s · Dùng cho pre-download'}
+                      {settings.autoDownloadQuality === '480' && '⚡ Nhanh · ~15-30s · Cân bằng'}
+                      {settings.autoDownloadQuality === '720' && '⚡ Mặc định · ~20-50s · Chất lượng tốt'}
+                      {settings.autoDownloadQuality === '1080' && '⚡ Chất lượng cao · ~30-90s · Multi-instance 2×'}
+                    </div>
                   </div>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     {(['360', '480', '720', '1080'] as const).map(val => (
@@ -2146,9 +2298,9 @@ export default function SettingsPage() {
                         style={{
                           height: 26, minWidth: 42,
                           background: (settings.autoDownloadQuality ?? '720') === val ? '#00B4FF22' : 'transparent',
-                          border: `1px solid ${(settings.autoDownloadQuality ?? '720') === val ? '#00B4FF66' : '#2a2a2a'}`,
+                          border: `1px solid ${(settings.autoDownloadQuality ?? '720') === val ? '#00FF88' : '#2a2a2a'}`,
                           borderRadius: 3, cursor: 'pointer',
-                          fontSize: 9, fontWeight: 700, color: (settings.autoDownloadQuality ?? '720') === val ? '#00B4FF' : '#555',
+                          fontSize: 9, fontWeight: 700, color: (settings.autoDownloadQuality ?? '720') === val ? '#00FF88' : '#555',
                           fontFamily: 'monospace',
                         }}
                       >
@@ -2192,6 +2344,12 @@ export default function SettingsPage() {
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* Storage */}
+            <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.15em', marginBottom: 10 }}>STORAGE</div>
+            <div style={{ background: '#0F0F0F', border: '1px solid #181818', borderRadius: 4, overflow: 'hidden', marginBottom: 20 }}>
+              <StorageWidget />
             </div>
 
             {/* About */}

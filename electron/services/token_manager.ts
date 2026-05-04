@@ -103,8 +103,11 @@ export interface TokenStatus {
 const TOKENS_DIR = path.join(os.tmpdir(), 'hyperclip-cookies')
 const TOKENS_FILE = path.join(TOKENS_DIR, 'oauth_tokens.json')
 const STATS_FILE = path.join(os.homedir(), 'AppData', 'Roaming', 'HyperClip', 'token_stats.json')
-const MAX_UNITS_PER_TOKEN = 9500
-const MAX_ERRORS = 3
+const MAX_UNITS_PER_TOKEN = 500   // exhausted threshold: 5 quota errors × 100 each = 500
+// Note: successful calls (1 unit each) don't count toward this threshold.
+// Exhausted threshold: 5 quota errors × 100 each = 500 units.
+// After 5 errors, usedToday >= 500 >= MAX_UNITS_PER_TOKEN → token skipped.
+// This prevents reusing an already-exhausted token for subsequent batches.
 
 // ─── Token Manager ──────────────────────────────────────────────────────────
 
@@ -116,15 +119,49 @@ class TokenManager {
   private _initialized: boolean = false
   private _refreshTimer: ReturnType<typeof setInterval> | null = null
   private _unauthorizedTokens: Set<string> = new Set()
+  private _resetCheckTimer: ReturnType<typeof setInterval> | null = null
 
   constructor() {
     this._loadTokens()
     this._loadStats()
-    this._checkReset()
+    // Always check reset at startup (runs once per restart):
+    // Use UTC date for reset — Google quota resets at midnight PT (08:00 UTC next day).
+    // For Vietnam (UTC+7): 08:00 UTC = 15:00 local, same UTC day.
+    // UTC date alignment ensures local midnight != Google reset doesn't cause stale stats.
+    const now = new Date()
+    // getDate() returns local day of month
+    const todayUTCDate = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
+
+    const prevDate = this._lastResetPTDate
+    if (!prevDate || prevDate !== todayUTCDate) {
+      this._stats.clear()
+      this._unauthorizedTokens.clear()
+      this._lastReset = Date.now()
+      this._lastResetPTDate = todayUTCDate
+      // Persist cleared stats BEFORE _saveStats() gets overwritten by normal operation.
+      // The _saveStats in the constructor saves empty stats. Subsequent track() / trackError()
+      // calls will re-populate _stats and save normally.
+      try {
+        const obj: Record<string, TokenStats> = {}
+        for (const [k, v] of this._stats) obj[k] = v
+        const dir = path.dirname(STATS_FILE)
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+        fs.writeFileSync(STATS_FILE, JSON.stringify({
+          stats: obj,
+          lastReset: this._lastReset,
+          lastResetPTDate: this._lastResetPTDate,
+          unauthorizedTokens: [...this._unauthorizedTokens],
+        }, null, 2), 'utf-8')
+      } catch {}
+      console.log(`[TokenManager] Quota reset (was:"${prevDate || '(none)'}", now:"${todayUTCDate}") — all quotas refreshed`)
+    }
     this._initialized = true
     // Proactive refresh: check every 30 min + once at startup (after tokens loaded)
     this._refreshTimer = setInterval(() => { this._proactiveRefresh() }, 30 * 60 * 1000)
     setTimeout(() => { this._proactiveRefresh() }, 5000)
+
+    // Periodic quota reset check: every 30 min (guards against midnight-PT logic failure)
+    this._resetCheckTimer = setInterval(() => { this._checkReset() }, 30 * 60 * 1000)
   }
 
   // ── Load / Persist ────────────────────────────────────────────────────────
@@ -147,17 +184,43 @@ class TokenManager {
         // Multi-project format: array of OAuthTokenSet
         if (Array.isArray(raw)) {
           this._tokens = raw
-          // Fill in credentials for tokens that don't have them (legacy migration)
+          // Sync credentials from oauth_config.json for all tokens.
+          // Tokens may have stale clientId/clientSecret from older setup.
+          const configFile = path.join(TOKENS_DIR, 'oauth_config.json')
+          let configCreds: Record<string, { clientId: string; clientSecret: string }> = {}
+          try {
+            if (fs.existsSync(configFile)) {
+              const cfg = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
+              for (const [k, v] of Object.entries(cfg)) {
+                if (k !== 'client_id' && k !== 'client_secret' && v && typeof v === 'object') {
+                  const cred = v as { clientId: string; clientSecret: string }
+                  if (cred.clientId && cred.clientSecret) {
+                    configCreds[k] = { clientId: cred.clientId, clientSecret: cred.clientSecret }
+                  }
+                }
+              }
+            }
+          } catch {}
+
           let migrated = false
           for (const t of this._tokens) {
-            if (!t.clientId || !t.clientSecret) {
+            const cfgCred = configCreds[t.projectId]
+            if (cfgCred) {
+              // Override with config credentials (config is source of truth)
+              if (t.clientId !== cfgCred.clientId || t.clientSecret !== cfgCred.clientSecret) {
+                t.clientId = cfgCred.clientId
+                t.clientSecret = cfgCred.clientSecret
+                migrated = true
+              }
+            } else if (!t.clientId || !t.clientSecret) {
+              // Fallback for tokens not in config
               t.clientId = defaultClientId
               t.clientSecret = defaultClientSecret
               migrated = true
             }
           }
           if (migrated) {
-            console.log('[TokenManager] Migrated legacy tokens — filled default credentials')
+            console.log('[TokenManager] Synced credentials from oauth_config.json')
             this._saveTokens()
           }
         }
@@ -185,9 +248,9 @@ class TokenManager {
       this._tokens = []
     }
     if (this._tokens.length === 0) {
-      console.log('[TokenManager] No tokens configured — add OAuth credentials in Settings')
+      console.warn('[TokenManager] No tokens configured — add OAuth credentials in Settings')
     } else {
-      console.log(`[TokenManager] Loaded ${this._tokens.length} tokens`)
+      console.log(`[TokenManager] Loaded ${this._tokens.length} tokens: ${this._tokens.map(t => t.projectId).join(', ')}`)
     }
   }
 
@@ -231,40 +294,20 @@ class TokenManager {
 
   /**
    * Check if we need to reset daily stats.
-   * Resets at midnight PT (Pacific Time), aligned with Google's quota reset.
-   * Uses UTC + DST offset to compute PT without external timezone APIs.
+   * Uses local date — quotas reset at local midnight (17:00 UTC for Vietnam UTC+7),
+   * which is well before Google's midnight PT (08:00 UTC next day). Safe to reset early.
    */
   private _checkReset(): void {
     const now = new Date()
-    const utcHour = now.getUTCHours()
+    const utcDate = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
+    if (this._lastResetPTDate === utcDate) return  // already reset today
 
-    // PT is UTC-7 (PDT, summer) or UTC-8 (PST, winter)
-    // DST: second Sunday in March → first Sunday in November
-    const utcYear = now.getUTCFullYear()
-    const march1 = new Date(Date.UTC(utcYear, 2, 1))
-    const firstSundayMarch = new Date(Date.UTC(utcYear, 2, march1.getUTCDay() === 0 ? 1 : 8 - march1.getUTCDay()))
-    const dstStart = new Date(Date.UTC(utcYear, 2, firstSundayMarch.getUTCDate()))
-    const nov1 = new Date(Date.UTC(utcYear, 10, 1))
-    const firstSundayNov = new Date(Date.UTC(utcYear, 10, nov1.getUTCDay() === 0 ? 1 : 8 - nov1.getUTCDay()))
-    const dstEnd = new Date(Date.UTC(utcYear, 10, firstSundayNov.getUTCDate()))
-
-    const isPDT = now >= dstStart && now < dstEnd
-    const ptOffsetHours = isPDT ? -7 : -8
-    const ptHour = utcHour + ptOffsetHours
-
-    const ptDateStr = ptHour >= 0
-      ? `${utcYear}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
-      : `${utcYear}-${String(new Date(now.getTime() - 86400000).getUTCMonth() + 1).padStart(2, '0')}-${String(new Date(now.getTime() - 86400000).getUTCDate()).padStart(2, '0')}`
-
-    // Reset if stored date is older than current PT date (handles app restart across midnight PT boundary,
-    // or when _lastResetPTDate is stale/empty from a previous run that didn't cross midnight).
-    if (this._lastResetPTDate < ptDateStr) {
-      this._stats.clear()
-      this._lastReset = Date.now()
-      this._lastResetPTDate = ptDateStr
-      this._saveStats()
-      console.log(`[TokenManager] Daily reset at midnight PT (${ptDateStr}) — all token quotas refreshed`)
-    }
+    this._stats.clear()
+    this._unauthorizedTokens.clear()
+    this._lastReset = Date.now()
+    this._lastResetPTDate = utcDate
+    this._saveStats()
+    console.log(`[TokenManager] Quota reset — UTC date: "${utcDate}"`)
   }
 
   /**
@@ -288,12 +331,9 @@ class TokenManager {
         const refreshed = await this.refreshToken(t)
         if (!refreshed) {
           this.recordError(t.projectId)
-          // If token is permanently bad (too many errors), remove it
-          const s = this._stats.get(t.projectId)
-          if (s && s.errors >= MAX_ERRORS) {
-            this.removeToken(t.projectId)
-            console.warn(`[TokenManager] Token ${t.projectId} permanently removed after ${MAX_ERRORS} refresh failures`)
-          }
+          // Token refresh failed — keep it in the list. getBestAvailable will skip it
+          // if usedToday exceeds MAX_UNITS_PER_TOKEN. User can reset stats or re-auth in Settings.
+          console.warn(`[TokenManager] Proactive refresh failed for ${t.projectId} — keeping token`)
           return null
         }
         const idx = this._tokens.findIndex(x => x.projectId === t.projectId)
@@ -380,16 +420,22 @@ class TokenManager {
       return null
     }
 
-    // Filter candidates
+    // Filter candidates: skip unauthorized or exhausted (5+ quota errors) tokens.
+    // Error count is the signal — usedToday accumulates but doesn't block unless errors ≥ 5.
     const candidates = this._tokens.filter(t => {
       if (this._unauthorizedTokens.has(t.projectId)) return false
       const s = this._stats.get(t.projectId)
       if (!s) return true
-      return s.usedToday < MAX_UNITS_PER_TOKEN && s.errors < MAX_ERRORS
+      // Exhausted = 5 or more quota errors (each error = 100 units consumed toward threshold)
+      return s.errors < 5
     })
 
     if (candidates.length === 0) {
-      console.warn('[TokenManager] getBestAvailable: All tokens filtered out — returning null')
+      console.warn(`[TokenManager] getBestAvailable: All ${this._tokens.length} tokens filtered out — _unauthorized: ${[...this._unauthorizedTokens].join(',')}`)
+      for (const t of this._tokens) {
+        const s = this._stats.get(t.projectId)
+        console.warn(`  token=${t.projectId} usedToday=${s?.usedToday ?? 0} >= ${MAX_UNITS_PER_TOKEN}=${(s?.usedToday ?? 0) >= MAX_UNITS_PER_TOKEN} unauthorized=${this._unauthorizedTokens.has(t.projectId)}`)
+      }
       return null
     }
 
@@ -458,18 +504,17 @@ class TokenManager {
     console.warn(`[TokenManager] Error on ${projectId} — errors: ${s.errors}`)
   }
 
-  /** Track an API error (e.g., 403 quota exceeded) — increments usedToday to push exhausted tokens out of rotation */
+  /** Track an API error (e.g., 403 quota exceeded) — increments usedToday to skip exhausted tokens */
   trackError(projectId: string): void {
     const s = this._stats.get(projectId) || { usedToday: 0, errors: 0, lastUsed: 0 }
-    // Add 100 units to simulate quota hit — pushes exhausted tokens above MAX_UNITS_PER_KEY threshold
-    // This ensures getBestAvailable() skips them even without an actual quota error from the API
-    const QUOTA_HIT_UNITS = 100
-    s.usedToday += QUOTA_HIT_UNITS
+    // Add 100 units to push exhausted tokens above MAX_UNITS_PER_TOKEN threshold
+    // This ensures getBestAvailable() skips them even without tracking every call
+    s.usedToday += 100
     s.errors++
     s.lastUsed = Date.now()
     this._stats.set(projectId, s)
     this._saveStats()
-    console.warn(`[TokenManager] trackError(${projectId}): +${QUOTA_HIT_UNITS} units, errors: ${s.errors} → usedToday: ${s.usedToday}`)
+    console.warn(`[TokenManager] trackError(${projectId}): +100 units, errors: ${s.errors} → usedToday: ${s.usedToday}`)
   }
 
   // ── CRUD ─────────────────────────────────────────────────────────────────
@@ -560,6 +605,10 @@ class TokenManager {
       clearInterval(this._refreshTimer)
       this._refreshTimer = null
     }
+    if (this._resetCheckTimer) {
+      clearInterval(this._resetCheckTimer)
+      this._resetCheckTimer = null
+    }
   }
 
   getTokenCount(): number {
@@ -568,15 +617,18 @@ class TokenManager {
 
   /** Get status for all tokens (for Settings UI) */
   getAllStatuses(): TokenStatus[] {
+    console.log(`[TokenManager] getAllStatuses: ${this._tokens.length} tokens loaded, _unauthorized: ${[...this._unauthorizedTokens].join(',')}`)
     return this._tokens.map(t => {
       const s = this._stats.get(t.projectId)
       const usedToday = s?.usedToday ?? 0
       const errors = s?.errors ?? 0
-      const quotaPercent = Math.round((usedToday / MAX_UNITS_PER_TOKEN) * 100)
+      // Errors consume 100 units each; combine with successful calls (1 unit each)
+      const totalUnits = usedToday + (errors * 100)
+      const quotaPercent = Math.round((totalUnits / MAX_UNITS_PER_TOKEN) * 100)
 
       let status: TokenStatus['status'] = 'healthy'
       if (this._unauthorizedTokens.has(t.projectId)) status = 'unauthorized'
-      else if (usedToday >= MAX_UNITS_PER_TOKEN || errors >= MAX_ERRORS) status = 'exhausted'
+      else if (errors >= 5) status = 'exhausted'
       else if (quotaPercent >= 80) status = 'warning'
       else if (errors > 0) status = 'error'
 
@@ -586,7 +638,7 @@ class TokenManager {
         hasToken: !!t.access_token,
         tokenExpiry: t.expires_at,
         usedToday,
-        quotaTotal: MAX_UNITS_PER_TOKEN,
+        quotaTotal: MAX_UNITS_PER_TOKEN, // 500 = exhausted (5 errors × 100); display uses combined totalUnits
         quotaPercent: Math.min(100, quotaPercent),
         errors,
         status,

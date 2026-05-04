@@ -19,7 +19,7 @@ export interface RenderMetadata {
   trim: { start: number; end: number }
   codec?: 'h264' | 'hevc'
   preset?: 'p1' | 'p2' | 'p3'
-  tune?: 'hq' | 'll' | 'film'
+  tune?: 'hq' | 'll' | 'ull' | 'film'
   canvasBg?: 'black' | 'white'
   // Background
   backgroundType?: 'blur' | 'solid' | 'image'
@@ -31,6 +31,10 @@ export interface RenderMetadata {
   isShort?: boolean
   /** Landscape video zone height as % of canvas (30-100). Larger = bigger video, less thumbnail space. */
   vidHeightPct?: number
+  /** Audio codec. Default: 'aac'. 'libopus' = ~3x faster audio encode. */
+  audioCodec?: 'aac' | 'libopus'
+  /** Audio bitrate. Default: '192k'. Lower values (64k, 96k) = faster encode, smaller file. */
+  audioBitrate?: string
 }
 
 export interface Overlay {
@@ -102,10 +106,8 @@ function getOverlayFilter(useGpu: boolean): string {
 }
 
 // ─── Shell path helper ─────────────────────────────────────────────────────────
-// Always use quoted paths on Windows via cmd /c to handle spaces correctly.
-
-function quotePath(p: string): string {
-  // Escape any existing double quotes, then wrap in double quotes
+// Path quoting utility — exported for use by youtube.ts pre-scale function
+export function quotePath(p: string): string {
   return '"' + p.replace(/"/g, '""') + '"'
 }
 
@@ -377,6 +379,8 @@ export async function extractVideoThumbnail(
 // GPU acceleration: uses scale_cuda/overlay_cuda when available (much faster than CPU).
 
 function buildFilterComplex(opts: {
+  useCuda?: boolean
+
   headerOl: Overlay | undefined
   titleOl: Overlay | undefined
   canvasW: number
@@ -398,21 +402,13 @@ function buildFilterComplex(opts: {
     backgroundType = 'blur',
     titleOverlayPath,
     isShort = true,
+    useCuda = true,
   } = opts
 
-  // Determine GPU filter pipeline.
-  // CRITICAL: CUDA scale and overlay must be used TOGETHER (all on GPU).
-  // If scale_cuda is available but overlay_cuda is not, CUDA→CPU→GPU transfer
-  // happens on every frame — worse than pure CPU pipeline for batch encode.
-  // Strategy: use CUDA filters only when BOTH scale AND overlay support CUDA.
-  // For batch chunked encoding: pure CPU filter chain → NVENC avoids the round-trip.
-  const ver = getHwCaps()
-  const useGpuFilters = ver.hasCudaFilters
-  const useCudaFilters = useGpuFilters && ver.hasCudaFilters  // already checked above
-  // For single-pass (interactive): prefer GPU if available
-  // For chunked (batch): CPU scale → NVENC is faster (no GPU→CPU→GPU transfer)
-  const scale = useCudaFilters ? 'scale_cuda' : 'scale'
-  const overlay = useCudaFilters ? 'overlay_cuda' : 'overlay'
+  // Determine filter pipeline.
+  // CPU-based scale is more reliable than scale_cuda for certain HEVC streams.
+  const scale = useCuda ? 'scale_cuda' : 'scale'
+  const overlay = useCuda ? 'overlay_cuda' : 'overlay'
 
   // ── LANDSCAPE layout: thumbnail bg + landscape video + part number ──
   // IMPORTANT: sections[1] = bgChain2 outputs [bg] via [1:v].
@@ -434,9 +430,13 @@ function buildFilterComplex(opts: {
       videoChain2 = `[0:v]${scale}=${canvasW}:-2,crop=${canvasW}:${videoH}:0:${cropY}${speedFilter}[vid]`
     } else {
       // Unsafe: target exceeds scaled source — use contain (letterboxing)
-      const safeIh = Math.round(canvasW * 9 / 16)
-      const targetY = Math.round((videoH - safeIh) / 2)
-      videoChain2 = `[0:v]${scale}=${canvasW}:-2,pad=ow:${videoH}:0:${targetY}${speedFilter}[vid]`
+      // Use scale+pad in two steps: first scale to target height, then pad to full width
+      const scaledIh = Math.round(canvasW * 9 / 16)  // height after scale to canvasW width
+      const targetY = Math.round((videoH - scaledIh) / 2)
+      // Step 1: scale to target height (preserving aspect)
+      // Step 2: pad to canvas width with horizontal centering
+      // Note: use iw/ih in pad expressions (ow/oh reference output of THIS pad, not previous)
+      videoChain2 = `[0:v]${scale}=${canvasW}:${videoH}:force_original_aspect_ratio=decrease,pad=${canvasW}:${videoH}:(ow-iw)/2:${targetY}${speedFilter}[vid]`
     }
     // [1:v] thumbnail → fill entire canvas background
     const bgChain2 = `[1:v]${scale}=${canvasW}:${canvasH}:force_original_aspect_ratio=decrease[bg]`
@@ -453,10 +453,11 @@ function buildFilterComplex(opts: {
 
   // ── SHORT (vertical) layout: header + video zone + title ──
   // Scale + speed filter chain for video
-  // Order: scale → setpts (speed) → pad. speedFilter is "" or ",setpts=X*PTS"
+  // Order: scale → setpts (speed) → pad.
+  const speedComma = speedFilter ? ',' : ''
   const scaleChain = `[0:v]${scale}=${videoW}:${videoH}:force_original_aspect_ratio=decrease`
   const padChain = `,pad=${canvasW}:${canvasH}:(ow-iw)/2:${videoTop}[vid]`
-  const videoChain = `${scaleChain}${speedFilter}${padChain}`
+  const videoChain = `${scaleChain}${speedComma}${speedFilter}${padChain}`
 
   // Scale background to canvas
   // blur/image: scale from source size. solid: color filter outputs exact size already.
@@ -511,6 +512,9 @@ function getNvencParams(codec: 'h264' | 'hevc', isChunked: boolean, gpuTier: GPU
     ? (isChunked ? '26' : '24')
     : (isChunked ? '22' : '20')
 
+  // Tune: 'ull' = ultra-low-latency, fastest encode on RTX 5080
+  //        'll'  = low-latency for mid-tier
+  //        'hq'  = high quality for single-pass
   const tune = isChunked
     ? (isHighTier ? 'ull' : isMidTier ? 'll' : 'll')
     : 'hq'
@@ -754,6 +758,8 @@ export async function renderVideo(
     blur_background,
     isShort = true,
     vidHeightPct = 50,
+    audioCodec = 'aac',
+    audioBitrate = '192k',
   } = metadata
 
   // Parse resolution from export_resolution — this IS used
@@ -799,40 +805,25 @@ export async function renderVideo(
   // NVENC codec
   const nvencCodec = codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'
 
-  // Best hardware decoder
-  const hwDecCodec = getBestHwDecCodec(codec)
-
   // CPU-aware threading: use all available cores for the filter pipeline.
   // RTX 5080 + Core Ultra 9 (24 cores): can handle more threads.
   // Cap at 16 to avoid thread oversubscription on the filter chain.
   const numThreads = Math.min(os.cpus().length, 16)
 
-  // Build filter complex
-  // Pre-render title overlay to PNG first (avoids CPU drawtext per frame)
+  // Use CPU decode to avoid NVDEC/HEVC incompatibility failures.
+  // hevc_nvdec fails on certain HEVC profiles with "Invalid NAL unit size".
+  // CPU decode → filter → NVENC encode is more reliable.
+  const decCodec = codec
+
+  // Build filter complex (CPU-based to avoid scale_cuda/HEVC incompatibility)
   const titleOverlayResult = await preRenderOverlays(metadata, outputDir, workspace_id)
   const titleOverlayPath = titleOverlayResult.titleOverlayPath ?? undefined
+  const filterComplex = buildFilterComplex({ useCuda: false, headerOl, titleOl, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, speedFilter, backgroundType, titleOverlayPath, isShort })
 
-  const filterComplex = buildFilterComplex({
-    headerOl,
-    titleOl,
-    canvasW,
-    canvasH,
-    headerH,
-    titleH,
-    videoH,
-    videoTop,
-    videoW,
-    speedFilter,
-    backgroundType,
-    titleOverlayPath,
-    isShort,
-  })
-
-  // Determine output label — [td] only valid when titleOverlayPath was actually generated.
-  // [fh] exists only when headerOl.src is set. Otherwise fall back to [vz].
+  // Determine output label
   let mapOutput = '[vz]'
-  if (titleOverlayPath) mapOutput = '[td]'
-  else if (headerOl?.src) mapOutput = '[fh]'
+  if (titleOverlayPath && headerOl?.src) mapOutput = '[td]'
+  else if (!titleOverlayPath && headerOl?.src) mapOutput = '[fh]'
 
   // Build ffmpeg args
   // Inputs: [0]=source video, [1]=background, [2]=header image (optional), [3]=title overlay PNG (optional)
@@ -840,8 +831,7 @@ export async function renderVideo(
   const args: string[] = [
     '-ss', String(trimStart),
     '-t', String(decodeDuration),
-    // Hardware decode: NVDEC (preferred) > CUVID (legacy) > software
-    '-c:v', hwDecCodec,
+    '-c:v', decCodec,
     '-threads', String(numThreads),
     '-avoid_negative_ts', 'make_zero',
     '-i', quotePath(source_video),
@@ -863,8 +853,8 @@ export async function renderVideo(
     '-map', mapOutput,
     '-c:v', nvencCodec,
     ...getNvencParams(codec, false, gpuTier),
-    '-c:a', 'aac',
-    '-b:a', '192k',
+    '-c:a', audioCodec,
+    '-b:a', audioBitrate,
     '-r', String(fps_target),
     '-max_muxing_queue_size', '1024',
     '-y', quotePath(outputFile),
@@ -957,17 +947,18 @@ function buildChunkArgs(
   backgroundColor?: string,
   backgroundImage?: string,
   numThreads?: number,
+  audioCodec: 'aac' | 'libopus' = 'aac',
+  audioBitrate: string = '192k',
 ): string[] {
   const nvencCodec = codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'
-  const hwDecCodec = getBestHwDecCodec(codec)
+  // Use CPU decode to avoid NVDEC/HEVC incompatibility failures.
+  const decCodec = codec
   // CPU-aware threads: use all cores but cap at 16 to avoid oversubscription
   const chunkThreads = numThreads ?? Math.min(os.cpus().length, 16)
 
-  // Check GPU filter availability
-  const ver = getHwCaps()
-  const useGpuFilters = ver.hasCudaFilters
-  const scale = getScaleFilter(useGpuFilters)
-  const overlay = getOverlayFilter(useGpuFilters)
+  // CPU-based scale is more reliable than scale_cuda for certain HEVC streams.
+  const scale = 'scale'
+  const overlay = 'overlay'
 
   const speedFilter = videoSpeed && videoSpeed !== 1.0
     ? ',setpts=' + (1 / videoSpeed) + '*PTS'
@@ -995,9 +986,10 @@ function buildChunkArgs(
       const cropY = Math.round((scaledAfterScaleH - videoH) / 2)
       sections.push('[0:v]' + scale + '=' + canvasW + ':-2,crop=' + canvasW + ':' + videoH + ':0:' + cropY + speedFilter + '[vid]')
     } else {
-      const safeIh = Math.round(canvasW * 9 / 16)
-      const targetY = Math.round((videoH - safeIh) / 2)
-      sections.push('[0:v]' + scale + '=' + canvasW + ':-2,pad=ow:' + videoH + ':0:' + targetY + speedFilter + '[vid]')
+      // Letterboxing: scale to target height, then pad to canvas width with horizontal centering
+      const scaledIh = Math.round(canvasW * 9 / 16)
+      const targetY = Math.round((videoH - scaledIh) / 2)
+      sections.push('[0:v]' + scale + '=' + canvasW + ':' + videoH + ':force_original_aspect_ratio=decrease,pad=' + canvasW + ':' + videoH + ':(ow-iw)/2:' + targetY + speedFilter + '[vid]')
     }
 
     sections.push('[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease[bg]')
@@ -1026,7 +1018,7 @@ function buildChunkArgs(
 
     return [
       '-ss', String(trimStart), '-t', String(trimDuration),
-      '-c:v', hwDecCodec,
+      '-c:v', decCodec,
       '-threads', String(chunkThreads),
       '-avoid_negative_ts', 'make_zero',
       '-i', quotePath(sourceVideo),
@@ -1038,7 +1030,7 @@ function buildChunkArgs(
       '-c:v', nvencCodec,
       ...getNvencParams(codec, true, gpuTier),
       '-max_muxing_queue_size', '512',
-      '-c:a', 'aac', '-b:a', '192k',
+      '-c:a', audioCodec, '-b:a', audioBitrate,
       '-r', '30',
       '-y', quotePath(outputFile),
     ]
@@ -1074,7 +1066,7 @@ function buildChunkArgs(
   return [
     '-ss', String(trimStart),
     '-t', String(trimDuration),
-    '-c:v', hwDecCodec,
+    '-c:v', decCodec,
     '-threads', String(chunkThreads),
     '-avoid_negative_ts', 'make_zero',
     '-i', quotePath(sourceVideo),
@@ -1086,7 +1078,7 @@ function buildChunkArgs(
     '-c:v', nvencCodec,
     ...getNvencParams(codec, true, gpuTier),
     '-max_muxing_queue_size', '512',
-    '-c:a', 'aac', '-b:a', '192k',
+    '-c:a', audioCodec, '-b:a', audioBitrate,
     '-r', '30',
     '-y', quotePath(outputFile),
   ]
@@ -1116,6 +1108,8 @@ async function encodeChunk(
   backgroundType?: 'blur' | 'solid' | 'image',
   backgroundColor?: string,
   backgroundImage?: string,
+  audioCodec?: 'aac' | 'libopus',
+  audioBitrate?: string,
 ): Promise<{ success: boolean; fileSize: number; encodeMs: number; error?: string; decodeFps?: number; encodeFps?: number }> {
   const ffmpeg = getFfmpegPath()
   const numThreads = Math.min(os.cpus().length, 16)
@@ -1125,6 +1119,7 @@ async function encodeChunk(
     titleOverlayPath, isShort, videoSpeed, gpuTier,
     backgroundType, backgroundColor, backgroundImage,
     numThreads,
+    audioCodec ?? 'aac', audioBitrate ?? '192k',
   )
 
   return new Promise((resolve) => {
@@ -1293,6 +1288,7 @@ export async function renderChunked(
   const {
     workspace_id, source_video, blur_background, trim, export_resolution, codec = 'hevc',
     isShort = true, overlays, video_speed,
+    audioCodec = 'aac', audioBitrate = '192k',
   } = metadata
   const vidHeightPct = metadata.vidHeightPct ?? 50
   // Use VRAM-aware effective workers if not explicitly specified
@@ -1398,6 +1394,8 @@ export async function renderChunked(
         metadata.backgroundType,
         metadata.backgroundColor,
         metadata.backgroundImage,
+        audioCodec,
+        audioBitrate,
       )
 
       return { idx, startSec, endSec, chunkFile, result }

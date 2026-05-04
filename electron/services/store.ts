@@ -224,6 +224,8 @@ export interface WorkspaceData {
   retryableAt?: string
   /** Video resolution (e.g. "1920x1080", "1080x1920") */
   videoResolution?: string
+  /** Path to pre-scaled source video (pre-downscaled to export resolution) — speeds up render */
+  preScaledPath?: string
 }
 
 interface Store {

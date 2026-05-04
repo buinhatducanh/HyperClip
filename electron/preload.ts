@@ -110,6 +110,12 @@ const IPC = {
   RENDERED_REMOVE: 'rendered:remove',
   RENDERED_OPEN_FOLDER: 'rendered:openFolder',
   RENDERED_SET_ARCHIVE_PATH: 'rendered:setArchivePath',
+
+  // Storage management
+  STORAGE_GET_SIZE: 'storage:get-size',
+  STORAGE_CLEAR_DOWNLOADS: 'storage:clear-downloads',
+  STORAGE_CLEAR_BLUR: 'storage:clear-blur',
+  STORAGE_PICK_FOLDER: 'storage:pick-folder',
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -330,4 +336,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC.RENDERED_OPEN_FOLDER, id) as Promise<{ success: boolean }>,
   setRenderedArchivePath: (path: string) =>
     ipcRenderer.invoke(IPC.RENDERED_SET_ARCHIVE_PATH, path) as Promise<{ success: boolean }>,
+
+  // Storage management
+  getStorageSize: () =>
+    ipcRenderer.invoke(IPC.STORAGE_GET_SIZE) as Promise<{ downloads: number; blur: number; total: number; downloadPath: string; outputPath: string }>,
+  clearDownloads: () =>
+    ipcRenderer.invoke(IPC.STORAGE_CLEAR_DOWNLOADS) as Promise<{ success: boolean; freedMB: number }>,
+  clearBlur: () =>
+    ipcRenderer.invoke(IPC.STORAGE_CLEAR_BLUR) as Promise<{ success: boolean; freedMB: number }>,
+  pickFolder: (currentPath?: string) =>
+    ipcRenderer.invoke(IPC.STORAGE_PICK_FOLDER, currentPath) as Promise<{ path: string } | null>,
 })

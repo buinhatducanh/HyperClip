@@ -354,9 +354,9 @@ if (!dbBuffer) return null
     // Chrome stores encrypted values in the 'encrypted_value' column
     // Plain values are stored in 'value' column for non-encrypted cookies
     const result = db.exec(`
-      SELECT name, value, encrypted_value
+      SELECT host_key, name, value, encrypted_value
       FROM cookies
-      WHERE host_key LIKE '%youtube.com%'
+      WHERE (host_key LIKE '%youtube.com%' OR host_key LIKE '%.google.com%' OR host_key = 'google.com')
         AND name IN ('SAPISID', '__Secure-1PSID', '__Secure-1PSIDTS', '__Secure-1PSIDCC', '__Secure-3PSID', 'LOGGED_IN', '__Secure-1PAPISID', 'SOCS')
     `)
 
@@ -365,14 +365,15 @@ if (!dbBuffer) return null
       db.close()
       return null
     }
-    console.log(`[Cookie] Found ${result[0].values.length} cookie rows: ${result[0].values.map((r: any) => String(r[0])).join(', ')}`)
+    console.log(`[Cookie] Found ${result[0].values.length} cookie rows: ${result[0].values.map((r: any) => String(r[1]) + '@' + String(r[0]).slice(0,20)).join(', ')}`)
 
     const cookies: Partial<YouTubeCookies> = {}
 
     for (const row of result[0].values) {
-      const name = String(row[0])
-      const plainValue = row[1] ? String(row[1]) : ''
-      const encryptedValue = row[2]
+      const hostKey = String(row[0])
+      const name = String(row[1])
+      const plainValue = row[2] ? String(row[2]) : ''
+      const encryptedValue = row[3]
 
       let value = plainValue
 

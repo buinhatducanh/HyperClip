@@ -4,6 +4,11 @@ import { useState, useCallback } from 'react'
 import type { Channel, SystemStats } from '../types'
 import { NotificationCenter } from './NotificationCenter'
 
+interface AppSettings {
+  defaultTrimLimit: number | 'full'
+  autoDownloadQuality: string
+}
+
 interface Props {
   channels: Channel[]
   activeChannelId: string
@@ -21,6 +26,8 @@ interface Props {
   pollerStatus?: { active: boolean; newVideoCount: number; lastError: string | null } | null
   onLogout?: () => void
   keyHealth?: { exhausted: number; unauthorized: number }
+  settings?: AppSettings
+  onSettingsChange?: (patch: Partial<AppSettings>) => void
 }
 
 function AvatarWithFallback({ url, name, color }: { url: string; name: string; color: string }) {
@@ -58,6 +65,8 @@ export function Sidebar({
   pollerStatus,
   onLogout,
   keyHealth,
+  settings,
+  onSettingsChange,
 }: Props) {
   const [showAll, setShowAll] = useState(true)
 
@@ -268,6 +277,79 @@ export function Sidebar({
                 </div>
               )
             })}
+        </div>
+      </div>
+
+      {/* Download settings */}
+      <div style={{ padding: '8px 12px', borderTop: '1px solid #1E1E1E', flexShrink: 0 }}>
+        <div style={{ fontSize: 8, fontWeight: 800, color: '#2A2A2A', letterSpacing: '0.1em', marginBottom: 6 }}>DOWNLOAD</div>
+
+        {/* Trim limit */}
+        <div style={{ marginBottom: 6 }}>
+          <div style={{ fontSize: 8, color: '#444', marginBottom: 3 }}>Trim</div>
+          <div style={{ display: 'flex', gap: 3 }}>
+            {([5, 8, 10, 15, 20] as const).map(val => (
+              <button
+                key={val}
+                onClick={() => onSettingsChange?.({ defaultTrimLimit: val })}
+                title={`${val} minutes`}
+                style={{
+                  flex: 1, height: 20,
+                  background: settings?.defaultTrimLimit === val ? '#00B4FF22' : 'transparent',
+                  border: `1px solid ${settings?.defaultTrimLimit === val ? '#00B4FF66' : '#222'}`,
+                  borderRadius: 3, cursor: 'pointer',
+                  fontSize: 8, fontWeight: 700,
+                  color: settings?.defaultTrimLimit === val ? '#00B4FF' : '#444',
+                  fontFamily: 'monospace',
+                  transition: 'all 0.1s',
+                }}
+              >
+                {val}m
+              </button>
+            ))}
+            <button
+              onClick={() => onSettingsChange?.({ defaultTrimLimit: 'full' })}
+              title="Full video"
+              style={{
+                flex: 1, height: 20,
+                background: settings?.defaultTrimLimit === 'full' ? '#00B4FF22' : 'transparent',
+                border: `1px solid ${settings?.defaultTrimLimit === 'full' ? '#00B4FF66' : '#222'}`,
+                borderRadius: 3, cursor: 'pointer',
+                fontSize: 8, fontWeight: 700,
+                color: settings?.defaultTrimLimit === 'full' ? '#00B4FF' : '#444',
+                fontFamily: 'monospace',
+                transition: 'all 0.1s',
+              }}
+            >
+              FULL
+            </button>
+          </div>
+        </div>
+
+        {/* Quality */}
+        <div>
+          <div style={{ fontSize: 8, color: '#444', marginBottom: 3 }}>Quality</div>
+          <div style={{ display: 'flex', gap: 3 }}>
+            {(['360', '480', '720', '1080'] as const).map(val => (
+              <button
+                key={val}
+                onClick={() => onSettingsChange?.({ autoDownloadQuality: val })}
+                title={`${val}p`}
+                style={{
+                  flex: 1, height: 20,
+                  background: (settings?.autoDownloadQuality ?? '720') === val ? '#00FF8822' : 'transparent',
+                  border: `1px solid ${(settings?.autoDownloadQuality ?? '720') === val ? '#00FF8866' : '#222'}`,
+                  borderRadius: 3, cursor: 'pointer',
+                  fontSize: 8, fontWeight: 700,
+                  color: (settings?.autoDownloadQuality ?? '720') === val ? '#00FF88' : '#444',
+                  fontFamily: 'monospace',
+                  transition: 'all 0.1s',
+                }}
+              >
+                {val}p
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

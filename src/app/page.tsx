@@ -76,6 +76,7 @@ export default function DashboardPage() {
     resetEditorState,
     addRenderedVideo,
     settings,
+    setSettings,
   } = useAppStore()
 
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
@@ -503,6 +504,11 @@ export default function DashboardPage() {
         pollerStatus={pollerStatus}
         onLogout={handleLogout}
         keyHealth={keyHealth}
+        settings={settings}
+        onSettingsChange={async (patch) => {
+          setSettings(patch)
+          await ipc.updateSettings(patch)
+        }}
       />
 
       {/* Main: workspace queue + editor */}

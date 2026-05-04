@@ -78,7 +78,8 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
 
   const [thumbSrc, setThumbSrc] = useState<string>('')
   const [thumbFailed, setThumbFailed] = useState(false)
-  const [downloadMeta, setDownloadMeta] = useState<{ speed?: string; eta?: string }>({})
+  const [downloadMeta, setDownloadMeta] = useState<{ speed?: string; eta?: string; percent?: number }>({})
+  const [isMultiInstance, setIsMultiInstance] = useState(false)
 
   // Resolve thumbnail
   useEffect(() => {
@@ -97,14 +98,20 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
     }
   }, [workspace.thumbnail, workspace.id, isLocalThumb])
 
-  // Listen to render progress events
+  // Listen to render progress events (covers both render AND download progress)
   useEffect(() => {
     const unsub = ipc.onRenderProgress((progress: any) => {
       if (progress.workspaceId !== workspace.id) return
-      setDownloadMeta({ speed: progress.speed, eta: progress.eta })
+      setDownloadMeta({ speed: progress.speed, eta: progress.eta, percent: progress.percent })
+      // Show 2× badge when downloading 1080p (multi-instance active)
+      if (status === 'downloading' && progress.speed && progress.percent !== undefined) {
+        // Estimate: if speed > 10MiB/s during download, likely multi-instance
+        // In practice, backend sets isMultiInstance on the workspace
+        setIsMultiInstance(workspace.isMultiInstance === true)
+      }
     })
     return unsub
-  }, [workspace.id])
+  }, [workspace.id, workspace.isMultiInstance, status])
 
   const showRetry = (status === 'waiting' || status === 'error') && !!onRetry
   const durSec = parseDur(workspace.duration)
@@ -313,12 +320,23 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
 
           {/* Download speed/ETA */}
           {status === 'downloading' && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 8, color: '#00B4FF', fontFamily: 'monospace' }}>
-                {downloadMeta.speed || ''} {workspace.videoResolution || ''}
-              </span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ fontSize: 8, color: '#00B4FF', fontFamily: 'monospace' }}>
+                  {downloadMeta.speed || ''}
+                </span>
+                {isMultiInstance && (
+                  <span style={{
+                    fontSize: 7, fontWeight: 800, color: '#00FF88',
+                    background: '#00FF8812', border: '1px solid #00FF8844',
+                    borderRadius: 2, padding: '1px 4px', letterSpacing: '0.06em',
+                  }}>
+                    2× INST
+                  </span>
+                )}
+              </div>
               <span style={{ fontSize: 8, color: '#00B4FF66', fontFamily: 'monospace' }}>
-                {downloadMeta.eta ? `ETA ${downloadMeta.eta}` : ''}
+                {downloadMeta.eta ? `ETA ${downloadMeta.eta}` : downloadMeta.percent !== undefined ? `${downloadMeta.percent.toFixed(0)}%` : ''}
               </span>
             </div>
           )}

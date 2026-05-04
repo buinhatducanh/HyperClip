@@ -45,7 +45,7 @@ export interface PollerStatus {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DEFAULT_POLL_INTERVAL_MS = 5000 // 5 seconds — aggressive detection latency for fast pipeline
+const DEFAULT_POLL_INTERVAL_MS = 20000 // 20 seconds — per doc requirement
 const MAX_VIDEOS_PER_POLL = 5
 const MAX_VIDEO_AGE_MS = 10 * 60 * 1000 // 10 minutes — accounts for YouTube processing delay after upload
 const SEEN_IDS_CAP = 10000 // cap to prevent unbounded memory growth
@@ -96,6 +96,7 @@ class YouTubePoller {
   private _exhaustedBackoffUntil: number = 0 // timestamp when backoff ends
   private _lastExhaustedWarnAt: number = 0   // avoid spamming notifications
   private _backoffReason: 'oauth' | null = null
+  private _exhaustionCount: number = 0        // tracks how many times we've backed off (for exponential backoff)
 
   constructor(options: PollerOptions) {
     this._pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
@@ -126,6 +127,7 @@ class YouTubePoller {
       this._exhaustedBackoffUntil = 0
       this._backoffReason = null
       this._lastExhaustedWarnAt = 0
+      this._exhaustionCount = 0
       console.log('[YouTubePoller] Backoff cleared — resuming polling')
     }
   }
@@ -171,20 +173,17 @@ class YouTubePoller {
 
     const now = Date.now()
 
-    // Backoff: if in exhausted backoff period, STILL check if resources recovered
-    // (user may have added tokens or initialized Chrome profiles mid-session)
+    // Backoff: if in exhausted backoff period, check if resources recovered
     if (now < this._exhaustedBackoffUntil) {
-      // Re-check availability every 5 polls (~100s) even during backoff
       if (this._pollsSinceLastLog === 0) {
         const { hasOAuth } = await this._checkResources()
-        const remaining = Math.ceil((this._exhaustedBackoffUntil - now) / 60000)
+        const remaining = Math.ceil((this._exhaustedBackoffUntil - now) / 1000)
         if (hasOAuth) {
-          // Resources recovered — clear backoff immediately
           this._exhaustedBackoffUntil = 0
           this._backoffReason = null
           console.log(`[YouTubePoller] OAuth recovered ✓ — resuming polling`)
         } else {
-          console.log(`[YouTubePoller] Still backed off (${remaining}m until midnight PT) — OAuth: available`)
+          console.log(`[YouTubePoller] Backoff (${remaining}s remaining) — OAuth: checking...`)
         }
       }
       return
@@ -213,37 +212,23 @@ class YouTubePoller {
 
       // All detection sources exhausted — enter backoff mode, notify user once
       if (subResult.allSourcesExhausted) {
-        const { hasOAuth } = await this._checkResources()
-        const reason = 'OAuth tokens exhausted'
+        const reason = 'All detection sources exhausted (Innertube: no Chrome sessions, OAuth: all tokens quota-exhausted)'
         this._backoffReason = 'oauth'
         this._lastError = reason
-        console.warn(`[YouTubePoller] ${reason}. Add more GCP projects in Settings.`)
+        console.warn(`[YouTubePoller] ${reason}`)
 
-        // Calculate backoff: time until next midnight PT
-        const utcHour = new Date().getUTCHours()
-        const utcYear = new Date().getFullYear()
-        // DST in PT
-        const march1 = new Date(Date.UTC(utcYear, 2, 1))
-        const firstSundayMarch = new Date(Date.UTC(utcYear, 2, march1.getUTCDay() === 0 ? 1 : 8 - march1.getUTCDay()))
-        const dstStart = new Date(Date.UTC(utcYear, 2, firstSundayMarch.getUTCDate()))
-        const nov1 = new Date(Date.UTC(utcYear, 10, 1))
-        const firstSundayNov = new Date(Date.UTC(utcYear, 10, nov1.getUTCDay() === 0 ? 1 : 8 - nov1.getUTCDay()))
-        const dstEnd = new Date(Date.UTC(utcYear, 10, firstSundayNov.getUTCDate()))
-        const isPDT = new Date() >= dstStart && new Date() < dstEnd
-        const ptOffset = isPDT ? -7 : -8
-        const ptHour = utcHour + ptOffset
-        const hoursUntilMidnight = ptHour < 0 ? Math.abs(ptHour) : 24 + ptHour
-        const backoffMs = Math.min(hoursUntilMidnight * 60 * 60 * 1000, 8 * 60 * 60 * 1000)
+        // All detection sources exhausted — back off incrementally
+        // Start with 60s, double each time (60s → 120s → 240s → ...), cap at 5 min
+        const baseBackoff = 60_000
+        const maxBackoff = 300_000  // 5 minutes max
+        const backoffMs = Math.min(baseBackoff * Math.pow(2, this._exhaustionCount), maxBackoff)
+        this._exhaustionCount = (this._exhaustionCount ?? 0) + 1
         this._exhaustedBackoffUntil = now + backoffMs
+        this._backoffReason = 'oauth'
 
-        // Notify user once per backoff period (not every poll)
-        if (now - this._lastExhaustedWarnAt > 5 * 60 * 1000) {
+        if (now - this._lastExhaustedWarnAt > backoffMs) {
           this._lastExhaustedWarnAt = now
-          // Notify via IPC if available — main.ts wires this up to a notification callback
-          if (this._onNewVideos) {
-            this._onNewVideos([])
-          }
-          console.warn(`[YouTubePoller] QUOTA_EXHAUSTED: OAuth tokens exhausted. Backoff until midnight PT (${Math.ceil(hoursUntilMidnight)}h). Add more GCP projects in Settings.`)
+          console.warn(`[YouTubePoller] Backoff ${Math.round(backoffMs/1000)}s (attempt #${this._exhaustionCount}). Add more GCP projects or check token validity.`)
         }
       }
       return

@@ -227,14 +227,12 @@ export function clearTokens(): void {
 // ─── OAuth URL Builder ─────────────────────────────────────────────────────────
 
 export function buildOAuthUrl(clientId: string): string {
+  const scopes = 'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube'
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: getRedirectUri(),
     response_type: 'code',
-    scope: [
-      'https://www.googleapis.com/auth/youtube.readonly',
-      'https://www.googleapis.com/auth/youtube',
-    ].join(' '),
+    scope: scopes,
     access_type: 'offline',
     prompt: 'consent',
   })
@@ -255,6 +253,8 @@ function exchangeCodeForTokens(clientId: string, clientSecret: string, code: str
 
     const body = new URLSearchParams(bodyParams).toString()
 
+    const maskedSecret = clientSecret ? `${clientSecret.slice(0, 8)}...` : '(none)'
+    console.log(`[OAuth] Token exchange: clientId=${clientId.slice(0, 20)}..., secret=${maskedSecret}, grant=authorization_code`)
     const options = {
       hostname: 'oauth2.googleapis.com',
       path: '/token',
@@ -270,8 +270,15 @@ function exchangeCodeForTokens(clientId: string, clientSecret: string, code: str
       res.on('data', (chunk) => (data += chunk))
       res.on('end', () => {
         // Log the raw response for debugging
-        console.log('[OAuth] Token exchange response status:', res.statusCode)
-        if (data.length < 200) console.log('[OAuth] Token exchange response:', data)
+        console.log(`[OAuth] Token exchange response status: ${res.statusCode}, body: ${data.slice(0, 200)}`)
+        if (res.statusCode !== 200) {
+          try {
+            const errJson = JSON.parse(data)
+            if (errJson.error === 'invalid_client') {
+              console.error(`[OAuth] CRITICAL: invalid_client — secret may be wrong or client was deleted. Check Google Cloud Console for clientId=${clientId.slice(0, 20)}...`)
+            }
+          } catch {}
+        }
         try {
           const json = JSON.parse(data)
           if (json.error) {

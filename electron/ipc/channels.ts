@@ -120,4 +120,10 @@ export const IPC_CHANNELS = {
 
   // Workspace split (split long video into multiple workspaces by trim limit)
   WORKSPACE_SPLIT: 'workspace:split',
+
+  // Storage management
+  STORAGE_GET_SIZE: 'storage:get-size',
+  STORAGE_CLEAR_DOWNLOADS: 'storage:clear-downloads',
+  STORAGE_CLEAR_BLUR: 'storage:clear-blur',
+  STORAGE_PICK_FOLDER: 'storage:pick-folder',
 } as const
