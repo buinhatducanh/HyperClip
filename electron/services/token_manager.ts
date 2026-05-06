@@ -95,7 +95,7 @@ export interface TokenStatus {
   quotaTotal: number
   quotaPercent: number
   errors: number
-  status: 'healthy' | 'warning' | 'error' | 'exhausted' | 'unauthorized' | 'no_oauth'
+  status: 'healthy' | 'warning' | 'rate_limited' | 'error' | 'exhausted' | 'unauthorized' | 'no_oauth'
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -103,10 +103,10 @@ export interface TokenStatus {
 const TOKENS_DIR = path.join(os.tmpdir(), 'hyperclip-cookies')
 const TOKENS_FILE = path.join(TOKENS_DIR, 'oauth_tokens.json')
 const STATS_FILE = path.join(os.homedir(), 'AppData', 'Roaming', 'HyperClip', 'token_stats.json')
-const MAX_UNITS_PER_TOKEN = 500   // exhausted threshold: 5 quota errors × 100 each = 500
+const MAX_UNITS_PER_TOKEN = 9500  // exhausted threshold: 9,500 units/day per project (500 buffer of 10,000)
 // Note: successful calls (1 unit each) don't count toward this threshold.
-// Exhausted threshold: 5 quota errors × 100 each = 500 units.
-// After 5 errors, usedToday >= 500 >= MAX_UNITS_PER_TOKEN → token skipped.
+// Exhausted threshold: 5 quota errors × 100 each = 500 units added to usedToday.
+// But the actual exhaustion signal is `errors >= 5` (not usedToday >= MAX_UNITS_PER_TOKEN).
 // This prevents reusing an already-exhausted token for subsequent batches.
 
 // ─── Token Manager ──────────────────────────────────────────────────────────
@@ -421,13 +421,14 @@ class TokenManager {
     }
 
     // Filter candidates: skip unauthorized or exhausted (5+ quota errors) tokens.
-    // Error count is the signal — usedToday accumulates but doesn't block unless errors ≥ 5.
+    // Error count is the signal — 5 quota errors = exhausted. usedToday accumulates but doesn't
+    // directly block (it's for logging/visibility only; MAX_UNITS_PER_TOKEN = 9,500 for docs).
     const candidates = this._tokens.filter(t => {
       if (this._unauthorizedTokens.has(t.projectId)) return false
       const s = this._stats.get(t.projectId)
       if (!s) return true
-      // Exhausted = 5 or more quota errors (each error = 100 units consumed toward threshold)
-      return s.errors < 5
+      // Exhausted = 10 or more quota errors (system is rate-limited, not quota-exhausted)
+    return s.errors < 10
     })
 
     if (candidates.length === 0) {
@@ -551,16 +552,20 @@ class TokenManager {
 
   resetAll(): void {
     this._stats.clear()
+    this._unauthorizedTokens.clear()
     this._lastReset = Date.now()
     this._saveStats()
     console.log('[TokenManager] Reset all token quotas')
   }
 
-  /** Reset stats for a specific project (keeps the token, only clears usedToday/errors) */
-  resetTokenStats(projectId: string): void {
+  /** Reset stats for a specific project (keeps the token, only clears usedToday/errors/unauthorized flag) */
+  resetTokenStats(projectId: string): { success: boolean; nextReset: number; wasUnauthorized: boolean } {
+    const wasUnauthorized = this._unauthorizedTokens.has(projectId)
     this._stats.delete(projectId)
+    this._unauthorizedTokens.delete(projectId)
     this._saveStats()
-    console.log(`[TokenManager] Reset quota stats for ${projectId}`)
+    console.log(`[TokenManager] Reset quota stats for ${projectId} (wasUnauthorized=${wasUnauthorized})`)
+    return { success: true, nextReset: this._getNextResetTime(), wasUnauthorized }
   }
 
   /** Mark a token as unauthorized (401 — token revoked or invalid) */
@@ -615,6 +620,26 @@ class TokenManager {
     return this._tokens.length
   }
 
+  /** Compute timestamp of next midnight PT reset */
+  _getNextResetTime(): number {
+    const now = new Date()
+    const utcHour = now.getUTCHours()
+    const utcYear = now.getUTCFullYear()
+    const march1 = new Date(Date.UTC(utcYear, 2, 1))
+    const firstSundayMarch = new Date(Date.UTC(utcYear, 2, march1.getUTCDay() === 0 ? 1 : 8 - march1.getUTCDay()))
+    const dstStart = new Date(Date.UTC(utcYear, 2, firstSundayMarch.getUTCDate()))
+    const nov1 = new Date(Date.UTC(utcYear, 10, 1))
+    const firstSundayNov = new Date(Date.UTC(utcYear, 10, nov1.getUTCDay() === 0 ? 1 : 8 - nov1.getUTCDay()))
+    const dstEnd = new Date(Date.UTC(utcYear, 10, firstSundayNov.getUTCDate()))
+    const isPDT = now >= dstStart && now < dstEnd
+    const ptOffsetHours = isPDT ? -7 : -8
+    const ptHour = utcHour + ptOffsetHours
+    const msUntilMidnightPT = ptHour >= 0
+      ? (24 - ptHour) * 3600 * 1000 - now.getUTCMinutes() * 60000 - now.getUTCSeconds() * 1000
+      : Math.abs(ptHour) * 3600 * 1000 - now.getUTCMinutes() * 60000 - now.getUTCSeconds() * 1000
+    return Date.now() + msUntilMidnightPT
+  }
+
   /** Get status for all tokens (for Settings UI) */
   getAllStatuses(): TokenStatus[] {
     console.log(`[TokenManager] getAllStatuses: ${this._tokens.length} tokens loaded, _unauthorized: ${[...this._unauthorizedTokens].join(',')}`)
@@ -622,13 +647,13 @@ class TokenManager {
       const s = this._stats.get(t.projectId)
       const usedToday = s?.usedToday ?? 0
       const errors = s?.errors ?? 0
-      // Errors consume 100 units each; combine with successful calls (1 unit each)
-      const totalUnits = usedToday + (errors * 100)
-      const quotaPercent = Math.round((totalUnits / MAX_UNITS_PER_TOKEN) * 100)
+      // quotaPercent = real API units only (errors are tracked separately for status)
+      const quotaPercent = Math.round((usedToday / MAX_UNITS_PER_TOKEN) * 100)
 
       let status: TokenStatus['status'] = 'healthy'
       if (this._unauthorizedTokens.has(t.projectId)) status = 'unauthorized'
-      else if (errors >= 5) status = 'exhausted'
+      else if (usedToday >= MAX_UNITS_PER_TOKEN) status = 'exhausted'
+      else if (errors >= 10) status = 'rate_limited'
       else if (quotaPercent >= 80) status = 'warning'
       else if (errors > 0) status = 'error'
 
@@ -638,7 +663,7 @@ class TokenManager {
         hasToken: !!t.access_token,
         tokenExpiry: t.expires_at,
         usedToday,
-        quotaTotal: MAX_UNITS_PER_TOKEN, // 500 = exhausted (5 errors × 100); display uses combined totalUnits
+        quotaTotal: MAX_UNITS_PER_TOKEN,
         quotaPercent: Math.min(100, quotaPercent),
         errors,
         status,

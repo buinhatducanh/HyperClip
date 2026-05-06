@@ -179,7 +179,7 @@ export const ipc = {
   },
 
   async resetProjectQuota(projectId: string) {
-    return window.electronAPI?.resetProjectQuota(projectId) ?? { success: false }
+    return window.electronAPI?.resetProjectQuota(projectId) ?? { success: false, nextReset: 0, wasUnauthorized: false }
   },
 
   async reauthorizeProject(projectId: string) {

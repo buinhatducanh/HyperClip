@@ -127,13 +127,14 @@ export interface AppStore {
 // ─── Initial State ──────────────────────────────────────────────────────────────
 
 const INIT_STATS: SystemStats = {
-  ramUsed: 11.4, ramTotal: 32, ramFree: 20.6,
-  ramDiskUsed: 0, ramDiskTotal: 64, ramDiskAvailable: 64, ramDiskIsAvailable: false,
-  cpuUsage: 0, cpuCores: 24, cpuName: 'Intel Core Ultra 9 285K',
-  gpuUsage: 76, gpuTemp: 71, gpuName: 'RTX 5080', gpuEncoder: 'nvenc', gpuMemoryTotal: 16384,
-  networkIp: '192.168.1.105',
+  ramUsed: 0, ramTotal: 0, ramFree: 0,
+  ramDiskUsed: 0, ramDiskTotal: 0, ramDiskAvailable: 0, ramDiskIsAvailable: false,
+  cpuUsage: 0, cpuCores: 0, cpuName: 'Loading...',
+  gpuUsage: 0, gpuTemp: 0, gpuName: 'Loading...', gpuEncoder: 'software', gpuMemoryTotal: 0, gpuMemoryFree: 0, gpuTier: 'software',
+  maxChunkWorkers: 0,
+  networkIp: '...',
   isOnline: true,
-  activeWorkers: 2,
+  activeWorkers: 0,
 }
 
 const INIT_EDITOR: EditorState = {

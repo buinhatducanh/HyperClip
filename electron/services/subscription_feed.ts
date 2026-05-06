@@ -1,16 +1,17 @@
 /**
  * Subscription Feed — HyperClip
  *
- * Detection: OAuth Data API v3 playlistItems per channel.
- * TokenManager handles per-project quota (10k units/day) and smart rotation.
- * Token batching: 1 token per batch of 5 channels (reduces overhead ~90%).
- * Early termination: stops after 5 new videos found — saves quota.
+ * Detection: Innertube (youtubei.js) PRIMARY — no quota limit, ~200ms/request.
+ * Fallback: OAuth Data API v3 playlistItems per channel (TokenManager, quota-limited).
+ *
+ * Early termination: stops after N new videos found — saves API calls.
  * Uploads playlist ID cached 24h — saves 1 API call/channel/poll.
  */
 
 import https from 'https'
 import { getTokenManager } from './token_manager.js'
 import { getChannels } from './store.js'
+import { getInnertubePool } from './innertube_client.js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -29,20 +30,18 @@ export interface SubFeedResult {
   videos: SubscriptionVideo[]
   error?: string
   allSourcesExhausted?: boolean
-  source: 'oauth'
+  source: 'innertube' | 'oauth' | 'mixed' | 'none'
 }
 
 export interface SubFeedOptions {
   seenVideoIds?: Set<string>
   sinceMs?: number
   maxVideos?: number
-  /** Stops fetching after this many new videos — saves quota. */
-  stopAfterCount?: number
 }
 
 // ─── Config ─────────────────────────────────────────────────────────────────────
 
-const MAX_VIDEO_AGE_MS = 10 * 60 * 1000 // 10 minutes
+const MAX_VIDEO_AGE_MS = 30 * 60 * 1000 // 30 minutes — auto-download window (for yt-dlp trim), not for detection filter
 const PLAYLIST_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24h uploads playlist cache
 const MAX_CONCURRENT = 5   // parallel API calls per poll
 const MAX_VIDEOS_PER_POLL = 5
@@ -112,15 +111,19 @@ function setCachedUploadsId(channelId: string, uploadsId: string): void {
 
 // ─── Per-Channel Fetch ─────────────────────────────────────────────────────────
 
-async function fetchChannelWithToken(
+/**
+ * Fetch newest video from a channel via OAuth Data API v3.
+ * Returns null if no new video found or error occurred.
+ */
+async function fetchChannelWithOAuth(
   ch: { id: string; channelId?: string; name: string },
   token: string,
   projectId: string,
   seenVideoIds: Set<string> | undefined,
   sinceMs: number,
-): Promise<{ videos: SubscriptionVideo[]; quotaError: boolean }> {
+): Promise<{ video: SubscriptionVideo | null; quotaError: boolean }> {
   const channelId = ch.channelId || ch.id
-  if (!channelId) return { videos: [], quotaError: false }
+  if (!channelId) return { video: null, quotaError: false }
 
   // Step 1: get uploads playlist ID (check 24h cache first)
   let uploadsId = getCachedUploadsId(channelId)
@@ -133,13 +136,13 @@ async function fetchChannelWithToken(
     )
     if (json.error || !json.items?.[0]) {
       if (isQuotaError) quotaError = true
-      return { videos: [], quotaError }
+      return { video: null, quotaError }
     }
     uploadsId = json.items[0].contentDetails?.relatedPlaylists?.uploads || null
     if (uploadsId) setCachedUploadsId(channelId, uploadsId)
   }
 
-  if (!uploadsId) return { videos: [], quotaError: false }
+  if (!uploadsId) return { video: null, quotaError: false }
 
   // Step 2: get newest video from uploads playlist
   const { json, isQuotaError } = await apiGet(
@@ -149,26 +152,26 @@ async function fetchChannelWithToken(
 
   if (json.error) {
     if (isQuotaError) quotaError = true
-    _uploadsCache.delete(channelId) // invalidate cache on error
-    return { videos: [], quotaError }
+    _uploadsCache.delete(channelId)
+    return { video: null, quotaError }
   }
 
-  if (!json.items?.length) return { videos: [], quotaError: false }
+  if (!json.items?.length) return { video: null, quotaError: false }
 
   const snippet = json.items[0].snippet || {}
   const videoId = snippet.resourceId?.videoId
-  if (!videoId) return { videos: [], quotaError: false }
+  if (!videoId) return { video: null, quotaError: false }
 
   const title = snippet.title || '(no title)'
-  if (title.includes('[deleted]') || title.includes('[private]')) return { videos: [], quotaError: false }
-  if (seenVideoIds?.has(videoId)) return { videos: [], quotaError: false }
+  if (title.includes('[deleted]') || title.includes('[private]')) return { video: null, quotaError: false }
+  if (seenVideoIds?.has(videoId)) return { video: null, quotaError: false }
 
   const publishedAt = snippet.publishedAt ? new Date(snippet.publishedAt).getTime() : 0
-  if (publishedAt > 0 && publishedAt < sinceMs) return { videos: [], quotaError: false }
-  if (publishedAt === 0) return { videos: [], quotaError: false }
+  if (publishedAt > 0 && publishedAt < sinceMs) return { video: null, quotaError: false }
+  if (publishedAt === 0) return { video: null, quotaError: false }
 
   return {
-    videos: [{
+    video: {
       videoId,
       title,
       channelId,
@@ -176,15 +179,39 @@ async function fetchChannelWithToken(
       thumbnail: snippet.thumbnails?.medium?.url || snippet.thumbnails?.default?.url || '',
       publishedAt,
       duration: '',
-    }],
+    },
     quotaError: false,
   }
 }
 
-// ─── Channel Cache ─────────────────────────────────────────────────────────────
+/**
+ * Fetch the newest video from a channel via Innertube (youtubei.js).
+ * Returns null if no new video found or error occurred.
+ *
+ * Strategy: Trust YouTube tab order (sorted newest-first).
+ * publishedTimeText is UNRELIABLE for new uploads (caches old timestamps).
+ * Instead, pass seenVideoIds to getLatestVideo() which checks top-1 dedup internally.
+ * If top-1 is already seen → return null immediately (all older videos are also seen).
+ */
+async function fetchChannelWithInnertube(
+  ch: { id: string; channelId?: string; name: string },
+  seenVideoIds: Set<string> | undefined,
+): Promise<SubscriptionVideo | null> {
+  const channelId = ch.channelId || ch.id
+  if (!channelId) return null
 
-export function refreshChannelCache(): void {
-  // Channels read directly from store each poll — no separate cache to refresh
+  const latest = await getInnertubePool().then(p => p.getLatestVideo(channelId, seenVideoIds))
+  if (!latest) return null
+
+  return {
+    videoId: latest.videoId,
+    title: latest.title,
+    channelId,
+    channelName: latest.channelName,
+    thumbnail: latest.thumbnail,
+    publishedAt: latest.publishedAt,
+    duration: '',
+  }
 }
 
 // ─── Main Export ─────────────────────────────────────────────────────────────
@@ -192,55 +219,131 @@ export function refreshChannelCache(): void {
 export async function fetchSubscriptionFeed(
   options: SubFeedOptions = {},
 ): Promise<SubFeedResult> {
-  const { seenVideoIds, sinceMs, stopAfterCount } = options
-  const cutoff = sinceMs ?? (Date.now() - MAX_VIDEO_AGE_MS)
-  const targetStop = stopAfterCount ?? options.maxVideos ?? MAX_VIDEOS_PER_POLL
+  const { seenVideoIds, sinceMs } = options
+  // sinceMs is always provided by the poller (Date.now() - MAX_VIDEO_AGE_MS).
+  // No fallback needed — avoids double-subtraction bug.
+  const cutoff = sinceMs ?? Date.now()
+  const targetStop = MAX_VIDEOS_PER_POLL
 
   const channels = getChannels()
-  if (channels.length === 0) return { videos: [], source: 'oauth' }
-
-  const tm = getTokenManager()
-  const statuses = tm.getAllStatuses()
-  const hasAvailable = statuses.some(ts => ts.hasToken && ts.status !== 'exhausted')
-
-  if (!hasAvailable) {
-    return { videos: [], allSourcesExhausted: true, source: 'oauth' }
-  }
+  if (channels.length === 0) return { videos: [], source: 'none' }
 
   const results: SubscriptionVideo[] = []
-  let allExhausted = false
 
-  // Token batching: 1 token for a batch of MAX_CONCURRENT channels.
-  // getBestAvailable() skips tokens with errors >= 5 (exhausted), so we get a fresh
-  // token per batch automatically — no need to manually track/rotate.
-  for (let i = 0; i < channels.length; i += MAX_CONCURRENT) {
-    const batch = channels.slice(i, i + MAX_CONCURRENT)
-    const best = await tm.getBestAvailable()
-    if (!best) { allExhausted = true; break }
+  // ── Step 1: Try Innertube (PRIMARY — no quota limit) ─────────────────────────
+  // Only fall back to OAuth when Innertube genuinely can't serve (no sessions, error).
+  // Empty results (0 videos) = normal channel state, NOT a failure — don't waste OAuth quota.
+  let innertubeAvailable = false
+  try {
+    const pool = await getInnertubePool()
+    const readyCount = pool.getReadyCount()
+    const totalSessions = pool.getStatus().totalSessions
 
-    const batchResults = await Promise.all(
-      batch.map(ch => fetchChannelWithToken(ch, best.token, best.projectId, seenVideoIds, cutoff))
-    )
+    if (pool.isReady() && readyCount > 0) {
+      innertubeAvailable = true
 
-    let tokenExhausted = false
-    for (const { videos, quotaError } of batchResults) {
-      if (quotaError) {
-        tm.trackError(best.projectId)
-        tokenExhausted = true
-      } else {
-        tm.track(best.projectId)
+      for (let i = 0; i < channels.length; i += MAX_CONCURRENT) {
+        const batch = channels.slice(i, i + MAX_CONCURRENT)
+        const batchResults = await Promise.all(
+          batch.map(ch => fetchChannelWithInnertube(ch, seenVideoIds))
+        )
+
+        let batchNewCount = 0
+        for (const video of batchResults) {
+          if (video) {
+            results.push(video)
+            seenVideoIds?.add(video.videoId)
+            batchNewCount++
+            if (results.length >= targetStop) {
+              console.log(`[SubFeed] Innertube: ${results.length} videos found — returning`)
+              return { videos: results, source: 'innertube' }
+            }
+          }
+        }
+        console.log(`[SubFeed] batch ${i / MAX_CONCURRENT + 1}: ${batchNewCount} new, ${batchResults.length - batchNewCount} seen`)
       }
-      results.push(...videos)
 
-      // Early termination: stop as soon as we have enough new videos
-      if (results.length >= targetStop) {
-        console.log(`[SubFeed] Early exit: ${results.length} videos found`)
-        return { videos: results, source: 'oauth' }
+      // Scanned all channels — got 0 new videos. This is NORMAL.
+      // Return now WITHOUT touching OAuth quota.
+      console.log(`[SubFeed] Innertube: 0 videos across ${channels.length} channels (no new content)`)
+      return { videos: results, source: 'innertube' }
+    } else {
+      // No Innertube sessions ready — must use OAuth
+      console.log(`[SubFeed] Innertube: 0/${totalSessions} sessions ready — OAuth fallback`)
+      innertubeAvailable = false
+    }
+  } catch (e) {
+    console.log(`[SubFeed] Innertube error: ${e} — OAuth fallback`)
+    innertubeAvailable = false
+  }
+
+  // ── Step 2: OAuth Fallback ───────────────────────────────────────────────────
+  // Only reached if Innertube genuinely unavailable (no sessions or exception).
+  if (results.length === 0 && !innertubeAvailable) {
+    const tm = getTokenManager()
+    const statuses = tm.getAllStatuses()
+    const hasAvailable = statuses.some(ts => ts.hasToken && ts.status !== 'exhausted')
+
+    if (!hasAvailable) {
+      return {
+        videos: [],
+        allSourcesExhausted: true,
+        source: 'oauth',
       }
     }
 
-    if (tokenExhausted) {
-      console.log(`[SubFeed] Token ${best.projectId} exhausted — switching`)
+    for (let i = 0; i < channels.length; i += MAX_CONCURRENT) {
+      const batch = channels.slice(i, i + MAX_CONCURRENT)
+      const best = await tm.getBestAvailable()
+      if (!best) break
+
+      const batchResults = await Promise.all(
+        batch.map(ch => fetchChannelWithOAuth(ch, best.token, best.projectId, seenVideoIds, cutoff))
+      )
+
+      let tokenExhausted = false
+      for (const { video, quotaError } of batchResults) {
+        if (quotaError) {
+          tm.trackError(best.projectId)
+          tokenExhausted = true
+        } else {
+          tm.track(best.projectId)
+        }
+        if (video && !results.some(r => r.videoId === video.videoId)) {
+          results.push(video)
+          seenVideoIds?.add(video.videoId)
+          if (results.length >= targetStop) {
+            console.log(`[SubFeed] OAuth: early exit at ${results.length} videos`)
+            return { videos: results, source: 'oauth' }
+          }
+        }
+      }
+
+      if (tokenExhausted) {
+        console.log(`[SubFeed] OAuth token ${best.projectId} exhausted — switching`)
+        // Retry remaining channels with fresh token
+        const retryBest = await tm.getBestAvailable()
+        if (retryBest && retryBest.projectId !== best.projectId) {
+          const retryChannels = channels.slice(i, i + MAX_CONCURRENT)
+          const retryResults = await Promise.all(
+            retryChannels.map(ch => fetchChannelWithOAuth(ch, retryBest.token, retryBest.projectId, seenVideoIds, cutoff))
+          )
+          for (const { video, quotaError } of retryResults) {
+            if (quotaError) {
+              tm.trackError(retryBest.projectId)
+            } else {
+              tm.track(retryBest.projectId)
+            }
+            if (video && !results.some(r => r.videoId === video.videoId)) {
+              results.push(video)
+              seenVideoIds?.add(video.videoId)
+              if (results.length >= targetStop) {
+                return { videos: results, source: 'oauth' }
+              }
+            }
+          }
+        }
+      }
     }
   }
 
@@ -252,14 +355,19 @@ export async function fetchSubscriptionFeed(
   }
 
   if (unique.length > 0) {
+    const source = results.some(r => !r.duration) ? 'oauth' : 'innertube'
     const newest = unique[0]
     const ageMin = (Date.now() - newest.publishedAt) / 60000
     const ageLabel = ageMin < 1 ? 'vua xong' : Math.floor(ageMin) + 'm ago'
-    console.log(`[SubFeed] ${unique.length} video(s) found — newest: "${newest.title.slice(0, 40)}" from ${newest.channelName} (${ageLabel})`)
-  } else if (allExhausted) {
-    console.log('[SubFeed] No tokens available — all exhausted')
-    return { videos: [], allSourcesExhausted: true, source: 'oauth' }
+    console.log(`[SubFeed] ${unique.length} video(s) found (${source}): "${newest.title.slice(0, 40)}" from ${newest.channelName} (${ageLabel})`)
   }
 
-  return { videos: unique, source: 'oauth' }
+  return { videos: unique, source: unique.length > 0 ? 'innertube' : 'oauth' }
+}
+
+// ─── Channel Cache ─────────────────────────────────────────────────────────────
+
+export function refreshChannelCache(): void {
+  // Channels are read directly from the store — no in-memory cache to refresh
+  // This function is kept for API compatibility but is now a no-op
 }

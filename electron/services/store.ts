@@ -97,15 +97,34 @@ const DEFAULT_CHANNELS: StoredChannel[] = [
   { id: 'ch5', name: 'Beat Studio',     handle: '@beatstudio',     avatarColor: '#FF0080', createdAt: new Date().toISOString() },
 ]
 
+// In-memory cache with 60s TTL — avoids disk I/O on every poll (every 5s).
+let _channelCache: StoredChannel[] | null = null
+let _channelCacheAt = 0
+const CHANNEL_CACHE_TTL_MS = 60_000
+
 function loadChannels(): StoredChannel[] {
+  const now = Date.now()
+  if (_channelCache && now - _channelCacheAt < CHANNEL_CACHE_TTL_MS) {
+    return _channelCache
+  }
   ensureDir()
   if (!fs.existsSync(CHANNELS_FILE)) {
     fs.writeFileSync(CHANNELS_FILE, JSON.stringify(DEFAULT_CHANNELS, null, 2), 'utf-8')
-    return [...DEFAULT_CHANNELS]
+    _channelCache = [...DEFAULT_CHANNELS]
+    _channelCacheAt = now
+    return _channelCache
   }
   try {
-    return JSON.parse(fs.readFileSync(CHANNELS_FILE, 'utf-8')) as StoredChannel[]
+    _channelCache = JSON.parse(fs.readFileSync(CHANNELS_FILE, 'utf-8')) as StoredChannel[]
+    _channelCacheAt = now
+    return _channelCache
   } catch { return [] }
+}
+
+/** Invalidate the channel cache — call after any add/update/remove. */
+export function _invalidateChannelCache(): void {
+  _channelCache = null
+  _channelCacheAt = 0
 }
 
 function saveChannels(channels: StoredChannel[]): void {
@@ -125,6 +144,7 @@ export function addChannel(channel: StoredChannel): StoredChannel {
   const channels = loadChannels()
   channels.push(channel)
   saveChannels(channels)
+  _invalidateChannelCache()
   return channel
 }
 
@@ -134,14 +154,18 @@ export function updateChannel(id: string, patch: Partial<Omit<StoredChannel, 'id
   if (idx === -1) return null
   channels[idx] = { ...channels[idx], ...patch }
   saveChannels(channels)
+  _invalidateChannelCache()
   return channels[idx]
 }
 
 export function removeChannel(id: string): boolean {
   const channels = loadChannels()
   const before = channels.length
-  saveChannels(channels.filter(c => c.id !== id))
-  return channels.length !== before
+  const filtered = channels.filter(c => c.id !== id)
+  if (filtered.length === before) return false
+  saveChannels(filtered)
+  _invalidateChannelCache()
+  return true
 }
 
 export interface ChannelSubscription {

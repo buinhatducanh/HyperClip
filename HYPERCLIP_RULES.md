@@ -6,19 +6,19 @@
 
 ## 1. Mục tiêu cốt lõi
 
-**Bắt 100% video mới trong < 20 giây, chạy 24/7 cho ~100 kênh YouTube.**
+**Bắt 100% video mới trong < 10 giây, chạy 24/7 cho ~100 kênh YouTube.**
 
 ### NGUYÊN LÝ HOẠT ĐỘNG CỐT LÕI (ĐỂ ĐẠT ĐƯỢC MỤC TIÊU TRÊN)
 
-1. **Detection: OAuth Data API v3 (primary) via playlistItems per channel:**
-   - Uses TokenManager (N GCP projects, each 10,000 units/day)
-   - Full scan all channels per poll (max 20 concurrent)
-   - Early termination once 5 new videos found — saves quota
-   - Uploads playlist ID cached 24h — saves 1 API call/channel/poll
-   - OAuth tokens smart rotation (lowest usedToday wins)
-2. **Strict 10-Min Window:** Chỉ tải video upload trong vòng **10 phút** trở lại.
+1. **Detection: Innertube (youtubei.js) PRIMARY — no quota limit:**
+   - Uses 30 Chrome sessions as cookie source (ChromeSessionManager)
+   - youtubei.js → Innertube API → no quota, ~200ms/request
+   - Full scan all channels per poll (5 concurrent)
+   - Early termination once 5 new videos found
+   - OAuth Data API v3 only as **fallback** (when Innertube pool has 0 ready sessions)
+2. **Auto-download Window: 30 phút** — chỉ tải video upload trong vòng 30 phút trở lại (cho yt-dlp trim). Không block detection.
 3. **Tải xuống siêu tốc:** yt-dlp + `--download-sections *00:00:00-MM:SS` (chỉ tải đúng số phút cần thiết), Direct IP binding.
-4. **Render ép phần cứng:** FFmpeg + NVENC (RTX 5080), không x264.
+4. **Render ép phần cứng:** FFmpeg + NVENC (GPU), không x264.
 
 ---
 
@@ -26,102 +26,155 @@
 
 | # | Tầng | Công nghệ | Target |
 |---|-------|-----------|--------|
-| 1 | **Trigger** | OAuth Data API v3 playlistItems per channel (TokenManager, batched, N GCP projects) | < 30s |
+| 1 | **Trigger** | Innertube (youtubei.js) + OAuth fallback (TokenManager) | < 5s |
 | 2 | **Download** | yt-dlp + `--download-sections` (chỉ tải N phút) + Direct IP Binding | < 30s |
 | 3 | **Pre-process** | Static blur (1 frame, cache vĩnh viễn) | < 3s |
 | 4 | **Edit** | React-Konva Canvas 2D (60fps) | < 16ms/frame |
-| 5 | **Render** | FFmpeg + NVENC (RTX 5080) | < 2 phút |
+| 5 | **Render** | FFmpeg + NVENC (GPU) | < 2 phút |
 
 ---
 
 ## 3. Auto-Ingestion — Subscription Feed Detection (Tầng 1)
 
-### Cơ chế: Full Scan mỗi Poll
+### Cơ chế: Full Scan mỗi Poll (5s)
 
 ```
-YouTubePoller (20 giây ± 1s jitter, adaptive)
+YouTubePoller (5 giây ± 0.5s jitter)
          ↓
-fetchSubscriptionFeed() → ALL channels (parallel, max 20 concurrent)
+fetchSubscriptionFeed() → ALL channels (parallel, 5 concurrent)
          ↓
-OAuth Data API v3 playlistItems per channel (TokenManager, smart rotation)
-  → Fallback: next available token (exhausted tokens auto-skipped)
+1. Innertube (youtubei.js) — PRIMARY (no quota)
+   → getInnertubePool() → 30 pre-warmed Innertube clients (from Chrome sessions)
+   → Round-robin across sessions, 10s cooldown on error
+   → getChannel(channelId) → getVideos() → getLatestVideo(channelId) → check top-1 dedup + age ≤ 10 min
+         ↓ (khi all sessions fail)
+2. OAuth Data API v3 — FALLBACK (quota: TokenManager, 10k/day/token)
+   → getBestAvailable() → playlistItems per channel (maxResults=1)
+   → Tracked: track(projectId) per channel, skip exhausted tokens
          ↓
-Filter: age < 10 min, unseen, not deleted
+Filter: unseen (seenVideoIds dedup), not deleted/private
+  Tab order: trust YouTube Videos tab (newest-first). No age filter in Innertube path.
          ↓
 autoDownload() → yt-dlp --download-sections (chỉ N phút cần thiết)
 ```
 
-### Optimizations (2026-04-30)
+### Innertube Detection (youtubei.js) — PRIMARY (2026-05-04)
+
+youtubei.js dùng **Innertube API** — API nội bộ của YouTube, không có quota limit.
+
+**Ưu điểm:**
+- Không quota limit → poll 5s thoải mái
+- ~200ms/request (nhanh hơn OAuth ~500ms)
+- Detection latency trung bình < 3s
+
+**Cookie source:** 30 Chrome sessions (ChromeSessionManager)
+- Session 1: Chrome profile mặc định của user
+- Sessions 2-30: HyperClip-Chrome-Profile-{2..30}
+- Mỗi session pre-warmed tại startup (5 sessions/batch)
+- Round-robin với 10s cooldown trên session lỗi
+
+**Service:** `electron/services/innertube_client.ts` — InnertubeClientPool
+
+### OAuth Fallback — Only when Innertube Fails
+
+Chỉ được gọi khi Innertube trả về 0 video (tất cả 30 sessions die).
+
+| Thông số | Giá trị |
+|----------|---------|
+| Primary detection | Innertube (youtubei.js, 30 sessions) |
+| Fallback detection | OAuth Data API v3 (TokenManager) |
+| Poll interval | **5 giây** (Innertube primary, no quota) |
+| Concurrent per poll | 5 channels |
+| Early termination | Stop sau 5 videos found |
+| Upload playlist cache | 24h TTL (Innertube + OAuth đều dùng) |
+
+### seenVideoIds + Multi-Video Loop Fix (2026-05-06)
+
+**Vấn đề:** `seenVideoIds` load ~70 video IDs từ disk lúc startup. Nếu video ở top-1 của channel tab đã nằm trong seen set, code cũ trả `null` và bỏ qua hoàn toàn — không bao giờ kiểm tra video ở top-2, top-3,...
+
+**Root cause:**
+```typescript
+// CODE CŨ — bỏ nếu top-1 đã seen
+const latest = await pool.getLatestVideo(channelId) // chỉ lấy 1 video
+if (!latest) return null
+const isNew = !seenVideoIds?.has(latest.videoId)
+if (!isNew) return null // ← DỪNG TẠI ĐÂY, bỏ qua top-2, top-3...
+```
+
+**Fix:**
+```typescript
+// CODE MỚI — getLatestVideo check top-1 dedup + age ≤ 10 min
+const latest = await pool.getLatestVideo(channelId, seenVideoIds)
+if (!latest) return null
+// publishedAt > 0 && age > 10 min → too old, skip all
+// publishedAt = 0 → unparseable, treat as new upload → accept
+return latest
+```
+
+**Code files:**
+- `electron/services/innertube_client.ts`: `getLatestVideo(channelId, seenVideoIds)` — top-1 video, dedup + age ≤ 10 min
+- `electron/services/subscription_feed.ts`: `fetchChannelWithInnertube()` — gọi getLatestVideo per channel
+
+### Optimizations (2026-05-04)
 
 | # | Optimization | Impact |
 |---|-------------|--------|
-| 1 | Poll interval: 4s → 20s (adaptive backoff) | 20s = ~21k units/day (fits 3 tokens), 5s = ~282k (exceeds 7 tokens × 9k) |
-| 2 | Token batching: 1 token per batch of 5 channels | Reduces getBestAvailable() calls from 49 → 10 per poll |
-| 3 | MAX_CONCURRENT = 5 (was 20) | Lower = catches quota exhaustion sooner, less wasted per exhausted token |
-| 2 | Cookie preloading at startup | Loại bỏ ~1-2s delay poll đầu |
-| 3 | OAuth maxResults: 5 → 1 | Giảm 80% data OAuth fallback |
-| 4 | seenVideoIds persist to disk | Không re-detect sau restart |
-| 5 | Early termination (stop after 5 videos) | OAuth gọi ít hơn ~50-80% |
-| 6 | seenVideoIds cap 10,000 | Chống leak memory dài hạn |
-
-### ⚠️ Innertube (DEPRECATED — 2026-05-03)
-
-~~Innertube API via Chrome Session Cookies was the primary detection path.~~
-**Removed in favor of OAuth-only detection.** Chrome sessions still exist in the codebase for Settings UI but are NOT used for detection.
+| 1 | Poll interval: 20s → 5s | Detection latency < 5s (Innertube primary, no quota) |
+| 2 | Innertube primary, OAuth only fallback | OAuth almost never used — quota nearly unlimited |
+| 3 | InnertubeClientPool: pre-warmed 30 clients at startup | Loại bỏ ~1-2s delay poll đầu |
+| 4 | Round-robin + 10s cooldown | Distributes load, avoids hammering failed sessions |
+| 5 | Token batching: 1 token per batch of 5 channels | Reduces getBestAvailable() calls |
+| 6 | Early termination (stop after 5 videos) | Minimizes API calls |
+| 7 | seenVideoIds cap 10,000 | Chống leak memory dài hạn |
+| 8 | seenVideoIds persist to disk | Không re-detect sau restart |
 
 ### Chi tiết Quota System
 
-Hệ thống có **hai lớp quota độc lập**, chạy song song:
+Hệ thống có **hai lớp quota**:
 
-#### Lớp 1 — TokenManager (OAuth tokens, 10,000 units/project/ngày)
+#### Lớp 1 — Innertube (youtubei.js) — PRIMARY (no quota)
 
-Dùng cho **OAuth Data API v3** — fallback path.
+Dùng **youtubei.js** để gọi Innertube API. Không có quota limit.
+
+- Cookie source: 30 Chrome sessions
+- youtubei.js xử lý SAPISIDHASH + cookie format tự động
+- Pre-warmed clients tại startup
+
+#### Lớp 2 — TokenManager (OAuth tokens, 10,000 units/project/ngày)
+
+Chỉ dùng khi Innertube fail hoàn toàn (fallback).
 
 | Thông số | Giá trị |
 |----------|---------|
-| Cap per project | **9,500 units/ngày** (500 buffer so với 10k limit thực) |
+| Cap per project | **9,500 units/ngày** (500 buffer) |
 | Reset | Mỗi 24h tự clear stats (kiểm tra khi app khởi động) |
-| Track | Mỗi lần gọi playlistItems → `track(projectId)` tăng `usedToday` |
-| Rotation | Chọn token có `usedToday` thấp nhất (most quota remaining) |
-| Error threshold | **3 lỗi quota** → token bị skip (MAX_ERRORS=3, trackError adds +100 units to push over threshold) |
+| Track | Mỗi lần gọi playlistItems → `track(projectId)` |
+| Rotation | Chọn token có `usedToday` thấp nhất |
+| Error threshold | **5 lỗi quota** → token bị skip |
 | Storage | `%APPDATA%/HyperClip/token_stats.json` |
 
-**TokenManager is the primary detection path — no Innertube anymore (2026-05-03).**
+#### Lớp 3 — KeyManager (API keys, 10,000 units/key/ngày)
 
-#### Lớp 2 — KeyManager (API keys, 10,000 units/key/ngày)
+Chưa được dùng trực tiếp — dự phòng tương lai.
 
-Dùng cho **API key-based** calls. Hiện tại **chưa được dùng trực tiếp** trong subscription_feed — chỉ load sẵn cho tương lai.
+### youtubei.js — Chi tiết kỹ thuật
 
-| Thông số | Giá trị |
-|----------|---------|
-| Cap per key | **9,500 units/ngày** |
-| Storage | `%APPDATA%/HyperClip/key_stats.json` |
+`electron/services/innertube_client.ts` — InnertubeClientPool
 
-#### Tại sao có 2 lớp?
+#### Cookie format
 
-```
-1 Google Cloud Project = 1 OAuth Token + 1 API Key = 1 "nhà"
-30 GCP projects × 10,000 units = 300,000 units/ngày (nếu dùng hết)
-```
+youtubei.js nhận cookie string format từ Chrome cookies:
 
-Trong kiến trúc hiện tại, **KeyManager chưa được dùng** vì:
-- Innertube (cookie-based) là primary → **không tốn quota**
-- OAuth là fallback → dùng **TokenManager** (token-based, không cần key)
+```javascript
+// buildCookieString() trong innertube_client.ts
+`SAPISID=${cookies.SAPISID}; __Secure-1PSID=${cookies.PSID}; ` +
+`__Secure-1PSIDTS=${cookies.PSIDTS}; __Secure-1PSIDCC=${cookies.PSIDCC}; ` +
+`SOCS=${cookies.socs}`
 
-### Innertube — Chi tiết kỹ thuật
-
-#### Innertube là gì?
-
-Innertube là **API nội bộ của YouTube** — cùng API mà trình duyệt Chrome dùng khi bạn mở youtube.com. Khác với Data API v3 (dành cho developers), Innertube không có giới hạn quota published.
-
-```
-Data API v3:    https://googleapis.com/youtube/v3/*     → CÓ quota (10k/day)
-Innertube API:   https://www.youtube.com/youtubei/v1/*  → KHÔNG quota
+await Innertube.create({ cookie: cookieStr, retrieve_player: false })
 ```
 
 #### Cookie cần thiết
-
-Để gọi Innertube, app cần đọc cookies từ Chrome profiles đã đăng nhập YouTube:
 
 | Cookie | Vai trò |
 |--------|---------|
@@ -131,70 +184,51 @@ Innertube API:   https://www.youtube.com/youtubei/v1/*  → KHÔNG quota
 | `__Secure-1PSIDTS` | Timestamp cookie — chống replay attack |
 | `SOCS` | Consent cookie — `CAI` = đồng ý quảng cáo cá nhân |
 
-#### SAPISIDHASH — Cách xác minh
-
-Google không chỉ đọc cookie — nó cần một hash đặc biệt:
-
-```
-SAPISIDHASH = SHA1(timestamp + " " + SAPISID + " " + "https://www.youtube.com")
-Ví dụ: "1745984000_abc123def456..." (timestamp_hash)
-```
-
-Header gửi kèm request:
-```
-Authorization: SAPISIDHASH 1745984000_abc123def456...
-Cookie: SAPISID=...; __Secure-1PSID=...; __Secure-1PSIDTS=...; SOCS=CAI
-```
+youtubei.js tự động tính SAPISIDHASH từ cookies và gửi request đến Innertube endpoint.
 
 ### Khi nào Innertube LỖI?
 
-**Nguyên tắc quan trọng:** Innertube chỉ trigger OAuth fallback khi **trả về 0 video** (không phải khi HTTP error).
+**Nguyên tắc quan trọng:** Innertube chỉ trigger OAuth fallback khi **tất cả 30 sessions fail** hoặc trả về 0 video.
 
 | Nguyên nhân | Hành vi hiện tại | Cần làm gì? |
 |---|---|---|
-| **Lỗi mạng / timeout** | Request fail → 0 video → OAuth fallback | Tự hết khi mạng khôi phục |
-| **Session die (PSID/SAPISID hết hạn)** | Cookies null → skip Innertube → OAuth fallback | User đăng nhập lại Chrome profile |
-| **SOCS thay đổi** | YouTube trả kết quả khác (non-personalized) | Không ảnh hưởng video detection |
-| **Session revoke (đổi mật khẩu)** | Cookies invalid → skip Innertube → OAuth | User đăng nhập lại TẤT CẢ 30 profiles |
-| **User đăng xuất Chrome profile** | Cookies null → skip Innertube → OAuth | User đăng nhập lại profile đó |
-| **YouTube đổi response format** | Parse fail → 0 video → OAuth fallback | Cập nhật code parse |
-| **IP bị rate limit Innertube** | HTTP 429 → skip → OAuth | Giảm poll interval hoặc chờ |
+| **Lỗi mạng / timeout** | Session marked dead (10s cooldown) → next session | Tự hết khi mạng khôi phục |
+| **Session die (PSID/SAPISID hết hạn)** | Session fails → round-robin to next session | User đăng nhập lại Chrome profile |
+| **SOCS thay đổi** | Session fails → next session | Không ảnh hưởng nếu có sessions còn lại |
+| **Session revoke (đổi mật khẩu)** | All sessions die → OAuth fallback | User đăng nhập lại Chrome profiles |
+| **User đăng xuất Chrome profile** | That session fails → next session | User đăng nhập lại profile đó |
+| **YouTube đổi response format** | Parse fail → session fails → OAuth fallback | Cập nhật youtubei.js hoặc code parse |
+| **IP bị rate limit Innertube** | Session error → 10s cooldown | Tự hết khi cooldown trôi qua |
 
 #### Minh họa fallback chain trong code
 
 ```typescript
-// subscription_feed.ts — fetchChannelVideos()
-async function fetchChannelVideos(ch, seenVideoIds, sinceMs) {
-  // Bước 1: Thử Innertube (cookie-based, NO quota)
-  const session = sm.getNextSession() // round-robin 30 profiles
-  if (session?.cookies) {
-    const browseJson = await apiGetInnertube(channelId, session)
-    const videos = parseInnertubePlaylistVideos(...)
-    if (videos.length > 0) {
-      return videos  // ✓ Innertube thành công — KHÔNG tốn quota
-    }
-    // Innertube trả 0 video — chuyển sang OAuth
+// subscription_feed.ts — fetchSubscriptionFeed()
+async function fetchSubscriptionFeed(options) {
+  // Bước 1: Thử Innertube (youtubei.js, 30 sessions, NO quota)
+  const pool = await getInnertubePool()
+  if (pool.isReady()) {
+    const video = await pool.getLatestVideo(channelId)  // round-robin
+    if (video) return [video]  // ✓ Innertube thành công — KHÔNG tốn quota
   }
+  // Tất cả sessions fail → chuyển sang OAuth
 
-  // Bước 2: OAuth fallback (tốn quota)
-  const best = await tm.getBestAvailable() // smart rotation
+  // Bước 2: OAuth fallback (tốn quota, chỉ khi Innertube die)
+  const best = await tm.getBestAvailable()
   const playlistJson = await apiGetOAuth(..., best.token)
   tm.track(best.projectId)  // trừ quota
-  // ... parse videos
 }
 ```
 
-### Quota Math thực tế (OAuth-only, 20s interval)
+### Quota Math thực tế (Innertube primary, 5s interval)
 
 | Kịch bản | Channels | Calls/poll | Polls/day | Units/day |
 |---------|----------|-----------|-----------|-----------|
-| Early termination (5 videos found) | 49 | ~5 | 4,320 | ~21,600 |
-| All channels scanned (no new videos) | 49 | 49 | 4,320 | ~211,680 |
-| 1 GCP project (9,500 cap) | 49 | ~10 avg | 4,320 | ~43,200 |
-| 2 GCP projects (19,000 cap) | 49 | ~10 avg | 4,320 | ~43,200 (comfortable) |
-| **3 GCP projects (20s interval)** | 49 | ~5 avg | 4,320 | **~21,600 ✓** |
+| Innertube primary (no quota) | 49 | ~5 | 17,280 | **0** |
+| OAuth fallback (early termination) | 49 | ~5 | ~100 | ~500 |
+| OAuth fallback (all channels, rare) | 49 | 49 | ~100 | ~4,900 |
 
-**Kết luận:** 5s interval quá nhanh cho quota. **20s interval** = ~21k units/ngày (early termination) → cần **3 tokens** là đủ. Token batching (1 token cho N channels) giảm overhead ~90%. Adaptive backoff: khi không tìm video, tăng interval dần từ 20s → 60s → 5 phút.
+**Kết luận:** Innertube primary → **quota nearly zero**. OAuth chỉ dùng khi tất cả 30 sessions die. 3 GCP tokens dư sức cho fallback path. 5s poll interval thoải mái vì Innertube không quota.
 
 ### Trim Limit (auto-download)
 
@@ -222,10 +256,9 @@ Settings page → Chrome Sessions section:
 
 - ~~WebSub / PubSubHubbub~~ — cần public URL
 - ~~Cloudflare Tunnel~~ — đã xóa
-- ~~activities?home=true~~ — **DEPRECATED** (Google đã xóa endpoint này)
+- ~~activities?home=true~~ — Google đã xóa endpoint này
 - ~~RSS feeds~~ — YouTube indexing delay 5-30 phút
 - ~~activities?mine=true~~ — chỉ trả uploads của chính tài khoản OAuth
-- ~~Innertube API (Chrome cookies)~~ — **DEPRECATED 2026-05-03** (removed, OAuth-only now)
 
 ---
 
@@ -239,9 +272,10 @@ Settings page → Chrome Sessions section:
 | Canvas | React-Konva (GPU compositing, 60fps) |
 | Styling | Tailwind CSS v3 + inline styles |
 | Backend | Node.js (Electron main process) |
-| Downloader | yt-dlp + OAuth auth |
-| Video Processing | FFmpeg + NVIDIA NVENC (RTX 5080) |
-| Auth | OAuth 2.0 (N Google Cloud projects) |
+| Detection Primary | youtubei.js v17 (Innertube, 30 Chrome sessions, NO quota) |
+| Detection Fallback | OAuth 2.0 Data API v3 (TokenManager, N GCP projects) |
+| Downloader | yt-dlp + Direct IP Binding |
+| Video Processing | FFmpeg + NVIDIA NVENC (GPU) |
 
 ---
 
@@ -269,7 +303,7 @@ electron/
   ipc/
     channels.ts        — IPC channel constants
   services/
-    youtube_poller.ts   — Subscription feed poller (20s jitter)
+    youtube_poller.ts   — Subscription feed poller (5s ± 1s jitter)
     cookie_manager.ts   — OAuth token management
     key_manager.ts      — API keys pool — quota tracking, dynamic CRUD
     token_manager.ts    — OAuth tokens — smart rotation, refresh, per-project storage
@@ -385,9 +419,10 @@ npm run electron:build  # Production .exe
 |--------|-----------|---------|
 | **Xác thực / Đăng nhập** | OAuth 2.0 (N lần, mỗi project 1 lần) | Refresh token tự động. Credentials lưu trong `oauth_tokens.json`. |
 | **Lấy danh sách kênh đăng ký** | YouTube Data API v3 (`/subscriptions`) | Chỉ gọi **1 lần** khi setup → lưu vào store. **KHÔNG gọi lại** sau khi setup xong. |
-| **Phát hiện video mới (PRIMARY)** | **OAuth Data API v3 playlistItems per channel** | TokenManager smart rotation, 10k units/day per project, early termination |
+| **Phát hiện video mới (PRIMARY)** | **Innertube (youtubei.js) — 30 Chrome sessions, NO quota** | InnertubeClientPool round-robin, health check on first use |
+| **Fallback detection** | OAuth Data API v3 playlistItems per channel | TokenManager smart rotation, 9,500 units/day per project, only when Innertube fails |
 | **Download video** | yt-dlp + OAuth auth + `--download-sections` | Trim chỉ N phút (user config), bypass VPN. |
-| **Render video** | FFmpeg + NVENC (RTX 5080) | Hardware encode, KHÔNG x264. |
+| **Render video** | FFmpeg + NVENC (GPU tối đa) | Hardware encode, KHÔNG x264. |
 
 ### Settings — Quản lý Chrome Sessions + Google Projects
 
@@ -395,11 +430,13 @@ npm run electron:build  # Production .exe
 - 30 HyperClip Chrome profiles — user đăng nhập YouTube 1 lần per profile
 - Nút "Mở Chrome login" để mở Chrome với profile chưa có cookies
 - Cookie extraction: DPAPI (Windows) + sql.js (SQLite) → SOCS cookie phải là CAI
+- ⚠️ Close Chrome trước khi khởi động HyperClip — cookies bị lock khi Chrome đang chạy
 
 **Google Projects section** (OAuth fallback):
 - Thêm project: OAuth Client ID + Client Secret + API Key
 - Xem quota per project: usedToday / 10,000 units
 - OAuth tokens lưu multi-project array format (KHÔNG overwrite khi add project mới)
+- Exhausted threshold: 5 quota errors → token bị skip
 
 ### Luồng dữ liệu đúng
 
@@ -407,28 +444,33 @@ npm run electron:build  # Production .exe
 App khởi động
   ├─ Load OAuth tokens từ oauth_tokens.json (N projects)
   ├─ Load API keys từ api_keys.json (N keys)
+  ├─ Pre-warm InnertubeClientPool (30 Chrome profiles, batch 5)
   └─ Poller loop (5s ± 1s jitter)
-        ├─ OAuth playlistItems per channel (TokenManager, max 20 concurrent)
+        ├─ Innertube (youtubei.js) per channel (max 5 concurrent)
+        │     └─ InnertubeClientPool.getLatestVideo(channelId) — top-1, dedup + age ≤ 10 min
         │     └─ Early termination: stop after 5 new videos found
-        ├─ Filter: age < 10 min, unseen, not deleted
+        ├─ OAuth fallback: only if Innertube pool = 0 sessions ready
+        └─ Filter: unseen (seenVideoIds), not deleted
         └─ autoDownload() → yt-dlp --download-sections (defaultTrimLimit minutes)
 ```
 
 ### Key Facts
 
-- ✅ playlistItems per channel là **ONLY WORKING METHOD** cho detection (OAuth-only, 2026-05-03)
-- ✅ Full scan = check TẤT CẢ kênh mỗi poll (OAuth primary, no Innertube)
+- ✅ Innertube (youtubei.js) = **PRIMARY** detection (no quota limit)
+- ✅ OAuth Data API v3 = **FALLBACK** (only when Innertube all 30 sessions fail)
+- ✅ Full scan = check TẤT CẢ kênh mỗi poll
 - ✅ Uploads playlist ID cache 24h → tiết kiệm 1 call/channel/poll
-- ✅ OAuth Data API v3 = primary detection (10k units/day per project)
 - ✅ trimLimit numeric (phút) thay vì '5min'/'10min'/'full'
 - ✅ Auto-download dùng `defaultTrimLimit` từ settings (default: 10 phút)
 - ✅ **Auto-render opt-in** — `settings.autoRender` (default: false, user manually triggers)
+- ✅ Exhausted threshold: 5 quota errors per token → skip token
+- ✅ Token quota reset: UTC date midnight (kiểm tra mỗi 30 phút)
 - ⚠️ activities?home=true **DEPRECATED** — không dùng nữa
-- ⚠️ Innertube **DEPRECATED** (2026-05-03) — Chrome sessions chỉ còn cho Settings UI
+- ⚠️ Close Chrome trước khi start HyperClip — cookie lock prevention
 
 ---
 
-## 13. Render Pipeline — RTX 5080 Optimization
+## 13. Render Pipeline — GPU Optimization
 
 ### Đã implement
 
@@ -442,9 +484,19 @@ App khởi động
 | 6 | Smart keyframe detection | seek ±2s thay scan toàn file | Scan ~5x nhanh |
 | 7 | GPU tier detection | RTX 50/40=`high`(8w), RTX30=`mid`(4w) | Worker count đúng |
 | 8 | Multi-thread filter | `-threads 8 -filter_threads 16` | Parallel CUDA filters |
-| 9 | Chunked 120s (RTX 5080) | `chunkDuration=120, workers=8` | Less overhead |
+| 9 | Chunked 120s (GPU) | `chunkDuration=120, workers=8` | Less overhead |
 | 10 | Async NVENC | `-rc-lookahead 0 -tune ull` | Max encode throughput |
 
 ---
 
-## 14. Ngày cập nhật: 2026-05-03
+## 14. Ngày cập nhật: 2026-05-06
+
+### Changes 2026-05-06
+- **Age filter REMOVED (2026-05-06):** `parseRelativeDate` fails for many formats ("X weeks ago", "X month ago" without 's', empty, "Live", etc.) → `publishedAt=0` → age check bypassed → old videos downloaded. Fix: trust YouTube tab order (newest-first) as the primary guard. `seenVideoIds` dedup prevents re-downloads. Trim limit (30 min) prevents old video processing.
+
+### Changes 2026-05-04
+- Sync Section 1 vs Section 12: Innertube PRIMARY (not DEPRECATED)
+- Token exhaustion: `MAX_UNITS_PER_TOKEN` = 9,500 (was 500 in code but 9,500 in docs)
+- Improved Innertube pool init logging: shows cookie prefix + skipped session list
+- Remove health check during pool init (getHomeFeed fails even with valid cookies)
+- Add cookie lock warning: Close Chrome before starting HyperClip

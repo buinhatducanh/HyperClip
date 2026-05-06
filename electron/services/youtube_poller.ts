@@ -45,9 +45,9 @@ export interface PollerStatus {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DEFAULT_POLL_INTERVAL_MS = 20000 // 20 seconds — per doc requirement
+const DEFAULT_POLL_INTERVAL_MS = 5000 // 5 seconds — Innertube primary has no quota limit
 const MAX_VIDEOS_PER_POLL = 5
-const MAX_VIDEO_AGE_MS = 10 * 60 * 1000 // 10 minutes — accounts for YouTube processing delay after upload
+const MAX_VIDEO_AGE_MS = 30 * 60 * 1000 // 30 minutes — for memory management only (seenVideoIds cap), NOT for detection filter — accounts for YouTube processing delay after upload
 const SEEN_IDS_CAP = 10000 // cap to prevent unbounded memory growth
 const SEEN_IDS_FILE = path.join(os.homedir(), 'AppData', 'Roaming', 'HyperClip', 'seen-ids.json')
 
@@ -177,13 +177,21 @@ class YouTubePoller {
     if (now < this._exhaustedBackoffUntil) {
       if (this._pollsSinceLastLog === 0) {
         const { hasOAuth } = await this._checkResources()
+        // Also check Innertube pool — it may recover if cookies were refreshed
+        let poolReady = false
+        try {
+          const { getInnertubePoolSync } = await import('./innertube_client.js')
+          const pool = getInnertubePoolSync()
+          poolReady = pool?.isReady() ?? false
+        } catch { /* pool not initialized yet */ }
         const remaining = Math.ceil((this._exhaustedBackoffUntil - now) / 1000)
-        if (hasOAuth) {
+        if (hasOAuth || poolReady) {
           this._exhaustedBackoffUntil = 0
           this._backoffReason = null
-          console.log(`[YouTubePoller] OAuth recovered ✓ — resuming polling`)
+          const reason = poolReady ? 'Innertube pool' : 'OAuth'
+          console.log(`[YouTubePoller] ${reason} recovered ✓ — resuming polling`)
         } else {
-          console.log(`[YouTubePoller] Backoff (${remaining}s remaining) — OAuth: checking...`)
+          console.log(`[YouTubePoller] Backoff (${remaining}s remaining) — checking...`)
         }
       }
       return

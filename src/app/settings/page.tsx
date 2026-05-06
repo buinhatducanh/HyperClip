@@ -17,7 +17,7 @@ interface Project {
   usedToday: number
   quotaTotal: number
   errors: number
-  status: 'healthy' | 'warning' | 'error' | 'exhausted' | 'unauthorized' | 'no_oauth'
+  status: 'healthy' | 'warning' | 'rate_limited' | 'error' | 'exhausted' | 'unauthorized' | 'no_oauth'
   apiKey: string | null
   apiKeyName: string | null
   apiKeyUsed: number
@@ -257,6 +257,7 @@ function ProjectCard({ project, onRefresh, onReset }: { project: Project; onRefr
   const statusColor: Record<string, string> = {
     healthy: '#00FF88',
     warning: '#FFB800',
+    rate_limited: '#FFB800',
     error: '#FF6644',
     exhausted: '#FF4444',
     unauthorized: '#FF6644',
@@ -264,13 +265,14 @@ function ProjectCard({ project, onRefresh, onReset }: { project: Project; onRefr
   }
 
   const sc = statusColor[project.status] || '#444'
-  const oauthPct = project.quotaTotal > 0 ? Math.round((project.usedToday / project.quotaTotal) * 100) : 0
+  const oauthPct = Math.min(project.quotaTotal > 0 ? Math.round((project.usedToday / project.quotaTotal) * 100) : 0, 100)
 
   // Show exhausted/warning on OAuth card even when hasToken=true
   const oauthLabel = (() => {
-    if (project.status === 'exhausted') return '⚠ Quá tải quota'
     if (project.status === 'unauthorized') return '✗ Token không hợp lệ'
     if (project.status === 'no_oauth') return '✗ Chưa authorize'
+    if (project.status === 'exhausted') return `⚠ Quá tải quota`
+    if (project.status === 'rate_limited') return `⚠ Rate limited (${project.errors} errors)`
     if (project.status === 'warning') return `⚠ ${oauthPct}% quota`
     if (project.hasToken) return `✓ Authorized`
     return '✗ Chưa authorize'
@@ -278,7 +280,7 @@ function ProjectCard({ project, onRefresh, onReset }: { project: Project; onRefr
 
   const oauthColor = (() => {
     if (project.status === 'exhausted' || project.status === 'unauthorized') return '#FF6644'
-    if (project.status === 'warning') return '#FFB800'
+    if (project.status === 'rate_limited' || project.status === 'warning') return '#FFB800'
     if (project.hasToken) return '#00FF88'
     return '#FF6644'
   })()
@@ -409,7 +411,7 @@ function ProjectCard({ project, onRefresh, onReset }: { project: Project; onRefr
             AUTHORIZE
           </button>
         )}
-        {(project.status === 'exhausted' || project.status === 'warning') && (
+        {(project.status === 'exhausted' || project.status === 'warning' || project.status === 'rate_limited') && (
           <button
             onClick={() => { onReset?.(); onRefresh() }}
             style={{
@@ -984,10 +986,14 @@ function ApiKeysSection() {
   }, [])
 
   const handleReset = async (key: string) => {
-    const result = await ipc.resetKey(key)
-    if (result.success) {
-      load()
-      showToast(`Reset thành công! Next auto-reset: ${formatNextReset(result.nextReset)}`)
+    try {
+      const result = await ipc.resetKey(key)
+      if (result.success) {
+        load()
+        showToast(`Reset thành công! Next auto-reset: ${formatNextReset(result.nextReset)}`)
+      }
+    } catch (e: any) {
+      showToast(`Lỗi reset: ${e.message}`)
     }
   }
 
@@ -1241,7 +1247,7 @@ function ApiKeysSection() {
           <div style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 8 }}>KEY QUOTA DISTRIBUTION</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {dedupedKeys
-              .sort((a, b) => b.usedToday - a.usedToday)
+              .sort((a, b) => (b.usedToday ?? 0) - (a.usedToday ?? 0))
               .map(k => {
                 const pct = k.quotaPercent
                 const barColor = pct >= 90 ? '#FF4444' : pct >= 75 ? '#FFB800' : pct > 0 ? '#00B4FF' : '#2a2a2a'
@@ -1369,7 +1375,7 @@ function ProjectsSection() {
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
   const [syncing, setSyncing] = useState(false)
-  const [filter, setFilter] = useState<'all' | 'healthy' | 'warning' | 'exhausted' | 'no_oauth' | 'unauthorized'>('all')
+  const [filter, setFilter] = useState<'all' | 'healthy' | 'warning' | 'rate_limited' | 'exhausted' | 'no_oauth' | 'unauthorized'>('all')
   const { showToast } = useAppStore()
 
   const load = () => {
@@ -1408,6 +1414,7 @@ function ProjectsSection() {
 
   const healthyProjects = projects.filter(p => p.status === 'healthy').length
   const warningProjects = projects.filter(p => p.status === 'warning').length
+  const rateLimitedProjects = projects.filter(p => p.status === 'rate_limited').length
   const exhaustedProjects = projects.filter(p => p.status === 'exhausted').length
   const noOauthProjects = projects.filter(p => p.status === 'no_oauth').length
   const unauthorizedProjects = projects.filter(p => p.status === 'unauthorized').length
@@ -1416,6 +1423,7 @@ function ProjectsSection() {
     all: projects.length,
     healthy: healthyProjects,
     warning: warningProjects,
+    rate_limited: rateLimitedProjects,
     exhausted: exhaustedProjects,
     no_oauth: noOauthProjects,
     unauthorized: unauthorizedProjects,
@@ -1424,166 +1432,301 @@ function ProjectsSection() {
   const filteredProjects = filter === 'all' ? projects
     : filter === 'healthy' ? projects.filter(p => p.status === 'healthy')
     : filter === 'warning' ? projects.filter(p => p.status === 'warning')
+    : filter === 'rate_limited' ? projects.filter(p => p.status === 'rate_limited')
     : filter === 'exhausted' ? projects.filter(p => p.status === 'exhausted')
     : filter === 'no_oauth' ? projects.filter(p => p.status === 'no_oauth')
     : projects.filter(p => p.status === 'unauthorized')
 
   const handleResetProject = async (projectId: string) => {
-    await ipc.resetProjectQuota(projectId)
-    await ipc.resumePoller()
-    showToast(`Quota ${projectId} đã reset — poller tiếp tục`)
-    load()
+    try {
+      const result = await ipc.resetProjectQuota(projectId) as { success: boolean; nextReset: number; wasUnauthorized: boolean }
+      await ipc.resumePoller()
+      const msg = result.wasUnauthorized
+        ? `Quota ${projectId} đã reset + mở khóa token — poller tiếp tục`
+        : `Quota ${projectId} đã reset — poller tiếp tục`
+      showToast(msg)
+      load()
+    } catch (e: any) {
+      showToast(`Lỗi reset: ${e.message}`)
+    }
   }
 
+  const now = new Date()
+  const refreshTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+
   return (
-    <div>
-      {/* Alert banner for exhausted / no_oauth projects */}
-      {(exhaustedProjects > 0 || noOauthProjects > 0 || unauthorizedProjects > 0) && (
-        <div style={{
-          padding: '10px 14px',
-          background: '#1a0808',
-          borderBottom: '1px solid #2a1010',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FF4444', flexShrink: 0, boxShadow: '0 0 6px #FF444488' }} />
-            <span style={{ fontSize: 10, color: '#FF6644', fontWeight: 700 }}>
-              {exhaustedProjects > 0 && `${exhaustedProjects} project${exhaustedProjects > 1 ? 's' : ''} quá tải quota`}
-              {exhaustedProjects > 0 && noOauthProjects > 0 && ' · '}
-              {noOauthProjects > 0 && `${noOauthProjects} project${noOauthProjects > 1 ? 's' : ''} chưa authorize OAuth`}
-              {unauthorizedProjects > 0 && (exhaustedProjects > 0 || noOauthProjects > 0 ? ' · ' : '') + `${unauthorizedProjects} project${unauthorizedProjects > 1 ? 's' : ''} key không hợp lệ`}
-            </span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+      {/* Full-width header — consistent with ApiKeysSection */}
+      <div style={{
+        padding: '14px 20px',
+        background: '#0B0B0B',
+        borderBottom: '1px solid #1A1A1A',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: '#fff', letterSpacing: '0.1em' }}>OAUTH PROJECTS</div>
+          <div style={{ width: 1, height: 12, background: '#222' }} />
+          <span style={{ fontSize: 8, color: '#333' }}>last refresh {refreshTime}</span>
+          {loading && <span style={{ fontSize: 8, color: '#00FF8844' }}>● polling...</span>}
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <button
+            onClick={handleSyncChannels}
+            disabled={syncing}
+            style={{
+              height: 26, paddingLeft: 10, paddingRight: 10,
+              background: 'transparent', border: '1px solid #00FF8844', borderRadius: 4,
+              fontSize: 8, fontWeight: 700, color: '#00FF88', cursor: syncing ? 'not-allowed' : 'pointer',
+              opacity: syncing ? 0.5 : 1, letterSpacing: '0.06em',
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { if (!syncing) { e.currentTarget.style.background = '#00FF8822' } }}
+            onMouseLeave={e => { if (!syncing) { e.currentTarget.style.background = 'transparent' } }}
+          >
+            {syncing ? '...' : '↻ SYNC CHANNELS'}
+          </button>
+          <button
+            onClick={() => setShowAdd(v => !v)}
+            style={{
+              height: 26, paddingLeft: 10, paddingRight: 10,
+              background: showAdd ? '#00B4FF22' : 'transparent',
+              border: `1px solid ${showAdd ? '#00B4FF66' : '#00B4FF33'}`, borderRadius: 4,
+              fontSize: 8, fontWeight: 700, color: '#00B4FF', cursor: 'pointer',
+              transition: 'all 0.15s',
+            }}
+          >
+            + THÊM PROJECT
+          </button>
+        </div>
+      </div>
+
+      {/* Add form */}
+      {showAdd && (
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #141414', background: '#0A0A0A' }}>
+          <div style={{
+            background: '#0A0A0A', border: '1px solid #1E1E1E',
+            borderRadius: 8, padding: '16px',
+          }}>
+            <AddProjectForm onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); load() }} />
           </div>
         </div>
       )}
 
-      {/* Stats row */}
-      <div style={{ display: 'flex', gap: 8, padding: '10px 14px', borderBottom: '1px solid #141414', background: '#0C0C0C', overflowX: 'auto' }}>
-        <div style={{ minWidth: 80, padding: '8px 10px', background: '#0D0D0D', border: '1px solid #1A1A1A', borderRadius: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <div style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.08em' }}>TOTAL</div>
-          <div style={{ fontSize: 16, fontWeight: 800, color: '#888', fontFamily: 'monospace' }}>{projects.length}</div>
+      {/* Exhausted / Unauthorized alert banner */}
+      {(rateLimitedProjects > 0 || exhaustedProjects > 0 || noOauthProjects > 0 || unauthorizedProjects > 0) && (
+        <div style={{
+          padding: '10px 20px',
+          background: '#1a0808',
+          borderBottom: '1px solid #2a1010',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FF4444', flexShrink: 0, boxShadow: '0 0 6px #FF444488' }} />
+          <span style={{ fontSize: 10, color: '#FF6644', fontWeight: 700 }}>
+            {rateLimitedProjects > 0 && `${rateLimitedProjects} project${rateLimitedProjects > 1 ? 's' : ''} rate limited (10+ errors)`}
+            {rateLimitedProjects > 0 && exhaustedProjects > 0 && ' · '}
+            {exhaustedProjects > 0 && `${exhaustedProjects} project${exhaustedProjects > 1 ? 's' : ''} quá tải quota`}
+            {rateLimitedProjects > 0 && noOauthProjects > 0 && ' · '}
+            {(exhaustedProjects > 0 || rateLimitedProjects > 0) && noOauthProjects > 0 && ' · '}
+            {noOauthProjects > 0 && `${noOauthProjects} project${noOauthProjects > 1 ? 's' : ''} chưa authorize OAuth`}
+            {unauthorizedProjects > 0 && (exhaustedProjects > 0 || noOauthProjects > 0 || rateLimitedProjects > 0 ? ' · ' : '') + `${unauthorizedProjects} project${unauthorizedProjects > 1 ? 's' : ''} key không hợp lệ`}
+          </span>
+          <span style={{ fontSize: 9, color: '#FF444466', marginLeft: 4 }}>— auto-reset midnight PT</span>
         </div>
-        <div style={{ minWidth: 80, padding: '8px 10px', background: '#0D0D0D', border: '1px solid #1A1A1A', borderRadius: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <div style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.08em' }}>HEALTHY</div>
-          <div style={{ fontSize: 16, fontWeight: 800, color: healthyProjects > 0 ? '#00FF88' : '#2a2a2a', fontFamily: 'monospace' }}>{healthyProjects}</div>
-        </div>
-        <div style={{ minWidth: 80, padding: '8px 10px', background: '#0D0D0D', border: '1px solid #1A1A1A', borderRadius: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <div style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.08em' }}>WARNING</div>
-          <div style={{ fontSize: 16, fontWeight: 800, color: warningProjects > 0 ? '#FFB800' : '#2a2a2a', fontFamily: 'monospace' }}>{warningProjects}</div>
-        </div>
-        <div style={{ minWidth: 80, padding: '8px 10px', background: '#0D0D0D', border: '1px solid #1A1A1A', borderRadius: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <div style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.08em' }}>EXHAUSTED</div>
-          <div style={{ fontSize: 16, fontWeight: 800, color: exhaustedProjects > 0 ? '#FF4444' : '#2a2a2a', fontFamily: 'monospace' }}>{exhaustedProjects}</div>
-        </div>
-        <div style={{ minWidth: 80, padding: '8px 10px', background: '#0D0D0D', border: '1px solid #1A1A1A', borderRadius: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <div style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.08em' }}>NO OAUTH</div>
-          <div style={{ fontSize: 16, fontWeight: 800, color: noOauthProjects > 0 ? '#FFB800' : '#2a2a2a', fontFamily: 'monospace' }}>{noOauthProjects}</div>
-        </div>
+      )}
+
+      {/* Stats row — consistent with ApiKeysSection */}
+      <div style={{ display: 'flex', gap: 8, padding: '12px 20px', borderBottom: '1px solid #141414', background: '#0C0C0C' }}>
+        <StatCard
+          label="TOTAL"
+          value={String(projects.length)}
+          sub="projects"
+          color="#ccc"
+          icon={<div style={{ width: 6, height: 6, borderRadius: 1, background: '#444' }} />}
+        />
+        <StatCard
+          label="HEALTHY"
+          value={`${healthyProjects}/${projects.length}`}
+          sub="authorized"
+          color="#00FF88"
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00FF88' }} />}
+        />
+        <StatCard
+          label="WARNING"
+          value={String(warningProjects)}
+          sub="75-90% quota"
+          color={warningProjects > 0 ? '#FFB800' : '#2a2a2a'}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: warningProjects > 0 ? '#FFB800' : '#2a2a2a' }} />}
+        />
+        <StatCard
+          label="RATE LIMITED"
+          value={String(rateLimitedProjects)}
+          sub="10+ errors"
+          color={rateLimitedProjects > 0 ? '#FFB800' : '#2a2a2a'}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: rateLimitedProjects > 0 ? '#FFB800' : '#2a2a2a' }} />}
+        />
+        <StatCard
+          label="EXHAUSTED"
+          value={String(exhaustedProjects)}
+          sub="needs reset"
+          color={exhaustedProjects > 0 ? '#FF4444' : '#2a2a2a'}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: exhaustedProjects > 0 ? '#FF4444' : '#2a2a2a' }} />}
+        />
+        <StatCard
+          label="NO OAUTH"
+          value={String(noOauthProjects)}
+          sub="not authorized"
+          color={noOauthProjects > 0 ? '#FFB800' : '#2a2a2a'}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: noOauthProjects > 0 ? '#FFB800' : '#2a2a2a' }} />}
+        />
         {unauthorizedProjects > 0 && (
-          <div style={{ minWidth: 80, padding: '8px 10px', background: '#0D0D0D', border: '1px solid #1A1A1A', borderRadius: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <div style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.08em' }}>UNAUTH</div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: '#FF6644', fontFamily: 'monospace' }}>{unauthorizedProjects}</div>
-          </div>
+          <StatCard
+            label="UNAUTHORIZED"
+            value={String(unauthorizedProjects)}
+            sub="invalid keys"
+            color="#FF6644"
+            icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: '#FF6644' }} />}
+          />
         )}
+        <StatCard
+          label="OVERALL QUOTA"
+          value={`${totalPct}%`}
+          sub={`${(totalUsed / 1000).toFixed(1)}k / ${(totalQuota / 1000).toFixed(0)}k`}
+          color={totalPct > 80 ? '#FFB800' : '#00FF88'}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: totalPct > 80 ? '#FFB800' : '#00FF88' }} />}
+        />
       </div>
 
+      {/* Per-project quota distribution chart */}
+      {projects.length > 0 && (
+        <div style={{ padding: '12px 20px', background: '#0D0D0D', borderBottom: '1px solid #141414' }}>
+          <div style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 8 }}>PROJECT QUOTA DISTRIBUTION</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {projects
+              .sort((a, b) => (b.usedToday ?? 0) - (a.usedToday ?? 0))
+              .map(p => {
+                const pct = p.quotaTotal > 0 ? Math.round((p.usedToday / p.quotaTotal) * 100) : 0
+                const isExhausted = p.status === 'exhausted'
+                const isRateLimited = p.status === 'rate_limited'
+                const barColor = isExhausted ? '#FF4444' : isRateLimited ? '#FFB800' : pct >= 90 ? '#FF4444' : pct >= 75 ? '#FFB800' : pct > 0 ? '#00FF88' : '#2a2a2a'
+                return (
+                  <div key={p.projectId} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{
+                      minWidth: 100, fontSize: 9, color: isExhausted ? '#FF4444' : isRateLimited ? '#FFB800' : '#555',
+                      fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {(isExhausted || isRateLimited) && <span style={{ color: isExhausted ? '#FF4444' : '#FFB800', marginRight: 3 }}>⚠</span>}
+                      {p.projectId}
+                    </div>
+                    <div style={{ flex: 1, height: 12, background: '#141414', borderRadius: 2, position: 'relative' }}>
+                      <div style={{
+                        width: `${pct}%`, height: '100%', background: barColor,
+                        borderRadius: 2, transition: 'width 0.5s',
+                        boxShadow: pct > 0 ? `0 0 4px ${barColor}44` : 'none',
+                      }} />
+                      <div style={{ position: 'absolute', top: 0, left: '75%', width: 1, height: '100%', background: '#333' }} />
+                      <div style={{ position: 'absolute', top: 0, left: '90%', width: 1, height: '100%', background: '#555' }} />
+                    </div>
+                    <div style={{ minWidth: 170, fontSize: 8, color: '#333', fontFamily: 'monospace', textAlign: 'right' }}>
+                      <span style={{ color: barColor }}>{p.usedToday.toLocaleString()}</span>
+                      <span style={{ color: '#2a2a2a' }}>/</span>
+                      <span>{p.quotaTotal.toLocaleString()}</span>
+                      {p.errors > 0 && (
+                        <span style={{ color: '#FF4444', marginLeft: 4 }}>{p.errors}err</span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+          </div>
+          <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+            <span style={{ fontSize: 7, color: '#2a2a2a' }}>| 75%</span>
+            <span style={{ fontSize: 7, color: '#333' }}>| 90%</span>
+          </div>
+        </div>
+      )}
+
       {/* Filter tabs */}
-      <div style={{ display: 'flex', gap: 2, padding: '6px 14px', borderBottom: '1px solid #141414', background: '#0B0B0B', overflowX: 'auto' }}>
-        {(['all', 'healthy', 'warning', 'exhausted', 'no_oauth'] as const).map(f => {
+      <div style={{ display: 'flex', gap: 2, padding: '8px 20px', borderBottom: '1px solid #141414', background: '#0C0C0C' }}>
+        {(['all', 'healthy', 'warning', 'rate_limited', 'exhausted', 'no_oauth'] as const).map(f => {
           const isActive = filter === f
-          const tabColors: Record<string, string> = { all: '#888', healthy: '#00FF88', warning: '#FFB800', exhausted: '#FF4444', no_oauth: '#FFB800' }
+          const tabColors: Record<string, string> = { all: '#888', healthy: '#00FF88', warning: '#FFB800', rate_limited: '#FFB800', exhausted: '#FF4444', no_oauth: '#FFB800' }
           return (
             <button
               key={f}
               onClick={() => setFilter(f)}
               style={{
-                height: 22, paddingLeft: 8, paddingRight: 8,
+                height: 24, paddingLeft: 10, paddingRight: 10,
                 background: isActive ? '#141414' : 'transparent',
                 border: `1px solid ${isActive ? '#222' : 'transparent'}`,
-                borderRadius: 3, cursor: 'pointer', fontSize: 8, fontWeight: 700,
+                borderRadius: 4, cursor: 'pointer', fontSize: 8, fontWeight: 700,
                 color: isActive ? tabColors[f] : '#444',
-                letterSpacing: '0.08em', whiteSpace: 'nowrap',
+                letterSpacing: '0.08em', transition: 'all 0.15s',
               }}
             >
-              {f === 'no_oauth' ? 'NO OAUTH' : f.toUpperCase()} ({filterCounts[f]})
+              {f === 'no_oauth' ? 'NO OAUTH' : f === 'rate_limited' ? 'RATE LIMITED' : f.toUpperCase()} ({filterCounts[f]})
             </button>
           )
         })}
       </div>
 
-      {/* Summary bar */}
-      {!loading && (
-        <div style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div className="flex items-center gap-2">
-            <div style={{
-              width: 5, height: 5, borderRadius: '50%',
-              background: totalPct > 80 ? '#FFB800' : '#00FF88',
-              boxShadow: `0 0 4px ${totalPct > 80 ? '#FFB800' : '#00FF88'}66`,
-            }} />
-            <span style={{ fontSize: 9, color: '#555', fontFamily: 'monospace' }}>
-              {projects.length} projects · {(totalUsed / 1000).toFixed(1)}k / {(totalQuota / 1000).toFixed(0)}k units
-            </span>
-          </div>
-          <button
-            onClick={() => setShowAdd(true)}
-            style={{
-              height: 22, paddingLeft: 8, paddingRight: 8,
-              background: 'transparent', border: '1px solid #00B4FF44', borderRadius: 3,
-              cursor: 'pointer', color: '#00B4FF', fontSize: 9, fontWeight: 600,
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = '#00B4FF22' }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
-          >+ Thêm Project</button>
-          <button
-            onClick={handleSyncChannels}
-            disabled={syncing}
-            style={{
-              height: 22, paddingLeft: 8, paddingRight: 8,
-              background: 'transparent', border: '1px solid #00FF8844', borderRadius: 3,
-              cursor: syncing ? 'not-allowed' : 'pointer', color: '#00FF88', fontSize: 9, fontWeight: 600,
-              opacity: syncing ? 0.5 : 1,
-            }}
-            onMouseEnter={e => { if (!syncing) { e.currentTarget.style.background = '#00FF8822' } }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
-          >{syncing ? 'Đang sync...' : '↻ Refresh kênh'}</button>
-        </div>
-      )}
-
-      {/* Info */}
-      <div style={{ padding: '0 14px 8px', fontSize: 9, color: '#444', lineHeight: '14px' }}>
-        Mỗi project = OAuth + API Key = 10,000 units/ngày.
-        Thêm project để tăng quota polling.
-        <br />Quota reset mỗi 24h (midnight PT).
+      {/* Info row */}
+      <div style={{ padding: '8px 20px', fontSize: 9, color: '#444', lineHeight: '15px', background: '#0B0B0B', borderBottom: '1px solid #141414' }}>
+        Mỗi project = OAuth + API Key = 10,000 units/ngày. Thêm project để tăng quota polling. Quota reset mỗi 24h (midnight PT).
       </div>
 
       {/* Project list */}
-      {loading ? (
-        <div style={{ fontSize: 10, color: '#444', textAlign: 'center', padding: '16px' }}>Đang tải...</div>
-      ) : filteredProjects.length === 0 ? (
-        <div style={{ padding: '24px 14px', textAlign: 'center' }}>
-          <div style={{ fontSize: 10, color: '#333', marginBottom: 12 }}>
-            {filter !== 'all' ? `Không có project ở trạng thái "${filter}"` : 'Chưa có project nào. Thêm Google Cloud project để bắt đầu.'}
+      <div style={{ padding: '14px 20px', background: '#0A0A0A' }}>
+        {loading && projects.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <div style={{ fontSize: 10, color: '#333' }}>Đang tải...</div>
           </div>
-          {filter === 'all' && (
-            <button
-              onClick={() => setShowAdd(true)}
-              style={{
-                height: 28, paddingLeft: 14, paddingRight: 14,
-                background: '#00B4FF', border: 'none', borderRadius: 4,
-                fontSize: 10, fontWeight: 700, color: '#000', cursor: 'pointer',
-              }}
-            >+ Thêm Project đầu tiên</button>
-          )}
-        </div>
-      ) : (
-        <div style={{ padding: '0 14px 14px' }}>
-          {filteredProjects.map(p => (
-            <ProjectCard key={p.projectId} project={p} onRefresh={load} onReset={() => handleResetProject(p.projectId)} />
-          ))}
-        </div>
-      )}
+        ) : filteredProjects.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <div style={{ fontSize: 10, color: '#2a2a2a', marginBottom: 8 }}>
+              {filter !== 'all' ? `Không có project ở trạng thái "${filter}"` : 'Chưa có project nào. Thêm Google Cloud project để bắt đầu.'}
+            </div>
+            {filter === 'all' && (
+              <button
+                onClick={() => setShowAdd(true)}
+                style={{
+                  height: 28, paddingLeft: 14, paddingRight: 14,
+                  background: '#00B4FF22', border: '1px solid #00B4FF44', borderRadius: 4,
+                  fontSize: 9, fontWeight: 700, color: '#00B4FF', cursor: 'pointer',
+                }}
+              >
+                + Thêm Project đầu tiên
+              </button>
+            )}
+          </div>
+        ) : (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+            gap: 12,
+          }}>
+            {filteredProjects.map(p => (
+              <ProjectCard key={p.projectId} project={p} onRefresh={load} onReset={() => handleResetProject(p.projectId)} />
+            ))}
+          </div>
+        )}
+      </div>
 
-      {showAdd && <AddProjectForm onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); load() }} />}
+      {/* ─── Chrome Sessions (30 profiles) — Innertube PRIMARY ─────────────────── */}
+      <div style={{ borderTop: '1px solid #141414' }}>
+        {/* Section header */}
+        <div style={{
+          padding: '14px 20px 12px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: '#0B0B0B',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#00B4FF', boxShadow: '0 0 6px #00B4FF66' }} />
+            <span style={{ fontSize: 11, fontWeight: 800, color: '#fff', letterSpacing: '0.1em' }}>CHROME SESSIONS</span>
+            <span style={{ fontSize: 8, color: '#333' }}>— Innertube PRIMARY (no quota limit)</span>
+          </div>
+        </div>
+        <SessionsSection />
+      </div>
     </div>
   )
 }
@@ -1615,13 +1758,17 @@ function SessionsSection() {
     const result = await ipc.refreshAllSessions()
     showToast(result.success ? `Đã refresh ${result.refreshedCount} sessions` : 'Refresh thất bại')
     setRefreshing(false)
-    load()
   }
 
   const handleOpenLogin = async (profileId: string) => {
+    showToast(`Chrome đang mở — đăng nhập YouTube, chờ extraction...`)
     const result = await ipc.openSessionLogin(profileId)
-    if (result.success) {
-      showToast(`Đã mở Chrome — đăng nhập YouTube, HyperClip sẽ tự đọc cookies`)
+    // openSessionLogin waits up to 5 min for CDP extraction
+    const refresh = await ipc.refreshAllSessions()
+    if (refresh.refreshedCount > 0) {
+      showToast(`Session ${profileId}: cookies extracted — Innertube active`)
+    } else {
+      showToast(`Session ${profileId}: extraction failed hoặc đã đóng Chrome quá sớm`)
     }
   }
 
@@ -1915,21 +2062,17 @@ function PollerStatusPanel() {
           }}>
             <span style={{ fontSize: 11, color: '#555' }}>→</span>
             <span style={{ fontSize: 10, color: '#888' }}>
-              Fix:{' '}
-              <span style={{ color: '#00B4FF', fontWeight: 700 }}>
-                Đăng nhập 1 Chrome profile
-              </span>
-              {' '}→ tab{' '}
+              System đang backed off. Sẽ tự resume sau vài phút, hoặc click{' '}
               <button
-                onClick={() => { const btn = document.querySelector('[data-tab="sessions"]') as HTMLButtonElement; btn?.click() }}
+                onClick={handleResume}
                 style={{
                   background: 'none', border: 'none', cursor: 'pointer',
-                  fontSize: 10, fontWeight: 700, color: '#FF6644', padding: 0,
+                  fontSize: 10, fontWeight: 700, color: '#00B4FF', padding: 0,
                 }}
               >
-                INNERTUBE SESSIONS
+                FORCE RESUME
               </button>
-              <span style={{ color: '#555' }}> (chỉ cần 1-2 profile là đủ)</span>
+              .
             </span>
           </div>
         )}
@@ -1943,7 +2086,7 @@ function PollerStatusPanel() {
           }}>
             <span style={{ fontSize: 11, color: '#FFB800' }}>⚠</span>
             <span style={{ fontSize: 10, color: '#888' }}>
-              Poller đang chạy với OAuth (có quota limit). Khuyến nghị: thêm Innertube Sessions để không cần OAuth quota.
+              OAuth đang active (có quota limit/ngày). Hệ thống vẫn hoạt động tốt.
             </span>
           </div>
         )}
@@ -1957,61 +2100,38 @@ function PollerStatusPanel() {
           }}>
             <span style={{ fontSize: 11, color: '#00FF88' }}>✓</span>
             <span style={{ fontSize: 10, color: '#666' }}>
-              Innertube Sessions đang active — không cần OAuth quota để poll.
+              Innertube (Chrome cookies) + OAuth cùng active — detection tối ưu.
             </span>
           </div>
         )}
       </div>
 
-      {/* Quick action cards */}
-      {!hasInnertube && (
-        <div style={{ display: 'flex', gap: 12 }}>
-          <button
-            onClick={() => { const btn = document.querySelector('[data-tab="sessions"]') as HTMLButtonElement; btn?.click() }}
-            style={{
-              flex: 1, padding: '14px 16px',
-              background: '#0d1520', border: '1px solid #FF664444',
-              borderRadius: 6, cursor: 'pointer', textAlign: 'left',
-              transition: 'all 0.15s',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = '#0d1a2a'; e.currentTarget.style.borderColor = '#FF664466' }}
-            onMouseLeave={e => { e.currentTarget.style.background = '#0d1520'; e.currentTarget.style.borderColor = '#FF664444' }}
-          >
-            <div style={{ fontSize: 10, fontWeight: 800, color: '#FF6644', letterSpacing: '0.08em', marginBottom: 4 }}>
-              INNERUBE SESSIONS — KHẮC PHỤC NGAY
-            </div>
-            <div style={{ fontSize: 9, color: '#666', lineHeight: '14px' }}>
-              Chỉ cần đăng nhập <span style={{ color: '#FF6644', fontWeight: 700 }}>1 Chrome profile</span> là đủ.
-              Mỗi session không có quota limit — thay thế hoàn toàn OAuth.
-            </div>
-          </button>
-
-          <button
-            onClick={() => { const btn = document.querySelector('[data-tab="projects"]') as HTMLButtonElement; btn?.click() }}
-            style={{
-              flex: 1, padding: '14px 16px',
-              background: '#0d1520', border: '1px solid #00FF8844',
-              borderRadius: 6, cursor: 'pointer', textAlign: 'left',
-              transition: 'all 0.15s',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = '#0d1f15'; e.currentTarget.style.borderColor = '#00FF8866' }}
-            onMouseLeave={e => { e.currentTarget.style.background = '#0d1520'; e.currentTarget.style.borderColor = '#00FF8844' }}
-          >
-            <div style={{ fontSize: 10, fontWeight: 800, color: '#00FF88', letterSpacing: '0.08em', marginBottom: 4 }}>
-              GOOGLE PROJECTS — FALLBACK
-            </div>
-            <div style={{ fontSize: 9, color: '#666', lineHeight: '14px' }}>
-              Thêm Google Cloud project để có thêm quota (10k units/project/ngày).
-              OAuth cần refresh token và có giới hạn.
-            </div>
-          </button>
-        </div>
+      {/* Quick action — only when neither path is available */}
+      {!hasInnertube && !hasOAuth && (
+        <button
+          onClick={() => { const btn = document.querySelector('[data-tab="projects"]') as HTMLButtonElement; btn?.click() }}
+          style={{
+            width: '100%', padding: '14px 16px',
+            background: '#0d1520', border: '1px solid #00FF8844',
+            borderRadius: 6, cursor: 'pointer', textAlign: 'left',
+            transition: 'all 0.15s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = '#0d1f15'; e.currentTarget.style.borderColor = '#00FF8866' }}
+          onMouseLeave={e => { e.currentTarget.style.background = '#0d1520'; e.currentTarget.style.borderColor = '#00FF8844' }}
+        >
+          <div style={{ fontSize: 10, fontWeight: 800, color: '#00FF88', letterSpacing: '0.08em', marginBottom: 4 }}>
+            GOOGLE PROJECTS — THÊM OAuth
+          </div>
+          <div style={{ fontSize: 9, color: '#666', lineHeight: '14px' }}>
+            Thêm Google Cloud project để bắt đầu poll YouTube channels.
+          </div>
+        </button>
       )}
     </div>
   )
 }
 
-// ─── Storage Widget ─────────────────────────────────────────────────────────────
+// ─── Projects Section ──────────────────────────────────────────────────────────
 
 function PathRow({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   const short = value.length > 50 ? '...' + value.slice(-47) : value
@@ -2157,12 +2277,11 @@ export default function SettingsPage() {
   const { settings, systemStats, setSettings } = useAppStore()
   const [gateState, setGateState] = useState<'loading' | 'setup' | 'locked' | 'unlocked'>('loading')
   // Always declare all hooks before any early returns to satisfy Rules of Hooks
-  const [activeTab, setActiveTab] = useState<'status' | 'keys' | 'projects' | 'sessions' | 'system'>('status')
+  const [activeTab, setActiveTab] = useState<'status' | 'keys' | 'projects' | 'system'>('status')
 
   const TABS = [
     { id: 'status' as const, label: 'STATUS', color: '#00FF88' },
-    { id: 'sessions' as const, label: 'INNERUBE SESSIONS', color: '#FF6644' },
-    { id: 'projects' as const, label: 'GOOGLE PROJECTS', color: '#00FF88' },
+    { id: 'projects' as const, label: 'OAUTH PROJECTS', color: '#00FF88' },
     { id: 'keys' as const, label: 'API KEYS', color: '#00B4FF' },
     { id: 'system' as const, label: 'SYSTEM', color: '#FFB800' },
   ]
@@ -2227,134 +2346,185 @@ export default function SettingsPage() {
           <ApiKeysSection />
         )}
 
-        {/* Innertube Sessions */}
-        {activeTab === 'sessions' && (
-          <div style={{ padding: '20px', maxWidth: 900 }}>
-            <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.15em', marginBottom: 10 }}>INNERUBE SESSIONS (CHROME COOKIES — NO QUOTA)</div>
-            <div style={{ background: '#0F0F0F', border: '1px solid #181818', borderRadius: 4, overflow: 'hidden' }}>
-              <SessionsSection />
-            </div>
-          </div>
-        )}
-
         {/* Projects */}
         {activeTab === 'projects' && (
-          <div style={{ padding: '20px', maxWidth: 900 }}>
-            <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.15em', marginBottom: 10 }}>GOOGLE PROJECTS (OAUTH FALLBACK)</div>
-            <div style={{ background: '#0F0F0F', border: '1px solid #181818', borderRadius: 4, overflow: 'hidden' }}>
-              <ProjectsSection />
-            </div>
-
-            {/* Auto-download */}
-            <div style={{ marginTop: 20 }}>
-              <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.15em', marginBottom: 10 }}>AUTO-DOWNLOAD</div>
-              <div style={{ background: '#0F0F0F', border: '1px solid #181818', borderRadius: 4, overflow: 'hidden' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #181818' }}>
-                  <div>
-                    <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>Trim Limit</div>
-                    <div style={{ fontSize: 9, color: '#444' }}>Video dài hơn sẽ được cắt trước khi tải</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    {([5, 8, 10, 15, 20, 'full'] as const).map(val => (
-                      <button
-                        key={val}
-                        onClick={async () => {
-                          await ipc.updateSettings({ defaultTrimLimit: val })
-                          setSettings({ defaultTrimLimit: val })
-                        }}
-                        style={{
-                          height: 26, minWidth: 42,
-                          background: settings.defaultTrimLimit === val ? '#00B4FF22' : 'transparent',
-                          border: `1px solid ${settings.defaultTrimLimit === val ? '#00B4FF66' : '#2a2a2a'}`,
-                          borderRadius: 3, cursor: 'pointer',
-                          fontSize: 9, fontWeight: 700, color: settings.defaultTrimLimit === val ? '#00B4FF' : '#555',
-                          fontFamily: 'monospace',
-                        }}
-                      >
-                        {val === 'full' ? 'FULL' : `${val}m`}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
-                  <div>
-                    <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>Download Quality</div>
-                    <div style={{ fontSize: 9, color: '#444' }}>
-                      {settings.autoDownloadQuality === '360' && '⚡ Nhanh nhất · ~10-20s · Dùng cho pre-download'}
-                      {settings.autoDownloadQuality === '480' && '⚡ Nhanh · ~15-30s · Cân bằng'}
-                      {settings.autoDownloadQuality === '720' && '⚡ Mặc định · ~20-50s · Chất lượng tốt'}
-                      {settings.autoDownloadQuality === '1080' && '⚡ Chất lượng cao · ~30-90s · Multi-instance 2×'}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    {(['360', '480', '720', '1080'] as const).map(val => (
-                      <button
-                        key={val}
-                        onClick={async () => {
-                          await ipc.updateSettings({ autoDownloadQuality: val })
-                          setSettings({ autoDownloadQuality: val })
-                        }}
-                        style={{
-                          height: 26, minWidth: 42,
-                          background: (settings.autoDownloadQuality ?? '720') === val ? '#00B4FF22' : 'transparent',
-                          border: `1px solid ${(settings.autoDownloadQuality ?? '720') === val ? '#00FF88' : '#2a2a2a'}`,
-                          borderRadius: 3, cursor: 'pointer',
-                          fontSize: 9, fontWeight: 700, color: (settings.autoDownloadQuality ?? '720') === val ? '#00FF88' : '#555',
-                          fontFamily: 'monospace',
-                        }}
-                      >
-                        {val}p
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Output folder */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
-                  <span style={{ fontSize: 11, color: '#888', flexShrink: 0 }}>Output Folder</span>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1 }}>
-                    <input type="text" value={settings.outputFolder} readOnly style={{ flex: 1, height: 30, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, paddingLeft: 8, fontSize: 11, color: '#888', fontFamily: 'monospace', outline: 'none' }} />
-                    <button onClick={() => ipc.openFolder(settings.outputFolder)} style={{ height: 30, paddingLeft: 10, paddingRight: 10, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, fontSize: 9, fontWeight: 600, color: '#555', cursor: 'pointer' }}>OPEN</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <ProjectsSection />
         )}
 
         {/* System tab */}
         {activeTab === 'system' && (
-          <div style={{ padding: '20px', maxWidth: 700 }}>
-            <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.15em', marginBottom: 10 }}>SYSTEM INFO</div>
-            <div style={{ background: '#0F0F0F', border: '1px solid #181818', borderRadius: 4, overflow: 'hidden', marginBottom: 20 }}>
-              {[
-                ['RAM Disk', '#FFB800', '64GB DDR5'],
-                [
-                  'GPU',
-                  (systemStats as any).gpuEncoder === 'nvenc' ? '#00FF88' : '#FFB800',
-                  `${(systemStats as any).gpuName || 'Unknown'} [${(systemStats as any).gpuEncoder?.toUpperCase() || '?'}] · tier: ${(systemStats as any).gpuTier || '?'} · workers: ${(systemStats as any).maxChunkWorkers || 2}`,
-                ],
-              ].map(([label, color, value]) => (
-                <div key={label as string} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #181818' }}>
-                  <span style={{ fontSize: 11, color: '#888' }}>{label as string}</span>
-                  <div className="flex items-center gap-2">
-                    <div style={{ width: 6, height: 6, borderRadius: 1, background: color as string }} />
-                    <span style={{ fontSize: 10, color: '#555', fontFamily: 'monospace' }}>{value as string}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {/* Header */}
+            <div style={{
+              padding: '14px 20px',
+              background: '#0B0B0B',
+              borderBottom: '1px solid #1A1A1A',
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: '#fff', letterSpacing: '0.1em' }}>SYSTEM MONITOR</div>
+            </div>
+
+            {/* Hardware Info */}
+            <div style={{ padding: '12px 20px', background: '#0D0D0D', borderBottom: '1px solid #141414' }}>
+              <div style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 8 }}>HARDWARE</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
+                {/* CPU */}
+                <div style={{ background: '#0a0a0a', border: '1px solid #141414', borderRadius: 6, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 8, color: '#555', letterSpacing: '0.05em', fontWeight: 700, marginBottom: 6 }}>CPU</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#888', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {systemStats.cpuName || 'Unknown'}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                    <div style={{ flex: 1, height: 6, background: '#141414', borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{
+                        width: `${Math.min(systemStats.cpuUsage ?? 0, 100)}%`, height: '100%',
+                        background: (systemStats.cpuUsage ?? 0) > 80 ? '#FFB800' : '#00B4FF',
+                        borderRadius: 2, transition: 'width 1s ease',
+                        boxShadow: `0 0 4px ${(systemStats.cpuUsage ?? 0) > 80 ? '#FFB80044' : '#00B4FF44'}`,
+                      }} />
+                    </div>
+                    <span style={{ fontSize: 10, color: '#555', fontFamily: 'monospace', minWidth: 30, textAlign: 'right' }}>
+                      {systemStats.cpuUsage ?? 0}%
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 8, color: '#2a2a2a', marginTop: 2 }}>{systemStats.cpuCores ?? 0} cores</div>
+                </div>
+
+                {/* RAM */}
+                <div style={{ background: '#0a0a0a', border: '1px solid #141414', borderRadius: 6, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 8, color: '#555', letterSpacing: '0.05em', fontWeight: 700, marginBottom: 6 }}>SYSTEM RAM</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: '#888', fontFamily: 'monospace', lineHeight: 1.2 }}>
+                    {Math.round((systemStats.ramUsed ?? 0) * 10) / 10}
+                    <span style={{ fontSize: 9, color: '#333', marginLeft: 4 }}>/ {Math.round((systemStats.ramTotal ?? 0) * 10) / 10} GB</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                    <div style={{ flex: 1, height: 6, background: '#141414', borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{
+                        width: `${systemStats.ramTotal ? Math.round(((systemStats.ramUsed ?? 0) / systemStats.ramTotal) * 100) : 0}%`,
+                        height: '100%', background: '#00B4FF', borderRadius: 2,
+                        boxShadow: '0 0 4px #00B4FF44',
+                      }} />
+                    </div>
+                    <span style={{ fontSize: 10, color: '#555', fontFamily: 'monospace', minWidth: 30, textAlign: 'right' }}>
+                      {systemStats.ramTotal ? Math.round(((systemStats.ramUsed ?? 0) / systemStats.ramTotal) * 100) : 0}%
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 8, color: '#2a2a2a', marginTop: 2 }}>
+                    {(Math.round(((systemStats.ramFree ?? 0) / (systemStats.ramTotal ?? 1)) * 100))}% free
                   </div>
                 </div>
-              ))}
+
+                {/* GPU */}
+                <div style={{ background: '#0a0a0a', border: '1px solid #141414', borderRadius: 6, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 8, color: '#555', letterSpacing: '0.05em', fontWeight: 700, marginBottom: 6 }}>GPU</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                    <div style={{
+                      width: 6, height: 6, borderRadius: 1,
+                      background: systemStats.gpuEncoder === 'nvenc' ? '#00FF88' : systemStats.gpuEncoder === 'qsv' ? '#FFB800' : '#555',
+                      boxShadow: systemStats.gpuEncoder === 'nvenc' ? '0 0 4px #00FF8866' : 'none',
+                    }} />
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {systemStats.gpuName || 'No GPU'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, fontSize: 8, color: '#2a2a2a', fontFamily: 'monospace', marginTop: 2 }}>
+                    <span style={{ color: systemStats.gpuEncoder === 'nvenc' ? '#00FF88' : '#555' }}>{systemStats.gpuEncoder?.toUpperCase() || 'CPU'}</span>
+                    <span>tier: {systemStats.gpuTier || '?'}</span>
+                    <span>workers: {systemStats.maxChunkWorkers || 2}</span>
+                  </div>
+                </div>
+
+                {/* GPU Stats */}
+                {systemStats.gpuEncoder === 'nvenc' && (
+                  <div style={{ background: '#0a0a0a', border: '1px solid #141414', borderRadius: 6, padding: '10px 12px' }}>
+                    <div style={{ fontSize: 8, color: '#555', letterSpacing: '0.05em', fontWeight: 700, marginBottom: 6 }}>GPU LOAD</div>
+                    <div style={{ display: 'flex', gap: 12 }}>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#888', fontFamily: 'monospace' }}>{systemStats.gpuUsage ?? 0}%</div>
+                        <div style={{ fontSize: 7, color: '#2a2a2a', marginTop: 2 }}>utilization</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#888', fontFamily: 'monospace' }}>{systemStats.gpuTemp ?? 0}°C</div>
+                        <div style={{ fontSize: 7, color: '#2a2a2a', marginTop: 2 }}>temperature</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#888', fontFamily: 'monospace' }}>
+                          {Math.round((systemStats.gpuMemoryFree ?? 0) / 1024)}GB
+                        </div>
+                        <div style={{ fontSize: 7, color: '#2a2a2a', marginTop: 2 }}>
+                          free / {Math.round((systemStats.gpuMemoryTotal ?? 0) / 1024)}GB
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* RAM Disk */}
+                <div style={{ background: '#0a0a0a', border: '1px solid #141414', borderRadius: 6, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 8, color: '#555', letterSpacing: '0.05em', fontWeight: 700, marginBottom: 6 }}>RAM DISK</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                    <div style={{
+                      width: 6, height: 6, borderRadius: 1,
+                      background: systemStats.ramDiskIsAvailable ? '#00FF88' : '#333',
+                      boxShadow: systemStats.ramDiskIsAvailable ? '0 0 4px #00FF8866' : 'none',
+                    }} />
+                    <span style={{ fontSize: 11, fontWeight: 700, color: systemStats.ramDiskIsAvailable ? '#888' : '#333' }}>
+                      {systemStats.ramDiskIsAvailable ? `${systemStats.ramDiskTotal}GB` : 'N/A'}
+                    </span>
+                  </div>
+                  {systemStats.ramDiskIsAvailable && (
+                    <>
+                      <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
+                        <span style={{ fontSize: 8, color: '#00B4FF', fontFamily: 'monospace' }}>
+                          {systemStats.ramDiskUsed}GB used
+                        </span>
+                        <span style={{ fontSize: 8, color: '#2a2a2a', fontFamily: 'monospace' }}>
+                          {systemStats.ramDiskAvailable}GB avail
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Workers */}
+                <div style={{ background: '#0a0a0a', border: '1px solid #141414', borderRadius: 6, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 8, color: '#555', letterSpacing: '0.05em', fontWeight: 700, marginBottom: 6 }}>WORKERS</div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                    <span style={{ fontSize: 20, fontWeight: 800, color: systemStats.activeWorkers > 0 ? '#00B4FF' : '#333', fontFamily: 'monospace' }}>
+                      {systemStats.activeWorkers ?? 0}
+                    </span>
+                    <span style={{ fontSize: 8, color: '#333' }}>/ {systemStats.maxChunkWorkers || 2} max</span>
+                  </div>
+                  <div style={{ fontSize: 8, color: '#2a2a2a', marginTop: 2 }}>NVENC render workers</div>
+                </div>
+
+                {/* Network */}
+                <div style={{ background: '#0a0a0a', border: '1px solid #141414', borderRadius: 6, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 8, color: '#555', letterSpacing: '0.05em', fontWeight: 700, marginBottom: 6 }}>NETWORK</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                    <div style={{
+                      width: 6, height: 6, borderRadius: '50%',
+                      background: systemStats.isOnline ? '#00FF88' : '#FF4444',
+                      boxShadow: systemStats.isOnline ? '0 0 4px #00FF8866' : '0 0 4px #FF444466',
+                    }} />
+                    <span style={{ fontSize: 10, color: '#888', fontFamily: 'monospace' }}>{systemStats.networkIp || '127.0.0.1'}</span>
+                  </div>
+                  <div style={{ fontSize: 8, color: '#2a2a2a', marginTop: 2 }}>
+                    {systemStats.isOnline ? 'Online' : 'Offline'}
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Storage */}
-            <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.15em', marginBottom: 10 }}>STORAGE</div>
-            <div style={{ background: '#0F0F0F', border: '1px solid #181818', borderRadius: 4, overflow: 'hidden', marginBottom: 20 }}>
+            <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.1em', marginBottom: 0, padding: '12px 20px 8px', background: '#0B0B0B' }}>STORAGE</div>
+            <div style={{ background: '#0D0D0D', borderBottom: '1px solid #141414' }}>
               <StorageWidget />
             </div>
 
             {/* About */}
-            <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.15em', marginBottom: 10 }}>ABOUT</div>
-            <div style={{ background: '#0F0F0F', border: '1px solid #181818', borderRadius: 4, overflow: 'hidden' }}>
+            <div style={{ fontSize: 9, fontWeight: 800, color: '#333', letterSpacing: '0.1em', marginBottom: 0, padding: '12px 20px 8px', background: '#0B0B0B' }}>ABOUT</div>
+            <div style={{ background: '#0D0D0D' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 12 }}>
                 <div style={{ fontSize: 11, color: '#555' }}>
                   <span style={{ color: '#00B4FF', fontWeight: 700 }}>HyperClip</span> v0.1.0

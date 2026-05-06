@@ -90,7 +90,11 @@ function enqueueBgDownload(video: {
   publishedAt?: number; detectedAt?: number
 }): void {
   // Deduplicate: don't queue if already pending or active
-  if (bgDownloadQueue.some(v => v.videoId === video.videoId)) return
+  if (bgDownloadQueue.some(v => v.videoId === video.videoId)) {
+    console.log(`[BgDownload] already queued: ${video.videoId}`)
+    return
+  }
+  console.log(`[BgDownload] enqueue: ${video.videoId} (${video.title}), queue=${bgDownloadQueue.length + 1}`)
   bgDownloadQueue.push({
     videoId: video.videoId,
     channelId: video.channelId,
@@ -107,8 +111,10 @@ function enqueueBgDownload(video: {
  */
 function processBgDownloadQueue(): void {
   const maxConcurrent = getMaxConcurrentDownloads()
+  console.log(`[BgDownload] processQueue: active=${activeBgDownloads}, max=${maxConcurrent}, queue=${bgDownloadQueue.length}`)
   while (activeBgDownloads < maxConcurrent && bgDownloadQueue.length > 0) {
     const item = bgDownloadQueue.shift()!
+    console.log(`[BgDownload] starting: ${item.videoId} (${item.title}), active=${activeBgDownloads + 1}`)
     activeBgDownloads++
     // Respect user's download quality setting from Settings
     const settings = loadSettings()
@@ -2285,7 +2291,7 @@ async function registerIPCHandlers() {
     const tokenStatuses = tm.getAllStatuses()
     const keys = km.getAllKeys()
 
-    type ProjectTokenStatus = 'healthy' | 'warning' | 'error' | 'exhausted' | 'unauthorized' | 'no_oauth'
+    type ProjectTokenStatus = 'healthy' | 'warning' | 'rate_limited' | 'error' | 'exhausted' | 'unauthorized' | 'no_oauth'
 
     // Build project list from tokens (each token = 1 project)
     const projects: Array<{
@@ -2419,14 +2425,12 @@ async function registerIPCHandlers() {
   ipcMain.handle(IPC_CHANNELS.PROJECT_RESET_QUOTA, (_, projectId: string) => {
     const tm = getTokenManager()
     const km = getKeyManager()
-    // Reset token quota by reloading stats
     const keys = km.getAllKeys().filter(k => k.projectId === projectId)
     for (const k of keys) {
       km.resetKey(k.key)
     }
-    // Reset token stats (keeps the token, only clears usedToday/errors)
-    tm.resetTokenStats(projectId)
-    return { success: true }
+    const tokenResult = tm.resetTokenStats(projectId)
+    return { success: true, nextReset: tokenResult.nextReset, wasUnauthorized: tokenResult.wasUnauthorized }
   })
 
   /**
@@ -2535,8 +2539,8 @@ async function registerIPCHandlers() {
 
   ipcMain.handle(IPC_CHANNELS.SESSION_OPEN_LOGIN, async (_, profileId: string) => {
     const sm = getSessionManager()
-    sm.openLoginWindow(profileId)
-    return { success: true }
+    const cookiesExtracted = await sm.openLoginWindow(profileId)
+    return { success: true, cookiesExtracted }
   })
 }
 
@@ -2653,10 +2657,11 @@ app.whenReady().then(async () => {
   if (mainWindow) {
     // did-finish-load fires immediately if the page is already loaded
     mainWindow.webContents.once('did-finish-load', () => {
-      startYouTubePoller(20_000, (videos) => {
+      startYouTubePoller(5_000, (videos) => {
         // Non-blocking: enqueue all detected videos for background download.
         // Downloads run in parallel (max 2 concurrent) without blocking the poller.
         for (const v of videos) {
+          console.log(`[AutoIngest] new video detected: ${v.title} (${v.channelName}), enqueueing...`)
           showWindowsToast('📥 Video mới!', `${v.channelName}: ${v.title}`)
           enqueueBgDownload(v)
         }

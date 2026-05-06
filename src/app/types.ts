@@ -91,8 +91,9 @@ export interface SystemStats {
   gpuName: string;
   gpuEncoder: string;
   gpuMemoryTotal: number;
-  gpuTier?: string;
-  maxChunkWorkers?: number;
+  gpuMemoryFree: number;
+  gpuTier: string;
+  maxChunkWorkers: number;
   networkIp: string;
   isOnline: boolean;
   activeWorkers: number;
