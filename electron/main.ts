@@ -2651,12 +2651,22 @@ app.whenReady().then(async () => {
   // Start auto-refresh timer (cookies + subscription sync)
   getCookieManager().startAutoRefresh()
 
-  // Start polling ONLY after the renderer page has fully loaded.
+  // Start polling ONLY after the renderer page has fully loaded AND Innertube pool is initialized.
   // This guarantees the window + frontend IPC listeners are ready before
   // any broadcast() call, so workspaces are always created and shown in real-time.
+  // Also guarantees Innertube pool is ready before first poll — prevents OAuth quota waste.
   if (mainWindow) {
     // did-finish-load fires immediately if the page is already loaded
-    mainWindow.webContents.once('did-finish-load', () => {
+    mainWindow.webContents.once('did-finish-load', async () => {
+      // Pre-warm the Innertube pool before polling starts.
+      // Without this, the first poll races with pool initialization → OAuth fallback waste.
+      // The pool init runs concurrently with SessionManager init (~12s), so start it early.
+      console.log('[HyperClip] Pre-warming Innertube pool...')
+      const { getInnertubePool } = await import('./services/innertube_client.js')
+      const pool = await getInnertubePool()
+      const poolStatus = pool.getStatus()
+      console.log(`[HyperClip] Innertube pool: ${poolStatus.readyCount}/${poolStatus.totalSessions} sessions ready`)
+
       startYouTubePoller(5_000, (videos) => {
         // Non-blocking: enqueue all detected videos for background download.
         // Downloads run in parallel (max 2 concurrent) without blocking the poller.
@@ -2666,7 +2676,7 @@ app.whenReady().then(async () => {
           enqueueBgDownload(v)
         }
       })
-      console.log('[HyperClip] Auto-ingestion active (YouTube API — 20s interval)')
+      console.log('[HyperClip] Auto-ingestion active (5s interval)')
       console.log(`[HyperClip] Ready → http://localhost:${NEXT_PORT}`)
       startSystemMonitor()
     })

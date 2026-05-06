@@ -452,12 +452,19 @@ function buildFilterComplex(opts: {
   }
 
   // ── SHORT (vertical) layout: header + video zone + title ──
-  // Scale + speed filter chain for video
-  // Order: scale → setpts (speed) → pad.
-  const speedComma = speedFilter ? ',' : ''
-  const scaleChain = `[0:v]${scale}=${videoW}:${videoH}:force_original_aspect_ratio=decrease`
-  const padChain = `,pad=${canvasW}:${canvasH}:(ow-iw)/2:${videoTop}[vid]`
-  const videoChain = `${scaleChain}${speedComma}${speedFilter}${padChain}`
+  // Filter chain with explicit labels to avoid FFmpeg parsing ambiguity.
+  // Stage 1: scale → output=[scaled]
+  // Stage 2: setpts → output=[sped] (only if speed != 1.0)
+  // Stage 3: pad → output=[vid]
+  const scaleChain = `[0:v]${scale}=${videoW}:${videoH}:force_original_aspect_ratio=decrease[scaled]`
+  let videoChain: string
+  if (speedFilter) {
+    // Two stages: scale → setpts → pad
+    videoChain = `${scaleChain}; [scaled]${speedFilter}[sped]; [sped]pad=${canvasW}:${canvasH}:(ow-iw)/2:${videoTop}[vid]`
+  } else {
+    // Single stage: scale + pad combined
+    videoChain = `${scaleChain}; [scaled]pad=${canvasW}:${canvasH}:(ow-iw)/2:${videoTop}[vid]`
+  }
 
   // Scale background to canvas
   // blur/image: scale from source size. solid: color filter outputs exact size already.
@@ -961,7 +968,7 @@ function buildChunkArgs(
   const overlay = 'overlay'
 
   const speedFilter = videoSpeed && videoSpeed !== 1.0
-    ? ',setpts=' + (1 / videoSpeed) + '*PTS'
+    ? 'setpts=' + (1 / videoSpeed) + '*PTS'
     : ''
 
   // Build background input based on type: blur (blurBg image), solid (lavfi color), image (image file)
@@ -984,12 +991,20 @@ function buildChunkArgs(
 
     if (videoH <= scaledAfterScaleH) {
       const cropY = Math.round((scaledAfterScaleH - videoH) / 2)
-      sections.push('[0:v]' + scale + '=' + canvasW + ':-2,crop=' + canvasW + ':' + videoH + ':0:' + cropY + speedFilter + '[vid]')
+      if (speedFilter) {
+        sections.push('[0:v]' + scale + '=' + canvasW + ':-2,crop=' + canvasW + ':' + videoH + ':0:' + cropY + '[cropped]; [cropped]' + speedFilter.replace(',', '') + '[vid]')
+      } else {
+        sections.push('[0:v]' + scale + '=' + canvasW + ':-2,crop=' + canvasW + ':' + videoH + ':0:' + cropY + '[vid]')
+      }
     } else {
       // Letterboxing: scale to target height, then pad to canvas width with horizontal centering
       const scaledIh = Math.round(canvasW * 9 / 16)
       const targetY = Math.round((videoH - scaledIh) / 2)
-      sections.push('[0:v]' + scale + '=' + canvasW + ':' + videoH + ':force_original_aspect_ratio=decrease,pad=' + canvasW + ':' + videoH + ':(ow-iw)/2:' + targetY + speedFilter + '[vid]')
+      if (speedFilter) {
+        sections.push('[0:v]' + scale + '=' + canvasW + ':' + videoH + ':force_original_aspect_ratio=decrease[step1]; [step1]pad=' + canvasW + ':' + videoH + ':(ow-iw)/2:' + targetY + '[step2]; [step2]' + speedFilter.replace(',', '') + '[vid]')
+      } else {
+        sections.push('[0:v]' + scale + '=' + canvasW + ':' + videoH + ':force_original_aspect_ratio=decrease,pad=' + canvasW + ':' + videoH + ':(ow-iw)/2:' + targetY + '[vid]')
+      }
     }
 
     sections.push('[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease[bg]')

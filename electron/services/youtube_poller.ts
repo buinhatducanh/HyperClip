@@ -97,6 +97,7 @@ class YouTubePoller {
   private _lastExhaustedWarnAt: number = 0   // avoid spamming notifications
   private _backoffReason: 'oauth' | null = null
   private _exhaustionCount: number = 0        // tracks how many times we've backed off (for exponential backoff)
+  private _isFirstPoll: boolean = true         // first poll after startup uses relaxed age filter
 
   constructor(options: PollerOptions) {
     this._pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
@@ -202,13 +203,20 @@ class YouTubePoller {
       console.log(`[YouTubePoller] Scanning...`)
     }
 
-    const sinceMs = Date.now() - MAX_VIDEO_AGE_MS
+    // First poll: use 24h window to capture all videos seen since last session.
+    // This prevents the "all videos are old" blind spot when restarting the app.
+    // Subsequent polls: use normal 30-min window.
+    const sinceMs = this._isFirstPoll
+      ? Date.now() - 24 * 60 * 60 * 1000
+      : Date.now() - MAX_VIDEO_AGE_MS
     const subResult = await fetchSubscriptionFeed({
       // Request enough to fill maxVideosPerPoll + buffer — early exit kicks in at channel level
       maxVideos: this._maxVideosPerPoll + 5,
       seenVideoIds: this._seenVideoIds,
       sinceMs,
+      firstPoll: this._isFirstPoll,
     })
+    this._isFirstPoll = false
 
     if (subResult.videos.length === 0) {
       if (subResult.error) {

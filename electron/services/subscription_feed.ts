@@ -37,6 +37,8 @@ export interface SubFeedOptions {
   seenVideoIds?: Set<string>
   sinceMs?: number
   maxVideos?: number
+  /** On first poll: use relaxed age filter (24h) to capture all recent uploads */
+  firstPoll?: boolean
 }
 
 // ─── Config ─────────────────────────────────────────────────────────────────────
@@ -45,6 +47,12 @@ const MAX_VIDEO_AGE_MS = 30 * 60 * 1000 // 30 minutes — auto-download window (
 const PLAYLIST_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24h uploads playlist cache
 const MAX_CONCURRENT = 5   // parallel API calls per poll
 const MAX_VIDEOS_PER_POLL = 5
+
+// ─── Module-level state ────────────────────────────────────────────────────────
+
+/** Consecutive polls where Innertube returned 0 videos — for OAuth health-check trigger */
+let _consecutiveZeroInnertubePolls = 0
+const ZERO_POLL_THRESHOLD = 3 // After 3 consecutive zero-result polls → force OAuth health check
 
 // ─── OAuth API Helper ───────────────────────────────────────────────────────────
 
@@ -196,11 +204,12 @@ async function fetchChannelWithOAuth(
 async function fetchChannelWithInnertube(
   ch: { id: string; channelId?: string; name: string },
   seenVideoIds: Set<string> | undefined,
+  firstPoll?: boolean,
 ): Promise<SubscriptionVideo | null> {
   const channelId = ch.channelId || ch.id
   if (!channelId) return null
 
-  const latest = await getInnertubePool().then(p => p.getLatestVideo(channelId, seenVideoIds))
+  const latest = await getInnertubePool().then(p => p.getLatestVideo(channelId, seenVideoIds, firstPoll))
   if (!latest) return null
 
   return {
@@ -219,7 +228,7 @@ async function fetchChannelWithInnertube(
 export async function fetchSubscriptionFeed(
   options: SubFeedOptions = {},
 ): Promise<SubFeedResult> {
-  const { seenVideoIds, sinceMs } = options
+  const { seenVideoIds, sinceMs, firstPoll } = options
   // sinceMs is always provided by the poller (Date.now() - MAX_VIDEO_AGE_MS).
   // No fallback needed — avoids double-subtraction bug.
   const cutoff = sinceMs ?? Date.now()
@@ -245,7 +254,7 @@ export async function fetchSubscriptionFeed(
       for (let i = 0; i < channels.length; i += MAX_CONCURRENT) {
         const batch = channels.slice(i, i + MAX_CONCURRENT)
         const batchResults = await Promise.all(
-          batch.map(ch => fetchChannelWithInnertube(ch, seenVideoIds))
+          batch.map(ch => fetchChannelWithInnertube(ch, seenVideoIds, firstPoll))
         )
 
         let batchNewCount = 0
@@ -266,6 +275,37 @@ export async function fetchSubscriptionFeed(
       // Scanned all channels — got 0 new videos. This is NORMAL.
       // Return now WITHOUT touching OAuth quota.
       console.log(`[SubFeed] Innertube: 0 videos across ${channels.length} channels (no new content)`)
+
+      // Track zero-result polls for silent-death detection (Phase 3 of reliability_plan)
+      if (results.length === 0) {
+        _consecutiveZeroInnertubePolls++
+        if (_consecutiveZeroInnertubePolls >= ZERO_POLL_THRESHOLD) {
+          // Force a minimal OAuth health check to verify OAuth still works
+          // This catches silent death where Innertube seems healthy but returns no content
+          console.warn(`[SubFeed] ⚠️ ${_consecutiveZeroInnertubePolls} consecutive Innertube zero-result polls — running OAuth health check`)
+          try {
+            const tm = getTokenManager()
+            const best = await tm.getBestAvailable()
+            if (best && channels.length > 0) {
+              const testChannel = channels[0]
+              const oauthResult = await fetchChannelWithOAuth(
+                testChannel, best.token, best.projectId, seenVideoIds, cutoff
+              )
+              if (oauthResult.video) {
+                console.warn('[SubFeed] OAuth health check found a video — Innertube may be returning stale data')
+              } else {
+                console.log('[SubFeed] OAuth health check: no new videos either — all sources truly empty')
+              }
+            }
+          } catch (e) {
+            console.log(`[SubFeed] OAuth health check failed: ${e}`)
+          }
+          _consecutiveZeroInnertubePolls = 0 // Reset after health check
+        }
+      } else {
+        _consecutiveZeroInnertubePolls = 0 // Got videos → reset counter
+      }
+
       return { videos: results, source: 'innertube' }
     } else {
       // No Innertube sessions ready — must use OAuth

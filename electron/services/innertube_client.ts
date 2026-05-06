@@ -87,7 +87,28 @@ function parseRelativeDate(relativeStr: string): number {
 function extractVideosFromTab(videosTab: any): any[] {
   const memo = videosTab?.memo
 
-  // Strategy 1: memo.get('Video') — PRIMARY, works in v17
+  // Strategy 1: memo.get('RichItem') — YouTube's memo stores video items as RichItem wrappers
+  // Each RichItem contains the actual video data (GridVideo/VideoRenderer)
+  const richItems = memo?.get('RichItem')
+  if (richItems?.length > 0) {
+    // Extract video data from each RichItem. RichItem → content → GridVideo
+    // Sometimes content itself is another wrapper, so flatten until we get video fields
+    const videos = richItems
+      .map((item: any) => {
+        let node = item?.content || item
+        // Unwrap wrappers: RichItem → GridVideo/LockupView → actual video
+        while (node && typeof node === 'object') {
+          const n = node.content || node
+          if (n === node) break
+          node = n
+        }
+        return node
+      })
+      .filter((v: any) => v && (v.videoId || v.video_id || v.title || v.type))
+    if (videos.length > 0) return videos
+  }
+
+  // Strategy 2: memo.get('Video') — PRIMARY, works in v17
   const videos = memo?.get('Video')
   if (videos?.length > 0) return [...videos]
 
@@ -107,15 +128,36 @@ function extractVideosFromTab(videosTab: any): any[] {
   const fromGetter = videosTab?.videos
   if (fromGetter?.length > 0) return [...fromGetter]
 
-  // Strategy 6: walk with STRICT type checking (only GridVideo/ReelItem/CompactVideo)
+  // Strategy 6: walk with STRICT type checking (only GridVideo/ReelItem/CompactVideo/Video)
   const tabContent = videosTab?.current_tab?.content
   if (tabContent) {
     const videos = walkForVideosStrict(tabContent)
     if (videos.length > 0) return videos
   }
 
-  // Strategy 7: walk entire tab object
-  const allItems = walkForVideosStrict(videosTab)
+  // Strategy 6b: Direct RichGrid.contents access — YouTube stores video data as RichItem
+  // inside RichGrid.content.contents array. Memo gets populated lazily.
+  const richGrid = videosTab?.current_tab?.content
+  if (richGrid?.type === 'RichGrid' && Array.isArray(richGrid.contents)) {
+    const richItems = richGrid.contents
+    // Each item is a RichItem containing a video inside .content
+    const videos = richItems
+      .map((item: any) => {
+        let node = item?.content || item
+        // Unwrap wrappers to get actual video fields
+        while (node && typeof node === 'object') {
+          const n = node.content || node
+          if (n === node) break
+          node = n
+        }
+        return node
+      })
+      .filter((v: any) => v && (v.videoId || v.video_id || v.title || v.type))
+    if (videos.length > 0) return videos
+  }
+
+  // Strategy 7: walk entire tab object with relaxed matching
+  const allItems = walkForVideosRelaxed(videosTab)
   if (allItems.length > 0) return allItems
 
   return []
@@ -135,7 +177,8 @@ function walkForVideosStrict(node: any): any[] {
 
   // Only match explicit video type — do NOT use node.id alone (RichText nodes have id)
   if (node.type === 'GridVideo' || node.type === 'ReelItem' || node.type === 'CompactVideo' ||
-      node.type === 'Video') {
+      node.type === 'Video' || node.type === 'VideoRenderer' || node.type === 'GridVideoRenderer' ||
+      node.type === 'RichItem') {
     results.push(node)
   }
 
@@ -143,6 +186,48 @@ function walkForVideosStrict(node: any): any[] {
   const containerProps = ['contents', 'items', 'videos', 'horizontal_list']
   for (const prop of containerProps) {
     if (node[prop]) results.push(...walkForVideosStrict(node[prop]))
+  }
+
+  return results
+}
+
+/** Relaxed walk — matches known video types + videoId+title combination, NOT id alone */
+function walkForVideosRelaxed(node: any): any[] {
+  if (!node) return []
+  const results: any[] = []
+
+  if (Array.isArray(node)) {
+    for (const item of node) results.push(...walkForVideosRelaxed(item))
+    return results
+  }
+
+  if (typeof node !== 'object') return []
+
+  // Match known video types
+  if (node.type === 'GridVideo' || node.type === 'ReelItem' ||
+      node.type === 'CompactVideo' || node.type === 'Video' ||
+      node.type === 'VideoRenderer' || node.type === 'GridVideoRenderer' ||
+      node.type === 'RichItem' || node.type === 'LockupView') {
+    results.push(node)
+  }
+
+  // Also match nodes that have BOTH videoId and title (strong video signal)
+  // This catches YouTubeJS responses where video data is in a generic object
+  const hasVideoId = !!(node.videoId || node.video_id || node.id)
+  const hasTitle = !!(node.title || node.name)
+  if (hasVideoId && hasTitle && !results.includes(node)) {
+    results.push(node)
+  }
+
+  // Recurse into common container properties
+  const containerProps = [
+    'contents', 'items', 'videos', 'horizontal_list',
+    'item_section_content', 'sectionListRenderer', 'richGridRenderer',
+    'richSectionRenderer', 'adSlotRenderer', 'tabRenderer',
+    'content', 'richItem',
+  ]
+  for (const prop of containerProps) {
+    if (node[prop]) results.push(...walkForVideosRelaxed(node[prop]))
   }
 
   return results
@@ -351,7 +436,7 @@ class InnertubeClientPool {
    *
    * YouTube tab order is sorted newest-first, so if top-1 is old, all videos are old.
    */
-  async getLatestVideo(channelId: string, seenVideoIds?: Set<string>): Promise<LatestVideo | null> {
+  async getLatestVideo(channelId: string, seenVideoIds?: Set<string>, firstPoll = false): Promise<LatestVideo | null> {
     const entry = this.getNextClient()
     if (!entry) {
       console.log(`[InnertubePool] getLatestVideo(${channelId}): no client available`)
@@ -375,30 +460,49 @@ class InnertubeClientPool {
       const videoItems = extractVideosFromTab(videosTab)
 
       if (videoItems.length === 0) {
-        // Debug: log which extraction strategy was used and why it returned 0
-        const memo = videosTab?.memo
-        const memoKeys = memo ? Array.from(memo.keys?.() ?? []).slice(0, 10) : []
-        const tabTitle = (videosTab as any)?.title ?? (videosTab as any)?.current_tab?.title ?? '?'
-        const hasVideos = videosTab?.videos?.length > 0
-        const hasVideoMemo = memo?.get('Video')?.length > 0
-        const hasGridMemo = memo?.get('GridVideo')?.length > 0
-        const hasReelMemo = memo?.get('ReelItem')?.length > 0
-        console.log(`[InnertubePool] getLatestVideo(${channelId}): tab="${tabTitle}" (fallback=${usedFallback}), 0 videos — session=${entry.profileId}, strategies: videosGetter=${hasVideos}, memoVideo=${hasVideoMemo}, memoGrid=${hasGridMemo}, memoReel=${hasReelMemo}, memoKeys=[${memoKeys.join(',')}]`)
+        console.log(`[InnertubePool] getLatestVideo(${channelId}): 0 videos extracted — session=${entry.profileId}`)
         return null
+      }
+
+      // Log top-2 items to debug extraction
+      const top2 = videoItems.slice(0, 2).map((v: any, idx: number) => ({
+        idx,
+        type: v?.type,
+        id: v?.id || v?.videoId || v?.video_id,
+        titleRaw: v?.title,
+        titleStr: typeof v?.title === 'string' ? v.title : v?.title?.text,
+        hasMetadata: !!(v?.metadata || v?.lockupMetadata || v?.contentMetadata),
+      }))
+      if (top2[0]?.type !== 'Video') {
+        console.log(`[DEBUG] extract top-2 for ${channelId}: ${JSON.stringify(top2)}`)
       }
 
       // Try top-1, then top-2 if deleted/private
       for (let i = 0; i < Math.min(2, videoItems.length); i++) {
         const videoItem = videoItems[i]
+        const itemType = videoItem?.type
+
+        // LockupView / ShortsLockupView: video metadata lives in lockupMetadata sub-object
+        const lm = videoItem?.lockupMetadata
         const videoId = videoItem.id || videoItem.video_id
+          || (itemType === 'LockupView' || itemType === 'ShortsLockupView' ? lm?.content_id : null)
         if (!videoId) continue
 
-        const titleRaw = videoItem.title
+        // Extract title — LockupView uses content_title; others use title
+        const titleRaw = itemType === 'LockupView' || itemType === 'ShortsLockupView'
+          ? lm?.content_title
+          : videoItem.title
         const title = typeof titleRaw?.text === 'string'
           ? titleRaw.text
           : titleRaw?.toString?.() ?? '(no title)'
 
-        if (title.includes('[deleted]') || title.includes('[private]')) continue
+        // Skip deleted/private — try next video in list
+        if (title.includes('[deleted]') || title.includes('[private]')) {
+          // Debug: log raw title to understand why it's being skipped
+          const rawTitle = videoItem.title
+          console.log(`[InnertubePool] getLatestVideo(${channelId}): top-${i+1} id=${videoId} skipped (title="${title}", raw=${JSON.stringify(rawTitle)?.slice(0,80)}) — session=${entry.profileId}`)
+          continue
+        }
 
         // Check dedup FIRST — if seen, all older videos are also seen (tab sorted newest-first)
         if (seenVideoIds?.has(String(videoId))) {
@@ -407,18 +511,20 @@ class InnertubeClientPool {
         }
 
         // NEW: top video is unseen — check age before accepting (0-10 min window)
-        const publishedRaw = typeof videoItem.published?.text === 'string'
-          ? videoItem.published.text
-          : videoItem.published?.toString?.() ?? ''
+        // LockupView uses lockupMetadata.published_time_text
+        const publishedRaw = itemType === 'LockupView' || itemType === 'ShortsLockupView'
+          ? (typeof lm?.published_time_text?.text === 'string' ? lm.published_time_text.text : lm?.published_time_text?.toString?.() ?? '')
+          : (typeof videoItem.published?.text === 'string' ? videoItem.published.text : videoItem.published?.toString?.() ?? '')
         const publishedAt = parseRelativeDate(publishedRaw)
 
-        // Age filter: only accept videos < 10 minutes old.
-        // This handles the "app restart" edge case — user might restart right when a channel
-        // uploads a video, so we accept up to 10 min old.
+        // Age filter:
+        // - First poll (app restart): accept videos up to 24h old — capture all uploads since last session
+        // - Normal poll: accept videos < 10 min old — real-time detection
         // parseRelativeDate is the guard — if it fails, publishedAt = 0 (treated as brand new, OK).
-        const MAX_VIDEO_AGE_MS = 10 * 60 * 1000
+        const MAX_VIDEO_AGE_MS = firstPoll ? 24 * 60 * 60 * 1000 : 10 * 60 * 1000
         if (publishedAt > 0 && Date.now() - publishedAt > MAX_VIDEO_AGE_MS) {
-          console.log(`[InnertubePool] getLatestVideo(${channelId}): top-${i+1} id=${videoId} too old (${publishedRaw}) — skipping all — session=${entry.profileId}`)
+          const ageLabel = firstPoll ? '> 24h old' : `too old (${publishedRaw})`
+          console.log(`[InnertubePool] getLatestVideo(${channelId}): top-${i+1} id=${videoId} ${ageLabel} — skipping all — session=${entry.profileId}`)
           return null
         }
 
@@ -493,10 +599,18 @@ class InnertubeClientPool {
 
       for (let i = 0; i < limit; i++) {
         const videoItem = videoItems[i]
+        const itemType = videoItem?.type
+
+        // LockupView / ShortsLockupView: video metadata lives in lockupMetadata sub-object
+        const lm = videoItem?.lockupMetadata
         const videoId = videoItem.id || videoItem.video_id
+          || (itemType === 'LockupView' || itemType === 'ShortsLockupView' ? lm?.content_id : null)
         if (!videoId) continue
 
-        const titleRaw = videoItem.title
+        // Extract title — LockupView uses content_title; others use title
+        const titleRaw = itemType === 'LockupView' || itemType === 'ShortsLockupView'
+          ? lm?.content_title
+          : videoItem.title
         const title = typeof titleRaw?.text === 'string'
           ? titleRaw.text
           : titleRaw?.toString?.() ?? '(no title)'
@@ -505,9 +619,9 @@ class InnertubeClientPool {
 
         // GridVideo.published is a Text object wrapping data.publishedTimeText
         // Access .text property to get the actual string like "1 minute ago"
-        const publishedRaw = typeof videoItem.published?.text === 'string'
-          ? videoItem.published.text
-          : videoItem.published?.toString?.() ?? ''
+        const publishedRaw = itemType === 'LockupView' || itemType === 'ShortsLockupView'
+          ? (typeof lm?.published_time_text?.text === 'string' ? lm.published_time_text.text : lm?.published_time_text?.toString?.() ?? '')
+          : (typeof videoItem.published?.text === 'string' ? videoItem.published.text : videoItem.published?.toString?.() ?? '')
         const publishedAt = parseRelativeDate(publishedRaw)
         const publishedText = publishedRaw || undefined
 

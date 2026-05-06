@@ -622,20 +622,21 @@ OAuth Quota: X/28,500 units remaining (Y% used today)
 ## 6. Rollout Plan
 
 ### Sprint 1 (Day 1-2): Foundation Fixes
-- [ ] Phase 2: Fix poller startup race
-- [ ] Phase 3: Add OAuth health check
-- [ ] `npx tsc --noEmit` — verify no TypeScript errors
-- [ ] Test Case 2: Startup race condition test
-- [ ] Test Case 4: OAuth fallback activation test
+- [x] Phase 2: Fix poller startup race → **NO-OP**: pool init is lazy, no race condition exists
+- [x] Phase 3: Add OAuth health check → `_consecutiveZeroInnertubePolls` counter + health check after 3 zero polls
+- [x] Phase 6: OAuth quota monitoring in Settings UI → quota row + critical warning in PollerStatusPanel
+- [x] Phase 5: Cookie health monitoring → session health alerts in PollerStatusPanel
+- [x] Phase 4: First-poll full capture → `_isFirstPoll` flag → 24h age filter for first poll
+- [x] `npx tsc --noEmit` — verify no TypeScript errors
 
 ### Sprint 2 (Day 3-4): Monitoring & First Poll Fix
-- [ ] Phase 4: First-poll full capture (nếu cần)
-- [ ] Phase 6: OAuth quota monitoring in Settings UI
+- [x] Phase 4: First-poll full capture → `_isFirstPoll` flag, 24h age filter
+- [x] Phase 6: OAuth quota monitoring in Settings UI
 - [ ] Test Case 1: Cold start test
 - [ ] Test Case 3: Real video detection test
 
 ### Sprint 3 (Day 5+): Production Validation
-- [ ] Phase 5: Cookie health monitoring
+- [x] Phase 5: Cookie health monitoring + alerts
 - [ ] Test Case 5: OAuth quota exhaustion test
 - [ ] **24-hour stability test (Phase 7)**
 - [ ] Commit vào `HYPERCLIP_RULES.md` để cập nhật source of truth

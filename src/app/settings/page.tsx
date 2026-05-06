@@ -1938,6 +1938,28 @@ function PollerStatusPanel() {
 
   const totalKeys = keyStatus?.length ?? 0
 
+  // Phase 6: OAuth quota monitoring — sum remaining units across all projects
+  const QUOTA_PER_PROJECT = 9500
+  const totalQuotaRemaining = (projectStatus as any[])?.reduce((sum: number, p: any) => {
+    if (p.status === 'exhausted' || p.status === 'unauthorized') return sum
+    return sum + Math.max(0, QUOTA_PER_PROJECT - (p.usedToday ?? 0))
+  }, 0) ?? 0
+  const totalQuotaPercent = totalProjects > 0
+    ? Math.round(((projectStatus as any[])?.reduce((sum: number, p: any) => sum + (p.usedToday ?? 0), 0) ?? 0) / (totalProjects * QUOTA_PER_PROJECT) * 100)
+    : 0
+  const quotaColor = totalQuotaRemaining < 1000 ? '#FF4444' : totalQuotaRemaining < 5000 ? '#FFB800' : '#00FF88'
+  const quotaLabel = totalQuotaRemaining < 1000 ? '🔴 CRITICAL' : totalQuotaRemaining < 5000 ? '🟡 WARNING' : '🟢 OK'
+
+  // Phase 5: Session health — from sessionStatus.sessions breakdown
+  const sessions = sessionStatus?.sessions ?? []
+  const loggedInCount = sessions.filter((s: any) => s.isLoggedIn).length
+  const consentedCount = sessions.filter((s: any) => s.isConsented).length
+  const sessionHealthPct = totalSessions > 0 ? Math.round((consentedCount / totalSessions) * 100) : 0
+  const sessionHealthColor = sessionHealthPct >= 50 ? '#00FF88' : sessionHealthPct >= 20 ? '#FFB800' : '#FF4444'
+  const sessionHealthLabel = sessionHealthPct >= 50 ? '🟢 HEALTHY' : sessionHealthPct >= 20 ? '🟡 DEGRADED' : '🔴 CRITICAL'
+  const hasAnySession = loggedInCount > 0
+  const needsConsent = loggedInCount > 0 && consentedCount === 0
+
   const detectionPath = hasInnertube ? 'innertube' : hasOAuth ? 'oauth' : null
   const primaryFix = !hasInnertube ? 'sessions' : !hasOAuth ? 'projects' : null
 
@@ -2051,7 +2073,33 @@ function PollerStatusPanel() {
               {totalKeys > 0 ? '— Data API fallback' : '— chưa có key'}
             </span>
           </div>
+
+          {/* Phase 6: OAuth quota total */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: quotaColor }}>●</span>
+            <span style={{ fontSize: 10, color: '#888', width: 160 }}>OAuth Quota</span>
+            <span style={{ fontSize: 9, color: quotaColor, fontFamily: 'monospace' }}>
+              {totalQuotaRemaining.toLocaleString()} units left ({totalQuotaPercent}% used)
+            </span>
+            <span style={{ fontSize: 9, color: quotaColor }}>
+              {quotaLabel}
+            </span>
+          </div>
         </div>
+
+        {/* Phase 6: OAuth quota critical warning */}
+        {hasOAuth && totalQuotaRemaining < 1000 && !isBackedOff && (
+          <div style={{
+            marginTop: 14, padding: '10px 14px',
+            background: '#1a0808', border: '1px solid #FF444444',
+            borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <span style={{ fontSize: 11, color: '#FF4444' }}>🚨</span>
+            <span style={{ fontSize: 10, color: '#888' }}>
+              OAuth quota gần hết ({totalQuotaRemaining.toLocaleString()} units còn lại). Thêm GCP project trong tab OAUTH PROJECTS trước khi quota hết.
+            </span>
+          </div>
+        )}
 
         {/* Fix call-to-action */}
         {isBackedOff && primaryFix && (
@@ -2105,6 +2153,51 @@ function PollerStatusPanel() {
           </div>
         )}
       </div>
+
+      {/* Phase 5: Session health alert — sessions logged in but need consent */}
+      {needsConsent && !isBackedOff && (
+        <div style={{
+          marginTop: 14, padding: '12px 16px',
+          background: '#1a0808', border: '1px solid #FF664444',
+          borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 10,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 11, color: '#FF6644' }}>⚠</span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#FF6644', letterSpacing: '0.06em' }}>
+              CHROME CONSENT REQUIRED
+            </span>
+            <span style={{ fontSize: 9, color: sessionHealthColor }}>{sessionHealthLabel}</span>
+          </div>
+          <div style={{ fontSize: 9, color: '#888', lineHeight: '16px' }}>
+            {loggedInCount} session(s) logged into Chrome but <strong style={{ color: '#ccc' }}>consent not accepted</strong>.
+            SOCS cookie missing — open Chrome manually → youtube.com → accept consent banner → close Chrome → HyperClip will pick it up automatically.
+          </div>
+          <div style={{ fontSize: 8, color: '#555', background: '#0a0a0a', borderRadius: 4, padding: '8px 10px', lineHeight: '14px' }}>
+            HOW TO: 1) Close HyperClip &amp; all Chrome windows. 2) Open Chrome → youtube.com → sign in → accept consent. 3) Close Chrome completely. 4) Reopen HyperClip.
+          </div>
+        </div>
+      )}
+
+      {/* Phase 5: Session health critical — < 20% consented */}
+      {!needsConsent && hasAnySession && sessionHealthPct < 50 && !isBackedOff && (
+        <div style={{
+          marginTop: 14, padding: '12px 16px',
+          background: '#1a1000', border: '1px solid #FFB80044',
+          borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 6,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 11, color: '#FFB800' }}>⚠</span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#FFB800', letterSpacing: '0.06em' }}>
+              SESSION HEALTH: {sessionHealthPct}% READY
+            </span>
+            <span style={{ fontSize: 9, color: sessionHealthColor }}>{sessionHealthLabel}</span>
+          </div>
+          <div style={{ fontSize: 9, color: '#888' }}>
+            {consentedCount}/{totalSessions} sessions consented. Innertube PRIMARY detection limited.
+            {loggedInCount > consentedCount && ` ${loggedInCount - consentedCount} session(s) need Chrome consent.`}
+          </div>
+        </div>
+      )}
 
       {/* Quick action — only when neither path is available */}
       {!hasInnertube && !hasOAuth && (
