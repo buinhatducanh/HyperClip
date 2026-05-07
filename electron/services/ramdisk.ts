@@ -22,6 +22,10 @@ interface AppSettingsStore {
   autoDownloadQuality?: string
   /** Auto-render after auto-download. Defaults to false. */
   autoRender?: boolean
+  /** Resolution for auto-render: '480x480' | '720x720' | '1080x1080'. Defaults to '480x480'. */
+  autoRenderResolution?: string
+  /** FPS for auto-render: 30 | 60. Defaults to 30. */
+  autoRenderFPS?: number
 }
 
 let _settings: AppSettingsStore | null = null
@@ -34,6 +38,11 @@ export function loadSettings(): AppSettingsStore {
     }
   } catch {}
   _settings = _settings || {}
+  
+  // Default values for new settings
+  if (_settings.autoRenderResolution === undefined) _settings.autoRenderResolution = '480x480'
+  if (_settings.autoRenderFPS === undefined) _settings.autoRenderFPS = 30
+  
   return _settings
 }
 

@@ -15,7 +15,7 @@ import {
   getSubscription,
   getChannels, getChannel, addChannel, updateChannel, removeChannel, markVideoSeen, loadSeenVideos, type StoredChannel,
   type WorkspaceData,
-  getRenderedVideos, addRenderedVideo, removeRenderedVideo, type RenderedVideoRecord,
+  getRenderedVideos, addRenderedVideo, removeRenderedVideo, type RenderedVideoRecord, type RenderConfigRecord, type SourceInfoRecord,
 } from './services/store.js'
 import { downloadVideo, getVideoInfo, getChannelInfo, getChannelId, preScaleVideo, type YtdlpVideoInfo, type YtdlpChannelInfo } from './services/youtube.js'
 import { renderVideo, renderChunked, generateBlurBackground, extractVideoThumbnail, cancelChunked, cancelAllChunked, probeVideoAspect, trimVideo, type RenderMetadata, type RenderProgress, type ChunkConfig } from './services/ffmpeg.js'
@@ -212,6 +212,28 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
             workspace.duration || 0,
           )
           if (archiveResult.success && archiveResult.archivedPath) {
+            const renderDurationMs = Date.now() - renderStartMs
+            const renderConfigRecord: RenderConfigRecord = {
+              exportResolution: metadata.export_resolution || '1080x1920',
+              fps: metadata.fps_target || 30,
+              speed: metadata.video_speed ?? 1.0,
+              codec: (metadata.codec as string) || 'hevc',
+              preset: metadata.preset,
+              tune: metadata.tune,
+              backgroundType: metadata.backgroundType,
+              audioCodec: metadata.audioCodec,
+              audioBitrate: metadata.audioBitrate,
+              trimStart: metadata.trim?.start,
+              trimEnd: metadata.trim?.end,
+              isShort: metadata.isShort,
+              vidHeightPct: metadata.vidHeightPct,
+              gpuTier: gpuTier,
+            }
+            const sourceInfoRecord: SourceInfoRecord = {
+              originalResolution: workspace.videoResolution,
+              originalDuration: workspace.duration || 0,
+              originalFileSize: workspace.fileSize || 0,
+            }
             const record: RenderedVideoRecord = {
               id: `rv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
               workspaceId: workspace.id,
@@ -228,6 +250,9 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
               thumbnailData: thumbData,
               videoResolution: workspace.videoResolution,
               renderedAt: new Date().toISOString(),
+              renderDurationMs,
+              renderConfig: renderConfigRecord,
+              sourceInfo: sourceInfoRecord,
             }
             addRenderedVideo(record)
             cleanupWorkspace(workspace.id, workspace.downloadedPath)
@@ -538,19 +563,21 @@ async function autoDownloadFromWebSub(
     //   - Pre-scale source (1080p→480p) → eliminates scale filter → ~5-10s faster
     //   - Total: ~10-15s render for 8p video on RTX 5080
     if (settings.autoRender) {
-      const autoResolution = '480x480'
-      const autoQuality = 480
+      const autoResolution = settings.autoRenderResolution || '480x480'
+      const autoQuality = autoResolution.includes('1080') ? 1080 : autoResolution.includes('720') ? 720 : 480
+      const autoFPS = settings.autoRenderFPS || 30
       // OPTIMIZATION #3: Pre-scale source to output resolution in background.
       // Pre-scale: 1080p→480p with ultrafast preset → ~1-2s (background)
       // Skip pre-scale for landscape (filter chain handles scale + pad differently).
       const isVerticalAuto = !isLandscape
+      const preRes = autoResolution.split('x')[0]
       const preScaledPath = isVerticalAuto
-        ? finalFilePath.replace(/(\.\w+)$/, '_prescaled480p$1')
+        ? finalFilePath.replace(/(\.\w+)$/, `_prescaled${preRes}p$1`)
         : ''
       const preScalePromise = isVerticalAuto
         ? (async () => {
-          console.log(`[Auto] Pre-scaling vertical source to 480p (background)...`)
-          const preResult = await preScaleVideo(finalFilePath, preScaledPath, 480)
+          console.log(`[Auto] Pre-scaling vertical source to ${preRes}p (background)...`)
+          const preResult = await preScaleVideo(finalFilePath, preScaledPath, parseInt(preRes))
           if (preResult.success) {
             updateWorkspace(ws.id, { preScaledPath })
             broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
@@ -570,7 +597,7 @@ async function autoDownloadFromWebSub(
           source_video: renderSource,
           export_resolution: autoResolution,
           video_speed: 1.1,  // default auto-speed: 1.1x
-          fps_target: 30,
+          fps_target: autoFPS,
           overlays: [],
           trim: { start: 0, end: finalDuration },
           codec: 'h264',       // H.264 NVENC: ~30% faster than HEVC
@@ -596,6 +623,55 @@ async function autoDownloadFromWebSub(
                 finalFileSize,
                 finalDuration,
               )
+              // Capture thumbnail for rendered record
+              const autoThumbPath = path.join(getVideoStoragePath(), `thumb_${ws.id}.jpg`)
+              const autoThumbData = fs.existsSync(autoThumbPath)
+                ? 'data:image/jpeg;base64,' + fs.readFileSync(autoThumbPath).toString('base64')
+                : undefined
+              const autoGpuTier = getGPUCapabilities().tier
+              if (archiveResult.success && archiveResult.archivedPath) {
+                const autoRenderConfig: RenderConfigRecord = {
+                  exportResolution: autoResolution,
+                  fps: autoFPS,
+                  speed: 1.1,
+                  codec: 'h264',
+                  backgroundType: isLandscape ? 'image' : 'blur',
+                  audioCodec: 'libopus',
+                  audioBitrate: '64k',
+                  trimStart: 0,
+                  trimEnd: finalDuration,
+                  isShort: !isLandscape,
+                  vidHeightPct: 50,
+                  gpuTier: autoGpuTier,
+                }
+                const autoSourceInfo: SourceInfoRecord = {
+                  originalResolution: aspect ? `${aspect.width}x${aspect.height}` : undefined,
+                  originalDuration: finalDuration,
+                  originalFileSize: finalFileSize,
+                  downloadQuality: String(autoQuality),
+                }
+                const autoRecord: RenderedVideoRecord = {
+                  id: `rv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                  workspaceId: ws.id,
+                  channelId: channelId,
+                  channelName: finalChannelName,
+                  videoTitle: realTitle,
+                  archivedPath: archiveResult.archivedPath,
+                  outputPath: r.outputPath,
+                  quality: autoQuality,
+                  codec: 'h264',
+                  fileSize: finalFileSize,
+                  duration: finalDuration,
+                  thumbnail: `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
+                  thumbnailData: autoThumbData,
+                  videoResolution: aspect ? `${aspect.width}x${aspect.height}` : undefined,
+                  renderedAt: new Date().toISOString(),
+                  renderDurationMs: 0, // auto-render doesn't track start time here; will be 0
+                  renderConfig: autoRenderConfig,
+                  sourceInfo: autoSourceInfo,
+                }
+                addRenderedVideo(autoRecord)
+              }
               updateWorkspace(ws.id, {
                 status: 'done',
                 outputPath: archiveResult.success && archiveResult.archivedPath ? archiveResult.archivedPath : r.outputPath,
@@ -1910,41 +1986,6 @@ async function registerIPCHandlers() {
     return result
   })
 
-  // ─── Admin Password ────────────────────────────────────────────────────────────
-  ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, async (): Promise<{ videoStoragePath?: string; outputPath?: string; adminPasswordHash?: string; defaultTrimLimit?: number | 'full' }> => {
-    return loadSettings()
-  })
-
-  ipcMain.handle(IPC_CHANNELS.SETTINGS_UPDATE, async (_, patch: { videoStoragePath?: string; outputPath?: string; adminPasswordHash?: string; defaultTrimLimit?: number | 'full' }): Promise<void> => {
-    const settings = loadSettings()
-    if (patch.videoStoragePath !== undefined) settings.videoStoragePath = patch.videoStoragePath
-    if (patch.outputPath !== undefined) settings.outputPath = patch.outputPath
-    if (patch.adminPasswordHash !== undefined) settings.adminPasswordHash = patch.adminPasswordHash
-    if (patch.defaultTrimLimit !== undefined) settings.defaultTrimLimit = patch.defaultTrimLimit
-    saveSettings(settings)
-  })
-
-  // Hash password with SHA-256
-  ipcMain.handle(IPC_CHANNELS.ADMIN_CHECK_PASSWORD, async (_, password: string): Promise<{ ok: boolean }> => {
-    const settings = loadSettings()
-    if (!settings.adminPasswordHash) return { ok: false }
-    const hash = crypto.createHash('sha256').update(password).digest('hex')
-    return { ok: hash === settings.adminPasswordHash }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.ADMIN_SET_PASSWORD, async (_, password: string): Promise<{ success: boolean }> => {
-    const hash = crypto.createHash('sha256').update(password).digest('hex')
-    const settings = loadSettings()
-    settings.adminPasswordHash = hash
-    saveSettings(settings)
-    return { success: true }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.ADMIN_HAS_PASSWORD, async (): Promise<{ has: boolean }> => {
-    const settings = loadSettings()
-    return { has: !!settings.adminPasswordHash }
-  })
-
   // ─── Rendered videos ───────────────────────────────────────────────────────────
   ipcMain.handle(IPC_CHANNELS.RENDERED_LIST, () => {
     return getRenderedVideos()
@@ -2544,6 +2585,11 @@ async function registerIPCHandlers() {
     const sm = getSessionManager()
     const cookiesExtracted = await sm.openLoginWindow(profileId)
     return { success: true, cookiesExtracted }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.SESSION_CLONE_ONE, async () => {
+    const sm = getSessionManager()
+    return sm.cloneSessionOne()
   })
 }
 

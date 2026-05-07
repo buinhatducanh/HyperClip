@@ -7,6 +7,9 @@ import { NotificationCenter } from './NotificationCenter'
 interface AppSettings {
   defaultTrimLimit: number | 'full'
   autoDownloadQuality: string
+  autoRender: boolean
+  autoRenderResolution: string
+  autoRenderFPS: number
 }
 
 interface Props {
@@ -327,7 +330,7 @@ export function Sidebar({
         </div>
 
         {/* Quality */}
-        <div>
+        <div style={{ marginBottom: 6 }}>
           <div style={{ fontSize: 8, color: '#444', marginBottom: 3 }}>Quality</div>
           <div style={{ display: 'flex', gap: 3 }}>
             {(['360', '480', '720', '1080'] as const).map(val => (
@@ -350,6 +353,85 @@ export function Sidebar({
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Auto Render */}
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <div style={{ fontSize: 8, fontWeight: 800, color: '#2A2A2A', letterSpacing: '0.1em' }}>AUTO RENDER</div>
+            <button
+              onClick={() => onSettingsChange?.({ autoRender: !settings?.autoRender })}
+              style={{
+                width: 24, height: 12, borderRadius: 6,
+                background: settings?.autoRender ? '#00FF88' : '#222',
+                border: 'none', cursor: 'pointer', position: 'relative',
+                transition: 'background 0.2s',
+              }}
+            >
+              <div style={{
+                width: 8, height: 8, borderRadius: '50%', background: '#fff',
+                position: 'absolute', top: 2,
+                left: settings?.autoRender ? 14 : 2,
+                transition: 'left 0.2s',
+              }} />
+            </button>
+          </div>
+
+          {settings?.autoRender && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {/* Auto Res */}
+              <div>
+                <div style={{ fontSize: 8, color: '#444', marginBottom: 3 }}>Res</div>
+                <div style={{ display: 'flex', gap: 3 }}>
+                  {(['480x480', '720x720', '1080x1080'] as const).map(val => (
+                    <button
+                      key={val}
+                      onClick={() => onSettingsChange?.({ autoRenderResolution: val })}
+                      title={val}
+                      style={{
+                        flex: 1, height: 20,
+                        background: settings?.autoRenderResolution === val ? '#00B4FF22' : 'transparent',
+                        border: `1px solid ${settings?.autoRenderResolution === val ? '#00B4FF66' : '#222'}`,
+                        borderRadius: 3, cursor: 'pointer',
+                        fontSize: 7, fontWeight: 700,
+                        color: settings?.autoRenderResolution === val ? '#00B4FF' : '#444',
+                        fontFamily: 'monospace',
+                        transition: 'all 0.1s',
+                      }}
+                    >
+                      {val.split('x')[0]}p
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Auto FPS */}
+              <div>
+                <div style={{ fontSize: 8, color: '#444', marginBottom: 3 }}>FPS</div>
+                <div style={{ display: 'flex', gap: 3 }}>
+                  {([30, 60] as const).map(val => (
+                    <button
+                      key={val}
+                      onClick={() => onSettingsChange?.({ autoRenderFPS: val })}
+                      title={`${val} FPS`}
+                      style={{
+                        flex: 1, height: 20,
+                        background: settings?.autoRenderFPS === val ? '#00B4FF22' : 'transparent',
+                        border: `1px solid ${settings?.autoRenderFPS === val ? '#00B4FF66' : '#222'}`,
+                        borderRadius: 3, cursor: 'pointer',
+                        fontSize: 8, fontWeight: 700,
+                        color: settings?.autoRenderFPS === val ? '#00B4FF' : '#444',
+                        fontFamily: 'monospace',
+                        transition: 'all 0.1s',
+                      }}
+                    >
+                      {val}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

@@ -632,11 +632,11 @@ OAuth Quota: X/28,500 units remaining (Y% used today)
 ### Sprint 2 (Day 3-4): Monitoring & First Poll Fix
 - [x] Phase 4: First-poll full capture → `_isFirstPoll` flag, 24h age filter
 - [x] Phase 6: OAuth quota monitoring in Settings UI
+- [x] Phase 5: Cookie health monitoring + alerts (implemented 3-tier background refresh)
 - [ ] Test Case 1: Cold start test
 - [ ] Test Case 3: Real video detection test
 
 ### Sprint 3 (Day 5+): Production Validation
-- [x] Phase 5: Cookie health monitoring + alerts
 - [ ] Test Case 5: OAuth quota exhaustion test
 - [ ] **24-hour stability test (Phase 7)**
 - [ ] Commit vào `HYPERCLIP_RULES.md` để cập nhật source of truth

@@ -1414,7 +1414,7 @@ function CanvasArea({ video, editorState, onChange, onTimeUpdate }: {
 
 // ─── Controls Panel ─────────────────────────────────────────────────────────────
 
-function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRendering, systemStats, editorIsShort, videoDuration, currentTime, videoId, onShowToast, renderProgress, workspaceId, isReady, trimLimitMinutes, onSplit }: {
+function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRendering, systemStats, editorIsShort, videoDuration, currentTime, videoId, onShowToast, renderProgress, workspaceId, isReady, trimLimitMinutes, onSplit, sourceResolution }: {
   editorState: EditorState
   onChange: (p: Partial<EditorState>) => void
   onRender: () => void
@@ -1431,6 +1431,7 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
   isReady?: boolean
   trimLimitMinutes?: number
   onSplit?: (id: string, partMinutes: number) => void
+  sourceResolution?: string
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['trim']))
 
@@ -1442,6 +1443,19 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
     })
 
   const is = (id: string) => expanded.has(id)
+
+  const maxSourceHeight = sourceResolution ? parseInt(sourceResolution.split('x')[1]) : 1080
+
+  // Auto-downgrade quality if current export exceeds source
+  useEffect(() => {
+    if (editorState.exportQuality > maxSourceHeight) {
+      // Find highest available quality <= maxSourceHeight
+      const available = [1080, 720, 360].find(q => q <= maxSourceHeight)
+      if (available) {
+        onChange({ exportQuality: available as 1080 | 720 | 360 })
+      }
+    }
+  }, [maxSourceHeight, editorState.exportQuality, onChange])
   return (
     <div style={{ width: 280, borderLeft: '1px solid #1A1A1A', display: 'flex', flexDirection: 'column', background: '#111' }}>
       {/* Scrollable content */}
@@ -1560,13 +1574,21 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
           <div style={{ display: 'flex', gap: 3 }}>
             {([1080, 720, 360] as const).map(q => {
               const active = editorState.exportQuality === q
+              const disabled = q > maxSourceHeight
               return (
-                <button key={q} onClick={() => onChange({ exportQuality: q as 1080 | 720 | 360 })}
+                <button
+                  key={q}
+                  onClick={() => !disabled && onChange({ exportQuality: q as 1080 | 720 | 360 })}
+                  title={disabled ? `Nguồn chỉ có ${maxSourceHeight}p` : `${q}p`}
                   style={{
-                    height: 22, padding: '0 8px', background: active ? '#00B4FF' : '#1A1A1A',
+                    height: 22, padding: '0 8px',
+                    background: active ? '#00B4FF' : disabled ? '#0d0d0d' : '#1A1A1A',
                     border: `1px solid ${active ? '#00B4FF' : '#222'}`,
                     borderRadius: 2, fontSize: 10, fontWeight: 700,
-                    color: active ? '#000' : '#444', cursor: 'pointer', fontFamily: 'monospace',
+                    color: active ? '#000' : disabled ? '#222' : '#444',
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    fontFamily: 'monospace',
+                    opacity: disabled ? 0.5 : 1,
                   }}>
                   {q}p
                 </button>
@@ -1741,6 +1763,7 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
           isReady={(video as any)?.status === 'ready'}
           trimLimitMinutes={settings.defaultTrimLimit as number}
           onSplit={onSplit}
+          sourceResolution={video?.videoResolution}
         />
       </div>
 

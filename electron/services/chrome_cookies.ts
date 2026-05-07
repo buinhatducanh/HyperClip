@@ -41,7 +41,12 @@ export interface ChromeSession {
   lastUsed: number
   error?: string
   isLoggedIn: boolean
+  wasLoggedIn: boolean
   isConsented: boolean  // true if SOCS cookie = CAI (user accepted Google terms)
+  /** Timestamp of last successful cookie refresh (epoch ms) */
+  lastRefreshAt: number
+  /** Consecutive refresh failures — for degradation detection */
+  refreshFailCount: number
 }
 
 export interface SessionStatus {
@@ -50,6 +55,19 @@ export interface SessionStatus {
   loggedInCount: number
   consentedCount: number
   sessions: ChromeSession[]
+  /** Cookie health metrics */
+  health: {
+    /** Percentage of sessions with valid cookies (0-100) */
+    healthPct: number
+    /** Sessions that were logged in but lost cookies */
+    degradedCount: number
+    /** Sessions with cookies older than 7 days since last refresh */
+    staleCount: number
+    /** Oldest cookie age in hours across all sessions */
+    oldestCookieAgeHours: number
+    /** 'healthy' | 'degraded' | 'critical' */
+    level: 'healthy' | 'degraded' | 'critical'
+  }
 }
 
 // ─── Paths ─────────────────────────────────────────────────────────────────────
@@ -398,9 +416,11 @@ const BASE_DELAY_MS = 1000
       } else {
         console.log(`[Cookie] DB still locked after ${MAX_RETRIES - 1} retries — trying copy fallback...`)
         try {
-          fs.copyFileSync(cookieDbPath, copyPath)
-          dbBuffer = fs.readFileSync(copyPath)
-          console.log(`[Cookie] Copied DB to temp file (Chrome may still be writing)`)
+          // Use read+write — copyFileSync fails with EBUSY on Chrome-locked files
+          const srcBuf = fs.readFileSync(cookieDbPath)
+          fs.writeFileSync(copyPath, srcBuf)
+          dbBuffer = srcBuf
+          console.log(`[Cookie] Read DB via buffer fallback (Chrome may still be writing)`)
           break
         } catch (copyErr: unknown) {
           const copyErrCode = (copyErr as NodeJS.ErrnoException).code || ''
@@ -596,7 +616,10 @@ export class ChromeSessionManager {
         usedToday: 0,
         lastUsed: 0,
         isLoggedIn: profileExists,
+        wasLoggedIn: profileExists,
         isConsented: false,
+        lastRefreshAt: 0,
+        refreshFailCount: 0,
         error: profileExists ? undefined : (isDefaultChrome ? 'Chrome profile not found' : 'Profile not initialized'),
       })
     }
@@ -612,6 +635,11 @@ export class ChromeSessionManager {
           const cookies = await extractYouTubeCookies(session.profileDir)
           session.cookies = cookies
           session.isLoggedIn = !!(cookies?.SAPISID && cookies?.PSID)
+          if (session.isLoggedIn) {
+            session.wasLoggedIn = true
+            session.lastRefreshAt = Date.now()
+            session.refreshFailCount = 0
+          }
           session.isConsented = !!(cookies?.socs && !cookies.socs.startsWith('CAA'))
           if (!cookies) {
             session.error = 'No cookies — click "Mở Chrome" in Settings to login'
@@ -638,37 +666,126 @@ export class ChromeSessionManager {
     const valid = this._sessions.filter(s => s.cookies)
     console.log(`[SessionManager] ${valid.length}/${this._sessionCount} sessions ready (${this._sessions.filter(s => !s.cookies).length} missing — login from Settings)`)
 
-    // Background cookie refresh: every 10 minutes, refresh top 5 recently-used sessions
-    const REFRESH_INTERVAL_MS = 10 * 60 * 1000
+    // ─── Background cookie health monitoring ───────────────────────────────────
+    // Tier 1: Every 10 min — refresh top-5 recently-used sessions (hot path)
+    // Tier 2: Every 30 min — refresh ALL sessions (catch stale/expired cookies)
+    // Tier 3: Every 60 min — log health summary + detect degradation
+    const TIER1_INTERVAL_MS = 10 * 60 * 1000   // 10 min
+    const TIER2_INTERVAL_MS = 30 * 60 * 1000   // 30 min
+    const TIER3_INTERVAL_MS = 60 * 60 * 1000   // 60 min
+    const STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000  // 7 days
+
+    // Tier 1: Hot sessions refresh (every 10 min)
     setInterval(() => {
       const usedSessions = this._sessions
         .filter(s => s.lastUsed > 0)
         .sort((a, b) => b.lastUsed - a.lastUsed)
         .slice(0, 5)
       if (usedSessions.length === 0) return
-      Promise.all(usedSessions.map(async (session) => {
-        try {
-          const cookies = await extractYouTubeCookies(session.profileDir)
-          if (cookies?.SAPISID && cookies?.PSID) {
-            const wasLoggedIn = session.isLoggedIn
-            session.cookies = cookies
-            session.isLoggedIn = true
-            session.isConsented = !!(cookies?.socs && !cookies.socs.startsWith('CAA'))
-            session.error = undefined
-            session.usedToday = 0
-            if (!wasLoggedIn) {
-              console.log(`[SessionManager] Background refresh recovered session ${session.profileId}`)
-            }
-          } else {
-            session.cookies = null
-            session.isLoggedIn = false
-            session.error = 'no cookies'
-          }
-        } catch {}
-      })).catch(() => {})
-    }, REFRESH_INTERVAL_MS)
+      this._refreshBatch(usedSessions, 'tier1').catch(() => {})
+    }, TIER1_INTERVAL_MS)
+
+    // Tier 2: Full refresh (every 30 min) — catches expired cookies early
+    setInterval(() => {
+      const allWithCookies = this._sessions.filter(s => s.wasLoggedIn)
+      if (allWithCookies.length === 0) return
+      this._refreshBatch(allWithCookies, 'tier2').catch(() => {})
+    }, TIER2_INTERVAL_MS)
+
+    // Tier 3: Health summary log (every 60 min)
+    setInterval(() => {
+      const health = this._computeHealth()
+      const alive = this._sessions.filter(s => s.cookies).length
+      const degraded = health.degradedCount
+      const stale = health.staleCount
+      console.log(`[SessionManager] Health check: ${alive}/${this._sessionCount} alive, ${degraded} degraded, ${stale} stale (>${Math.round(STALE_THRESHOLD_MS / 86400000)}d), level=${health.level}`)
+      if (health.level === 'critical') {
+        console.warn('[SessionManager] 🚨 CRITICAL: <20% sessions alive — detection at risk. Re-login Chrome or clone sessions.')
+      } else if (health.level === 'degraded') {
+        console.warn('[SessionManager] ⚠️ DEGRADED: <50% sessions alive — consider refreshing Chrome login.')
+      }
+    }, TIER3_INTERVAL_MS)
 
     this._initialized = true
+  }
+
+  /**
+   * Refresh a batch of sessions — re-extract cookies and update state.
+   * Used by tiered background refresh (tier1 = hot sessions, tier2 = all sessions).
+   */
+  private async _refreshBatch(sessions: ChromeSession[], tier: string): Promise<void> {
+    let recovered = 0, lost = 0
+    await Promise.all(sessions.map(async (session) => {
+      try {
+        const cookies = await extractYouTubeCookies(session.profileDir)
+        if (cookies?.SAPISID && cookies?.PSID) {
+          const wasLoggedIn = session.isLoggedIn
+          session.cookies = cookies
+          session.isLoggedIn = true
+          session.wasLoggedIn = true
+          session.isConsented = !!(cookies?.socs && !cookies.socs.startsWith('CAA'))
+          session.error = undefined
+          session.usedToday = 0
+          session.lastRefreshAt = Date.now()
+          session.refreshFailCount = 0
+          if (!wasLoggedIn) {
+            recovered++
+            console.log(`[SessionManager] ${tier}: recovered session ${session.profileId}`)
+          }
+        } else {
+          if (session.isLoggedIn) lost++
+          session.cookies = null
+          session.isLoggedIn = false
+          session.error = 'cookies expired or missing'
+          session.refreshFailCount++
+        }
+      } catch {
+        session.refreshFailCount++
+      }
+    }))
+    if (recovered > 0 || lost > 0) {
+      console.log(`[SessionManager] ${tier} refresh: ${recovered} recovered, ${lost} lost`)
+    }
+  }
+
+  /**
+   * Compute aggregate cookie health metrics for monitoring.
+   */
+  private _computeHealth(): SessionStatus['health'] {
+    const STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000  // 7 days
+    const now = Date.now()
+
+    const loggedInSessions = this._sessions.filter(s => s.cookies)
+    const totalWithHistory = this._sessions.filter(s => s.wasLoggedIn)
+    const degraded = this._sessions.filter(s => s.wasLoggedIn && !s.isLoggedIn)
+    const stale = loggedInSessions.filter(s =>
+      s.lastRefreshAt > 0 && (now - s.lastRefreshAt) > STALE_THRESHOLD_MS
+    )
+
+    // Oldest cookie age
+    let oldestAgeMs = 0
+    for (const s of loggedInSessions) {
+      if (s.lastRefreshAt > 0) {
+        const age = now - s.lastRefreshAt
+        if (age > oldestAgeMs) oldestAgeMs = age
+      }
+    }
+
+    const healthPct = this._sessionCount > 0
+      ? Math.round((loggedInSessions.length / this._sessionCount) * 100)
+      : 0
+
+    const level: 'healthy' | 'degraded' | 'critical' =
+      healthPct >= 50 ? 'healthy' :
+      healthPct >= 20 ? 'degraded' : 'critical'
+
+    return {
+      healthPct,
+      degradedCount: degraded.length,
+      staleCount: stale.length,
+      oldestCookieAgeHours: Math.round(oldestAgeMs / (60 * 60 * 1000)),
+      level,
+    }
   }
 
   async ensureInit(): Promise<void> {
@@ -686,6 +803,7 @@ export class ChromeSessionManager {
       loggedInCount: this._sessions.filter(s => s.cookies).length,
       consentedCount: this._sessions.filter(s => s.isConsented).length,
       sessions: this._sessions,
+      health: this._computeHealth(),
     }
   }
 
@@ -716,6 +834,11 @@ export class ChromeSessionManager {
     if (session) {
       session.cookies = result.cookies
       session.isLoggedIn = !!(result.cookies?.SAPISID && result.cookies?.PSID)
+      if (session.isLoggedIn) {
+        session.wasLoggedIn = true
+        session.lastRefreshAt = Date.now()
+        session.refreshFailCount = 0
+      }
       session.isConsented = !!(result.cookies?.socs && !result.cookies.socs.startsWith('CAA'))
       session.error = result.error ?? (result.cookies ? undefined : 'No YouTube cookies found')
       session.lastUsed = 0
@@ -767,6 +890,81 @@ export class ChromeSessionManager {
   }
 
   /**
+   * Clone cookies from Session 1 to all other sessions.
+   * Returns the number of successfully cloned sessions.
+   */
+  async cloneSessionOne(): Promise<{ success: boolean; clonedCount: number; error?: string }> {
+    const session1 = this._sessions.find(s => s.profileId === '1')
+    if (!session1) return { success: false, clonedCount: 0, error: 'Session 1 not found' }
+
+    // Source Paths (Session 1 is Default Chrome: profileDir = User Data\Default)
+    const srcSqlite = path.join(session1.profileDir, 'Network', 'Cookies')
+    const srcLocalState = path.join(session1.profileDir, '..', 'Local State')
+    const srcJson = path.join(session1.profileDir, '..', '_hyperclip_cookies.json')
+
+    if (!fs.existsSync(srcSqlite) && !fs.existsSync(srcJson)) {
+      return { success: false, clonedCount: 0, error: 'Session 1 is not logged in (no cookies found)' }
+    }
+
+    let clonedCount = 0
+    for (let i = 2; i <= this._sessionCount; i++) {
+      try {
+        const destSession = this._sessions.find(s => s.profileId === String(i))
+        if (!destSession) continue
+
+        // Destination Paths (Session 2-30: profileDir = HyperClip-Chrome-Profile-N\Default)
+        const destNetworkDir = path.join(destSession.profileDir, 'Network')
+        const destLocalState = path.join(destSession.profileDir, '..', 'Local State')
+        const destJson = path.join(destSession.profileDir, '_hyperclip_cookies.json')
+
+        if (!fs.existsSync(destNetworkDir)) {
+          fs.mkdirSync(destNetworkDir, { recursive: true })
+        }
+
+        // Copy SQLite & Local State (for standard decryption if they open Chrome)
+        // Use read+write instead of copyFileSync — Chrome locks Cookies with EBUSY,
+        // but readFileSync can still read locked files (shared read access on Windows).
+        if (fs.existsSync(srcSqlite)) {
+          try {
+            const buf = fs.readFileSync(srcSqlite)
+            fs.writeFileSync(path.join(destNetworkDir, 'Cookies'), buf)
+          } catch (e2) {
+            console.warn(`[SessionManager] cloneSessionOne: Cookies copy failed for profile ${i} (Chrome may be open): ${(e2 as Error).message}`)
+          }
+        }
+        if (fs.existsSync(srcLocalState)) {
+          try {
+            const buf = fs.readFileSync(srcLocalState)
+            fs.writeFileSync(destLocalState, buf)
+          } catch (e2) {
+            console.warn(`[SessionManager] cloneSessionOne: Local State copy failed for profile ${i}: ${(e2 as Error).message}`)
+          }
+        }
+        
+        // Copy Fast-path JSON (for instant HyperClip loading)
+        if (fs.existsSync(srcJson)) {
+          try {
+            const buf = fs.readFileSync(srcJson)
+            fs.writeFileSync(destJson, buf)
+          } catch (e2) {
+            console.warn(`[SessionManager] cloneSessionOne: JSON copy failed for profile ${i}: ${(e2 as Error).message}`)
+          }
+        }
+
+        clonedCount++
+      } catch (e) {
+        console.error(`[SessionManager] cloneSessionOne failed for profile ${i}:`, e)
+      }
+    }
+
+    if (clonedCount > 0) {
+      await this.refreshAll()
+    }
+
+    return { success: true, clonedCount }
+  }
+
+  /**
    * Refresh cookies for a specific session.
    */
   async refreshSession(profileId: string): Promise<boolean> {
@@ -777,6 +975,11 @@ export class ChromeSessionManager {
       const cookies = await extractYouTubeCookies(session.profileDir)
       session.cookies = cookies
       session.isLoggedIn = !!(cookies?.SAPISID && cookies?.PSID)
+      if (session.isLoggedIn) {
+        session.wasLoggedIn = true
+        session.lastRefreshAt = Date.now()
+        session.refreshFailCount = 0
+      }
       session.isConsented = !!cookies?.socs && !cookies.socs.startsWith('CAA')
       session.error = cookies ? undefined : 'No YouTube cookies'
       session.usedToday = 0

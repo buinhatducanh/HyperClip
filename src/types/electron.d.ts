@@ -52,8 +52,8 @@ export interface ElectronAPI {
   onAutoDownload: (callback: (data: unknown) => void) => () => void
   onAuthUpdate: (callback: (status: unknown) => void) => () => void
   onChannelSynced: (callback: () => void) => () => void
-  getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string }>
-  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string }) => Promise<void>
+  getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number }>
+  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number }) => Promise<void>
   getAuthStatus: () => Promise<{
     isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean
     cookieCritical?: boolean; cookieError?: string
@@ -72,9 +72,6 @@ export interface ElectronAPI {
     results: Array<{ key: string; name: string; valid: boolean; error?: string; errorType?: string }>
     keys: unknown[]
   }>
-  adminCheckPassword: (password: string) => Promise<{ ok: boolean }>
-  adminSetPassword: (password: string) => Promise<{ success: boolean }>
-  adminHasPassword: () => Promise<{ has: boolean }>
   getPollerStatus: () => Promise<{
     active: boolean; pollIntervalMs: number; lastPollAt: number | null
     lastNewVideosAt: number | null; cookiesReady: boolean
@@ -93,6 +90,7 @@ export interface ElectronAPI {
   getSessionStatus: () => Promise<unknown>
   refreshAllSessions: () => Promise<{ success: boolean; refreshedCount: number }>
   openSessionLogin: (profileId: string) => Promise<{ success: boolean }>
+  cloneSessionOne: () => Promise<{ success: boolean; clonedCount: number; error?: string }>
   // Rendered videos
   getRenderedVideos: () => Promise<unknown[]>
   archiveRendered: (workspaceId: string, customArchiveDir?: string) => Promise<{ success: boolean; archivedPath?: string; error?: string }>

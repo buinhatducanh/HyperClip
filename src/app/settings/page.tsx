@@ -44,6 +44,7 @@ interface ChromeSession {
   profileId: string
   profileName: string
   isLoggedIn: boolean
+  wasLoggedIn: boolean
   isConsented: boolean
   usedToday: number
   lastUsed: number
@@ -56,82 +57,6 @@ interface SessionStatus {
   loggedInCount: number
   consentedCount: number
   sessions: ChromeSession[]
-}
-
-// ─── Password Gate ──────────────────────────────────────────────────────────────
-
-function PasswordGate({ onUnlock }: { onUnlock: () => void }) {
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!password.trim()) return
-    setLoading(true)
-    setError('')
-    const result = await ipc.adminCheckPassword(password)
-    if (result.ok) onUnlock()
-    else { setError('Sai mật khẩu'); setPassword('') }
-    setLoading(false)
-  }
-
-  return (
-    <div style={{ height: '100vh', background: '#0E0E0E', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter, sans-serif' }}>
-      <form onSubmit={handleSubmit} style={{ background: '#111', border: '1px solid #1E1E1E', borderRadius: 8, padding: '32px 40px', display: 'flex', flexDirection: 'column', gap: 16, width: 320 }}>
-        <div style={{ textAlign: 'center', marginBottom: 8 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.06em', marginBottom: 4 }}>ADMIN SETTINGS</div>
-          <div style={{ fontSize: 10, color: '#555' }}>Nhập mật khẩu để truy cập</div>
-        </div>
-        <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Mật khẩu admin" autoFocus style={{ height: 36, background: '#0a0a0a', border: `1px solid ${error ? '#FF4444' : '#2a2a2a'}`, borderRadius: 4, padding: '0 12px', fontSize: 12, color: '#fff', outline: 'none', fontFamily: 'monospace', textAlign: 'center', letterSpacing: '0.2em' }} />
-        {error && <div style={{ fontSize: 10, color: '#FF4444', textAlign: 'center' }}>{error}</div>}
-        <button type="submit" disabled={loading} style={{ height: 36, background: '#00B4FF', border: 'none', borderRadius: 4, fontSize: 11, fontWeight: 700, color: '#000', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1, letterSpacing: '0.08em' }}>
-          {loading ? 'ĐANG KIỂM TRA...' : 'MỞ KHÓA'}
-        </button>
-        <div style={{ textAlign: 'center' }}>
-          <Link href="/" style={{ fontSize: 9, color: '#444', textDecoration: 'none' }}>← Quay lại Dashboard</Link>
-        </div>
-      </form>
-    </div>
-  )
-}
-
-function PasswordSetup({ onDone }: { onDone: () => void }) {
-  const [password, setPassword] = useState('')
-  const [confirm, setConfirm] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    if (password.length < 4) { setError('Mật khẩu tối thiểu 4 ký tự'); return }
-    if (password !== confirm) { setError('Mật khẩu không khớp'); return }
-    setLoading(true)
-    await ipc.adminSetPassword(password)
-    onDone()
-    setLoading(false)
-  }
-
-  return (
-    <div style={{ height: '100vh', background: '#0E0E0E', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter, sans-serif' }}>
-      <form onSubmit={handleSubmit} style={{ background: '#111', border: '1px solid #1E1E1E', borderRadius: 8, padding: '32px 40px', display: 'flex', flexDirection: 'column', gap: 14, width: 360 }}>
-        <div style={{ textAlign: 'center', marginBottom: 4 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', letterSpacing: '0.06em', marginBottom: 4 }}>🔒 Thiết lập Admin Password</div>
-          <div style={{ fontSize: 10, color: '#555', lineHeight: '15px' }}>Mật khẩu này bảo vệ trang quản lý Projects.<br />Đặt mật khẩu mạnh và không quên.</div>
-        </div>
-        <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Nhập mật khẩu mới" autoFocus style={{ height: 36, background: '#0a0a0a', border: '1px solid #2a2a2a', borderRadius: 4, padding: '0 12px', fontSize: 12, color: '#fff', outline: 'none', fontFamily: 'monospace' }} />
-        <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Xác nhận mật khẩu" style={{ height: 36, background: '#0a0a0a', border: '1px solid #2a2a2a', borderRadius: 4, padding: '0 12px', fontSize: 12, color: '#fff', outline: 'none', fontFamily: 'monospace' }} />
-        {error && <div style={{ fontSize: 10, color: '#FF4444', textAlign: 'center' }}>{error}</div>}
-        <button type="submit" disabled={loading} style={{ height: 36, background: '#00FF88', border: 'none', borderRadius: 4, fontSize: 11, fontWeight: 700, color: '#000', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1, letterSpacing: '0.08em' }}>
-          {loading ? 'ĐANG LƯU...' : 'ĐẶT MẬT KHẨU'}
-        </button>
-        <div style={{ textAlign: 'center' }}>
-          <Link href="/" style={{ fontSize: 9, color: '#444', textDecoration: 'none' }}>← Quay lại Dashboard</Link>
-        </div>
-      </form>
-    </div>
-  )
 }
 
 // ─── Add Project Form ──────────────────────────────────────────────────────────
@@ -1823,18 +1748,27 @@ function SessionsSection() {
           {consented.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 8, color: '#333', letterSpacing: '0.08em', marginBottom: 6, fontWeight: 700 }}>READY ({consented.length})</div>
-              {consented.map(s => (
-                <div key={s.profileId} style={{
-                  background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 4,
-                  padding: '6px 10px', marginBottom: 5, display: 'flex', alignItems: 'center', gap: 8,
-                }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00FF88', flexShrink: 0 }} />
-                  <span style={{ fontSize: 10, color: '#888', flex: 1 }}>{s.profileName}</span>
-                  <span style={{ fontSize: 8, color: '#333', fontFamily: 'monospace' }}>
-                    used {s.usedToday}x
-                  </span>
-                </div>
-              ))}
+              {consented.map(s => {
+                const isStale = s.lastRefreshAt > 0 && (Date.now() - s.lastRefreshAt) > (7 * 24 * 60 * 60 * 1000);
+                const ageHours = s.lastRefreshAt > 0 ? Math.round((Date.now() - s.lastRefreshAt) / 3600000) : 0;
+                return (
+                  <div key={s.profileId} style={{
+                    background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 4,
+                    padding: '6px 10px', marginBottom: 5, display: 'flex', alignItems: 'center', gap: 8,
+                  }}>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: isStale ? '#FFB800' : '#00FF88', flexShrink: 0 }} title={isStale ? "Stale cookie" : "Healthy"}/>
+                    <span style={{ fontSize: 10, color: '#888', flex: 1 }}>{s.profileName}</span>
+                    {s.lastRefreshAt > 0 && (
+                      <span style={{ fontSize: 8, color: isStale ? '#FFB800' : '#444', fontFamily: 'monospace', marginRight: 8 }} title="Cookie age">
+                        {ageHours > 24 ? `${Math.round(ageHours/24)}d old` : `${ageHours}h old`}
+                      </span>
+                    )}
+                    <span style={{ fontSize: 8, color: '#333', fontFamily: 'monospace' }}>
+                      used {s.usedToday}x
+                    </span>
+                  </div>
+                )
+              })}
             </div>
           )}
 
@@ -1913,6 +1847,7 @@ function PollerStatusPanel() {
   const [sessionStatus, setSessionStatus] = useState<any>(null)
   const [projectStatus, setProjectStatus] = useState<any>(null)
   const [keyStatus, setKeyStatus] = useState<any>(null)
+  const [cloning, setCloning] = useState(false)
 
   const load = () => {
     ipc.getPollerStatus().then(setPollerStatus).catch(() => {})
@@ -1950,15 +1885,24 @@ function PollerStatusPanel() {
   const quotaColor = totalQuotaRemaining < 1000 ? '#FF4444' : totalQuotaRemaining < 5000 ? '#FFB800' : '#00FF88'
   const quotaLabel = totalQuotaRemaining < 1000 ? '🔴 CRITICAL' : totalQuotaRemaining < 5000 ? '🟡 WARNING' : '🟢 OK'
 
-  // Phase 5: Session health — from sessionStatus.sessions breakdown
+  // Phase 5: Session health — from sessionStatus.health breakdown if available
   const sessions = sessionStatus?.sessions ?? []
   const loggedInCount = sessions.filter((s: any) => s.isLoggedIn).length
   const consentedCount = sessions.filter((s: any) => s.isConsented).length
-  const sessionHealthPct = totalSessions > 0 ? Math.round((consentedCount / totalSessions) * 100) : 0
-  const sessionHealthColor = sessionHealthPct >= 50 ? '#00FF88' : sessionHealthPct >= 20 ? '#FFB800' : '#FF4444'
-  const sessionHealthLabel = sessionHealthPct >= 50 ? '🟢 HEALTHY' : sessionHealthPct >= 20 ? '🟡 DEGRADED' : '🔴 CRITICAL'
+  
+  const health = sessionStatus?.health
+  const sessionHealthPct = health?.healthPct ?? (totalSessions > 0 ? Math.round((consentedCount / totalSessions) * 100) : 0)
+  const sessionHealthColor = health ? (health.level === 'healthy' ? '#00FF88' : health.level === 'degraded' ? '#FFB800' : '#FF4444') 
+    : (sessionHealthPct >= 50 ? '#00FF88' : sessionHealthPct >= 20 ? '#FFB800' : '#FF4444')
+  const sessionHealthLabel = health ? (health.level === 'healthy' ? '🟢 HEALTHY' : health.level === 'degraded' ? '🟡 DEGRADED' : '🔴 CRITICAL')
+    : (sessionHealthPct >= 50 ? '🟢 HEALTHY' : sessionHealthPct >= 20 ? '🟡 DEGRADED' : '🔴 CRITICAL')
+  
   const hasAnySession = loggedInCount > 0
   const needsConsent = loggedInCount > 0 && consentedCount === 0
+
+  // Phase 7: Session Expiration warning
+  const expiredSessions = sessions.filter((s: any) => s.wasLoggedIn && !s.isLoggedIn)
+  const hasExpiredSessions = expiredSessions.length > 0
 
   const detectionPath = hasInnertube ? 'innertube' : hasOAuth ? 'oauth' : null
   const primaryFix = !hasInnertube ? 'sessions' : !hasOAuth ? 'projects' : null
@@ -1968,6 +1912,24 @@ function PollerStatusPanel() {
     showToast('Đã resume poller — sẽ thử lại sau vài giây')
     load()
   }
+
+  const handleCloneOne = async () => {
+    if (!window.confirm('Bạn có chắc muốn nhân bản Cookie từ Session 1 ra tất cả các session còn lại? Việc này sẽ ghi đè các session hiện có.')) return
+    setCloning(true)
+    const result = await ipc.cloneSessionOne()
+    if (result.success) {
+      showToast(`Đã nhân bản thành công ra ${result.clonedCount} sessions!`)
+      load()
+    } else {
+      showToast(`Lỗi nhân bản: ${result.error}`)
+    }
+    setCloning(false)
+  }
+
+  const session1 = sessions.find((s: any) => s.profileId === '1')
+  const isSession1Ready = session1?.isLoggedIn
+  const showCloneAction = isSession1Ready && consentedCount < totalSessions && !isBackedOff
+
 
   // Determine banner type
   let bannerColor: string
@@ -2178,6 +2140,91 @@ function PollerStatusPanel() {
         </div>
       )}
 
+      {/* Phase 7: Session expiration alert — wasLoggedIn but currently !isLoggedIn */}
+      {hasExpiredSessions && !isBackedOff && (
+        <div style={{
+          marginTop: 14, padding: '12px 16px',
+          background: '#1a0808', border: '1px solid #FF444444',
+          borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 10,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 11, color: '#FF4444' }}>⚠</span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#FF4444', letterSpacing: '0.06em' }}>
+              SESSION EXPIRED
+            </span>
+          </div>
+          <div style={{ fontSize: 9, color: '#888', lineHeight: '16px' }}>
+            Cookie của {expiredSessions.length} session đã hết hạn hoặc bị lỗi xác thực.
+            Hãy bấm "Mở Chrome" bên dưới để đăng nhập lại nhằm duy trì năng lực tải dữ liệu.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 6 }}>
+            {expiredSessions.map((s: any) => (
+              <button
+                key={s.profileId}
+                onClick={async () => {
+                  const { ipc } = await import('../lib/ipc')
+                  const { useAppStore } = await import('../lib/store')
+                  const store = useAppStore.getState()
+                  store.showToast(`Đang mở Chrome cho ${s.profileName}...`)
+                  const result = await ipc.openSessionLogin(s.profileId)
+                  const refresh = await ipc.refreshAllSessions()
+                  if (refresh.refreshedCount > 0) {
+                    store.showToast(`Đã phục hồi ${s.profileName}`)
+                  } else {
+                    store.showToast(`Phục hồi ${s.profileName} thất bại`)
+                  }
+                  // Let the interval auto-reload status
+                }}
+                title={s.error || 'Open Chrome and log in again'}
+                style={{
+                  background: '#0a0a0a', border: '1px solid #FF444444', borderRadius: 6,
+                  padding: '8px 12px', textAlign: 'left', cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', gap: 4,
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#FF444488'; e.currentTarget.style.background = '#1a0a0a' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = '#FF444444'; e.currentTarget.style.background = '#0a0a0a' }}
+              >
+                <span style={{ fontSize: 10, color: '#ccc', fontWeight: 600 }}>{s.profileName}</span>
+                <span style={{ fontSize: 9, color: '#FF4444' }}>Mở Chrome</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Phase 8: Auto-Clone from Session 1 */}
+      {showCloneAction && (
+        <div style={{
+          marginTop: 14, padding: '12px 16px',
+          background: '#0a1a0a', border: '1px solid #00FF8844',
+          borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#00FF88', letterSpacing: '0.06em', marginBottom: 4 }}>
+              QUICK SETUP: CLONE SESSION 1
+            </div>
+            <div style={{ fontSize: 9, color: '#888', lineHeight: '14px' }}>
+              Session 1 đã sẵn sàng. Bạn có thể nhân bản Cookie này ra {totalSessions - 1} session còn lại để tiết kiệm thời gian.
+            </div>
+          </div>
+          <button
+            onClick={handleCloneOne}
+            disabled={cloning}
+            style={{
+              height: 32, paddingLeft: 16, paddingRight: 16,
+              background: '#00FF8811', border: '1px solid #00FF8844',
+              borderRadius: 4, cursor: cloning ? 'not-allowed' : 'pointer',
+              fontSize: 10, fontWeight: 800, color: '#00FF88',
+              letterSpacing: '0.04em', transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { if (!cloning) { e.currentTarget.style.background = '#00FF8822'; e.currentTarget.style.borderColor = '#00FF8866' } }}
+            onMouseLeave={e => { e.currentTarget.style.background = '#00FF8811'; e.currentTarget.style.borderColor = '#00FF8844' }}
+          >
+            {cloning ? 'CLONING...' : 'NHÂN BẢN NGAY'}
+          </button>
+        </div>
+      )}
+
       {/* Phase 5: Session health critical — < 20% consented */}
       {!needsConsent && hasAnySession && sessionHealthPct < 50 && !isBackedOff && (
         <div style={{
@@ -2195,6 +2242,7 @@ function PollerStatusPanel() {
           <div style={{ fontSize: 9, color: '#888' }}>
             {consentedCount}/{totalSessions} sessions consented. Innertube PRIMARY detection limited.
             {loggedInCount > consentedCount && ` ${loggedInCount - consentedCount} session(s) need Chrome consent.`}
+            {health?.staleCount > 0 && ` Cookie của ${health.staleCount} session(s) đã quá 7 ngày tuổi (cũ nhất: ${health.oldestCookieAgeHours}h).`}
           </div>
         </div>
       )}
@@ -2368,8 +2416,6 @@ function StorageWidget() {
 
 export default function SettingsPage() {
   const { settings, systemStats, setSettings } = useAppStore()
-  const [gateState, setGateState] = useState<'loading' | 'setup' | 'locked' | 'unlocked'>('loading')
-  // Always declare all hooks before any early returns to satisfy Rules of Hooks
   const [activeTab, setActiveTab] = useState<'status' | 'keys' | 'projects' | 'system'>('status')
 
   const TABS = [
@@ -2378,20 +2424,6 @@ export default function SettingsPage() {
     { id: 'keys' as const, label: 'API KEYS', color: '#00B4FF' },
     { id: 'system' as const, label: 'SYSTEM', color: '#FFB800' },
   ]
-
-  useEffect(() => {
-    ipc.adminHasPassword().then(result => {
-      setGateState(result.has ? 'locked' : 'setup')
-    })
-  }, [])
-
-  if (gateState === 'loading') return (
-    <div style={{ height: '100vh', background: '#0E0E0E', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ fontSize: 10, color: '#444', fontFamily: 'monospace' }}>Loading...</div>
-    </div>
-  )
-  if (gateState === 'setup') return <PasswordSetup onDone={() => setGateState('unlocked')} />
-  if (gateState === 'locked') return <PasswordGate onUnlock={() => setGateState('unlocked')} />
 
   return (
     <div style={{ height: '100vh', background: '#0A0A0A', fontFamily: 'Inter, sans-serif', color: '#fff', display: 'flex', flexDirection: 'column' }}>

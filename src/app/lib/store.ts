@@ -64,6 +64,8 @@ export interface AppSettings {
   defaultTrimLimit: number | 'full'  // number = minutes
   defaultQuality: 1080 | 720
   autoRender: boolean
+  autoRenderResolution: string  // '480x480'|'720x720'|'1080x1080'
+  autoRenderFPS: number         // 30|60
   minimizeToTray: boolean
   autoDownloadQuality: string  // '360'|'480'|'720'|'1080'
 }
@@ -180,6 +182,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     defaultTrimLimit: 10,  // 10 minutes — auto-download respects this
     defaultQuality: 1080,
     autoRender: false,
+    autoRenderResolution: '480x480',
+    autoRenderFPS: 30,
     minimizeToTray: true,
     autoDownloadQuality: '720',
   },
@@ -259,6 +263,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
         thumbnailData: v.thumbnailData,
         videoResolution: v.videoResolution || '',
         renderedAt: v.renderedAt ? formatDate(v.renderedAt) : '',
+        renderDurationMs: v.renderDurationMs,
+        renderConfig: v.renderConfig || undefined,
+        sourceInfo: v.sourceInfo || undefined,
       }))
       set({ renderedVideos: videos })
     } catch (e) {

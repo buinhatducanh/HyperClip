@@ -77,11 +77,7 @@ const IPC = {
   SESSION_LIST: 'session:list',
   SESSION_REFRESH_ALL: 'session:refresh-all',
   SESSION_OPEN_LOGIN: 'session:open-login',
-
-  // Admin password
-  ADMIN_CHECK_PASSWORD: 'admin:check-password',
-  ADMIN_SET_PASSWORD: 'admin:set-password',
-  ADMIN_HAS_PASSWORD: 'admin:has-password',
+  SESSION_CLONE_ONE: 'session:clone-one',
 
   // Poller
   POLLER_STATUS: 'poller:status',
@@ -316,14 +312,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC.SESSION_REFRESH_ALL) as Promise<{ success: boolean; refreshedCount: number }>,
   openSessionLogin: (profileId: string) =>
     ipcRenderer.invoke(IPC.SESSION_OPEN_LOGIN, profileId) as Promise<{ success: boolean }>,
-
-  // Admin password
-  adminCheckPassword: (password: string) =>
-    ipcRenderer.invoke(IPC.ADMIN_CHECK_PASSWORD, password) as Promise<{ ok: boolean }>,
-  adminSetPassword: (password: string) =>
-    ipcRenderer.invoke(IPC.ADMIN_SET_PASSWORD, password) as Promise<{ success: boolean }>,
-  adminHasPassword: () =>
-    ipcRenderer.invoke(IPC.ADMIN_HAS_PASSWORD) as Promise<{ has: boolean }>,
+  cloneSessionOne: () =>
+    ipcRenderer.invoke(IPC.SESSION_CLONE_ONE) as Promise<{ success: boolean; clonedCount: number; error?: string }>,
 
   // Rendered videos
   getRenderedVideos: () =>

@@ -446,6 +446,30 @@ const MAX_RENDERED_ENTRIES = 500
 const MAX_RENDERED_DAYS = 30
 const FILE_INDEX_TTL_MS = 60_000
 
+export interface RenderConfigRecord {
+  exportResolution: string     // e.g. "1080x1920"
+  fps: number                  // e.g. 30
+  speed: number                // e.g. 1.1
+  codec: string                // 'h264' | 'hevc'
+  preset?: string              // 'p1'|'p2'|'p3'
+  tune?: string                // 'hq'|'ll'|'ull'
+  backgroundType?: string      // 'blur'|'solid'|'image'
+  audioCodec?: string          // 'aac'|'libopus'
+  audioBitrate?: string        // '192k'|'64k'
+  trimStart?: number           // seconds
+  trimEnd?: number             // seconds
+  isShort?: boolean            // vertical 9:16 vs landscape
+  vidHeightPct?: number        // landscape video zone %
+  gpuTier?: string             // 'high'|'mid'|'low'|'software'
+}
+
+export interface SourceInfoRecord {
+  originalResolution?: string  // e.g. "1920x1080"
+  originalDuration?: number    // original video duration (before trim) in seconds
+  originalFileSize?: number    // bytes
+  downloadQuality?: string     // '360'|'480'|'720'|'1080'
+}
+
 export interface RenderedVideoRecord {
   id: string
   workspaceId: string
@@ -464,6 +488,13 @@ export interface RenderedVideoRecord {
   /** Source video resolution (e.g. "1920x1080") — shows what the original video was */
   videoResolution?: string
   renderedAt: string   // ISO timestamp
+  // ─── Render metadata (for PO debug & comparison) ───
+  /** Wall-clock render time in milliseconds */
+  renderDurationMs?: number
+  /** Full render configuration used */
+  renderConfig?: RenderConfigRecord
+  /** Source video information for before/after comparison */
+  sourceInfo?: SourceInfoRecord
 }
 
 function loadRendered(): RenderedVideoRecord[] {
@@ -501,9 +532,9 @@ export function addRenderedVideo(video: RenderedVideoRecord): void {
 
 export function removeRenderedVideo(id: string): boolean {
   const all = loadRendered()
-  const before = all.length
-  saveRendered(all.filter(v => v.id !== id))
-  return all.length !== before
+  const filtered = all.filter(v => v.id !== id)
+  saveRendered(filtered)
+  return filtered.length !== all.length
 }
 
 export function getRenderedVideosByChannel(channelId: string): RenderedVideoRecord[] {

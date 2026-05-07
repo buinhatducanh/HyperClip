@@ -102,11 +102,7 @@ export const IPC_CHANNELS = {
   SESSION_LIST: 'session:list',
   SESSION_REFRESH_ALL: 'session:refresh-all',
   SESSION_OPEN_LOGIN: 'session:open-login',
-
-  // Admin password
-  ADMIN_CHECK_PASSWORD: 'admin:check-password',
-  ADMIN_SET_PASSWORD: 'admin:set-password',
-  ADMIN_HAS_PASSWORD: 'admin:has-password',
+  SESSION_CLONE_ONE: 'session:clone-one',
 
   // Rendered videos
   RENDERED_LIST: 'rendered:list',

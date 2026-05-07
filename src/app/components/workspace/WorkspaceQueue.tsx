@@ -10,7 +10,9 @@ interface Props {
   workspaces: Workspace[]
   renderedVideos?: RenderedVideo[]
   selectedId: string | null
+  selectedRenderedId?: string | null
   onSelect: (id: string) => void
+  onSelectRendered?: (id: string | null) => void
   onQuickAction?: (action: 'open' | 'delete', id: string) => void
   onRetry?: (id: string) => void
   onRemoveRendered?: (id: string) => void
@@ -20,6 +22,7 @@ interface Props {
 }
 
 type GroupStatus = 'ready' | 'rendering' | 'downloading' | 'waiting' | 'editing' | 'done'
+type ActiveTab = 'pipeline' | 'rendered'
 
 const STATUS_ORDER: GroupStatus[] = ['ready', 'rendering', 'downloading', 'waiting', 'editing', 'done']
 
@@ -46,8 +49,12 @@ function groupByStatus(workspaces: Workspace[]): Map<GroupStatus, Workspace[]> {
   return groups
 }
 
-export function WorkspaceQueue({ workspaces, renderedVideos = [], selectedId, onSelect, onQuickAction, onRetry, onRemoveRendered, onShowToast, onSplit, trimLimitMinutes = 10 }: Props) {
+export function WorkspaceQueue({
+  workspaces, renderedVideos = [], selectedId, selectedRenderedId,
+  onSelect, onSelectRendered, onQuickAction, onRetry, onRemoveRendered, onShowToast, onSplit, trimLimitMinutes = 10,
+}: Props) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<GroupStatus>>(new Set<GroupStatus>(['done']))
+  const [activeTab, setActiveTab] = useState<ActiveTab>('pipeline')
   const groups = groupByStatus(workspaces)
 
   const toggleGroup = (status: GroupStatus) => {
@@ -67,136 +74,207 @@ export function WorkspaceQueue({ workspaces, renderedVideos = [], selectedId, on
 
   return (
     <div className="flex flex-col h-full" style={{ background: '#121212' }}>
-      {/* Queue header */}
+      {/* Tab header */}
       <div
-        className="flex items-center justify-between px-4 shrink-0"
         style={{
-          height: 32,
+          display: 'flex',
+          alignItems: 'stretch',
           background: '#0D0D0D',
           borderBottom: '1px solid #1E1E1E',
+          flexShrink: 0,
         }}
       >
-        <div className="flex items-center gap-3">
-          <span style={{ fontSize: 9, fontWeight: 800, color: '#444', letterSpacing: '0.1em' }}>
+        {/* PIPELINE tab */}
+        <button
+          onClick={() => { setActiveTab('pipeline'); onSelectRendered?.(null) }}
+          style={{
+            flex: 1,
+            height: 32,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 5,
+            background: activeTab === 'pipeline' ? '#121212' : 'transparent',
+            border: 'none',
+            borderBottom: activeTab === 'pipeline' ? '2px solid #00B4FF' : '2px solid transparent',
+            cursor: 'pointer',
+            transition: 'all 0.15s',
+          }}
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={activeTab === 'pipeline' ? '#00B4FF' : '#444'} strokeWidth="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+            <line x1="3" y1="9" x2="21" y2="9" />
+            <line x1="9" y1="21" x2="9" y2="9" />
+          </svg>
+          <span style={{
+            fontSize: 9,
+            fontWeight: 800,
+            color: activeTab === 'pipeline' ? '#00B4FF' : '#444',
+            letterSpacing: '0.1em',
+          }}>
             PIPELINE
           </span>
-          <span style={{ fontSize: 9, color: '#333' }}>
-            {totalActive} active
-          </span>
-          {totalDone > 0 && (
-            <span style={{ fontSize: 9, color: '#333' }}>
-              · {totalDone} done
+          {totalActive > 0 && (
+            <span style={{
+              fontSize: 8,
+              color: '#333',
+              fontFamily: 'monospace',
+            }}>
+              {totalActive}
             </span>
           )}
-        </div>
-        <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#333' }}>
-          {workspaces.length} total
-        </span>
+        </button>
+
+        {/* RENDERED tab */}
+        <button
+          onClick={() => { setActiveTab('rendered'); onSelect?.('') }}
+          style={{
+            flex: 1,
+            height: 32,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 5,
+            background: activeTab === 'rendered' ? '#121212' : 'transparent',
+            border: 'none',
+            borderBottom: activeTab === 'rendered' ? '2px solid #00FF88' : '2px solid transparent',
+            cursor: 'pointer',
+            transition: 'all 0.15s',
+          }}
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={activeTab === 'rendered' ? '#00FF88' : '#444'} strokeWidth="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </svg>
+          <span style={{
+            fontSize: 9,
+            fontWeight: 800,
+            color: activeTab === 'rendered' ? '#00FF88' : '#444',
+            letterSpacing: '0.1em',
+          }}>
+            RENDERED
+          </span>
+          {renderedVideos.length > 0 && (
+            <span style={{
+              fontSize: 8,
+              color: '#333',
+              fontFamily: 'monospace',
+            }}>
+              {renderedVideos.length}
+            </span>
+          )}
+        </button>
       </div>
 
-      {/* Workspace groups */}
+      {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
-        {workspaces.length === 0 ? (
-          <div
-            className="flex flex-col items-center justify-center"
-            style={{ height: '100%', gap: 8 }}
-          >
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#222" strokeWidth="1.5">
-              <path d="M15 10l4.553-2.276A1 1 0 0 1 21 8.618v6.764a1 1 0 0 1-1.447.894L15 14v-4z" />
-              <rect x="3" y="6" width="12" height="12" rx="2" ry="2" />
-            </svg>
-            <span style={{ fontSize: 11, color: '#333', textAlign: 'center', lineHeight: 1.5 }}>
-              No videos yet<br />
-              <span style={{ color: '#2A2A2A', fontSize: 10 }}>Add a channel in Settings →</span>
-            </span>
-          </div>
-        ) : (
-          STATUS_ORDER.map((status) => {
-            const items = groups.get(status) || []
-            if (items.length === 0) return null
+        {activeTab === 'pipeline' ? (
+          /* Pipeline view */
+          <>
+            {workspaces.length === 0 ? (
+              <div
+                className="flex flex-col items-center justify-center"
+                style={{ height: '100%', gap: 8 }}
+              >
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#222" strokeWidth="1.5">
+                  <path d="M15 10l4.553-2.276A1 1 0 0 1 21 8.618v6.764a1 1 0 0 1-1.447.894L15 14v-4z" />
+                  <rect x="3" y="6" width="12" height="12" rx="2" ry="2" />
+                </svg>
+                <span style={{ fontSize: 11, color: '#333', textAlign: 'center', lineHeight: 1.5 }}>
+                  No videos yet<br />
+                  <span style={{ color: '#2A2A2A', fontSize: 10 }}>Add a channel in Settings →</span>
+                </span>
+              </div>
+            ) : (
+              STATUS_ORDER.map((status) => {
+                const items = groups.get(status) || []
+                if (items.length === 0) return null
 
-            const cfg = GROUP_CONFIG[status]
-            const isCollapsed = collapsedGroups.has(status)
+                const cfg = GROUP_CONFIG[status]
+                const isCollapsed = collapsedGroups.has(status)
 
-            return (
-              <div key={status}>
-                {/* Group header */}
-                <div
-                  onClick={() => cfg.collapsible && toggleGroup(status)}
-                  className="flex items-center px-4 shrink-0"
-                  style={{
-                    height: 26,
-                    background: '#0F0F0F',
-                    borderBottom: '1px solid #181818',
-                    cursor: cfg.collapsible ? 'pointer' : 'default',
-                    userSelect: 'none',
-                  }}
-                >
-                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: cfg.color, display: 'inline-block', marginRight: 6, boxShadow: `0 0 4px ${cfg.color}88` }} />
-                  <span
-                    style={{
-                      fontSize: 9,
-                      fontWeight: 700,
-                      color: '#555',
-                      letterSpacing: '0.08em',
-                    }}
-                  >
-                    {cfg.label}
-                  </span>
-                  <span
-                    style={{
-                      marginLeft: 5,
-                      fontSize: 9,
-                      fontFamily: 'monospace',
-                      color: '#444',
-                    }}
-                  >
-                    · {items.length}
-                  </span>
-                  {cfg.collapsible && (
-                    <svg
-                      width="10"
-                      height="10"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="#333"
-                      strokeWidth="2"
+                return (
+                  <div key={status}>
+                    {/* Group header */}
+                    <div
+                      onClick={() => cfg.collapsible && toggleGroup(status)}
+                      className="flex items-center px-4 shrink-0"
                       style={{
-                        marginLeft: 'auto',
-                        transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
-                        transition: 'transform 0.15s',
+                        height: 26,
+                        background: '#0F0F0F',
+                        borderBottom: '1px solid #181818',
+                        cursor: cfg.collapsible ? 'pointer' : 'default',
+                        userSelect: 'none',
                       }}
                     >
-                      <polyline points="6 9 12 15 18 9" />
-                    </svg>
-                  )}
-                </div>
+                      <span style={{ width: 5, height: 5, borderRadius: '50%', background: cfg.color, display: 'inline-block', marginRight: 6, boxShadow: `0 0 4px ${cfg.color}88` }} />
+                      <span
+                        style={{
+                          fontSize: 9,
+                          fontWeight: 700,
+                          color: '#555',
+                          letterSpacing: '0.08em',
+                        }}
+                      >
+                        {cfg.label}
+                      </span>
+                      <span
+                        style={{
+                          marginLeft: 5,
+                          fontSize: 9,
+                          fontFamily: 'monospace',
+                          color: '#444',
+                        }}
+                      >
+                        · {items.length}
+                      </span>
+                      {cfg.collapsible && (
+                        <svg
+                          width="10"
+                          height="10"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="#333"
+                          strokeWidth="2"
+                          style={{
+                            marginLeft: 'auto',
+                            transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                            transition: 'transform 0.15s',
+                          }}
+                        >
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      )}
+                    </div>
 
-                {/* Group items */}
-                {!isCollapsed && items.map((ws) => (
-                  <WorkspaceCard
-                    key={ws.id}
-                    workspace={ws}
-                    isSelected={ws.id === selectedId}
-                    onClick={() => onSelect(ws.id)}
-                    onQuickAction={onQuickAction}
-                    onRetry={onRetry}
-                    onSplit={onSplit}
-                    trimLimitMinutes={trimLimitMinutes}
-                  />
-                ))}
-              </div>
-            )
-          })
+                    {/* Group items */}
+                    {!isCollapsed && items.map((ws) => (
+                      <WorkspaceCard
+                        key={ws.id}
+                        workspace={ws}
+                        isSelected={ws.id === selectedId}
+                        onClick={() => onSelect(ws.id)}
+                        onQuickAction={onQuickAction}
+                        onRetry={onRetry}
+                        onSplit={onSplit}
+                        trimLimitMinutes={trimLimitMinutes}
+                      />
+                    ))}
+                  </div>
+                )
+              })
+            )}
+          </>
+        ) : (
+          /* Rendered videos tab */
+          <RenderedVideos
+            videos={renderedVideos}
+            selectedId={selectedRenderedId ?? null}
+            onSelect={(id) => onSelectRendered?.(id)}
+            onRemove={(id) => onRemoveRendered?.(id)}
+            onShowToast={(msg) => onShowToast?.(msg)}
+          />
         )}
       </div>
-
-      {/* Rendered videos section */}
-      <RenderedVideos
-        videos={renderedVideos}
-        onRemove={(id) => onRemoveRendered?.(id)}
-        onShowToast={(msg) => onShowToast?.(msg)}
-      />
     </div>
   )
 }

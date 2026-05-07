@@ -428,7 +428,7 @@ function buildFilterComplex(opts: {
     if (videoH <= scaledAfterScaleH) {
       // Safe: crop from center-vertical
       const cropY = Math.round((scaledAfterScaleH - videoH) / 2)
-      videoChain2 = `[0:v]${scale}=${canvasW}:-2,crop=${canvasW}:${videoH}:0:${cropY}${speedFilter}[vid]`
+      videoChain2 = `[0:v]${scale}=${canvasW}:-2,crop=${canvasW}:${videoH}:0:${cropY}${speedFilter ? ',' + speedFilter : ''}[vid]`
     } else {
       // Unsafe: target exceeds scaled source — use contain (letterboxing)
       // Use scale+pad in two steps: first scale to target height, then pad to full width
@@ -437,7 +437,7 @@ function buildFilterComplex(opts: {
       // Step 1: scale to target height (preserving aspect)
       // Step 2: pad to canvas width with horizontal centering
       // Note: use iw/ih in pad expressions (ow/oh reference output of THIS pad, not previous)
-      videoChain2 = `[0:v]${scale}=${canvasW}:${videoH}:force_original_aspect_ratio=decrease,pad=${canvasW}:${videoH}:(ow-iw)/2:${targetY}${speedFilter}[vid]`
+      videoChain2 = `[0:v]${scale}=${canvasW}:${videoH}:force_original_aspect_ratio=decrease,pad=${canvasW}:${videoH}:(ow-iw)/2:${targetY}${speedFilter ? ',' + speedFilter : ''}[vid]`
     }
     // [1:v] thumbnail → fill entire canvas background
     const bgChain2 = `[1:v]${scale}=${canvasW}:${canvasH}:force_original_aspect_ratio=decrease[bg]`
@@ -1078,7 +1078,7 @@ function buildChunkArgs(
 
   const scaleChain = '[0:v]' + scale + '=' + videoW + ':' + videoH + ':force_original_aspect_ratio=decrease'
   const padChain = ',pad=' + canvasW + ':' + canvasH + ':(ow-iw)/2:' + videoTop + '[vid]'
-  const videoChain = scaleChain + speedFilter + padChain
+  const videoChain = scaleChain + (speedFilter ? ',' + speedFilter : '') + padChain
 
   // Build background filter for short mode based on background type
   let bgFilter: string

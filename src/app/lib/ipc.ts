@@ -111,7 +111,7 @@ export const ipc = {
   async getSettings() {
     return window.electronAPI?.getSettings() ?? { videoStoragePath: undefined, outputPath: undefined, defaultTrimLimit: undefined, autoDownloadQuality: undefined }
   },
-  async updateSettings(patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string }) {
+  async updateSettings(patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number }) {
     return window.electronAPI?.updateSettings(patch)
   },
   async getAuthStatus() {
@@ -147,15 +147,6 @@ export const ipc = {
   },
   async testAllKeys() {
     return window.electronAPI?.testAllKeys() ?? { results: [], keys: [] }
-  },
-  async adminCheckPassword(password: string) {
-    return window.electronAPI?.adminCheckPassword(password) ?? { ok: false }
-  },
-  async adminSetPassword(password: string) {
-    return window.electronAPI?.adminSetPassword(password) ?? { success: false }
-  },
-  async adminHasPassword() {
-    return window.electronAPI?.adminHasPassword() ?? { has: false }
   },
   async getPollerStatus(): Promise<{ active: boolean; lastPollAt: number | null; newVideoCount: number; lastError: string | null; exhaustedUntil: number | null } | null> {
     return window.electronAPI?.getPollerStatus() ?? null
@@ -202,6 +193,10 @@ export const ipc = {
 
   async openSessionLogin(profileId: string) {
     return window.electronAPI?.openSessionLogin(profileId) ?? { success: false }
+  },
+
+  async cloneSessionOne() {
+    return window.electronAPI?.cloneSessionOne() ?? { success: false, clonedCount: 0, error: 'electronAPI not available' }
   },
 
   // ─── Rendered Videos ────────────────────────────────────────────────────────────

@@ -101,6 +101,30 @@ export interface SystemStats {
   activeWorkers: number;
 }
 
+export interface RenderConfig {
+  exportResolution: string
+  fps: number
+  speed: number
+  codec: string
+  preset?: string
+  tune?: string
+  backgroundType?: string
+  audioCodec?: string
+  audioBitrate?: string
+  trimStart?: number
+  trimEnd?: number
+  isShort?: boolean
+  vidHeightPct?: number
+  gpuTier?: string
+}
+
+export interface SourceInfo {
+  originalResolution?: string
+  originalDuration?: number
+  originalFileSize?: number
+  downloadQuality?: string
+}
+
 export interface RenderedVideo {
   id: string;
   workspaceId: string;
@@ -122,4 +146,11 @@ export interface RenderedVideo {
   /** Source video resolution (e.g. "1920x1080") */
   videoResolution?: string;
   renderedAt: string;
+  // ─── Render metadata (for PO debug & comparison) ───
+  /** Wall-clock render time in milliseconds */
+  renderDurationMs?: number;
+  /** Full render configuration used */
+  renderConfig?: RenderConfig;
+  /** Source video information for before/after comparison */
+  sourceInfo?: SourceInfo;
 }

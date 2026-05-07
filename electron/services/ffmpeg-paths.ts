@@ -21,30 +21,32 @@ function resolveBinary(name: string): string {
       let hasNvEncoders = false
       let hasTestedNvEnc = false
       let nvencWorks = false
-      try {
-        const encOut = execSync(`"${fp}" -hide_banner -encoders 2>&1`, { encoding: 'utf-8', timeout: 5000 })
-        hasNvEncoders = encOut.includes('h264_nvenc') || encOut.includes('hevc_nvenc')
-        // Quick hardware test: try encoding 1 frame. Some builds list NVENC but driver doesn't support it.
-        // gyan.dev FFmpeg 8.1 on RTX 4050 Laptop (driver 566.14): NVENC listed but fails at runtime.
-        if (hasNvEncoders) {
-          hasTestedNvEnc = true
-          const testFile = path.join(os.tmpdir(), `hc_nvenc_probe_${Date.now()}.mp4`)
-          const testCodec = encOut.includes('h264_nvenc') ? 'h264_nvenc' : 'hevc_nvenc'
-          try {
-            execSync(
-              `"${fp}" -f lavfi -i color=c=blue:s=1920x1080:d=0.1 -c:v ${testCodec} -frames:v 1 -y "${testFile}"`,
-              { timeout: 15000, stdio: 'ignore' }
-            )
-            const sz = fs.statSync(testFile).size
-            nvencWorks = sz > 100
-            if (!nvencWorks) console.log(`[FFmpeg probe] ${path.basename(fp)} NVENC test: 0 bytes — driver incompatible`)
-          } catch {
-            console.log(`[FFmpeg probe] ${path.basename(fp)} NVENC test: FAILED`)
-          } finally {
-            try { fs.unlinkSync(testFile) } catch {}
+      if (name === 'ffmpeg') {
+        try {
+          const encOut = execSync(`"${fp}" -hide_banner -encoders 2>&1`, { encoding: 'utf-8', timeout: 5000 })
+          hasNvEncoders = encOut.includes('h264_nvenc') || encOut.includes('hevc_nvenc')
+          // Quick hardware test: try encoding 1 frame. Some builds list NVENC but driver doesn't support it.
+          // gyan.dev FFmpeg 8.1 on RTX 4050 Laptop (driver 566.14): NVENC listed but fails at runtime.
+          if (hasNvEncoders) {
+            hasTestedNvEnc = true
+            const testFile = path.join(os.tmpdir(), `hc_nvenc_probe_${Date.now()}.mp4`)
+            const testCodec = encOut.includes('h264_nvenc') ? 'h264_nvenc' : 'hevc_nvenc'
+            try {
+              execSync(
+                `"${fp}" -f lavfi -i color=c=blue:s=1920x1080:d=0.1 -c:v ${testCodec} -frames:v 1 -y "${testFile}"`,
+                { timeout: 15000, stdio: 'ignore' }
+              )
+              const sz = fs.statSync(testFile).size
+              nvencWorks = sz > 100
+              if (!nvencWorks) console.log(`[FFmpeg probe] ${path.basename(fp)} NVENC test: 0 bytes — driver incompatible`)
+            } catch {
+              console.log(`[FFmpeg probe] ${path.basename(fp)} NVENC test: FAILED`)
+            } finally {
+              try { fs.unlinkSync(testFile) } catch {}
+            }
           }
-        }
-      } catch {}
+        } catch {}
+      }
 
       // Quick CUDA score: prefer builds known to have CUDA support
       // - full/build: high score

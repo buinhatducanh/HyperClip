@@ -6,6 +6,7 @@ import { Sidebar } from './components/Sidebar'
 import { WorkspaceQueue } from './components/workspace/WorkspaceQueue'
 import { RenderQueueBar } from './components/workspace/RenderQueueBar'
 import { DetailEditor } from './components/DetailEditor'
+import { RenderedVideoDetail } from './components/RenderedVideoDetail'
 import { LoginScreen } from './components/LoginScreen'
 import type { Channel, Video, SystemStats, EditorState } from './types'
 import { useAppStore, type Workspace } from './lib/store'
@@ -100,6 +101,7 @@ export default function DashboardPage() {
   const router = useRouter()
   const [renderQueueExpanded, setRenderQueueExpanded] = useState(false)
   const [keyHealth, setKeyHealth] = useState<{ exhausted: number; unauthorized: number }>({ exhausted: 0, unauthorized: 0 })
+  const [selectedRenderedVideoId, setSelectedRenderedVideoId] = useState<string | null>(null)
 
   // Fetch auth status on mount + listen for updates
   useEffect(() => {
@@ -301,9 +303,15 @@ export default function DashboardPage() {
 
   const handleVideoSelect = (id: string) => {
     selectWorkspace(id)
+    setSelectedRenderedVideoId(null) // clear rendered selection when selecting a workspace
     resetEditorState()
     const ws = workspaces.find(w => w.id === id)
     if (ws) updateEditorState({ exportQuality: ws.quality || 1080 })
+  }
+
+  const handleRenderedVideoSelect = (id: string | null) => {
+    setSelectedRenderedVideoId(id)
+    if (id) selectWorkspace(null) // clear workspace selection when selecting rendered video
   }
 
   const handleQuickAction = (action: 'open' | 'delete', id: string) => {
@@ -519,29 +527,41 @@ export default function DashboardPage() {
             workspaces={filteredWorkspaces}
             renderedVideos={renderedVideos}
             selectedId={selectedWorkspaceId}
+            selectedRenderedId={selectedRenderedVideoId}
             onSelect={(id) => handleVideoSelect(id)}
+            onSelectRendered={handleRenderedVideoSelect}
             onQuickAction={handleQuickAction}
             onRetry={handleRetry}
-            onRemoveRendered={(id) => removeRenderedVideo(id)}
+            onRemoveRendered={(id) => {
+              if (selectedRenderedVideoId === id) setSelectedRenderedVideoId(null)
+              removeRenderedVideo(id)
+            }}
             onShowToast={showToast}
             onSplit={handleSplit}
             trimLimitMinutes={settings.defaultTrimLimit as number}
           />
         </div>
 
-        {/* Editor */}
+        {/* Editor / Rendered detail */}
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-          <DetailEditor
-            video={selectedVideo}
-            editorState={editorState}
-            onChange={handleEditorChange}
-            onRender={handleRender}
-            onExportChunked={handleExportChunked}
-            systemStats={systemStats}
-            onShowToast={showToast}
-            onSplit={handleSplit}
-            settings={settings}
-          />
+          {selectedRenderedVideoId && renderedVideos.find(v => v.id === selectedRenderedVideoId) ? (
+            <RenderedVideoDetail
+              video={renderedVideos.find(v => v.id === selectedRenderedVideoId)!}
+              onShowToast={showToast}
+            />
+          ) : (
+            <DetailEditor
+              video={selectedVideo}
+              editorState={editorState}
+              onChange={handleEditorChange}
+              onRender={handleRender}
+              onExportChunked={handleExportChunked}
+              systemStats={systemStats}
+              onShowToast={showToast}
+              onSplit={handleSplit}
+              settings={settings}
+            />
+          )}
         </div>
       </div>
 
