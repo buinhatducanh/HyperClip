@@ -112,6 +112,13 @@ const IPC = {
   STORAGE_CLEAR_DOWNLOADS: 'storage:clear-downloads',
   STORAGE_CLEAR_BLUR: 'storage:clear-blur',
   STORAGE_PICK_FOLDER: 'storage:pick-folder',
+
+  // System diagnostics
+  DIAGNOSTICS_RUN: 'diagnostics:run',
+
+  // Data portability
+  DATA_EXPORT: 'data:export',
+  DATA_IMPORT: 'data:import',
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -202,7 +209,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Settings
   getSettings: () => ipcRenderer.invoke(IPC.SETTINGS_GET),
-  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full' }) =>
+  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string }) =>
     ipcRenderer.invoke(IPC.SETTINGS_UPDATE, patch),
 
   // WebSub diagnostics
@@ -336,4 +343,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC.STORAGE_CLEAR_BLUR) as Promise<{ success: boolean; freedMB: number }>,
   pickFolder: (currentPath?: string) =>
     ipcRenderer.invoke(IPC.STORAGE_PICK_FOLDER, currentPath) as Promise<{ path: string } | null>,
+
+  // System diagnostics
+  runDiagnostics: () =>
+    ipcRenderer.invoke(IPC.DIAGNOSTICS_RUN) as Promise<{
+      timestamp: string
+      ffmpeg: { ok: boolean; path: string; version: string; hasNvenc: boolean; bundled: boolean; error?: string }
+      ytDlp: { ok: boolean; path: string; version: string; error?: string }
+      storage: { ramDiskAvailable: boolean; storeDir: string }
+      overall: { ready: boolean; issues: string[] }
+    }>,
+
+  // Data portability
+  exportData: () =>
+    ipcRenderer.invoke(IPC.DATA_EXPORT) as Promise<{ success: boolean; path?: string; error?: string }>,
+  importData: () =>
+    ipcRenderer.invoke(IPC.DATA_IMPORT) as Promise<{ success: boolean; channelsImported?: number; seenImported?: number; error?: string }>,
 })

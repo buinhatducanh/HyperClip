@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, protocol } from 'electron'
+import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, protocol, dialog } from 'electron'
 import path from 'path'
 import os from 'os'
 import fs from 'fs'
@@ -10,10 +10,10 @@ import zlib from 'zlib'
 import { URL } from 'url'
 import { IPC_CHANNELS } from './ipc/channels.js'
 import { collectSystemStats, getGPUCapabilities, type SystemStats } from './services/system.js'
+import { runDiagnostics } from './services/diagnostics.js'
 import {
   getWorkspaces, getWorkspace, addWorkspace, updateWorkspace, deleteWorkspace,
-  getSubscription,
-  getChannels, getChannel, addChannel, updateChannel, removeChannel, markVideoSeen, loadSeenVideos, type StoredChannel,
+  getChannels, getChannel, addChannel, updateChannel, removeChannel, markVideoSeen, loadSeenVideos, saveSeenVideos, type StoredChannel,
   type WorkspaceData,
   getRenderedVideos, addRenderedVideo, removeRenderedVideo, type RenderedVideoRecord, type RenderConfigRecord, type SourceInfoRecord,
 } from './services/store.js'
@@ -21,7 +21,7 @@ import { downloadVideo, getVideoInfo, getChannelInfo, getChannelId, preScaleVide
 import { renderVideo, renderChunked, generateBlurBackground, extractVideoThumbnail, cancelChunked, cancelAllChunked, probeVideoAspect, trimVideo, type RenderMetadata, type RenderProgress, type ChunkConfig } from './services/ffmpeg.js'
 import { cancelFfmpeg, cancelAllFfmpeg, getPoolStatus } from './services/worker-pool.js'
 import { getFfmpegPath, validateFfmpeg } from './services/ffmpeg-paths.js'
-import { getVideoStoragePath, getOutputPath, generateWorkspacePaths, cleanupWorkspace, ensureStorageDirs, loadSettings, saveSettings, archiveRenderedFile, getArchivePath, openArchiveFolder, showInFolder } from './services/ramdisk.js'
+import { getVideoStoragePath, getOutputPath, generateWorkspacePaths, cleanupWorkspace, ensureStorageDirs, loadSettings, saveSettings, archiveRenderedFile, getArchivePath, openArchiveFolder, showInFolder, getFreeDiskSpace } from './services/ramdisk.js'
 import { createYouTubePoller, stopYouTubePoller, getYouTubePoller } from './services/youtube_poller.js'
 import { refreshChannelCache } from './services/subscription_feed.js'
 import { initCookieManager, getCookieManager, authEvents, channelEvents } from './services/cookie_manager.js'
@@ -39,7 +39,7 @@ if (process.platform === 'win32') {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const isDev = process.env.NODE_ENV !== 'production'
-const NEXT_PORT = 3000
+const NEXT_PORT = parseInt(process.env.HYPERCLIP_PORT || '3000', 10)
 
 // Single terminal: Electron auto-boots Next.js if not already running
 let mainWindow: BrowserWindow | null = null
@@ -372,7 +372,8 @@ async function autoDownloadFromWebSub(
       return
     }
 
-    const finalChannelName = channelName || getSubscription(channelId)?.channelName || 'Unknown Channel'
+    const channel = getChannel(channelId)
+    const finalChannelName = channelName || channel?.name || 'Unknown Channel'
     const detectedAt = new Date().toISOString()
     console.log(`[Poll] Auto-downloading: ${title} (${videoId}) from ${finalChannelName}`)
 
@@ -990,6 +991,15 @@ function startNextServer(): Promise<void> {
     nextServerOwned = true
     console.log(`[HyperClip] Booting Next.js on port ${NEXT_PORT}...`)
 
+    nextServer.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`[HyperClip] Port ${NEXT_PORT} is already in use. Set HYPERCLIP_PORT env var to use a different port.`)
+        console.error('[HyperClip] Example: HYPERCLIP_PORT=3001 npm run electron:dev')
+        process.exit(1)
+      }
+      console.error('[HyperClip] Next.js server error:', err.message)
+    })
+
     nextServer.stdout?.on('data', (data) => {
       const text = data.toString()
       process.stdout.write('[Next.js] ' + text)
@@ -1354,7 +1364,7 @@ async function registerIPCHandlers() {
   })
 
   // ─── Storage management ─────────────────────────────────────────────────────────
-  ipcMain.handle(IPC_CHANNELS.STORAGE_GET_SIZE, async (): Promise<{ downloads: number; blur: number; total: number; downloadPath: string; outputPath: string }> => {
+  ipcMain.handle(IPC_CHANNELS.STORAGE_GET_SIZE, async (): Promise<{ downloads: number; blur: number; total: number; downloadPath: string; outputPath: string; freeBytes: number }> => {
     try {
       const storagePath = getVideoStoragePath()
       const outputDir = getOutputPath()
@@ -1382,9 +1392,10 @@ async function registerIPCHandlers() {
         total: parseFloat(((downloadSize + blurSize) / (1024 ** 2)).toFixed(1)),
         downloadPath: storagePath,
         outputPath: outputDir,
+        freeBytes: getFreeDiskSpace(storagePath),
       }
     } catch {
-      return { downloads: 0, blur: 0, total: 0, downloadPath: '', outputPath: '' }
+      return { downloads: 0, blur: 0, total: 0, downloadPath: '', outputPath: '', freeBytes: 0 }
     }
   })
 
@@ -1443,7 +1454,6 @@ async function registerIPCHandlers() {
   })
 
   ipcMain.handle(IPC_CHANNELS.STORAGE_PICK_FOLDER, async (_, currentPath?: string): Promise<{ path: string } | null> => {
-    const { dialog, BrowserWindow } = require('electron')
     const win = BrowserWindow.getFocusedWindow()
     if (!win) return null
     const result = await dialog.showOpenDialog(win, {
@@ -1453,6 +1463,123 @@ async function registerIPCHandlers() {
     })
     if (result.canceled || !result.filePaths?.[0]) return null
     return { path: result.filePaths[0] }
+  })
+
+  // ─── System diagnostics (P0) ───────────────────────────────────────────────
+  ipcMain.handle(IPC_CHANNELS.DIAGNOSTICS_RUN, async () => {
+    return runDiagnostics()
+  })
+
+  // ─── Data portability (P1) ─────────────────────────────────────────────────
+  ipcMain.handle(IPC_CHANNELS.DATA_EXPORT, async (): Promise<{ success: boolean; path?: string; error?: string }> => {
+    try {
+      const win = BrowserWindow.getFocusedWindow()
+      const result = await dialog.showSaveDialog(win!, {
+        title: 'Export HyperClip Data',
+        defaultPath: `hyperclip-backup-${new Date().toISOString().slice(0, 10)}.json`,
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      })
+      if (result.canceled || !result.filePath) return { success: false, error: 'Cancelled' }
+
+      const channels = getChannels()
+      const seen = loadSeenVideos()
+
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        appVersion: '1.0',
+        channels,
+        seenVideos: seen,
+        // Exclude workspaces (too large + contain absolute paths)
+        // Exclude rendered (referenced by workspaceId)
+      }
+      fs.writeFileSync(result.filePath, JSON.stringify(payload, null, 2), 'utf-8')
+      sendNotification('success', `Exported ${channels.length} channels`, undefined)
+      return { success: true, path: result.filePath }
+    } catch (err) {
+      return { success: false, error: (err as Error).message }
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.DATA_IMPORT, async (): Promise<{ success: boolean; channelsImported?: number; seenImported?: number; error?: string }> => {
+    try {
+      const win = BrowserWindow.getFocusedWindow()
+      const result = await dialog.showOpenDialog(win!, {
+        title: 'Import HyperClip Data',
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+        properties: ['openFile'],
+      })
+      if (result.canceled || !result.filePaths?.[0]) return { success: false, error: 'Cancelled' }
+
+      const content = fs.readFileSync(result.filePaths[0], 'utf-8')
+      const data = JSON.parse(content) as { channels?: StoredChannel[]; seenVideos?: Record<string, { ids: string[]; expiresAt: number }> }
+
+      let channelsImported = 0
+      let seenImported = 0
+
+      if (data.channels?.length) {
+        const existing = getChannels()
+        const existingIds = new Set(existing.map(c => c.id))
+        for (const ch of data.channels) {
+          if (!existingIds.has(ch.id)) {
+            addChannel(ch)
+            channelsImported++
+          }
+        }
+      }
+
+      if (data.seenVideos && typeof data.seenVideos === 'object') {
+        const existingSeen = loadSeenVideos()
+        for (const [channelId, entry] of Object.entries(data.seenVideos)) {
+          if (!existingSeen[channelId]) {
+            existingSeen[channelId] = entry
+            seenImported++
+          }
+        }
+        saveSeenVideos(existingSeen)
+      }
+
+      sendNotification('success', `Imported ${channelsImported} channels, ${seenImported} seen entries`, undefined)
+      return { success: true, channelsImported, seenImported }
+    } catch (err) {
+      return { success: false, error: (err as Error).message }
+    }
+  })
+
+  // ─── Auto-cleanup downloads (P3) ─────────────────────────────────────────────
+  // Runs on startup: delete video files older than downloadsCleanupDays.
+  const cleanupDays = loadSettings().downloadsCleanupDays ?? 7
+  if (cleanupDays > 0) {
+    try {
+      const storagePath = getVideoStoragePath()
+      const cutoff = Date.now() - cleanupDays * 24 * 60 * 60 * 1000
+      let cleaned = 0
+      for (const entry of fs.readdirSync(storagePath)) {
+        if (entry.startsWith('blur_')) continue
+        const ext = path.extname(entry).toLowerCase()
+        if (!['.mp4', '.mkv', '.webm', '.avi', '.mov'].includes(ext)) continue
+        const fullPath = path.join(storagePath, entry)
+        try {
+          const stat = fs.statSync(fullPath)
+          if (stat.mtimeMs < cutoff) {
+            fs.unlinkSync(fullPath)
+            cleaned++
+            console.log(`[AutoCleanup] Removed old download: ${entry}`)
+          }
+        } catch {}
+      }
+      if (cleaned > 0) console.log(`[AutoCleanup] Done — removed ${cleaned} old video files`)
+    } catch {}
+  }
+
+  // ─── Settings ─────────────────────────────────────────────────────────────────
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, () => {
+    return loadSettings()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_UPDATE, (_, patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string }) => {
+    const settings = loadSettings()
+    saveSettings({ ...settings, ...patch })
+    return loadSettings()
   })
 
   // ─── Split workspace into multiple workspaces by trim limit ─────────────────────
@@ -2647,13 +2774,29 @@ ensureStorageDirs()
 app.whenReady().then(async () => {
   console.log('[HyperClip] Starting...')
 
-  // Validate FFmpeg before any render can happen
+  // P0: Run system diagnostics — check all prerequisites and alert user to issues
+  const diag = await runDiagnostics()
+  if (!diag.overall.ready) {
+    console.warn('[HyperClip] Diagnostics issues:')
+    for (const issue of diag.overall.issues) {
+      console.warn('  -', issue)
+    }
+    sendNotification('warning', `Có vấn đề: ${diag.overall.issues[0]}. Xem Settings → Diagnostics để biết thêm.`)
+  } else {
+    console.log('[HyperClip] Diagnostics: All prerequisites OK')
+  }
+
+  // Validate FFmpeg hardware encoder (separate from existence check)
   const ffmpegPath = getFfmpegPath()
-  try {
-    await validateFfmpeg(ffmpegPath)
-  } catch (e) {
-    console.error('[HyperClip] FFmpeg validation failed — renders will NOT work:', e)
-    sendNotification('error', `FFmpeg not available: ${e}. Renders will fail.`)
+  if (diag.ffmpeg.ok && !diag.ffmpeg.hasNvenc) {
+    console.warn('[HyperClip] FFmpeg found but no NVENC hardware encoder — rendering will use CPU (slow).')
+    sendNotification('info', 'FFmpeg không có NVENC — render sẽ chậm. Khuyến nghị FFmpeg build có hỗ trợ NVIDIA NVENC.')
+  }
+
+  // P2: RAM disk not available
+  if (!diag.storage.ramDiskAvailable) {
+    console.log('[HyperClip] RAM disk not available — videos will be stored on disk (slower I/O).')
+    sendNotification('info', 'RAM disk chưa bật — video sẽ lưu ổ C (chậm hơn RAM disk). Có thể bỏ qua nếu không cần tốc độ cao.')
   }
 
   // Auto-boot Next.js if not already running on port 3000
@@ -2728,6 +2871,41 @@ app.whenReady().then(async () => {
       console.log('[HyperClip] Auto-ingestion active (5s interval)')
       console.log(`[HyperClip] Ready → http://localhost:${NEXT_PORT}`)
       startSystemMonitor()
+
+      // ─── Periodic storage cleanup (every 1 hour) ─────────────────────────────────
+      setInterval(() => {
+        const cleanupDays = loadSettings().downloadsCleanupDays ?? 7
+        if (cleanupDays <= 0) return
+        try {
+          const storagePath = getVideoStoragePath()
+          const cutoff = Date.now() - cleanupDays * 24 * 60 * 60 * 1000
+          let cleaned = 0
+          for (const entry of fs.readdirSync(storagePath)) {
+            if (entry.startsWith('blur_')) continue
+            const ext = path.extname(entry).toLowerCase()
+            if (!['.mp4', '.mkv', '.webm', '.avi', '.mov'].includes(ext)) continue
+            const fullPath = path.join(storagePath, entry)
+            try {
+              const stat = fs.statSync(fullPath)
+              if (stat.mtimeMs < cutoff) { fs.unlinkSync(fullPath); cleaned++ }
+            } catch {}
+          }
+          if (cleaned > 0) console.log(`[PeriodicCleanup] Removed ${cleaned} old video files`)
+        } catch {}
+      }, 60 * 60 * 1000)
+
+      // ─── Disk space monitoring (every 30 minutes) ──────────────────────────────
+      setInterval(() => {
+        try {
+          const storagePath = getVideoStoragePath()
+          const freeBytes = getFreeDiskSpace(storagePath)
+          const FREE_WARNING_THRESHOLD = 5 * 1024 * 1024 * 1024
+          if (freeBytes > 0 && freeBytes < FREE_WARNING_THRESHOLD) {
+            const freeGB = (freeBytes / (1024 ** 3)).toFixed(1)
+            mainWindow?.webContents.send(IPC_CHANNELS.NOTIFICATION_EVENT, { type: 'warning', message: `Low disk space: only ${freeGB} GB free` })
+          }
+        } catch {}
+      }, 30 * 60 * 1000)
     })
   }
 })

@@ -2,6 +2,7 @@ import path from 'path'
 import fs from 'fs'
 import { execSync } from 'child_process'
 import os from 'os'
+import { app } from 'electron'
 
 // Shared FFmpeg/FFprobe path resolution.
 // On Windows with Bash/Git environments, process.cwd() returns Unix-style paths
@@ -80,6 +81,13 @@ function resolveBinary(name: string): string {
 
   const candidates: string[] = []
 
+  // 0. Bundled FFmpeg (shipped in resources/ffmpeg/bin/) — highest priority
+  const appPath = app.isReady() ? app.getAppPath() : ''
+  if (appPath) {
+    const bundledPath = path.join(appPath, 'resources', 'ffmpeg', 'bin', `${name}.exe`)
+    if (exists(bundledPath)) candidates.push(bundledPath)
+  }
+
   // 1. Check PATH environment variable first — most reliable for installed ffmpeg
   const pathEnv = process.env.PATH || process.env.Path || ''
   for (const dir of pathEnv.split(path.delimiter)) {
@@ -88,44 +96,42 @@ function resolveBinary(name: string): string {
     if (exists(fp)) candidates.push(fp)
   }
 
-  // 2. Common CapCut FFmpeg installations (bundled with video editor)
-  const capcutVersions = [
-    '8.1.1.3417',
-    '8.0.1.3366',
-    '8.0.0.3346',
-    '7.9.0.3200',
-  ]
-  for (const ver of capcutVersions) {
-    candidates.push(`C:/Users/MSI/AppData/Local/CapCut/Apps/${ver}/${name}.exe`)
-  }
+  const MSI_USER = process.env.USERNAME || process.env.USER || ''
+  const MSI_LOCALAPPDATA = process.env.LOCALAPPDATA || ''
+  const APPDATA = process.env.APPDATA || ''
+  const PROGDATA = process.env.PROGRAMDATA || 'C:\\ProgramData'
 
-  // 3. Standalone ffmpeg builds — CUDA-enabled builds first (higher score from probeAndScore)
+  // 2. CapCut bundled FFmpeg — per-user AppData paths (MSI-specific installs for dev compatibility)
+  if (MSI_LOCALAPPDATA) {
+    const capcutVersions = ['8.1.1.3417', '8.0.1.3366', '8.0.0.3346', '7.9.0.3200']
+    for (const ver of capcutVersions) {
+      candidates.push(path.join(MSI_LOCALAPPDATA, 'CapCut', 'Apps', ver, name + '.exe'))
+    }
+  }
+  // 3. Standalone FFmpeg builds — use env-based paths instead of hardcoded C:\
   candidates.push(
-    `C:/ffmpeg/ffmpeg-full/bin/${name}.exe`,
-    `C:/ffmpeg/ffmpeg-git-full/bin/${name}.exe`,
-    `C:/Users/MSI/AppData/Local/CapCut/Apps/8.1.1.3417/${name}.exe`,
-    `C:/Users/MSI/AppData/Local/CapCut/Apps/8.0.1.3366/${name}.exe`,
-    `C:/ffmpeg/ffmpeg-8.1-essentials_build/bin/${name}.exe`,
-    `C:/ffmpeg/bin/${name}.exe`,
-    `C:/Program Files/ffmpeg/bin/${name}.exe`,
-    `C:/Program Files (x86)/ffmpeg/bin/${name}.exe`,
-    `C:/msys64/mingw64/bin/${name}.exe`,
-    `C:/tools/${name}.exe`,
+    path.join(APPDATA, 'ffmpeg', 'bin', name + '.exe'),
+    path.join(PROGDATA, 'ffmpeg', 'bin', name + '.exe'),
+    'C:/ffmpeg/ffmpeg-full/bin/' + name + '.exe',
+    'C:/ffmpeg/ffmpeg-git-full/bin/' + name + '.exe',
+    'C:/Program Files/ffmpeg/bin/' + name + '.exe',
+    'C:/Program Files (x86)/ffmpeg/bin/' + name + '.exe',
+    'C:/msys64/mingw64/bin/' + name + '.exe',
   )
 
   // 4. Local node_modules .bin (for development)
   candidates.push(path.join(process.cwd(), 'node_modules', '.bin', name))
 
   // 5. User-local AppData Roaming ffmpeg
-  const appdata = process.env.APPDATA || ''
-  if (appdata) {
-    candidates.push(path.join(appdata, 'ffmpeg', 'bin', name + '.exe'))
-    candidates.push(path.join(appdata, name, 'bin', name + '.exe'))
+  if (APPDATA) {
+    candidates.push(path.join(APPDATA, 'ffmpeg', 'bin', name + '.exe'))
+    candidates.push(path.join(APPDATA, name, 'bin', name + '.exe'))
   }
 
-  // 6. Chocolatey / Scoop package managers
-  candidates.push(`C:/ProgramData/chocolatey/bin/${name}.exe`)
-  candidates.push(`C:/Users/MSI/scoop/shims/${name}.exe`)
+  // 6. Package managers — use env-based paths
+  candidates.push(path.join(PROGDATA, 'chocolatey', 'bin', name + '.exe'))
+  const scoopShims = process.env.SCOOP || (MSI_USER ? path.join('C:/Users', MSI_USER, 'scoop', 'shims') : '')
+  if (scoopShims) candidates.push(path.join(scoopShims, name + '.exe'))
 
   // Find best candidate by CUDA capability score
   let bestFp = ''

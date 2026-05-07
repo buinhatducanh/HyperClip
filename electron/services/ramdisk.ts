@@ -2,14 +2,14 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { execSync } from 'child_process'
-import { shell } from 'electron'
+import { shell, app } from 'electron'
+import { getAppStoreDir, getRamDiskPath } from './paths.js'
 
 // RAM Disk Manager
 // Manages the virtual RAM disk for fast video temp storage
 
 // ─── User-configurable storage paths ─────────────────────────────────────────────
-const APPDATA = process.env.APPDATA || process.env.HOME || process.cwd()
-const STORE_DIR = path.join(APPDATA, 'HyperClip')
+const STORE_DIR = getAppStoreDir()
 const SETTINGS_FILE = path.join(STORE_DIR, 'settings.json')
 
 interface AppSettingsStore {
@@ -26,6 +26,8 @@ interface AppSettingsStore {
   autoRenderResolution?: string
   /** FPS for auto-render: 30 | 60. Defaults to 30. */
   autoRenderFPS?: number
+  /** Auto-cleanup downloads older than N days. 0 = disabled. Defaults to 7. */
+  downloadsCleanupDays?: number
 }
 
 let _settings: AppSettingsStore | null = null
@@ -42,6 +44,7 @@ export function loadSettings(): AppSettingsStore {
   // Default values for new settings
   if (_settings.autoRenderResolution === undefined) _settings.autoRenderResolution = '480x480'
   if (_settings.autoRenderFPS === undefined) _settings.autoRenderFPS = 30
+  if (_settings.downloadsCleanupDays === undefined) _settings.downloadsCleanupDays = 7
   
   return _settings
 }
@@ -84,13 +87,9 @@ export function getAutoRamDiskSize(): number {
 }
 
 const RAM_DISK_SIZE_GB = getAutoRamDiskSize()
-const RAM_DISK_PATH = process.platform === 'win32'
-  ? 'R:\\hyperclip'    // Windows: R: drive (create with ImDisk)
-  : '/mnt/ramdisk/hyperclip'  // Linux: tmpfs
+const RAM_DISK_PATH = getRamDiskPath()
 
-const OUTPUT_PATH = process.platform === 'win32'
-  ? 'R:\\hyperclip\\output'
-  : '/mnt/ramdisk/hyperclip/output'
+const OUTPUT_PATH = path.join(RAM_DISK_PATH, 'output')
 
 const RAM_DISK_TOTAL = RAM_DISK_SIZE_GB * 1024 * 1024 * 1024 // bytes
 
@@ -218,7 +217,7 @@ function calculateDirSize(dirPath: string): number {
 }
 
 // Get free disk space for a path (cross-platform)
-function getFreeDiskSpace(dirPath: string): number {
+export function getFreeDiskSpace(dirPath: string): number {
   // On Windows, use wmic command
   if (process.platform === 'win32') {
     try {
@@ -320,7 +319,7 @@ export function getWorkspaceStorageSize(workspaceId: string): { video: number; b
 
 // ─── Archive / Rendered files ──────────────────────────────────────────────────────
 
-const DEFAULT_ARCHIVE_PATH = 'D:\\HyperClip\\Rendered'
+const DEFAULT_ARCHIVE_PATH = path.join(os.homedir(), 'Videos', 'HyperClip', 'Rendered')
 
 export function getArchivePath(): string {
   const settings = loadSettings()

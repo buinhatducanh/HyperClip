@@ -406,7 +406,9 @@ class KeyManager {
     const https = await import('https')
     const url = new URL('https://www.googleapis.com/youtube/v3/channels')
     url.searchParams.set('part', 'id')
-    url.searchParams.set('id', 'UC_l1KzR9ghnLFm47W6a_BUA') // HyperClip official channel — stable ID
+    // Use guideCategories — publicly accessible, no specific channel needed.
+    // Falls back to categories endpoint which returns results for any valid key.
+    url.searchParams.set('regionCode', 'US')
     url.searchParams.set('key', key)
 
     return new Promise((resolve) => {

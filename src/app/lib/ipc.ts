@@ -109,9 +109,9 @@ export const ipc = {
     return window.electronAPI?.onChannelSynced(callback) ?? (() => {})
   },
   async getSettings() {
-    return window.electronAPI?.getSettings() ?? { videoStoragePath: undefined, outputPath: undefined, defaultTrimLimit: undefined, autoDownloadQuality: undefined }
+    return window.electronAPI?.getSettings() ?? { videoStoragePath: undefined, outputPath: undefined, defaultTrimLimit: undefined, autoDownloadQuality: undefined, autoRender: undefined, autoRenderResolution: undefined, autoRenderFPS: undefined, downloadsCleanupDays: undefined, renderedOutputPath: undefined }
   },
-  async updateSettings(patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number }) {
+  async updateSettings(patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string }) {
     return window.electronAPI?.updateSettings(patch)
   },
   async getAuthStatus() {

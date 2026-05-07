@@ -290,6 +290,23 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
             >
               Đăng nhập với Google
             </button>
+
+            {/* Demo mode — skip OAuth, still works with manual workspace add */}
+            <div style={{ width: '100%', height: 1, background: '#1A1A1A' }} />
+            <button
+              onClick={() => setStatus({ ...status, isReady: true, oauthReady: false, accountName: 'Demo Mode' })}
+              style={{
+                width: '100%', height: 28,
+                background: 'transparent', border: '1px solid #2A2A2A',
+                borderRadius: 6, fontSize: 10,
+                color: '#555', cursor: 'pointer',
+              }}
+            >
+              Dùng thử (không theo dõi tự động)
+            </button>
+            <div style={{ fontSize: 9, color: '#333', textAlign: 'center', lineHeight: 1.5 }}>
+              Thêm video thủ công, chỉnh sửa và render. Theo dõi kênh tự động cần đăng nhập Google.
+            </div>
           </div>
         )}
       </div>

@@ -75,9 +75,17 @@ export interface SessionStatus {
 const APPDATA = process.env.APPDATA || os.homedir()
 const LOCALAPPDATA = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local')
 
+// Centralized HyperClip user data directory — use Electron API when available.
+function getHyperClipBaseDir(): string {
+  if (app && app.isReady() && app.getPath) {
+    return app.getPath('userData')
+  }
+  return path.join(APPDATA, 'HyperClip')
+}
+
 // Dedicated HyperClip profile directory (created by us)
 export function getHyperClipProfileDir(profileId: string): string {
-  return path.join(LOCALAPPDATA, `HyperClip-Chrome-Profile-${profileId}`)
+  return path.join(getHyperClipBaseDir(), 'chrome-profiles', `profile-${profileId}`)
 }
 
 // User's default Chrome profile (already logged in)

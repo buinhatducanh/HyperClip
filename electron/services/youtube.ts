@@ -3,6 +3,7 @@ import os from 'os'
 import path from 'path'
 import fs from 'fs'
 import https from 'https'
+import { app } from 'electron'
 import { getFfmpegPath, getFfprobePath } from './ffmpeg-paths.js'
 import { buildArgs, runSimpleFfmpeg, quotePath } from './ffmpeg.js'
 
@@ -176,20 +177,40 @@ function getJsRuntimeArgs(): string[] {
 
 // Find yt-dlp executable
 function getYtdlpPath(): string {
-  // Check in node_modules/.bin
-  const npmBin = path.join(process.cwd(), 'node_modules', '.bin', 'yt-dlp')
-  if (fs.existsSync(npmBin)) return npmBin
-
-  // Check common pip install locations (Roaming Python)
-  for (const ver of ['Python314', 'Python313', 'Python312', 'Python311']) {
-    const scriptsDir = path.join(process.env.APPDATA || '', 'Python', ver, 'Scripts')
-    const ytdlpExe = path.join(scriptsDir, 'yt-dlp.exe')
-    if (fs.existsSync(ytdlpExe)) return ytdlpExe
-    const ytdlpSh = path.join(scriptsDir, 'yt-dlp')
-    if (fs.existsSync(ytdlpSh)) return ytdlpSh
+  // 1. Bundled in resources/ (shipped with app)
+  if (app && app.isReady() && app.getAppPath) {
+    const bundledPath = path.join(app.getAppPath(), 'resources', 'yt-dlp', 'yt-dlp.exe')
+    if (fs.existsSync(bundledPath)) return bundledPath
   }
 
-  // Check PATH
+  // 2. node_modules/.bin (npm package — no Python needed if using bundled binary)
+  const npmBin = path.join(process.cwd(), 'node_modules', '.bin', 'yt-dlp')
+  if (fs.existsSync(npmBin)) return npmBin
+  const npmBinExe = path.join(process.cwd(), 'node_modules', '.bin', 'yt-dlp.exe')
+  if (fs.existsSync(npmBinExe)) return npmBinExe
+
+  // 3. Common pip install locations (Roaming Python + Local Python Scripts)
+  for (const ver of ['Python314', 'Python313', 'Python312', 'Python311']) {
+    const roamingScripts = path.join(process.env.APPDATA || '', 'Python', ver, 'Scripts')
+    const ytdlpExe = path.join(roamingScripts, 'yt-dlp.exe')
+    if (fs.existsSync(ytdlpExe)) return ytdlpExe
+    const ytdlpSh = path.join(roamingScripts, 'yt-dlp')
+    if (fs.existsSync(ytdlpSh)) return ytdlpSh
+
+    // Local Python install (Python313 etc. in AppData\Local\Programs)
+    const localScripts = path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', ver, 'Scripts')
+    const localExe = path.join(localScripts, 'yt-dlp.exe')
+    if (fs.existsSync(localExe)) return localExe
+    const localSh = path.join(localScripts, 'yt-dlp')
+    if (fs.existsSync(localSh)) return localSh
+  }
+  // 4. User-local AppData Roaming Python fallback
+  const roamingPythonScripts = path.join(process.env.APPDATA || '', 'Python', 'Scripts')
+  if (fs.existsSync(path.join(roamingPythonScripts, 'yt-dlp.exe'))) {
+    return path.join(roamingPythonScripts, 'yt-dlp.exe')
+  }
+
+  // 4. PATH
   const pathEnv = process.env.PATH || ''
   for (const dir of pathEnv.split(path.delimiter)) {
     const ytdlp = path.join(dir, 'yt-dlp')

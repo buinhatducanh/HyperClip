@@ -11,9 +11,9 @@
 ## Auto-Ingestion Pipeline
 
 ```
-YouTubePoller (20s ± jitter)
+YouTubePoller (5 giây ± 0.5s jitter)
          ↓
-fetchSubscriptionFeed() → ALL channels (parallel, max 20 concurrent)
+fetchSubscriptionFeed() → ALL channels (parallel, max 5 concurrent)
          ↓
 1. Innertube API (30 Chrome sessions, SAPISIDHASH) — PRIMARY, NO QUOTA
    → OAuth Data API v3 fallback khi Innertube trả 0 video

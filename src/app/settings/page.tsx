@@ -48,6 +48,7 @@ interface ChromeSession {
   isConsented: boolean
   usedToday: number
   lastUsed: number
+  lastRefreshAt: number
   error?: string
 }
 
@@ -2302,12 +2303,19 @@ function PathRow({ label, value, onChange }: { label: string; value: string; onC
 }
 
 function StorageWidget() {
-  const [stats, setStats] = useState<{ downloads: number; blur: number; total: number; downloadPath: string; outputPath: string }>({ downloads: 0, blur: 0, total: 0, downloadPath: '', outputPath: '' })
+  const [stats, setStats] = useState<{ downloads: number; blur: number; total: number; downloadPath: string; outputPath: string; freeBytes?: number }>({ downloads: 0, blur: 0, total: 0, downloadPath: '', outputPath: '', freeBytes: 0 })
+  const [cleanupDays, setCleanupDays] = useState(7)
+  const [archivePath, setArchivePath] = useState('')
   const [clearingDl, setClearingDl] = useState(false)
   const [clearingBlr, setClearingBlr] = useState(false)
   const { showToast } = useAppStore()
 
-  const load = () => { ipc.getStorageSize().then(s => setStats(s)) }
+  const load = async () => {
+    const [s, st] = await Promise.all([ipc.getStorageSize(), ipc.getSettings()])
+    setStats(s)
+    setCleanupDays(st.downloadsCleanupDays ?? 7)
+    if (st.renderedOutputPath) setArchivePath(st.renderedOutputPath)
+  }
 
   useEffect(() => { load() }, [])
 
@@ -2347,12 +2355,37 @@ function StorageWidget() {
     load()
   }
 
+  const handleArchivePathChange = async (newPath: string) => {
+    await ipc.setRenderedArchivePath(newPath)
+    setArchivePath(newPath)
+    showToast('Archive path updated')
+  }
+
+  const handleCleanupDaysChange = async (val: number) => {
+    setCleanupDays(val)
+    await ipc.updateSettings({ downloadsCleanupDays: val })
+    showToast(val === 0 ? 'Auto-cleanup disabled' : `Clean videos older than ${val} days`)
+  }
+
+  const freeBytes = stats.freeBytes ?? 0
+  const freeGB = freeBytes / (1024 ** 3)
+  const isLowDisk = freeBytes > 0 && freeBytes < 5 * 1024 * 1024 * 1024
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
       {/* Storage paths */}
       <div style={{ padding: '8px 14px 4px', fontSize: 9, color: '#333', letterSpacing: '0.1em', fontWeight: 700 }}>PATHS</div>
       <PathRow label="Downloads" value={stats.downloadPath} onChange={handleDownloadPathChange} />
       <PathRow label="Output" value={stats.outputPath} onChange={handleOutputPathChange} />
+      <PathRow label="Archive" value={archivePath || '— default —'} onChange={handleArchivePathChange} />
+
+      {/* Disk space warning */}
+      {isLowDisk && (
+        <div style={{ margin: '8px 14px', padding: '8px 10px', background: '#FF440015', border: '1px solid #FF4444', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 10, color: '#FF4444', fontWeight: 700 }}>LOW DISK</span>
+          <span style={{ fontSize: 10, color: '#FF6666' }}>{freeGB.toFixed(1)} GB free on downloads drive</span>
+        </div>
+      )}
 
       {/* Storage usage */}
       <div style={{ padding: '8px 14px 4px', fontSize: 9, color: '#333', letterSpacing: '0.1em', fontWeight: 700, marginTop: 6 }}>USAGE</div>
@@ -2408,6 +2441,188 @@ function StorageWidget() {
           {clearingBlr ? 'CLEARING...' : 'CLEAR'}
         </button>
       </div>
+
+      {/* Cleanup */}
+      <div style={{ padding: '8px 14px 4px', fontSize: 9, color: '#333', letterSpacing: '0.1em', fontWeight: 700, marginTop: 6 }}>CLEANUP</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #181818' }}>
+        <span style={{ fontSize: 11, color: '#888' }}>Auto-delete older than</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input
+            type="number"
+            min={0}
+            max={365}
+            value={cleanupDays}
+            onChange={e => setCleanupDays(Number(e.target.value))}
+            onBlur={e => handleCleanupDaysChange(Number(e.target.value))}
+            onKeyDown={e => e.key === 'Enter' && handleCleanupDaysChange(Number((e.target as HTMLInputElement).value))}
+            style={{
+              width: 44, height: 26, paddingLeft: 6, paddingRight: 4,
+              background: '#111', border: '1px solid #333', borderRadius: 3,
+              fontSize: 11, color: '#fff', fontFamily: 'monospace', textAlign: 'right',
+            }}
+          />
+          <span style={{ fontSize: 10, color: '#555' }}>days</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Diagnostics Section ────────────────────────────────────────────────────────
+
+interface DiagResult {
+  timestamp: string
+  ffmpeg: { ok: boolean; path: string; version: string; hasNvenc: boolean; bundled: boolean; error?: string }
+  ytDlp: { ok: boolean; path: string; version: string; error?: string }
+  storage: { ramDiskAvailable: boolean; storeDir: string }
+  overall: { ready: boolean; issues: string[] }
+}
+
+function DiagnosticsSection() {
+  const [diag, setDiag] = useState<DiagResult | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const runDiag = async () => {
+    setLoading(true)
+    try {
+      const result = await (window.electronAPI?.runDiagnostics as () => Promise<DiagResult>)()
+      setDiag(result)
+    } catch (e) {
+      console.error('Diagnostics failed:', e)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { runDiag() }, [])
+
+  return (
+    <div style={{ padding: 20, maxWidth: 700 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+        <span style={{ fontSize: 11, fontWeight: 800, color: '#fff', letterSpacing: '0.1em' }}>SYSTEM DIAGNOSTICS</span>
+        <button
+          onClick={runDiag}
+          disabled={loading}
+          style={{
+            fontSize: 9, fontWeight: 700, color: '#FF6B35', background: 'transparent',
+            border: '1px solid #FF6B3544', borderRadius: 4, padding: '4px 10px', cursor: loading ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {loading ? 'CHECKING...' : 'REFRESH'}
+        </button>
+      </div>
+
+      {!diag ? (
+        <div style={{ color: '#666', fontSize: 11 }}>Checking prerequisites...</div>
+      ) : (
+        <>
+          {/* Overall status */}
+          <div style={{
+            padding: '12px 16px', borderRadius: 6, marginBottom: 16,
+            background: diag.overall.ready ? '#00FF8811' : '#FF6B3511',
+            border: `1px solid ${diag.overall.ready ? '#00FF8844' : '#FF6B3544'}`,
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: diag.overall.ready ? '#00FF88' : '#FF6B35' }}>
+              {diag.overall.ready ? '✓ READY — All prerequisites met' : '✗ ISSUES FOUND — Fix before use'}
+            </div>
+          </div>
+
+          {/* FFmpeg */}
+          <DiagRow
+            label="FFmpeg"
+            ok={diag.ffmpeg.ok}
+            okColor="#00FF88"
+            errorColor="#FF4444"
+            details={[
+              diag.ffmpeg.ok ? `${diag.ffmpeg.version}` : 'Not found',
+              diag.ffmpeg.bundled ? 'bundled' : 'system',
+              diag.ffmpeg.hasNvenc ? 'NVENC ✓' : 'NVENC ✗ (CPU encoding)',
+            ].filter(Boolean).join(' · ')}
+            fix={
+              !diag.ffmpeg.ok
+                ? 'Download FFmpeg từ https://ffmpeg.org (chọn "essentials" build). Giải nén, thêm thư mục bin vào PATH.'
+                : !diag.ffmpeg.hasNvenc
+                ? 'FFmpeg build hiện tại không có NVIDIA NVENC. Tải FFmpeg build hỗ trợ NVENC (gyan.dev builds recommended).'
+                : undefined
+            }
+          />
+
+          {/* yt-dlp */}
+          <DiagRow
+            label="yt-dlp"
+            ok={diag.ytDlp.ok}
+            okColor="#00FF88"
+            errorColor="#FF4444"
+            details={diag.ytDlp.ok ? `v${diag.ytDlp.version}` : 'Not found'}
+            fix={
+              !diag.ytDlp.ok
+                ? 'Chạy lệnh: npm install yt-dlp\nHoặc: pip install yt-dlp'
+                : undefined
+            }
+          />
+
+          {/* Storage */}
+          <DiagRow
+            label="RAM Disk"
+            ok={diag.storage.ramDiskAvailable}
+            okColor="#00FF88"
+            errorColor="#FFB800"
+            details={diag.storage.ramDiskAvailable ? 'R:\\hyperclip ✓' : 'Không có — dùng ổ C'}
+            fix={
+              !diag.storage.ramDiskAvailable
+                ? 'Tốc độ I/O sẽ chậm hơn. Bỏ qua nếu không cần tốc độ cao. (Hướng dẫn cài ImDisk: hyperclip.com/ramdisk)'
+                : undefined
+            }
+          />
+
+          {/* Store dir */}
+          <div style={{ marginTop: 12, padding: '8px 12px', background: '#111', borderRadius: 6, fontSize: 9, color: '#444' }}>
+            Data: {diag.storage.storeDir}
+          </div>
+
+          {/* Issues list */}
+          {diag.overall.issues.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#FF6B35', marginBottom: 8, letterSpacing: '0.05em' }}>CẦN FIX:</div>
+              {diag.overall.issues.map((issue, i) => (
+                <div key={i} style={{ fontSize: 10, color: '#ccc', padding: '4px 0', borderBottom: '1px solid #1a1a1a' }}>
+                  • {issue}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ marginTop: 16, fontSize: 9, color: '#333' }}>
+            Last checked: {new Date(diag.timestamp).toLocaleTimeString()}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function DiagRow({ label, ok, okColor, errorColor, details, fix }: {
+  label: string
+  ok: boolean
+  okColor: string
+  errorColor: string
+  details: string
+  fix?: string
+}) {
+  const color = ok ? okColor : errorColor
+  return (
+    <div style={{ marginBottom: 12, padding: '10px 14px', background: '#111', borderRadius: 6, borderLeft: `3px solid ${color}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: fix ? 6 : 0 }}>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+        <span style={{ fontSize: 11, fontWeight: 700, color, minWidth: 70 }}>{label}</span>
+        <span style={{ fontSize: 9, color: '#888' }}>{details}</span>
+      </div>
+      {fix && (
+        <div style={{ fontSize: 9, color: '#666', paddingLeft: 16, lineHeight: 1.6 }}>
+          💡 {fix}
+        </div>
+      )}
     </div>
   )
 }
@@ -2416,10 +2631,11 @@ function StorageWidget() {
 
 export default function SettingsPage() {
   const { settings, systemStats, setSettings } = useAppStore()
-  const [activeTab, setActiveTab] = useState<'status' | 'keys' | 'projects' | 'system'>('status')
+  const [activeTab, setActiveTab] = useState<'status' | 'diag' | 'keys' | 'projects' | 'system'>('status')
 
   const TABS = [
     { id: 'status' as const, label: 'STATUS', color: '#00FF88' },
+    { id: 'diag' as const, label: 'DIAGNOSTICS', color: '#FF6B35' },
     { id: 'projects' as const, label: 'OAUTH PROJECTS', color: '#00FF88' },
     { id: 'keys' as const, label: 'API KEYS', color: '#00B4FF' },
     { id: 'system' as const, label: 'SYSTEM', color: '#FFB800' },
@@ -2465,6 +2681,9 @@ export default function SettingsPage() {
       <div style={{ flex: 1, overflow: 'auto' }}>
         {/* STATUS — Poller health dashboard */}
         {activeTab === 'status' && <PollerStatusPanel />}
+
+        {/* DIAGNOSTICS — System prerequisites check */}
+        {activeTab === 'diag' && <DiagnosticsSection />}
 
         {/* API Keys — full width */}
         {activeTab === 'keys' && (

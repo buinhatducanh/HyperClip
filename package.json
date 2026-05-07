@@ -12,7 +12,8 @@
     "build": "next build",
     "start": "next start",
     "electron:dev": "npx tsc -p electron/tsconfig.main.json && npx tsc -p electron/tsconfig.preload.json && npx electron .",
-    "electron:build": "npm run build && npx tsc -p electron/tsconfig.main.json && npx tsc -p electron/tsconfig.preload.json && electron-builder --win --config electron-builder.yml"
+    "electron:build": "npm run build && npx tsc -p electron/tsconfig.main.json && npx tsc -p electron/tsconfig.preload.json && electron-builder --win --config electron-builder.yml",
+    "setup:ffmpeg": "powershell -ExecutionPolicy Bypass -File scripts/setup-ffmpeg.ps1"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -80,6 +81,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@types/node": "^25.6.0",
     "@types/sql.js": "^1.4.11",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "4.7.0",

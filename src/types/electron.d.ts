@@ -52,8 +52,8 @@ export interface ElectronAPI {
   onAutoDownload: (callback: (data: unknown) => void) => () => void
   onAuthUpdate: (callback: (status: unknown) => void) => () => void
   onChannelSynced: (callback: () => void) => () => void
-  getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number }>
-  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number }) => Promise<void>
+  getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string }>
+  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number }) => Promise<void>
   getAuthStatus: () => Promise<{
     isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean
     cookieCritical?: boolean; cookieError?: string
@@ -98,10 +98,21 @@ export interface ElectronAPI {
   openRenderedFolder: (id?: string) => Promise<{ success: boolean }>
   setRenderedArchivePath: (path: string) => Promise<{ success: boolean }>
   // Storage management
-  getStorageSize: () => Promise<{ downloads: number; blur: number; total: number; downloadPath: string; outputPath: string }>
+  getStorageSize: () => Promise<{ downloads: number; blur: number; total: number; downloadPath: string; outputPath: string; freeBytes?: number }>
   clearDownloads: () => Promise<{ success: boolean; freedMB: number }>
   clearBlur: () => Promise<{ success: boolean; freedMB: number }>
   pickFolder: (currentPath?: string) => Promise<{ path: string } | null>
+  // System diagnostics
+  runDiagnostics: () => Promise<{
+    timestamp: string
+    ffmpeg: { ok: boolean; path: string; version: string; hasNvenc: boolean; bundled: boolean; error?: string }
+    ytDlp: { ok: boolean; path: string; version: string; error?: string }
+    storage: { ramDiskAvailable: boolean; storeDir: string }
+    overall: { ready: boolean; issues: string[] }
+  }>
+  // Data portability
+  exportData: () => Promise<{ success: boolean; path?: string; error?: string }>
+  importData: () => Promise<{ success: boolean; channelsImported?: number; seenImported?: number; error?: string }>
 }
 
 declare global {

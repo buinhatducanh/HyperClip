@@ -1,10 +1,9 @@
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
+import { getAppStoreDir, getRamDiskPath } from './paths.js'
 
-// Persist data to %APPDATA%/HyperClip on Windows, ~/.hyperclip on Linux/Mac
-const APPDATA = process.env.APPDATA || process.env.HOME || process.cwd()
-const STORE_DIR = path.join(APPDATA, 'HyperClip')
+const STORE_DIR = getAppStoreDir()
 const STORE_FILE = path.join(STORE_DIR, 'workspaces.json')
 
 // Resolve a stored downloadedPath to an absolute filesystem path.
@@ -43,21 +42,16 @@ function getKnownStorageDirs(): string[] {
 }
 
 // Get the primary video storage directory for this machine.
-// Duplicated from ramdisk.ts to avoid circular ESM dependency.
 function getVideoStorageDir(): string {
   try {
-    // Check if RAM disk is available (ImDisk on R:\)
-    const ramDiskPath = process.platform === 'win32' ? 'R:\\hyperclip' : '/mnt/ramdisk/hyperclip'
-    if (fs.existsSync(ramDiskPath)) return ramDiskPath
+    if (fs.existsSync(getRamDiskPath())) return getRamDiskPath()
   } catch {}
-  // Fallback: APPDATA/HyperClip/downloads
   return path.join(STORE_DIR, 'downloads')
 }
 
 function isRamDiskAvailable(): boolean {
   try {
-    const ramDiskPath = process.platform === 'win32' ? 'R:\\hyperclip' : '/mnt/ramdisk/hyperclip'
-    return fs.existsSync(ramDiskPath)
+    return fs.existsSync(getRamDiskPath())
   } catch {
     return false
   }
@@ -72,7 +66,6 @@ function makeStorableDownloadedPath(absPath: string): string {
   // Absolute → extract basename (filename only)
   return path.basename(absPath)
 }
-const SUBS_FILE = path.join(STORE_DIR, 'subscriptions.json')
 const CHANNELS_FILE = path.join(STORE_DIR, 'channels.json')
 const SEEN_VIDEOS_FILE = path.join(STORE_DIR, 'seen-videos.json')
 const RENDERED_FILE = path.join(STORE_DIR, 'rendered.json')
@@ -89,13 +82,8 @@ export interface StoredChannel {
   createdAt: string
 }
 
-const DEFAULT_CHANNELS: StoredChannel[] = [
-  { id: 'ch1', name: 'TechViet Daily',  handle: '@techvietdaily',  avatarColor: '#00B4FF', createdAt: new Date().toISOString() },
-  { id: 'ch2', name: 'GamingVN Pro',    handle: '@gamingvnpro',    avatarColor: '#7C3AED', createdAt: new Date().toISOString() },
-  { id: 'ch3', name: 'FitnessGoal VN',  handle: '@fitnessgoalvn',  avatarColor: '#00FF88', createdAt: new Date().toISOString() },
-  { id: 'ch4', name: 'Wanderlust VN',   handle: '@wanderlustvn',   avatarColor: '#FF6B35', createdAt: new Date().toISOString() },
-  { id: 'ch5', name: 'Beat Studio',     handle: '@beatstudio',     avatarColor: '#FF0080', createdAt: new Date().toISOString() },
-]
+// Empty default — user adds their own channels via onboarding
+const DEFAULT_CHANNELS: StoredChannel[] = []
 
 // In-memory cache with 60s TTL — avoids disk I/O on every poll (every 5s).
 let _channelCache: StoredChannel[] | null = null
@@ -180,37 +168,12 @@ export interface ChannelSubscription {
   subscribedAt: string
 }
 
-// ─── Subscription store ───────────────────────────────────────────────────────
+// ─── Subscription store (DEPRECATED — WebSub removed, keeping for compat) ───
 
 function loadSubscriptions(): ChannelSubscription[] {
-  ensureDir()
-  if (!fs.existsSync(SUBS_FILE)) return []
-  try {
-    return JSON.parse(fs.readFileSync(SUBS_FILE, 'utf-8')) as ChannelSubscription[]
-  } catch { return [] }
-}
-
-function saveSubscriptions(subs: ChannelSubscription[]): void {
-  ensureDir()
-  fs.writeFileSync(SUBS_FILE, JSON.stringify(subs, null, 2), 'utf-8')
-}
-
-export function getSubscriptions(): ChannelSubscription[] {
-  return loadSubscriptions()
-}
-
-export function getSubscription(channelId: string): ChannelSubscription | null {
-  return loadSubscriptions().find(s => s.channelId === channelId) || null
-}
-
-export function addSubscription(sub: ChannelSubscription): void {
-  const subs = loadSubscriptions().filter(s => s.channelId !== sub.channelId)
-  subs.push(sub)
-  saveSubscriptions(subs)
-}
-
-export function removeSubscription(channelId: string): void {
-  saveSubscriptions(loadSubscriptions().filter(s => s.channelId !== channelId))
+  // subscriptions.json was used by WebSub which has been removed.
+  // Return empty — channel names now come from channels.json.
+  return []
 }
 
 // ─── Workspace store ──────────────────────────────────────────────────────────

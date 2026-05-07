@@ -10,9 +10,13 @@ files:
 extraResources:
   - from: resources/
     to: resources/
+  - from: resources/ffmpeg/
+    to: ffmpeg/
 asarUnpack:
   # sql.js WASM binary must be outside asar archive for Node.js fs access
   - node_modules/sql.js/dist/sql-wasm.wasm
+  # FFmpeg must be outside asar for spawn() access
+  - ffmpeg/**
 win:
   target:
     - target: portable

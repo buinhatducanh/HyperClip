@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Sidebar } from './components/Sidebar'
 import { WorkspaceQueue } from './components/workspace/WorkspaceQueue'
 import { RenderQueueBar } from './components/workspace/RenderQueueBar'
@@ -102,6 +103,7 @@ export default function DashboardPage() {
   const [renderQueueExpanded, setRenderQueueExpanded] = useState(false)
   const [keyHealth, setKeyHealth] = useState<{ exhausted: number; unauthorized: number }>({ exhausted: 0, unauthorized: 0 })
   const [selectedRenderedVideoId, setSelectedRenderedVideoId] = useState<string | null>(null)
+  const [diagIssues, setDiagIssues] = useState<string[]>([])
 
   // Fetch auth status on mount + listen for updates
   useEffect(() => {
@@ -114,6 +116,17 @@ export default function DashboardPage() {
     })
     return () => { cleanupAuth(); cleanupCritical() }
   }, [showToast, addNotification, router])
+
+  // Fetch diagnostics on mount — for demo mode banner
+  useEffect(() => {
+    const fetchDiag = async () => {
+      try {
+        const diag = await (window.electronAPI?.runDiagnostics as () => Promise<{ overall: { ready: boolean; issues: string[] } }>)()
+        if (diag?.overall?.issues?.length) setDiagIssues(diag.overall.issues)
+      } catch {}
+    }
+    fetchDiag()
+  }, [])
 
   // Poll key health every 30s
   useEffect(() => {
@@ -496,6 +509,34 @@ export default function DashboardPage() {
       {/* Login screen */}
       {!authStatus.isReady && (
         <LoginScreen accountName={authStatus.accountName} oauthReady={authStatus.oauthReady} onLogout={handleLogout} />
+      )}
+
+      {/* Demo mode banner — visible when logged in but OAuth not active */}
+      {authStatus.isReady && !authStatus.oauthReady && authStatus.accountName === 'Demo Mode' && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
+          background: '#FF6B3522', borderBottom: '1px solid #FF6B3544',
+          padding: '6px 16px', display: 'flex', alignItems: 'center', gap: 8,
+          fontSize: 10, color: '#FF6B35',
+        }}>
+          <span>⚡</span>
+          <span style={{ flex: 1 }}>Demo Mode — Theo dõi tự động đang tắt.</span>
+          <Link href="/settings" style={{ color: '#FF6B35', textDecoration: 'none', fontWeight: 600 }}>Đăng nhập →</Link>
+        </div>
+      )}
+
+      {/* Diagnostics issues banner */}
+      {diagIssues.length > 0 && authStatus.isReady && (
+        <div style={{
+          position: 'fixed', top: authStatus.accountName === 'Demo Mode' ? 28 : 0, left: 0, right: 0, zIndex: 100,
+          background: '#FF444422', borderBottom: '1px solid #FF444444',
+          padding: '4px 16px', display: 'flex', alignItems: 'center', gap: 8,
+          fontSize: 9, color: '#FF6666',
+        }}>
+          <span>⚠️</span>
+          <span style={{ flex: 1 }}>{diagIssues[0]}</span>
+          <Link href="/settings" style={{ color: '#FF6666', textDecoration: 'none', fontWeight: 600 }}>Diagnostics →</Link>
+        </div>
       )}
 
       {/* Sidebar */}

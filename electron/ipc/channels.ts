@@ -122,4 +122,11 @@ export const IPC_CHANNELS = {
   STORAGE_CLEAR_DOWNLOADS: 'storage:clear-downloads',
   STORAGE_CLEAR_BLUR: 'storage:clear-blur',
   STORAGE_PICK_FOLDER: 'storage:pick-folder',
+
+  // System diagnostics (P0)
+  DIAGNOSTICS_RUN: 'diagnostics:run',
+
+  // Data portability (P1)
+  DATA_EXPORT: 'data:export',
+  DATA_IMPORT: 'data:import',
 } as const
