@@ -461,6 +461,8 @@ export interface RenderedVideoRecord {
   thumbnail: string
   /** base64 JPEG data URI — populated on render completion, survives workspace deletion */
   thumbnailData?: string
+  /** Source video resolution (e.g. "1920x1080") — shows what the original video was */
+  videoResolution?: string
   renderedAt: string   // ISO timestamp
 }
 

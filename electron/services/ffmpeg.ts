@@ -57,6 +57,10 @@ export interface RenderProgress {
   fps: number
   speed: string
   bitrate: string
+  /** Estimated seconds remaining. Calculated from elapsed time / progress. */
+  eta?: number
+  /** Elapsed wall-clock milliseconds since render start. */
+  elapsedMs?: number
 }
 
 export interface RenderResult {
@@ -114,20 +118,17 @@ export function quotePath(p: string): string {
 export function buildArgs(program: string, args: string[]): string {
   // Build a command string for cmd.exe (shell: true).
   // - Forward slashes only: backslashes in paths cause issues with cmd.exe parsing.
-  // - Double-quotes in cmd.exe protect semicolons from being treated as command
-  //   separators — no caret escaping needed.
-  // - Quote args that contain spaces.
-  //   NOTE: do NOT quote semicolons — they are FFmpeg filter separators and must pass through unquoted.
-  //   Parentheses, brackets are safe in bash double quotes too, but spaces are the only real risk.
+  // - Quote ALL args to prevent cmd.exe from interpreting special characters.
+  //   Double-quotes protect semicolons from being treated as command separators.
+  // - Escape internal double-quotes by doubling them (" → "").
   const toShellPath = (s: string) => s.replace(/\\/g, '/')
-  const needsQuote = (s: string) =>
-    s.includes(' ') || s.includes('"')
   const quoteArg = (s: string) => '"' + s.replace(/"/g, '""') + '"'
 
   const prog = quoteArg(toShellPath(program))
   const shellArgs = args.map(a => {
     const normalized = toShellPath(a)
-    if (!needsQuote(normalized)) return normalized
+    // Quote all args. This prevents cmd.exe from interpreting semicolons (;) as
+    // command separators. FFmpeg receives quoted args correctly.
     return quoteArg(normalized)
   })
   return [prog, ...shellArgs].join(' ')
@@ -500,9 +501,20 @@ function buildFilterComplex(opts: {
 // Uses GPUCapabilities to get architecture-specific session limits and surface counts.
 
 function getNvencParams(codec: 'h264' | 'hevc', isChunked: boolean, gpuTier: GPUTier = 'software'): string[] {
-  const caps = getGPUCapabilities()
   const isHighTier = gpuTier === 'high'
   const isMidTier = gpuTier === 'mid'
+
+  // Fall back to CPU encoding (libx264/libx265) when NVENC is unavailable
+  // (e.g. RTX 5080 driver incompatible with FFmpeg build's NVENC).
+  if (gpuTier === 'software' || gpuTier === 'low') {
+    // x264/x265 CPU params — fast preset balances speed vs quality
+    const cpuPreset = 'fast'
+    if (codec === 'hevc') {
+      return ['-preset', cpuPreset, '-crf', '23', '-c:v', 'libx265']
+    } else {
+      return ['-preset', cpuPreset, '-crf', '20', '-c:v', 'libx264']
+    }
+  }
 
   // GPU-aware preset selection:
   //   RTX 5080 (high): p1 for chunked (speed), p3 for single (quality)
@@ -544,7 +556,7 @@ function getNvencParams(codec: 'h264' | 'hevc', isChunked: boolean, gpuTier: GPU
     )
     // Hardware surface pool: use architecture-defined value from system.ts
     // RTX 5080: 48 surfaces, RTX 4090: 48, RTX 4080: 48, RTX 3090: 32, RTX 3060: 16
-    const surfaceCount = String(caps.nvencSurfaceCount || (isHighTier ? 48 : 16))
+    const surfaceCount = String(isHighTier ? 48 : 16)
     params.push('-surfaces', surfaceCount)
     // Device selection: primary GPU (device 0) — multi-GPU future consideration
     params.push('-gpu', 'any')
@@ -809,8 +821,12 @@ export async function renderVideo(
   const headerOl = overlays.find(o => o.type === 'header' && o.src)
   const titleOl = overlays.find(o => o.type === 'title' && o.content)
 
-  // NVENC codec
-  const nvencCodec = codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'
+  // Encoder: use NVENC if GPU is available, otherwise CPU (libx264/libx265).
+  // GPU detection sets tier='software' when h264_nvenc test fails (RTX 5080 + gyan.dev FFmpeg).
+  const isGpuAvailable = gpuTier !== 'software'
+  const nvencCodec = isGpuAvailable
+    ? (codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc')
+    : (codec === 'hevc' ? 'libx265' : 'libx264')
 
   // CPU-aware threading: use all available cores for the filter pipeline.
   // RTX 5080 + Core Ultra 9 (24 cores): can handle more threads.
@@ -829,8 +845,8 @@ export async function renderVideo(
 
   // Determine output label
   let mapOutput = '[vz]'
-  if (titleOverlayPath && headerOl?.src) mapOutput = '[td]'
-  else if (!titleOverlayPath && headerOl?.src) mapOutput = '[fh]'
+  if (titleOverlayPath) mapOutput = '[td]'
+  else if (headerOl?.src) mapOutput = '[fh]'
 
   // Build ffmpeg args
   // Inputs: [0]=source video, [1]=background, [2]=header image (optional), [3]=title overlay PNG (optional)
@@ -852,7 +868,7 @@ export async function renderVideo(
           : ['-f', 'lavfi', '-i', `color=c=black:s=${canvasW}x${canvasH}:d=1:r=1`]),
     // Input [2]: header image for short mode; title overlay for landscape mode
     ...(isShort
-      ? (headerOl?.src ? ['-i', quotePath(headerOl.src)] : [])
+      ? (headerOl?.src ? ['-i', quotePath(headerOl.src)] : ['-f', 'lavfi', '-i', 'color=c=black@0:s=2x2:d=1:r=1'])
       : (titleOverlayPath ? ['-i', quotePath(titleOverlayPath)] : [])),
     // Input [3]: title overlay for short mode
     ...(isShort && titleOverlayPath ? ['-i', quotePath(titleOverlayPath)] : []),
@@ -871,7 +887,10 @@ export async function renderVideo(
     jobId: `single:${workspace_id}`,
     args,
     outputFile,
-    onProgress: (pct) => {
+    onProgress: (pct, elapsedMs = 0) => {
+      const eta = elapsedMs > 0 && pct > 1
+        ? Math.max(1, Math.round((elapsedMs / (pct / 100) - elapsedMs) / 1000))
+        : undefined
       onProgress?.({
         workspaceId: workspace_id,
         percent: pct,
@@ -880,6 +899,8 @@ export async function renderVideo(
         fps: 0,
         speed: '',
         bitrate: '',
+        eta,
+        elapsedMs,
       })
     },
   })
@@ -956,8 +977,12 @@ function buildChunkArgs(
   numThreads?: number,
   audioCodec: 'aac' | 'libopus' = 'aac',
   audioBitrate: string = '192k',
+  headerOlSrc?: string,
 ): string[] {
-  const nvencCodec = codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'
+  const isGpuAvailable = gpuTier !== 'software'
+  const nvencCodec = isGpuAvailable
+    ? (codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc')
+    : (codec === 'hevc' ? 'libx265' : 'libx264')
   // Use CPU decode to avoid NVDEC/HEVC incompatibility failures.
   const decCodec = codec
   // CPU-aware threads: use all cores but cap at 16 to avoid oversubscription
@@ -1071,12 +1096,20 @@ function buildChunkArgs(
     '[bg][vid]' + overlay + '=0:' + videoTop + '[vz]',
   ]
 
+  const hdChain = headerOlSrc ? '[2:v]' + scale + '=' + canvasW + ':' + headerH + '[hd]' : ''
+  if (hdChain) {
+    sections.push(hdChain, '[vz][hd]' + overlay + '=0:0[fh]')
+  }
+
   if (titleOverlayPath) {
-    sections.push('[2:v]null[titleOl]', '[vz][titleOl]' + overlay + '=0:0[final]')
+    const baseLabel = hdChain ? '[fh]' : '[vz]'
+    sections.push('[3:v]null[titleOl]', baseLabel + '[titleOl]' + overlay + '=0:0[final]')
   }
 
   const filterChain = sections.join('; ')
-  const mapOutput = titleOverlayPath ? '[final]' : '[vz]'
+  let mapOutput = '[vz]'
+  if (titleOverlayPath) mapOutput = '[final]'
+  else if (headerOlSrc) mapOutput = '[fh]'
 
   return [
     '-ss', String(trimStart),
@@ -1086,7 +1119,10 @@ function buildChunkArgs(
     '-avoid_negative_ts', 'make_zero',
     '-i', quotePath(sourceVideo),
     ...bgInput,
-    ...(titleOverlayPath ? ['-i', quotePath(titleOverlayPath)] : []),
+    ...(isShort
+      ? (headerOlSrc ? ['-i', quotePath(headerOlSrc)] : ['-f', 'lavfi', '-i', 'color=c=black@0:s=2x2:d=1:r=1'])
+      : (titleOverlayPath ? ['-i', quotePath(titleOverlayPath)] : [])),
+    ...(isShort && titleOverlayPath ? ['-i', quotePath(titleOverlayPath)] : []),
     '-filter_threads', '16',
     '-filter_complex', filterChain,
     '-map', mapOutput, '-map', '0:a?',
@@ -1125,6 +1161,7 @@ async function encodeChunk(
   backgroundImage?: string,
   audioCodec?: 'aac' | 'libopus',
   audioBitrate?: string,
+  headerOlSrc?: string,
 ): Promise<{ success: boolean; fileSize: number; encodeMs: number; error?: string; decodeFps?: number; encodeFps?: number }> {
   const ffmpeg = getFfmpegPath()
   const numThreads = Math.min(os.cpus().length, 16)
@@ -1135,6 +1172,7 @@ async function encodeChunk(
     backgroundType, backgroundColor, backgroundImage,
     numThreads,
     audioCodec ?? 'aac', audioBitrate ?? '192k',
+    headerOlSrc,
   )
 
   return new Promise((resolve) => {
@@ -1383,6 +1421,7 @@ export async function renderChunked(
   // Pre-render title overlay once (shared across all chunks)
   const titleOverlayResult = await preRenderOverlays(metadata, outputDir, workspace_id)
   const titleOverlayPath = titleOverlayResult.titleOverlayPath
+  const headerOl = overlays?.find(o => o.type === 'header' && o.src)
 
   for (let batchStart = 0; batchStart < numChunks; batchStart += workers) {
     const batchEnd = Math.min(batchStart + workers, numChunks)
@@ -1411,6 +1450,7 @@ export async function renderChunked(
         metadata.backgroundImage,
         audioCodec,
         audioBitrate,
+        headerOl?.src
       )
 
       return { idx, startSec, endSec, chunkFile, result }

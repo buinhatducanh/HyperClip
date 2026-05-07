@@ -226,6 +226,7 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
               duration: workspace.duration || 0,
               thumbnail: workspace.thumbnail,
               thumbnailData: thumbData,
+              videoResolution: workspace.videoResolution,
               renderedAt: new Date().toISOString(),
             }
             addRenderedVideo(record)
@@ -1876,6 +1877,7 @@ async function registerIPCHandlers() {
               duration: workspace.duration || 0,
               thumbnail: workspace.thumbnail,
               thumbnailData: thumbData,
+              videoResolution: workspace.videoResolution,
               renderedAt: new Date().toISOString(),
             }
             addRenderedVideo(record)
@@ -2000,6 +2002,7 @@ async function registerIPCHandlers() {
         duration: ws.duration,
         thumbnail: ws.thumbnail,
         thumbnailData: thumbData,
+        videoResolution: ws.videoResolution,
         renderedAt: new Date().toISOString(),
       }
       addRenderedVideo(renderedRecord)

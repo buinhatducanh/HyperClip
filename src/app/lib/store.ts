@@ -25,6 +25,8 @@ export interface Workspace {
   downloadedAt: string
   status: WorkspaceStatus
   renderProgress?: number
+  /** Estimated time remaining (human-readable, e.g. "0:32" for 30s). Populated during render. */
+  renderEta?: string
   fileSize: string
   /** When YouTube posted this video */
   publishedAt?: string
@@ -151,7 +153,7 @@ const INIT_EDITOR: EditorState = {
   titleFontSize: 13,
   speedMultiplier: 1.0,
   exportQuality: 1080,
-  exportCodec: 'hevc',
+  exportCodec: 'h264',
   exportPreset: 'p1',
   exportTune: 'hq',
   enableChunked: false,
@@ -193,7 +195,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const ws: Workspace[] = raw.map((w: any) => ({
         id: w.id,
         channelId: w.channelId,
-        channelName: w.channelName,
+        channelName: w.channelName || 'Unknown Channel',
         channelColor: w.channelColor || '#00B4FF',
         videoTitle: w.videoTitle || 'Unknown Video',
         thumbnail: w.thumbnail || '',
@@ -201,6 +203,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         downloadedAt: w.downloadedAt ? formatDate(w.downloadedAt) : '',
         status: w.status || 'new',
         renderProgress: w.renderProgress,
+        renderEta: w.renderEta,
         fileSize: formatFileSize(w.fileSize),
         trimLimit: w.trimLimit !== undefined ? w.trimLimit : 10,
         quality: w.quality || 1080,
@@ -248,11 +251,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
         archivedPath: v.archivedPath,
         outputPath: v.outputPath,
         quality: v.quality || 1080,
-        codec: v.codec || 'hevc',
+        codec: v.codec || 'h264',
         fileSize: formatFileSize(v.fileSizeBytes || v.fileSize || 0),
         fileSizeBytes: Number(v.fileSizeBytes) || Number(v.fileSize) || 0,
         duration: v.duration || 0,
         thumbnail: v.thumbnail || '',
+        thumbnailData: v.thumbnailData,
+        videoResolution: v.videoResolution || '',
         renderedAt: v.renderedAt ? formatDate(v.renderedAt) : '',
       }))
       set({ renderedVideos: videos })

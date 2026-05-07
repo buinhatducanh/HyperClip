@@ -89,7 +89,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel }: P
               fontFamily: 'monospace',
             }}
           >
-            W{i + 1}: {ws.renderProgress || 0}%
+            W{i + 1}: {ws.renderProgress || 0}%{ws.renderEta ? ` · ${ws.renderEta}` : ''}
           </span>
         ))}
         {queued.map((ws, i) => (
@@ -163,7 +163,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel }: P
                 />
               </div>
               <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#FF4444', minWidth: 32, textAlign: 'right' }}>
-                {ws.renderProgress || 0}%
+                {ws.renderProgress || 0}%{ws.renderEta ? ` · ${ws.renderEta}` : ''}
               </span>
               {onCancel && (
                 <button

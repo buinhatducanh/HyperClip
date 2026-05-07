@@ -1594,25 +1594,7 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
           )}
         </div>
 
-        {/* Row 2: CODEC */}
-        <div style={{ display: 'flex', gap: 3, marginBottom: 8 }}>
-          {(['h264', 'hevc'] as const).map(c => {
-            const active = editorState.exportCodec === c
-            return (
-              <button key={c} onClick={() => onChange({ exportCodec: c })}
-                style={{
-                  flex: 1, height: 22, background: active ? '#7C3AED' : '#1A1A1A',
-                  border: `1px solid ${active ? '#7C3AED' : '#222'}`,
-                  borderRadius: 2, fontSize: 10, fontWeight: 700,
-                  color: active ? '#fff' : '#444', cursor: 'pointer', fontFamily: 'monospace',
-                }}>
-                {c === 'h264' ? 'H.264' : 'HEVC'}
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Row 3: Render button */}
+        {/* Row 2: Render button */}
         <button
           onClick={editorState.enableChunked && onExportChunked ? onExportChunked : onRender}
           disabled={isRendering}
@@ -1641,7 +1623,7 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
             <>
               {editorState.enableChunked ? 'GPU MAX' : 'RENDER'}
               <span style={{ fontSize: 9, fontWeight: 500, opacity: 0.7 }}>
-                · {editorState.exportQuality}p · {editorState.exportCodec === 'hevc' ? 'HEVC' : 'H.264'}
+                · {editorState.exportQuality}p · H.264
               </span>
             </>
           )}
@@ -1710,11 +1692,32 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'monospace', fontSize: 9, color: '#444' }}>
+          {/* Source video resolution */}
+          {video.videoResolution && (
+            <>
+              <span style={{ color: '#444', fontWeight: 600 }}>SRC</span>
+              <span style={{ color: '#555' }}>{video.videoResolution}</span>
+              <span style={{ color: '#2A2A2A' }}>·</span>
+            </>
+          )}
+          {/* Export quality */}
           <span style={{ color: editorState.exportQuality === 1080 ? '#00FF88' : editorState.exportQuality === 720 ? '#FFB800' : '#555', fontWeight: 700 }}>
             {editorState.exportQuality}p
           </span>
-          <span>·</span>
-          <span style={{ color: '#00FF88', fontWeight: 600 }}>{editorState.speedMultiplier.toFixed(1)}x</span>
+          <span style={{ color: '#2A2A2A' }}>·</span>
+          {/* Speed multiplier */}
+          <span style={{ color: editorState.speedMultiplier !== 1.0 ? '#00FF88' : '#555', fontWeight: 600 }}>
+            {editorState.speedMultiplier.toFixed(1)}x
+          </span>
+          {/* Output duration */}
+          {editorState.speedMultiplier !== 1.0 && totalSec > 0 && (
+            <>
+              <span style={{ color: '#2A2A2A' }}>·</span>
+              <span style={{ color: '#00FF88', fontWeight: 600 }}>
+                OUT {(totalSec / editorState.speedMultiplier / 60).toFixed(1)}m
+              </span>
+            </>
+          )}
         </div>
       </div>
 

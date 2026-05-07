@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { execSync } from 'child_process'
+import { shell } from 'electron'
 
 // RAM Disk Manager
 // Manages the virtual RAM disk for fast video temp storage
@@ -393,12 +394,10 @@ export async function archiveRenderedFile(
 
 // Open archive folder in file explorer
 export function openArchiveFolder(): void {
-  const { shell } = require('electron')
   shell.openPath(getArchivePath())
 }
 
 // Open a specific rendered file's containing folder
 export function showInFolder(filePath: string): void {
-  const { shell } = require('electron')
   shell.showItemInFolder(filePath)
 }

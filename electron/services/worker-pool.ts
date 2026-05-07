@@ -185,7 +185,8 @@ export interface FfmpegRunOptions {
   jobId: string
   args: string[]
   outputFile: string
-  onProgress?: (pct: number) => void
+  /** Called with { pct, elapsedMs, fps, speed } during encoding. pct 0-99 (100 = done). elapsedMs = wall-clock ms since render start. */
+  onProgress?: (pct: number, elapsedMs: number) => void
   onFps?: (fps: number, speed: string) => void
   timeoutMs?: number
 }
@@ -198,7 +199,16 @@ function normalizePath(p: string): string {
 export async function runFfmpeg(opts: FfmpegRunOptions): Promise<PoolResult> {
   const { jobId, args, outputFile, onProgress, onFps, timeoutMs = 2 * 60 * 60 * 1000 } = opts
 
+  // Debug: log first 3 and last 3 args to trace corruption
+  const firstFew = args.slice(0, 3).join(' | ')
+  const lastFew = args.slice(-3).join(' | ')
+  const filterIdx = args.indexOf('-filter_complex')
+  const filterVal = filterIdx !== -1 ? args[filterIdx + 1] : '(none)'
+  console.log(`[runFfmpeg] job=${jobId} args[0..2]="${firstFew}" filter_complex="${filterVal}" last="${lastFew}"`)
+  console.log(`[runFfmpeg] total args=${args.length}`)
+
   return new Promise((resolve) => {
+    const t0 = Date.now()
     const ffmpeg = normalizePath(getFfmpegPath())
     const normalizedArgs = args.map(a => {
       if (a.startsWith('"')) return normalizePath(a.slice(1, a.length - 1))
@@ -258,7 +268,8 @@ export async function runFfmpeg(opts: FfmpegRunOptions): Promise<PoolResult> {
         const s = parseFloat(timeMatch[3])
         const elapsed = h * 3600 + m * 60 + s
         const pct = Math.min(99, (elapsed / totalSec) * 100)
-        onProgress?.(Math.round(pct * 10) / 10)
+        const elapsedMs = Date.now() - t0
+        onProgress?.(Math.round(pct * 10) / 10, elapsedMs)
       }
 
       if (fpsMatch && onFps) {

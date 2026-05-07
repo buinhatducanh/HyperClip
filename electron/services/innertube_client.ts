@@ -520,18 +520,50 @@ class InnertubeClientPool {
         // Age filter:
         // - First poll (app restart): accept videos up to 24h old — capture all uploads since last session
         // - Normal poll: accept videos < 10 min old — real-time detection
-        // parseRelativeDate is the guard — if it fails, publishedAt = 0 (treated as brand new, OK).
         const MAX_VIDEO_AGE_MS = firstPoll ? 24 * 60 * 60 * 1000 : 10 * 60 * 1000
         if (publishedAt > 0 && Date.now() - publishedAt > MAX_VIDEO_AGE_MS) {
           const ageLabel = firstPoll ? '> 24h old' : `too old (${publishedRaw})`
           console.log(`[InnertubePool] getLatestVideo(${channelId}): top-${i+1} id=${videoId} ${ageLabel} — skipping all — session=${entry.profileId}`)
           return null
         }
+        // STRICT: if age is unparseable on a normal poll, skip — can't trust it.
+        // This prevents old videos with missing/unparseable published_time_text from being accepted.
+        if (!firstPoll && publishedAt === 0) {
+          console.log(`[InnertubePool] getLatestVideo(${channelId}): top-${i+1} id=${videoId} age unparseable ("${publishedRaw}") — skipping — session=${entry.profileId}`)
+          return null
+        }
 
-        const channelName = videoItem.author?.name?.toString?.()
-          ?? (channel.header as any)?.author?.name
-          ?? (channel.metadata as any)?.title
-          ?? 'Unknown'
+        // Extract channel name:
+        // 1. videoItem.author?.name — exists on GridVideo/VideoRenderer items
+        // 2. channel.header?.author?.name — C4TabbedHeader.author is an Author instance with .name as string
+        //    (use ?. to safely handle non-C4TabbedHeader header types like CarouselHeader, PageHeader)
+        // 3. channel.metadata?.title — fallback to channel-level metadata title
+        const extractedChannelName = (() => {
+          // Try videoItem.author first
+          const authorName = videoItem.author?.name
+          if (authorName) {
+            const name = typeof authorName === 'string' ? authorName : (authorName as any)?.text || String(authorName)
+            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null') return name
+          }
+          // Fallback: try channel header (C4TabbedHeader only — has Author.name)
+          const header = channel.header as any
+          if (header?.author?.name) {
+            const name = typeof header.author.name === 'string' ? header.author.name : (header.author.name as any)?.text || String(header.author.name)
+            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null') return name
+          }
+          // Fallback: channel metadata title
+          if (header?.metadata?.title) {
+            const name = typeof header.metadata.title === 'string' ? header.metadata.title : (header.metadata.title as any)?.text || String(header.metadata.title)
+            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null') return name
+          }
+          return null
+        })()
+        const channelName = extractedChannelName ?? 'Unknown Channel'
+        // Debug: log raw author object shape for new item types
+        if (channelName === 'Unknown Channel') {
+          const dbgHeader = channel.header as any
+          console.log(`[InnertubePool] WARN: channelName=Unknown for ${channelId} — videoId=${videoId}, author=${JSON.stringify(videoItem.author)?.slice(0, 120)}, h.author=${JSON.stringify(dbgHeader?.author)?.slice(0, 80)}, h.title=${JSON.stringify(dbgHeader?.metadata?.title)?.slice(0, 80)}`)
+        }
 
         const thumbnail = videoItem.thumbnail?.thumbnails?.[0]?.url ?? ''
 
@@ -623,12 +655,32 @@ class InnertubeClientPool {
           ? (typeof lm?.published_time_text?.text === 'string' ? lm.published_time_text.text : lm?.published_time_text?.toString?.() ?? '')
           : (typeof videoItem.published?.text === 'string' ? videoItem.published.text : videoItem.published?.toString?.() ?? '')
         const publishedAt = parseRelativeDate(publishedRaw)
+        // Skip videos with unparseable timestamps — can't verify age, safer to exclude
+        if (publishedAt === 0) {
+          console.log(`[InnertubePool] getLatestVideos(${channelId}): top-${i+1} id=${videoId} age unparseable ("${publishedRaw}") — skipping — session=${entry.profileId}`)
+          continue
+        }
         const publishedText = publishedRaw || undefined
 
-        const channelName = videoItem.author?.name?.toString?.()
-          ?? (channel.header as any)?.author?.name
-          ?? (channel.metadata as any)?.title
-          ?? 'Unknown'
+        // Extract channel name (same logic as getLatestVideo above):
+        const extractedChannelNameV2 = (() => {
+          const authorName = videoItem.author?.name
+          if (authorName) {
+            const name = typeof authorName === 'string' ? authorName : (authorName as any)?.text || String(authorName)
+            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null') return name
+          }
+          const header = (channel as any).header
+          if (header?.author?.name) {
+            const name = typeof header.author.name === 'string' ? header.author.name : (header.author.name as any)?.text || String(header.author.name)
+            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null') return name
+          }
+          if (header?.metadata?.title) {
+            const name = typeof header.metadata.title === 'string' ? header.metadata.title : (header.metadata.title as any)?.text || String(header.metadata.title)
+            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null') return name
+          }
+          return null
+        })()
+        const channelName = extractedChannelNameV2 ?? 'Unknown Channel'
 
         const thumbnail = videoItem.thumbnail?.thumbnails?.[0]?.url ?? ''
 

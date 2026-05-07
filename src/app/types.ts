@@ -26,6 +26,8 @@ export interface Video {
   fileSizeBytes?: number;
   /** Detected on download: true = vertical 9:16 short, false = landscape 16:9+ video */
   isShort?: boolean;
+  /** Source video resolution (e.g. "1920x1080") */
+  videoResolution?: string;
 }
 
 export interface EditorState {
@@ -47,7 +49,7 @@ export interface EditorState {
   speedMultiplier: number;    // 1.0 to 2.0, step 0.1
   // Export
   exportQuality: 1080 | 720 | 360;
-  exportCodec: 'h264' | 'hevc';
+  exportCodec: 'h264';
   exportPreset: 'p1' | 'p2' | 'p3';
   exportTune: 'hq' | 'll' | 'film';
   enableChunked: boolean;
@@ -117,5 +119,7 @@ export interface RenderedVideo {
   thumbnail: string;
   /** base64 JPEG data URI of thumbnail — survives workspace deletion */
   thumbnailData?: string;
+  /** Source video resolution (e.g. "1920x1080") */
+  videoResolution?: string;
   renderedAt: string;
 }

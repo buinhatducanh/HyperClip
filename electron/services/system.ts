@@ -1,5 +1,6 @@
 import os from 'os'
 import path from 'path'
+import fs from 'fs'
 import { execSync } from 'child_process'
 import { getRamDiskInfo, getAutoRamDiskSize } from './ramdisk.js'
 import { getPoolStatus } from './worker-pool.js'
@@ -183,19 +184,41 @@ function detectGPUOnce(): GPUStatic {
         encoding: 'utf-8', timeout: 5000,
       }).toString()
 
-      if (encodersOut.includes('h264_nvenc') || encodersOut.includes('hevc_nvenc')) {
-        encoder = 'nvenc'
+      const hasH264Nvenc = encodersOut.includes('h264_nvenc')
+      const hasHevcNvenc = encodersOut.includes('hevc_nvenc')
 
-        const archConfig = getNvencArchConfig(gpuName)
-        nvencSessions = archConfig.maxSessions
-        nvencSurfaceCount = archConfig.surfaceCount
-        maxChunkWorkers = archConfig.recommendedWorkers
-        preset = 'fast'
-        tier = 'high'
+      if (hasH264Nvenc || hasHevcNvenc) {
+        // Verify NVENC actually works — encoder may be in the list but driver may not support it.
+        // gyan.dev FFmpeg 8.1 on RTX 4050 Laptop (driver 566.14): lists h264_nvenc but fails at runtime.
+        // Use 1920x1080 — minimum required by some builds like CapCut FFmpeg 20.5.0.
+        const testCodec = hasH264Nvenc ? 'h264_nvenc' : 'hevc_nvenc'
+        const testFile = path.join(os.tmpdir(), `hc_nvenc_test_${Date.now()}.mp4`)
+        try {
+          execSync(
+            `"${ffmpeg}" -f lavfi -i color=c=blue:s=1920x1080:d=0.1 -c:v ${testCodec} -frames:v 1 -y "${testFile}"`,
+            { timeout: 15000, stdio: 'ignore' }
+          )
+          if (!fs.existsSync(testFile) || fs.statSync(testFile).size < 100) throw new Error('NVENC test produced no output')
+          console.log(`[GPU] NVENC hardware test passed (${testCodec})`)
+          encoder = 'nvenc'
+        } catch {
+          console.warn(`[GPU] NVENC hardware test FAILED — falling back to CPU encoding.`)
+          encoder = 'software'
+        } finally {
+          try { fs.unlinkSync(testFile) } catch {}
+        }
 
-        console.log(`[GPU] NVENC — ${archConfig.label} — sessions=${nvencSessions} workers=${maxChunkWorkers} surfaces=${nvencSurfaceCount}`)
+        if (encoder === 'nvenc') {
+          const archConfig = getNvencArchConfig(gpuName)
+          nvencSessions = archConfig.maxSessions
+          nvencSurfaceCount = archConfig.surfaceCount
+          maxChunkWorkers = archConfig.recommendedWorkers
+          preset = 'fast'
+          tier = 'high'
+          console.log(`[GPU] NVENC — ${archConfig.label} — sessions=${nvencSessions} workers=${maxChunkWorkers} surfaces=${nvencSurfaceCount}`)
+        }
       } else {
-        console.log(`[GPU] No NVENC in ffmpeg build`)
+        console.log(`[GPU] No NVENC in FFmpeg build`)
         encoder = 'software'
       }
     } catch (e) {

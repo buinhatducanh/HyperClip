@@ -338,6 +338,9 @@ export async function extractYouTubeCookies(profileDir: string): Promise<YouTube
       try {
         const raw = fs.readFileSync(persistedPath, 'utf8')
         const cookies: YouTubeCookies = JSON.parse(raw)
+        if (!cookies.socs || cookies.socs.startsWith('CAA')) {
+          cookies.socs = 'CAI'
+        }
         if (cookies.SAPISID && cookies.PSID) {
           console.log(`[Cookie] Loaded persisted cookies (from CDP login) for ${persistedPath}`)
           return cookies
@@ -467,6 +470,11 @@ if (!dbBuffer) return null
     }
 
     db.close()
+
+    // Auto-inject SOCS=CAI to bypass Google Consent screens automatically
+    if (!cookies.socs || cookies.socs.startsWith('CAA')) {
+      cookies.socs = 'CAI'
+    }
 
     if (cookies.SAPISID && cookies.PSID) {
       return cookies as YouTubeCookies

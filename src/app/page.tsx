@@ -50,6 +50,14 @@ function formatDateRaw(iso: string): string {
   }
 }
 
+function fmtEta(secs: number): string {
+  if (!secs || secs <= 0) return ''
+  if (secs < 60) return `~${Math.round(secs)}s`
+  const m = Math.floor(secs / 60)
+  const s = Math.round(secs % 60)
+  return s > 0 ? `~${m}m ${s}s` : `~${m}m`
+}
+
 // ─── App ────────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -88,7 +96,7 @@ export default function DashboardPage() {
     active: boolean; newVideoCount: number; lastError: string | null
   } | null>(null)
   const quotaToastShown = useRef(false)
-  const lastRenderCodec = useRef<string>('hevc')
+  const lastRenderCodec = useRef<string>('h264')
   const router = useRouter()
   const [renderQueueExpanded, setRenderQueueExpanded] = useState(false)
   const [keyHealth, setKeyHealth] = useState<{ exhausted: number; unauthorized: number }>({ exhausted: 0, unauthorized: 0 })
@@ -138,6 +146,11 @@ export default function DashboardPage() {
   useEffect(() => {
     const cleanup = ipc.onWorkspaceUpdate((ws) => {
       const data = ws as any
+      if (!data) {
+        initWorkspaces()
+        initRenderedVideos()
+        return
+      }
       if (!data.id) return
       const existing = useAppStore.getState().workspaces.find(w => w.id === data.id)
       if (existing) {
@@ -148,7 +161,7 @@ export default function DashboardPage() {
         updateWorkspace(data.id, patch)
       } else {
         const formatted: Workspace = {
-          id: data.id, channelId: data.channelId || '', channelName: data.channelName || '',
+          id: data.id, channelId: data.channelId || '', channelName: data.channelName || 'Unknown Channel',
           channelColor: data.channelColor || '#00B4FF', videoTitle: data.videoTitle || 'Unknown',
           thumbnail: data.thumbnail || '', duration: formatDurationRaw(data.duration),
           downloadedAt: data.downloadedAt ? formatDateRaw(data.downloadedAt) : '',
@@ -203,13 +216,13 @@ export default function DashboardPage() {
   // Render + download progress
   useEffect(() => {
     const cleanup = window.electronAPI?.onRenderProgress((progress) => {
-      const p = progress as { workspaceId: string; percent: number }
+      const p = progress as { workspaceId: string; percent: number; eta?: number }
       if (p.workspaceId && p.percent !== undefined) {
         const ws = useAppStore.getState().workspaces.find(w => w.id === p.workspaceId)
         // Always update downloadProgress (covers 'downloading', 'ready', 'editing' states)
         // Only update renderProgress for 'rendering' status
         const patch: Partial<import('./lib/store').Workspace> = ws?.status === 'rendering'
-          ? { renderProgress: p.percent }
+          ? { renderProgress: p.percent, renderEta: p.eta ? fmtEta(p.eta) : undefined }
           : { downloadProgress: p.percent }
         updateWorkspace(p.workspaceId, patch)
       }
@@ -230,7 +243,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const cleanup = ipc.onAutoDownload((data) => {
       const d = data as { videoId: string; title: string; channelName: string }
-      addNotification({ type: 'autodownload', message: `${d.channelName}: ${d.title}` })
+      addNotification({ type: 'autodownload', message: `${d.channelName || 'Unknown Channel'}: ${d.title}` })
       showToast(`Auto: ${d.title}`)
       try {
         const ctx = new AudioContext()
@@ -251,35 +264,18 @@ export default function DashboardPage() {
     return cleanup
   }, [showToast, addNotification])
 
-  // Render-complete → add to rendered videos list
+  // Render-complete → refresh rendered videos list
   useEffect(() => {
     const cleanup = ipc.onNotification((n) => {
       const notif = n as { type: string; message: string; workspaceId?: string }
       if ((notif.type === 'success') && notif.workspaceId &&
-          (notif.message?.startsWith('Done') || notif.message?.startsWith('Render done'))) {
-        const ws = useAppStore.getState().workspaces.find(w => w.id === notif.workspaceId)
-        if (ws) {
-          addRenderedVideo({
-            id: `rv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            workspaceId: ws.id,
-            channelId: ws.channelId,
-            channelName: ws.channelName,
-            videoTitle: ws.videoTitle,
-            archivedPath: ws.outputPath || '',
-            outputPath: ws.outputPath || '',
-            quality: ws.quality,
-            codec: lastRenderCodec.current,
-            fileSize: ws.fileSize,
-            fileSizeBytes: 0,
-            duration: 0,
-            thumbnail: ws.thumbnail,
-            renderedAt: new Date().toISOString(),
-          })
-        }
+          (notif.message?.startsWith('Done') || notif.message?.startsWith('Render done') || notif.message?.startsWith('Render xong'))) {
+        // Reload list from backend so it includes thumbnailData and correct output paths
+        initRenderedVideos()
       }
     })
     return cleanup
-  }, [addRenderedVideo])
+  }, [initRenderedVideos])
 
   // Map workspaces to videos for DetailEditor
   const videos: Video[] = workspaces.map((ws) => ({
@@ -288,6 +284,7 @@ export default function DashboardPage() {
     status: ws.status === 'editing' ? 'new' : ws.status === 'done' ? 'done' : ws.status === 'rendering' ? 'rendering' : 'new',
     renderProgress: ws.renderProgress, fileSize: ws.fileSize, downloadedPath: ws.downloadedPath,
     isShort: ws.isShort,
+    videoResolution: ws.videoResolution,
   }))
 
   const newCounts: Record<string, number> = {}
