@@ -3,6 +3,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import type { Video, EditorState, SystemStats } from '../types'
 import { ipc } from '../lib/ipc'
+import { SkeletonEditor } from './Skeleton'
 
 interface Props {
   video: Video | null

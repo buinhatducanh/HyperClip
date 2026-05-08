@@ -671,7 +671,17 @@ export class ChromeSessionManager {
       }))
     }
 
-    const valid = this._sessions.filter(s => s.cookies)
+    // Force SOCS=CAI for all sessions — ensures isConsented=true for all working sessions
+    // This overrides CAA or missing SOCS that would otherwise cause auth errors
+    for (const session of this._sessions) {
+      if (session.cookies && (!session.cookies.socs || session.cookies.socs.startsWith('CAA'))) {
+        session.cookies.socs = 'CAI'
+        session.isConsented = true
+      }
+    }
+
+    const valid = this._sessions.filter(s => s.cookies && s.isConsented)
+    console.log(`[SessionManager] ${valid.length}/${this._sessionCount} sessions ready (${this._sessions.filter(s => !s.cookies).length} missing — login from Settings)`)
     console.log(`[SessionManager] ${valid.length}/${this._sessionCount} sessions ready (${this._sessions.filter(s => !s.cookies).length} missing — login from Settings)`)
 
     // ─── Background cookie health monitoring ───────────────────────────────────
@@ -732,6 +742,10 @@ export class ChromeSessionManager {
           session.isLoggedIn = true
           session.wasLoggedIn = true
           session.isConsented = !!(cookies?.socs && !cookies.socs.startsWith('CAA'))
+          if (!cookies.socs || cookies.socs.startsWith('CAA')) {
+            cookies.socs = 'CAI'
+            session.isConsented = true
+          }
           session.error = undefined
           session.usedToday = 0
           session.lastRefreshAt = Date.now()
@@ -820,7 +834,8 @@ export class ChromeSessionManager {
    * Safe for concurrent calls from parallel channel fetches.
    */
   getNextSession(): ChromeSession | null {
-    const valid = this._sessions.filter(s => s.cookies)
+    // Only use sessions with cookies AND consent — CAA/empty SOCS causes 401/403 from YouTube
+    const valid = this._sessions.filter(s => s.cookies && s.isConsented)
     if (valid.length === 0) return null
 
     const session = valid[this._index % valid.length]
@@ -848,6 +863,11 @@ export class ChromeSessionManager {
         session.refreshFailCount = 0
       }
       session.isConsented = !!(result.cookies?.socs && !result.cookies.socs.startsWith('CAA'))
+      // Force CAI for all sessions — prevents auth errors from CAA/empty SOCS
+      if (result.cookies && (!result.cookies.socs || result.cookies.socs.startsWith('CAA'))) {
+        result.cookies.socs = 'CAI'
+        session.isConsented = true
+      }
       session.error = result.error ?? (result.cookies ? undefined : 'No YouTube cookies found')
       session.lastUsed = 0
       session.usedToday = 0
@@ -989,6 +1009,11 @@ export class ChromeSessionManager {
         session.refreshFailCount = 0
       }
       session.isConsented = !!cookies?.socs && !cookies.socs.startsWith('CAA')
+      // Force CAI for all sessions — prevents auth errors from CAA/empty SOCS
+      if (cookies && (!cookies.socs || cookies.socs.startsWith('CAA'))) {
+        cookies.socs = 'CAI'
+        session.isConsented = true
+      }
       session.error = cookies ? undefined : 'No YouTube cookies'
       session.usedToday = 0
       console.log(`[SessionManager] refreshSession(${profileId}): cookies=${!!cookies}, isLoggedIn=${session.isLoggedIn}, isConsented=${session.isConsented}, socs=${cookies?.socs}`)

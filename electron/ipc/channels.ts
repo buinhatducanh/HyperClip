@@ -32,6 +32,9 @@ export const IPC_CHANNELS = {
   // Auto-download
   AUTO_DOWNLOAD_EVENT: 'autodownload',
 
+  // Innertube degraded state (no videos across all channels for extended period)
+  INNERTUBE_DEGRADED_EVENT: 'innertube:degraded',
+
   // Channel info
   CHANNEL_INFO: 'channel:info',
 
@@ -129,4 +132,8 @@ export const IPC_CHANNELS = {
   // Data portability (P1)
   DATA_EXPORT: 'data:export',
   DATA_IMPORT: 'data:import',
+
+  // Log export (P1)
+  LOGS_READ: 'logs:read',
+  LOGS_EXPORT: 'logs:export',
 } as const

@@ -29,6 +29,8 @@ export interface PollerOptions {
   pollIntervalMs?: number // default 4000 (4 seconds)
   maxVideosPerPoll?: number // max new videos to report per poll, default 5
   onNewVideos?: (videos: DetectedVideo[]) => void
+  /** Called when Innertube has returned 0 videos for 3+ consecutive polls */
+  onDegraded?: () => void
 }
 
 export interface PollerStatus {
@@ -41,6 +43,7 @@ export interface PollerStatus {
   newVideoCount: number // total new videos detected this session
   lastError: string | null
   exhaustedUntil: number | null // timestamp when backoff ends (null = not backing off)
+  innertubeDegraded: boolean // true when Innertube has returned 0 videos for 3+ consecutive polls
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -98,11 +101,14 @@ class YouTubePoller {
   private _backoffReason: 'oauth' | null = null
   private _exhaustionCount: number = 0        // tracks how many times we've backed off (for exponential backoff)
   private _isFirstPoll: boolean = true         // first poll after startup uses relaxed age filter
+  private _innertubeDegraded: boolean = false // true when Innertube returns 0 videos for 3+ polls
+  private _notifyDegraded?: () => void
 
   constructor(options: PollerOptions) {
     this._pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
     this._maxVideosPerPoll = options.maxVideosPerPoll ?? MAX_VIDEOS_PER_POLL
     this._onNewVideos = options.onNewVideos
+    this._notifyDegraded = options.onDegraded
     // Load persisted seen IDs on startup — survives app restarts
     this._seenVideoIds = loadSeenVideoIds()
     console.log(`[YouTubePoller] Loaded ${this._seenVideoIds.size} seen video IDs from disk`)
@@ -119,6 +125,7 @@ class YouTubePoller {
       newVideoCount: this._newVideoCount,
       lastError: this._lastError,
       exhaustedUntil: this._exhaustedBackoffUntil > Date.now() ? this._exhaustedBackoffUntil : null,
+      innertubeDegraded: this._innertubeDegraded,
     }
   }
 
@@ -217,6 +224,14 @@ class YouTubePoller {
       firstPoll: this._isFirstPoll,
     })
     this._isFirstPoll = false
+
+    // Emit degraded event to UI when Innertube has returned 0 videos for 3+ consecutive polls
+    if (subResult.degraded) {
+      this._innertubeDegraded = true
+      this._notifyDegraded?.()
+    } else if (subResult.videos.length > 0) {
+      this._innertubeDegraded = false
+    }
 
     if (subResult.videos.length === 0) {
       if (subResult.error) {

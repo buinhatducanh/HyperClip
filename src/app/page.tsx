@@ -12,6 +12,7 @@ import { LoginScreen } from './components/LoginScreen'
 import type { Channel, Video, SystemStats, EditorState } from './types'
 import { useAppStore, type Workspace } from './lib/store'
 import { ipc } from './lib/ipc'
+import { SkeletonQueue, SkeletonEditor, SkeletonChannelItem, SkeletonStyles } from './components/Skeleton'
 
 export const dynamic = 'force-dynamic'
 
@@ -104,6 +105,8 @@ export default function DashboardPage() {
   const [keyHealth, setKeyHealth] = useState<{ exhausted: number; unauthorized: number }>({ exhausted: 0, unauthorized: 0 })
   const [selectedRenderedVideoId, setSelectedRenderedVideoId] = useState<string | null>(null)
   const [diagIssues, setDiagIssues] = useState<string[]>([])
+  const [isLoadingData, setIsLoadingData] = useState(true)
+  const [isLoadingChannels, setIsLoadingChannels] = useState(true)
 
   // Fetch auth status on mount + listen for updates
   useEffect(() => {
@@ -176,7 +179,7 @@ export default function DashboardPage() {
         updateWorkspace(data.id, patch)
       } else {
         const formatted: Workspace = {
-          id: data.id, channelId: data.channelId || '', channelName: data.channelName || 'Unknown Channel',
+          id: data.id, channelId: data.channelId || '', channelName: (data.channelName && data.channelName !== 'N/A') ? data.channelName : 'Unknown Channel',
           channelColor: data.channelColor || '#00B4FF', videoTitle: data.videoTitle || 'Unknown',
           thumbnail: data.thumbnail || '', duration: formatDurationRaw(data.duration),
           downloadedAt: data.downloadedAt ? formatDateRaw(data.downloadedAt) : '',
@@ -223,9 +226,11 @@ export default function DashboardPage() {
 
   // Load initial data
   useEffect(() => {
-    initChannels()
-    initWorkspaces()
-    initRenderedVideos()
+    Promise.all([
+      initChannels().then(() => setIsLoadingChannels(false)),
+      initWorkspaces(),
+      initRenderedVideos(),
+    ]).then(() => setIsLoadingData(false))
   }, [initChannels, initWorkspaces, initRenderedVideos])
 
   // Render + download progress
@@ -258,7 +263,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const cleanup = ipc.onAutoDownload((data) => {
       const d = data as { videoId: string; title: string; channelName: string }
-      addNotification({ type: 'autodownload', message: `${d.channelName || 'Unknown Channel'}: ${d.title}` })
+      addNotification({ type: 'autodownload', message: `${(d.channelName && d.channelName !== 'N/A') ? d.channelName : 'Unknown Channel'}: ${d.title}` })
       showToast(`Auto: ${d.title}`)
       try {
         const ctx = new AudioContext()
@@ -499,6 +504,9 @@ export default function DashboardPage() {
 
   const selectedVideo = videos.find((v) => v.id === selectedWorkspaceId) ?? null
 
+  // Skeleton: show when initial data is loading AND auth is ready
+  const showSkeleton = isLoadingData && authStatus.isReady
+
   // Filter workspaces by active channel
   const filteredWorkspaces = activeChannelId
     ? workspaces.filter(w => w.channelId === activeChannelId)
@@ -542,6 +550,7 @@ export default function DashboardPage() {
       {/* Sidebar */}
       <Sidebar
         channels={channels}
+        isLoadingChannels={isLoadingChannels}
         activeChannelId={activeChannelId || ''}
         newCounts={newCounts}
         onChannelSelect={handleChannelSelect}
@@ -564,7 +573,10 @@ export default function DashboardPage() {
           width: 260, borderRight: '1px solid #1E1E1E', display: 'flex', flexDirection: 'column',
           overflow: 'hidden', flexShrink: 0,
         }}>
-          <WorkspaceQueue
+          {showSkeleton ? (
+            <SkeletonQueue />
+          ) : (
+            <WorkspaceQueue
             workspaces={filteredWorkspaces}
             renderedVideos={renderedVideos}
             selectedId={selectedWorkspaceId}
@@ -581,11 +593,14 @@ export default function DashboardPage() {
             onSplit={handleSplit}
             trimLimitMinutes={settings.defaultTrimLimit as number}
           />
+          )}
         </div>
 
         {/* Editor / Rendered detail */}
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-          {selectedRenderedVideoId && renderedVideos.find(v => v.id === selectedRenderedVideoId) ? (
+          {showSkeleton ? (
+            <SkeletonEditor />
+          ) : selectedRenderedVideoId && renderedVideos.find(v => v.id === selectedRenderedVideoId) ? (
             <RenderedVideoDetail
               video={renderedVideos.find(v => v.id === selectedRenderedVideoId)!}
               onShowToast={showToast}
@@ -630,6 +645,7 @@ export default function DashboardPage() {
         onCancel={handleCancelRender}
       />
 
+      <SkeletonStyles />
       <style>{`
         @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         * { box-sizing: border-box; }

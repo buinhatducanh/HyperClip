@@ -50,6 +50,7 @@ export interface ElectronAPI {
   onWorkspaceUpdate: (callback: (ws: object) => void) => () => void
   onQuickAdd: (callback: () => void) => () => void
   onAutoDownload: (callback: (data: unknown) => void) => () => void
+  onInnertubeDegraded: (callback: (data: { degraded: boolean }) => void) => () => void
   onAuthUpdate: (callback: (status: unknown) => void) => () => void
   onChannelSynced: (callback: () => void) => () => void
   getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string }>
@@ -76,7 +77,7 @@ export interface ElectronAPI {
     active: boolean; pollIntervalMs: number; lastPollAt: number | null
     lastNewVideosAt: number | null; cookiesReady: boolean
     videoCount: number; newVideoCount: number; lastError: string | null
-    exhaustedUntil: number | null
+    exhaustedUntil: number | null; innertubeDegraded?: boolean
   } | null>
   resumePoller: () => Promise<{ success: boolean }>
   // Project management
@@ -113,6 +114,9 @@ export interface ElectronAPI {
   // Data portability
   exportData: () => Promise<{ success: boolean; path?: string; error?: string }>
   importData: () => Promise<{ success: boolean; channelsImported?: number; seenImported?: number; error?: string }>
+  // Log export
+  readLogs: () => Promise<{ files: { name: string; size: number; mtime: number; content?: string }[]; logDir: string }>
+  exportLogs: () => Promise<{ success: boolean; path?: string; error?: string }>
 }
 
 declare global {

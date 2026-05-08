@@ -12,6 +12,7 @@ import https from 'https'
 import { getTokenManager } from './token_manager.js'
 import { getChannels } from './store.js'
 import { getInnertubePool } from './innertube_client.js'
+import { getLatestVideosFromRss } from './youtube.js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -31,6 +32,8 @@ export interface SubFeedResult {
   error?: string
   allSourcesExhausted?: boolean
   source: 'innertube' | 'oauth' | 'mixed' | 'none'
+  /** True when Innertube has returned 0 videos for 3+ consecutive polls */
+  degraded?: boolean
 }
 
 export interface SubFeedOptions {
@@ -117,6 +120,41 @@ function setCachedUploadsId(channelId: string, uploadsId: string): void {
   _uploadsCache.set(channelId, { uploadsId, fetchedAt: Date.now() })
 }
 
+/**
+ * Fetch newest video from a channel via RSS feed (Tier 3 fallback).
+ * RSS requires no auth and has no quota — but has ~2 min delay on new uploads.
+ * Only works for channels with UC IDs (not handles/shortnames).
+ */
+async function fetchChannelWithRss(
+  ch: { id: string; channelId?: string; name: string },
+  seenVideoIds: Set<string> | undefined,
+  sinceMs: number,
+): Promise<SubscriptionVideo | null> {
+  const channelId = ch.channelId || ch.id
+  if (!channelId || !channelId.startsWith('UC')) return null
+
+  const rssVideos = await getLatestVideosFromRss(channelId, 3)
+  for (const rv of rssVideos) {
+    if (seenVideoIds?.has(rv.videoId)) continue
+    if (rv.title.includes('[deleted]') || rv.title.includes('[private]')) continue
+
+    const publishedAt = rv.published ? new Date(rv.published).getTime() : 0
+    if (publishedAt > 0 && publishedAt < sinceMs) continue
+
+    return {
+      videoId: rv.videoId,
+      title: rv.title,
+      channelId,
+      channelName: ch.name || 'Unknown',
+      thumbnail: `https://img.youtube.com/vi/${rv.videoId}/mqdefault.jpg`,
+      publishedAt,
+      publishedText: rv.published,
+      duration: '',
+    }
+  }
+  return null
+}
+
 // ─── Per-Channel Fetch ─────────────────────────────────────────────────────────
 
 /**
@@ -183,7 +221,7 @@ async function fetchChannelWithOAuth(
       videoId,
       title,
       channelId,
-      channelName: ch.name || snippet.channelTitle || 'Unknown',
+      channelName: (ch.name && ch.name !== 'N/A') ? ch.name : (snippet.channelTitle && snippet.channelTitle !== 'N/A') ? snippet.channelTitle : 'Unknown',
       thumbnail: snippet.thumbnails?.medium?.url || snippet.thumbnails?.default?.url || '',
       publishedAt,
       duration: '',
@@ -269,7 +307,6 @@ export async function fetchSubscriptionFeed(
             }
           }
         }
-        console.log(`[SubFeed] batch ${i / MAX_CONCURRENT + 1}: ${batchNewCount} new, ${batchResults.length - batchNewCount} seen`)
       }
 
       // Scanned all channels — got 0 new videos. This is NORMAL.
@@ -277,6 +314,7 @@ export async function fetchSubscriptionFeed(
       console.log(`[SubFeed] Innertube: 0 videos across ${channels.length} channels (no new content)`)
 
       // Track zero-result polls for silent-death detection (Phase 3 of reliability_plan)
+      let degraded = false
       if (results.length === 0) {
         _consecutiveZeroInnertubePolls++
         if (_consecutiveZeroInnertubePolls >= ZERO_POLL_THRESHOLD) {
@@ -300,13 +338,18 @@ export async function fetchSubscriptionFeed(
           } catch (e) {
             console.log(`[SubFeed] OAuth health check failed: ${e}`)
           }
+          degraded = true // Signal degraded state to UI
           _consecutiveZeroInnertubePolls = 0 // Reset after health check
         }
       } else {
         _consecutiveZeroInnertubePolls = 0 // Got videos → reset counter
       }
 
-      return { videos: results, source: 'innertube' }
+      return {
+        videos: results,
+        source: 'innertube',
+        degraded,
+      }
     } else {
       // No Innertube sessions ready — must use OAuth
       console.log(`[SubFeed] Innertube: 0/${totalSessions} sessions ready — OAuth fallback`)
@@ -387,6 +430,37 @@ export async function fetchSubscriptionFeed(
     }
   }
 
+  // ── Step 3: RSS Fallback (Tier 3) ────────────────────────────────────────────
+  // Only triggers when both Innertube and OAuth returned 0 videos.
+  // RSS requires no auth, no quota — but has ~2 min delay on new uploads.
+  // Limit to top-10 priority channels to avoid spam (RSS is slow: ~1s/channel).
+  if (results.length === 0) {
+    const priorityChannels = channels.slice(0, 10)
+    const RSS_CONCURRENT = 3 // max parallel RSS requests — RSS is slow
+    console.log(`[SubFeed] ⚠️ Both Innertube + OAuth exhausted — trying RSS for ${priorityChannels.length} priority channels...`)
+
+    for (let i = 0; i < priorityChannels.length; i += RSS_CONCURRENT) {
+      const batch = priorityChannels.slice(i, i + RSS_CONCURRENT)
+      const rssResults = await Promise.all(
+        batch.map(ch => fetchChannelWithRss(ch, seenVideoIds, cutoff))
+      )
+      for (const video of rssResults) {
+        if (video && !results.some(r => r.videoId === video.videoId)) {
+          results.push(video)
+          seenVideoIds?.add(video.videoId)
+          if (results.length >= targetStop) {
+            console.log(`[SubFeed] RSS fallback: early exit at ${results.length} videos`)
+            break
+          }
+        }
+      }
+      if (results.length >= targetStop) break
+    }
+    if (results.length > 0) {
+      console.log(`[SubFeed] RSS fallback: found ${results.length} video(s)`)
+    }
+  }
+
   // Deduplicate
   const seen = new Set<string>()
   const unique: SubscriptionVideo[] = []
@@ -394,15 +468,18 @@ export async function fetchSubscriptionFeed(
     if (!seen.has(v.videoId)) { seen.add(v.videoId); unique.push(v) }
   }
 
+  // Determine source: innertube (has duration), oauth/rss (no duration field)
+  const innertubeCount = results.filter(r => r.duration && r.duration !== '').length
+  const source = innertubeCount > 0 ? 'innertube' : 'oauth'
+
   if (unique.length > 0) {
-    const source = results.some(r => !r.duration) ? 'oauth' : 'innertube'
     const newest = unique[0]
     const ageMin = (Date.now() - newest.publishedAt) / 60000
     const ageLabel = ageMin < 1 ? 'vua xong' : Math.floor(ageMin) + 'm ago'
     console.log(`[SubFeed] ${unique.length} video(s) found (${source}): "${newest.title.slice(0, 40)}" from ${newest.channelName} (${ageLabel})`)
   }
 
-  return { videos: unique, source: unique.length > 0 ? 'innertube' : 'oauth' }
+  return { videos: unique, source: unique.length > 0 ? source : 'oauth' }
 }
 
 // ─── Channel Cache ─────────────────────────────────────────────────────────────

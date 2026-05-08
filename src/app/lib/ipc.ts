@@ -99,6 +99,9 @@ export const ipc = {
   onAutoDownload(callback: (data: object) => void) {
     return window.electronAPI?.onAutoDownload(callback) ?? (() => {})
   },
+  onInnertubeDegraded(callback: (data: { degraded: boolean }) => void) {
+    return window.electronAPI?.onInnertubeDegraded(callback) ?? (() => {})
+  },
   onAuthUpdate(callback: (status: object) => void) {
     return window.electronAPI?.onAuthUpdate(callback) ?? (() => {})
   },
@@ -148,7 +151,7 @@ export const ipc = {
   async testAllKeys() {
     return window.electronAPI?.testAllKeys() ?? { results: [], keys: [] }
   },
-  async getPollerStatus(): Promise<{ active: boolean; lastPollAt: number | null; newVideoCount: number; lastError: string | null; exhaustedUntil: number | null } | null> {
+  async getPollerStatus(): Promise<{ active: boolean; lastPollAt: number | null; newVideoCount: number; lastError: string | null; exhaustedUntil: number | null; innertubeDegraded?: boolean } | null> {
     return window.electronAPI?.getPollerStatus() ?? null
   },
   async resumePoller() {
@@ -237,5 +240,14 @@ export const ipc = {
 
   async pickFolder(currentPath?: string): Promise<{ path: string } | null> {
     return window.electronAPI?.pickFolder(currentPath) ?? null
+  },
+
+  // ─── Log Export ──────────────────────────────────────────────────────────────
+  async readLogs(): Promise<{ files: { name: string; size: number; mtime: number; content?: string }[]; logDir: string }> {
+    return window.electronAPI?.readLogs() ?? { files: [], logDir: '' }
+  },
+
+  async exportLogs(): Promise<{ success: boolean; path?: string; error?: string }> {
+    return window.electronAPI?.exportLogs() ?? { success: false, error: 'electronAPI not available' }
   },
 }

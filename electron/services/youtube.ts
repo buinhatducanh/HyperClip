@@ -160,8 +160,9 @@ export async function getChannelMetadataFromHttp(url: string): Promise<YtdlpChan
     avatarUrl = `https://yt3.googleusercontent.com/ytc/${resolvedId}=s100-c-k-c0x00ffffff-no-rj`
   }
 
+  const safeName = (channelName && channelName !== 'Unknown' && channelName !== 'N/A') ? channelName : ''
   return {
-    channelName,
+    channelName: safeName,
     channelId: resolvedId,
     avatarUrl,
     handle: url.includes('@') ? url : `https://www.youtube.com/channel/${resolvedId}`,
@@ -372,7 +373,7 @@ export async function getChannelInfo(url: string): Promise<YtdlpChannelInfo | nu
         const avatarUrl = info.thumbnail || info.avatar || info.uploader_thumbnail || ''
 
         resolve({
-          channelName: info.channel || info.uploader || 'Unknown',
+          channelName: (info.channel && info.channel !== 'N/A') ? info.channel : (info.uploader && info.uploader !== 'N/A') ? info.uploader : 'Unknown',
           channelId: info.channel_id || '',
           avatarUrl,
           handle: info.channel_handle || info.uploader_url || '',
@@ -422,7 +423,7 @@ export async function getVideoInfo(videoUrl: string): Promise<YtdlpVideoInfo | n
           title: info.title || 'Unknown',
           thumbnail: info.thumbnail || '',
           duration: info.duration || 0,
-          channelName: info.channel || info.uploader || 'Unknown',
+          channelName: (info.channel && info.channel !== 'N/A') ? info.channel : (info.uploader && info.uploader !== 'N/A') ? info.uploader : 'Unknown',
           channelId: info.channel_id || '',
           uploadDate: info.upload_date || '',
           fileSize: info.filesize || info.filesize_approx || 0,

@@ -63,6 +63,8 @@ const NVENC_ARCH: Record<string, NvencArchConfig> = {
   'RTX 4070': { maxSessions: 14, surfaceCount: 32, recommendedWorkers: 8, label: 'RTX 40 series (Ada Lovelace)' },
   'RTX 4070 SUPER': { maxSessions: 14, surfaceCount: 32, recommendedWorkers: 8, label: 'RTX 40 series (Ada Lovelace)' },
   'RTX 4060 Ti': { maxSessions: 14, surfaceCount: 24, recommendedWorkers: 6, label: 'RTX 40 series (Ada Lovelace)' },
+  // RTX 4050 Laptop: 6GB GDDR6 — lower limits than desktop RTX 4060
+  'RTX 4050 Laptop GPU': { maxSessions: 6, surfaceCount: 16, recommendedWorkers: 4, label: 'RTX 40 Laptop (Ada Lovelace)' },
   // ── RTX 30 series (Ampere / GA102-GA104) ─────────────────────────────────
   'RTX 3090': { maxSessions: 16, surfaceCount: 32, recommendedWorkers: 12, label: 'RTX 30 series (Ampere)' },
   'RTX 3090 Ti': { maxSessions: 16, surfaceCount: 32, recommendedWorkers: 12, label: 'RTX 30 series (Ampere)' },
@@ -92,6 +94,8 @@ function getNvencArchConfig(gpuName: string): NvencArchConfig {
   }
   // Fallback by GPU tier string
   if (gpuName.includes('RTX 50')) return NVENC_ARCH['RTX 5080']
+  // Check Laptop GPUs before generic RTX 40/30/20 — "RTX 40" would match RTX 4080 first
+  if (gpuName.includes('Laptop') && gpuName.includes('RTX 40')) return NVENC_ARCH['RTX 4050 Laptop GPU']
   if (gpuName.includes('RTX 40')) return NVENC_ARCH['RTX 4080']
   if (gpuName.includes('RTX 30')) return NVENC_ARCH['RTX 3080']
   if (gpuName.includes('RTX 20')) return NVENC_ARCH['RTX 2080']

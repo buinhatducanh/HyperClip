@@ -83,6 +83,7 @@ export interface AppStore {
   renderQueueExpanded: boolean
   toast: string
   notifications: AppNotification[]
+  isInitialLoading: boolean
 
   // Actions — Notifications
   addNotification: (n: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => void
@@ -122,6 +123,7 @@ export interface AppStore {
   setRenderQueueExpanded: (expanded: boolean) => void
   setSettings: (patch: Partial<AppSettings>) => void
   showToast: (msg: string) => void
+  setInitialLoading: (loading: boolean) => void
 
   // Actions — Editor
   updateEditorState: (patch: Partial<EditorState>) => void
@@ -191,6 +193,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   toast: '',
   notifications: [],
   editorState: INIT_EDITOR,
+  isInitialLoading: true,
 
   // Actions — Workspace
   initWorkspaces: async () => {
@@ -199,7 +202,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const ws: Workspace[] = raw.map((w: any) => ({
         id: w.id,
         channelId: w.channelId,
-        channelName: w.channelName || 'Unknown Channel',
+        channelName: (w.channelName && w.channelName !== 'N/A') ? w.channelName : 'Unknown Channel',
         channelColor: w.channelColor || '#00B4FF',
         videoTitle: w.videoTitle || 'Unknown Video',
         thumbnail: w.thumbnail || '',
@@ -348,6 +351,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   // Actions — UI
   setRenderQueueExpanded: (expanded) => set({ renderQueueExpanded: expanded }),
   setSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
+  setInitialLoading: (loading: boolean) => set({ isInitialLoading: loading }),
 
   showToast: (msg) => {
     set({ toast: msg })

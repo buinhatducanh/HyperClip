@@ -406,8 +406,10 @@ function buildFilterComplex(opts: {
     useCuda = true,
   } = opts
 
-  // Determine filter pipeline.
-  // CPU-based scale is more reliable than scale_cuda for certain HEVC streams.
+  // GPU pipeline: scale_cuda/overlay_cuda with format=yuv420p conversion.
+  // scale_cuda outputs NV12 CUDA surface. overlay_cuda needs yuv420p system RAM format.
+  // format=yuv420p after every scale_cuda bridges the gap — output becomes system RAM yuv420p,
+  // which overlay_cuda (and all downstream filters) can consume directly.
   const scale = useCuda ? 'scale_cuda' : 'scale'
   const overlay = useCuda ? 'overlay_cuda' : 'overlay'
 
@@ -428,7 +430,7 @@ function buildFilterComplex(opts: {
     if (videoH <= scaledAfterScaleH) {
       // Safe: crop from center-vertical
       const cropY = Math.round((scaledAfterScaleH - videoH) / 2)
-      videoChain2 = `[0:v]${scale}=${canvasW}:-2,crop=${canvasW}:${videoH}:0:${cropY}${speedFilter ? ',' + speedFilter : ''}[vid]`
+      videoChain2 = `[0:v]${scale}=${canvasW}:-2:force_original_aspect_ratio=decrease,format=yuv420p,crop=${canvasW}:${videoH}:0:${cropY}${speedFilter ? ',' + speedFilter : ''}[vid]`
     } else {
       // Unsafe: target exceeds scaled source — use contain (letterboxing)
       // Use scale+pad in two steps: first scale to target height, then pad to full width
@@ -437,16 +439,16 @@ function buildFilterComplex(opts: {
       // Step 1: scale to target height (preserving aspect)
       // Step 2: pad to canvas width with horizontal centering
       // Note: use iw/ih in pad expressions (ow/oh reference output of THIS pad, not previous)
-      videoChain2 = `[0:v]${scale}=${canvasW}:${videoH}:force_original_aspect_ratio=decrease,pad=${canvasW}:${videoH}:(ow-iw)/2:${targetY}${speedFilter ? ',' + speedFilter : ''}[vid]`
+      videoChain2 = `[0:v]${scale}=${canvasW}:${videoH}:force_original_aspect_ratio=decrease,format=yuv420p,pad=${canvasW}:${videoH}:(ow-iw)/2:${targetY}${speedFilter ? ',' + speedFilter : ''}[vid]`
     }
     // [1:v] thumbnail → fill entire canvas background
-    const bgChain2 = `[1:v]${scale}=${canvasW}:${canvasH}:force_original_aspect_ratio=decrease[bg]`
+    const bgChain2 = `[1:v]${scale}=${canvasW}:${canvasH}:force_original_aspect_ratio=decrease,format=yuv420p[bg]`
     // Video over thumbnail bg, positioned at videoTop
     const vzChain2 = `[bg][vid]${overlay}=0:${videoTop}[vz]`
     // Title overlay (part number) at bottom
     if (titleOl?.content && titleOverlayPath) {
       const sections = [videoChain2, bgChain2, vzChain2]
-      sections.push(`[2:v]${scale}=${canvasW}:${titleH}[titleScaled]`, `[vz][titleScaled]${overlay}=0:${canvasH - titleH}[td]`)
+      sections.push(`[2:v]${scale}=${canvasW}:${titleH}:force_original_aspect_ratio=decrease,format=yuv420p[titleScaled]`, `[vz][titleScaled]${overlay}=0:${canvasH - titleH}[td]`)
       return sections.join('; ')
     }
     return [videoChain2, bgChain2, vzChain2].join('; ')
@@ -457,7 +459,7 @@ function buildFilterComplex(opts: {
   // Stage 1: scale → output=[scaled]
   // Stage 2: setpts → output=[sped] (only if speed != 1.0)
   // Stage 3: pad → output=[vid]
-  const scaleChain = `[0:v]${scale}=${videoW}:${videoH}:force_original_aspect_ratio=decrease[scaled]`
+  const scaleChain = `[0:v]${scale}=${videoW}:${videoH}:force_original_aspect_ratio=decrease,format=yuv420p[scaled]`
   let videoChain: string
   if (speedFilter) {
     // Two stages: scale → setpts → pad
@@ -471,10 +473,10 @@ function buildFilterComplex(opts: {
   // blur/image: scale from source size. solid: color filter outputs exact size already.
   const bgChain = backgroundType === 'solid'
     ? `[1:v]null[bg]`
-    : `[1:v]${scale}=${canvasW}:${canvasH}:force_original_aspect_ratio=decrease[bg]`
+    : `[1:v]${scale}=${canvasW}:${canvasH}:force_original_aspect_ratio=decrease,format=yuv420p[bg]`
 
   // Header image scale (full canvas width)
-  const hdChain = headerOl?.src ? `[2:v]${scale}=${canvasW}:${headerH}[hd]` : ''
+  const hdChain = headerOl?.src ? `[2:v]${scale}=${canvasW}:${headerH}:force_original_aspect_ratio=decrease,format=yuv420p[hd]` : ''
 
   // Video over bg → [vz]
   const vzChain = `[bg][vid]${overlay}=0:${videoTop}[vz]`
@@ -500,7 +502,7 @@ function buildFilterComplex(opts: {
 // Per-architecture NVENC tuning for RTX 5080 and other GPUs.
 // Uses GPUCapabilities to get architecture-specific session limits and surface counts.
 
-function getNvencParams(codec: 'h264' | 'hevc', isChunked: boolean, gpuTier: GPUTier = 'software'): string[] {
+function getNvencParams(codec: 'h264' | 'hevc', isChunked: boolean, gpuTier: GPUTier = 'software', canvasW = 0, canvasH = 0): string[] {
   const isHighTier = gpuTier === 'high'
   const isMidTier = gpuTier === 'mid'
 
@@ -538,15 +540,30 @@ function getNvencParams(codec: 'h264' | 'hevc', isChunked: boolean, gpuTier: GPU
     ? (isHighTier ? 'ull' : isMidTier ? 'll' : 'll')
     : 'hq'
 
+  // Bitrate cap based on output resolution — prevents huge file sizes
+  // when CQ mode produces high bitrate on simple content.
+  // Target: ~1.5-2 Mbps for 360p vertical, ~3 Mbps for 720p vertical.
+  let maxBitrate = ''
+  if (canvasH > 0) {
+    if (canvasH <= 640) maxBitrate = '1500k'
+    else if (canvasH <= 1080) maxBitrate = '3000k'
+    else maxBitrate = '5000k'
+  }
+
   const params: string[] = [
     '-preset', preset,
-    '-rc', 'vbr',
+    '-rc', 'vbr_hq',     // vbr_hq: VBR with quality focus + better rate control
     '-cq', cq,
     '-tune', tune,
     '-bf', '0',         // No B-frames → faster encode, hardware-compatible
     '-refs', '1',       // Single reference frame → minimum latency
     '-reconnect', '1',  // Handle stream interruption gracefully
   ]
+
+  // Add bitrate cap for VBR mode — prevents oversized files
+  if (maxBitrate) {
+    params.push('-maxrate', maxBitrate, '-bufsize', maxBitrate)
+  }
 
   if (isChunked) {
     params.push(
@@ -772,7 +789,7 @@ export async function renderVideo(
   const {
     workspace_id, source_video, export_resolution,
     video_speed, fps_target, overlays, trim,
-    codec = 'hevc',
+    codec = 'h264',
     backgroundType = 'blur', backgroundColor = '#000000', backgroundImage,
     blur_background,
     isShort = true,
@@ -833,15 +850,14 @@ export async function renderVideo(
   // Cap at 16 to avoid thread oversubscription on the filter chain.
   const numThreads = Math.min(os.cpus().length, 16)
 
-  // Use CPU decode to avoid NVDEC/HEVC incompatibility failures.
-  // hevc_nvdec fails on certain HEVC profiles with "Invalid NAL unit size".
-  // CPU decode → filter → NVENC encode is more reliable.
-  const decCodec = codec
+  // Use CUDA hardware decode when available (h264_cuvid/hevc_cuvid).
+  // CUVID decodes directly to GPU memory — filter chain then runs on GPU.
+  const decCodec = getBestHwDecCodec(codec as 'h264' | 'hevc')
 
-  // Build filter complex (CPU-based to avoid scale_cuda/HEVC incompatibility)
+  // Build filter complex: GPU-accelerated (scale_cuda/overlay_cuda) with format=yuv420p after scale
   const titleOverlayResult = await preRenderOverlays(metadata, outputDir, workspace_id)
   const titleOverlayPath = titleOverlayResult.titleOverlayPath ?? undefined
-  const filterComplex = buildFilterComplex({ useCuda: false, headerOl, titleOl, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, speedFilter, backgroundType, titleOverlayPath, isShort })
+  const filterComplex = buildFilterComplex({ useCuda: true, headerOl, titleOl, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, speedFilter, backgroundType, titleOverlayPath, isShort })
 
   // Determine output label
   let mapOutput = '[vz]'
@@ -875,7 +891,7 @@ export async function renderVideo(
     '-filter_complex', filterComplex,
     '-map', mapOutput,
     '-c:v', nvencCodec,
-    ...getNvencParams(codec, false, gpuTier),
+    ...getNvencParams(codec, false, gpuTier, canvasW, canvasH),
     '-c:a', audioCodec,
     '-b:a', audioBitrate,
     '-r', String(fps_target),
@@ -983,14 +999,15 @@ function buildChunkArgs(
   const nvencCodec = isGpuAvailable
     ? (codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc')
     : (codec === 'hevc' ? 'libx265' : 'libx264')
-  // Use CPU decode to avoid NVDEC/HEVC incompatibility failures.
-  const decCodec = codec
+  // Use hardware decode when available (CUVID/NVDEC).
+  const decCodec = getBestHwDecCodec(codec as 'h264' | 'hevc')
   // CPU-aware threads: use all cores but cap at 16 to avoid oversubscription
   const chunkThreads = numThreads ?? Math.min(os.cpus().length, 16)
 
-  // CPU-based scale is more reliable than scale_cuda for certain HEVC streams.
-  const scale = 'scale'
-  const overlay = 'overlay'
+  // GPU-accelerated filters when available and GPU tier is good.
+  const hasGpuFilters = isGpuAvailable && getHwCaps().hasCudaFilters
+  const scale = hasGpuFilters ? 'scale_cuda' : 'scale'
+  const overlay = hasGpuFilters ? 'overlay_cuda' : 'overlay'
 
   const speedFilter = videoSpeed && videoSpeed !== 1.0
     ? 'setpts=' + (1 / videoSpeed) + '*PTS'
@@ -1019,24 +1036,24 @@ function buildChunkArgs(
       if (speedFilter) {
         sections.push('[0:v]' + scale + '=' + canvasW + ':-2,crop=' + canvasW + ':' + videoH + ':0:' + cropY + '[cropped]; [cropped]' + speedFilter.replace(',', '') + '[vid]')
       } else {
-        sections.push('[0:v]' + scale + '=' + canvasW + ':-2,crop=' + canvasW + ':' + videoH + ':0:' + cropY + '[vid]')
+        sections.push('[0:v]' + scale + '=' + canvasW + ':-2:force_original_aspect_ratio=decrease,format=yuv420p,crop=' + canvasW + ':' + videoH + ':0:' + cropY + speedFilter.replace(',', '') + '[vid]')
       }
     } else {
       // Letterboxing: scale to target height, then pad to canvas width with horizontal centering
       const scaledIh = Math.round(canvasW * 9 / 16)
       const targetY = Math.round((videoH - scaledIh) / 2)
       if (speedFilter) {
-        sections.push('[0:v]' + scale + '=' + canvasW + ':' + videoH + ':force_original_aspect_ratio=decrease[step1]; [step1]pad=' + canvasW + ':' + videoH + ':(ow-iw)/2:' + targetY + '[step2]; [step2]' + speedFilter.replace(',', '') + '[vid]')
+        sections.push('[0:v]' + scale + '=' + canvasW + ':' + videoH + ':force_original_aspect_ratio=decrease,format=yuv420p[step1]; [step1]pad=' + canvasW + ':' + videoH + ':(ow-iw)/2:' + targetY + speedFilter + '[vid]')
       } else {
-        sections.push('[0:v]' + scale + '=' + canvasW + ':' + videoH + ':force_original_aspect_ratio=decrease,pad=' + canvasW + ':' + videoH + ':(ow-iw)/2:' + targetY + '[vid]')
+        sections.push('[0:v]' + scale + '=' + canvasW + ':' + videoH + ':force_original_aspect_ratio=decrease,format=yuv420p,pad=' + canvasW + ':' + videoH + ':(ow-iw)/2:' + targetY + '[vid]')
       }
     }
 
-    sections.push('[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease[bg]')
+    sections.push('[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease,format=yuv420p[bg]')
     sections.push('[bg][vid]' + overlay + '=0:' + videoTop + '[vz]')
 
     if (titleOverlayPath) {
-      sections.push('[2:v]' + scale + '=' + canvasW + ':' + titleH + '[titleScaled]')
+      sections.push('[2:v]' + scale + '=' + canvasW + ':' + titleH + ':force_original_aspect_ratio=decrease,format=yuv420p[titleScaled]')
       sections.push('[vz][titleScaled]' + overlay + '=0:' + (canvasH - titleH) + '[final]')
     }
     const filterChain = sections.join('; ')
@@ -1044,13 +1061,13 @@ function buildChunkArgs(
 
     // Background input index: [0]=video, [1]=bg, [2]=titleOverlay
     // For landscape, background is scaled to full canvas
-    let bgScaleFilter = '[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease[bg]'
+    let bgScaleFilter = '[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease,format=yuv420p[bg]'
     if (backgroundType === 'solid') {
       // Solid bg: bgInput IS the full-canvas color, no extra scale needed
       bgScaleFilter = '[1:v]null[bg]'
     } else if (backgroundType === 'image' && backgroundImage) {
       // Image bg: scale to full canvas
-      bgScaleFilter = '[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease[bg]'
+      bgScaleFilter = '[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease,format=yuv420p[bg]'
     }
     // Replace sections[1] with bgScaleFilter
     const fixedSections = [sections[0], bgScaleFilter, ...sections.slice(2)]
@@ -1068,7 +1085,7 @@ function buildChunkArgs(
       '-filter_complex', fixedFilterChain,
       '-map', mapOutput, '-map', '0:a?',
       '-c:v', nvencCodec,
-      ...getNvencParams(codec, true, gpuTier),
+      ...getNvencParams(codec, true, gpuTier, canvasW, canvasH),
       '-max_muxing_queue_size', '512',
       '-c:a', audioCodec, '-b:a', audioBitrate,
       '-r', '30',
@@ -1076,7 +1093,7 @@ function buildChunkArgs(
     ]
   }
 
-  const scaleChain = '[0:v]' + scale + '=' + videoW + ':' + videoH + ':force_original_aspect_ratio=decrease'
+  const scaleChain = '[0:v]' + scale + '=' + videoW + ':' + videoH + ':force_original_aspect_ratio=decrease,format=yuv420p'
   const padChain = ',pad=' + canvasW + ':' + canvasH + ':(ow-iw)/2:' + videoTop + '[vid]'
   const videoChain = scaleChain + (speedFilter ? ',' + speedFilter : '') + padChain
 
@@ -1085,9 +1102,9 @@ function buildChunkArgs(
   if (backgroundType === 'solid') {
     bgFilter = '[1:v]null[bg]'
   } else if (backgroundType === 'image' && backgroundImage) {
-    bgFilter = '[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease[bg]'
+    bgFilter = '[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease,format=yuv420p[bg]'
   } else {
-    bgFilter = '[1:v]' + scale + '=' + canvasW + ':' + canvasH + '[bg]'
+    bgFilter = '[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=decrease,format=yuv420p[bg]'
   }
 
   const sections: string[] = [
@@ -1096,7 +1113,7 @@ function buildChunkArgs(
     '[bg][vid]' + overlay + '=0:' + videoTop + '[vz]',
   ]
 
-  const hdChain = headerOlSrc ? '[2:v]' + scale + '=' + canvasW + ':' + headerH + '[hd]' : ''
+  const hdChain = headerOlSrc ? '[2:v]' + scale + '=' + canvasW + ':' + headerH + ':force_original_aspect_ratio=decrease,format=yuv420p[hd]' : ''
   if (hdChain) {
     sections.push(hdChain, '[vz][hd]' + overlay + '=0:0[fh]')
   }
@@ -1339,7 +1356,7 @@ export async function renderChunked(
   onProgress?: (progress: RenderProgress & { phase: 'split' | 'encode' | 'merge'; chunkIndex?: number }) => void,
 ): Promise<ChunkedResult> {
   const {
-    workspace_id, source_video, blur_background, trim, export_resolution, codec = 'hevc',
+    workspace_id, source_video, blur_background, trim, export_resolution, codec = 'h264',
     isShort = true, overlays, video_speed,
     audioCodec = 'aac', audioBitrate = '192k',
   } = metadata
@@ -1367,7 +1384,7 @@ export async function renderChunked(
   const totalDuration = trimEnd - trimStart
 
   // Short duration → single-pass (no chunking overhead needed)
-  if (totalDuration <= 60) {
+  if (totalDuration <= 30) {
     const simple = await renderVideo(metadata, outputDir, onProgress as any, gpuTier)
     return { ...simple, chunks: [], totalEncodeMs: 0 }
   }

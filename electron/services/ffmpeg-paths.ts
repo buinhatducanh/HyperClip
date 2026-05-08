@@ -31,17 +31,20 @@ function resolveBinary(name: string): string {
           if (hasNvEncoders) {
             hasTestedNvEnc = true
             const testFile = path.join(os.tmpdir(), `hc_nvenc_probe_${Date.now()}.mp4`)
-            const testCodec = encOut.includes('h264_nvenc') ? 'h264_nvenc' : 'hevc_nvenc'
+            // Try hevc_nvenc first (more reliable on RTX 4050 laptop), fall back to h264_nvenc
+            const testCodec = encOut.includes('hevc_nvenc') ? 'hevc_nvenc' : 'h264_nvenc'
             try {
-              execSync(
+              // Pipe stderr to detect actual error message
+              const result = execSync(
                 `"${fp}" -f lavfi -i color=c=blue:s=1920x1080:d=0.1 -c:v ${testCodec} -frames:v 1 -y "${testFile}"`,
-                { timeout: 15000, stdio: 'ignore' }
+                { timeout: 15000, stdio: ['ignore', 'pipe', 'pipe'] }
               )
               const sz = fs.statSync(testFile).size
               nvencWorks = sz > 100
               if (!nvencWorks) console.log(`[FFmpeg probe] ${path.basename(fp)} NVENC test: 0 bytes — driver incompatible`)
-            } catch {
-              console.log(`[FFmpeg probe] ${path.basename(fp)} NVENC test: FAILED`)
+            } catch (e: any) {
+              // NVENC not usable at runtime — either driver issue or build mismatch
+              console.log(`[FFmpeg probe] ${path.basename(fp)} NVENC test: FAILED (${e.status ?? 'signal'})`)
             } finally {
               try { fs.unlinkSync(testFile) } catch {}
             }
@@ -225,8 +228,6 @@ export function getFfmpegVersion(ffmpegPath: string): FfmpegVersion {
     result.hasH264Nvenc = encodersOut.includes('h264_nvenc')
     result.hasHevcNvenc = encodersOut.includes('hevc_nvenc')
     result.hasNvenc = result.hasH264Nvenc || result.hasHevcNvenc
-    result.hasNvdec = encodersOut.includes('hevc_nvdec') || encodersOut.includes('h264_nvdec')
-    result.hasCuvid = encodersOut.includes('hevc_cuvid') || encodersOut.includes('h264_cuvid')
     result.hasQsv = encodersOut.includes('hevc_qsv') || encodersOut.includes('h264_qsv')
     result.hasVaapi = encodersOut.includes('hevc_vaapi') || encodersOut.includes('h264_vaapi')
     result.hasNvencLookahead = encodersOut.includes('nvenc_lookahead')
@@ -236,6 +237,16 @@ export function getFfmpegVersion(ffmpegPath: string): FfmpegVersion {
   } catch (e) {
     console.warn('[FFmpeg] Could not enumerate encoders:', e)
   }
+
+  // Check decoders for NVDEC/CUVID (these are decoder entries, not encoder entries)
+  try {
+    const decodersOut = execSync(`"${ffmpegPath}" -hide_banner -decoders 2>&1`, {
+      encoding: 'utf-8', timeout: 8000,
+    }).toString()
+
+    result.hasNvdec = decodersOut.includes('hevc_nvdec') || decodersOut.includes('h264_nvdec')
+    result.hasCuvid = decodersOut.includes('hevc_cuvid') || decodersOut.includes('h264_cuvid')
+  } catch {}
 
   try {
     const filtersOut = execSync(`"${ffmpegPath}" -hide_banner -filters 2>&1`, {

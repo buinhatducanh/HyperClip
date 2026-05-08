@@ -1849,16 +1849,32 @@ function PollerStatusPanel() {
   const [projectStatus, setProjectStatus] = useState<any>(null)
   const [keyStatus, setKeyStatus] = useState<any>(null)
   const [cloning, setCloning] = useState(false)
+  const [innertubeDegraded, setInnertubeDegraded] = useState(false)
 
   const load = () => {
     ipc.getPollerStatus().then(setPollerStatus).catch(() => {})
     ipc.getSessionStatus().then(setSessionStatus).catch(() => {})
     ipc.getProjects().then(setProjectStatus).catch(() => {})
     ipc.getKeys().then(setKeyStatus).catch(() => {})
+    // Sync degraded state from poller status
+    if (pollerStatus?.innertubeDegraded !== undefined) {
+      setInnertubeDegraded(pollerStatus.innertubeDegraded)
+    }
   }
 
   useEffect(() => { load() }, [])
   useEffect(() => { const t = setInterval(load, 8000); return () => clearInterval(t) }, [])
+
+  // Listen for Innertube degraded events from main process
+  useEffect(() => {
+    const cleanup = ipc.onInnertubeDegraded((data) => {
+      setInnertubeDegraded(data.degraded)
+      if (data.degraded) {
+        showToast('⚠️ Innertube degraded — đang kiểm tra health...')
+      }
+    })
+    return cleanup
+  }, [])
 
   const backoffMs = pollerStatus?.exhaustedUntil ? pollerStatus.exhaustedUntil - Date.now() : 0
   const backoffMin = backoffMs > 0 ? Math.round(backoffMs / 60000) : 0
@@ -2106,12 +2122,17 @@ function PollerStatusPanel() {
         {!isBackedOff && hasInnertube && (
           <div style={{
             marginTop: 14, padding: '10px 14px',
-            background: '#0a1a0a', border: '1px solid #00FF8844',
+            background: innertubeDegraded ? '#1a1500' : '#0a1a0a',
+            border: `1px solid ${innertubeDegraded ? '#FFB80044' : '#00FF8844'}`,
             borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10,
           }}>
-            <span style={{ fontSize: 11, color: '#00FF88' }}>✓</span>
-            <span style={{ fontSize: 10, color: '#666' }}>
-              Innertube (Chrome cookies) + OAuth cùng active — detection tối ưu.
+            <span style={{ fontSize: 11, color: innertubeDegraded ? '#FFB800' : '#00FF88' }}>
+              {innertubeDegraded ? '⚠' : '✓'}
+            </span>
+            <span style={{ fontSize: 10, color: innertubeDegraded ? '#888' : '#666' }}>
+              {innertubeDegraded
+                ? 'Innertube đang degraded (0 video trong 3+ poll liên tiếp) — đang kiểm tra OAuth...'
+                : 'Innertube (Chrome cookies) + OAuth cùng active — detection tối ưu.'}
             </span>
           </div>
         )}
@@ -2627,11 +2648,156 @@ function DiagRow({ label, ok, okColor, errorColor, details, fix }: {
   )
 }
 
+// ─── Logs Section ─────────────────────────────────────────────────────────────
+
+function LogsSection() {
+  const [logs, setLogs] = useState<{ files: { name: string; size: number; mtime: number; content?: string }[]; logDir: string }>({ files: [], logDir: '' })
+  const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
+  const [selectedLog, setSelectedLog] = useState<string | null>(null)
+  const [selectedContent, setSelectedContent] = useState<string>('')
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  useEffect(() => {
+    setLoading(true)
+    ipc.readLogs().then(result => {
+      setLogs(result)
+      setLoading(false)
+      // Auto-select first log
+      if (result.files.length > 0 && !selectedLog) {
+        setSelectedLog(result.files[0].name)
+        setSelectedContent(result.files[0].content || '')
+      }
+    }).catch(() => setLoading(false))
+  }, [refreshKey])
+
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      const result = await ipc.exportLogs()
+      if (result.success) {
+        useAppStore.getState().showToast?.('Đã xuất logs thành công!')
+      }
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  }
+
+  const selectedFile = logs.files.find(f => f.name === selectedLog)
+
+  return (
+    <div style={{ padding: 20 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', letterSpacing: '0.1em', marginBottom: 4 }}>LOG FILES</div>
+          <div style={{ fontSize: 9, color: '#444', fontFamily: 'monospace' }}>{logs.logDir}</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={() => setRefreshKey(k => k + 1)}
+            style={{
+              padding: '8px 16px', background: '#141414', border: '1px solid #222',
+              borderRadius: 6, color: '#666', fontSize: 9, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.05em',
+            }}
+          >
+            ↻ REFRESH
+          </button>
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            style={{
+              padding: '8px 16px',
+              background: exporting ? '#1a1200' : '#1a1400',
+              border: `1px solid ${exporting ? '#555' : '#FF6B35'}`,
+              borderRadius: 6, color: exporting ? '#555' : '#FF6B35',
+              fontSize: 9, fontWeight: 700, cursor: exporting ? 'not-allowed' : 'pointer',
+              letterSpacing: '0.05em',
+            }}
+          >
+            {exporting ? 'ĐANG XUẤT...' : '📦 XUẤT LOGS'}
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ color: '#333', fontSize: 10, padding: 20 }}>Đang đọc log files...</div>
+      ) : logs.files.length === 0 ? (
+        <div style={{ color: '#333', fontSize: 10, padding: 20 }}>
+          Không có log file nào. Thử nhấn Refresh hoặc chạy lại app.
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 12, height: 'calc(100vh - 180px)' }}>
+          {/* File list */}
+          <div style={{ background: '#0D0D0D', border: '1px solid #141414', borderRadius: 8, overflow: 'auto', padding: 8 }}>
+            <div style={{ fontSize: 8, color: '#333', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 8, padding: '0 4px' }}>FILES</div>
+            {logs.files.map(file => (
+              <button
+                key={file.name}
+                onClick={() => { setSelectedLog(file.name); setSelectedContent(file.content || '') }}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px',
+                  background: selectedLog === file.name ? '#1a1a1a' : 'transparent',
+                  border: selectedLog === file.name ? '1px solid #333' : '1px solid transparent',
+                  borderRadius: 4, cursor: 'pointer', marginBottom: 2,
+                }}
+              >
+                <div style={{ fontSize: 9, color: selectedLog === file.name ? '#FF6B35' : '#666', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                  {file.name}
+                </div>
+                <div style={{ fontSize: 8, color: '#333', marginTop: 2 }}>
+                  {formatSize(file.size)} · {new Date(file.mtime).toLocaleString()}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* Log content */}
+          <div style={{ background: '#0D0D0D', border: '1px solid #141414', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{
+              padding: '8px 12px', borderBottom: '1px solid #141414',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
+            }}>
+              <span style={{ fontSize: 9, color: '#555', fontFamily: 'monospace' }}>{selectedLog}</span>
+              {selectedFile && (
+                <span style={{ fontSize: 8, color: '#333' }}>{formatSize(selectedFile.size)}</span>
+              )}
+            </div>
+            <pre style={{
+              flex: 1, overflow: 'auto', margin: 0, padding: 12,
+              fontSize: 9, color: '#888', fontFamily: 'Consolas, monospace',
+              lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+            }}>
+              {selectedContent || <span style={{ color: '#333' }}>— empty —</span>}
+            </pre>
+          </div>
+        </div>
+      )}
+
+      {/* Help text */}
+      <div style={{ marginTop: 16, padding: '10px 14px', background: '#0D0D0D', borderRadius: 6, borderLeft: '3px solid #333' }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: '#555', marginBottom: 4 }}>CÁCH BÁO LỖI</div>
+        <div style={{ fontSize: 9, color: '#333', lineHeight: 1.8 }}>
+          1. Nhấn <strong style={{ color: '#555' }}>Xuất Logs</strong> để tạo file nén<br />
+          2. Gửi file <strong style={{ color: '#555' }}>.zip</strong> qua Zalo/Telegram kèm mô tả lỗi<br />
+          3. Hoặc gửi đường dẫn thư mục: <span style={{ color: '#555', fontFamily: 'monospace' }}>{logs.logDir}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Settings Page ─────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
   const { settings, systemStats, setSettings } = useAppStore()
-  const [activeTab, setActiveTab] = useState<'status' | 'diag' | 'keys' | 'projects' | 'system'>('status')
+  const [activeTab, setActiveTab] = useState<'status' | 'diag' | 'keys' | 'projects' | 'system' | 'logs'>('status')
 
   const TABS = [
     { id: 'status' as const, label: 'STATUS', color: '#00FF88' },
@@ -2639,6 +2805,7 @@ export default function SettingsPage() {
     { id: 'projects' as const, label: 'OAUTH PROJECTS', color: '#00FF88' },
     { id: 'keys' as const, label: 'API KEYS', color: '#00B4FF' },
     { id: 'system' as const, label: 'SYSTEM', color: '#FFB800' },
+    { id: 'logs' as const, label: 'LOGS', color: '#FF6B35' },
   ]
 
   return (
@@ -2880,6 +3047,9 @@ export default function SettingsPage() {
             </div>
           </div>
         )}
+
+        {/* LOGS tab */}
+        {activeTab === 'logs' && <LogsSection />}
       </div>
 
       <style>{`

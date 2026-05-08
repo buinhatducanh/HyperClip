@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react'
 import type { Channel, SystemStats } from '../types'
 import { NotificationCenter } from './NotificationCenter'
+import { SkeletonChannelItem } from './Skeleton'
 
 interface AppSettings {
   defaultTrimLimit: number | 'full'
@@ -14,6 +15,7 @@ interface AppSettings {
 
 interface Props {
   channels: Channel[]
+  isLoadingChannels?: boolean
   activeChannelId: string
   newCounts: Record<string, number>
   onChannelSelect: (id: string) => void
@@ -61,7 +63,7 @@ function AvatarWithFallback({ url, name, color }: { url: string; name: string; c
 }
 
 export function Sidebar({
-  channels, activeChannelId, newCounts,
+  channels, isLoadingChannels, activeChannelId, newCounts,
   onChannelSelect,
   systemStats,
   authStatus,
@@ -210,7 +212,9 @@ export function Sidebar({
 
         {/* Channel items */}
         <div style={{ flex: 1, overflowY: 'auto' }}>
-          {channels.length === 0 ? (
+          {isLoadingChannels ? (
+            Array.from({ length: 6 }).map((_, i) => <SkeletonChannelItem key={i} />)
+          ) : channels.length === 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '24px 16px' }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#222" strokeWidth="1.5">
                 <path d="M15 10l4.553-2.276A1 1 0 0 1 21 8.618v6.764a1 1 0 0 1-1.447.894L15 14v-4z" />

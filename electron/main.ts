@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, protocol, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, protocol, dialog, crashReporter } from 'electron'
 import path from 'path'
 import os from 'os'
 import fs from 'fs'
@@ -29,6 +29,7 @@ import { getKeyManager } from './services/key_manager.js'
 import { getTokenManager } from './services/token_manager.js'
 import { getSessionManager } from './services/chrome_cookies.js'
 import type { SessionStatus } from './services/chrome_cookies.js'
+import { log, getLogDir, getSystemSnapshot } from './services/logger.js'
 
 // Fix UTF-8 console output on Windows — set code page to 65001 (UTF-8)
 if (process.platform === 'win32') {
@@ -304,7 +305,8 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
  */
 export function startYouTubePoller(
   intervalMs: number,
-  onVideos: (videos: Array<{ videoId: string; channelId: string; channelName: string; title: string; publishedAt?: number; detectedAt?: number }>) => void
+  onVideos: (videos: Array<{ videoId: string; channelId: string; channelName: string; title: string; publishedAt?: number; detectedAt?: number }>) => void,
+  onDegraded?: () => void
 ): void {
   const poller = createYouTubePoller({
     pollIntervalMs: intervalMs,
@@ -318,6 +320,7 @@ export function startYouTubePoller(
         detectedAt: v.detectedAt,
       })))
     },
+    onDegraded,
   })
   poller.start()
 }
@@ -2718,6 +2721,85 @@ async function registerIPCHandlers() {
     const sm = getSessionManager()
     return sm.cloneSessionOne()
   })
+
+  // ─── Log Export (P1) ─────────────────────────────────────────────────────────
+  ipcMain.handle('logs:read', async () => {
+    const logDir = getLogDir()
+    const files: { name: string; size: number; mtime: number; content?: string }[] = []
+    try {
+      for (const fname of fs.readdirSync(logDir)) {
+        if (!fname.startsWith('hyperclip')) continue
+        const fp = path.join(logDir, fname)
+        const stat = fs.statSync(fp)
+        const lines = fs.readFileSync(fp, 'utf-8').split('\n')
+        files.push({ name: fname, size: stat.size, mtime: stat.mtimeMs, content: lines.join('\n') })
+      }
+    } catch {}
+    return { files, logDir }
+  })
+
+  ipcMain.handle('logs:export', async () => {
+    const logDir = getLogDir()
+    const tmpDir = path.join(os.tmpdir(), 'hyperclip-logs-' + Date.now())
+    fs.mkdirSync(tmpDir, { recursive: true })
+
+    // 1. System snapshot
+    fs.writeFileSync(path.join(tmpDir, 'system_info.txt'), getSystemSnapshot())
+
+    // 2. Log files
+    try {
+      for (const fname of fs.readdirSync(logDir)) {
+        if (!fname.startsWith('hyperclip')) continue
+        fs.copyFileSync(path.join(logDir, fname), path.join(tmpDir, fname))
+      }
+    } catch {}
+
+    // 3. Crash dumps (minidumps)
+    const crashDir = path.join(app.getPath('crashDumps'))
+    if (fs.existsSync(crashDir)) {
+      try {
+        fs.mkdirSync(path.join(tmpDir, 'crash_dumps'), { recursive: true })
+        for (const fname of fs.readdirSync(crashDir)) {
+          if (fname.endsWith('.dmp') || fname.endsWith('.mdmp')) {
+            fs.copyFileSync(path.join(crashDir, fname), path.join(tmpDir, 'crash_dumps', fname))
+          }
+        }
+      } catch {}
+    }
+
+    // 4. Diagnostic output (current state)
+    try {
+      const diag = await runDiagnostics()
+      fs.writeFileSync(path.join(tmpDir, 'diagnostics.json'), JSON.stringify(diag, null, 2))
+    } catch {}
+
+    // 5. Settings
+    try {
+      const settings = loadSettings()
+      fs.writeFileSync(path.join(tmpDir, 'settings.json'), JSON.stringify(settings, null, 2))
+    } catch {}
+
+    // Save as zip
+    const { execSync } = await import('child_process')
+    const zipPath = path.join(os.tmpdir(), `hyperclip-logs-${new Date().toISOString().slice(0, 10)}.zip`)
+    const { dialog } = await import('electron')
+    const saveResult = await dialog.showSaveDialog(mainWindow!, {
+      title: 'Lưu file log',
+      defaultPath: zipPath,
+      filters: [{ name: 'ZIP', extensions: ['zip'] }],
+    })
+    if (saveResult.canceled || !saveResult.filePath) return { success: false }
+
+    try {
+      execSync(`powershell -Command "Compress-Archive -Path '${tmpDir}\\*' -DestinationPath '${saveResult.filePath}' -Force"`, { stdio: 'ignore' })
+      // Cleanup tmp
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+      shell.showItemInFolder(saveResult.filePath)
+      return { success: true, path: saveResult.filePath }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  })
 }
 
 // Relay auth status changes to renderer (registered at module load — catches early OAuth events)
@@ -2867,6 +2949,15 @@ app.whenReady().then(async () => {
           showWindowsToast('📥 Video mới!', `${v.channelName}: ${v.title}`)
           enqueueBgDownload(v)
         }
+      }, () => {
+        // Innertube degraded — notify UI
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send(IPC_CHANNELS.INNERTUBE_DEGRADED_EVENT, { degraded: true })
+          mainWindow.webContents.send(IPC_CHANNELS.NOTIFICATION_EVENT, {
+            type: 'warning',
+            message: '⚠️ Innertube đang degraded — đang kiểm tra OAuth...',
+          })
+        }
       })
       console.log('[HyperClip] Auto-ingestion active (5s interval)')
       console.log(`[HyperClip] Ready → http://localhost:${NEXT_PORT}`)
@@ -2917,6 +3008,22 @@ app.on('activate', () => {
 })
 
 process.on('uncaughtException', (err) => {
-  console.error('[HyperClip] Uncaught exception:', err)
+  log.crash('Uncaught exception', err)
   sendNotification('error', `Uncaught error: ${err.message}`)
 })
+
+process.on('unhandledRejection', (reason: unknown) => {
+  log.crash('Unhandled promise rejection', reason)
+})
+
+// ─── Crash Reporter (Electron built-in) ───────────────────────────────────────
+// Stores minidumps locally. User can export via Settings > Logs.
+crashReporter.start({
+  productName: 'HyperClip',
+  companyName: 'LoopCompany',
+  submitURL: '',  // No server yet — minidumps saved locally only
+  uploadToServer: false,
+})
+
+// Log startup banner
+log.info(`HyperClip starting — v${app.getVersion()} | Electron ${process.versions.electron} | Node ${process.version}`)

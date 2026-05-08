@@ -9,11 +9,29 @@
  * Fallback: OAuth Data API v3 (TokenManager, quota-limited).
  */
 
+// Suppress noisy youtubei.js logs (e.g. "[YOUTUBEJS][Text] Unable to find matching run")
+const _origLog = console.log
+const _origWarn = console.warn
+const _origErr = console.error
+console.log = (...args: unknown[]) => {
+  const msg = typeof args[0] === 'string' ? args[0] : ''
+  if (msg.includes('[YOUTUBEJS]')) return
+  _origLog(...args)
+}
+console.warn = (...args: unknown[]) => {
+  const msg = typeof args[0] === 'string' ? args[0] : ''
+  if (msg.includes('[YOUTUBEJS]')) return
+  _origWarn(...args)
+}
+console.error = (...args: unknown[]) => {
+  const msg = typeof args[0] === 'string' ? args[0] : ''
+  if (msg.includes('[YOUTUBEJS]')) return
+  _origErr(...args)
+}
+
 import Innertube from 'youtubei.js'
 import { getSessionManager } from './chrome_cookies.js'
 import type { YouTubeCookies } from './chrome_cookies.js'
-
-// ─── Types ─────────────────────────────────────────────────────────────────────
 
 export interface InnertubePoolStatus {
   totalSessions: number
@@ -48,6 +66,10 @@ function parseRelativeDate(relativeStr: string): number {
   const str = relativeStr.toLowerCase()
   const now = Date.now()
 
+  // "X second(s) ago" → subtract seconds (check first, before minutes)
+  const secMatch = str.match(/(\d+)\s*second/)
+  if (secMatch) return now - parseInt(secMatch[1]) * 1000
+
   // "X minute(s) ago" → subtract minutes
   const minMatch = str.match(/(\d+)\s*minute/)
   if (minMatch) return now - parseInt(minMatch[1]) * 60_000
@@ -75,6 +97,110 @@ function parseRelativeDate(relativeStr: string): number {
   // Try ISO parse as fallback
   const iso = new Date(relativeStr).getTime()
   return isNaN(iso) ? 0 : iso
+}
+
+// ─── LockupView video metadata extraction ────────────────────────────────────
+
+/**
+ * Extract video metadata from a LockupView item.
+ * YouTubei.js returns DIFFERENT structures for different channels:
+ *
+ * Structure A (common): metadata in lockupMetadata sub-object
+ *   { type: "LockupView", lockupMetadata: { content_id, content_title, published_time_text } }
+ *
+ * Structure B (e.g. Zilk Kay): metadata in metadata.metadata sub-object
+ *   { type: "LockupView", content_id: "vid", metadata: { metadata: { published_time_text, title } } }
+ *
+ * Tries all paths and returns the first valid value found.
+ */
+function extractLockupVideoField(item: any, field: 'videoId' | 'title' | 'published'): string {
+  if (!item) return ''
+
+  // Published time extraction (most critical for detection)
+  if (field === 'published') {
+    // Structure A: lockupMetadata
+    const lmPt = item.lockupMetadata?.published_time_text
+    if (lmPt) {
+      if (typeof lmPt === 'string') return lmPt
+      if (typeof lmPt?.text === 'string') return lmPt.text
+    }
+    // Structure B: metadata.metadata.published_time_text
+    const mPt = item.metadata?.metadata?.published_time_text
+    if (mPt) {
+      if (typeof mPt === 'string') return mPt
+      if (typeof mPt?.text === 'string') return mPt.text
+    }
+    // Structure C: metadata.metadata.metadata_parts[i].text.text (Zilk Kay pattern)
+    const parts = item.metadata?.metadata?.metadata_rows?.[0]?.metadata_parts
+    if (parts && Array.isArray(parts)) {
+      for (const part of parts) {
+        // Look for a text value that looks like a relative time ("X minutes ago", etc.)
+        const text = part?.text?.text || part?.text
+        if (text && typeof text === 'string' && /\d+\s*(second|minute|hour|day|week)/i.test(text)) {
+          return text
+        }
+        // Also check runs array for time-like text
+        const runs = part?.text?.runs
+        if (runs && Array.isArray(runs)) {
+          for (const run of runs) {
+            const runText = typeof run === 'string' ? run : run?.text
+            if (runText && /\d+\s*(second|minute|hour|day|week)/i.test(String(runText))) {
+              return String(runText)
+            }
+          }
+        }
+      }
+    }
+    return ''
+  }
+
+  // Video ID extraction
+  if (field === 'videoId') {
+    // Structure A: lockupMetadata.content_id
+    const lmId = item.lockupMetadata?.content_id
+    if (lmId) return String(lmId)
+    // Structure B: top-level content_id
+    const topId = item.content_id
+    if (topId) return String(topId)
+    // Legacy fallback: top-level id
+    const id = item.id || item.videoId || item.video_id
+    if (id) return String(id)
+    return ''
+  }
+
+  // Title extraction
+  if (field === 'title') {
+    // Structure A: lockupMetadata.content_title
+    const lmTitle = item.lockupMetadata?.content_title
+    if (lmTitle) {
+      if (typeof lmTitle === 'string') return lmTitle
+      if (typeof lmTitle?.text === 'string') return lmTitle.text
+      return lmTitle?.toString?.() ?? ''
+    }
+    // Structure B: metadata.title (e.g. Zilk Kay — not metadata.metadata.title!)
+    const mTitle = item.metadata?.title
+    if (mTitle) {
+      if (typeof mTitle === 'string') return mTitle
+      if (typeof mTitle?.text === 'string') return mTitle.text
+      return mTitle?.toString?.() ?? ''
+    }
+    // Structure B alt: metadata.metadata.title
+    const mMetaTitle = item.metadata?.metadata?.title
+    if (mMetaTitle) {
+      if (typeof mMetaTitle === 'string') return mMetaTitle
+      if (typeof mMetaTitle?.text === 'string') return mMetaTitle.text
+      return mMetaTitle?.toString?.() ?? ''
+    }
+    // Fallback: top-level title
+    if (item.title) {
+      if (typeof item.title === 'string') return item.title
+      if (typeof item.title?.text === 'string') return item.title.text
+      return item.title?.toString?.() ?? ''
+    }
+    return ''
+  }
+
+  return ''
 }
 
 // ─── Video extraction from YouTube response ─────────────────────────────────
@@ -288,6 +414,8 @@ interface PoolEntry {
   lastErrorAt: number
   usedToday: number
   lastUsed: number
+  /** Consecutive error count for exponential backoff */
+  errorCount: number
 }
 
 class InnertubeClientPool {
@@ -322,6 +450,7 @@ class InnertubeClientPool {
       lastErrorAt: 0,
       usedToday: 0,
       lastUsed: 0,
+      errorCount: 0,
     }))
 
     // Pre-warm clients for sessions that have valid cookies
@@ -402,7 +531,6 @@ class InnertubeClientPool {
     if (!this._initialized || this._sessions.length === 0) return null
 
     const now = Date.now()
-    const RECENT_ERROR_MS = 10_000 // skip sessions that errored in last 10s
     const total = this._sessions.length
 
     // Try at most total+1 entries to find a working client
@@ -412,8 +540,11 @@ class InnertubeClientPool {
 
       if (!entry.client) continue
 
-      // Skip if recently errored
-      if (entry.lastErrorAt > 0 && now - entry.lastErrorAt < RECENT_ERROR_MS) continue
+      // Exponential backoff on errors: 30s, 60s, 120s, 240s, max 5 min
+      if (entry.lastErrorAt > 0 && entry.errorCount > 0) {
+        const backoffMs = Math.min(300_000, 30_000 * Math.pow(2, entry.errorCount - 1))
+        if (now - entry.lastErrorAt < backoffMs) continue
+      }
 
       this._index = (idx + 1) % total
       // Track usage for background refresh priority
@@ -443,6 +574,10 @@ class InnertubeClientPool {
       return null
     }
 
+    // Reset error count on successful client acquisition — start fresh
+    const sessionEntry = this._sessions.find(s => s.profileId === entry.profileId)
+    if (sessionEntry) sessionEntry.errorCount = 0
+
     try {
       const channel = await entry.client.getChannel(channelId)
 
@@ -460,76 +595,83 @@ class InnertubeClientPool {
       const videoItems = extractVideosFromTab(videosTab)
 
       if (videoItems.length === 0) {
-        console.log(`[InnertubePool] getLatestVideo(${channelId}): 0 videos extracted — session=${entry.profileId}`)
+        if (channelId.includes('l0DrJgvA')) {
+          console.log(`[ZILLY] getLatestVideo: 0 videos — tab="${videosTab?.current_tab?.title ?? videosTab?.title ?? '?'}" memo=${videosTab?.memo ? Array.from(videosTab.memo.keys()).join(',') : 'none'}`)
+        }
         return null
       }
 
-      // Log top-2 items to debug extraction
-      const top2 = videoItems.slice(0, 2).map((v: any, idx: number) => ({
-        idx,
-        type: v?.type,
-        id: v?.id || v?.videoId || v?.video_id,
-        titleRaw: v?.title,
-        titleStr: typeof v?.title === 'string' ? v.title : v?.title?.text,
-        hasMetadata: !!(v?.metadata || v?.lockupMetadata || v?.contentMetadata),
-      }))
-      if (top2[0]?.type !== 'Video') {
-        console.log(`[DEBUG] extract top-2 for ${channelId}: ${JSON.stringify(top2)}`)
+      // Log top-2 items — only for Zilk Kay
+      if (channelId.includes('l0DrJgvA')) {
+        const top2 = videoItems.slice(0, 2).map((vi: any) => ({
+          type: vi?.type,
+          id: extractLockupVideoField(vi, 'videoId'),
+          title: extractLockupVideoField(vi, 'title'),
+          published: extractLockupVideoField(vi, 'published'),
+        }))
+        console.log(`[ZILLY] top-2: ${JSON.stringify(top2)}`)
       }
 
       // Try top-1, then top-2 if deleted/private
       for (let i = 0; i < Math.min(2, videoItems.length); i++) {
         const videoItem = videoItems[i]
         const itemType = videoItem?.type
+        const isLockup = itemType === 'LockupView' || itemType === 'ShortsLockupView'
 
-        // LockupView / ShortsLockupView: video metadata lives in lockupMetadata sub-object
-        const lm = videoItem?.lockupMetadata
-        const videoId = videoItem.id || videoItem.video_id
-          || (itemType === 'LockupView' || itemType === 'ShortsLockupView' ? lm?.content_id : null)
+        // Extract videoId — supports both LockupView structure A (lockupMetadata) and B (top-level)
+        const videoId = isLockup
+          ? extractLockupVideoField(videoItem, 'videoId')
+          : (videoItem.id || videoItem.videoId || videoItem.video_id ? String(videoItem.id || videoItem.videoId || videoItem.video_id) : '')
         if (!videoId) continue
 
-        // Extract title — LockupView uses content_title; others use title
-        const titleRaw = itemType === 'LockupView' || itemType === 'ShortsLockupView'
-          ? lm?.content_title
-          : videoItem.title
-        const title = typeof titleRaw?.text === 'string'
-          ? titleRaw.text
-          : titleRaw?.toString?.() ?? '(no title)'
+        // Extract title
+        const title = isLockup
+          ? extractLockupVideoField(videoItem, 'title')
+          : (typeof videoItem.title === 'string' ? videoItem.title : videoItem.title?.text ?? videoItem.title?.toString?.() ?? '(no title)')
 
         // Skip deleted/private — try next video in list
         if (title.includes('[deleted]') || title.includes('[private]')) {
-          // Debug: log raw title to understand why it's being skipped
-          const rawTitle = videoItem.title
-          console.log(`[InnertubePool] getLatestVideo(${channelId}): top-${i+1} id=${videoId} skipped (title="${title}", raw=${JSON.stringify(rawTitle)?.slice(0,80)}) — session=${entry.profileId}`)
           continue
         }
 
         // Check dedup FIRST — if seen, all older videos are also seen (tab sorted newest-first)
         if (seenVideoIds?.has(String(videoId))) {
-          console.log(`[InnertubePool] getLatestVideo(${channelId}): top-${i+1} id=${videoId} already seen — session=${entry.profileId}`)
           return null
         }
 
-        // NEW: top video is unseen — check age before accepting (0-10 min window)
-        // LockupView uses lockupMetadata.published_time_text
-        const publishedRaw = itemType === 'LockupView' || itemType === 'ShortsLockupView'
-          ? (typeof lm?.published_time_text?.text === 'string' ? lm.published_time_text.text : lm?.published_time_text?.toString?.() ?? '')
-          : (typeof videoItem.published?.text === 'string' ? videoItem.published.text : videoItem.published?.toString?.() ?? '')
+        // Extract published time — supports both LockupView structures
+        let publishedRaw = ''
+        if (isLockup) {
+          publishedRaw = extractLockupVideoField(videoItem, 'published')
+        } else {
+          publishedRaw = typeof videoItem.published?.text === 'string'
+            ? videoItem.published.text
+            : videoItem.published?.toString?.() ?? ''
+        }
         const publishedAt = parseRelativeDate(publishedRaw)
+
+        // Log for zilk kay
+        if (channelId.includes('l0DrJgvA')) {
+          const age = publishedAt > 0 ? `${Math.round((Date.now() - publishedAt) / 60000)}m ago` : 'UNPARSEABLE'
+          console.log(`[ZILLY] check: id=${videoId} title="${title.slice(0, 30)}" age=${age} raw="${publishedRaw}" firstPoll=${firstPoll}`)
+        }
 
         // Age filter:
         // - First poll (app restart): accept videos up to 24h old — capture all uploads since last session
         // - Normal poll: accept videos < 10 min old — real-time detection
         const MAX_VIDEO_AGE_MS = firstPoll ? 24 * 60 * 60 * 1000 : 10 * 60 * 1000
         if (publishedAt > 0 && Date.now() - publishedAt > MAX_VIDEO_AGE_MS) {
-          const ageLabel = firstPoll ? '> 24h old' : `too old (${publishedRaw})`
-          console.log(`[InnertubePool] getLatestVideo(${channelId}): top-${i+1} id=${videoId} ${ageLabel} — skipping all — session=${entry.profileId}`)
+          const ageMin = Math.round((Date.now() - publishedAt) / 60000)
+          if (channelId.includes('l0DrJgvA')) {
+            console.log(`[ZILLY] SKIP (age): ${ageMin}m old > ${firstPoll ? '24h' : '10m'}`)
+          }
           return null
         }
         // STRICT: if age is unparseable on a normal poll, skip — can't trust it.
-        // This prevents old videos with missing/unparseable published_time_text from being accepted.
         if (!firstPoll && publishedAt === 0) {
-          console.log(`[InnertubePool] getLatestVideo(${channelId}): top-${i+1} id=${videoId} age unparseable ("${publishedRaw}") — skipping — session=${entry.profileId}`)
+          if (channelId.includes('l0DrJgvA')) {
+            console.log(`[ZILLY] SKIP: age unparseable (published_time_text missing)`)
+          }
           return null
         }
 
@@ -543,29 +685,28 @@ class InnertubeClientPool {
           const authorName = videoItem.author?.name
           if (authorName) {
             const name = typeof authorName === 'string' ? authorName : (authorName as any)?.text || String(authorName)
-            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null') return name
+            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null' && name !== 'N/A') return name
           }
           // Fallback: try channel header (C4TabbedHeader only — has Author.name)
           const header = channel.header as any
           if (header?.author?.name) {
             const name = typeof header.author.name === 'string' ? header.author.name : (header.author.name as any)?.text || String(header.author.name)
-            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null') return name
+            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null' && name !== 'N/A') return name
           }
           // Fallback: channel metadata title
           if (header?.metadata?.title) {
             const name = typeof header.metadata.title === 'string' ? header.metadata.title : (header.metadata.title as any)?.text || String(header.metadata.title)
-            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null') return name
+            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null' && name !== 'N/A') return name
           }
           return null
         })()
         const channelName = extractedChannelName ?? 'Unknown Channel'
-        // Debug: log raw author object shape for new item types
-        if (channelName === 'Unknown Channel') {
-          const dbgHeader = channel.header as any
-          console.log(`[InnertubePool] WARN: channelName=Unknown for ${channelId} — videoId=${videoId}, author=${JSON.stringify(videoItem.author)?.slice(0, 120)}, h.author=${JSON.stringify(dbgHeader?.author)?.slice(0, 80)}, h.title=${JSON.stringify(dbgHeader?.metadata?.title)?.slice(0, 80)}`)
-        }
 
-        const thumbnail = videoItem.thumbnail?.thumbnails?.[0]?.url ?? ''
+        const thumbnail =
+          videoItem.thumbnail?.thumbnails?.[0]?.url
+          || videoItem.content_image?.thumbnails?.[0]?.url
+          || videoItem.metadata?.image?.sources?.[0]?.url
+          || ''
 
         return {
           videoId: String(videoId),
@@ -579,7 +720,6 @@ class InnertubeClientPool {
       }
 
       // All top-2 videos are deleted/private
-      console.log(`[InnertubePool] getLatestVideo(${channelId}): all top-2 deleted/private — session=${entry.profileId}`)
       return null
     } catch (e: unknown) {
       const errStr = String(e)
@@ -588,6 +728,7 @@ class InnertubeClientPool {
       if (sessionEntry) {
         sessionEntry.lastErrorAt = Date.now()
         sessionEntry.error = String(e).slice(0, 120)
+        sessionEntry.errorCount++
         sessionEntry.usedToday++
         sessionEntry.lastUsed = Date.now()
       }
@@ -606,6 +747,10 @@ class InnertubeClientPool {
       console.log(`[InnertubePool] getLatestVideos(${channelId}): no client available`)
       return []
     }
+
+    // Reset error count on successful client acquisition
+    const sessionEntry = this._sessions.find(s => s.profileId === entry.profileId)
+    if (sessionEntry) sessionEntry.errorCount = 0
 
     try {
       const channel = await entry.client.getChannel(channelId)
@@ -632,57 +777,63 @@ class InnertubeClientPool {
       for (let i = 0; i < limit; i++) {
         const videoItem = videoItems[i]
         const itemType = videoItem?.type
+        const isLockup = itemType === 'LockupView' || itemType === 'ShortsLockupView'
 
-        // LockupView / ShortsLockupView: video metadata lives in lockupMetadata sub-object
-        const lm = videoItem?.lockupMetadata
-        const videoId = videoItem.id || videoItem.video_id
-          || (itemType === 'LockupView' || itemType === 'ShortsLockupView' ? lm?.content_id : null)
+        // Extract videoId — supports both LockupView structure A (lockupMetadata) and B (top-level)
+        const videoId = isLockup
+          ? extractLockupVideoField(videoItem, 'videoId')
+          : (videoItem.id || videoItem.videoId || videoItem.video_id ? String(videoItem.id || videoItem.videoId || videoItem.video_id) : '')
         if (!videoId) continue
 
-        // Extract title — LockupView uses content_title; others use title
-        const titleRaw = itemType === 'LockupView' || itemType === 'ShortsLockupView'
-          ? lm?.content_title
-          : videoItem.title
-        const title = typeof titleRaw?.text === 'string'
-          ? titleRaw.text
-          : titleRaw?.toString?.() ?? '(no title)'
+        // Extract title
+        const title = isLockup
+          ? extractLockupVideoField(videoItem, 'title')
+          : (typeof videoItem.title === 'string' ? videoItem.title : videoItem.title?.text ?? videoItem.title?.toString?.() ?? '(no title)')
 
         if (title.includes('[deleted]') || title.includes('[private]')) continue
 
-        // GridVideo.published is a Text object wrapping data.publishedTimeText
-        // Access .text property to get the actual string like "1 minute ago"
-        const publishedRaw = itemType === 'LockupView' || itemType === 'ShortsLockupView'
-          ? (typeof lm?.published_time_text?.text === 'string' ? lm.published_time_text.text : lm?.published_time_text?.toString?.() ?? '')
-          : (typeof videoItem.published?.text === 'string' ? videoItem.published.text : videoItem.published?.toString?.() ?? '')
-        const publishedAt = parseRelativeDate(publishedRaw)
+        // Extract published time — supports both LockupView structures
+        let pr2 = ''
+        if (isLockup) {
+          pr2 = extractLockupVideoField(videoItem, 'published')
+        } else {
+          pr2 = typeof videoItem.published?.text === 'string'
+            ? videoItem.published.text
+            : videoItem.published?.toString?.() ?? ''
+        }
+        const publishedAt2 = parseRelativeDate(pr2)
         // Skip videos with unparseable timestamps — can't verify age, safer to exclude
-        if (publishedAt === 0) {
-          console.log(`[InnertubePool] getLatestVideos(${channelId}): top-${i+1} id=${videoId} age unparseable ("${publishedRaw}") — skipping — session=${entry.profileId}`)
+        if (publishedAt2 === 0) {
+          console.log(`[InnertubePool] getLatestVideos(${channelId}): top-${i+1} id=${videoId} age unparseable ("${pr2}") — skipping — session=${entry.profileId}`)
           continue
         }
-        const publishedText = publishedRaw || undefined
+        const publishedText = pr2 || undefined
 
         // Extract channel name (same logic as getLatestVideo above):
         const extractedChannelNameV2 = (() => {
           const authorName = videoItem.author?.name
           if (authorName) {
             const name = typeof authorName === 'string' ? authorName : (authorName as any)?.text || String(authorName)
-            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null') return name
+            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null' && name !== 'N/A') return name
           }
           const header = (channel as any).header
           if (header?.author?.name) {
             const name = typeof header.author.name === 'string' ? header.author.name : (header.author.name as any)?.text || String(header.author.name)
-            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null') return name
+            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null' && name !== 'N/A') return name
           }
           if (header?.metadata?.title) {
             const name = typeof header.metadata.title === 'string' ? header.metadata.title : (header.metadata.title as any)?.text || String(header.metadata.title)
-            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null') return name
+            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null' && name !== 'N/A') return name
           }
           return null
         })()
         const channelName = extractedChannelNameV2 ?? 'Unknown Channel'
 
-        const thumbnail = videoItem.thumbnail?.thumbnails?.[0]?.url ?? ''
+        const thumbnail =
+          videoItem.thumbnail?.thumbnails?.[0]?.url
+          || videoItem.content_image?.thumbnails?.[0]?.url
+          || videoItem.metadata?.image?.sources?.[0]?.url
+          || ''
 
         results.push({
           videoId: String(videoId),
@@ -690,7 +841,7 @@ class InnertubeClientPool {
           channelId,
           channelName: String(channelName),
           thumbnail: String(thumbnail),
-          publishedAt,
+          publishedAt: publishedAt2,
           publishedText,
         })
       }
@@ -709,6 +860,7 @@ class InnertubeClientPool {
       if (sessionEntry) {
         sessionEntry.lastErrorAt = Date.now()
         sessionEntry.error = String(e).slice(0, 120)
+        sessionEntry.errorCount++
         sessionEntry.usedToday++
         sessionEntry.lastUsed = Date.now()
       }
@@ -741,6 +893,7 @@ class InnertubeClientPool {
         entry.cookies = session.cookies
         entry.error = undefined
         entry.lastErrorAt = 0
+        entry.errorCount = 0
         console.log(`[InnertubePool] Session ${profileId}: refreshed and health-checked OK`)
         return true
       } catch (healthErr: unknown) {

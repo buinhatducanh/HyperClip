@@ -83,6 +83,9 @@ const IPC = {
   POLLER_STATUS: 'poller:status',
   POLLER_RESUME: 'poller:resume',
 
+  // Innertube degraded state
+  INNERTUBE_DEGRADED_EVENT: 'innertube:degraded',
+
   // Auth
   AUTH_STATUS: 'auth:status',
   AUTH_LOGOUT: 'auth:logout',
@@ -207,6 +210,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener(IPC.AUTO_DOWNLOAD_EVENT, handler)
   },
 
+  // Innertube degraded state
+  onInnertubeDegraded: (callback: (data: { degraded: boolean; consecutiveZero: number }) => void) => {
+    const handler = (_: unknown, data: { degraded: boolean; consecutiveZero: number }) => callback(data)
+    ipcRenderer.on(IPC.INNERTUBE_DEGRADED_EVENT, handler)
+    return () => ipcRenderer.removeListener(IPC.INNERTUBE_DEGRADED_EVENT, handler)
+  },
+
   // Settings
   getSettings: () => ipcRenderer.invoke(IPC.SETTINGS_GET),
   updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string }) =>
@@ -227,6 +237,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     newVideoCount: number
     lastError: string | null
     exhaustedUntil: number | null
+    innertubeDegraded?: boolean
   } | null>,
   resumePoller: () => ipcRenderer.invoke(IPC.POLLER_RESUME) as Promise<{ success: boolean }>,
 
@@ -359,4 +370,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC.DATA_EXPORT) as Promise<{ success: boolean; path?: string; error?: string }>,
   importData: () =>
     ipcRenderer.invoke(IPC.DATA_IMPORT) as Promise<{ success: boolean; channelsImported?: number; seenImported?: number; error?: string }>,
+
+  // Log export
+  readLogs: () =>
+    ipcRenderer.invoke('logs:read') as Promise<{ files: { name: string; size: number; mtime: number; content?: string }[]; logDir: string }>,
+  exportLogs: () =>
+    ipcRenderer.invoke('logs:export') as Promise<{ success: boolean; path?: string; error?: string }>,
 })
