@@ -32,6 +32,7 @@ console.error = (...args: unknown[]) => {
 import Innertube from 'youtubei.js'
 import { getSessionManager } from './chrome_cookies.js'
 import type { YouTubeCookies } from './chrome_cookies.js'
+import { warmupPoTokenCache, getPoTokenForProfile, refreshPoToken } from './po_token.js'
 
 export interface InnertubePoolStatus {
   totalSessions: number
@@ -207,82 +208,108 @@ function extractLockupVideoField(item: any, field: 'videoId' | 'title' | 'publis
 
 /**
  * Extract video items from the YouTube channel tab response.
- * Supports: RichGrid, SectionList, and Feed.memo (GridVideo/ReelItem/CompactVideo).
- * Returns array of video-like objects.
+ *
+ * Strategy priority:
+ * 1. Channel's page memo (contents_memo, on_response_received_*_memo) — most reliable
+ * 2. videosTab.memo (Feed.memo getter)
+ * 3. videosTab.videos (Feed.videos getter)
+ * 4. current_tab content walk
+ * 5. page.contents → tabs → selected tab walk
+ * 6. Relaxed tree walk
  */
 function extractVideosFromTab(videosTab: any): any[] {
-  const memo = videosTab?.memo
-
-  // Strategy 1: memo.get('RichItem') — YouTube's memo stores video items as RichItem wrappers
-  // Each RichItem contains the actual video data (GridVideo/VideoRenderer)
-  const richItems = memo?.get('RichItem')
-  if (richItems?.length > 0) {
-    // Extract video data from each RichItem. RichItem → content → GridVideo
-    // Sometimes content itself is another wrapper, so flatten until we get video fields
-    const videos = richItems
-      .map((item: any) => {
-        let node = item?.content || item
-        // Unwrap wrappers: RichItem → GridVideo/LockupView → actual video
-        while (node && typeof node === 'object') {
-          const n = node.content || node
-          if (n === node) break
-          node = n
-        }
-        return node
-      })
-      .filter((v: any) => v && (v.videoId || v.video_id || v.title || v.type))
-    if (videos.length > 0) return videos
+  // Helper to unwrap nested content wrappers and extract video fields
+  const unwrapVideo = (item: any): any => {
+    let node = item?.content || item
+    while (node && typeof node === 'object') {
+      const n = node.content || node
+      if (n === node) break
+      node = n
+    }
+    return node
   }
 
-  // Strategy 2: memo.get('Video') — PRIMARY, works in v17
-  const videos = memo?.get('Video')
-  if (videos?.length > 0) return [...videos]
+  const hasVideoFields = (v: any) => v && (v.videoId || v.video_id || v.id || v.title || v.type)
 
-  // Strategy 2: memo.get('GridVideo') — grid view in channel tabs
-  const gridVideos = memo?.get('GridVideo')
-  if (gridVideos?.length > 0) return [...gridVideos]
+  // ── Strategy 1: Channel's page memo — most reliable source for tab pages.
+  // When getVideos() returns a Channel, its page contains:
+  // - page.contents_memo: items from TwoColumnBrowseResults parsing
+  // - page.on_response_received_*_memo: items from continuation/action sections
+  const pageMemo = videosTab?.page?.contents_memo
+    || videosTab?.page?.on_response_received_endpoints_memo
+    || videosTab?.page?.on_response_received_actions_memo
+    || videosTab?.page?.on_response_received_commands_memo
+  if (pageMemo) {
+    for (const type of ['RichItem', 'Video', 'GridVideo', 'ReelItem', 'CompactVideo', 'LockupView']) {
+      const items = pageMemo.get(type)
+      if (items?.length > 0) {
+        const videos = items.map(unwrapVideo).filter(hasVideoFields)
+        if (videos.length > 0) return videos
+      }
+    }
+  }
 
-  // Strategy 3: memo.get('ReelItem') — short videos
-  const reels = memo?.get('ReelItem')
-  if (reels?.length > 0) return [...reels]
+  // ── Strategy 2: videosTab.memo (Feed.memo getter)
+  const feedMemo = videosTab?.memo
+  if (feedMemo) {
+    for (const type of ['RichItem', 'Video', 'GridVideo', 'ReelItem', 'CompactVideo', 'LockupView']) {
+      const items = feedMemo.get(type)
+      if (items?.length > 0) {
+        const videos = items.map(unwrapVideo).filter(hasVideoFields)
+        if (videos.length > 0) return videos
+      }
+    }
+  }
 
-  // Strategy 4: memo.get('CompactVideo') — compact video items
-  const compact = memo?.get('CompactVideo')
-  if (compact?.length > 0) return [...compact]
-
-  // Strategy 5: .videos getter (Feed property)
+  // ── Strategy 3: Feed.videos getter
   const fromGetter = videosTab?.videos
   if (fromGetter?.length > 0) return [...fromGetter]
 
-  // Strategy 6: walk with STRICT type checking (only GridVideo/ReelItem/CompactVideo/Video)
-  const tabContent = videosTab?.current_tab?.content
-  if (tabContent) {
-    const videos = walkForVideosStrict(tabContent)
-    if (videos.length > 0) return videos
-  }
-
-  // Strategy 6b: Direct RichGrid.contents access — YouTube stores video data as RichItem
-  // inside RichGrid.content.contents array. Memo gets populated lazily.
-  const richGrid = videosTab?.current_tab?.content
-  if (richGrid?.type === 'RichGrid' && Array.isArray(richGrid.contents)) {
-    const richItems = richGrid.contents
-    // Each item is a RichItem containing a video inside .content
-    const videos = richItems
-      .map((item: any) => {
-        let node = item?.content || item
-        // Unwrap wrappers to get actual video fields
-        while (node && typeof node === 'object') {
-          const n = node.content || node
-          if (n === node) break
-          node = n
+  // ── Strategy 4: Walk current_tab content (TwoColumnBrowseResults → tab → content)
+  const currentTab = videosTab?.current_tab
+  if (currentTab) {
+    if (currentTab.content) {
+      const videos = walkForVideosStrict(currentTab.content)
+      if (videos.length > 0) return videos
+    }
+    // Try RichGrid.contents (modern channel tab format)
+    if (currentTab.content?.type === 'RichGrid' && Array.isArray(currentTab.content.contents)) {
+      const richItems = currentTab.content.contents.map(unwrapVideo).filter(hasVideoFields)
+      if (richItems.length > 0) return richItems
+    }
+    // Try SectionList.contents
+    if (currentTab.content?.type === 'SectionList' && Array.isArray(currentTab.content.contents)) {
+      const allVideos: any[] = []
+      for (const section of currentTab.content.contents) {
+        if (section.content) {
+          allVideos.push(...walkForVideosStrict(section.content))
         }
-        return node
-      })
-      .filter((v: any) => v && (v.videoId || v.video_id || v.title || v.type))
-    if (videos.length > 0) return videos
+      }
+      if (allVideos.length > 0) return allVideos
+    }
   }
 
-  // Strategy 7: walk entire tab object with relaxed matching
+  // ── Strategy 5: Walk page.contents (TwoColumnBrowseResults → tabs → selected tab)
+  const pageContents = videosTab?.page?.contents
+  if (pageContents) {
+    const tabNode = pageContents?.item?.()
+    const tabs = tabNode?.tabs
+    if (Array.isArray(tabs)) {
+      const selectedTab = tabs.find((t: any) => t.selected)
+      if (selectedTab) {
+        if (selectedTab.content) {
+          const videos = walkForVideosStrict(selectedTab.content)
+          if (videos.length > 0) return videos
+        }
+        if (selectedTab.content?.type === 'RichGrid' && Array.isArray(selectedTab.content.contents)) {
+          const richItems = selectedTab.content.contents.map(unwrapVideo).filter(hasVideoFields)
+          if (richItems.length > 0) return richItems
+        }
+      }
+    }
+  }
+
+  // ── Strategy 6: Relaxed tree walk (catches unusual structures)
   const allItems = walkForVideosRelaxed(videosTab)
   if (allItems.length > 0) return allItems
 
@@ -410,6 +437,8 @@ interface PoolEntry {
   profileName: string
   client: Innertube | null
   cookies: YouTubeCookies | null
+  /** PO Token extracted from Chrome session (for android client downloads) */
+  po_token: string | null
   error?: string
   lastErrorAt: number
   usedToday: number
@@ -446,6 +475,7 @@ class InnertubeClientPool {
       profileName: s.profileName,
       client: null,
       cookies: s.cookies,
+      po_token: null,
       error: s.error,
       lastErrorAt: 0,
       usedToday: 0,
@@ -520,6 +550,15 @@ class InnertubeClientPool {
       console.warn('[InnertubePool] ⚠️ No sessions ready — Innertube detection will fail. Use OAuth fallback.')
       console.warn('[InnertubePool] Hint: Close Chrome, then restart HyperClip. Or open Chrome profiles and log into YouTube.')
     }
+
+    // Warm up PO Token cache for all profiles (for android client downloads).
+    // After warmup, sync tokens back to pool entries so getDownloadSession finds them.
+    const allProfileIds = this._sessions.map(e => e.profileId)
+    await warmupPoTokenCache(allProfileIds)
+    // Sync from po_token.ts cache — these are warm (fresh or stale-within-TTL).
+    // Using Promise.all to avoid sequential 5s timeouts × 30 profiles.
+    const tokens = await Promise.all(this._sessions.map(e => getPoTokenForProfile(e.profileId)))
+    this._sessions.forEach((entry, i) => { if (tokens[i]) entry.po_token = tokens[i] })
   }
 
   /**
@@ -567,7 +606,7 @@ class InnertubeClientPool {
    *
    * YouTube tab order is sorted newest-first, so if top-1 is old, all videos are old.
    */
-  async getLatestVideo(channelId: string, seenVideoIds?: Set<string>, firstPoll = false): Promise<LatestVideo | null> {
+  async getLatestVideo(channelId: string, seenVideoIds?: Set<string>): Promise<LatestVideo | null> {
     const entry = this.getNextClient()
     if (!entry) {
       console.log(`[InnertubePool] getLatestVideo(${channelId}): no client available`)
@@ -596,24 +635,28 @@ class InnertubeClientPool {
 
       if (videoItems.length === 0) {
         if (channelId.includes('l0DrJgvA')) {
-          console.log(`[ZILLY] getLatestVideo: 0 videos — tab="${videosTab?.current_tab?.title ?? videosTab?.title ?? '?'}" memo=${videosTab?.memo ? Array.from(videosTab.memo.keys()).join(',') : 'none'}`)
+          // Log memo keys for debugging — helps diagnose which structure YouTube is returning
+          const memoKeys = videosTab?.memo ? Array.from(videosTab.memo.keys()).join(',') : 'none'
+          const pageMemoKeys = videosTab?.page?.contents_memo ? Array.from(videosTab.page.contents_memo.keys()).join(',') : 'none'
+          console.log(`[ZILLY] getLatestVideo: 0 videos — tab="${videosTab?.current_tab?.title ?? videosTab?.title ?? '?'}" feedMemo(${memoKeys.length > 0 ? memoKeys.length + ' keys' : 'empty'}) pageMemo(${pageMemoKeys.length > 0 ? pageMemoKeys.length + ' keys' : 'empty'}) fallback=${usedFallback}`)
         }
         return null
       }
 
       // Log top-2 items — only for Zilk Kay
       if (channelId.includes('l0DrJgvA')) {
-        const top2 = videoItems.slice(0, 2).map((vi: any) => ({
+        const top5 = videoItems.slice(0, Math.min(5, videoItems.length)).map((vi: any) => ({
           type: vi?.type,
           id: extractLockupVideoField(vi, 'videoId'),
           title: extractLockupVideoField(vi, 'title'),
           published: extractLockupVideoField(vi, 'published'),
         }))
-        console.log(`[ZILLY] top-2: ${JSON.stringify(top2)}`)
+        console.log(`[ZILLY] top-5: ${JSON.stringify(top5)}`)
       }
 
-      // Try top-1, then top-2 if deleted/private
-      for (let i = 0; i < Math.min(2, videoItems.length); i++) {
+      // Try top-1..top-5 — skip deleted/private and seen videos
+      const maxCheck = Math.min(5, videoItems.length)
+      for (let i = 0; i < maxCheck; i++) {
         const videoItem = videoItems[i]
         const itemType = videoItem?.type
         const isLockup = itemType === 'LockupView' || itemType === 'ShortsLockupView'
@@ -634,8 +677,11 @@ class InnertubeClientPool {
           continue
         }
 
-        // Check dedup FIRST — if seen, all older videos are also seen (tab sorted newest-first)
+        // Check dedup — if seen, all older videos are also seen (tab sorted newest-first)
         if (seenVideoIds?.has(String(videoId))) {
+          if (channelId.includes('l0DrJgvA')) {
+            console.log(`[ZILLY] check[${i}]: id=${videoId} SEEN → return null (all older are also seen)`)
+          }
           return null
         }
 
@@ -650,29 +696,43 @@ class InnertubeClientPool {
         }
         const publishedAt = parseRelativeDate(publishedRaw)
 
-        // Log for zilk kay
-        if (channelId.includes('l0DrJgvA')) {
+        // Log for all channels (helps debug why old videos are downloaded)
+        if (!channelId.includes('l0DrJgvA')) {
+          const ageMs = publishedAt > 0 ? Date.now() - publishedAt : -1
+          const ageLabel = publishedAt > 0
+            ? (ageMs < 60000 ? 'just now' : ageMs < 3600000 ? `${Math.round(ageMs / 60000)}m ago` : ageMs < 86400000 ? `${Math.round(ageMs / 3600000)}h ago` : `${Math.round(ageMs / 86400000)}d ago`)
+            : 'UNPARSEABLE'
+          console.log(`[InnertubePool] check[${i}]: id=${videoId} title="${title.slice(0, 40)}" raw="${publishedRaw}" age=${ageLabel}`)
+        } else {
           const age = publishedAt > 0 ? `${Math.round((Date.now() - publishedAt) / 60000)}m ago` : 'UNPARSEABLE'
-          console.log(`[ZILLY] check: id=${videoId} title="${title.slice(0, 30)}" age=${age} raw="${publishedRaw}" firstPoll=${firstPoll}`)
+          console.log(`[ZILLY] check[${i}]: id=${videoId} title="${title.slice(0, 30)}" age=${age} raw="${publishedRaw}"`)
         }
 
-        // Age filter:
-        // - First poll (app restart): accept videos up to 24h old — capture all uploads since last session
-        // - Normal poll: accept videos < 10 min old — real-time detection
-        const MAX_VIDEO_AGE_MS = firstPoll ? 24 * 60 * 60 * 1000 : 10 * 60 * 1000
+        // Age filter: accept videos < 10 min old — consistent for all polls.
+        // First poll: do NOT relax to 24h — it causes old videos to be downloaded
+        // (they get added to seenVideoIds and never re-filtered on subsequent polls).
+        // If a video was uploaded while the app was offline, it will be detected
+        // on the next poll (up to 10 min after upload).
+        const MAX_VIDEO_AGE_MS = 10 * 60 * 1000
         if (publishedAt > 0 && Date.now() - publishedAt > MAX_VIDEO_AGE_MS) {
           const ageMin = Math.round((Date.now() - publishedAt) / 60000)
           if (channelId.includes('l0DrJgvA')) {
-            console.log(`[ZILLY] SKIP (age): ${ageMin}m old > ${firstPoll ? '24h' : '10m'}`)
+            console.log(`[ZILLY] check[${i}]: id=${videoId} SKIP (age): ${ageMin}m old > 10m`)
+          } else {
+            console.log(`[InnertubePool] check[${i}]: id=${videoId} "${title.slice(0, 30)}" SKIP (age): ${ageMin}m old > 10m`)
           }
-          return null
+          // Continue to check next video — this video is old but a newer one might be recent
+          continue
         }
-        // STRICT: if age is unparseable on a normal poll, skip — can't trust it.
-        if (!firstPoll && publishedAt === 0) {
+        // Skip videos with unparseable age — YouTube sometimes delays published_time_text
+        // for very new uploads (0-2 min). Next poll cycle will have the cached timestamp.
+        if (publishedAt === 0) {
           if (channelId.includes('l0DrJgvA')) {
-            console.log(`[ZILLY] SKIP: age unparseable (published_time_text missing)`)
+            console.log(`[ZILLY] check[${i}]: id=${videoId} age UNPARSEABLE — skip (will retry next poll)`)
+          } else {
+            console.log(`[InnertubePool] check[${i}]: id=${videoId} "${title.slice(0, 30)}" age UNPARSEABLE — skip (raw="${publishedRaw}")`)
           }
-          return null
+          continue
         }
 
         // Extract channel name:
@@ -708,6 +768,17 @@ class InnertubeClientPool {
           || videoItem.metadata?.image?.sources?.[0]?.url
           || ''
 
+        // Log ACCEPT — helps debug why old videos are being downloaded
+        const ageMs = Date.now() - publishedAt
+        const ageLabel = publishedAt > 0
+          ? (ageMs < 60000 ? 'just now' : ageMs < 3600000 ? `${Math.round(ageMs / 60000)}m ago` : ageMs < 86400000 ? `${Math.round(ageMs / 3600000)}h ago` : `${Math.round(ageMs / 86400000)}d ago`)
+          : 'UNPARSEABLE'
+        if (channelId.includes('l0DrJgvA')) {
+          console.log(`[ZILLY] ✓ ACCEPT[${i}]: id=${videoId} age=${ageLabel}`)
+        } else {
+          console.log(`[InnertubePool] ✓ ACCEPT[${i}]: id=${videoId} "${title.slice(0, 40)}" age=${ageLabel} (${publishedAt > 0 ? 'age filter PASSED' : 'UNPARSEABLE'})`)
+        }
+
         return {
           videoId: String(videoId),
           title: String(title),
@@ -719,7 +790,7 @@ class InnertubeClientPool {
         }
       }
 
-      // All top-2 videos are deleted/private
+      // All top-5 videos are deleted/private/seen/too-old
       return null
     } catch (e: unknown) {
       const errStr = String(e)
@@ -732,6 +803,122 @@ class InnertubeClientPool {
         sessionEntry.usedToday++
         sessionEntry.lastUsed = Date.now()
       }
+      return null
+    }
+  }
+
+  /**
+   * Priority re-scan: same as getLatestVideo() but ACCEPTS unparseable age (publishedAt=0).
+   *
+   * When YouTube hasn't cached published_time_text yet (~0-2 min after upload), the
+   * primary getLatestVideo() skips these as "too old" after the 2nd poll.
+   * This method is called immediately after a zero-result poll to catch those videos
+   * before the next scheduled poll — reducing detection latency from ~60s to ~5-10s.
+   *
+   * Dedup: still returns null on seen (newest is already downloaded → older are too).
+   * Age filter: relaxed — accept publishedAt=0 (unparseable) as likely new uploads.
+   */
+  async getLatestVideoPriority(channelId: string, seenVideoIds?: Set<string>): Promise<LatestVideo | null> {
+    const entry = this.getNextClient()
+    if (!entry) return null
+
+    try {
+      const channel = await entry.client.getChannel(channelId)
+
+      let videosTab: any
+      try {
+        videosTab = await channel.getVideos()
+      } catch {
+        videosTab = await channel.getHome()
+      }
+
+      const videoItems = extractVideosFromTab(videosTab)
+      if (videoItems.length === 0) return null
+
+      const maxCheck = Math.min(5, videoItems.length)
+      for (let i = 0; i < maxCheck; i++) {
+        const videoItem = videoItems[i]
+        const itemType = videoItem?.type
+        const isLockup = itemType === 'LockupView' || itemType === 'ShortsLockupView'
+
+        const videoId = isLockup
+          ? extractLockupVideoField(videoItem, 'videoId')
+          : (videoItem.id || videoItem.videoId || videoItem.video_id ? String(videoItem.id || videoItem.videoId || videoItem.video_id) : '')
+        if (!videoId) continue
+
+        const title = isLockup
+          ? extractLockupVideoField(videoItem, 'title')
+          : (typeof videoItem.title === 'string' ? videoItem.title : videoItem.title?.text ?? videoItem.title?.toString?.() ?? '(no title)')
+
+        if (title.includes('[deleted]') || title.includes('[private]')) continue
+
+        // Dedup: if seen, all older videos are also seen (newest-first tab order)
+        if (seenVideoIds?.has(String(videoId))) return null
+
+        // Extract published time
+        let publishedRaw = ''
+        if (isLockup) {
+          publishedRaw = extractLockupVideoField(videoItem, 'published')
+        } else {
+          publishedRaw = typeof videoItem.published?.text === 'string'
+            ? videoItem.published.text
+            : videoItem.published?.toString?.() ?? ''
+        }
+        const publishedAt = parseRelativeDate(publishedRaw)
+
+        // Age filter: accept videos < 10 min old, OR unparseable (publishedAt=0).
+        // publishedAt=0 means YouTube hasn't cached the timestamp yet — treat as new upload.
+        const MAX_VIDEO_AGE_MS = 10 * 60 * 1000
+        if (publishedAt > 0 && Date.now() - publishedAt > MAX_VIDEO_AGE_MS) {
+          continue // Video is old — try next
+        }
+        // publishedAt=0 is ACCEPTED here — priority re-scan allows unparseable age
+
+        // Extract channel name (same logic as getLatestVideo)
+        const extractedChannelName = (() => {
+          const authorName = videoItem.author?.name
+          if (authorName) {
+            const name = typeof authorName === 'string' ? authorName : (authorName as any)?.text || String(authorName)
+            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null' && name !== 'N/A') return name
+          }
+          const header = channel.header as any
+          if (header?.author?.name) {
+            const name = typeof header.author.name === 'string' ? header.author.name : (header.author.name as any)?.text || String(header.author.name)
+            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null' && name !== 'N/A') return name
+          }
+          if (header?.metadata?.title) {
+            const name = typeof header.metadata.title === 'string' ? header.metadata.title : (header.metadata.title as any)?.text || String(header.metadata.title)
+            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null' && name !== 'N/A') return name
+          }
+          return null
+        })()
+        const channelName = extractedChannelName ?? 'Unknown Channel'
+
+        const thumbnail =
+          videoItem.thumbnail?.thumbnails?.[0]?.url
+          || videoItem.content_image?.thumbnails?.[0]?.url
+          || videoItem.metadata?.image?.sources?.[0]?.url
+          || ''
+
+        const ageLabel = publishedAt > 0
+          ? `${Math.round((Date.now() - publishedAt) / 60000)}m ago`
+          : 'UNPARSEABLE (priority)'
+        console.log(`[InnertubePool] getLatestVideoPriority(${channelId}) ✓ ACCEPT[${i}]: id=${videoId} age=${ageLabel}`)
+
+        return {
+          videoId: String(videoId),
+          title: String(title),
+          channelId,
+          channelName: String(channelName),
+          thumbnail: String(thumbnail),
+          publishedAt,
+          publishedText: publishedRaw || undefined,
+        }
+      }
+
+      return null
+    } catch (e: unknown) {
+      console.log(`[InnertubePool] getLatestVideoPriority(${channelId}) error: ${String(e).slice(0, 200)}`)
       return null
     }
   }
@@ -938,6 +1125,62 @@ class InnertubeClientPool {
 
   isReady(): boolean {
     return this._initialized && this._sessions.some(e => e.client !== null)
+  }
+
+  /**
+   * Get PO Token for a specific profile.
+   * Returns null if no token is cached — caller should handle fallback to web client.
+   */
+  async getPoTokenForSession(profileId: string): Promise<string | null> {
+    // Check pool cache first
+    const entry = this._sessions.find(e => e.profileId === profileId)
+    if (entry?.po_token) return entry.po_token
+
+    // Not in pool cache — extract from Chrome via CDP
+    const token = await getPoTokenForProfile(profileId)
+    if (entry && token) {
+      entry.po_token = token
+    }
+    return token
+  }
+
+  /**
+   * Get a download session: best available client with PO Token.
+   * Used by yt-dlp for android client downloads.
+   * Returns profileId + po_token (not Innertube client — that's for detection only).
+   */
+  async getDownloadSession(): Promise<{ profileId: string; po_token: string | null } | null> {
+    if (!this._initialized) return null
+
+    // Round-robin filter of sessions that have an active Innertube client
+    const sessions = this._sessions.filter(e => e.client !== null)
+    if (sessions.length === 0) return null
+
+    // Prefer sessions with PO Token (android-capable). On cache miss, do real-time
+    // CDP extraction — this bridges the gap when no token was available at warmup
+    // (e.g. no video was playing at startup) but one is now available.
+    const withToken = sessions.filter(e => e.po_token)
+    if (withToken.length > 0) {
+      const entry = withToken[this._index % withToken.length]
+      this._index++
+      return { profileId: entry.profileId, po_token: entry.po_token }
+    }
+
+    // No sessions have PO Token cached — try to extract one now (real-time CDP)
+    for (const entry of sessions) {
+      const token = await getPoTokenForProfile(entry.profileId)
+      if (token) {
+        entry.po_token = token
+        const result = { profileId: entry.profileId, po_token: token }
+        this._index++
+        return result
+      }
+    }
+
+    // All extraction attempts failed — fall back to web client
+    const entry = sessions[this._index % sessions.length]
+    this._index++
+    return { profileId: entry.profileId, po_token: null }
   }
 }
 

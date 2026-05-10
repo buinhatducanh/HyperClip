@@ -179,8 +179,8 @@ function getJsRuntimeArgs(): string[] {
 // Find yt-dlp executable
 function getYtdlpPath(): string {
   // 1. Bundled in resources/ (shipped with app)
-  if (app && app.isReady() && app.getAppPath) {
-    const bundledPath = path.join(app.getAppPath(), 'resources', 'yt-dlp', 'yt-dlp.exe')
+  if (app && app.isReady() && process.resourcesPath) {
+    const bundledPath = path.join(process.resourcesPath, 'yt-dlp', 'yt-dlp.exe')
     if (fs.existsSync(bundledPath)) return bundledPath
   }
 
@@ -288,6 +288,12 @@ export interface YtdlpOptions {
    * Use 'exponential' when YouTube is aggressively rate-limiting.
    */
   retryStrategy?: 'immediate' | 'exponential'
+  /**
+   * PO Token for android client. Extracted from Chrome sessions via CDP.
+   * Required for android client to access formats >360p.
+   * If not provided, falls back to web client (VP9 codec).
+   */
+  po_token?: string | null
 }
 
 export async function getChannelId(videoUrl: string): Promise<string | null> {
@@ -450,6 +456,8 @@ interface MultiInstanceOpts {
   preFetchedDuration?: number
   /** Exponential backoff retry for instances that fail with 429 rate-limit. */
   retryStrategy?: 'immediate' | 'exponential'
+  /** PO Token for android client (extracted from Chrome via CDP). */
+  poToken?: string | null
 }
 
 /** Exponential backoff with jitter — avoids hammering YouTube during rate-limit windows. */
@@ -478,15 +486,30 @@ async function withExponentialBackoff<T>(
   return fn()
 }
 
-function buildYtDlpArgs(ytdlp: string, videoUrl: string, formatSelector: string, outputTemplate: string, sectionArg: string, instanceIdx: number): string[] {
-  // Reduce per-instance fragment count when using multiple instances.
-  // Total concurrent fragments = instanceCount × fragmentsPerInstance.
-  // 2 instances × 16 = 32 total (same as single 32, but 2 CDN streams).
-  return [
+function buildYtDlpArgs(ytdlp: string, videoUrl: string, formatSelector: string, outputTemplate: string, sectionArg: string, instanceIdx: number, poToken: string | null | undefined): string[] {
+  const args = [
     videoUrl,
     ...getJsRuntimeArgs(),
-    '--extractor-args', 'youtube:player_client=android',
-    '-f', formatSelector,
+  ]
+
+  // Android client strategy:
+  // - With PO Token → DASH bestvideo+bestaudio (separate streams, best quality)
+  // - Without PO Token → android (no PO Token) — best available
+  let resolvedFormat: string
+  if (poToken) {
+    args.push('--extractor-args', `youtube:player_client=android,po_token=${poToken}`)
+    resolvedFormat = formatSelector // DASH: bestvideo+bestaudio
+    console.log(`[yt-dlp] Using android DASH with PO Token (${poToken.slice(0, 8)}...)`)
+  } else {
+    args.push('--extractor-args', 'youtube:player_client=android')
+    // android without PO Token: yt-dlp tries HLS, then format 18 (360p mp4) as fallback.
+    // Use 'best' to match whatever is available — avoids "format not available" errors.
+    resolvedFormat = 'best[height<=1080]'
+    console.log(`[yt-dlp] Using android client (no PO Token, best available)`)
+  }
+
+  args.push(
+    '-f', resolvedFormat,
     '--output', outputTemplate,
     '--no-playlist',
     '--newline',
@@ -496,7 +519,8 @@ function buildYtDlpArgs(ytdlp: string, videoUrl: string, formatSelector: string,
     '--socket-timeout', '10',
     '--http-chunk-size', '10485760',
     '--download-sections', sectionArg,
-  ]
+  )
+  return args
 }
 
 function makeSectionArg(startSec: number, endSec: number): string {
@@ -510,7 +534,7 @@ function makeSectionArg(startSec: number, endSec: number): string {
 }
 
 async function multiInstanceDownload(opts: MultiInstanceOpts): Promise<DownloadResult | null> {
-  const { workspaceId, videoUrl, outputDir, formatSelector, trimLimit, instanceCount, onProgress, ytdlp, preFetchedDuration, retryStrategy = 'immediate' } = opts
+  const { workspaceId, videoUrl, outputDir, formatSelector, trimLimit, instanceCount, onProgress, ytdlp, preFetchedDuration, retryStrategy = 'immediate', poToken } = opts
 
   // OPTIMIZATION #1: Skip sequential duration probe if caller already has it.
   // autoDownloadFromWebSub fetches videoInfo in parallel with download, so it's already available.
@@ -574,7 +598,7 @@ async function multiInstanceDownload(opts: MultiInstanceOpts): Promise<DownloadR
     return new Promise<{ success: boolean; filePath?: string; error?: string; idx: number }>((resolve) => {
       const outputTemplate = path.join(outputDir, `${workspaceId}_part${String(idx).padStart(2, '0')}_%(id)s.%(ext)s`)
       const args = [
-        ...buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, makeSectionArg(section.start, section.end), idx),
+        ...buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, makeSectionArg(section.start, section.end), idx, poToken),
         ...cacheDirArgs,
       ]
       const cmd = buildArgs(ytdlp, args)
@@ -663,7 +687,7 @@ async function multiInstanceDownload(opts: MultiInstanceOpts): Promise<DownloadR
             const section = sections[sectionIdx]
             const outputTemplate = path.join(outputDir, `${workspaceId}_part${String(sectionIdx).padStart(2, '0')}_%(id)s.%(ext)s`)
             const args = [
-              ...buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, makeSectionArg(section.start, section.end), sectionIdx),
+              ...buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, makeSectionArg(section.start, section.end), sectionIdx, poToken),
               ...cacheDirArgs,
             ]
             const cmd = buildArgs(ytdlp, args)
@@ -817,7 +841,7 @@ export async function preScaleVideo(
 }
 
 export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult> {
-  const { workspaceId, videoUrl, outputDir, trimLimit, onProgress, quality = '720', maxInstances = 'auto', preFetchedDuration, retryStrategy } = opts
+  const { workspaceId, videoUrl, outputDir, trimLimit, onProgress, quality = '720', maxInstances = 'auto', preFetchedDuration, retryStrategy, po_token } = opts
   const ytdlp = getYtdlpPath()
 
   // Verify yt-dlp exists before attempting spawn
@@ -888,6 +912,7 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
     const multiResult = await multiInstanceDownload({
       workspaceId, videoUrl, outputDir, formatSelector, trimLimit, instanceCount,
       onProgress, ytdlp, preFetchedDuration: opts.preFetchedDuration, retryStrategy: opts.retryStrategy,
+      poToken: po_token,
     })
     if (multiResult) return multiResult
     // Fallthrough to single instance if multi failed
@@ -900,8 +925,27 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
     const args: string[] = [
       videoUrl,
       ...getJsRuntimeArgs(),
-      '--extractor-args', 'youtube:player_client=android',
-      '-f', formatSelector,
+    ]
+
+    // Android client strategy:
+    // - With PO Token → DASH bestvideo+bestaudio (1080p H.264)
+    // - Without PO Token → android (no PO Token) — HLS H.264 if available,
+    //   else falls back to best available (e.g. format 18 = 360p mp4)
+    let resolvedFormat: string
+    if (po_token) {
+      args.push('--extractor-args', `youtube:player_client=android,po_token=${po_token}`)
+      resolvedFormat = formatSelector
+      console.log(`[yt-dlp] Using android DASH with PO Token (${po_token.slice(0, 8)}...)`)
+    } else {
+      args.push('--extractor-args', 'youtube:player_client=android')
+      // android without PO Token: yt-dlp tries HLS, then format 18 (360p mp4) as fallback.
+      // Use 'best' to match whatever is available — avoids "format not available" errors.
+      resolvedFormat = 'best[height<=1080]'
+      console.log(`[yt-dlp] Using android client (no PO Token, best available)`)
+    }
+
+    args.push(
+      '-f', resolvedFormat,
       '--output', outputTemplate,
       '--no-playlist',
       '--newline',
@@ -911,7 +955,7 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
       '--socket-timeout', '10',
       '--http-chunk-size', '10485760',
       ...extraArgs,
-    ]
+    )
 
     // Build ffmpeg-enriched PATH
     const ffmpegPath = getFfmpegPath()

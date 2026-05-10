@@ -349,6 +349,13 @@ export default function DashboardPage() {
     else showToast(`Retry failed: ${result.error}`)
   }
 
+  const handleRedownloadHd = async (id: string) => {
+    showToast('Re-downloading at HD quality...')
+    const result = await ipc.redownloadHd(id) as { success: boolean; error?: string }
+    if (result.success) showToast('HD version downloaded')
+    else showToast(`HD download failed: ${result.error}`)
+  }
+
   const handleEditorChange = (patch: Partial<EditorState>) => {
     updateEditorState(patch)
     if (patch.exportQuality !== undefined && selectedWorkspaceId) {
@@ -395,7 +402,7 @@ export default function DashboardPage() {
       codec: editorState.exportCodec, preset: editorState.exportPreset, tune: editorState.exportTune,
       backgroundType: editorState.backgroundType, backgroundColor: editorState.backgroundColor,
       backgroundImage: editorState.backgroundImageDiskPath || undefined,
-      blur_background: ws.blurBackgroundPath || '',
+      blur_background: (editorState.backgroundType === 'blur' && ws.blurBackgroundPath) ? ws.blurBackgroundPath : '',
       isShort: ws.isShort !== false,
       vidHeightPct: editorState.vidHeightPct,
     }
@@ -466,7 +473,7 @@ export default function DashboardPage() {
       codec: editorState.exportCodec, preset: editorState.exportPreset, tune: editorState.exportTune,
       backgroundType: editorState.backgroundType, backgroundColor: editorState.backgroundColor,
       backgroundImage: editorState.backgroundImageDiskPath || undefined,
-      blur_background: ws.blurBackgroundPath || '',
+      blur_background: (editorState.backgroundType === 'blur' && ws.blurBackgroundPath) ? ws.blurBackgroundPath : '',
       isShort: ws.isShort !== false,
       vidHeightPct: editorState.vidHeightPct,
     }
@@ -585,6 +592,7 @@ export default function DashboardPage() {
             onSelectRendered={handleRenderedVideoSelect}
             onQuickAction={handleQuickAction}
             onRetry={handleRetry}
+            onRedownloadHd={handleRedownloadHd}
             onRemoveRendered={(id) => {
               if (selectedRenderedVideoId === id) setSelectedRenderedVideoId(null)
               removeRenderedVideo(id)

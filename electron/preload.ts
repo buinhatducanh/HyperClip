@@ -22,6 +22,7 @@ const IPC = {
   WORKSPACE_ADD: 'workspace:add',
   WORKSPACE_UPDATE_EVENT: 'workspace:update-event',
   WORKSPACE_RETRY: 'workspace:retry',
+  WORKSPACE_REDOWNLOAD_HD: 'workspace:redownload-hd',
   WORKSPACE_REGENERATE_BLUR: 'workspace:regenerate-blur',
   WORKSPACE_SPLIT: 'workspace:split',
 
@@ -156,6 +157,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC.WORKSPACE_DELETE, id),
   retryWorkspace: (id: string) =>
     ipcRenderer.invoke(IPC.WORKSPACE_RETRY, id),
+  redownloadHd: (id: string) =>
+    ipcRenderer.invoke(IPC.WORKSPACE_REDOWNLOAD_HD, id) as Promise<{ success: boolean; error?: string }>,
   regenerateWorkspaceBlur: (id: string) =>
     ipcRenderer.invoke(IPC.WORKSPACE_REGENERATE_BLUR, id) as Promise<{ success: boolean; blurPath?: string; error?: string }>,
   splitWorkspace: (id: string, partMinutes: number) =>

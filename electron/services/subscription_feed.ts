@@ -40,22 +40,21 @@ export interface SubFeedOptions {
   seenVideoIds?: Set<string>
   sinceMs?: number
   maxVideos?: number
-  /** On first poll: use relaxed age filter (24h) to capture all recent uploads */
-  firstPoll?: boolean
 }
 
 // ─── Config ─────────────────────────────────────────────────────────────────────
 
-const MAX_VIDEO_AGE_MS = 30 * 60 * 1000 // 30 minutes — auto-download window (for yt-dlp trim), not for detection filter
+const MAX_VIDEO_AGE_MS = 10 * 60 * 1000 // 10 minutes — consistent age filter for both Innertube and OAuth paths
 const PLAYLIST_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24h uploads playlist cache
-const MAX_CONCURRENT = 5   // parallel API calls per poll
+const MAX_CONCURRENT = 10  // parallel API calls per poll — faster scan for < 20s detection
 const MAX_VIDEOS_PER_POLL = 5
 
 // ─── Module-level state ────────────────────────────────────────────────────────
 
 /** Consecutive polls where Innertube returned 0 videos — for OAuth health-check trigger */
 let _consecutiveZeroInnertubePolls = 0
-const ZERO_POLL_THRESHOLD = 3 // After 3 consecutive zero-result polls → force OAuth health check
+const ZERO_POLL_THRESHOLD = 3 // After 3 consecutive zero-result polls → run OAuth health check
+const PRIORITY_RESCAN_COUNT = 5 // Immediately re-scan top-5 priority channels when Innertube returns 0 — catches videos with empty published_time_text
 
 // ─── OAuth API Helper ───────────────────────────────────────────────────────────
 
@@ -242,19 +241,20 @@ async function fetchChannelWithOAuth(
 async function fetchChannelWithInnertube(
   ch: { id: string; channelId?: string; name: string },
   seenVideoIds: Set<string> | undefined,
-  firstPoll?: boolean,
 ): Promise<SubscriptionVideo | null> {
   const channelId = ch.channelId || ch.id
   if (!channelId) return null
 
-  const latest = await getInnertubePool().then(p => p.getLatestVideo(channelId, seenVideoIds, firstPoll))
+  const latest = await getInnertubePool().then(p => p.getLatestVideo(channelId, seenVideoIds))
   if (!latest) return null
 
   return {
     videoId: latest.videoId,
     title: latest.title,
     channelId,
-    channelName: latest.channelName,
+    // Use ch.name (database) first — it always has the correct channel name.
+    // latest.channelName comes from video metadata extraction which can fail for LockupView items.
+    channelName: (ch.name && ch.name !== 'N/A') ? ch.name : latest.channelName,
     thumbnail: latest.thumbnail,
     publishedAt: latest.publishedAt,
     duration: '',
@@ -266,7 +266,7 @@ async function fetchChannelWithInnertube(
 export async function fetchSubscriptionFeed(
   options: SubFeedOptions = {},
 ): Promise<SubFeedResult> {
-  const { seenVideoIds, sinceMs, firstPoll } = options
+  const { seenVideoIds, sinceMs } = options
   // sinceMs is always provided by the poller (Date.now() - MAX_VIDEO_AGE_MS).
   // No fallback needed — avoids double-subtraction bug.
   const cutoff = sinceMs ?? Date.now()
@@ -292,7 +292,7 @@ export async function fetchSubscriptionFeed(
       for (let i = 0; i < channels.length; i += MAX_CONCURRENT) {
         const batch = channels.slice(i, i + MAX_CONCURRENT)
         const batchResults = await Promise.all(
-          batch.map(ch => fetchChannelWithInnertube(ch, seenVideoIds, firstPoll))
+          batch.map(ch => fetchChannelWithInnertube(ch, seenVideoIds))
         )
 
         let batchNewCount = 0
@@ -312,6 +312,43 @@ export async function fetchSubscriptionFeed(
       // Scanned all channels — got 0 new videos. This is NORMAL.
       // Return now WITHOUT touching OAuth quota.
       console.log(`[SubFeed] Innertube: 0 videos across ${channels.length} channels (no new content)`)
+
+      // ⚡ IMMEDIATE PRIORITY RE-SCAN: When Innertube returns 0 videos, it often means
+      // the top-1 video has published="" (YouTube hasn't cached the timestamp yet).
+      // YouTube usually caches the timestamp within 1-2 poll cycles (~5-10s).
+      // Instead of waiting for the next poll, re-scan top-5 priority channels NOW.
+      // Accept videos with unparseable age in this re-scan — they're likely the missing videos.
+      if (results.length === 0) {
+        console.log(`[SubFeed] ⚡ Priority re-scan: checking top ${PRIORITY_RESCAN_COUNT} channels for unparseable-age videos...`)
+        const priorityChannels = channels.slice(0, PRIORITY_RESCAN_COUNT)
+        const rescanResults = await Promise.all(
+          priorityChannels.map(async (ch) => {
+            try {
+              const latest = await getInnertubePool().then(p => p.getLatestVideoPriority(ch.channelId || ch.id, seenVideoIds))
+              if (!latest) return null
+              return {
+                videoId: latest.videoId,
+                title: latest.title,
+                channelId: ch.channelId || ch.id,
+                channelName: (ch.name && ch.name !== 'N/A') ? ch.name : latest.channelName,
+                thumbnail: latest.thumbnail,
+                publishedAt: latest.publishedAt,
+                duration: '',
+              }
+            } catch {
+              return null
+            }
+          })
+        )
+        for (const video of rescanResults) {
+          if (video && !results.some(r => r.videoId === video.videoId)) {
+            results.push(video)
+            seenVideoIds?.add(video.videoId)
+            console.log(`[SubFeed] ⚡ Priority re-scan found: "${video.title.slice(0, 40)}" from ${video.channelName}`)
+            if (results.length >= targetStop) break
+          }
+        }
+      }
 
       // Track zero-result polls for silent-death detection (Phase 3 of reliability_plan)
       let degraded = false

@@ -90,6 +90,13 @@ function enqueueBgDownload(video: {
   videoId: string; channelId: string; channelName: string; title: string
   publishedAt?: number; detectedAt?: number
 }): void {
+  // Respect user's auto-download toggle
+  const settings = loadSettings()
+  if (settings.autoDownloadEnabled === false) {
+    console.log(`[BgDownload] Auto-download disabled — skipping ${video.videoId}`)
+    return
+  }
+
   // Deduplicate: don't queue if already pending or active
   if (bgDownloadQueue.some(v => v.videoId === video.videoId)) {
     console.log(`[BgDownload] already queued: ${video.videoId}`)
@@ -988,7 +995,7 @@ function startNextServer(): Promise<void> {
     nextServer = spawn('node', [nextBin, '-p', String(NEXT_PORT)], {
       cwd: nextDir,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, NODE_ENV: isDev ? 'development' : 'production', PORT: String(NEXT_PORT) },
+      env: { ...process.env, NODE_ENV: isDev ? 'development' : 'production', PATH: (process.env.PATH || '') + path.delimiter + path.dirname(process.execPath), PORT: String(NEXT_PORT) },
     })
 
     nextServerOwned = true
@@ -1579,9 +1586,16 @@ async function registerIPCHandlers() {
     return loadSettings()
   })
 
-  ipcMain.handle(IPC_CHANNELS.SETTINGS_UPDATE, (_, patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string }) => {
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_UPDATE, (_, patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number }) => {
     const settings = loadSettings()
     saveSettings({ ...settings, ...patch })
+
+    // Apply poller interval change immediately if poller is running
+    if (patch.pollIntervalMs !== undefined) {
+      const poller = getYouTubePoller()
+      if (poller) poller.restart(patch.pollIntervalMs)
+    }
+
     return loadSettings()
   })
 

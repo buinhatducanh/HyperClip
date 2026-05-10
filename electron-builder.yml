@@ -12,11 +12,16 @@ extraResources:
     to: resources/
   - from: resources/ffmpeg/
     to: ffmpeg/
+  - from: resources/yt-dlp/
+    to: yt-dlp/
 asarUnpack:
   # sql.js WASM binary must be outside asar archive for Node.js fs access
   - node_modules/sql.js/dist/sql-wasm.wasm
   # FFmpeg must be outside asar for spawn() access
   - ffmpeg/**
+  # Unpack next module + .next/ so Next.js CLI can read its files and resolve deps
+  - node_modules/next/**/*
+  - .next/**/*
 win:
   target:
     - target: portable

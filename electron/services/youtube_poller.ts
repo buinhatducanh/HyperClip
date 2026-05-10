@@ -26,7 +26,7 @@ export interface DetectedVideo {
 }
 
 export interface PollerOptions {
-  pollIntervalMs?: number // default 4000 (4 seconds)
+  pollIntervalMs?: number // default 2000 (2 seconds)
   maxVideosPerPoll?: number // max new videos to report per poll, default 5
   onNewVideos?: (videos: DetectedVideo[]) => void
   /** Called when Innertube has returned 0 videos for 3+ consecutive polls */
@@ -48,9 +48,9 @@ export interface PollerStatus {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DEFAULT_POLL_INTERVAL_MS = 5000 // 5 seconds — Innertube primary has no quota limit
+const DEFAULT_POLL_INTERVAL_MS = 2000 // 2 seconds — target < 20s detection latency
 const MAX_VIDEOS_PER_POLL = 5
-const MAX_VIDEO_AGE_MS = 30 * 60 * 1000 // 30 minutes — for memory management only (seenVideoIds cap), NOT for detection filter — accounts for YouTube processing delay after upload
+const MAX_VIDEO_AGE_MS = 10 * 60 * 1000 // 10 minutes — age filter for OAuth detection path; Innertube also uses 10min in getLatestVideo()
 const SEEN_IDS_CAP = 10000 // cap to prevent unbounded memory growth
 const SEEN_IDS_FILE = path.join(os.homedir(), 'AppData', 'Roaming', 'HyperClip', 'seen-ids.json')
 
@@ -100,7 +100,6 @@ class YouTubePoller {
   private _lastExhaustedWarnAt: number = 0   // avoid spamming notifications
   private _backoffReason: 'oauth' | null = null
   private _exhaustionCount: number = 0        // tracks how many times we've backed off (for exponential backoff)
-  private _isFirstPoll: boolean = true         // first poll after startup uses relaxed age filter
   private _innertubeDegraded: boolean = false // true when Innertube returns 0 videos for 3+ polls
   private _notifyDegraded?: () => void
 
@@ -210,20 +209,13 @@ class YouTubePoller {
       console.log(`[YouTubePoller] Scanning...`)
     }
 
-    // First poll: use 24h window to capture all videos seen since last session.
-    // This prevents the "all videos are old" blind spot when restarting the app.
-    // Subsequent polls: use normal 30-min window.
-    const sinceMs = this._isFirstPoll
-      ? Date.now() - 24 * 60 * 60 * 1000
-      : Date.now() - MAX_VIDEO_AGE_MS
+    const sinceMs = Date.now() - MAX_VIDEO_AGE_MS
     const subResult = await fetchSubscriptionFeed({
       // Request enough to fill maxVideosPerPoll + buffer — early exit kicks in at channel level
       maxVideos: this._maxVideosPerPoll + 5,
       seenVideoIds: this._seenVideoIds,
       sinceMs,
-      firstPoll: this._isFirstPoll,
     })
-    this._isFirstPoll = false
 
     // Emit degraded event to UI when Innertube has returned 0 videos for 3+ consecutive polls
     if (subResult.degraded) {
@@ -298,9 +290,9 @@ class YouTubePoller {
     saveSeenVideoIds(this._seenVideoIds)
     this._capSeenIds()
 
-    // Log alive status every 30 polls (~2 min at 4s/poll)
+    // Log alive status every 60 polls (~2 min at 2s/poll)
     this._pollsSinceLastLog++
-    if (this._pollsSinceLastLog >= 30) {
+    if (this._pollsSinceLastLog >= 60) {
       const elapsed = this._lastPollAt
         ? Math.round((Date.now() - this._lastPollAt) / 1000)
         : 0
@@ -317,9 +309,10 @@ class YouTubePoller {
 
   private _scheduleNextPoll(): void {
     if (!this._active) return
-    // ±1s jitter around poll interval (scales with interval — keeps relative noise small)
-    const jitter = this._pollIntervalMs + (Math.random() * 2000 - 1000)
-    const delay = Math.max(1000, jitter) // minimum 1s between polls
+    // ±20% jitter around poll interval — proportional to interval size.
+    // 2s interval: ~1.6–2.4s; 5s interval: ~4–6s.
+    const jitterFraction = (Math.random() * 0.4 - 0.2) // -20% to +20%
+    const delay = Math.round(this._pollIntervalMs * (1 + jitterFraction))
     this._pollTimer = setTimeout(async () => {
       await this._pollOnce()
       this._scheduleNextPoll()
@@ -329,7 +322,7 @@ class YouTubePoller {
   start(): void {
     if (this._active) return
     this._active = true
-    console.log(`[YouTubePoller] Starting (interval: ${this._pollIntervalMs / 1000}s ± 1s jitter, seen IDs: ${this._seenVideoIds.size})`)
+    console.log(`[YouTubePoller] Starting (interval: ${this._pollIntervalMs / 1000}s ± 20%% jitter, seen IDs: ${this._seenVideoIds.size})`)
     this._pollOnce()
     this._scheduleNextPoll()
   }

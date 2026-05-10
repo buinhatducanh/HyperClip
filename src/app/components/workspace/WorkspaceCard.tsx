@@ -12,6 +12,7 @@ interface Props {
   onClick: () => void
   onQuickAction?: (action: 'open' | 'delete', id: string) => void
   onRetry?: (id: string) => void
+  onRedownloadHd?: (id: string) => void
   onSplit?: (id: string, partMinutes: number) => void
   trimLimitMinutes?: number
 }
@@ -70,7 +71,7 @@ function parseRes(res?: string): number {
   return parseInt(parts[0]) || 0
 }
 
-export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, onRetry, onSplit, trimLimitMinutes = 10 }: Props) {
+export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, onRetry, onRedownloadHd, onSplit, trimLimitMinutes = 10 }: Props) {
   const isShort = workspace.isShort === true
   const status = workspace.status as WorkspaceStatus
   const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.ready
@@ -114,6 +115,7 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
   }, [workspace.id, workspace.isMultiInstance, status])
 
   const showRetry = (status === 'waiting' || status === 'error') && !!onRetry
+  const showHdRedownload = status === 'ready' && !!onRedownloadHd
   const durSec = parseDur(workspace.duration)
   const showSplit = status === 'ready' && durSec > trimLimitMinutes * 60
 
@@ -408,6 +410,16 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
             onMouseLeave={e => (e.currentTarget.style.color = '#666')}
           >
             TÁCH
+          </button>
+        )}
+        {showHdRedownload && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onRedownloadHd!(workspace.id) }}
+            style={{ fontSize: 9, fontWeight: 600, color: '#666', background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0' }}
+            onMouseEnter={e => (e.currentTarget.style.color = '#00B4FF')}
+            onMouseLeave={e => (e.currentTarget.style.color = '#666')}
+          >
+            1080P
           </button>
         )}
       </div>

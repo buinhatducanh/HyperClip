@@ -12,6 +12,7 @@ export const IPC_CHANNELS = {
   WORKSPACE_ADD: 'workspace:add',
   WORKSPACE_UPDATE_EVENT: 'workspace:update-event',
   WORKSPACE_RETRY: 'workspace:retry',
+  WORKSPACE_REDOWNLOAD_HD: 'workspace:redownload-hd',
 
   // Render
   RENDER_START: 'render:start',

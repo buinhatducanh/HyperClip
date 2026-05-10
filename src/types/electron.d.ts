@@ -32,6 +32,7 @@ export interface ElectronAPI {
   updateWorkspace: (id: string, patch: object) => Promise<unknown>
   deleteWorkspace: (id: string) => Promise<unknown>
   retryWorkspace: (id: string) => Promise<unknown>
+  redownloadHd: (id: string) => Promise<{ success: boolean; error?: string }>
   regenerateWorkspaceBlur: (id: string) => Promise<{ success: boolean; blurPath?: string; error?: string }>
   splitWorkspace: (id: string, partMinutes?: number) => Promise<{ success: boolean; newWorkspaces?: unknown[]; error?: string }>
   getVideoFile: (workspaceId: string) => Promise<{ path: string; url: string } | null>
@@ -53,8 +54,8 @@ export interface ElectronAPI {
   onInnertubeDegraded: (callback: (data: { degraded: boolean }) => void) => () => void
   onAuthUpdate: (callback: (status: unknown) => void) => () => void
   onChannelSynced: (callback: () => void) => () => void
-  getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string }>
-  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number }) => Promise<void>
+  getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number }>
+  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; pollIntervalMs?: number }) => Promise<void>
   getAuthStatus: () => Promise<{
     isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean
     cookieCritical?: boolean; cookieError?: string

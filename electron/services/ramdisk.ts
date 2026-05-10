@@ -17,9 +17,13 @@ interface AppSettingsStore {
   outputPath?: string
   adminPasswordHash?: string
   defaultTrimLimit?: number | 'full'  // minutes for auto-download
+  /** Default render quality: 1080 or 720. Defaults to 1080. */
+  defaultQuality?: 1080 | 720
   renderedOutputPath?: string  // archive directory for rendered videos
   /** Auto-download quality cap: '360' | '480' | '720' | '1080'. Defaults to '720'. */
   autoDownloadQuality?: string
+  /** Whether auto-download is enabled. Defaults to true. */
+  autoDownloadEnabled?: boolean
   /** Auto-render after auto-download. Defaults to false. */
   autoRender?: boolean
   /** Resolution for auto-render: '480x480' | '720x720' | '1080x1080'. Defaults to '480x480'. */
@@ -28,6 +32,8 @@ interface AppSettingsStore {
   autoRenderFPS?: number
   /** Auto-cleanup downloads older than N days. 0 = disabled. Defaults to 7. */
   downloadsCleanupDays?: number
+  /** Detection poll interval in milliseconds. Defaults to 5000. */
+  pollIntervalMs?: number
 }
 
 let _settings: AppSettingsStore | null = null
@@ -45,6 +51,9 @@ export function loadSettings(): AppSettingsStore {
   if (_settings.autoRenderResolution === undefined) _settings.autoRenderResolution = '480x480'
   if (_settings.autoRenderFPS === undefined) _settings.autoRenderFPS = 30
   if (_settings.downloadsCleanupDays === undefined) _settings.downloadsCleanupDays = 7
+  if (_settings.defaultQuality === undefined) _settings.defaultQuality = 1080
+  if (_settings.autoDownloadEnabled === undefined) _settings.autoDownloadEnabled = true
+  if (_settings.pollIntervalMs === undefined) _settings.pollIntervalMs = 5000
   
   return _settings
 }

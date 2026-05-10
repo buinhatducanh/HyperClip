@@ -248,13 +248,21 @@ export function getFfmpegVersion(ffmpegPath: string): FfmpegVersion {
     result.hasCuvid = decodersOut.includes('hevc_cuvid') || decodersOut.includes('h264_cuvid')
   } catch {}
 
+  // CUDA filters (scale_cuda/overlay_cuda) REQUIRE NVDEC hardware decode.
+  // The essentials build lists them but NVDEC is not available → runtime fails.
+  // Only mark CUDA filters as available if NVDEC is present.
+  const hasNvDec = result.hasNvdec
   try {
     const filtersOut = execSync(`"${ffmpegPath}" -hide_banner -filters 2>&1`, {
       encoding: 'utf-8', timeout: 5000,
     }).toString()
-    result.hasCudaFilters = filtersOut.includes('scale_cuda') || filtersOut.includes('overlay_cuda')
+    const hasCudaFiltersListed = filtersOut.includes('scale_cuda') || filtersOut.includes('overlay_cuda')
+    // Only enable CUDA filters if NVDEC is available (meaning the GPU pipeline is complete)
+    result.hasCudaFilters = hasCudaFiltersListed && hasNvDec
     if (result.hasCudaFilters) {
       console.log(`[FFmpeg] CUDA-accelerated filters detected (scale_cuda, overlay_cuda) — GPU filter pipeline enabled`)
+    } else if (hasCudaFiltersListed && !hasNvDec) {
+      console.log(`[FFmpeg] CUDA filters listed but NVDEC unavailable — using CPU filter pipeline`)
     }
   } catch {}
 

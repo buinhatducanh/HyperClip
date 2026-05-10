@@ -44,6 +44,9 @@ export const ipc = {
   async retryWorkspace(id: string) {
     return window.electronAPI?.retryWorkspace(id)
   },
+  async redownloadHd(id: string) {
+    return window.electronAPI?.redownloadHd(id)
+  },
   async regenerateWorkspaceBlur(id: string) {
     return window.electronAPI?.regenerateWorkspaceBlur(id)
   },
@@ -112,9 +115,9 @@ export const ipc = {
     return window.electronAPI?.onChannelSynced(callback) ?? (() => {})
   },
   async getSettings() {
-    return window.electronAPI?.getSettings() ?? { videoStoragePath: undefined, outputPath: undefined, defaultTrimLimit: undefined, autoDownloadQuality: undefined, autoRender: undefined, autoRenderResolution: undefined, autoRenderFPS: undefined, downloadsCleanupDays: undefined, renderedOutputPath: undefined }
+    return window.electronAPI?.getSettings() ?? { videoStoragePath: undefined, outputPath: undefined, defaultTrimLimit: undefined, defaultQuality: undefined, autoDownloadQuality: undefined, autoDownloadEnabled: undefined, autoRender: undefined, autoRenderResolution: undefined, autoRenderFPS: undefined, downloadsCleanupDays: undefined, renderedOutputPath: undefined, pollIntervalMs: undefined }
   },
-  async updateSettings(patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string }) {
+  async updateSettings(patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number }) {
     return window.electronAPI?.updateSettings(patch)
   },
   async getAuthStatus() {

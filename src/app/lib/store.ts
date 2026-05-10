@@ -62,12 +62,15 @@ export interface AppSettings {
   videoStoragePath: string    // where downloaded videos are stored
   outputPath: string          // where rendered outputs go before archiving
   defaultTrimLimit: number | 'full'  // number = minutes
-  defaultQuality: 1080 | 720
+  defaultQuality: 1080 | 720  // default render quality
+  autoDownloadEnabled: boolean  // whether auto-download is enabled
   autoRender: boolean
   autoRenderResolution: string  // '480x480'|'720x720'|'1080x1080'
   autoRenderFPS: number         // 30|60
   minimizeToTray: boolean
   autoDownloadQuality: string  // '360'|'480'|'720'|'1080'
+  pollIntervalMs: number       // detection poll interval in ms (default: 5000)
+  downloadsCleanupDays: number  // 0 = disabled, otherwise N days
 }
 
 export interface AppStore {
@@ -187,7 +190,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     autoRenderResolution: '480x480',
     autoRenderFPS: 30,
     minimizeToTray: true,
+    autoDownloadEnabled: true,
     autoDownloadQuality: '720',
+    pollIntervalMs: 5000,
+    downloadsCleanupDays: 7,
   },
   renderQueueExpanded: false,
   toast: '',

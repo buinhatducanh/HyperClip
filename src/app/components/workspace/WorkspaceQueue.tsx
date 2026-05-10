@@ -15,6 +15,7 @@ interface Props {
   onSelectRendered?: (id: string | null) => void
   onQuickAction?: (action: 'open' | 'delete', id: string) => void
   onRetry?: (id: string) => void
+  onRedownloadHd?: (id: string) => void
   onRemoveRendered?: (id: string) => void
   onShowToast?: (msg: string) => void
   onSplit?: (id: string, partMinutes: number) => void
@@ -51,7 +52,7 @@ function groupByStatus(workspaces: Workspace[]): Map<GroupStatus, Workspace[]> {
 
 export function WorkspaceQueue({
   workspaces, renderedVideos = [], selectedId, selectedRenderedId,
-  onSelect, onSelectRendered, onQuickAction, onRetry, onRemoveRendered, onShowToast, onSplit, trimLimitMinutes = 10,
+  onSelect, onSelectRendered, onQuickAction, onRetry, onRedownloadHd, onRemoveRendered, onShowToast, onSplit, trimLimitMinutes = 10,
 }: Props) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<GroupStatus>>(new Set<GroupStatus>(['done']))
   const [activeTab, setActiveTab] = useState<ActiveTab>('pipeline')
@@ -255,6 +256,7 @@ export function WorkspaceQueue({
                         onClick={() => onSelect(ws.id)}
                         onQuickAction={onQuickAction}
                         onRetry={onRetry}
+                        onRedownloadHd={onRedownloadHd}
                         onSplit={onSplit}
                         trimLimitMinutes={trimLimitMinutes}
                       />
