@@ -25,6 +25,7 @@ const IPC = {
   WORKSPACE_REDOWNLOAD_HD: 'workspace:redownload-hd',
   WORKSPACE_REGENERATE_BLUR: 'workspace:regenerate-blur',
   WORKSPACE_SPLIT: 'workspace:split',
+  WORKSPACE_SET_ACTIVE: 'workspace:set-active',
 
   // Render
   RENDER_START: 'render:start',
@@ -73,6 +74,9 @@ const IPC = {
   PROJECT_REMOVE: 'project:remove',
   PROJECT_RESET_QUOTA: 'project:reset-quota',
   PROJECT_REAUTHORIZE: 'project:reauthorize',
+  PROJECT_REPAIR: 'project:repair',
+  PROJECT_TEST_ALL: 'project:test-all',
+  PROJECT_BATCH_REPAIR: 'project:batch-repair',
 
   // Chrome sessions (Innertube API)
   SESSION_LIST: 'session:list',
@@ -163,6 +167,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC.WORKSPACE_REGENERATE_BLUR, id) as Promise<{ success: boolean; blurPath?: string; error?: string }>,
   splitWorkspace: (id: string, partMinutes: number) =>
     ipcRenderer.invoke(IPC.WORKSPACE_SPLIT, id, partMinutes) as Promise<{ success: boolean; newWorkspaces?: any[]; error?: string }>,
+  setActiveWorkspace: (workspaceId: string | null) =>
+    ipcRenderer.invoke(IPC.WORKSPACE_SET_ACTIVE, workspaceId) as Promise<{ success: boolean }>,
 
   // Rendering
   startRender: (workspaceId: string, metadata: Record<string, unknown>) =>
@@ -222,7 +228,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Settings
   getSettings: () => ipcRenderer.invoke(IPC.SETTINGS_GET),
-  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string }) =>
+  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; maxConcurrentRenders?: number }) =>
     ipcRenderer.invoke(IPC.SETTINGS_UPDATE, patch),
 
   // WebSub diagnostics
@@ -318,7 +324,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   resetProjectQuota: (projectId: string) =>
     ipcRenderer.invoke(IPC.PROJECT_RESET_QUOTA, projectId) as Promise<{ success: boolean }>,
   reauthorizeProject: (projectId: string) =>
-    ipcRenderer.invoke(IPC.PROJECT_REAUTHORIZE, projectId) as Promise<{ success: boolean; error?: string }>,
+    ipcRenderer.invoke(IPC.PROJECT_REAUTHORIZE, projectId) as Promise<{ success: boolean; error?: string; refreshed?: boolean }>,
+  repairProject: (projectId: string) =>
+    ipcRenderer.invoke(IPC.PROJECT_REPAIR, projectId) as Promise<{ success: boolean; error?: string; repaired?: boolean; refreshed?: boolean; needsCredentials?: boolean; needsOAuthFlow?: boolean }>,
+  testAllProjects: () =>
+    ipcRenderer.invoke(IPC.PROJECT_TEST_ALL) as Promise<{ projects: unknown[]; checkedAt: number }>,
+  batchRepairProjects: (projectIds: string[]) =>
+    ipcRenderer.invoke(IPC.PROJECT_BATCH_REPAIR, projectIds) as Promise<Record<string, { success: boolean; error?: string; repaired?: boolean; refreshed?: boolean; needsCredentials?: boolean; needsOAuthFlow?: boolean }>>,
 
   // Chrome sessions (Innertube API — no quota limit)
   getSessionStatus: () =>
@@ -326,7 +338,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ready: boolean; sessionCount: number; loggedInCount: number; consentedCount: number
       sessions: Array<{
         profileId: string; profileName: string; isLoggedIn: boolean; isConsented: boolean
-        usedToday: number; lastUsed: number; error?: string
+        rawSocs: string | null; lastRefreshAt: number; usedToday: number; lastUsed: number; error?: string
       }>
     }>,
   refreshAllSessions: () =>

@@ -16,6 +16,7 @@ import http from 'http'
 import fs from 'fs'
 import path from 'path'
 import { getChromeExe, getHyperClipProfileDir, getDefaultChromeProfileDir, YouTubeCookies } from './chrome_cookies.js'
+import { devLog } from './dev_log.js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -208,7 +209,7 @@ function parseCookies(cdpCookies: Array<{ name: string; value: string }> | undef
  */
 export function loginInBackground(profileId: string): void {
   setTimeout(async () => {
-    console.log(`[CDP] Background: starting login flow for profile ${profileId}`)
+    devLog(`[CDP] Background: starting login flow for profile ${profileId}`)
     const result = await cdpOpenChromeForLogin(profileId)
     if (result.cookies) {
       // Persist cookies so extractYouTubeCookies() picks them up on next read
@@ -234,18 +235,18 @@ export function loginInBackground(profileId: string): void {
           ? path.join(profileDir, '..', '_hyperclip_cookies.json')
           : path.join(profileDir, 'Default', '_hyperclip_cookies.json')
         fs.writeFileSync(cookieFile, JSON.stringify(result.cookies), 'utf8')
-        console.log(`[CDP] Background login: cookies saved to ${cookieFile}`)
+        devLog(`[CDP] Background login: cookies saved to ${cookieFile}`)
         if (session) {
           session.isConsented = !!(result.cookies.socs && !result.cookies.socs.startsWith('CAA'))
         }
-        console.log(`[CDP] Background: cookies persisted for profile ${profileId}`)
+        devLog(`[CDP] Background: cookies persisted for profile ${profileId}`)
 
         // Rebuild Innertube client so the session becomes usable immediately
         try {
           const { getInnertubePool } = await import('./innertube_client.js')
           const pool = await getInnertubePool()
           const ok = await pool.refreshClient(profileId)
-          console.log(`[CDP] Background: Innertube client ${ok ? 'rebuilt OK' : 'rebuild failed'} for profile ${profileId}`)
+          devLog(`[CDP] Background: Innertube client ${ok ? 'rebuilt OK' : 'rebuild failed'} for profile ${profileId}`)
         } catch (e) {
           console.warn(`[CDP] Background: Innertube rebuild skipped: ${e}`)
         }
@@ -253,7 +254,7 @@ export function loginInBackground(profileId: string): void {
         console.warn(`[CDP] Background: failed to persist cookies for profile ${profileId}: ${e}`)
       }
     } else {
-      console.log(`[CDP] Background: login failed for profile ${profileId} — ${result.error}`)
+      devLog(`[CDP] Background: login failed for profile ${profileId} — ${result.error}`)
     }
   }, parseInt(profileId, 10) * 800 + Math.random() * 5000) // stagger: profile-3 ~8s, profile-10 ~13s, profile-30 ~29s
 }
@@ -278,7 +279,7 @@ export async function cdpOpenChromeForLogin(
   const port = getCDPPort(profileId)
   const profileDir = ensureProfileDir(profileId)
 
-  console.log(`[CDP] Launching Chrome for profile ${profileId} on port ${port}...`)
+  devLog(`[CDP] Launching Chrome for profile ${profileId} on port ${port}...`)
 
   // Kill only the Chrome process using THIS specific debug port (not all Chrome)
   // Using netstat to find the PID on the debug port, then kill just that process
@@ -295,7 +296,7 @@ export async function cdpOpenChromeForLogin(
       const pid = match[1] || match[2]
       if (pid && pid !== '0') {
         spawn('taskkill', ['/F', '/PID', pid], { stdio: 'ignore' })
-        console.log(`[CDP] Killed existing Chrome on port ${port} (PID ${pid})`)
+        devLog(`[CDP] Killed existing Chrome on port ${port} (PID ${pid})`)
         await sleep(300)
       }
     }
@@ -337,13 +338,13 @@ export async function cdpOpenChromeForLogin(
     return { cookies: null, alreadyLoggedIn: false, error: 'Could not connect to Chrome DevTools' }
   }
 
-  console.log(`[CDP] Connected to Chrome tab: ${cdpTab.title} (${cdpTab.url})`)
+  devLog(`[CDP] Connected to Chrome tab: ${cdpTab.title} (${cdpTab.url})`)
 
   // Connect to the tab via WebSocket
   const client = new CDPClient()
   try {
     await client.connect(cdpTab.webSocketDebuggerUrl)
-    console.log('[CDP] WebSocket connected')
+    devLog('[CDP] WebSocket connected')
   } catch (e) {
     try { chromeProcess.kill() } catch {}
     return { cookies: null, alreadyLoggedIn: false, error: `WebSocket connect failed: ${e}` }
@@ -362,7 +363,7 @@ export async function cdpOpenChromeForLogin(
   // Check initial cookies
   let cookies = await parseCookies((await client.send<{ cookies: Array<{ name: string; value: string }> }>('Network.getAllCookies')).cookies)
   if (cookies && cookies.SAPISID && cookies.PSID) {
-    console.log(`[CDP] Already logged in — SAPISID=${cookies.SAPISID.slice(0,6)}..., PSID=${cookies.PSID.slice(0,4)}...`)
+    devLog(`[CDP] Already logged in — SAPISID=${cookies.SAPISID.slice(0,6)}..., PSID=${cookies.PSID.slice(0,4)}...`)
     await client.dispose()
     try { chromeProcess.kill() } catch {}
     return { cookies, alreadyLoggedIn: true }
@@ -374,7 +375,7 @@ export async function cdpOpenChromeForLogin(
   let lastCookieCount = 0
   let waited = false
 
-  console.log('[CDP] Waiting for login... (poll every 3s, max 5 min)')
+  devLog('[CDP] Waiting for login... (poll every 3s, max 5 min)')
 
   while (Date.now() < deadline) {
     await sleep(pollInterval)
@@ -385,7 +386,7 @@ export async function cdpOpenChromeForLogin(
       cookies = parseCookies(cdpCookies)
 
       if (cookies && cookies.SAPISID && cookies.PSID) {
-        console.log(`[CDP] Login detected — SAPISID=${cookies.SAPISID.slice(0,6)}..., PSID=${cookies.PSID.slice(0,4)}...`)
+        devLog(`[CDP] Login detected — SAPISID=${cookies.SAPISID.slice(0,6)}..., PSID=${cookies.PSID.slice(0,4)}...`)
         await client.dispose()
         try { chromeProcess.kill() } catch {}
         return { cookies, alreadyLoggedIn: false }
@@ -396,7 +397,7 @@ export async function cdpOpenChromeForLogin(
         // No cookies ever seen — tab might have been closed
         const currentTab = await getCDPTarget(port)
         if (!currentTab) {
-          console.log('[CDP] Chrome tab closed — aborting wait')
+          devLog('[CDP] Chrome tab closed — aborting wait')
           break
         }
       }
@@ -405,14 +406,14 @@ export async function cdpOpenChromeForLogin(
       // Tab may have been closed — check if Chrome is still running
       const currentTab = await getCDPTarget(port)
       if (!currentTab) {
-        console.log('[CDP] Chrome closed — aborting wait')
+        devLog('[CDP] Chrome closed — aborting wait')
         break
       }
       console.warn(`[CDP] Cookie poll error: ${e}`)
     }
   }
 
-  console.log('[CDP] Timeout or Chrome closed — closing Chrome')
+  devLog('[CDP] Timeout or Chrome closed — closing Chrome')
   await client.dispose()
   try { chromeProcess.kill() } catch {}
 
@@ -420,4 +421,103 @@ export async function cdpOpenChromeForLogin(
     return { cookies: null, alreadyLoggedIn: false, error: 'Login timeout — no valid YouTube cookies found' }
   }
   return { cookies: null, alreadyLoggedIn: false, error: 'Chrome closed before cookies could be extracted' }
+}
+
+// ─── Persistent Chrome for PO Token Extraction ─────────────────────────────────
+
+/**
+ * Persistent Chrome process kept alive for PO Token extraction.
+ * Runs in background on port 9223 (session 1 profile).
+ * NOT killed after use — reused for all subsequent PO Token extractions.
+ */
+let _persistentChrome: { process: ReturnType<typeof spawn>; port: number; profileId: string } | null = null
+
+function isChromeRunningOnPort(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = http.get(`http://localhost:${port}/json`, (res) => {
+      resolve(res.statusCode === 200)
+      res.resume()
+    })
+    req.on('error', () => resolve(false))
+    req.setTimeout(2000, () => { req.destroy(); resolve(false) })
+  })
+}
+
+async function getPersistentChromePort(): Promise<number> {
+  // Check if our persistent Chrome is already running
+  if (_persistentChrome && await isChromeRunningOnPort(_persistentChrome.port)) {
+    return _persistentChrome.port
+  }
+  return 9223 // session 1 default port
+}
+
+/**
+ * Ensure a persistent Chrome is running for PO Token extraction.
+ * Launches Chrome with session 1 profile (user's default) and debug port.
+ * Does NOT kill Chrome after — keeps it running for future PO Token extractions.
+ */
+export async function ensurePersistentChrome(): Promise<{ port: number; profileId: string } | null> {
+  const port = await getPersistentChromePort()
+
+  // Check if Chrome is already running on our debug port
+  if (await isChromeRunningOnPort(port)) {
+    devLog(`[CDP] Persistent Chrome already running on port ${port}`)
+    return { port, profileId: '1' }
+  }
+
+  // Launch persistent Chrome for session 1
+  const chromeExe = getChromeExe()
+  if (!fs.existsSync(chromeExe)) {
+    devLog('[CDP] Persistent Chrome: Chrome not found')
+    return null
+  }
+
+  const profileDir = getDefaultChromeProfileDir()
+  devLog(`[CDP] Launching persistent Chrome on port ${port} with profile: ${profileDir}`)
+
+  const args = [
+    `--user-data-dir=${profileDir}`,
+    `--remote-debugging-port=${port}`,
+    '--new-window',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--disable-first-run-ui',
+    'https://www.youtube.com',
+  ]
+
+  const chromeProcess = spawn(chromeExe, args, {
+    detached: true,
+    stdio: 'ignore',
+  })
+  chromeProcess.unref()
+
+  chromeProcess.on('error', (e) => {
+    console.warn(`[CDP] Persistent Chrome spawn error: ${e}`)
+  })
+
+  // Wait for Chrome to be ready
+  const startupTimeout = 20_000
+  const startupStart = Date.now()
+  while (Date.now() - startupStart < startupTimeout) {
+    if (await isChromeRunningOnPort(port)) {
+      devLog(`[CDP] Persistent Chrome ready on port ${port}`)
+      _persistentChrome = { process: chromeProcess, port, profileId: '1' }
+      return { port, profileId: '1' }
+    }
+    await sleep(500)
+  }
+
+  devLog(`[CDP] Persistent Chrome failed to start on port ${port}`)
+  return null
+}
+
+/**
+ * Kill the persistent Chrome (call on shutdown).
+ */
+export function killPersistentChrome(): void {
+  if (_persistentChrome) {
+    try { _persistentChrome.process.kill() } catch {}
+    _persistentChrome = null
+    devLog('[CDP] Persistent Chrome killed')
+  }
 }

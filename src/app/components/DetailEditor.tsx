@@ -15,6 +15,8 @@ interface Props {
   onShowToast?: (msg: string) => void
   onSplit?: (id: string, partMinutes: number) => void
   settings?: { defaultTrimLimit: number | 'full' }
+  /** Download quality cap (e.g. "720") — max export quality */
+  downloadQuality?: string
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────────
@@ -1415,7 +1417,7 @@ function CanvasArea({ video, editorState, onChange, onTimeUpdate }: {
 
 // ─── Controls Panel ─────────────────────────────────────────────────────────────
 
-function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRendering, systemStats, editorIsShort, videoDuration, currentTime, videoId, onShowToast, renderProgress, workspaceId, isReady, trimLimitMinutes, onSplit, sourceResolution }: {
+function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRendering, systemStats, editorIsShort, videoDuration, currentTime, videoId, onShowToast, renderProgress, workspaceId, isReady, trimLimitMinutes, onSplit, sourceResolution, downloadQuality }: {
   editorState: EditorState
   onChange: (p: Partial<EditorState>) => void
   onRender: () => void
@@ -1433,6 +1435,8 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
   trimLimitMinutes?: number
   onSplit?: (id: string, partMinutes: number) => void
   sourceResolution?: string
+  /** Download quality cap (e.g. "720") — max export quality */
+  downloadQuality?: string
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['trim']))
 
@@ -1445,18 +1449,9 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
 
   const is = (id: string) => expanded.has(id)
 
-  const maxSourceHeight = sourceResolution ? parseInt(sourceResolution.split('x')[1]) : 1080
-
-  // Auto-downgrade quality if current export exceeds source
-  useEffect(() => {
-    if (editorState.exportQuality > maxSourceHeight) {
-      // Find highest available quality <= maxSourceHeight
-      const available = [1080, 720, 360].find(q => q <= maxSourceHeight)
-      if (available) {
-        onChange({ exportQuality: available as 1080 | 720 | 360 })
-      }
-    }
-  }, [maxSourceHeight, editorState.exportQuality, onChange])
+  const sourceHeight = sourceResolution ? parseInt(sourceResolution.split('x')[1]) : 0
+  // Max export quality: download config if set, else source resolution
+  const maxAllowedHeight = downloadQuality ? parseInt(downloadQuality) : (sourceHeight || 1080)
   return (
     <div style={{ width: 280, borderLeft: '1px solid #1A1A1A', display: 'flex', flexDirection: 'column', background: '#111' }}>
       {/* Scrollable content */}
@@ -1575,21 +1570,22 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
           <div style={{ display: 'flex', gap: 3 }}>
             {([1080, 720, 360] as const).map(q => {
               const active = editorState.exportQuality === q
-              const disabled = q > maxSourceHeight
+              const disabled = q > maxAllowedHeight
               return (
                 <button
                   key={q}
                   onClick={() => !disabled && onChange({ exportQuality: q as 1080 | 720 | 360 })}
-                  title={disabled ? `Nguồn chỉ có ${maxSourceHeight}p` : `${q}p`}
+                  title={disabled ? `Max ${maxAllowedHeight}p` : `${q}p`}
                   style={{
                     height: 22, padding: '0 8px',
                     background: active ? '#00B4FF' : disabled ? '#0d0d0d' : '#1A1A1A',
-                    border: `1px solid ${active ? '#00B4FF' : '#222'}`,
+                    border: `1px solid ${active ? '#00B4FF' : disabled ? '#1a1a1a' : '#222'}`,
                     borderRadius: 2, fontSize: 10, fontWeight: 700,
-                    color: active ? '#000' : disabled ? '#222' : '#444',
+                    color: active ? '#000' : disabled ? '#2a2a2a' : '#444',
                     cursor: disabled ? 'not-allowed' : 'pointer',
                     fontFamily: 'monospace',
-                    opacity: disabled ? 0.5 : 1,
+                    opacity: disabled ? 0.6 : 1,
+                    position: 'relative',
                   }}>
                   {q}p
                 </button>
@@ -1687,7 +1683,7 @@ function SectionHeader({ icon, label, isExpanded, onToggle }: { icon: React.Reac
 
 // ─── Main DetailEditor ──────────────────────────────────────────────────────────
 
-export function DetailEditor({ video, editorState, onChange, onRender, onExportChunked, systemStats, onShowToast, onSplit, settings }: Props) {
+export function DetailEditor({ video, editorState, onChange, onRender, onExportChunked, systemStats, onShowToast, onSplit, settings, downloadQuality }: Props) {
   const [currentTime, setCurrentTime] = useState(0)
 
   if (!video) return <EmptyState />
@@ -1720,6 +1716,14 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
             <>
               <span style={{ color: '#444', fontWeight: 600 }}>SRC</span>
               <span style={{ color: '#555' }}>{video.videoResolution}</span>
+              <span style={{ color: '#2A2A2A' }}>·</span>
+            </>
+          )}
+          {/* Download cap — if set, show it as the max export */}
+          {downloadQuality && (
+            <>
+              <span style={{ color: '#444', fontWeight: 600 }}>MAX</span>
+              <span style={{ color: '#FFB800', fontWeight: 700 }}>{downloadQuality}p</span>
               <span style={{ color: '#2A2A2A' }}>·</span>
             </>
           )}
@@ -1765,6 +1769,7 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
           trimLimitMinutes={settings.defaultTrimLimit as number}
           onSplit={onSplit}
           sourceResolution={video?.videoResolution}
+          downloadQuality={downloadQuality}
         />
       </div>
 

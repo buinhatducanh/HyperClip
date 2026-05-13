@@ -1,9 +1,26 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import type { Channel, SystemStats } from '../types'
 import { NotificationCenter } from './NotificationCenter'
 import { SkeletonChannelItem } from './Skeleton'
+import { DetectionStatusBar } from './DetectionStatusBar'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog'
+
+/** Pending setting change waiting for user confirmation */
+interface PendingChange {
+  label: string
+  patch: Partial<AppSettings>
+}
 
 interface AppSettings {
   defaultTrimLimit: number | 'full'
@@ -73,11 +90,26 @@ export function Sidebar({
   settings,
   onSettingsChange,
 }: Props) {
-  const [showAll, setShowAll] = useState(true)
+  const [pendingChange, setPendingChange] = useState<PendingChange | null>(null)
+  /** Input value for trim — tracks user edits before Enter */
+  const [trimInput, setTrimInput] = useState<number | 'full'>(
+    () => settings?.defaultTrimLimit ?? 10
+  )
 
-  const isActive = authStatus?.isReady && !authStatus?.quotaExceeded
   const ramPct = Math.round((systemStats.ramUsed / systemStats.ramTotal) * 100)
   const gpuShort = systemStats.gpuName ? systemStats.gpuName.split(' ').slice(0, 2).join(' ') : 'GPU'
+
+  /** Queue a setting change for confirmation instead of applying immediately */
+  const handleSettingChange = useCallback((label: string, patch: Partial<AppSettings>) => {
+    setPendingChange({ label, patch })
+  }, [])
+
+  /** Sync trimInput when settings load from backend (overwrites stale mount value) */
+  useEffect(() => {
+    if (settings?.defaultTrimLimit !== undefined) {
+      setTrimInput(settings.defaultTrimLimit)
+    }
+  }, [settings?.defaultTrimLimit])
 
   return (
     <div
@@ -126,90 +158,11 @@ export function Sidebar({
         </a>
       </div>
 
-      {/* YouTube account */}
-      <div style={{ padding: '10px 12px', borderBottom: '1px solid #1E1E1E', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* YouTube icon */}
-          <div style={{ width: 26, height: 26, background: '#FF0000', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <svg width="13" height="9" viewBox="0 0 14 10" fill="white">
-              <path d="M13.5 1.5s-.3-2-.8-2.8C12.2.2 10 .2 10 .2s-2.2 0-2.7.5S6 2.2 6 2.2s-.3 1.2-.3 2.8v1C5.7 6.3 5.5 7.5 5.5 7.5s-.1 2 .4 3.2c.4.8.8 1.6 2.2 1.6 2.2 0 2.7-.8 2.7-.8s.3-1.4.3-2.8v-1c0-.8.1-2.3.1-2.3s.2-1.3.7-1.7c.6-.5 1.3-.5 1.6-.4s.9.5.9.5zM8.7 7.8V3.3l3 2.2-3 2.3zM5.5 9.7H1v-9h4.5v9z" />
-            </svg>
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {authStatus?.accountName || 'YouTube'}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
-              <div style={{
-                width: 5, height: 5, borderRadius: '50%',
-                background: isActive ? '#00FF88' : '#FF4444',
-                boxShadow: isActive ? '0 0 4px #00FF88' : '0 0 4px #FF4444',
-                flexShrink: 0,
-              }} />
-              <span style={{ fontSize: 9, color: isActive ? '#00FF88' : '#FF4444' }}>
-                {authStatus?.quotaExceeded ? 'Quota exceeded' : authStatus?.isReady ? 'Active' : 'Not connected'}
-              </span>
-            </div>
-          </div>
-          {authStatus?.isReady && (
-            <button
-              onClick={() => { if (confirm('Đăng xuất YouTube?')) onLogout?.() }}
-              title="Logout"
-              style={{ width: 18, height: 18, background: 'transparent', border: 'none', cursor: 'pointer', color: '#444', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 2, flexShrink: 0 }}
-              onMouseEnter={e => (e.currentTarget.style.color = '#FF4444')}
-              onMouseLeave={e => (e.currentTarget.style.color = '#444')}
-            >
-              ✕
-            </button>
-          )}
-        </div>
-        {/* Quick stats */}
-        {authStatus?.isReady && (
-          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-            <div style={{ flex: 1, background: '#1A1A1A', borderRadius: 3, padding: '3px 6px', textAlign: 'center' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#00B4FF' }}>{channels.length}</div>
-              <div style={{ fontSize: 8, color: '#555', letterSpacing: '0.06em' }}>CHANNELS</div>
-            </div>
-            <div style={{ flex: 1, background: '#1A1A1A', borderRadius: 3, padding: '3px 6px', textAlign: 'center' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#00FF88' }}>
-                {pollerStatus?.active ? `${Math.round(((pollerStatus as any).pollIntervalMs || 20000) / 1000)}s` : '—'}
-              </div>
-              <div style={{ fontSize: 8, color: '#555', letterSpacing: '0.06em' }}>INTERVAL</div>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Detection status strip — source · sessions · timing · warning → Settings */}
+      <DetectionStatusBar />
 
       {/* Channel list */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {/* Filter bar */}
-        <div style={{ display: 'flex', gap: 4, padding: '8px 12px', borderBottom: '1px solid #181818', flexShrink: 0 }}>
-          <button
-            onClick={() => { setShowAll(true); onChannelSelect('') }}
-            style={{
-              flex: 1, height: 24, fontSize: 9, fontWeight: 700, letterSpacing: '0.06em',
-              background: showAll ? '#00B4FF15' : '#1A1A1A',
-              border: `1px solid ${showAll ? '#00B4FF' : '#222'}`,
-              borderRadius: 3, color: showAll ? '#00B4FF' : '#555',
-              cursor: 'pointer',
-            }}
-          >
-            ALL
-          </button>
-          <button
-            onClick={() => { setShowAll(false); onChannelSelect('') }}
-            style={{
-              flex: 1, height: 24, fontSize: 9, fontWeight: 700, letterSpacing: '0.06em',
-              background: !showAll ? '#00B4FF15' : '#1A1A1A',
-              border: `1px solid ${!showAll ? '#00B4FF' : '#222'}`,
-              borderRadius: 3, color: !showAll ? '#00B4FF' : '#555',
-              cursor: 'pointer',
-            }}
-          >
-            NEW
-          </button>
-        </div>
-
         {/* Channel items */}
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {isLoadingChannels ? (
@@ -226,10 +179,6 @@ export function Sidebar({
               </span>
             </div>
           ) : channels
-            .filter(ch => {
-              if (showAll) return true
-              return (newCounts[ch.id] ?? 0) > 0
-            })
             .map(ch => {
               const isActiveCh = ch.id === activeChannelId
               const count = newCounts[ch.id] ?? 0
@@ -291,41 +240,72 @@ export function Sidebar({
       <div style={{ padding: '8px 12px', borderTop: '1px solid #1E1E1E', flexShrink: 0 }}>
         <div style={{ fontSize: 8, fontWeight: 800, color: '#2A2A2A', letterSpacing: '0.1em', marginBottom: 6 }}>DOWNLOAD</div>
 
-        {/* Trim limit */}
+        {/* Trim limit — custom number input */}
         <div style={{ marginBottom: 6 }}>
-          <div style={{ fontSize: 8, color: '#444', marginBottom: 3 }}>Trim</div>
-          <div style={{ display: 'flex', gap: 3 }}>
-            {([5, 8, 10, 15, 20] as const).map(val => (
-              <button
-                key={val}
-                onClick={() => onSettingsChange?.({ defaultTrimLimit: val })}
-                title={`${val} minutes`}
-                style={{
-                  flex: 1, height: 20,
-                  background: settings?.defaultTrimLimit === val ? '#00B4FF22' : 'transparent',
-                  border: `1px solid ${settings?.defaultTrimLimit === val ? '#00B4FF66' : '#222'}`,
-                  borderRadius: 3, cursor: 'pointer',
-                  fontSize: 8, fontWeight: 700,
-                  color: settings?.defaultTrimLimit === val ? '#00B4FF' : '#444',
-                  fontFamily: 'monospace',
-                  transition: 'all 0.1s',
-                }}
-              >
-                {val}m
-              </button>
-            ))}
+          <div style={{ fontSize: 8, color: '#444', marginBottom: 3 }}>Trim (phút)</div>
+          <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+            <input
+              type="number"
+              min={1}
+              max={999}
+              value={trimInput === 'full' ? '' : Number(trimInput)}
+              placeholder={trimInput === 'full' ? 'full' : String(trimInput === 0 ? 10 : trimInput)}
+              onChange={(e) => {
+                const raw = e.target.value
+                if (raw === '') {
+                  setTrimInput(0)
+                } else {
+                  const n = parseInt(raw, 10)
+                  if (!isNaN(n) && n > 0) setTrimInput(n)
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const val = trimInput
+                  if (val !== 0 && val !== 'full') {
+                    handleSettingChange(`Trim ${val} phút`, { defaultTrimLimit: val })
+                  }
+                }
+              }}
+              style={{
+                flex: 1, height: 20, padding: '0 6px',
+                background: '#0D0D0D', border: '1px solid #222',
+                borderRadius: 3, color: '#00B4FF',
+                fontSize: 9, fontWeight: 700, fontFamily: 'monospace',
+                outline: 'none', width: '100%',
+              }}
+            />
             <button
-              onClick={() => onSettingsChange?.({ defaultTrimLimit: 'full' })}
+              onClick={() => {
+                const val = trimInput
+                if (val !== 0 && val !== 'full') {
+                  handleSettingChange(`Trim ${val} phút`, { defaultTrimLimit: val })
+                }
+              }}
+              title="Enter hoặc nhấn để xác nhận"
+              style={{
+                height: 20, paddingLeft: 8, paddingRight: 8,
+                background: '#00B4FF22', border: '1px solid #00B4FF66',
+                borderRadius: 3, cursor: 'pointer',
+                fontSize: 8, fontWeight: 700,
+                color: '#00B4FF', fontFamily: 'monospace',
+                whiteSpace: 'nowrap', flexShrink: 0,
+              }}
+            >
+              OK
+            </button>
+            <button
+              onClick={() => handleSettingChange('Trim FULL', { defaultTrimLimit: 'full' })}
               title="Full video"
               style={{
-                flex: 1, height: 20,
+                height: 20, paddingLeft: 6, paddingRight: 6,
                 background: settings?.defaultTrimLimit === 'full' ? '#00B4FF22' : 'transparent',
                 border: `1px solid ${settings?.defaultTrimLimit === 'full' ? '#00B4FF66' : '#222'}`,
                 borderRadius: 3, cursor: 'pointer',
                 fontSize: 8, fontWeight: 700,
                 color: settings?.defaultTrimLimit === 'full' ? '#00B4FF' : '#444',
                 fontFamily: 'monospace',
-                transition: 'all 0.1s',
+                transition: 'all 0.1s', flexShrink: 0,
               }}
             >
               FULL
@@ -340,7 +320,7 @@ export function Sidebar({
             {(['360', '480', '720', '1080'] as const).map(val => (
               <button
                 key={val}
-                onClick={() => onSettingsChange?.({ autoDownloadQuality: val })}
+                onClick={() => handleSettingChange(`Quality ${val}p`, { autoDownloadQuality: val })}
                 title={`${val}p`}
                 style={{
                   flex: 1, height: 20,
@@ -359,84 +339,6 @@ export function Sidebar({
           </div>
         </div>
 
-        {/* Auto Render */}
-        <div style={{ marginTop: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-            <div style={{ fontSize: 8, fontWeight: 800, color: '#2A2A2A', letterSpacing: '0.1em' }}>AUTO RENDER</div>
-            <button
-              onClick={() => onSettingsChange?.({ autoRender: !settings?.autoRender })}
-              style={{
-                width: 24, height: 12, borderRadius: 6,
-                background: settings?.autoRender ? '#00FF88' : '#222',
-                border: 'none', cursor: 'pointer', position: 'relative',
-                transition: 'background 0.2s',
-              }}
-            >
-              <div style={{
-                width: 8, height: 8, borderRadius: '50%', background: '#fff',
-                position: 'absolute', top: 2,
-                left: settings?.autoRender ? 14 : 2,
-                transition: 'left 0.2s',
-              }} />
-            </button>
-          </div>
-
-          {settings?.autoRender && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {/* Auto Res */}
-              <div>
-                <div style={{ fontSize: 8, color: '#444', marginBottom: 3 }}>Res</div>
-                <div style={{ display: 'flex', gap: 3 }}>
-                  {(['480x480', '720x720', '1080x1080'] as const).map(val => (
-                    <button
-                      key={val}
-                      onClick={() => onSettingsChange?.({ autoRenderResolution: val })}
-                      title={val}
-                      style={{
-                        flex: 1, height: 20,
-                        background: settings?.autoRenderResolution === val ? '#00B4FF22' : 'transparent',
-                        border: `1px solid ${settings?.autoRenderResolution === val ? '#00B4FF66' : '#222'}`,
-                        borderRadius: 3, cursor: 'pointer',
-                        fontSize: 7, fontWeight: 700,
-                        color: settings?.autoRenderResolution === val ? '#00B4FF' : '#444',
-                        fontFamily: 'monospace',
-                        transition: 'all 0.1s',
-                      }}
-                    >
-                      {val.split('x')[0]}p
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Auto FPS */}
-              <div>
-                <div style={{ fontSize: 8, color: '#444', marginBottom: 3 }}>FPS</div>
-                <div style={{ display: 'flex', gap: 3 }}>
-                  {([30, 60] as const).map(val => (
-                    <button
-                      key={val}
-                      onClick={() => onSettingsChange?.({ autoRenderFPS: val })}
-                      title={`${val} FPS`}
-                      style={{
-                        flex: 1, height: 20,
-                        background: settings?.autoRenderFPS === val ? '#00B4FF22' : 'transparent',
-                        border: `1px solid ${settings?.autoRenderFPS === val ? '#00B4FF66' : '#222'}`,
-                        borderRadius: 3, cursor: 'pointer',
-                        fontSize: 8, fontWeight: 700,
-                        color: settings?.autoRenderFPS === val ? '#00B4FF' : '#444',
-                        fontFamily: 'monospace',
-                        transition: 'all 0.1s',
-                      }}
-                    >
-                      {val}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
       </div>
 
       {/* System stats */}
@@ -484,6 +386,47 @@ export function Sidebar({
           </span>
         </div>
       </div>
+
+      {/* Confirm dialog for pending setting changes */}
+      <AlertDialog open={pendingChange !== null} onOpenChange={(open) => { if (!open) setPendingChange(null) }}>
+        <AlertDialogContent style={{ background: '#141414', border: '1px solid #222', borderRadius: 8, maxWidth: 320 }}>
+          <AlertDialogHeader>
+            <AlertDialogTitle style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>
+              Xác nhận thay đổi
+            </AlertDialogTitle>
+            <AlertDialogDescription style={{ color: '#888', fontSize: 11 }}>
+              {pendingChange ? `Bạn có chắc muốn đổi sang "${pendingChange.label}" không?` : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter style={{ marginTop: 12 }}>
+            <AlertDialogCancel
+              onClick={() => setPendingChange(null)}
+              style={{
+                flex: 1, height: 28, background: 'transparent',
+                border: '1px solid #333', borderRadius: 4,
+                color: '#888', fontSize: 10, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              Hủy
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingChange) {
+                  onSettingsChange?.(pendingChange.patch)
+                  setPendingChange(null)
+                }
+              }}
+              style={{
+                flex: 1, height: 28, background: '#00FF8820',
+                border: '1px solid #00FF8866', borderRadius: 4,
+                color: '#00FF88', fontSize: 10, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              Xác nhận
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

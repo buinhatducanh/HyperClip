@@ -35,6 +35,7 @@ export interface ElectronAPI {
   redownloadHd: (id: string) => Promise<{ success: boolean; error?: string }>
   regenerateWorkspaceBlur: (id: string) => Promise<{ success: boolean; blurPath?: string; error?: string }>
   splitWorkspace: (id: string, partMinutes?: number) => Promise<{ success: boolean; newWorkspaces?: unknown[]; error?: string }>
+  setActiveWorkspace: (workspaceId: string | null) => Promise<{ success: boolean }>
   getVideoFile: (workspaceId: string) => Promise<{ path: string; url: string } | null>
   getVideoBlob: (workspaceId: string) => Promise<Uint8Array | null>
   getImageFile: (workspaceId: string) => Promise<{ path: string; dataUrl: string } | null>
@@ -54,8 +55,8 @@ export interface ElectronAPI {
   onInnertubeDegraded: (callback: (data: { degraded: boolean }) => void) => () => void
   onAuthUpdate: (callback: (status: unknown) => void) => () => void
   onChannelSynced: (callback: () => void) => () => void
-  getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number }>
-  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; pollIntervalMs?: number }) => Promise<void>
+  getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number }>
+  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; pollIntervalMs?: number; maxConcurrentRenders?: number }) => Promise<void>
   getAuthStatus: () => Promise<{
     isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean
     cookieCritical?: boolean; cookieError?: string
@@ -86,7 +87,10 @@ export interface ElectronAPI {
   addProject: (data: { projectId: string; clientId: string; clientSecret: string; apiKey: string; apiKeyName?: string }) => Promise<{ success: boolean; projectId: string; error?: string }>
   removeProject: (projectId: string) => Promise<{ success: boolean }>
   resetProjectQuota: (projectId: string) => Promise<{ success: boolean }>
-  reauthorizeProject: (projectId: string) => Promise<{ success: boolean; error?: string }>
+  reauthorizeProject: (projectId: string) => Promise<{ success: boolean; error?: string; refreshed?: boolean }>
+  repairProject: (projectId: string) => Promise<{ success: boolean; error?: string; repaired?: boolean; refreshed?: boolean; needsCredentials?: boolean; needsOAuthFlow?: boolean }>
+  testAllProjects: () => Promise<{ projects: unknown[]; checkedAt: number }>
+  batchRepairProjects: (projectIds: string[]) => Promise<Record<string, { success: boolean; error?: string; repaired?: boolean; refreshed?: boolean; needsCredentials?: boolean; needsOAuthFlow?: boolean }>>
   testToken: (projectId: string) => Promise<{ valid: boolean; error?: string; errorType?: string }>
   // Chrome session management (Innertube API)
   getSessionStatus: () => Promise<unknown>

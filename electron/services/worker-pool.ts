@@ -3,6 +3,7 @@ import path from 'path'
 import fs from 'fs'
 import { getFfmpegPath, validateFfmpeg } from './ffmpeg-paths.js'
 import { getGPUCapabilities, getEffectiveWorkers } from './system.js'
+import { devLog } from './dev_log.js'
 
 // Cache validation result — check once at startup
 let _ffmpegValidated = false
@@ -141,7 +142,7 @@ function getRenderPool(): WorkerPool {
     const singleWorkers = Math.max(2, Math.ceil(caps.maxChunkWorkers * 0.5))
     _renderPool = new WorkerPool(singleWorkers)
     _renderPoolWorkers = singleWorkers
-    console.log(`[WorkerPool] Render pool initialized: ${singleWorkers} workers (GPU: ${caps.gpuName}, encoder: ${caps.encoder})`)
+    devLog(`[WorkerPool] Render pool initialized: ${singleWorkers} workers (GPU: ${caps.gpuName}, encoder: ${caps.encoder})`)
   }
   return _renderPool
 }
@@ -170,7 +171,7 @@ function getChunkPool(): WorkerPool {
     // Use VRAM-aware effective workers
     const effective = getEffectiveWorkers()
     _chunkPool = new WorkerPool(effective)
-    console.log(`[WorkerPool] Chunk pool initialized: ${effective} workers (GPU: ${caps.gpuName}, encoder: ${caps.encoder}, base=${caps.maxChunkWorkers})`)
+    devLog(`[WorkerPool] Chunk pool initialized: ${effective} workers (GPU: ${caps.gpuName}, encoder: ${caps.encoder}, base=${caps.maxChunkWorkers})`)
   }
   return _chunkPool
 }
@@ -204,8 +205,8 @@ export async function runFfmpeg(opts: FfmpegRunOptions): Promise<PoolResult> {
   const lastFew = args.slice(-3).join(' | ')
   const filterIdx = args.indexOf('-filter_complex')
   const filterVal = filterIdx !== -1 ? args[filterIdx + 1] : '(none)'
-  console.log(`[runFfmpeg] job=${jobId} args[0..2]="${firstFew}" filter_complex="${filterVal}" last="${lastFew}"`)
-  console.log(`[runFfmpeg] total args=${args.length}`)
+  devLog(`[runFfmpeg] job=${jobId} args[0..2]="${firstFew}" filter_complex="${filterVal}" last="${lastFew}"`)
+  devLog(`[runFfmpeg] total args=${args.length}`)
 
   return new Promise((resolve) => {
     const t0 = Date.now()

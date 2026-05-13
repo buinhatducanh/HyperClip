@@ -9,10 +9,14 @@
  */
 
 import https from 'https'
+import path from 'path'
+import fs from 'fs'
 import { getTokenManager } from './token_manager.js'
 import { getChannels } from './store.js'
 import { getInnertubePool } from './innertube_client.js'
 import { getLatestVideosFromRss } from './youtube.js'
+import { getAppStoreDir } from './paths.js'
+import { devLog } from './dev_log.js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -38,23 +42,19 @@ export interface SubFeedResult {
 
 export interface SubFeedOptions {
   seenVideoIds?: Set<string>
-  sinceMs?: number
   maxVideos?: number
 }
 
 // ─── Config ─────────────────────────────────────────────────────────────────────
 
-const MAX_VIDEO_AGE_MS = 10 * 60 * 1000 // 10 minutes — consistent age filter for both Innertube and OAuth paths
 const PLAYLIST_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24h uploads playlist cache
 const MAX_CONCURRENT = 10  // parallel API calls per poll — faster scan for < 20s detection
 const MAX_VIDEOS_PER_POLL = 5
 
 // ─── Module-level state ────────────────────────────────────────────────────────
 
-/** Consecutive polls where Innertube returned 0 videos — for OAuth health-check trigger */
+/** Consecutive polls where Innertube returned 0 videos — for UI degraded-state indicator */
 let _consecutiveZeroInnertubePolls = 0
-const ZERO_POLL_THRESHOLD = 3 // After 3 consecutive zero-result polls → run OAuth health check
-const PRIORITY_RESCAN_COUNT = 5 // Immediately re-scan top-5 priority channels when Innertube returns 0 — catches videos with empty published_time_text
 
 // ─── OAuth API Helper ───────────────────────────────────────────────────────────
 
@@ -85,7 +85,7 @@ function apiGet(
           if (statusCode === 403) {
             const reason = json?.error?.errors?.[0]?.reason ?? 'unknown'
             const msg = json?.error?.message ?? ''
-            console.log(`[SubFeed] 403 — reason: "${reason}", message: "${msg}"`)
+            devLog(`[SubFeed] 403 — reason: "${reason}", message: "${msg}"`)
           }
           resolve({ json, isQuotaError })
         } catch {
@@ -105,7 +105,43 @@ interface PlaylistCacheEntry {
   fetchedAt: number
 }
 
+const UPLOADS_CACHE_FILE = path.join(getAppStoreDir(), 'uploads_cache.json')
+
 const _uploadsCache = new Map<string, PlaylistCacheEntry>()
+
+function _loadCacheFromDisk(): void {
+  try {
+    if (fs.existsSync(UPLOADS_CACHE_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(UPLOADS_CACHE_FILE, 'utf-8'))
+      if (Array.isArray(raw)) {
+        for (const entry of raw) {
+          if (entry.channelId && entry.uploadsId) {
+            _uploadsCache.set(entry.channelId, { uploadsId: entry.uploadsId, fetchedAt: entry.fetchedAt })
+          }
+        }
+        devLog(`[SubFeed] Loaded ${_uploadsCache.size} cached uploads playlist IDs`)
+      }
+    }
+  } catch (e) {
+    console.warn('[SubFeed] Failed to load uploads cache:', e)
+  }
+}
+
+function _saveCacheToDisk(): void {
+  try {
+    const entries = Array.from(_uploadsCache.entries()).map(([channelId, entry]) => ({
+      channelId,
+      uploadsId: entry.uploadsId,
+      fetchedAt: entry.fetchedAt,
+    }))
+    fs.writeFileSync(UPLOADS_CACHE_FILE, JSON.stringify(entries, null, 2), 'utf-8')
+  } catch (e) {
+    console.warn('[SubFeed] Failed to persist uploads cache:', e)
+  }
+}
+
+// Load cache from disk at module startup
+_loadCacheFromDisk()
 
 function getCachedUploadsId(channelId: string): string | null {
   const cached = _uploadsCache.get(channelId)
@@ -117,6 +153,7 @@ function getCachedUploadsId(channelId: string): string | null {
 
 function setCachedUploadsId(channelId: string, uploadsId: string): void {
   _uploadsCache.set(channelId, { uploadsId, fetchedAt: Date.now() })
+  _saveCacheToDisk()
 }
 
 /**
@@ -127,7 +164,6 @@ function setCachedUploadsId(channelId: string, uploadsId: string): void {
 async function fetchChannelWithRss(
   ch: { id: string; channelId?: string; name: string },
   seenVideoIds: Set<string> | undefined,
-  sinceMs: number,
 ): Promise<SubscriptionVideo | null> {
   const channelId = ch.channelId || ch.id
   if (!channelId || !channelId.startsWith('UC')) return null
@@ -138,7 +174,9 @@ async function fetchChannelWithRss(
     if (rv.title.includes('[deleted]') || rv.title.includes('[private]')) continue
 
     const publishedAt = rv.published ? new Date(rv.published).getTime() : 0
-    if (publishedAt > 0 && publishedAt < sinceMs) continue
+    // Age filter: skip videos older than 10 min. Accept publishedAt=0 (unparseable) — likely new upload.
+    const MAX_VIDEO_AGE_MS = 10 * 60 * 1000
+    if (publishedAt > 0 && Date.now() - publishedAt > MAX_VIDEO_AGE_MS) continue
 
     return {
       videoId: rv.videoId,
@@ -165,7 +203,6 @@ async function fetchChannelWithOAuth(
   token: string,
   projectId: string,
   seenVideoIds: Set<string> | undefined,
-  sinceMs: number,
 ): Promise<{ video: SubscriptionVideo | null; quotaError: boolean }> {
   const channelId = ch.channelId || ch.id
   if (!channelId) return { video: null, quotaError: false }
@@ -198,6 +235,7 @@ async function fetchChannelWithOAuth(
   if (json.error) {
     if (isQuotaError) quotaError = true
     _uploadsCache.delete(channelId)
+    _saveCacheToDisk()
     return { video: null, quotaError }
   }
 
@@ -211,9 +249,10 @@ async function fetchChannelWithOAuth(
   if (title.includes('[deleted]') || title.includes('[private]')) return { video: null, quotaError: false }
   if (seenVideoIds?.has(videoId)) return { video: null, quotaError: false }
 
+  // Age filter: skip videos older than 10 min. Accept publishedAt=0 (unparseable) — likely new upload.
   const publishedAt = snippet.publishedAt ? new Date(snippet.publishedAt).getTime() : 0
-  if (publishedAt > 0 && publishedAt < sinceMs) return { video: null, quotaError: false }
-  if (publishedAt === 0) return { video: null, quotaError: false }
+  const MAX_VIDEO_AGE_MS = 10 * 60 * 1000
+  if (publishedAt > 0 && Date.now() - publishedAt > MAX_VIDEO_AGE_MS) return { video: null, quotaError: false }
 
   return {
     video: {
@@ -230,13 +269,49 @@ async function fetchChannelWithOAuth(
 }
 
 /**
+ * Verify a video's actual publishedAt via OAuth Data API v3.
+ * OAuth returns the real upload timestamp (not cached text) — reliable even when
+ * Innertube's published_time_text is empty due to YouTube cache lag.
+ * Returns null on error or if video is too old (> 10 min).
+ */
+async function verifyVideoAgeByOAuth(videoId: string): Promise<{ publishedAt: number; title: string; channelTitle: string } | null> {
+  try {
+    const tm = getTokenManager()
+    const best = await tm.getBestAvailable()
+    if (!best) return null
+
+    const { json, isQuotaError } = await apiGet(
+      `/youtube/v3/videos?id=${encodeURIComponent(videoId)}&part=snippet`,
+      best.token,
+    )
+    if (json.error || !json.items?.length) {
+      if (isQuotaError) tm.trackError(best.projectId)
+      return null
+    }
+    tm.track(best.projectId)
+
+    const snippet = json.items[0].snippet || {}
+    const publishedAt = snippet.publishedAt ? new Date(snippet.publishedAt).getTime() : 0
+    const MAX_VIDEO_AGE_MS = 10 * 60 * 1000
+    if (publishedAt === 0 || Date.now() - publishedAt > MAX_VIDEO_AGE_MS) return null
+
+    return {
+      publishedAt,
+      title: snippet.title || '(no title)',
+      channelTitle: snippet.channelTitle || 'Unknown',
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
  * Fetch the newest video from a channel via Innertube (youtubei.js).
  * Returns null if no new video found or error occurred.
  *
  * Strategy: Trust YouTube tab order (sorted newest-first).
- * publishedTimeText is UNRELIABLE for new uploads (caches old timestamps).
- * Instead, pass seenVideoIds to getLatestVideo() which checks top-1 dedup internally.
- * If top-1 is already seen → return null immediately (all older videos are also seen).
+ * publishedTimeText from Innertube is UNRELIABLE for new uploads (cache lag).
+ * When Innertube returns publishedAt=0, fall back to OAuth to verify real age.
  */
 async function fetchChannelWithInnertube(
   ch: { id: string; channelId?: string; name: string },
@@ -248,12 +323,32 @@ async function fetchChannelWithInnertube(
   const latest = await getInnertubePool().then(p => p.getLatestVideo(channelId, seenVideoIds))
   if (!latest) return null
 
+  // Innertube published_time_text is empty for new uploads (YouTube cache lag < 1 min).
+  // When empty, verify via OAuth (returns real upload timestamp) to avoid missing
+  // genuinely new videos. OAuth is accurate but costs 1 unit/call — only triggered
+  // when Innertube itself returns empty timestamp.
+  if (latest.publishedAt === 0) {
+    devLog(`[SubFeed] Innertube publishedAt=0 for ${channelId}:${latest.videoId} — verifying via OAuth...`)
+    const oauth = await verifyVideoAgeByOAuth(latest.videoId)
+    if (oauth) {
+      return {
+        videoId: latest.videoId,
+        title: oauth.title,
+        channelId,
+        channelName: (ch.name && ch.name !== 'N/A') ? ch.name : (oauth.channelTitle !== 'Unknown' ? oauth.channelTitle : latest.channelName),
+        thumbnail: latest.thumbnail,
+        publishedAt: oauth.publishedAt,
+        duration: '',
+      }
+    }
+    // OAuth says old or error → skip
+    return null
+  }
+
   return {
     videoId: latest.videoId,
     title: latest.title,
     channelId,
-    // Use ch.name (database) first — it always has the correct channel name.
-    // latest.channelName comes from video metadata extraction which can fail for LockupView items.
     channelName: (ch.name && ch.name !== 'N/A') ? ch.name : latest.channelName,
     thumbnail: latest.thumbnail,
     publishedAt: latest.publishedAt,
@@ -266,10 +361,7 @@ async function fetchChannelWithInnertube(
 export async function fetchSubscriptionFeed(
   options: SubFeedOptions = {},
 ): Promise<SubFeedResult> {
-  const { seenVideoIds, sinceMs } = options
-  // sinceMs is always provided by the poller (Date.now() - MAX_VIDEO_AGE_MS).
-  // No fallback needed — avoids double-subtraction bug.
-  const cutoff = sinceMs ?? Date.now()
+  const { seenVideoIds } = options
   const targetStop = MAX_VIDEOS_PER_POLL
 
   const channels = getChannels()
@@ -302,7 +394,7 @@ export async function fetchSubscriptionFeed(
             seenVideoIds?.add(video.videoId)
             batchNewCount++
             if (results.length >= targetStop) {
-              console.log(`[SubFeed] Innertube: ${results.length} videos found — returning`)
+              devLog(`[SubFeed] Innertube: ${results.length} videos found — returning`)
               return { videos: results, source: 'innertube' }
             }
           }
@@ -311,89 +403,27 @@ export async function fetchSubscriptionFeed(
 
       // Scanned all channels — got 0 new videos. This is NORMAL.
       // Return now WITHOUT touching OAuth quota.
-      console.log(`[SubFeed] Innertube: 0 videos across ${channels.length} channels (no new content)`)
+      devLog(`[SubFeed] Innertube: 0 videos across ${channels.length} channels (no new content)`)
 
-      // ⚡ IMMEDIATE PRIORITY RE-SCAN: When Innertube returns 0 videos, it often means
-      // the top-1 video has published="" (YouTube hasn't cached the timestamp yet).
-      // YouTube usually caches the timestamp within 1-2 poll cycles (~5-10s).
-      // Instead of waiting for the next poll, re-scan top-5 priority channels NOW.
-      // Accept videos with unparseable age in this re-scan — they're likely the missing videos.
-      if (results.length === 0) {
-        console.log(`[SubFeed] ⚡ Priority re-scan: checking top ${PRIORITY_RESCAN_COUNT} channels for unparseable-age videos...`)
-        const priorityChannels = channels.slice(0, PRIORITY_RESCAN_COUNT)
-        const rescanResults = await Promise.all(
-          priorityChannels.map(async (ch) => {
-            try {
-              const latest = await getInnertubePool().then(p => p.getLatestVideoPriority(ch.channelId || ch.id, seenVideoIds))
-              if (!latest) return null
-              return {
-                videoId: latest.videoId,
-                title: latest.title,
-                channelId: ch.channelId || ch.id,
-                channelName: (ch.name && ch.name !== 'N/A') ? ch.name : latest.channelName,
-                thumbnail: latest.thumbnail,
-                publishedAt: latest.publishedAt,
-                duration: '',
-              }
-            } catch {
-              return null
-            }
-          })
-        )
-        for (const video of rescanResults) {
-          if (video && !results.some(r => r.videoId === video.videoId)) {
-            results.push(video)
-            seenVideoIds?.add(video.videoId)
-            console.log(`[SubFeed] ⚡ Priority re-scan found: "${video.title.slice(0, 40)}" from ${video.channelName}`)
-            if (results.length >= targetStop) break
-          }
-        }
-      }
-
-      // Track zero-result polls for silent-death detection (Phase 3 of reliability_plan)
-      let degraded = false
+      // Track zero-result polls for degraded state reporting
       if (results.length === 0) {
         _consecutiveZeroInnertubePolls++
-        if (_consecutiveZeroInnertubePolls >= ZERO_POLL_THRESHOLD) {
-          // Force a minimal OAuth health check to verify OAuth still works
-          // This catches silent death where Innertube seems healthy but returns no content
-          console.warn(`[SubFeed] ⚠️ ${_consecutiveZeroInnertubePolls} consecutive Innertube zero-result polls — running OAuth health check`)
-          try {
-            const tm = getTokenManager()
-            const best = await tm.getBestAvailable()
-            if (best && channels.length > 0) {
-              const testChannel = channels[0]
-              const oauthResult = await fetchChannelWithOAuth(
-                testChannel, best.token, best.projectId, seenVideoIds, cutoff
-              )
-              if (oauthResult.video) {
-                console.warn('[SubFeed] OAuth health check found a video — Innertube may be returning stale data')
-              } else {
-                console.log('[SubFeed] OAuth health check: no new videos either — all sources truly empty')
-              }
-            }
-          } catch (e) {
-            console.log(`[SubFeed] OAuth health check failed: ${e}`)
-          }
-          degraded = true // Signal degraded state to UI
-          _consecutiveZeroInnertubePolls = 0 // Reset after health check
-        }
       } else {
-        _consecutiveZeroInnertubePolls = 0 // Got videos → reset counter
+        _consecutiveZeroInnertubePolls = 0
       }
 
       return {
         videos: results,
         source: 'innertube',
-        degraded,
+        degraded: _consecutiveZeroInnertubePolls >= 3,
       }
     } else {
       // No Innertube sessions ready — must use OAuth
-      console.log(`[SubFeed] Innertube: 0/${totalSessions} sessions ready — OAuth fallback`)
+      devLog(`[SubFeed] Innertube: 0/${totalSessions} sessions ready — OAuth fallback`)
       innertubeAvailable = false
     }
   } catch (e) {
-    console.log(`[SubFeed] Innertube error: ${e} — OAuth fallback`)
+    devLog(`[SubFeed] Innertube error: ${e} — OAuth fallback`)
     innertubeAvailable = false
   }
 
@@ -418,7 +448,7 @@ export async function fetchSubscriptionFeed(
       if (!best) break
 
       const batchResults = await Promise.all(
-        batch.map(ch => fetchChannelWithOAuth(ch, best.token, best.projectId, seenVideoIds, cutoff))
+        batch.map(ch => fetchChannelWithOAuth(ch, best.token, best.projectId, seenVideoIds))
       )
 
       let tokenExhausted = false
@@ -433,20 +463,20 @@ export async function fetchSubscriptionFeed(
           results.push(video)
           seenVideoIds?.add(video.videoId)
           if (results.length >= targetStop) {
-            console.log(`[SubFeed] OAuth: early exit at ${results.length} videos`)
+            devLog(`[SubFeed] OAuth: early exit at ${results.length} videos`)
             return { videos: results, source: 'oauth' }
           }
         }
       }
 
       if (tokenExhausted) {
-        console.log(`[SubFeed] OAuth token ${best.projectId} exhausted — switching`)
+        devLog(`[SubFeed] OAuth token ${best.projectId} exhausted — switching`)
         // Retry remaining channels with fresh token
         const retryBest = await tm.getBestAvailable()
         if (retryBest && retryBest.projectId !== best.projectId) {
           const retryChannels = channels.slice(i, i + MAX_CONCURRENT)
           const retryResults = await Promise.all(
-            retryChannels.map(ch => fetchChannelWithOAuth(ch, retryBest.token, retryBest.projectId, seenVideoIds, cutoff))
+            retryChannels.map(ch => fetchChannelWithOAuth(ch, retryBest.token, retryBest.projectId, seenVideoIds))
           )
           for (const { video, quotaError } of retryResults) {
             if (quotaError) {
@@ -474,19 +504,19 @@ export async function fetchSubscriptionFeed(
   if (results.length === 0) {
     const priorityChannels = channels.slice(0, 10)
     const RSS_CONCURRENT = 3 // max parallel RSS requests — RSS is slow
-    console.log(`[SubFeed] ⚠️ Both Innertube + OAuth exhausted — trying RSS for ${priorityChannels.length} priority channels...`)
+    devLog(`[SubFeed] ⚠️ Both Innertube + OAuth exhausted — trying RSS for ${priorityChannels.length} priority channels...`)
 
     for (let i = 0; i < priorityChannels.length; i += RSS_CONCURRENT) {
       const batch = priorityChannels.slice(i, i + RSS_CONCURRENT)
       const rssResults = await Promise.all(
-        batch.map(ch => fetchChannelWithRss(ch, seenVideoIds, cutoff))
+        batch.map(ch => fetchChannelWithRss(ch, seenVideoIds))
       )
       for (const video of rssResults) {
         if (video && !results.some(r => r.videoId === video.videoId)) {
           results.push(video)
           seenVideoIds?.add(video.videoId)
           if (results.length >= targetStop) {
-            console.log(`[SubFeed] RSS fallback: early exit at ${results.length} videos`)
+            devLog(`[SubFeed] RSS fallback: early exit at ${results.length} videos`)
             break
           }
         }
@@ -494,7 +524,7 @@ export async function fetchSubscriptionFeed(
       if (results.length >= targetStop) break
     }
     if (results.length > 0) {
-      console.log(`[SubFeed] RSS fallback: found ${results.length} video(s)`)
+      devLog(`[SubFeed] RSS fallback: found ${results.length} video(s)`)
     }
   }
 
@@ -513,7 +543,7 @@ export async function fetchSubscriptionFeed(
     const newest = unique[0]
     const ageMin = (Date.now() - newest.publishedAt) / 60000
     const ageLabel = ageMin < 1 ? 'vua xong' : Math.floor(ageMin) + 'm ago'
-    console.log(`[SubFeed] ${unique.length} video(s) found (${source}): "${newest.title.slice(0, 40)}" from ${newest.channelName} (${ageLabel})`)
+    devLog(`[SubFeed] ${unique.length} video(s) found (${source}): "${newest.title.slice(0, 40)}" from ${newest.channelName} (${ageLabel})`)
   }
 
   return { videos: unique, source: unique.length > 0 ? source : 'oauth' }

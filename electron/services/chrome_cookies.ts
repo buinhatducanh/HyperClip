@@ -21,6 +21,8 @@ import os from 'os'
 import { spawn } from 'child_process'
 import { app, shell } from 'electron'
 import initSqlJs from 'sql.js'
+import { devLog } from './dev_log.js'
+import { getChromeProfilesDir } from './paths.js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -43,6 +45,8 @@ export interface ChromeSession {
   isLoggedIn: boolean
   wasLoggedIn: boolean
   isConsented: boolean  // true if SOCS cookie = CAI (user accepted Google terms)
+  /** Real SOCS value before forced CAI injection — for UI display */
+  rawSocs: string | null
   /** Timestamp of last successful cookie refresh (epoch ms) */
   lastRefreshAt: number
   /** Consecutive refresh failures — for degradation detection */
@@ -72,20 +76,11 @@ export interface SessionStatus {
 
 // ─── Paths ─────────────────────────────────────────────────────────────────────
 
-const APPDATA = process.env.APPDATA || os.homedir()
 const LOCALAPPDATA = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local')
 
-// Centralized HyperClip user data directory — use Electron API when available.
-function getHyperClipBaseDir(): string {
-  if (app && app.isReady() && app.getPath) {
-    return app.getPath('userData')
-  }
-  return path.join(APPDATA, 'HyperClip')
-}
-
-// Dedicated HyperClip profile directory (created by us)
+// Dedicated HyperClip profile directory (created by us) — stored at D:\HyperClip-Data\chrome-profiles
 export function getHyperClipProfileDir(profileId: string): string {
-  return path.join(getHyperClipBaseDir(), 'chrome-profiles', `profile-${profileId}`)
+  return path.join(getChromeProfilesDir(), `profile-${profileId}`)
 }
 
 // User's default Chrome profile (already logged in)
@@ -133,7 +128,7 @@ export async function decryptDPAPIKey(localStatePath: string): Promise<Buffer | 
     const json = JSON.parse(raw)
     const encryptedKeyB64 = json.os_crypt?.encrypted_key
     if (!encryptedKeyB64) {
-      console.log(`[DPAPI] No os_crypt.encrypted_key in ${localStatePath}. Keys: ${Object.keys(json).join(', ')}`)
+      devLog(`[DPAPI] No os_crypt.encrypted_key in ${localStatePath}. Keys: ${Object.keys(json).join(', ')}`)
       return null
     }
 
@@ -157,11 +152,11 @@ export async function decryptDPAPIKey(localStatePath: string): Promise<Buffer | 
         `[Convert]::ToBase64String($decrypted)`
       )
       if (!result) {
-        console.log(`[DPAPI] v10: PowerShell DPAPI unwrap returned null`)
+        devLog(`[DPAPI] v10: PowerShell DPAPI unwrap returned null`)
         return null
       }
       const aesKey = Buffer.from(result.trim(), 'base64')
-      console.log(`[DPAPI] v10: Decrypted AES key OK (${aesKey.length} bytes, nonce=${nonce.length}, tag=${authTag.length})`)
+      devLog(`[DPAPI] v10: Decrypted AES key OK (${aesKey.length} bytes, nonce=${nonce.length}, tag=${authTag.length})`)
       return aesKey
     } else if (prefix === 'DPA') {
       // Old Chrome v<80: just DPAPI-encrypted, result is raw AES key
@@ -174,18 +169,18 @@ export async function decryptDPAPIKey(localStatePath: string): Promise<Buffer | 
         `[Convert]::ToBase64String($decrypted)`
       )
       if (!result) {
-        console.log(`[DPAPI] DPA: PowerShell returned null`)
+        devLog(`[DPAPI] DPA: PowerShell returned null`)
         return null
       }
-      console.log(`[DPAPI] DPA: Decrypted key OK (${result.length} chars)`)
+      devLog(`[DPAPI] DPA: Decrypted key OK (${result.length} chars)`)
       return Buffer.from(result.trim(), 'base64')
     } else {
       // Unknown format — try raw base64 as AES key
-      console.log(`[DPAPI] Unknown prefix: ${prefix} (${encryptedKey.slice(0, 5).toString('hex')}). Trying raw base64.`)
+      devLog(`[DPAPI] Unknown prefix: ${prefix} (${encryptedKey.slice(0, 5).toString('hex')}). Trying raw base64.`)
       return encryptedKey
     }
   } catch (e) {
-    console.log(`[DPAPI] Exception: ${e}`)
+    devLog(`[DPAPI] Exception: ${e}`)
     return null
   }
 }
@@ -345,7 +340,7 @@ function validateSocsConsent(socs: string | undefined): string | undefined {
  * Required cookies for Innertube API auth:
  *   SAPISID, __Secure-1PSID, __Secure-1PSIDTS, __Secure-1PSIDCC
  */
-export async function extractYouTubeCookies(profileDir: string): Promise<YouTubeCookies | null> {
+export async function extractYouTubeCookies(profileDir: string): Promise<{ cookies: YouTubeCookies | null; rawSocs: string | null }> {
   // Fast path: try persisted CDP cookies first (written by openLoginWindow)
   // Profile dir may be the "Default" folder (for Chrome profile 1) or root HyperClip dir (2-30)
   const isDefaultChrome = profileDir.endsWith('Default') && profileDir.includes('Chrome')
@@ -364,12 +359,13 @@ export async function extractYouTubeCookies(profileDir: string): Promise<YouTube
       try {
         const raw = fs.readFileSync(persistedPath, 'utf8')
         const cookies: YouTubeCookies = JSON.parse(raw)
+        const rawSocs = cookies.socs ?? null
         if (!cookies.socs || cookies.socs.startsWith('CAA')) {
           cookies.socs = 'CAI'
         }
         if (cookies.SAPISID && cookies.PSID) {
-          console.log(`[Cookie] Loaded persisted cookies (from CDP login) for ${persistedPath}`)
-          return cookies
+          devLog(`[Cookie] Loaded persisted cookies (from CDP login) for ${persistedPath}`)
+          return { cookies, rawSocs }
         }
       } catch {}
     }
@@ -378,15 +374,15 @@ export async function extractYouTubeCookies(profileDir: string): Promise<YouTube
   const cookieDbPath = path.join(profileDir, 'Default', 'Network', 'Cookies')
   const localStatePath = path.join(profileDir, 'Local State')
 
-  console.log(`[Cookie] extractYouTubeCookies: dir=${profileDir}, dbExists=${fs.existsSync(cookieDbPath)}, localStateExists=${fs.existsSync(localStatePath)}`)
+  devLog(`[Cookie] extractYouTubeCookies: dir=${profileDir}, dbExists=${fs.existsSync(cookieDbPath)}, localStateExists=${fs.existsSync(localStatePath)}`)
 
   if (!fs.existsSync(cookieDbPath)) {
     const altLocalState = path.join(profileDir, '..', 'Local State')
-    console.log(`[Cookie] No Cookies DB at ${cookieDbPath}, alt Local State exists: ${fs.existsSync(altLocalState)}`)
+    devLog(`[Cookie] No Cookies DB at ${cookieDbPath}, alt Local State exists: ${fs.existsSync(altLocalState)}`)
     if (fs.existsSync(altLocalState)) {
       return extractYouTubeCookiesFromPath(cookieDbPath, altLocalState)
     }
-    return null
+    return { cookies: null, rawSocs: null }
   }
 
   return await extractYouTubeCookiesFromPath(cookieDbPath, localStatePath)
@@ -395,14 +391,14 @@ export async function extractYouTubeCookies(profileDir: string): Promise<YouTube
 async function extractYouTubeCookiesFromPath(
   cookieDbPath: string,
   localStatePath: string
-): Promise<YouTubeCookies | null> {
+): Promise<{ cookies: YouTubeCookies | null; rawSocs: string | null }> {
   // Get DPAPI key (Buffer for AES-GCM decryption)
   const aesKey = await decryptDPAPIKey(localStatePath)
   if (!aesKey) {
-    console.log(`[Cookie] decryptDPAPIKey returned null for ${localStatePath}`)
-    return null
+    devLog(`[Cookie] decryptDPAPIKey returned null for ${localStatePath}`)
+    return { cookies: null, rawSocs: null }
   }
-  console.log(`[Cookie] DPAPI key OK, path=${localStatePath}`)
+  devLog(`[Cookie] DPAPI key OK, path=${localStatePath}`)
 
   // Read cookie DB (may be locked by Chrome)
 // Retry up to 3 times with 500ms delay to handle transient locks.
@@ -419,27 +415,27 @@ const BASE_DELAY_MS = 1000
       const errCode = (e as NodeJS.ErrnoException).code || ''
       if (attempt < MAX_RETRIES) {
         const delay = Math.min(BASE_DELAY_MS * Math.pow(2, attempt - 1), 8000)
-        console.log(`[Cookie] DB locked (${errCode}), retry ${attempt}/${MAX_RETRIES - 1} in ${delay}ms...`)
+        devLog(`[Cookie] DB locked (${errCode}), retry ${attempt}/${MAX_RETRIES - 1} in ${delay}ms...`)
         await new Promise(resolve => setTimeout(resolve, delay))
       } else {
-        console.log(`[Cookie] DB still locked after ${MAX_RETRIES - 1} retries — trying copy fallback...`)
+        devLog(`[Cookie] DB still locked after ${MAX_RETRIES - 1} retries — trying copy fallback...`)
         try {
           // Use read+write — copyFileSync fails with EBUSY on Chrome-locked files
           const srcBuf = fs.readFileSync(cookieDbPath)
           fs.writeFileSync(copyPath, srcBuf)
           dbBuffer = srcBuf
-          console.log(`[Cookie] Read DB via buffer fallback (Chrome may still be writing)`)
+          devLog(`[Cookie] Read DB via buffer fallback (Chrome may still be writing)`)
           break
         } catch (copyErr: unknown) {
           const copyErrCode = (copyErr as NodeJS.ErrnoException).code || ''
           console.error(`[Cookie] ⚠️ Cookie DB locked after ${MAX_RETRIES} retries AND copy failed (${copyErrCode}). Close Chrome, or open YouTube in a HyperClip Chrome profile, then restart.`)
-          return null
+          return { cookies: null, rawSocs: null }
         }
       }
     }
   }
 
-if (!dbBuffer) return null
+if (!dbBuffer) return { cookies: null, rawSocs: null }
 
   try {
     // Use app.getAppPath() which works in both dev and packaged modes (ESM-compatible)
@@ -447,13 +443,13 @@ if (!dbBuffer) return null
       ? path.join(process.resourcesPath!, 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist')
       : path.join(app.getAppPath(), 'node_modules', 'sql.js', 'dist')
 
-    console.log(`[Cookie] sql.js loading WASM from: ${sqlJsDist}`)
+    devLog(`[Cookie] sql.js loading WASM from: ${sqlJsDist}`)
     const SqlJs = await initSqlJs({
       locateFile: (f: string) => path.join(sqlJsDist, f),
     })
-    console.log(`[Cookie] sql.js loaded, opening DB...`)
+    devLog(`[Cookie] sql.js loaded, opening DB...`)
     const db = new SqlJs.Database(dbBuffer)
-    console.log(`[Cookie] sql.js DB opened, querying...`)
+    devLog(`[Cookie] sql.js DB opened, querying...`)
 
     // Query YouTube cookies
     // Chrome stores encrypted values in the 'encrypted_value' column
@@ -466,11 +462,11 @@ if (!dbBuffer) return null
     `)
 
     if (!result.length || !result[0].values.length) {
-      console.log(`[Cookie] No YouTube cookies found in DB for ${cookieDbPath}`)
+      devLog(`[Cookie] No YouTube cookies found in DB for ${cookieDbPath}`)
       db.close()
-      return null
+      return { cookies: null, rawSocs: null }
     }
-    console.log(`[Cookie] Found ${result[0].values.length} cookie rows: ${result[0].values.map((r: any) => String(r[1]) + '@' + String(r[0]).slice(0,20)).join(', ')}`)
+    devLog(`[Cookie] Found ${result[0].values.length} cookie rows: ${result[0].values.map((r: any) => String(r[1]) + '@' + String(r[0]).slice(0,20)).join(', ')}`)
 
     const cookies: Partial<YouTubeCookies> = {}
 
@@ -499,24 +495,27 @@ if (!dbBuffer) return null
 
     db.close()
 
+    const rawSocs = cookies.socs ?? null
     // Auto-inject SOCS=CAI to bypass Google Consent screens automatically
     if (!cookies.socs || cookies.socs.startsWith('CAA')) {
       cookies.socs = 'CAI'
     }
 
     if (cookies.SAPISID && cookies.PSID) {
-      return cookies as YouTubeCookies
+      return { cookies: cookies as YouTubeCookies, rawSocs }
     }
-    return null
+    return { cookies: null, rawSocs }
   } catch (e) {
-    console.log(`[Cookie] sql.js error: ${e}`)
-    return null
+    devLog(`[Cookie] sql.js error: ${e}`)
+    return { cookies: null, rawSocs: null }
   }
 }
 
 // ─── Chrome Profile Management ─────────────────────────────────────────────────
 
 const HYPERCLIP_PROFILE_PREFIX = 'HyperClip-Chrome-Profile-'
+// NOTE: The actual session count used at runtime is determined by getSessionCount() (RAM-aware).
+// This constant defines the max profile directories that may exist on disk.
 const DEFAULT_SESSION_COUNT = 30
 
 /** Get all HyperClip-managed Chrome profile directories */
@@ -604,7 +603,7 @@ export class ChromeSessionManager {
   }
 
   private async _init(): Promise<void> {
-    console.log(`[SessionManager] Initializing ${this._sessionCount} Chrome profiles...`)
+    devLog(`[SessionManager] Initializing ${this._sessionCount} Chrome profiles...`)
 
     // Session 1: use user's existing Chrome profile (already logged in)
     // Sessions 2-30: use dedicated HyperClip profiles
@@ -626,6 +625,7 @@ export class ChromeSessionManager {
         isLoggedIn: profileExists,
         wasLoggedIn: profileExists,
         isConsented: false,
+        rawSocs: null,
         lastRefreshAt: 0,
         refreshFailCount: 0,
         error: profileExists ? undefined : (isDefaultChrome ? 'Chrome profile not found' : 'Profile not initialized'),
@@ -634,14 +634,16 @@ export class ChromeSessionManager {
 
     // PROACTIVE: load persisted CDP cookies (instant — from disk).
     // Then start background CDP login for any session still missing cookies.
-    console.log('[SessionManager] Loading persisted cookies and starting background login...')
+    devLog('[SessionManager] Loading persisted cookies and starting background login...')
     const BATCH = 10
     for (let i = 0; i < this._sessions.length; i += BATCH) {
       const batch = this._sessions.slice(i, i + BATCH)
       await Promise.all(batch.map(async (session) => {
         try {
-          const cookies = await extractYouTubeCookies(session.profileDir)
+          const { cookies, rawSocs } = await extractYouTubeCookies(session.profileDir)
           session.cookies = cookies
+          session.rawSocs = rawSocs
+          session.rawSocs = cookies?.socs ?? null
           session.isLoggedIn = !!(cookies?.SAPISID && cookies?.PSID)
           if (session.isLoggedIn) {
             session.wasLoggedIn = true
@@ -663,7 +665,7 @@ export class ChromeSessionManager {
             }
           }
           if (session.profileId === '1' || session.profileId === '2') {
-            console.log(`[SessionManager] Profile ${session.profileId}: cookies=${!!cookies}, isLoggedIn=${session.isLoggedIn}, isConsented=${session.isConsented}, socs="${cookies?.socs?.slice(0,10) ?? 'null'}"`)
+            devLog(`[SessionManager] Profile ${session.profileId}: cookies=${!!cookies}, isLoggedIn=${session.isLoggedIn}, isConsented=${session.isConsented}, socs="${cookies?.socs?.slice(0,10) ?? 'null'}"`)
           }
         } catch (e) {
           session.error = String(e)
@@ -681,8 +683,8 @@ export class ChromeSessionManager {
     }
 
     const valid = this._sessions.filter(s => s.cookies && s.isConsented)
-    console.log(`[SessionManager] ${valid.length}/${this._sessionCount} sessions ready (${this._sessions.filter(s => !s.cookies).length} missing — login from Settings)`)
-    console.log(`[SessionManager] ${valid.length}/${this._sessionCount} sessions ready (${this._sessions.filter(s => !s.cookies).length} missing — login from Settings)`)
+    devLog(`[SessionManager] ${valid.length}/${this._sessionCount} sessions ready (${this._sessions.filter(s => !s.cookies).length} missing — login from Settings)`)
+    devLog(`[SessionManager] ${valid.length}/${this._sessionCount} sessions ready (${this._sessions.filter(s => !s.cookies).length} missing — login from Settings)`)
 
     // ─── Background cookie health monitoring ───────────────────────────────────
     // Tier 1: Every 10 min — refresh top-5 recently-used sessions (hot path)
@@ -716,7 +718,7 @@ export class ChromeSessionManager {
       const alive = this._sessions.filter(s => s.cookies).length
       const degraded = health.degradedCount
       const stale = health.staleCount
-      console.log(`[SessionManager] Health check: ${alive}/${this._sessionCount} alive, ${degraded} degraded, ${stale} stale (>${Math.round(STALE_THRESHOLD_MS / 86400000)}d), level=${health.level}`)
+      devLog(`[SessionManager] Health check: ${alive}/${this._sessionCount} alive, ${degraded} degraded, ${stale} stale (>${Math.round(STALE_THRESHOLD_MS / 86400000)}d), level=${health.level}`)
       if (health.level === 'critical') {
         console.warn('[SessionManager] 🚨 CRITICAL: <20% sessions alive — detection at risk. Re-login Chrome or clone sessions.')
       } else if (health.level === 'degraded') {
@@ -735,7 +737,8 @@ export class ChromeSessionManager {
     let recovered = 0, lost = 0
     await Promise.all(sessions.map(async (session) => {
       try {
-        const cookies = await extractYouTubeCookies(session.profileDir)
+        const { cookies, rawSocs } = await extractYouTubeCookies(session.profileDir)
+        session.rawSocs = rawSocs
         if (cookies?.SAPISID && cookies?.PSID) {
           const wasLoggedIn = session.isLoggedIn
           session.cookies = cookies
@@ -752,7 +755,7 @@ export class ChromeSessionManager {
           session.refreshFailCount = 0
           if (!wasLoggedIn) {
             recovered++
-            console.log(`[SessionManager] ${tier}: recovered session ${session.profileId}`)
+            devLog(`[SessionManager] ${tier}: recovered session ${session.profileId}`)
           }
         } else {
           if (session.isLoggedIn) lost++
@@ -766,7 +769,7 @@ export class ChromeSessionManager {
       }
     }))
     if (recovered > 0 || lost > 0) {
-      console.log(`[SessionManager] ${tier} refresh: ${recovered} recovered, ${lost} lost`)
+      devLog(`[SessionManager] ${tier} refresh: ${recovered} recovered, ${lost} lost`)
     }
   }
 
@@ -872,7 +875,7 @@ export class ChromeSessionManager {
       session.lastUsed = 0
       session.usedToday = 0
       if (result.cookies) {
-        console.log(`[SessionManager] openLoginWindow(${profileId}): success — cookies extracted`)
+        devLog(`[SessionManager] openLoginWindow(${profileId}): success — cookies extracted`)
         // Persist to disk so next restart can load via extractYouTubeCookies
         try {
           this._persistCookiesToFile(profileId, result.cookies)
@@ -885,7 +888,7 @@ export class ChromeSessionManager {
           const pool = await getInnertubePool()
           const ok = await pool.refreshClient(profileId)
           if (ok) {
-            console.log(`[SessionManager] Innertube client rebuilt for profile ${profileId}`)
+            devLog(`[SessionManager] Innertube client rebuilt for profile ${profileId}`)
           } else {
             console.warn(`[SessionManager] Innertube client rebuild failed for profile ${profileId}`)
           }
@@ -893,7 +896,7 @@ export class ChromeSessionManager {
           console.warn(`[SessionManager] Failed to rebuild Innertube client for ${profileId}: ${e}`)
         }
       } else {
-        console.log(`[SessionManager] openLoginWindow(${profileId}): failed — ${result.error}`)
+        devLog(`[SessionManager] openLoginWindow(${profileId}): failed — ${result.error}`)
       }
     }
 
@@ -914,7 +917,7 @@ export class ChromeSessionManager {
       ? path.join(profileDir, '..', '_hyperclip_cookies.json')
       : path.join(profileDir, '_hyperclip_cookies.json')
     fs.writeFileSync(cookieFile, JSON.stringify(cookies), 'utf8')
-    console.log(`[SessionManager] Cookies persisted to ${cookieFile}`)
+    devLog(`[SessionManager] Cookies persisted to ${cookieFile}`)
   }
 
   /**
@@ -1000,8 +1003,9 @@ export class ChromeSessionManager {
     if (!session) return false
 
     try {
-      const cookies = await extractYouTubeCookies(session.profileDir)
+      const { cookies, rawSocs } = await extractYouTubeCookies(session.profileDir)
       session.cookies = cookies
+      session.rawSocs = rawSocs
       session.isLoggedIn = !!(cookies?.SAPISID && cookies?.PSID)
       if (session.isLoggedIn) {
         session.wasLoggedIn = true
@@ -1016,11 +1020,11 @@ export class ChromeSessionManager {
       }
       session.error = cookies ? undefined : 'No YouTube cookies'
       session.usedToday = 0
-      console.log(`[SessionManager] refreshSession(${profileId}): cookies=${!!cookies}, isLoggedIn=${session.isLoggedIn}, isConsented=${session.isConsented}, socs=${cookies?.socs}`)
+      devLog(`[SessionManager] refreshSession(${profileId}): cookies=${!!cookies}, isLoggedIn=${session.isLoggedIn}, isConsented=${session.isConsented}, socs=${cookies?.socs}`)
       return !!cookies
     } catch (e) {
       session.error = String(e)
-      console.log(`[SessionManager] refreshSession(${profileId}): ERROR — ${e}`)
+      devLog(`[SessionManager] refreshSession(${profileId}): ERROR — ${e}`)
       return false
     }
   }
@@ -1046,7 +1050,18 @@ export class ChromeSessionManager {
 
 let _manager: ChromeSessionManager | null = null
 
-export function getSessionManager(sessionCount = 30): ChromeSessionManager {
-  if (!_manager) _manager = new ChromeSessionManager(sessionCount)
+export function getSessionManager(): ChromeSessionManager {
+  if (!_manager) {
+    // RAM-aware: laptop ≤32GB → 15 sessions, desktop >32GB → 30 sessions
+    const sessionCount = (() => {
+      try {
+        const { getSessionCount } = require('./system.js')
+        return getSessionCount()
+      } catch {
+        return 15  // safe default for laptop (conservative)
+      }
+    })()
+    _manager = new ChromeSessionManager(sessionCount)
+  }
   return _manager
 }

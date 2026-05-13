@@ -1,6 +1,6 @@
 # HyperClip — Technology Overview
 
-> Document này ghi lại trạng thái công nghệ thực tế tại thời điểm 2026-05-09. Source of truth cho nghiệp vụ: `HYPERCLIP_RULES.md`.
+> Document này ghi lại trạng thái công nghệ thực tế tại thời điểm 2026-05-12. Source of truth cho nghiệp vụ: `HYPERCLIP_RULES.md`.
 
 ---
 
@@ -96,13 +96,13 @@ YouTubePoller._pollOnce() [5s]
         │         ├─ extractLockupVideoField() — 4 path fallback
         │         │   (lockupMetadata → metadata.title → metadata.metadata.title → top-level)
         │         │
-        │         ├─ top-1 check: seenVideoIds dedup
+        │         ├─ top-1..top-5 check: seenVideoIds dedup (return null → continue if seen)
         │         ├─ top-1 check: not deleted/private
         │         └─ Age filter: First poll: < 24h | Normal poll: < 10 phút
         │             (parseRelativeDate → publishedAt → age check)
+        │             (publishedAt=0 → OAuth verify → accept if ≤ 10m, skip if > 10m or error)
         │
-        ├─ OAuth FALLBACK (only if pool.isReady()=false or Innertube returned 0)
-        │    └─ 1-channel health check when 3+ consecutive Innertube zero polls
+        ├─ OAuth FALLBACK (only if pool.isReady()=false — Innertube all 30 sessions die)
         │
         └─ RSS FALLBACK (Tier 3 — Innertube + OAuth exhaust → RSS for top-10 channels)
              └─ https://www.youtube.com/feeds/videos.xml?channel_id=UCxxx
@@ -123,9 +123,13 @@ YouTubePoller._pollOnce() [5s]
 | Video đăng > 10 phút (normal poll) | ❌ Blocked | Ngoài window |
 | Video đăng 0-24h (first poll) | ✅ Accepted | Capture videos since last session |
 | Video đăng > 24h (first poll) | ❌ Blocked | Ngoài window |
-| Video mới đăng (timestamp chưa update) | ✅ Accepted | publishedAt=0 → treated as new |
-| parseRelativeDate fail | ✅ Accepted | publishedAt=0 → treated as new |
-| Video livestream | ✅ Accepted | publishedAt=0 → treated as new |
+| Video mới đăng (timestamp chưa update) | ✅ **OAuth verify** | publishedAt=0 → OAuth `/videos?id=...&part=snippet` → real `publishedAt` |
+| parseRelativeDate fail | ✅ **OAuth verify** | publishedAt=0 → OAuth → accept if ≤ 10 min |
+| Video livestream | ✅ **OAuth verify** | publishedAt=0 → OAuth → accept if ≤ 10 min |
+
+**Unparseable age → OAuth verify (2026-05-13):** `publishedAt=0` → OAuth verify (real upload timestamp). Innertube's `published_time_text` empty = YouTube cache lag (< 1 min) for genuinely new uploads. OAuth returns actual `publishedAt` (ISO timestamp). Accept if ≤ 10 min, skip if > 10 min or error. OAuth triggered ONLY when Innertube itself returns empty timestamp → ~300-500 units/day.
+
+**Dedup fix (2026-05-12):** `return null` → `continue` trong `getLatestVideo()`. Nếu top-1 đã seen → thử top-2..top-5 thay vì skip cả channel. Prevent: sau poll đầu thành công → poll tiếp theo trả 0 cho mọi channels.
 
 **parseRelativeDate regexes:**
 ```
@@ -180,10 +184,14 @@ enqueueBgDownload(video)
   │
   └─ processBgDownloadQueue()
        │
-       ├─ yt-dlp download (max 2 concurrent)
+       ├─ yt-dlp download (max 1 concurrent — tập trung tài nguyên cho 1 video)
        │    ├─ --download-sections *00:00:00-MM:SS (trim)
        │    ├─ Quality: autoDownloadQuality (default 720p)
-       │    └─ OAuth token cho authenticated downloads
+       │    ├─ Multi-instance: split video into N sections → parallel download
+       │    ├─ --concurrent-fragments 32 (parallel chunk download)
+       │    ├─ Export Chrome cookies → Netscape format → yt-dlp --cookies (bypass EJS)
+       │    ├─ player_client=web → VP9 DASH → 720p-1080p (default, no PO Token needed)
+       │    └─ player_client=android + PO Token → H.264 DASH → 720p-1080p (tốt nhất nhưng PO Token unreliable)
        │
        ├─ FFprobe (aspect ratio check)
        │

@@ -5,6 +5,7 @@ import { execSync } from 'child_process'
 import { getRamDiskInfo, getAutoRamDiskSize } from './ramdisk.js'
 import { getPoolStatus } from './worker-pool.js'
 import { getFfmpegPath } from './ffmpeg-paths.js'
+import { devLog } from './dev_log.js'
 
 // Re-export for internal use
 const getFfmpegBin = getFfmpegPath
@@ -143,7 +144,7 @@ function detectGPUOnce(): GPUStatic {
       const parts = nvOutput.split('\n')[0].split(',').map((s: string) => s.trim())
       gpuName = parts[0] || 'NVIDIA GPU'
       memory = parseInt(parts[1]) || 0
-      console.log(`[GPU] Found: ${gpuName} (${memory}MB VRAM)`)
+      devLog(`[GPU] Found: ${gpuName} (${memory}MB VRAM)`)
     }
   } catch (e) {
     // nvidia-smi not found — try Intel GPU
@@ -170,13 +171,13 @@ function detectGPUOnce(): GPUStatic {
             hasGPU = true
             gpuName = name
             memory = ramMB
-            console.log(`[GPU] Found Intel GPU: ${gpuName} (${memory}MB)`)
+            devLog(`[GPU] Found Intel GPU: ${gpuName} (${memory}MB)`)
             break
           }
         }
       }
     } catch (e) {
-      console.log('[GPU] WMI GPU query failed:', e)
+      devLog('[GPU] WMI GPU query failed:', e)
     }
   }
 
@@ -203,7 +204,7 @@ function detectGPUOnce(): GPUStatic {
             { timeout: 15000, stdio: 'ignore' }
           )
           if (!fs.existsSync(testFile) || fs.statSync(testFile).size < 100) throw new Error('NVENC test produced no output')
-          console.log(`[GPU] NVENC hardware test passed (${testCodec})`)
+          devLog(`[GPU] NVENC hardware test passed (${testCodec})`)
           encoder = 'nvenc'
         } catch {
           console.warn(`[GPU] NVENC hardware test FAILED — falling back to CPU encoding.`)
@@ -219,10 +220,10 @@ function detectGPUOnce(): GPUStatic {
           maxChunkWorkers = archConfig.recommendedWorkers
           preset = 'fast'
           tier = 'high'
-          console.log(`[GPU] NVENC — ${archConfig.label} — sessions=${nvencSessions} workers=${maxChunkWorkers} surfaces=${nvencSurfaceCount}`)
+          devLog(`[GPU] NVENC — ${archConfig.label} — sessions=${nvencSessions} workers=${maxChunkWorkers} surfaces=${nvencSurfaceCount}`)
         }
       } else {
-        console.log(`[GPU] No NVENC in FFmpeg build`)
+        devLog(`[GPU] No NVENC in FFmpeg build`)
         encoder = 'software'
       }
     } catch (e) {
@@ -243,15 +244,15 @@ function detectGPUOnce(): GPUStatic {
         // Intel Arc B-Series (B580 etc.) supports 8+ QSV sessions
         if (/arc\s*b/i.test(gpuName) || /arc\s*a\d{3}h?/i.test(gpuName)) {
           tier = 'mid'; maxChunkWorkers = 6; nvencSessions = 6; nvencSurfaceCount = 16
-          console.log(`[GPU] QSV encoder (Intel Arc) — tier=mid, workers=${maxChunkWorkers}`)
+          devLog(`[GPU] QSV encoder (Intel Arc) — tier=mid, workers=${maxChunkWorkers}`)
         } else {
           tier = 'low'; maxChunkWorkers = 2; nvencSessions = 2; nvencSurfaceCount = 8
-          console.log(`[GPU] QSV encoder — tier=low, workers=${maxChunkWorkers}`)
+          devLog(`[GPU] QSV encoder — tier=low, workers=${maxChunkWorkers}`)
         }
       } else if (encodersOut.includes('hevc_vaapi') || encodersOut.includes('h264_vaapi')) {
         encoder = 'vaapi'; preset = 'fast'; tier = 'low'; maxChunkWorkers = 2
         nvencSessions = 2; nvencSurfaceCount = 8
-        console.log('[GPU] VAAPI encoder — tier=low, workers=2')
+        devLog('[GPU] VAAPI encoder — tier=low, workers=2')
       }
     } catch (e) {
       console.warn('[GPU] FFmpeg QSV/VAAPI check failed:', e)
@@ -271,16 +272,16 @@ function detectGPUOnce(): GPUStatic {
         nvencSessions = 2; nvencSurfaceCount = 8
         gpuName = 'VAAPI'
         hasGPU = true
-        console.log('[GPU] VAAPI available on Linux/WSL — tier=low, workers=2')
+        devLog('[GPU] VAAPI available on Linux/WSL — tier=low, workers=2')
       }
     } catch {}
   }
 
   if (!hasGPU) {
-    console.log('[GPU] No hardware encoder found — using CPU (software tier)')
+    devLog('[GPU] No hardware encoder found — using CPU (software tier)')
   }
 
-  console.log(`[GPU] Detection result: ${gpuName} [${encoder}] tier=${tier} workers=${maxChunkWorkers} sessions=${nvencSessions} surfaces=${nvencSurfaceCount}`)
+  devLog(`[GPU] Detection result: ${gpuName} [${encoder}] tier=${tier} workers=${maxChunkWorkers} sessions=${nvencSessions} surfaces=${nvencSurfaceCount}`)
 
   _cachedGPU = { encoder, preset, gpuName, memory, tier, maxChunkWorkers, hasGPU, nvencSessions, nvencSurfaceCount }
   return _cachedGPU
@@ -298,6 +299,30 @@ export function getGPUCapabilities(): Pick<GPUStatic, 'tier' | 'maxChunkWorkers'
     nvencSessions: g.nvencSessions,
     nvencSurfaceCount: g.nvencSurfaceCount,
   }
+}
+
+// ─── System profile detection (run once at startup) ────────────────────────────
+
+let _cachedSessionCount: number | null = null
+
+/**
+ * Detect hardware profile and return the appropriate Chrome session count.
+ * - Laptop (RAM ≤ 32GB): 15 sessions — fewer Chrome processes, more RAM for FFmpeg workers
+ * - Desktop (RAM > 32GB): 30 sessions — full parallelism for RTX 5080 detection pipeline
+ */
+export function detectSystemProfile(): { isLaptop: boolean; sessionCount: number } {
+  if (_cachedSessionCount !== null) {
+    return { isLaptop: _cachedSessionCount === 15, sessionCount: _cachedSessionCount }
+  }
+  const ramGB = Math.round(os.totalmem() / (1024 ** 3))
+  const isLaptop = ramGB <= 32
+  _cachedSessionCount = isLaptop ? 15 : 30
+  devLog(`[SystemProfile] RAM=${ramGB}GB → ${_cachedSessionCount} sessions (${isLaptop ? 'laptop' : 'desktop'})`)
+  return { isLaptop, sessionCount: _cachedSessionCount }
+}
+
+export function getSessionCount(): number {
+  return detectSystemProfile().sessionCount
 }
 
 // Runtime VRAM info (updated every collectSystemStats call)

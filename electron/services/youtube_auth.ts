@@ -15,12 +15,16 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { shell } from 'electron'
+import { devLog } from './dev_log.js'
+import { getAppStoreDir } from './paths.js'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const OAUTH_PORT = 8765
 const OAUTH_PORT_MAX = 8775 // range of ports to try if primary is in use
-const TOKEN_FILE = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_tokens.json')
+// NOTE: Must match TOKENS_FILE in token_manager.ts (%APPDATA%\HyperClip\oauth_tokens.json)
+// The old temp path is no longer used — token_manager is the authoritative reader.
+const TOKEN_FILE = path.join(getAppStoreDir(), 'oauth_tokens.json')
 
 // Active OAuth server — closed before starting a new flow to prevent EADDRINUSE
 let _activeServer: http.Server | null = null
@@ -44,7 +48,8 @@ function getRedirectUri(): string {
 }
 
 function getTokenFile(): string {
-  const dir = path.join(os.tmpdir(), 'hyperclip-cookies')
+  // TokenManager also uses %APPDATA%\HyperClip\ — ensure that dir exists
+  const dir = path.dirname(TOKEN_FILE)
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   return TOKEN_FILE
 }
@@ -55,9 +60,9 @@ const DEFAULT_CLIENT_ID = process.env.HYPERCLIP_OAUTH_CLIENT_ID || ''
 
 export function getOAuthClientId(): string {
   // ── Single-source: read from oauth_tokens.json (authoritative for credentials + tokens)
-  // ── Fall back to oauth_config.json for legacy compat, then embedded default
+  // ── Fall back to oauth_config.json in app data dir for legacy compat
   const tokenFile = getTokenFile()
-  const configFile = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json')
+  const configFile = path.join(getAppStoreDir(), 'oauth_config.json')
 
   // 1. Check oauth_tokens.json — use the first token that has credentials
   try {
@@ -70,11 +75,11 @@ export function getOAuthClientId(): string {
     }
   } catch {}
 
-  // 2. Fall back to oauth_config.json
+  // 2. Fall back to oauth_config.json (app data dir — set by addProject/reauthorizeProject)
   try {
-    if (fs.existsSync(configFile)) {
-      const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
-      // Per-project format: { proj-01: { clientId }, client_id: '...' }
+    const configFile2 = path.join(getAppStoreDir(), 'oauth_config.json')
+    if (fs.existsSync(configFile2)) {
+      const config = JSON.parse(fs.readFileSync(configFile2, 'utf-8'))
       if (typeof config === 'object') {
         if (config.client_id) return config.client_id
         for (const pid of ['proj-01', 'proj-02', 'proj-03', 'proj-04']) {
@@ -90,7 +95,7 @@ export function getOAuthClientId(): string {
 
 export function getOAuthClientSecret(): string {
   const tokenFile = getTokenFile()
-  const configFile = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json')
+  const configFile = path.join(getAppStoreDir(), 'oauth_config.json')
 
   // 1. Check oauth_tokens.json first
   try {
@@ -103,10 +108,11 @@ export function getOAuthClientSecret(): string {
     }
   } catch {}
 
-  // 2. Fall back to oauth_config.json
+  // 2. Fall back to oauth_config.json (app data dir)
   try {
-    if (fs.existsSync(configFile)) {
-      const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
+    const configFile2 = path.join(getAppStoreDir(), 'oauth_config.json')
+    if (fs.existsSync(configFile2)) {
+      const config = JSON.parse(fs.readFileSync(configFile2, 'utf-8'))
       if (typeof config === 'object') {
         if (config.client_secret) return config.client_secret
         for (const pid of ['proj-01', 'proj-02', 'proj-03', 'proj-04']) {
@@ -120,13 +126,13 @@ export function getOAuthClientSecret(): string {
 }
 
 export function setOAuthClientId(clientId: string): void {
-  // Write to oauth_config.json (legacy compat) AND update oauth_tokens.json entries
-  const configFile = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json')
+  // Write to oauth_config.json in app data dir AND update oauth_tokens.json entries
+  const appDataDir = getAppStoreDir()
+  const configFile = path.join(appDataDir, 'oauth_config.json')
   const tokenFile = getTokenFile()
-  const dir = path.dirname(configFile)
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  if (!fs.existsSync(appDataDir)) fs.mkdirSync(appDataDir, { recursive: true })
 
-  // 1. Update oauth_config.json
+  // 1. Update oauth_config.json in app data dir
   const existing: Record<string, any> = {}
   try {
     if (fs.existsSync(configFile)) {
@@ -150,7 +156,7 @@ export function setOAuthClientId(clientId: string): void {
       }
       if (updated) {
         fs.writeFileSync(tokenFile, JSON.stringify(tokens, null, 2), 'utf-8')
-        console.log('[OAuth] Updated clientId in oauth_tokens.json for', tokens.length, 'token(s)')
+        devLog('[OAuth] Updated clientId in oauth_tokens.json for', tokens.length, 'token(s)')
       }
     }
   } catch {}
@@ -163,7 +169,7 @@ export function loadTokens(): OAuthTokens | null {
   try {
     if (fs.existsSync(file)) {
       const data = JSON.parse(fs.readFileSync(file, 'utf-8'))
-      console.log('[OAuth] Tokens loaded from:', file)
+      devLog('[OAuth] Tokens loaded from:', file)
       // Legacy single-token format (object) — return as-is
       if (!Array.isArray(data)) return data
       // Multi-project array: return first valid token (legacy compat)
@@ -173,7 +179,7 @@ export function loadTokens(): OAuthTokens | null {
   } catch (e) {
     console.warn('[OAuth] Failed to load tokens from', file, ':', e)
   }
-  console.log('[OAuth] No tokens found at:', file)
+  devLog('[OAuth] No tokens found at:', file)
   return null
 }
 
@@ -212,7 +218,7 @@ export function saveTokens(tokens: OAuthTokens, clientId?: string, clientSecret?
     }
 
     fs.writeFileSync(file, JSON.stringify(existingTokens, null, 2), 'utf-8')
-    console.log('[OAuth] Tokens saved to:', file, '— expires at:', new Date(tokens.expires_at).toISOString(), ` (project: ${resolvedProjectId})`)
+    devLog('[OAuth] Tokens saved to:', file, '— expires at:', new Date(tokens.expires_at).toISOString(), ` (project: ${resolvedProjectId})`)
   } catch (e) {
     console.error('[OAuth] FAILED to save tokens to', file, ':', e)
     throw e
@@ -254,7 +260,7 @@ function exchangeCodeForTokens(clientId: string, clientSecret: string, code: str
     const body = new URLSearchParams(bodyParams).toString()
 
     const maskedSecret = clientSecret ? `${clientSecret.slice(0, 8)}...` : '(none)'
-    console.log(`[OAuth] Token exchange: clientId=${clientId.slice(0, 20)}..., secret=${maskedSecret}, grant=authorization_code`)
+    devLog(`[OAuth] Token exchange: clientId=${clientId.slice(0, 20)}..., secret=${maskedSecret}, grant=authorization_code`)
     const options = {
       hostname: 'oauth2.googleapis.com',
       path: '/token',
@@ -270,7 +276,7 @@ function exchangeCodeForTokens(clientId: string, clientSecret: string, code: str
       res.on('data', (chunk) => (data += chunk))
       res.on('end', () => {
         // Log the raw response for debugging
-        console.log(`[OAuth] Token exchange response status: ${res.statusCode}, body: ${data.slice(0, 200)}`)
+        devLog(`[OAuth] Token exchange response status: ${res.statusCode}, body: ${data.slice(0, 200)}`)
         if (res.statusCode !== 200) {
           try {
             const errJson = JSON.parse(data)
@@ -365,12 +371,12 @@ let _cachedToken: { token: string; expiresAt: number } | null = null
 export async function getValidAccessToken(clientId: string): Promise<string | null> {
   // Return cached token if still valid (with 60s buffer)
   if (_cachedToken && _cachedToken.expiresAt - 60000 > Date.now()) {
-    console.log('[OAuth] Using cached token (expires in', Math.round((_cachedToken.expiresAt - Date.now()) / 60000), 'min)')
+    devLog('[OAuth] Using cached token (expires in', Math.round((_cachedToken.expiresAt - Date.now()) / 60000), 'min)')
     return _cachedToken.token
   }
 
   const tokens = loadTokens()
-  console.log('[OAuth] Tokens loaded:', tokens ? 'yes (expires ' + (tokens.expires_at ? new Date(tokens.expires_at).toISOString() : 'unknown') + ')' : 'NO')
+  devLog('[OAuth] Tokens loaded:', tokens ? 'yes (expires ' + (tokens.expires_at ? new Date(tokens.expires_at).toISOString() : 'unknown') + ')' : 'NO')
   if (!tokens?.access_token) {
     console.warn('[OAuth] No access_token in loaded tokens')
     return null
@@ -378,7 +384,7 @@ export async function getValidAccessToken(clientId: string): Promise<string | nu
 
   // Refresh if expired (with 60s buffer)
   if (tokens.expires_at - 60000 < Date.now()) {
-    console.log('[OAuth] Token expired, refreshing...')
+    devLog('[OAuth] Token expired, refreshing...')
     try {
       const clientSecret = getOAuthClientSecret()
       const newTokens = await refreshAccessToken(clientId, clientSecret, tokens.refresh_token)
@@ -416,12 +422,17 @@ export async function startOAuthFlow(clientId: string, clientSecret?: string, pr
   // If no secret provided, read from config file (for backward compat with cookie_manager)
   const effectiveSecret = clientSecret || (() => {
     try {
-      const configPath = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json')
-      if (fs.existsSync(configPath)) {
-        const cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
-        // Prefer per-project secret if projectId is known
-        if (projectId && cfg[projectId]?.clientSecret) return cfg[projectId].clientSecret
-        return cfg.client_secret || ''
+      // Try app data dir first (where addProject saves), then fallback to temp (legacy)
+      const dirs = [
+        path.join(getAppStoreDir(), 'oauth_config.json'),
+        path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json'),
+      ]
+      for (const configPath of dirs) {
+        if (fs.existsSync(configPath)) {
+          const cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+          if (projectId && cfg[projectId]?.clientSecret) return cfg[projectId].clientSecret
+          if (cfg.client_secret) return cfg.client_secret
+        }
       }
     } catch {}
     return ''
@@ -484,7 +495,7 @@ export async function startOAuthFlow(clientId: string, clientSecret?: string, pr
 
         exchangeCodeForTokens(clientId, effectiveSecret, code)
           .then((tokens) => {
-            console.log('[OAuth] Token exchanged — expires in', Math.round((tokens.expires_at - Date.now()) / 60000), 'minutes', projectId ? ` (project: ${projectId})` : '')
+            devLog('[OAuth] Token exchanged — expires in', Math.round((tokens.expires_at - Date.now()) / 60000), 'minutes', projectId ? ` (project: ${projectId})` : '')
             // Save to flat file for legacy compat (no projectId = single-project flow).
             // Per-project flows (with projectId) rely on TokenManager.addToken() from main.ts instead.
             if (!projectId) {
@@ -515,7 +526,7 @@ export async function startOAuthFlow(clientId: string, clientSecret?: string, pr
 
       server.listen(port, '127.0.0.1', () => {
         const oauthUrl = buildOAuthUrl(clientId)
-        console.log(`[OAuth] Starting OAuth flow on port ${port} — opening browser`)
+        devLog(`[OAuth] Starting OAuth flow on port ${port} — opening browser`)
         _activeServer = server
         shell.openExternal(oauthUrl).catch((e) => {
           console.warn('[OAuth] Failed to open browser:', e)

@@ -92,6 +92,7 @@
     "cross-env": "^10.1.0",
     "electron": "41.5.0",
     "electron-builder": "^26.8.1",
+    "extract-zip": "^2.0.1",
     "postcss": "^8.5.10",
     "tailwindcss": "^3.4.19",
     "typescript": "6.0.3",

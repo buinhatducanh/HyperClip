@@ -4,7 +4,6 @@ directories:
   output: release
   buildResources: resources
 files:
-  - .next/**/*
   - dist-electron/**/*
   - package.json
 extraResources:
@@ -19,17 +18,12 @@ asarUnpack:
   - node_modules/sql.js/dist/sql-wasm.wasm
   # FFmpeg must be outside asar for spawn() access
   - ffmpeg/**
-  # Unpack next module + .next/ so Next.js CLI can read its files and resolve deps
+  # Unpack next module so Next.js CLI can read files and resolve deps
   - node_modules/next/**/*
-  - .next/**/*
 win:
   target:
-    - target: portable
+    - target: dir
       arch:
         - x64
   icon: resources/icon.ico
-nsis:
-  oneClick: false
-  perMachine: false
-  allowToChangeInstallationDirectory: true
 asar: true

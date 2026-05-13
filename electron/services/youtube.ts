@@ -179,9 +179,16 @@ function getJsRuntimeArgs(): string[] {
 // Find yt-dlp executable
 function getYtdlpPath(): string {
   // 1. Bundled in resources/ (shipped with app)
-  if (app && app.isReady() && process.resourcesPath) {
-    const bundledPath = path.join(process.resourcesPath, 'yt-dlp', 'yt-dlp.exe')
-    if (fs.existsSync(bundledPath)) return bundledPath
+  //    In dev mode: app.getAppPath() = project root (D:\...\HyperClip) → resources/yt-dlp/yt-dlp.exe ✓
+  //    In prod:    process.resourcesPath = app.asar/resources              → yt-dlp/yt-dlp.exe ✓
+  const appPath = app?.getAppPath?.()
+  if (appPath) {
+    const devBundled = path.join(appPath, 'resources', 'yt-dlp', 'yt-dlp.exe')
+    if (fs.existsSync(devBundled)) return devBundled
+  }
+  if (process.resourcesPath) {
+    const prodBundled = path.join(process.resourcesPath, 'yt-dlp', 'yt-dlp.exe')
+    if (fs.existsSync(prodBundled)) return prodBundled
   }
 
   // 2. node_modules/.bin (npm package — no Python needed if using bundled binary)
@@ -294,6 +301,11 @@ export interface YtdlpOptions {
    * If not provided, falls back to web client (VP9 codec).
    */
   po_token?: string | null
+  /**
+   * Path to Netscape cookie file exported from Chrome via CDP.
+   * yt-dlp uses --cookies flag to authenticate and bypass EJS anti-bot challenge.
+   */
+  ytCookiesFile?: string | null
 }
 
 export async function getChannelId(videoUrl: string): Promise<string | null> {
@@ -458,6 +470,8 @@ interface MultiInstanceOpts {
   retryStrategy?: 'immediate' | 'exponential'
   /** PO Token for android client (extracted from Chrome via CDP). */
   poToken?: string | null
+  /** Path to Netscape cookie file for yt-dlp authentication. */
+  ytCookiesFile?: string | null
 }
 
 /** Exponential backoff with jitter — avoids hammering YouTube during rate-limit windows. */
@@ -486,26 +500,30 @@ async function withExponentialBackoff<T>(
   return fn()
 }
 
-function buildYtDlpArgs(ytdlp: string, videoUrl: string, formatSelector: string, outputTemplate: string, sectionArg: string, instanceIdx: number, poToken: string | null | undefined): string[] {
+function buildYtDlpArgs(ytdlp: string, videoUrl: string, formatSelector: string, outputTemplate: string, sectionArg: string, instanceIdx: number, poToken: string | null | undefined, ytCookiesFile?: string | null): string[] {
   const args = [
     videoUrl,
     ...getJsRuntimeArgs(),
   ]
 
-  // Android client strategy:
-  // - With PO Token → DASH bestvideo+bestaudio (separate streams, best quality)
-  // - Without PO Token → android (no PO Token) — best available
+  // Quality strategy:
+  // - With PO Token → android DASH bestvideo+bestaudio (1080p H.264)
+  // - Without PO Token → ios client (H.264/AAC, 720p-1080p)
   let resolvedFormat: string
   if (poToken) {
     args.push('--extractor-args', `youtube:player_client=android,po_token=${poToken}`)
     resolvedFormat = formatSelector // DASH: bestvideo+bestaudio
     console.log(`[yt-dlp] Using android DASH with PO Token (${poToken.slice(0, 8)}...)`)
   } else {
-    args.push('--extractor-args', 'youtube:player_client=android')
-    // android without PO Token: yt-dlp tries HLS, then format 18 (360p mp4) as fallback.
-    // Use 'best' to match whatever is available — avoids "format not available" errors.
-    resolvedFormat = 'best[height<=1080]'
-    console.log(`[yt-dlp] Using android client (no PO Token, best available)`)
+    args.push('--extractor-args', 'youtube:player_client=ios')
+    resolvedFormat = 'bestvideo[height<=1080][vcodec=h264]+bestaudio[acodec=aac]/bestvideo[height<=1080]+bestaudio/bestvideo[height<=720]+bestaudio/best'
+    console.log(`[yt-dlp] Using ios client (H.264 up to 1080p)`)
+  }
+
+  // Authenticate yt-dlp with Chrome cookies to bypass EJS anti-bot challenge
+  if (ytCookiesFile) {
+    args.push('--cookies', ytCookiesFile)
+    console.log(`[yt-dlp] Using Chrome cookies: ${ytCookiesFile!.split(/[/\\]/).pop()}`)
   }
 
   args.push(
@@ -534,7 +552,7 @@ function makeSectionArg(startSec: number, endSec: number): string {
 }
 
 async function multiInstanceDownload(opts: MultiInstanceOpts): Promise<DownloadResult | null> {
-  const { workspaceId, videoUrl, outputDir, formatSelector, trimLimit, instanceCount, onProgress, ytdlp, preFetchedDuration, retryStrategy = 'immediate', poToken } = opts
+  const { workspaceId, videoUrl, outputDir, formatSelector, trimLimit, instanceCount, onProgress, ytdlp, preFetchedDuration, retryStrategy = 'immediate', poToken, ytCookiesFile } = opts
 
   // OPTIMIZATION #1: Skip sequential duration probe if caller already has it.
   // autoDownloadFromWebSub fetches videoInfo in parallel with download, so it's already available.
@@ -598,12 +616,11 @@ async function multiInstanceDownload(opts: MultiInstanceOpts): Promise<DownloadR
     return new Promise<{ success: boolean; filePath?: string; error?: string; idx: number }>((resolve) => {
       const outputTemplate = path.join(outputDir, `${workspaceId}_part${String(idx).padStart(2, '0')}_%(id)s.%(ext)s`)
       const args = [
-        ...buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, makeSectionArg(section.start, section.end), idx, poToken),
+        ...buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, makeSectionArg(section.start, section.end), idx, poToken, ytCookiesFile),
         ...cacheDirArgs,
       ]
-      const cmd = buildArgs(ytdlp, args)
 
-      const proc = spawn(cmd, [], {
+      const proc = spawn(ytdlp, args, {
         env: { ...process.env, PATH: enrichedPath },
         stdio: ['ignore', 'pipe', 'pipe'],
       })
@@ -687,13 +704,12 @@ async function multiInstanceDownload(opts: MultiInstanceOpts): Promise<DownloadR
             const section = sections[sectionIdx]
             const outputTemplate = path.join(outputDir, `${workspaceId}_part${String(sectionIdx).padStart(2, '0')}_%(id)s.%(ext)s`)
             const args = [
-              ...buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, makeSectionArg(section.start, section.end), sectionIdx, poToken),
+              ...buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, makeSectionArg(section.start, section.end), sectionIdx, poToken, ytCookiesFile),
               ...cacheDirArgs,
             ]
-            const cmd = buildArgs(ytdlp, args)
 
             return new Promise<{ success: boolean; filePath?: string; error?: string; idx: number }>((resolve) => {
-              const proc = spawn(cmd, [], { env: { ...process.env, PATH: enrichedPath }, stdio: ['ignore', 'pipe', 'pipe'] })
+              const proc = spawn(ytdlp, args, { env: { ...process.env, PATH: enrichedPath }, stdio: ['ignore', 'pipe', 'pipe'] })
               let stderr = ''
               let downloadedFile = ''
               proc.stdout?.on('data', (data: Buffer) => {
@@ -912,7 +928,7 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
     const multiResult = await multiInstanceDownload({
       workspaceId, videoUrl, outputDir, formatSelector, trimLimit, instanceCount,
       onProgress, ytdlp, preFetchedDuration: opts.preFetchedDuration, retryStrategy: opts.retryStrategy,
-      poToken: po_token,
+      poToken: po_token, ytCookiesFile: opts.ytCookiesFile,
     })
     if (multiResult) return multiResult
     // Fallthrough to single instance if multi failed
@@ -927,21 +943,28 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
       ...getJsRuntimeArgs(),
     ]
 
-    // Android client strategy:
-    // - With PO Token → DASH bestvideo+bestaudio (1080p H.264)
-    // - Without PO Token → android (no PO Token) — HLS H.264 if available,
-    //   else falls back to best available (e.g. format 18 = 360p mp4)
+    // Quality strategy:
+    // - With PO Token → android DASH bestvideo+bestaudio (1080p H.264) — best quality
+    // - Without PO Token → ios client (H.264/AAC, 720p-1080p) — no PO Token needed
+    //   iOS client reliably serves 720p-1080p H.264 without requiring PO Token.
+    //   web client was serving 360p H.264 (format 18) — format availability differs from real browser.
+    // - SABR-only experiment (YouTube-only 360p) → cannot be bypassed
     let resolvedFormat: string
     if (po_token) {
       args.push('--extractor-args', `youtube:player_client=android,po_token=${po_token}`)
       resolvedFormat = formatSelector
       console.log(`[yt-dlp] Using android DASH with PO Token (${po_token.slice(0, 8)}...)`)
     } else {
-      args.push('--extractor-args', 'youtube:player_client=android')
-      // android without PO Token: yt-dlp tries HLS, then format 18 (360p mp4) as fallback.
-      // Use 'best' to match whatever is available — avoids "format not available" errors.
-      resolvedFormat = 'best[height<=1080]'
-      console.log(`[yt-dlp] Using android client (no PO Token, best available)`)
+      args.push('--extractor-args', 'youtube:player_client=ios')
+      // iOS client: H.264 preferred up to 1080p, then any codec
+      resolvedFormat = 'bestvideo[height<=1080][vcodec=h264]+bestaudio[acodec=aac]/bestvideo[height<=1080]+bestaudio/bestvideo[height<=720]+bestaudio/best'
+      console.log(`[yt-dlp] Using ios client (H.264 up to 1080p)`)
+    }
+
+    // Authenticate yt-dlp with Chrome cookies to bypass EJS anti-bot challenge
+    if (opts.ytCookiesFile) {
+      args.push('--cookies', opts.ytCookiesFile)
+      console.log(`[yt-dlp] Using Chrome cookies: ${opts.ytCookiesFile!.split(/[/\\]/).pop()}`)
     }
 
     args.push(

@@ -3,7 +3,8 @@ import path from 'path'
 import os from 'os'
 import { execSync } from 'child_process'
 import { shell, app } from 'electron'
-import { getAppStoreDir, getRamDiskPath } from './paths.js'
+import { getAppStoreDir, getRamDiskPath, getDownloadsDir, getBlurDir, getOutputDir, getArchivedDir } from './paths.js'
+import { devLog } from './dev_log.js'
 
 // RAM Disk Manager
 // Manages the virtual RAM disk for fast video temp storage
@@ -34,6 +35,8 @@ interface AppSettingsStore {
   downloadsCleanupDays?: number
   /** Detection poll interval in milliseconds. Defaults to 5000. */
   pollIntervalMs?: number
+  /** Max concurrent FFmpeg renders. Defaults to 2. */
+  maxConcurrentRenders?: number
 }
 
 let _settings: AppSettingsStore | null = null
@@ -54,6 +57,8 @@ export function loadSettings(): AppSettingsStore {
   if (_settings.defaultQuality === undefined) _settings.defaultQuality = 1080
   if (_settings.autoDownloadEnabled === undefined) _settings.autoDownloadEnabled = true
   if (_settings.pollIntervalMs === undefined) _settings.pollIntervalMs = 5000
+  if (_settings.maxConcurrentRenders === undefined) _settings.maxConcurrentRenders = 2
+  if (_settings.autoDownloadQuality === undefined) _settings.autoDownloadQuality = '720'
   
   return _settings
 }
@@ -78,21 +83,32 @@ export interface RamDiskInfo {
   available: number   // Available space in GB
   path: string        // Mount point / drive letter
   isAvailable: boolean
+  /** Warn user when usage exceeds this percentage (0-1). Default: 0.8 (80%). */
+  warningPct: number
 }
 
 // On Windows: Use ImDisk or similar to create RAM disk
 // On Linux: Use tmpfs mount
 // Fallback: Use a folder on fast storage with RAM-like management
 
-// Auto-detect RAM disk size based on available memory
-// Target machine (64GB): use full 64GB
-// Test machine (16GB): use 4GB (25%) to avoid OOM
+// Auto-detect RAM disk size based on actual peak usage needs.
+// Peak breakdown (worst case, 14 workers RTX 5080):
+//   - Download queue (10 × 720p × 60MB): 600MB
+//   - FFmpeg decode buffers (14 workers × 50MB): 700MB
+//   - Pre-scale (1 × 60MB): 60MB
+//   - Output files (14 chunks + 1 merged × 50MB): 750MB
+//   - Blur thumbnails: 5MB
+//   ───────────────────────────────────────────
+//   Total peak: ~2.1GB → cap at 4GB (64GB machine) = 2× headroom
+// For 32GB machine (7 workers): ~1.2GB peak → 3GB cap
+// For 16GB machine (4 workers): ~700MB peak → 2GB cap
 export function getAutoRamDiskSize(): number {
   const totalGB = os.totalmem() / (1024 ** 3)
-  if (totalGB >= 32) return Math.min(64, Math.floor(totalGB * 0.8))
-  if (totalGB >= 16) return 4   // 16GB machine: 4GB for video temp
-  if (totalGB >= 8)  return 2   // 8GB machine: 2GB
-  return 1                          // Low memory: 1GB
+  if (totalGB >= 48) return 4   // 64GB: 2× peak headroom
+  if (totalGB >= 32) return 3   // 48GB: 2.5× peak headroom
+  if (totalGB >= 16) return 2   // 32GB: 2.5× peak headroom
+  if (totalGB >= 8)  return 1   // 16GB: ~1.5× peak headroom
+  return 0                          // <8GB: disable RAMDISK — too risky
 }
 
 const RAM_DISK_SIZE_GB = getAutoRamDiskSize()
@@ -127,6 +143,7 @@ export function getRamDiskInfo(): RamDiskInfo {
         available: Math.min(freeSpace / (1024**3), RAM_DISK_SIZE_GB),
         path: RAM_DISK_PATH,
         isAvailable: false,
+        warningPct: 0.8,
       }
     } catch {
       return {
@@ -135,6 +152,7 @@ export function getRamDiskInfo(): RamDiskInfo {
         available: RAM_DISK_SIZE_GB,
         path: RAM_DISK_PATH,
         isAvailable: false,
+        warningPct: 0.8,
       }
     }
   }
@@ -151,37 +169,46 @@ export function getRamDiskInfo(): RamDiskInfo {
     available: parseFloat((RAM_DISK_SIZE_GB - usedBytes / (1024**3)).toFixed(2)),
     path: RAM_DISK_PATH,
     isAvailable: true,
+    warningPct: 0.8,
   }
 }
 
-// Get video storage path (user-configured > RAM disk > temp)
+// Get video storage path (user-configured > RAM disk > persistent downloads/)
 export function getVideoStoragePath(): string {
   const configured = getConfiguredVideoStoragePath()
   if (configured && fs.existsSync(configured)) return configured
   if (isRamDiskAvailable()) return RAM_DISK_PATH
-  // Fallback: persistent folder in AppData — NOT temp
-  return path.join(STORE_DIR, 'downloads')
+  // Fallback: persistent folder under HyperClip-Data/downloads/
+  return getDownloadsDir()
 }
 
-// Get output path (user-configured > RAM disk > documents)
+// Get output path (user-configured > RAM disk > persistent output/)
 export function getOutputPath(): string {
   const configured = getConfiguredOutputPath()
   if (configured && fs.existsSync(configured)) return configured
   if (isRamDiskAvailable()) return OUTPUT_PATH
-  // Fallback: persistent folder in AppData
-  return path.join(STORE_DIR, 'output')
+  // Fallback: persistent folder under HyperClip-Data/output/
+  return getOutputDir()
 }
 
 // Ensure directories exist
 export function ensureStorageDirs(): void {
   const storagePath = getVideoStoragePath()
   const outputPath = getOutputPath()
+  const blurDir = getBlurDir()
+  const archiveDir = getArchivePath()
 
   if (!fs.existsSync(storagePath)) {
     fs.mkdirSync(storagePath, { recursive: true })
   }
   if (!fs.existsSync(outputPath)) {
     fs.mkdirSync(outputPath, { recursive: true })
+  }
+  if (!fs.existsSync(blurDir)) {
+    fs.mkdirSync(blurDir, { recursive: true })
+  }
+  if (!fs.existsSync(archiveDir)) {
+    fs.mkdirSync(archiveDir, { recursive: true })
   }
 }
 
@@ -281,7 +308,7 @@ export function cleanupWorkspace(workspaceId: string, downloadedPath?: string): 
     try {
       if (filePath && fs.existsSync(filePath)) {
         fs.unlinkSync(filePath)
-        console.log(`[RAMDisk] Cleaned: ${filePath}`)
+        devLog(`[RAMDisk] Cleaned: ${filePath}`)
       }
     } catch (err) {
       // Ignore errors for files that don't exist
@@ -328,11 +355,11 @@ export function getWorkspaceStorageSize(workspaceId: string): { video: number; b
 
 // ─── Archive / Rendered files ──────────────────────────────────────────────────────
 
-const DEFAULT_ARCHIVE_PATH = path.join(os.homedir(), 'Videos', 'HyperClip', 'Rendered')
-
 export function getArchivePath(): string {
   const settings = loadSettings()
-  return settings.renderedOutputPath || DEFAULT_ARCHIVE_PATH
+  if (settings.renderedOutputPath) return settings.renderedOutputPath
+  // Default: HyperClip-Data/archived/ — keeps everything under one root folder
+  return getArchivedDir()
 }
 
 export function getConfiguredArchivePath(): string | undefined {

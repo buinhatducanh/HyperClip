@@ -3,6 +3,89 @@
 
 import type { KeyStatus } from '../types'
 
+// Explicit type to ensure TypeScript resolves ElectronAPI from electron.d.ts
+type ElectronAPI = {
+  addTracker: (url: string, trimLimit: string) => Promise<unknown>
+  removeTracker: (id: string) => Promise<unknown>
+  getTrackers: () => Promise<unknown[]>
+  getChannelInfo: (url: string) => Promise<unknown>
+  getChannels: () => Promise<unknown[]>
+  syncChannels: () => Promise<{ added: number; removed: number }>
+  addChannel: (url: string) => Promise<unknown>
+  updateChannel: (id: string, patch: object) => Promise<unknown>
+  removeChannel: (id: string) => Promise<unknown>
+  getWorkspaces: () => Promise<unknown[]>
+  updateWorkspace: (id: string, patch: object) => Promise<unknown>
+  deleteWorkspace: (id: string) => Promise<unknown>
+  retryWorkspace: (id: string) => Promise<unknown>
+  redownloadHd: (id: string) => Promise<{ success: boolean; error?: string }>
+  regenerateWorkspaceBlur: (id: string) => Promise<{ success: boolean; blurPath?: string; error?: string }>
+  splitWorkspace: (id: string, partMinutes?: number) => Promise<{ success: boolean; newWorkspaces?: unknown[]; error?: string }>
+  setActiveWorkspace: (workspaceId: string | null) => Promise<{ success: boolean }>
+  getVideoFile: (workspaceId: string) => Promise<{ path: string; url: string } | null>
+  getVideoBlob: (workspaceId: string) => Promise<Uint8Array | null>
+  getImageFile: (workspaceId: string) => Promise<{ path: string; dataUrl: string } | null>
+  saveBlobToFile: (arrayBuffer: Uint8Array, filename: string) => Promise<{ diskPath: string } | null>
+  startRender: (workspaceId: string, metadata: object) => Promise<unknown>
+  startChunked: (workspaceId: string, metadata: object, config?: object) => Promise<unknown>
+  cancelRender: (workspaceId: string) => Promise<unknown>
+  getSystemStats: () => Promise<unknown>
+  openFolder: (folderPath: string) => Promise<unknown>
+  openUrl: (url: string) => Promise<unknown>
+  onSystemStats: (callback: (stats: object) => void) => () => void
+  onRenderProgress: (callback: (progress: object) => void) => () => void
+  onNotification: (callback: (n: object) => void) => () => void
+  onWorkspaceUpdate: (callback: (ws: object) => void) => () => void
+  onQuickAdd: (callback: () => void) => () => void
+  onAutoDownload: (callback: (data: object) => void) => () => void
+  onInnertubeDegraded: (callback: (data: { degraded: boolean }) => void) => () => void
+  onAuthUpdate: (callback: (status: object) => void) => () => void
+  onCookieCritical: (callback: (errorMsg: string) => void) => () => void
+  onChannelSynced: (callback: () => void) => () => void
+  getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number }>
+  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number }) => Promise<void>
+  getAuthStatus: () => Promise<{ isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean; cookieCritical?: boolean; cookieError?: string }>
+  logout: () => Promise<{ success: boolean }>
+  startOAuthFlow: () => Promise<{ isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean }>
+  setOAuthCredentials: (clientId: string, clientSecret: string) => Promise<{ success: boolean }>
+  getOAuthCredentials: () => Promise<{ clientId: string; clientSecret: string }>
+  getKeys: () => Promise<unknown[]>
+  addKey: (key: string, projectId: string, name: string) => Promise<{ success: boolean; keys: unknown[] }>
+  removeKey: (key: string) => Promise<{ success: boolean; keys: unknown[] }>
+  resetKey: (key?: string) => Promise<{ success: boolean; keys: unknown[]; nextReset: number }>
+  testKey: (key: string) => Promise<{ valid: boolean; error?: string; errorType?: string }>
+  testAllKeys: () => Promise<{ results: Array<{ key: string; name: string; valid: boolean; error?: string; errorType?: string }>; keys: unknown[] }>
+  getPollerStatus: () => Promise<{ active: boolean; lastPollAt: number | null; newVideoCount: number; lastError: string | null; exhaustedUntil: number | null; innertubeDegraded?: boolean } | null>
+  resumePoller: () => Promise<{ success: boolean }>
+  getProjects: () => Promise<unknown[]>
+  addProject: (data: { projectId: string; clientId: string; clientSecret: string; apiKey: string; apiKeyName?: string }) => Promise<{ success: boolean; projectId: string; error?: string }>
+  removeProject: (projectId: string) => Promise<{ success: boolean }>
+  resetProjectQuota: (projectId: string) => Promise<{ success: boolean }>
+  reauthorizeProject: (projectId: string) => Promise<{ success: boolean; error?: string; refreshed?: boolean }>
+  repairProject: (projectId: string) => Promise<{ success: boolean; error?: string; repaired?: boolean; refreshed?: boolean; needsCredentials?: boolean; needsOAuthFlow?: boolean }>
+  testAllProjects: () => Promise<{ projects: unknown[]; checkedAt: number }>
+  batchRepairProjects: (projectIds: string[]) => Promise<Record<string, { success: boolean; error?: string; repaired?: boolean; refreshed?: boolean; needsCredentials?: boolean; needsOAuthFlow?: boolean }>>
+  testToken: (projectId: string) => Promise<{ valid: boolean; error?: string; errorType?: string }>
+  getSessionStatus: () => Promise<unknown>
+  refreshAllSessions: () => Promise<{ success: boolean; refreshedCount: number }>
+  openSessionLogin: (profileId: string) => Promise<{ success: boolean }>
+  cloneSessionOne: () => Promise<{ success: boolean; clonedCount: number; error?: string }>
+  getRenderedVideos: () => Promise<unknown[]>
+  archiveRendered: (workspaceId: string, customArchiveDir?: string) => Promise<{ success: boolean; archivedPath?: string; error?: string }>
+  removeRenderedVideo: (id: string) => Promise<{ success: boolean }>
+  openRenderedFolder: (id?: string) => Promise<{ success: boolean }>
+  setRenderedArchivePath: (path: string) => Promise<{ success: boolean }>
+  getStorageSize: () => Promise<{ downloads: number; blur: number; total: number; downloadPath: string; outputPath: string; freeBytes?: number }>
+  clearDownloads: () => Promise<{ success: boolean; freedMB: number }>
+  clearBlur: () => Promise<{ success: boolean; freedMB: number }>
+  pickFolder: (currentPath?: string) => Promise<{ path: string } | null>
+  runDiagnostics: () => Promise<unknown>
+  exportData: () => Promise<{ success: boolean; path?: string; error?: string }>
+  importData: () => Promise<{ success: boolean; channelsImported?: number; seenImported?: number; error?: string }>
+  readLogs: () => Promise<{ files: { name: string; size: number; mtime: number; content?: string }[]; logDir: string }>
+  exportLogs: () => Promise<{ success: boolean; path?: string; error?: string }>
+}
+
 export const ipc = {
   async addTracker(url: string, trimLimit: number | 'full') {
     return window.electronAPI?.addTracker(url, String(trimLimit))
@@ -52,6 +135,9 @@ export const ipc = {
   },
   async splitWorkspace(id: string, partMinutes = 10) {
     return window.electronAPI?.splitWorkspace(id, partMinutes)
+  },
+  async setActiveWorkspace(workspaceId: string | null) {
+    return window.electronAPI?.setActiveWorkspace(workspaceId)
   },
   async getVideoFile(workspaceId: string) {
     return window.electronAPI?.getVideoFile(workspaceId) ?? null
@@ -115,9 +201,9 @@ export const ipc = {
     return window.electronAPI?.onChannelSynced(callback) ?? (() => {})
   },
   async getSettings() {
-    return window.electronAPI?.getSettings() ?? { videoStoragePath: undefined, outputPath: undefined, defaultTrimLimit: undefined, defaultQuality: undefined, autoDownloadQuality: undefined, autoDownloadEnabled: undefined, autoRender: undefined, autoRenderResolution: undefined, autoRenderFPS: undefined, downloadsCleanupDays: undefined, renderedOutputPath: undefined, pollIntervalMs: undefined }
+    return window.electronAPI?.getSettings() ?? { videoStoragePath: undefined, outputPath: undefined, defaultTrimLimit: undefined, defaultQuality: undefined, autoDownloadQuality: undefined, autoDownloadEnabled: undefined, autoRender: undefined, autoRenderResolution: undefined, autoRenderFPS: undefined, downloadsCleanupDays: undefined, renderedOutputPath: undefined, pollIntervalMs: undefined, maxConcurrentRenders: undefined }
   },
-  async updateSettings(patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number }) {
+  async updateSettings(patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number }) {
     return window.electronAPI?.updateSettings(patch)
   },
   async getAuthStatus() {
@@ -181,6 +267,18 @@ export const ipc = {
 
   async reauthorizeProject(projectId: string) {
     return window.electronAPI?.reauthorizeProject(projectId) ?? { success: false, error: 'electronAPI not available' }
+  },
+
+  async repairProject(projectId: string) {
+    return window.electronAPI?.repairProject(projectId) ?? { success: false, error: 'electronAPI not available' }
+  },
+
+  async testAllProjects() {
+    return window.electronAPI?.testAllProjects() ?? { projects: [], checkedAt: 0 }
+  },
+
+  async batchRepairProjects(projectIds: string[]) {
+    return window.electronAPI?.batchRepairProjects(projectIds) ?? {}
   },
 
   async testToken(projectId: string) {

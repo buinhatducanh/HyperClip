@@ -46,6 +46,7 @@ interface ChromeSession {
   isLoggedIn: boolean
   wasLoggedIn: boolean
   isConsented: boolean
+  rawSocs: string | null
   usedToday: number
   lastUsed: number
   lastRefreshAt: number
@@ -176,9 +177,10 @@ function AddProjectForm({ onClose, onAdded }: { onClose: () => void; onAdded: ()
 
 // ─── Project Card ───────────────────────────────────────────────────────────────
 
-function ProjectCard({ project, onRefresh, onReset }: { project: Project; onRefresh: () => void; onReset?: () => void; key?: string }) {
+function ProjectCard({ project, onRefresh }: { project: Project; onRefresh: () => void; key?: string }) {
   const { showToast } = useAppStore()
   const [showRemove, setShowRemove] = useState(false)
+  const [repairing, setRepairing] = useState(false)
 
   const statusColor: Record<string, string> = {
     healthy: '#00FF88',
@@ -219,24 +221,39 @@ function ProjectCard({ project, onRefresh, onReset }: { project: Project; onRefr
     onRefresh()
   }
 
-  const handleAuthorize = async () => {
+  // Broken states that need repair
+  const needsRepair = project.status === 'exhausted' || project.status === 'rate_limited'
+    || project.status === 'unauthorized' || project.status === 'no_oauth'
+    || project.status === 'warning' || project.apiKeyStatus === 'exhausted'
+    || project.apiKeyStatus === 'unauthorized'
+
+  const handleRepair = async () => {
+    setRepairing(true)
     try {
-      const result = await ipc.reauthorizeProject(project.projectId) as { success: boolean; error?: string; userHint?: string; refreshed?: boolean }
+      const result = await ipc.repairProject(project.projectId) as {
+        success: boolean; error?: string; repaired?: boolean; refreshed?: boolean
+        needsCredentials?: boolean; needsOAuthFlow?: boolean
+      }
       if (result.success) {
         const msg = result.refreshed
-          ? `Token còn valid — quota đã reset, không cần re-auth cho ${project.projectId}`
-          : `Đã re-authorize ${project.projectId}`
+          ? `✓ ${project.projectId}: token refresh OK — quota đã reset, project hoạt động`
+          : result.repaired
+            ? `✓ ${project.projectId}: đã repair thành công`
+            : `✓ ${project.projectId}: đã reset quota`
         showToast(msg)
         onRefresh()
       } else {
-        if (result.userHint) {
-          window.alert(`Lỗi re-authorize "${project.projectId}":\n\n${result.error}\n\n${result.userHint}`)
+        if (result.needsCredentials) {
+          showToast(`⚠ ${project.projectId}: thiếu OAuth credentials — cần xóa và thêm lại project`)
         } else {
-          showToast(`Lỗi: ${result.error}`)
+          showToast(`⚠ ${project.projectId}: ${result.error}`)
         }
+        onRefresh()
       }
     } catch (e: any) {
       showToast(`Lỗi: ${e.message}`)
+    } finally {
+      setRepairing(false)
     }
   }
 
@@ -325,30 +342,22 @@ function ProjectCard({ project, onRefresh, onReset }: { project: Project; onRefr
 
       {/* Actions */}
       <div className="flex gap-1">
-        {(project.status === 'no_oauth' || !project.hasToken) && (
+        {/* REPAIR — shown for all broken states */}
+        {needsRepair && (
           <button
-            onClick={handleAuthorize}
+            onClick={handleRepair}
+            disabled={repairing}
             style={{
-              flex: 1, height: 26, background: '#00B4FF22',
-              border: '1px solid #00B4FF44', borderRadius: 3,
-              fontSize: 9, fontWeight: 600, color: '#00B4FF', cursor: 'pointer',
+              flex: 1, height: 26, background: repairing ? '#FF664408' : '#FF664422',
+              border: `1px solid ${repairing ? '#FF664422' : '#FF664444'}`, borderRadius: 3,
+              fontSize: 9, fontWeight: 600, color: repairing ? '#FF664488' : '#FF6644',
+              cursor: repairing ? 'wait' : 'pointer',
             }}
           >
-            AUTHORIZE
+            {repairing ? 'REPAIRING...' : '🔧 REPAIR'}
           </button>
         )}
-        {(project.status === 'exhausted' || project.status === 'warning' || project.status === 'rate_limited') && (
-          <button
-            onClick={() => { onReset?.(); onRefresh() }}
-            style={{
-              flex: 1, height: 26, background: '#FFB80022',
-              border: '1px solid #FFB80044', borderRadius: 3,
-              fontSize: 9, fontWeight: 600, color: '#FFB800', cursor: 'pointer',
-            }}
-          >
-            ↺ RESET QUOTA
-          </button>
-        )}
+        {/* TEST — shown when project has token */}
         {project.hasToken && (
           <button
             onClick={handleTest}
@@ -356,7 +365,7 @@ function ProjectCard({ project, onRefresh, onReset }: { project: Project; onRefr
               flex: 1, height: 26, background: 'transparent',
               border: '1px solid #00B4FF33', borderRadius: 3,
               fontSize: 9, fontWeight: 600, color: '#00B4FF88', cursor: 'pointer',
-              opacity: project.status === 'exhausted' ? 1 : 0.7,
+              opacity: needsRepair ? 1 : 0.7,
             }}
             onMouseEnter={e => { e.currentTarget.style.background = '#00B4FF15' }}
             onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
@@ -1423,6 +1432,47 @@ function ProjectsSection() {
           >
             + THÊM PROJECT
           </button>
+          {(exhaustedProjects > 0 || rateLimitedProjects > 0 || noOauthProjects > 0 || unauthorizedProjects > 0) && (
+            <button
+              onClick={async () => {
+                const broken = projects.filter(p =>
+                  p.status === 'exhausted' || p.status === 'rate_limited'
+                  || p.status === 'unauthorized' || p.status === 'no_oauth'
+                  || p.status === 'warning' || p.apiKeyStatus === 'exhausted'
+                  || p.apiKeyStatus === 'unauthorized'
+                )
+                if (broken.length === 0) return
+                const ids = broken.map(p => p.projectId)
+                const confirmed = window.confirm(
+                  `Repair ${ids.length} project(s)?\n\n` +
+                  ids.map(id => '• ' + id).join('\n') +
+                  `\n\nNếu project thiếu token, trình duyệt sẽ mở ra để authorize.\nClick OK để bắt đầu.`
+                )
+                if (!confirmed) return
+                setLoading(true)
+                const results = await ipc.batchRepairProjects(ids) as Record<string, any>
+                let ok = 0, fail = 0, noCreds = 0
+                for (const [pid, r] of Object.entries(results)) {
+                  if (r.success) ok++
+                  else if (r.needsCredentials) noCreds++
+                  else fail++
+                }
+                showToast(`Repair: ${ok} OK · ${fail} lỗi · ${noCreds} cần credentials mới`)
+                setLoading(false)
+                load()
+              }}
+              style={{
+                height: 26, paddingLeft: 10, paddingRight: 10,
+                background: '#FF664422', border: '1px solid #FF664444', borderRadius: 4,
+                fontSize: 8, fontWeight: 700, color: '#FF6644', cursor: 'pointer',
+                letterSpacing: '0.06em', transition: 'all 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = '#FF664430' }}
+              onMouseLeave={e => { e.currentTarget.style.background = '#FF664422' }}
+            >
+              🔧 REPAIR ALL ({projects.filter(p => p.status === 'exhausted' || p.status === 'rate_limited' || p.status === 'unauthorized' || p.status === 'no_oauth' || p.status === 'warning' || p.apiKeyStatus === 'exhausted' || p.apiKeyStatus === 'unauthorized').length})
+            </button>
+          )}
         </div>
       </div>
 
@@ -1631,7 +1681,7 @@ function ProjectsSection() {
             gap: 12,
           }}>
             {filteredProjects.map(p => (
-              <ProjectCard key={p.projectId} project={p} onRefresh={load} onReset={() => handleResetProject(p.projectId)} />
+              <ProjectCard key={p.projectId} project={p} onRefresh={load} />
             ))}
           </div>
         )}
@@ -1759,6 +1809,11 @@ function SessionsSection() {
                   }}>
                     <div style={{ width: 6, height: 6, borderRadius: '50%', background: isStale ? '#FFB800' : '#00FF88', flexShrink: 0 }} title={isStale ? "Stale cookie" : "Healthy"}/>
                     <span style={{ fontSize: 10, color: '#888', flex: 1 }}>{s.profileName}</span>
+                    {s.rawSocs && (
+                      <span style={{ fontSize: 7, color: '#444', fontFamily: 'monospace', marginRight: 6 }} title={`SOCS=${s.rawSocs}`}>
+                        SOCS:{s.rawSocs.slice(0, 3)}
+                      </span>
+                    )}
                     {s.lastRefreshAt > 0 && (
                       <span style={{ fontSize: 8, color: isStale ? '#FFB800' : '#444', fontFamily: 'monospace', marginRight: 8 }} title="Cookie age">
                         {ageHours > 24 ? `${Math.round(ageHours/24)}d old` : `${ageHours}h old`}
@@ -1784,6 +1839,11 @@ function SessionsSection() {
                 }}>
                   <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#FFB800', flexShrink: 0 }} />
                   <span style={{ fontSize: 10, color: '#888', flex: 1 }}>{s.profileName}</span>
+                  {s.rawSocs && (
+                    <span style={{ fontSize: 7, color: '#FFB80088', fontFamily: 'monospace', marginRight: 6 }} title={`Real SOCS: ${s.rawSocs}`}>
+                      SOCS:{s.rawSocs.slice(0, 3)} (injected CAI)
+                    </span>
+                  )}
                   <button
                     onClick={() => handleOpenLogin(s.profileId)}
                     style={{
@@ -2023,6 +2083,97 @@ function PollerStatusPanel() {
             <span style={{ fontSize: 9, color: '#333' }}>
               {hasInnertube ? '— PRIMARY [ACTIVE]' : totalSessions === 0 ? '— chưa khởi tạo' : '— cần đăng nhập Chrome'}
             </span>
+          </div>
+
+          {/* Unified Detection Status Panel */}
+          <div style={{
+            background: '#0a0a0a',
+            border: '1px solid #1a1a1a',
+            borderRadius: 6,
+            padding: '12px 14px',
+            marginTop: 4,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}>
+            {/* Header: detection path badge */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{
+                background: hasInnertube ? '#00FF8820' : hasOAuth ? '#FFB80020' : '#FF444420',
+                border: `1px solid ${hasInnertube ? '#00FF8844' : hasOAuth ? '#FFB80044' : '#FF444444'}`,
+                borderRadius: 4,
+                padding: '3px 8px',
+                fontSize: 9,
+                fontWeight: 700,
+                letterSpacing: '0.06em',
+                color: hasInnertube ? '#00FF88' : hasOAuth ? '#FFB800' : '#FF4444',
+              }}>
+                {hasInnertube ? 'PRIMARY' : hasOAuth ? 'FALLBACK' : 'NO SOURCE'}
+              </div>
+              <span style={{ fontSize: 8, color: '#555', letterSpacing: '0.06em' }}>
+                DETECTION PATH
+              </span>
+              {innertubeDegraded && (
+                <span style={{ fontSize: 8, color: '#FFB800', background: '#FFB80020', border: '1px solid #FFB80044', borderRadius: 3, padding: '1px 5px' }}>
+                  DEGRADED
+                </span>
+              )}
+              {needsConsent && (
+                <span style={{ fontSize: 8, color: '#FF6644', background: '#FF664420', border: '1px solid #FF664444', borderRadius: 3, padding: '1px 5px' }}>
+                  CONSENT MISSING
+                </span>
+              )}
+            </div>
+
+            {/* Capacity row */}
+            <div style={{ display: 'flex', gap: 16 }}>
+              {/* Innertube */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 5, height: 5, borderRadius: '50%', background: hasInnertube ? '#00FF88' : '#333' }} />
+                <span style={{ fontSize: 9, color: '#666' }}>Innertube</span>
+                <span style={{ fontSize: 9, fontFamily: 'monospace', color: hasInnertube ? '#00FF88' : '#444' }}>
+                  {consented}/{totalSessions} sessions
+                </span>
+                {needsConsent && (
+                  <span style={{ fontSize: 8, color: '#FF6644' }}>({loggedInCount - consented} need consent)</span>
+                )}
+              </div>
+
+              {/* OAuth */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 5, height: 5, borderRadius: '50%', background: hasOAuth ? '#00FF88' : '#333' }} />
+                <span style={{ fontSize: 9, color: '#666' }}>OAuth</span>
+                <span style={{ fontSize: 9, fontFamily: 'monospace', color: hasOAuth ? '#00FF88' : '#444' }}>
+                  {healthyProjects}/{totalProjects} projects
+                </span>
+                {hasOAuth && (
+                  <span style={{ fontSize: 8, color: quotaColor, fontFamily: 'monospace' }}>
+                    ({totalQuotaRemaining.toLocaleString()} quota)
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Warnings */}
+            {(needsConsent || sessionHealthPct < 50 || hasExpiredSessions) && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {needsConsent && (
+                  <span style={{ fontSize: 8, color: '#FF6644' }}>
+                    ⚠ {loggedInCount - consented} session(s) missing SOCS consent — open YouTube in Chrome, accept terms
+                  </span>
+                )}
+                {hasExpiredSessions && (
+                  <span style={{ fontSize: 8, color: '#FFB800' }}>
+                    ⚠ {hasExpiredSessions} session(s) lost cookies since last run
+                  </span>
+                )}
+                {!needsConsent && sessionHealthPct < 50 && (
+                  <span style={{ fontSize: 8, color: '#FFB800' }}>
+                    ⚠ Session health {sessionHealthPct}% — consider refreshing Chrome sessions
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* OAuth */}
@@ -2296,12 +2447,17 @@ function PollerStatusPanel() {
 
 // ─── Projects Section ──────────────────────────────────────────────────────────
 
-function PathRow({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function PathRow({ label, value, onChange, needsRestart }: { label: string; value: string; onChange: (v: string) => void; needsRestart?: boolean }) {
   const short = value.length > 50 ? '...' + value.slice(-47) : value
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #181818' }}>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>{label}</div>
+        <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>
+          {label}
+          {needsRestart && (
+            <span style={{ marginLeft: 6, fontSize: 8, color: '#FFB800', fontWeight: 700, letterSpacing: '0.06em' }}>RESTART</span>
+          )}
+        </div>
         <div style={{ fontSize: 9, color: '#444', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={value}>
           {short || '— not set —'}
         </div>
@@ -2393,13 +2549,11 @@ function StorageWidget() {
   const [trimInputError, setTrimInputError] = useState('')
   const [pollInterval, setPollInterval] = useState(5)
 
-  // Auto-render state
-  const [autoRenderEnabled, setAutoRenderEnabled] = useState(settings.autoRender ?? false)
-  const [autoRenderRes, setAutoRenderRes] = useState(settings.autoRenderResolution ?? '480x480')
-  const [autoRenderFps, setAutoRenderFps] = useState(settings.autoRenderFPS ?? 30)
-
   // Render quality state
   const [renderQuality, setRenderQuality] = useState<1080 | 720>((settings.defaultQuality ?? 1080) as 1080 | 720)
+
+  // Concurrency state
+  const [maxConcurrentRenders, setMaxConcurrentRenders] = useState(2)
 
   const load = async () => {
     const [s, st] = await Promise.all([ipc.getStorageSize(), ipc.getSettings()])
@@ -2417,13 +2571,11 @@ function StorageWidget() {
     setTrimCustomValue(typeof st.defaultTrimLimit === 'number' && ![5, 10, 15].includes(loadedTrim) ? String(loadedTrim) : '')
     setPollInterval(st.pollIntervalMs ? st.pollIntervalMs / 1000 : 5)
 
-    // Sync auto-render state
-    setAutoRenderEnabled(st.autoRender ?? false)
-    setAutoRenderRes(st.autoRenderResolution ?? '480x480')
-    setAutoRenderFps(st.autoRenderFPS ?? 30)
-
     // Sync render quality
     setRenderQuality((st.defaultQuality ?? 1080) as 1080 | 720)
+
+    // Sync concurrency
+    setMaxConcurrentRenders(st.maxConcurrentRenders ?? 2)
   }
 
   useEffect(() => { load() }, [])
@@ -2508,23 +2660,11 @@ function StorageWidget() {
     showToast(`Default render quality: ${val}p`)
   }
 
-  const handleAutoRenderToggle = async (val: boolean) => {
-    setAutoRenderEnabled(val)
-    await ipc.updateSettings({ autoRender: val })
-    setSettings({ autoRender: val })
-    showToast(val ? 'Auto-render ON' : 'Auto-render OFF')
-  }
-
-  const handleAutoRenderResChange = async (val: string) => {
-    setAutoRenderRes(val)
-    await ipc.updateSettings({ autoRenderResolution: val })
-    setSettings({ autoRenderResolution: val })
-  }
-
-  const handleAutoRenderFpsChange = async (val: number) => {
-    setAutoRenderFps(val)
-    await ipc.updateSettings({ autoRenderFPS: val })
-    setSettings({ autoRenderFPS: val })
+  const handleMaxConcurrentChange = async (val: number) => {
+    setMaxConcurrentRenders(val)
+    await ipc.updateSettings({ maxConcurrentRenders: val })
+    setSettings({ maxConcurrentRenders: val })
+    showToast(`Max concurrent renders: ${val}`)
   }
 
   const handleCleanupToggle = async (val: boolean) => {
@@ -2542,6 +2682,7 @@ function StorageWidget() {
   }
 
   const handleClearDownloads = async () => {
+    if (!window.confirm(`Xóa toàn bộ video đã download (${stats.downloads} MB)?\n\nHành động này không thể hoàn tác.`)) return
     setClearingDl(true)
     const result = await ipc.clearDownloads()
     setClearingDl(false)
@@ -2550,6 +2691,7 @@ function StorageWidget() {
   }
 
   const handleClearBlur = async () => {
+    if (!window.confirm(`Xóa toàn bộ ảnh blur (${stats.blur} MB)?\n\nHành động này không thể hoàn tác.`)) return
     setClearingBlr(true)
     const result = await ipc.clearBlur()
     setClearingBlr(false)
@@ -2577,14 +2719,14 @@ function StorageWidget() {
 
   const freeBytes = stats.freeBytes ?? 0
   const freeGB = freeBytes / (1024 ** 3)
-  const isLowDisk = freeBytes > 0 && freeBytes < 5 * 1024 * 1024 * 1024
+  const isLowDisk = freeBytes > 0 && freeBytes < 20 * 1024 * 1024 * 1024
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
       {/* Storage paths */}
       <div style={{ padding: '8px 14px 4px', fontSize: 9, color: '#333', letterSpacing: '0.1em', fontWeight: 700 }}>PATHS</div>
-      <PathRow label="Downloads" value={stats.downloadPath} onChange={handleDownloadPathChange} />
-      <PathRow label="Output" value={stats.outputPath} onChange={handleOutputPathChange} />
+      <PathRow label="Downloads" value={stats.downloadPath} onChange={handleDownloadPathChange} needsRestart />
+      <PathRow label="Output" value={stats.outputPath} onChange={handleOutputPathChange} needsRestart />
       <PathRow label="Archive" value={archivePath || '— default —'} onChange={handleArchivePathChange} />
 
       {/* Disk space warning */}
@@ -2768,39 +2910,14 @@ function StorageWidget() {
         <QualityPicker value={String(renderQuality)} options={['720', '1080']} onChange={v => handleRenderQualityChange(Number(v) as 720 | 1080)} label="p" />
       </div>
 
-      {/* ── AUTO-RENDER ──────────────────────────────────── */}
-      <div style={{ padding: '8px 14px 4px', fontSize: 9, color: '#333', letterSpacing: '0.1em', fontWeight: 700, marginTop: 6 }}>AUTO-RENDER</div>
-
-      {/* Toggle */}
+      {/* Max concurrent renders */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', borderBottom: '1px solid #181818' }}>
         <div>
-          <div style={{ fontSize: 11, color: '#888' }}>Auto-render</div>
-          <div style={{ fontSize: 9, color: '#444' }}>Render immediately after download</div>
+          <div style={{ fontSize: 11, color: '#888' }}>Max concurrent</div>
+          <div style={{ fontSize: 9, color: '#444' }}>GPU memory limit</div>
         </div>
-        <ToggleSwitch value={autoRenderEnabled} onChange={handleAutoRenderToggle} />
+        <QualityPicker value={String(maxConcurrentRenders)} options={['1', '2']} onChange={v => handleMaxConcurrentChange(Number(v))} />
       </div>
-
-      {/* Resolution */}
-      {autoRenderEnabled && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', borderBottom: '1px solid #181818' }}>
-          <div>
-            <div style={{ fontSize: 11, color: '#888' }}>Output resolution</div>
-            <div style={{ fontSize: 9, color: '#444' }}>Square format</div>
-          </div>
-          <QualityPicker value={autoRenderRes} options={['480x480', '720x720', '1080x1080']} onChange={handleAutoRenderResChange} />
-        </div>
-      )}
-
-      {/* FPS */}
-      {autoRenderEnabled && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', borderBottom: '1px solid #181818' }}>
-          <div>
-            <div style={{ fontSize: 11, color: '#888' }}>Frame rate</div>
-            <div style={{ fontSize: 9, color: '#444' }}>Target FPS</div>
-          </div>
-          <QualityPicker value={String(autoRenderFps)} options={['30', '60']} onChange={v => handleAutoRenderFpsChange(Number(v))} label="fps" />
-        </div>
-      )}
 
       {/* ── CLEANUP ──────────────────────────────────────── */}
       <div style={{ padding: '8px 14px 4px', fontSize: 9, color: '#333', letterSpacing: '0.1em', fontWeight: 700, marginTop: 6 }}>CLEANUP</div>

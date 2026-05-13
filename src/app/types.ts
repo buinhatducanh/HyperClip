@@ -28,6 +28,8 @@ export interface Video {
   isShort?: boolean;
   /** Source video resolution (e.g. "1920x1080") */
   videoResolution?: string;
+  /** yt-dlp quality cap used for download (e.g. "720") — max export quality */
+  downloadQuality?: string;
 }
 
 export interface EditorState {

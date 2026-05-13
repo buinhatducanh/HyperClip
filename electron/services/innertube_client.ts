@@ -33,6 +33,7 @@ import Innertube from 'youtubei.js'
 import { getSessionManager } from './chrome_cookies.js'
 import type { YouTubeCookies } from './chrome_cookies.js'
 import { warmupPoTokenCache, getPoTokenForProfile, refreshPoToken } from './po_token.js'
+import { devLog } from './dev_log.js'
 
 export interface InnertubePoolStatus {
   totalSessions: number
@@ -467,7 +468,7 @@ class InnertubeClientPool {
     await sm.ensureInit()
     const sessions = sm.getSessions()
 
-    console.log(`[InnertubePool] Building client pool from ${sessions.length} Chrome sessions...`)
+    devLog(`[InnertubePool] Building client pool from ${sessions.length} Chrome sessions...`)
 
     // Build pool entries — no clients yet, just cookies
     this._sessions = sessions.map(s => ({
@@ -495,7 +496,7 @@ class InnertubeClientPool {
         if (entry.cookies && entry.cookies.SAPISID && entry.cookies.PSID) {
           try {
             const cookieStr = buildCookieString(entry.cookies)
-            console.log(`[InnertubePool] Session ${entry.profileId}: creating client (PSID=${entry.cookies.PSID.slice(0,4)}..., SAPISID=${entry.cookies.SAPISID.slice(0,6)}..., SOCS=${entry.cookies.socs ?? 'none'})`)
+            devLog(`[InnertubePool] Session ${entry.profileId}: creating client (PSID=${entry.cookies.PSID.slice(0,4)}..., SAPISID=${entry.cookies.SAPISID.slice(0,6)}..., SOCS=${entry.cookies.socs ?? 'none'})`)
             entry.client = await Innertube.create({
               cookie: cookieStr,
               retrieve_player: false,   // we only need metadata, not streaming
@@ -507,7 +508,7 @@ class InnertubeClientPool {
             try {
               await entry.client.getHomeFeed()
               readyCount++
-              console.log(`[InnertubePool] Session ${entry.profileId}: ✓ client created and health-checked`)
+              devLog(`[InnertubePool] Session ${entry.profileId}: ✓ client created and health-checked`)
             } catch (healthErr: unknown) {
               const errStr = String(healthErr)
               const isAuthError = /401|403|not_signed_in|consent|verification|auth|500|Internal Server/i.test(errStr)
@@ -515,16 +516,16 @@ class InnertubeClientPool {
                 entry.client = null
                 entry.error = `auth check failed: ${errStr.slice(0, 80)}`
                 entry.lastErrorAt = Date.now()
-                console.log(`[InnertubePool] Session ${entry.profileId}: ✗ auth check failed — ${entry.error}`)
+                devLog(`[InnertubePool] Session ${entry.profileId}: ✗ auth check failed — ${entry.error}`)
               } else {
-                console.log(`[InnertubePool] Session ${entry.profileId}: health check transient error — not marked ready: ${errStr.slice(0, 80)}`)
+                devLog(`[InnertubePool] Session ${entry.profileId}: health check transient error — not marked ready: ${errStr.slice(0, 80)}`)
               }
             }
           } catch (e: unknown) {
             entry.error = String(e).slice(0, 120)
             entry.lastErrorAt = Date.now()
             entry.client = null
-            console.log(`[InnertubePool] Session ${entry.profileId}: ✗ error — ${entry.error}`)
+            devLog(`[InnertubePool] Session ${entry.profileId}: ✗ error — ${entry.error}`)
           }
         } else {
           // Diagnose why this session is unusable
@@ -534,16 +535,16 @@ class InnertubeClientPool {
           if (!entry.cookies?.PSID) reasons.push('no __Secure-1PSID')
           if (entry.cookies?.PSID && entry.cookies?.SAPISID && !entry.cookies?.PSIDCC) reasons.push('no PSIDCC (may be ok)')
           entry.error = reasons.join('; ')
-          console.log(`[InnertubePool] Session ${entry.profileId}: skipped — ${entry.error}`)
+          devLog(`[InnertubePool] Session ${entry.profileId}: skipped — ${entry.error}`)
         }
       }))
     }
 
     const ready = this._sessions.filter(e => e.client !== null).length
     const skipped = this._sessions.filter(e => !e.client)
-    console.log(`[InnertubePool] ${ready}/${this._sessions.length} sessions ready`)
+    devLog(`[InnertubePool] ${ready}/${this._sessions.length} sessions ready`)
     if (skipped.length > 0) {
-      console.log(`[InnertubePool] Skipped sessions (${skipped.length}): ${skipped.map(e => `${e.profileId}(${e.error})`).join(', ')}`)
+      devLog(`[InnertubePool] Skipped sessions (${skipped.length}): ${skipped.map(e => `${e.profileId}(${e.error})`).join(', ')}`)
     }
 
     if (ready === 0) {
@@ -551,14 +552,9 @@ class InnertubeClientPool {
       console.warn('[InnertubePool] Hint: Close Chrome, then restart HyperClip. Or open Chrome profiles and log into YouTube.')
     }
 
-    // Warm up PO Token cache for all profiles (for android client downloads).
-    // After warmup, sync tokens back to pool entries so getDownloadSession finds them.
-    const allProfileIds = this._sessions.map(e => e.profileId)
-    await warmupPoTokenCache(allProfileIds)
-    // Sync from po_token.ts cache — these are warm (fresh or stale-within-TTL).
-    // Using Promise.all to avoid sequential 5s timeouts × 30 profiles.
-    const tokens = await Promise.all(this._sessions.map(e => getPoTokenForProfile(e.profileId)))
-    this._sessions.forEach((entry, i) => { if (tokens[i]) entry.po_token = tokens[i] })
+    // PO Token extraction from CDP is disabled (streamingData is null in page HTML).
+    // Reliable 720p+ path: export Chrome cookies + yt-dlp --cookies (at download level).
+    // No warmup needed here.
   }
 
   /**
@@ -601,7 +597,7 @@ class InnertubeClientPool {
    *
    * Age filter: only accept videos < 10 minutes old.
    * - publishedAt > 0 AND age <= 10 min → accept
-   * - publishedAt = 0 (unparseable, treated as new upload) → accept
+   * - publishedAt = 0 (unparseable, treated as old video with no cached timestamp) → skip
    * - publishedAt > 0 AND age > 10 min → skip (all older videos are also old → safe to return null)
    *
    * YouTube tab order is sorted newest-first, so if top-1 is old, all videos are old.
@@ -609,7 +605,7 @@ class InnertubeClientPool {
   async getLatestVideo(channelId: string, seenVideoIds?: Set<string>): Promise<LatestVideo | null> {
     const entry = this.getNextClient()
     if (!entry) {
-      console.log(`[InnertubePool] getLatestVideo(${channelId}): no client available`)
+      devLog(`[InnertubePool] getLatestVideo(${channelId}): no client available`)
       return null
     }
 
@@ -634,24 +630,27 @@ class InnertubeClientPool {
       const videoItems = extractVideosFromTab(videosTab)
 
       if (videoItems.length === 0) {
-        if (channelId.includes('l0DrJgvA')) {
-          // Log memo keys for debugging — helps diagnose which structure YouTube is returning
-          const memoKeys = videosTab?.memo ? Array.from(videosTab.memo.keys()).join(',') : 'none'
-          const pageMemoKeys = videosTab?.page?.contents_memo ? Array.from(videosTab.page.contents_memo.keys()).join(',') : 'none'
-          console.log(`[ZILLY] getLatestVideo: 0 videos — tab="${videosTab?.current_tab?.title ?? videosTab?.title ?? '?'}" feedMemo(${memoKeys.length > 0 ? memoKeys.length + ' keys' : 'empty'}) pageMemo(${pageMemoKeys.length > 0 ? pageMemoKeys.length + ' keys' : 'empty'}) fallback=${usedFallback}`)
-        }
+        // DEBUG: log why extraction returned 0 videos — helps diagnose silent zero-result polls
+        const hasMemo = !!(videosTab?.page?.contents_memo || videosTab?.memo || videosTab?.page?.on_response_received_endpoints_memo)
+        const hasCurrentTab = !!(videosTab?.current_tab?.content)
+        const hasPageContents = !!(videosTab?.page?.contents)
+        devLog(`[InnertubePool] getLatestVideo(${channelId}): extractVideosFromTab=0 (hasMemo=${hasMemo} hasCurrentTab=${hasCurrentTab} hasPageContents=${hasPageContents})`)
         return null
       }
 
-      // Log top-2 items — only for Zilk Kay
-      if (channelId.includes('l0DrJgvA')) {
+      // ── Compact top-5 debug log: only log when useful ──────────────────────
+      // Reduces log spam: skip when everything is fine (no videos found, no errors).
+      // Log when: (a) all videos have unparseable age (useful for detecting missing metadata),
+      // (b) videos found, or (c) on first poll (every 5th poll ≈ every 25s).
+      const parseableCount = videoItems.slice(0, 5).filter((vi: any) => extractLockupVideoField(vi, 'published')).length
+      const _pollTick = Math.floor(Date.now() / 5000) // one value per 5s
+      if (parseableCount === 0 || _pollTick % 5 === 0) {
         const top5 = videoItems.slice(0, Math.min(5, videoItems.length)).map((vi: any) => ({
-          type: vi?.type,
           id: extractLockupVideoField(vi, 'videoId'),
-          title: extractLockupVideoField(vi, 'title'),
-          published: extractLockupVideoField(vi, 'published'),
+          title: extractLockupVideoField(vi, 'title').slice(0, 40),
+          published: extractLockupVideoField(vi, 'published') || '(empty)',
         }))
-        console.log(`[ZILLY] top-5: ${JSON.stringify(top5)}`)
+        devLog(`[InnertubePool] ${channelId} top-5: parseable=${parseableCount}/5 → ${JSON.stringify(top5)}`)
       }
 
       // Try top-1..top-5 — skip deleted/private and seen videos
@@ -679,10 +678,7 @@ class InnertubeClientPool {
 
         // Check dedup — if seen, all older videos are also seen (tab sorted newest-first)
         if (seenVideoIds?.has(String(videoId))) {
-          if (channelId.includes('l0DrJgvA')) {
-            console.log(`[ZILLY] check[${i}]: id=${videoId} SEEN → return null (all older are also seen)`)
-          }
-          return null
+          continue // Video already downloaded — try next (new uploads may have shifted positions)
         }
 
         // Extract published time — supports both LockupView structures
@@ -696,42 +692,23 @@ class InnertubeClientPool {
         }
         const publishedAt = parseRelativeDate(publishedRaw)
 
-        // Log for all channels (helps debug why old videos are downloaded)
-        if (!channelId.includes('l0DrJgvA')) {
-          const ageMs = publishedAt > 0 ? Date.now() - publishedAt : -1
-          const ageLabel = publishedAt > 0
-            ? (ageMs < 60000 ? 'just now' : ageMs < 3600000 ? `${Math.round(ageMs / 60000)}m ago` : ageMs < 86400000 ? `${Math.round(ageMs / 3600000)}h ago` : `${Math.round(ageMs / 86400000)}d ago`)
-            : 'UNPARSEABLE'
-          console.log(`[InnertubePool] check[${i}]: id=${videoId} title="${title.slice(0, 40)}" raw="${publishedRaw}" age=${ageLabel}`)
-        } else {
-          const age = publishedAt > 0 ? `${Math.round((Date.now() - publishedAt) / 60000)}m ago` : 'UNPARSEABLE'
-          console.log(`[ZILLY] check[${i}]: id=${videoId} title="${title.slice(0, 30)}" age=${age} raw="${publishedRaw}"`)
+        // DEBUG: log raw extraction for Zilk Kay (UC...)
+        if (channelId.startsWith('UC')) {
+          devLog(`[DEBUG] ${channelId} [${i}] raw="${publishedRaw}" parsed=${publishedAt > 0 ? 'VALID' : 'ZERO'} age=${publishedAt > 0 ? Math.round((Date.now() - publishedAt) / 60000) + 'm' : 'N/A'}`)
         }
 
-        // Age filter: accept videos < 10 min old — consistent for all polls.
-        // First poll: do NOT relax to 24h — it causes old videos to be downloaded
-        // (they get added to seenVideoIds and never re-filtered on subsequent polls).
-        // If a video was uploaded while the app was offline, it will be detected
-        // on the next poll (up to 10 min after upload).
+        // Age filter: skip videos older than 10 min (if age is parseable).
+        // Skip unparseable age (publishedAt=0) — these are OLD videos where YouTube never
+        // cached published_time_text, NOT new uploads. New uploads always have parseable age.
         const MAX_VIDEO_AGE_MS = 10 * 60 * 1000
         if (publishedAt > 0 && Date.now() - publishedAt > MAX_VIDEO_AGE_MS) {
           const ageMin = Math.round((Date.now() - publishedAt) / 60000)
-          if (channelId.includes('l0DrJgvA')) {
-            console.log(`[ZILLY] check[${i}]: id=${videoId} SKIP (age): ${ageMin}m old > 10m`)
-          } else {
-            console.log(`[InnertubePool] check[${i}]: id=${videoId} "${title.slice(0, 30)}" SKIP (age): ${ageMin}m old > 10m`)
-          }
-          // Continue to check next video — this video is old but a newer one might be recent
+          devLog(`[InnertubePool] check[${i}]: id=${videoId} "${title.slice(0, 30)}" SKIP (age): ${ageMin}m old > 10m`)
           continue
         }
-        // Skip videos with unparseable age — YouTube sometimes delays published_time_text
-        // for very new uploads (0-2 min). Next poll cycle will have the cached timestamp.
+        // publishedAt=0 = old video with no cached timestamp — skip.
         if (publishedAt === 0) {
-          if (channelId.includes('l0DrJgvA')) {
-            console.log(`[ZILLY] check[${i}]: id=${videoId} age UNPARSEABLE — skip (will retry next poll)`)
-          } else {
-            console.log(`[InnertubePool] check[${i}]: id=${videoId} "${title.slice(0, 30)}" age UNPARSEABLE — skip (raw="${publishedRaw}")`)
-          }
+          devLog(`[InnertubePool] check[${i}]: id=${videoId} "${title.slice(0, 30)}" age UNPARSEABLE — skip (old, no cached timestamp)`)
           continue
         }
 
@@ -770,14 +747,8 @@ class InnertubeClientPool {
 
         // Log ACCEPT — helps debug why old videos are being downloaded
         const ageMs = Date.now() - publishedAt
-        const ageLabel = publishedAt > 0
-          ? (ageMs < 60000 ? 'just now' : ageMs < 3600000 ? `${Math.round(ageMs / 60000)}m ago` : ageMs < 86400000 ? `${Math.round(ageMs / 3600000)}h ago` : `${Math.round(ageMs / 86400000)}d ago`)
-          : 'UNPARSEABLE'
-        if (channelId.includes('l0DrJgvA')) {
-          console.log(`[ZILLY] ✓ ACCEPT[${i}]: id=${videoId} age=${ageLabel}`)
-        } else {
-          console.log(`[InnertubePool] ✓ ACCEPT[${i}]: id=${videoId} "${title.slice(0, 40)}" age=${ageLabel} (${publishedAt > 0 ? 'age filter PASSED' : 'UNPARSEABLE'})`)
-        }
+        const ageLabel = ageMs < 60000 ? 'just now' : ageMs < 3600000 ? `${Math.round(ageMs / 60000)}m ago` : ageMs < 86400000 ? `${Math.round(ageMs / 3600000)}h ago` : `${Math.round(ageMs / 86400000)}d ago`
+        devLog(`[InnertubePool] ✓ ACCEPT[${i}]: id=${videoId} "${title.slice(0, 40)}" age=${ageLabel}`)
 
         return {
           videoId: String(videoId),
@@ -794,7 +765,7 @@ class InnertubeClientPool {
       return null
     } catch (e: unknown) {
       const errStr = String(e)
-      console.log(`[InnertubePool] getLatestVideo(${channelId}) error: ${errStr.slice(0, 200)}`)
+      devLog(`[InnertubePool] getLatestVideo(${channelId}) error: ${errStr.slice(0, 200)}`)
       const sessionEntry = this._sessions.find(s => s.profileId === entry.profileId)
       if (sessionEntry) {
         sessionEntry.lastErrorAt = Date.now()
@@ -808,122 +779,6 @@ class InnertubeClientPool {
   }
 
   /**
-   * Priority re-scan: same as getLatestVideo() but ACCEPTS unparseable age (publishedAt=0).
-   *
-   * When YouTube hasn't cached published_time_text yet (~0-2 min after upload), the
-   * primary getLatestVideo() skips these as "too old" after the 2nd poll.
-   * This method is called immediately after a zero-result poll to catch those videos
-   * before the next scheduled poll — reducing detection latency from ~60s to ~5-10s.
-   *
-   * Dedup: still returns null on seen (newest is already downloaded → older are too).
-   * Age filter: relaxed — accept publishedAt=0 (unparseable) as likely new uploads.
-   */
-  async getLatestVideoPriority(channelId: string, seenVideoIds?: Set<string>): Promise<LatestVideo | null> {
-    const entry = this.getNextClient()
-    if (!entry) return null
-
-    try {
-      const channel = await entry.client.getChannel(channelId)
-
-      let videosTab: any
-      try {
-        videosTab = await channel.getVideos()
-      } catch {
-        videosTab = await channel.getHome()
-      }
-
-      const videoItems = extractVideosFromTab(videosTab)
-      if (videoItems.length === 0) return null
-
-      const maxCheck = Math.min(5, videoItems.length)
-      for (let i = 0; i < maxCheck; i++) {
-        const videoItem = videoItems[i]
-        const itemType = videoItem?.type
-        const isLockup = itemType === 'LockupView' || itemType === 'ShortsLockupView'
-
-        const videoId = isLockup
-          ? extractLockupVideoField(videoItem, 'videoId')
-          : (videoItem.id || videoItem.videoId || videoItem.video_id ? String(videoItem.id || videoItem.videoId || videoItem.video_id) : '')
-        if (!videoId) continue
-
-        const title = isLockup
-          ? extractLockupVideoField(videoItem, 'title')
-          : (typeof videoItem.title === 'string' ? videoItem.title : videoItem.title?.text ?? videoItem.title?.toString?.() ?? '(no title)')
-
-        if (title.includes('[deleted]') || title.includes('[private]')) continue
-
-        // Dedup: if seen, all older videos are also seen (newest-first tab order)
-        if (seenVideoIds?.has(String(videoId))) return null
-
-        // Extract published time
-        let publishedRaw = ''
-        if (isLockup) {
-          publishedRaw = extractLockupVideoField(videoItem, 'published')
-        } else {
-          publishedRaw = typeof videoItem.published?.text === 'string'
-            ? videoItem.published.text
-            : videoItem.published?.toString?.() ?? ''
-        }
-        const publishedAt = parseRelativeDate(publishedRaw)
-
-        // Age filter: accept videos < 10 min old, OR unparseable (publishedAt=0).
-        // publishedAt=0 means YouTube hasn't cached the timestamp yet — treat as new upload.
-        const MAX_VIDEO_AGE_MS = 10 * 60 * 1000
-        if (publishedAt > 0 && Date.now() - publishedAt > MAX_VIDEO_AGE_MS) {
-          continue // Video is old — try next
-        }
-        // publishedAt=0 is ACCEPTED here — priority re-scan allows unparseable age
-
-        // Extract channel name (same logic as getLatestVideo)
-        const extractedChannelName = (() => {
-          const authorName = videoItem.author?.name
-          if (authorName) {
-            const name = typeof authorName === 'string' ? authorName : (authorName as any)?.text || String(authorName)
-            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null' && name !== 'N/A') return name
-          }
-          const header = channel.header as any
-          if (header?.author?.name) {
-            const name = typeof header.author.name === 'string' ? header.author.name : (header.author.name as any)?.text || String(header.author.name)
-            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null' && name !== 'N/A') return name
-          }
-          if (header?.metadata?.title) {
-            const name = typeof header.metadata.title === 'string' ? header.metadata.title : (header.metadata.title as any)?.text || String(header.metadata.title)
-            if (name && name !== '[object Object]' && name !== 'undefined' && name !== 'null' && name !== 'N/A') return name
-          }
-          return null
-        })()
-        const channelName = extractedChannelName ?? 'Unknown Channel'
-
-        const thumbnail =
-          videoItem.thumbnail?.thumbnails?.[0]?.url
-          || videoItem.content_image?.thumbnails?.[0]?.url
-          || videoItem.metadata?.image?.sources?.[0]?.url
-          || ''
-
-        const ageLabel = publishedAt > 0
-          ? `${Math.round((Date.now() - publishedAt) / 60000)}m ago`
-          : 'UNPARSEABLE (priority)'
-        console.log(`[InnertubePool] getLatestVideoPriority(${channelId}) ✓ ACCEPT[${i}]: id=${videoId} age=${ageLabel}`)
-
-        return {
-          videoId: String(videoId),
-          title: String(title),
-          channelId,
-          channelName: String(channelName),
-          thumbnail: String(thumbnail),
-          publishedAt,
-          publishedText: publishedRaw || undefined,
-        }
-      }
-
-      return null
-    } catch (e: unknown) {
-      console.log(`[InnertubePool] getLatestVideoPriority(${channelId}) error: ${String(e).slice(0, 200)}`)
-      return null
-    }
-  }
-
-  /**
    * Fetch the newest N videos from a channel using Innertube.
    * Returns multiple videos so callers can skip already-seen ones at position >1.
    * Returns empty array if fetch fails.
@@ -931,7 +786,7 @@ class InnertubeClientPool {
   async getLatestVideos(channelId: string, count = 5): Promise<LatestVideo[]> {
     const entry = this.getNextClient()
     if (!entry) {
-      console.log(`[InnertubePool] getLatestVideos(${channelId}): no client available`)
+      devLog(`[InnertubePool] getLatestVideos(${channelId}): no client available`)
       return []
     }
 
@@ -954,7 +809,7 @@ class InnertubeClientPool {
       const videoItems = extractVideosFromTab(videosTab)
 
       if (videoItems.length === 0) {
-        console.log(`[InnertubePool] getLatestVideos(${channelId}): tab="${(videosTab as any).title ?? (videosTab as any).current_tab?.title ?? '?'}" (fallback=${usedFallback}), 0 videos — session=${entry.profileId}`)
+        devLog(`[InnertubePool] getLatestVideos(${channelId}): tab="${(videosTab as any).title ?? (videosTab as any).current_tab?.title ?? '?'}" (fallback=${usedFallback}), 0 videos — session=${entry.profileId}`)
         return []
       }
 
@@ -991,7 +846,7 @@ class InnertubeClientPool {
         const publishedAt2 = parseRelativeDate(pr2)
         // Skip videos with unparseable timestamps — can't verify age, safer to exclude
         if (publishedAt2 === 0) {
-          console.log(`[InnertubePool] getLatestVideos(${channelId}): top-${i+1} id=${videoId} age unparseable ("${pr2}") — skipping — session=${entry.profileId}`)
+          devLog(`[InnertubePool] getLatestVideos(${channelId}): top-${i+1} id=${videoId} age unparseable ("${pr2}") — skipping — session=${entry.profileId}`)
           continue
         }
         const publishedText = pr2 || undefined
@@ -1034,15 +889,15 @@ class InnertubeClientPool {
       }
 
       if (results.length === 0) {
-        console.log(`[InnertubePool] getLatestVideos(${channelId}): all top-${limit} videos deleted/private — session=${entry.profileId}`)
+        devLog(`[InnertubePool] getLatestVideos(${channelId}): all top-${limit} videos deleted/private — session=${entry.profileId}`)
       } else {
-        console.log(`[InnertubePool] getLatestVideos(${channelId}): got ${results.length} videos (session=${entry.profileId})`)
+        devLog(`[InnertubePool] getLatestVideos(${channelId}): got ${results.length} videos (session=${entry.profileId})`)
       }
 
       return results
     } catch (e: unknown) {
       const errStr = String(e)
-      console.log(`[InnertubePool] getLatestVideos(${channelId}) error: ${errStr.slice(0, 200)}`)
+      devLog(`[InnertubePool] getLatestVideos(${channelId}) error: ${errStr.slice(0, 200)}`)
       const sessionEntry = this._sessions.find(s => s.profileId === entry.profileId)
       if (sessionEntry) {
         sessionEntry.lastErrorAt = Date.now()
@@ -1081,7 +936,7 @@ class InnertubeClientPool {
         entry.error = undefined
         entry.lastErrorAt = 0
         entry.errorCount = 0
-        console.log(`[InnertubePool] Session ${profileId}: refreshed and health-checked OK`)
+        devLog(`[InnertubePool] Session ${profileId}: refreshed and health-checked OK`)
         return true
       } catch (healthErr: unknown) {
         const errStr = String(healthErr)
@@ -1089,13 +944,13 @@ class InnertubeClientPool {
         if (isAuthError) {
           entry.client = null
           entry.error = `auth check failed: ${errStr.slice(0, 80)}`
-          console.log(`[InnertubePool] Session ${profileId}: refresh auth check failed — ${entry.error}`)
+          devLog(`[InnertubePool] Session ${profileId}: refresh auth check failed — ${entry.error}`)
           return false
         }
         entry.cookies = session.cookies
         entry.error = undefined
         entry.lastErrorAt = 0
-        console.log(`[InnertubePool] Session ${profileId}: refreshed (health check skipped: ${errStr.slice(0, 60)})`)
+        devLog(`[InnertubePool] Session ${profileId}: refreshed (health check skipped: ${errStr.slice(0, 60)})`)
         return true
       }
     } catch (e: unknown) {
@@ -1145,11 +1000,13 @@ class InnertubeClientPool {
   }
 
   /**
-   * Get a download session: best available client with PO Token.
+   * Get a download session: best available client with PO Token for a specific video.
    * Used by yt-dlp for android client downloads.
-   * Returns profileId + po_token (not Innertube client — that's for detection only).
+   * Navigates Chrome to the video page first to generate PO Token, then extracts it.
+   *
+   * @param videoId YouTube video ID — needed to navigate Chrome to the right video page
    */
-  async getDownloadSession(): Promise<{ profileId: string; po_token: string | null } | null> {
+  async getDownloadSession(videoId?: string): Promise<{ profileId: string; po_token: string | null } | null> {
     if (!this._initialized) return null
 
     // Round-robin filter of sessions that have an active Innertube client
@@ -1166,18 +1023,10 @@ class InnertubeClientPool {
       return { profileId: entry.profileId, po_token: entry.po_token }
     }
 
-    // No sessions have PO Token cached — try to extract one now (real-time CDP)
-    for (const entry of sessions) {
-      const token = await getPoTokenForProfile(entry.profileId)
-      if (token) {
-        entry.po_token = token
-        const result = { profileId: entry.profileId, po_token: token }
-        this._index++
-        return result
-      }
-    }
-
-    // All extraction attempts failed — fall back to web client
+    // No PO Token available — fall back to web client.
+    // PO Token extraction from CDP is unreliable (streamingData is null in page HTML).
+    // The reliable path to 720p+ is: export cookies from Chrome + yt-dlp --cookies flag.
+    // Cookie export is handled at the download level (not here), so just return null.
     const entry = sessions[this._index % sessions.length]
     this._index++
     return { profileId: entry.profileId, po_token: null }

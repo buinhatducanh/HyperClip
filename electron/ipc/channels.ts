@@ -101,6 +101,9 @@ export const IPC_CHANNELS = {
   PROJECT_REMOVE: 'project:remove',
   PROJECT_RESET_QUOTA: 'project:reset-quota',
   PROJECT_REAUTHORIZE: 'project:reauthorize',
+  PROJECT_REPAIR: 'project:repair',
+  PROJECT_TEST_ALL: 'project:test-all',
+  PROJECT_BATCH_REPAIR: 'project:batch-repair',
 
   // Chrome session management (SAPISIDHASH + Innertube API)
   SESSION_LIST: 'session:list',
@@ -120,6 +123,9 @@ export const IPC_CHANNELS = {
 
   // Workspace split (split long video into multiple workspaces by trim limit)
   WORKSPACE_SPLIT: 'workspace:split',
+
+  // Track which workspace is active in DetailEditor (protects from auto-cleanup)
+  WORKSPACE_SET_ACTIVE: 'workspace:set-active',
 
   // Storage management
   STORAGE_GET_SIZE: 'storage:get-size',

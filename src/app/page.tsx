@@ -120,6 +120,13 @@ export default function DashboardPage() {
     return () => { cleanupAuth(); cleanupCritical() }
   }, [showToast, addNotification, router])
 
+  // Sync backend settings into Zustand store on startup — fixes UI showing stale defaults
+  useEffect(() => {
+    ipc.getSettings().then((backendSettings: any) => {
+      if (backendSettings) setSettings(backendSettings)
+    })
+  }, [setSettings])
+
   // Fetch diagnostics on mount — for demo mode banner
   useEffect(() => {
     const fetchDiag = async () => {
@@ -233,18 +240,25 @@ export default function DashboardPage() {
     ]).then(() => setIsLoadingData(false))
   }, [initChannels, initWorkspaces, initRenderedVideos])
 
-  // Render + download progress
+  // Render + download progress — SINGLE global listener (no per-card listeners needed)
   useEffect(() => {
     const cleanup = window.electronAPI?.onRenderProgress((progress) => {
-      const p = progress as { workspaceId: string; percent: number; eta?: number }
-      if (p.workspaceId && p.percent !== undefined) {
-        const ws = useAppStore.getState().workspaces.find(w => w.id === p.workspaceId)
-        // Always update downloadProgress (covers 'downloading', 'ready', 'editing' states)
-        // Only update renderProgress for 'rendering' status
-        const patch: Partial<import('./lib/store').Workspace> = ws?.status === 'rendering'
-          ? { renderProgress: p.percent, renderEta: p.eta ? fmtEta(p.eta) : undefined }
-          : { downloadProgress: p.percent }
-        updateWorkspace(p.workspaceId, patch)
+      const p = progress as { workspaceId: string; percent: number; eta?: number; speed?: string }
+      if (!p.workspaceId || p.percent === undefined) return
+      const ws = useAppStore.getState().workspaces.find(w => w.id === p.workspaceId)
+      if (!ws) return
+      // Update Zustand store — components read from store, no per-card listeners needed
+      if (ws.status === 'rendering') {
+        updateWorkspace(p.workspaceId, {
+          renderProgress: p.percent,
+          renderEta: p.eta ? fmtEta(p.eta) : undefined,
+        })
+      } else if (ws.status === 'downloading') {
+        updateWorkspace(p.workspaceId, {
+          downloadProgress: p.percent,
+          downloadSpeed: p.speed,
+          downloadEta: p.eta ? fmtEta(p.eta) : undefined,
+        })
       }
     })
     return cleanup
@@ -305,6 +319,7 @@ export default function DashboardPage() {
     renderProgress: ws.renderProgress, fileSize: ws.fileSize, downloadedPath: ws.downloadedPath,
     isShort: ws.isShort,
     videoResolution: ws.videoResolution,
+    downloadQuality: ws.downloadQuality,
   }))
 
   const newCounts: Record<string, number> = {}
@@ -624,6 +639,7 @@ export default function DashboardPage() {
               onShowToast={showToast}
               onSplit={handleSplit}
               settings={settings}
+              downloadQuality={selectedVideo?.downloadQuality}
             />
           )}
         </div>

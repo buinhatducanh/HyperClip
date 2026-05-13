@@ -16,6 +16,8 @@ import fs from 'fs'
 import os from 'os'
 import { EventEmitter } from 'events'
 import { getChannels, addChannel, removeChannel } from './store.js'
+import { devLog } from './dev_log.js'
+import { getAppStoreDir } from './paths.js'
 
 // ─── Auth Event Bus ─────────────────────────────────────────────────────────────
 
@@ -99,7 +101,7 @@ class ElectronCookieManager implements CookieManager {
     const tokenOk = await this._checkOAuthTokens()
     if (tokenOk) {
       this._oauthReady = true
-      console.log('[CookieManager] OAuth tokens verified — ready')
+      devLog('[CookieManager] OAuth tokens verified — ready')
       // Write placeholder cookie file (yt-dlp will use OAuth auth instead)
       this._writePlaceholderCookieFile()
     }
@@ -158,10 +160,10 @@ class ElectronCookieManager implements CookieManager {
   }
 
   private async _doRefresh(onRefresh?: (result: CookieRefreshResult) => void): Promise<void> {
-    console.log('[CookieManager] Checking OAuth tokens...')
+    devLog('[CookieManager] Checking OAuth tokens...')
     const result = await this.refresh()
     if (result.success) {
-      console.log('[CookieManager] OAuth tokens valid')
+      devLog('[CookieManager] OAuth tokens valid')
     } else {
       console.warn(`[CookieManager] OAuth check failed: ${result.error}`)
       this._cookieCriticalCount++
@@ -226,7 +228,7 @@ class ElectronCookieManager implements CookieManager {
             createdAt: new Date().toISOString(),
           })
           added++
-          console.log(`[SubSync] + ${sub.channelName}`)
+          devLog(`[SubSync] + ${sub.channelName}`)
         }
       }
 
@@ -237,7 +239,7 @@ class ElectronCookieManager implements CookieManager {
         channelEvents.emit('channelsSynced')
         const { refreshChannelCache } = await import('./subscription_feed.js')
         refreshChannelCache()
-        console.log(`[SubSync] Done: +${added} (existing channels preserved)`)
+        devLog(`[SubSync] Done: +${added} (existing channels preserved)`)
       }
 
       return { added, removed: 0 }
@@ -255,13 +257,20 @@ class ElectronCookieManager implements CookieManager {
     let oauthReadyLive = this._oauthReady
     if (!oauthReadyLive) {
       try {
-        const tokenFile = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_tokens.json')
-        if (fs.existsSync(tokenFile)) {
-          const data = JSON.parse(fs.readFileSync(tokenFile, 'utf-8'))
-          if (Array.isArray(data)) {
-            oauthReadyLive = data.some((t: { expires_at?: number }) =>
-              t.expires_at && t.expires_at - 60_000 > Date.now()
-            )
+        // Check %APPDATA% first (primary), then %TEMP% (legacy)
+        const dirs = [
+          path.join(getAppStoreDir(), 'oauth_tokens.json'),
+          path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_tokens.json'),
+        ]
+        for (const tokenFile of dirs) {
+          if (fs.existsSync(tokenFile)) {
+            const data = JSON.parse(fs.readFileSync(tokenFile, 'utf-8'))
+            if (Array.isArray(data)) {
+              oauthReadyLive = data.some((t: { expires_at?: number }) =>
+                t.expires_at && t.expires_at - 60_000 > Date.now()
+              )
+            }
+            if (oauthReadyLive) break
           }
         }
       } catch {}
@@ -312,11 +321,11 @@ class ElectronCookieManager implements CookieManager {
     }
     const result = await startOAuthFlow(clientId)
     if (result.success && result.tokens) {
-      console.log('[CookieManager] OAuth login succeeded')
+      devLog('[CookieManager] OAuth login succeeded')
       this._oauthReady = true
       try {
         this._accountName = await fetchAccountInfo(result.tokens.access_token) || ''
-        if (this._accountName) console.log('[CookieManager] Account:', this._accountName)
+        if (this._accountName) devLog('[CookieManager] Account:', this._accountName)
       } catch {}
       authEvents.emit('authUpdated', this.getAuthStatus())
     } else {

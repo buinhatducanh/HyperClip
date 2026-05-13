@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { app } from 'electron'
-import { getFfmpegPath } from './ffmpeg-paths.js'
+import { getFfmpegPath, getFfmpegVersion } from './ffmpeg-paths.js'
 import { isRamDiskAvailable } from './ramdisk.js'
 
 // ─── System Diagnostics ───────────────────────────────────────────────────────────
@@ -124,7 +124,10 @@ export async function runDiagnostics(): Promise<DiagnosticResult> {
       const { execSync } = await import('child_process')
       const verOut = execSync(`"${ffmpegPath}" -version 2>&1`, { encoding: 'utf-8', timeout: 5000 })
       ffmpegVersion = verOut.split('\n')[0].trim()
-      ffmpegHasNvenc = verOut.includes('h264_nvenc') || verOut.includes('hevc_nvenc')
+      // Check encoders list (NOT version output) for NVENC support.
+      // Version output contains --enable-nvenc flag but NOT the encoder names.
+      const encOut = execSync(`"${ffmpegPath}" -hide_banner -encoders 2>&1`, { encoding: 'utf-8', timeout: 5000 }).toString()
+      ffmpegHasNvenc = encOut.includes('h264_nvenc') || encOut.includes('hevc_nvenc')
       ffmpegOk = true
     } catch (e) {
       ffmpegError = String(e)

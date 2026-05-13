@@ -16,6 +16,7 @@ import fs from 'fs'
 import os from 'os'
 import { app } from 'electron'
 import { createRequire } from 'module'
+import { getAppStoreDir } from './paths.js'
 
 // electron-log is CommonJS — use createRequire for ESM compatibility
 const require = createRequire(import.meta.url)
@@ -34,8 +35,7 @@ _log.transports.file.level = 'debug'
 _log.transports.console.level = false  // we use console.log directly in dev
 
 export function getLogDir(): string {
-  const userData = app.isReady() ? app.getPath('userData') : path.join(os.homedir(), '.hyperclip')
-  const dir = path.join(userData, 'logs')
+  const dir = path.join(getAppStoreDir(), 'logs')
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   return dir
 }

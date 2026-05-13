@@ -7,12 +7,20 @@
  * Android client streams use H.264 codec (better for editing than VP9 from web client).
  * Without PO Token, android client only returns 360p.
  *
- * The PO Token is bound to the client type ("ANDROID") and the session cookies.
- * We extract it by evaluating JavaScript in the Chrome tab that already has YouTube loaded.
+ * Architecture:
+ * 1. PO Token is extracted from a persistent Chrome running on port 9223 (session 1 profile).
+ * 2. If persistent Chrome is not running, it is launched automatically.
+ * 3. The persistent Chrome uses the user's default Chrome profile (same cookies).
+ * 4. PO Token is cached for 10 minutes to avoid re-extracting on every download.
  */
 
 import WebSocket from 'ws'
 import http from 'http'
+import fs from 'fs'
+import path from 'path'
+import { devLog } from './dev_log.js'
+import { ensurePersistentChrome } from './cdp.js'
+import { getAppStoreDir } from './paths.js'
 
 // ─── CDP Connection ───────────────────────────────────────────────────────────
 
@@ -23,26 +31,47 @@ interface CDPTarget {
   title: string
 }
 
-async function httpGet(url: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    http.get(url, (res) => {
+async function httpGet(url: string, timeoutMs = 5000): Promise<string | null> {
+  return new Promise((resolve) => {
+    const req = http.get(url, (res) => {
       let body = ''
       res.on('data', (c) => { body += c })
       res.on('end', () => resolve(body))
-      res.on('error', reject)
-    }).on('error', reject)
+    })
+    req.on('error', () => resolve(null))
+    req.setTimeout(timeoutMs, () => { req.destroy(); resolve(null) })
   })
 }
 
 async function getCDPTarget(port: number): Promise<CDPTarget | null> {
+  const json = await httpGet(`http://localhost:${port}/json`)
+  if (!json) {
+    devLog(`[PoToken] getCDPTarget: no response from port ${port}`)
+    return null
+  }
   try {
-    const json = await httpGet(`http://localhost:${port}/json`)
     const tabs: CDPTarget[] = JSON.parse(json)
-    // Prefer YouTube tab
+    if (!tabs.length) {
+      devLog(`[PoToken] getCDPTarget: no tabs found on port ${port}`)
+      return null
+    }
+    // Prefer YouTube tab that has a specific video URL (not homepage)
+    const ytVideoTab = tabs.find(t => t.url?.includes('youtube.com/watch?v='))
+    if (ytVideoTab) {
+      devLog(`[PoToken] Target tab (video): "${ytVideoTab.title}" url=${ytVideoTab.url?.slice(0, 60)}`)
+      return ytVideoTab
+    }
+    // Fallback to any YouTube tab
     const ytTab = tabs.find(t => t.url?.includes('youtube.com'))
-    if (ytTab) return ytTab
-    return tabs[0] || null
-  } catch {
+    if (ytTab) {
+      devLog(`[PoToken] Target tab (fallback): "${ytTab.title}" url=${ytTab.url?.slice(0, 60)}`)
+      return ytTab
+    }
+    // Last resort: first tab
+    devLog(`[PoToken] Target tab (last resort): "${tabs[0].title}" url=${tabs[0].url?.slice(0, 60)}`)
+    return tabs[0]
+  } catch (e) {
+    devLog(`[PoToken] getCDPTarget parse error: ${e}`)
     return null
   }
 }
@@ -91,6 +120,122 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+/**
+ * Navigate a Chrome tab to a video page and extract PO Token.
+ * Called when downloading a specific video — PO Token is per-video.
+ * Uses the persistent Chrome on the given port.
+ */
+export async function navigateAndExtractPoToken(port: number, videoId: string): Promise<string | null> {
+  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`
+  devLog(`[PoToken] Navigating to ${videoUrl} for PO Token extraction...`)
+
+  // Get the YouTube tab
+  let target = await getCDPTarget(port)
+  if (!target) {
+    devLog(`[PoToken] No CDP target found on port ${port}`)
+    return null
+  }
+
+  const client = new CDPClient()
+  try {
+    await client.connect(target.webSocketDebuggerUrl)
+
+    // Navigate to the video page — must succeed for PO Token to be generated
+    devLog(`[PoToken] Navigating to: ${videoUrl}`)
+    let navSuccess = false
+    try {
+      const navResult = await client.send('Page.navigate', { url: videoUrl }) as any
+      devLog(`[PoToken] Navigate result: ${JSON.stringify(navResult)}`)
+      navSuccess = !navResult?.loadEventFired || true // navigation initiated
+    } catch (e) {
+      devLog(`[PoToken] Navigation error: ${e}`)
+      return null // Can't extract PO Token without navigation
+    }
+    // Wait for video player to load and generate PO Token
+    devLog(`[PoToken] Waiting 8s for video player to load...`)
+    await sleep(8000)
+
+    // Extract PO Token from the video page
+    // Simplest possible script — just check what's available
+    const script = `"ytInitialPlayerResponse" in window ? "EXISTS" : "NOT_FOUND"`
+
+    let evalResult: any
+    try {
+      evalResult = await client.send('Runtime.evaluate', { expression: script, returnByValue: true })
+    } catch (e) {
+      devLog(`[PoToken] Runtime.evaluate error: ${e}`)
+      return null
+    }
+    const ytIRExists = evalResult?.result?.value
+    devLog(`[PoToken] ytInitialPlayerResponse: ${ytIRExists}`)
+
+    // Now get ytInitialPlayerResponse
+    const script2 = `
+      (function() {
+        try {
+        var results = [];
+
+        // Try ytcfg
+        if (window.yt && window.yt.config_) {
+          if (window.yt.config_.PO_TOKEN) results.push({token: window.yt.config_.PO_TOKEN, source: 'ytcfg.PO_TOKEN'});
+          if (window.yt.config_.PLAYER_PO_TOKEN) results.push({token: window.yt.config_.PLAYER_PO_TOKEN, source: 'ytcfg.PLAYER_PO_TOKEN'});
+          if (window.yt.config_.INNERTUBE_API_KEY) results.push({source: 'ytcfg', innertubeKey: window.yt.config_.INNERTUBE_API_KEY ? 'found' : 'missing'});
+        }
+
+        // Try ytInitialPlayerResponse (embedded in page HTML)
+        if (window.ytInitialPlayerResponse) {
+          var sd = window.ytInitialPlayerResponse.streamingData;
+          if (sd && sd.adaptiveFormats) {
+            for (var i = 0; i < sd.adaptiveFormats.length; i++) {
+              var url = sd.adaptiveFormats[i].url || sd.adaptiveFormats[i].signatureCipher || '';
+              var match = url.match(/[?&]pot=([^&]+)/);
+              if (match) results.push({token: decodeURIComponent(match[1]), source: 'streamingData.pot[' + i + ']', url: url.slice(0, 80)});
+            }
+          }
+        }
+
+        // Try ytplayer.config.args
+        if (window.ytplayer && window.ytplayer.config && window.ytplayer.config.args) {
+          var args = window.ytplayer.config.args;
+          if (args.po_token) results.push({token: args.po_token, source: 'ytplayer.args'});
+          if (args.player_response) {
+            try {
+              var pr = JSON.parse(args.player_response);
+              var prsd = pr.streamingData;
+              if (prsd && prsd.adaptiveFormats) {
+                for (var j = 0; j < prsd.adaptiveFormats.length; j++) {
+                  var prurl = prsd.adaptiveFormats[j].url || prsd.adaptiveFormats[j].signatureCipher || '';
+                  var prmatch = prurl.match(/[?&]pot=([^&]+)/);
+                  if (prmatch) results.push({token: decodeURIComponent(prmatch[1]), source: 'player_response.pot[' + j + ']'});
+                }
+              }
+            } catch(e) {}
+          }
+        }
+
+        if (results.length > 0) return { token: results[0].token, source: results[0].source, all: results.slice(0, 3) };
+        return { token: null, source: 'none', ytInitialPlayerResponse: !!window.ytInitialPlayerResponse, ytplayer: !!window.ytplayer, ytplayerConfig: !!(window.ytplayer && window.ytplayer.config), ytConfig: !!(window.yt && window.yt.config_) };
+      })()
+    `
+
+    const result = await client.send('Runtime.evaluate', { expression: script, returnByValue: true }) as any
+    const data = (result as any)?.result?.value || {}
+
+    if (data.token) {
+      devLog(`[PoToken] Extracted PO Token for ${videoId} — source: ${data.source}`)
+      return data.token
+    } else {
+      devLog(`[PoToken] No PO Token found for ${videoId} — details: ${JSON.stringify(data)}`)
+      return null
+    }
+  } catch (e) {
+    devLog(`[PoToken] navigateAndExtractPoToken error: ${e} — ${String(e).slice(0, 100)}`)
+    return null
+  } finally {
+    await client.dispose()
+  }
+}
+
 function getCDPPort(profileId: string): number {
   const idx = parseInt(profileId, 10)
   return 9222 + (isNaN(idx) ? 0 : idx)
@@ -101,19 +246,35 @@ function getCDPPort(profileId: string): number {
 /**
  * Extract PO Token from a Chrome profile via CDP.
  *
- * Attempts multiple strategies:
- * 1. Evaluate ytcfg for web player PO Token
- * 2. Evaluate android-specific PO Token from player config
+ * Flow:
+ * 1. Try profile-specific port (sessions 2-30 — Chrome may be running)
+ * 2. If that fails and profileId is "1", ensure persistent Chrome is running, then extract
  * 3. Fall back to null (will use web client instead)
  */
 async function extractPoTokenFromProfile(profileId: string): Promise<string | null> {
-  const port = getCDPPort(profileId)
-  const target = await getCDPTarget(port)
+  // Strategy 1: Try profile-specific port (sessions 2-30)
+  const profilePort = getCDPPort(profileId)
+  let target = await getCDPTarget(profilePort)
+  let targetSource = `profile-${profileId}`
+
+  // Strategy 2: For session 1, try persistent Chrome (port 9223)
+  if (!target && profileId === '1') {
+    devLog(`[PoToken] No Chrome on port ${profilePort} — launching persistent Chrome...`)
+    const persistent = await ensurePersistentChrome()
+    if (persistent) {
+      target = await getCDPTarget(persistent.port)
+      targetSource = 'persistent'
+    }
+  }
+
   if (!target) return null
 
   const client = new CDPClient()
   try {
     await client.connect(target.webSocketDebuggerUrl)
+
+    // No navigation — PO Token extraction from page HTML doesn't work (streamingData is null).
+    // PO Token is generated server-side by YouTube. Skip extraction entirely.
 
     // Strategy 1: Try ytcfg.get('PO_TOKEN') — works for web player
     // Strategy 2: Try ytcfg.get('PLAYER_PO_TOKEN') — android-specific
@@ -191,18 +352,119 @@ async function extractPoTokenFromProfile(profileId: string): Promise<string | nu
     await client.dispose()
 
     if (result && result.token) {
-      console.log(`[PoToken] Extracted PO Token from ${profileId} (${target.title.slice(0, 30)}) — source: ${result.source || 'unknown'}`)
+      devLog(`[PoToken] Extracted PO Token from ${targetSource} (${target.title.slice(0, 30)}) — source: ${result.source || 'unknown'}`)
       return result.token
     }
 
     return null
   } catch (e) {
+    devLog(`[PoToken] navigateAndExtractPoToken error: ${e} — ${String(e).slice(0, 100)}`)
     try { await client.dispose() } catch {}
     return null
   }
 }
 
-// ─── PO Token Cache ───────────────────────────────────────────────────────────
+// ─── Cookie Export for yt-dlp ───────────────────────────────────────────────
+
+/**
+ * Export all cookies from the persistent Chrome as a Netscape cookie file.
+ * yt-dlp can use this cookie file to authenticate and bypass EJS challenge.
+ * Returns path to the cookie file, or null if extraction fails.
+ */
+export async function exportCookiesForYtDlp(port: number): Promise<string | null> {
+  devLog(`[PoToken] Exporting cookies from Chrome port ${port}...`)
+
+  const target = await getCDPTarget(port)
+  if (!target) {
+    devLog('[PoToken] No CDP target for cookie export')
+    return null
+  }
+
+  const client = new CDPClient()
+  try {
+    await client.connect(target.webSocketDebuggerUrl)
+
+    // Get all cookies from Chrome
+    const cookiesResult = await client.send('Network.getAllCookies') as any
+    const cookies: Array<{ name: string; value: string; domain: string; path: string; expires: number; secure: boolean; httpOnly: boolean }> =
+      cookiesResult?.cookies || []
+
+    devLog(`[PoToken] Got ${cookies.length} cookies from Chrome`)
+
+    // Filter to YouTube-relevant cookies
+    const ytCookies = cookies.filter(c =>
+      c.domain?.includes('youtube') || c.domain?.includes('google')
+    )
+
+    if (ytCookies.length === 0) {
+      devLog('[PoToken] No YouTube cookies found')
+      return null
+    }
+
+    devLog(`[PoToken] YouTube cookies: ${ytCookies.map(c => c.name).join(', ')}`)
+
+    // Write as Netscape cookie format (compatible with yt-dlp).
+    // Field 2 (flag): TRUE = domain cookie (domain starts with '.'), FALSE = host cookie.
+    // Field 4 (secure): TRUE = HTTPS only, FALSE = any scheme.
+    // IMPORTANT: flag must match domain format — flag=TRUE requires domain starts with '.',
+    // flag=FALSE requires domain does NOT start with '.'.
+    const sanitize = (s: string) => s.replace(/[\t\n\r]/g, '')
+    const cookieFile = path.join(getAppStoreDir(), '_yt_cookies.txt')
+    const lines = [
+      '# Netscape HTTP Cookie File',
+      '# This file was generated by HyperClip',
+      ...ytCookies.map(c => {
+        const d = sanitize(c.domain)
+        const flag = d.startsWith('.') ? 'TRUE' : 'FALSE'
+        return `${d}\t${flag}\t${sanitize(c.path)}\t${c.secure ? 'TRUE' : 'FALSE'}\t${c.expires > 0 ? c.expires : 0}\t${sanitize(c.name)}\t${sanitize(c.value)}`
+      }),
+    ]
+    fs.writeFileSync(cookieFile, lines.join('\n'), 'utf-8')
+    devLog(`[PoToken] Cookie file written: ${cookieFile}`)
+    return cookieFile
+  } catch (e) {
+    devLog(`[PoToken] Cookie export error: ${e}`)
+    return null
+  } finally {
+    await client.dispose()
+  }
+}
+
+// ─── Cached cookie export for yt-dlp ────────────────────────────────────────
+// Export cookies once, reuse for all downloads within 5 minutes.
+// This avoids the overhead of re-exporting on every download call.
+
+let _cachedCookiesFile: string | null = null
+let _cachedCookiesTime = 0
+const COOKIE_CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+
+export async function getYtCookiesFile(): Promise<string | null> {
+  // Return cached file if still fresh
+  if (_cachedCookiesFile && fs.existsSync(_cachedCookiesFile) && Date.now() - _cachedCookiesTime < COOKIE_CACHE_TTL_MS) {
+    return _cachedCookiesFile
+  }
+
+  // Lazy import to avoid circular deps
+  const { ensurePersistentChrome } = await import('./cdp.js')
+  const { exportCookiesForYtDlp: exportFn } = await import('./po_token.js')
+  const persistent = await ensurePersistentChrome()
+  if (!persistent) return null
+
+  const file = await exportFn(persistent.port)
+  if (file) {
+    _cachedCookiesFile = file
+    _cachedCookiesTime = Date.now()
+  }
+  return file
+}
+
+/** Clear the cookie cache — call this if the cookie file is corrupted */
+export function clearYtCookiesCache(): void {
+  _cachedCookiesFile = null
+  _cachedCookiesTime = 0
+}
+
+// ─── Innertube Integration ───────────────────────────────────────────────────
 
 interface CachedToken {
   token: string
@@ -234,7 +496,7 @@ export async function getPoTokenForProfile(profileId: string): Promise<string | 
   } else if (cached) {
     // Extraction failed but we have a stale cache — keep using it until TTL expires.
     // This bridges gaps where no video is currently playing.
-    console.log(`[PoToken] Real-time extraction failed for profile ${profileId}, using stale cache (${Math.round((PO_TOKEN_TTL_MS - (Date.now() - cached.fetchedAt)) / 1000)}s remaining)`)
+    devLog(`[PoToken] Real-time extraction failed for profile ${profileId}, using stale cache (${Math.round((PO_TOKEN_TTL_MS - (Date.now() - cached.fetchedAt)) / 1000)}s remaining)`)
     return cached.token
   }
   return token
@@ -252,9 +514,16 @@ export async function refreshPoToken(profileId: string): Promise<string | null> 
  * Extract PO Tokens for ALL active Chrome profiles in parallel.
  * Call this once at startup to pre-warm the cache.
  * Sessions that have YouTube tabs open will get tokens; others will get null.
+ * For session 1, ensures persistent Chrome is running first.
  */
 export async function warmupPoTokenCache(profileIds: string[]): Promise<void> {
-  console.log(`[PoToken] Warming up PO Token cache for ${profileIds.length} profiles...`)
+  devLog(`[PoToken] Warming up PO Token cache for ${profileIds.length} profiles...`)
+
+  // Ensure persistent Chrome is running for session 1
+  if (profileIds.includes('1')) {
+    await ensurePersistentChrome()
+  }
+
   await Promise.all(profileIds.map(async (pid) => {
     try {
       await getPoTokenForProfile(pid)
@@ -262,7 +531,7 @@ export async function warmupPoTokenCache(profileIds: string[]): Promise<void> {
   }))
 
   const withToken = profileIds.filter(pid => _tokenCache.has(pid)).length
-  console.log(`[PoToken] Cache warmed: ${withToken}/${profileIds.length} profiles have PO Tokens`)
+  devLog(`[PoToken] Cache warmed: ${withToken}/${profileIds.length} profiles have PO Tokens`)
 }
 
 // ─── Innertube Integration ───────────────────────────────────────────────────
@@ -273,12 +542,8 @@ export async function warmupPoTokenCache(profileIds: string[]): Promise<void> {
  * generate the PO Token using BotGuard. The youtubei.js library handles
  * this internally if we pass the po_token option.
  *
- * The youtubei.js BotGuard approach:
- * 1. Fetch the android player JavaScript from YouTube
- * 2. Execute the BotGuard program with visitor_data + video_id
- * 3. Get the generated po_token
- *
- * Since this is complex, we use CDP as a simpler alternative.
+ * Since this is complex, we use CDP with persistent Chrome as a simpler alternative.
+ * The persistent Chrome runs on port 9223 with the user's default profile.
  */
 export async function getInnertubePoToken(profileId: string, videoId: string): Promise<string | null> {
   // For Innertube, we need a video-specific PO Token.

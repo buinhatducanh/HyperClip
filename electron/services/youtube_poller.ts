@@ -9,7 +9,8 @@
 import { fetchSubscriptionFeed } from './subscription_feed.js'
 import fs from 'fs'
 import path from 'path'
-import os from 'os'
+import { devLog } from './dev_log.js'
+import { getAppStoreDir } from './paths.js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -50,9 +51,8 @@ export interface PollerStatus {
 
 const DEFAULT_POLL_INTERVAL_MS = 2000 // 2 seconds — target < 20s detection latency
 const MAX_VIDEOS_PER_POLL = 5
-const MAX_VIDEO_AGE_MS = 10 * 60 * 1000 // 10 minutes — age filter for OAuth detection path; Innertube also uses 10min in getLatestVideo()
 const SEEN_IDS_CAP = 10000 // cap to prevent unbounded memory growth
-const SEEN_IDS_FILE = path.join(os.homedir(), 'AppData', 'Roaming', 'HyperClip', 'seen-ids.json')
+const SEEN_IDS_FILE = path.join(getAppStoreDir(), 'seen-ids.json')
 
 // ─── SeenVideoIds persistence ─────────────────────────────────────────────────
 
@@ -110,7 +110,7 @@ class YouTubePoller {
     this._notifyDegraded = options.onDegraded
     // Load persisted seen IDs on startup — survives app restarts
     this._seenVideoIds = loadSeenVideoIds()
-    console.log(`[YouTubePoller] Loaded ${this._seenVideoIds.size} seen video IDs from disk`)
+    devLog(`[YouTubePoller] Loaded ${this._seenVideoIds.size} seen video IDs from disk`)
   }
 
   getStatus(): PollerStatus {
@@ -135,7 +135,7 @@ class YouTubePoller {
       this._backoffReason = null
       this._lastExhaustedWarnAt = 0
       this._exhaustionCount = 0
-      console.log('[YouTubePoller] Backoff cleared — resuming polling')
+      devLog('[YouTubePoller] Backoff cleared — resuming polling')
     }
   }
 
@@ -196,9 +196,9 @@ class YouTubePoller {
           this._exhaustedBackoffUntil = 0
           this._backoffReason = null
           const reason = poolReady ? 'Innertube pool' : 'OAuth'
-          console.log(`[YouTubePoller] ${reason} recovered ✓ — resuming polling`)
+          devLog(`[YouTubePoller] ${reason} recovered ✓ — resuming polling`)
         } else {
-          console.log(`[YouTubePoller] Backoff (${remaining}s remaining) — checking...`)
+          devLog(`[YouTubePoller] Backoff (${remaining}s remaining) — checking...`)
         }
       }
       return
@@ -206,15 +206,13 @@ class YouTubePoller {
 
     // Log every poll start — confirms poller is alive and making API calls
     if (this._pollsSinceLastLog === 0) {
-      console.log(`[YouTubePoller] Scanning...`)
+      devLog(`[YouTubePoller] Scanning...`)
     }
 
-    const sinceMs = Date.now() - MAX_VIDEO_AGE_MS
     const subResult = await fetchSubscriptionFeed({
       // Request enough to fill maxVideosPerPoll + buffer — early exit kicks in at channel level
       maxVideos: this._maxVideosPerPoll + 5,
       seenVideoIds: this._seenVideoIds,
-      sinceMs,
     })
 
     // Emit degraded event to UI when Innertube has returned 0 videos for 3+ consecutive polls
@@ -296,13 +294,13 @@ class YouTubePoller {
       const elapsed = this._lastPollAt
         ? Math.round((Date.now() - this._lastPollAt) / 1000)
         : 0
-      console.log(`[YouTubePoller] alive · ${this._videoCount} polled · ${this._newVideoCount} new · last ${elapsed}s ago`)
+      devLog(`[YouTubePoller] alive · ${this._videoCount} polled · ${this._newVideoCount} new · last ${elapsed}s ago`)
       this._pollsSinceLastLog = 0
     }
 
     if (newVideos.length > 0) {
       this._lastNewVideosAt = Date.now()
-      console.log(`[YouTubePoller] ${newVideos.length} video moi (${subResult.source}): ${newVideos.map(v => v.title.slice(0, 40) + ' (' + v.channelName + ')').join(', ')}`)
+      devLog(`[YouTubePoller] ${newVideos.length} video moi (${subResult.source}): ${newVideos.map(v => v.title.slice(0, 40) + ' (' + v.channelName + ')').join(', ')}`)
       this._onNewVideos?.(newVideos)
     }
   }
@@ -322,7 +320,7 @@ class YouTubePoller {
   start(): void {
     if (this._active) return
     this._active = true
-    console.log(`[YouTubePoller] Starting (interval: ${this._pollIntervalMs / 1000}s ± 20%% jitter, seen IDs: ${this._seenVideoIds.size})`)
+    devLog(`[YouTubePoller] Starting (interval: ${this._pollIntervalMs / 1000}s ± 20%% jitter, seen IDs: ${this._seenVideoIds.size})`)
     this._pollOnce()
     this._scheduleNextPoll()
   }
@@ -333,7 +331,7 @@ class YouTubePoller {
       clearTimeout(this._pollTimer)
       this._pollTimer = null
     }
-    console.log('[YouTubePoller] Stopped')
+    devLog('[YouTubePoller] Stopped')
   }
 
   restart(intervalMs?: number): void {

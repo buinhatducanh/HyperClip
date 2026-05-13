@@ -12,6 +12,8 @@ import path from 'path'
 import fs from 'fs'
 import os from 'os'
 import https from 'https'
+import { devLog } from './dev_log.js'
+import { getAppStoreDir } from './paths.js'
 
 // Direct fallback helpers that don't depend on token_manager state
 function _getDefaultClientId(): string {
@@ -26,7 +28,7 @@ function _getDefaultClientId(): string {
     }
   } catch {}
   // Fall back to oauth_config.json
-  const configFile = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json')
+  const configFile = path.join(getAppStoreDir(), 'oauth_config.json')
   try {
     if (fs.existsSync(configFile)) {
       const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
@@ -51,7 +53,7 @@ function _getDefaultClientSecret(): string {
       }
     }
   } catch {}
-  const configFile = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json')
+  const configFile = path.join(getAppStoreDir(), 'oauth_config.json')
   try {
     if (fs.existsSync(configFile)) {
       const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
@@ -100,9 +102,9 @@ export interface TokenStatus {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const TOKENS_DIR = path.join(os.tmpdir(), 'hyperclip-cookies')
+const TOKENS_DIR = getAppStoreDir()
 const TOKENS_FILE = path.join(TOKENS_DIR, 'oauth_tokens.json')
-const STATS_FILE = path.join(os.homedir(), 'AppData', 'Roaming', 'HyperClip', 'token_stats.json')
+const STATS_FILE = path.join(TOKENS_DIR, 'token_stats.json')
 const MAX_UNITS_PER_TOKEN = 9500  // exhausted threshold: 9,500 units/day per project (500 buffer of 10,000)
 // Note: successful calls (1 unit each) don't count toward this threshold.
 // Exhausted threshold: 5 quota errors × 100 each = 500 units added to usedToday.
@@ -115,7 +117,7 @@ class TokenManager {
   private _tokens: OAuthTokenSet[] = []
   private _stats: Map<string, TokenStats> = new Map()
   private _lastReset: number = Date.now()
-  private _lastResetPTDate: string = ''  // tracks PT date for midnight-PT reset
+  private _lastResetUTCDate: string = ''  // tracks UTC date for midnight-UTC reset
   private _initialized: boolean = false
   private _refreshTimer: ReturnType<typeof setInterval> | null = null
   private _unauthorizedTokens: Set<string> = new Set()
@@ -132,12 +134,12 @@ class TokenManager {
     // getDate() returns local day of month
     const todayUTCDate = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
 
-    const prevDate = this._lastResetPTDate
+    const prevDate = this._lastResetUTCDate
     if (!prevDate || prevDate !== todayUTCDate) {
       this._stats.clear()
       this._unauthorizedTokens.clear()
       this._lastReset = Date.now()
-      this._lastResetPTDate = todayUTCDate
+      this._lastResetUTCDate = todayUTCDate
       // Persist cleared stats BEFORE _saveStats() gets overwritten by normal operation.
       // The _saveStats in the constructor saves empty stats. Subsequent track() / trackError()
       // calls will re-populate _stats and save normally.
@@ -149,11 +151,11 @@ class TokenManager {
         fs.writeFileSync(STATS_FILE, JSON.stringify({
           stats: obj,
           lastReset: this._lastReset,
-          lastResetPTDate: this._lastResetPTDate,
+          lastResetUTCDate: this._lastResetUTCDate,
           unauthorizedTokens: [...this._unauthorizedTokens],
         }, null, 2), 'utf-8')
       } catch {}
-      console.log(`[TokenManager] Quota reset (was:"${prevDate || '(none)'}", now:"${todayUTCDate}") — all quotas refreshed`)
+      devLog(`[TokenManager] Quota reset (was:"${prevDate || '(none)'}", now:"${todayUTCDate}") — all quotas refreshed`)
     }
     this._initialized = true
     // Proactive refresh: check every 30 min + once at startup (after tokens loaded)
@@ -170,6 +172,39 @@ class TokenManager {
     if (!fs.existsSync(TOKENS_DIR)) {
       fs.mkdirSync(TOKENS_DIR, { recursive: true })
     }
+    // Migrate tokens from legacy temp directory (v1 storage)
+    this._migrateFromLegacy()
+  }
+
+  private _migrateFromLegacy(): void {
+    const legacyDir = path.join(os.tmpdir(), 'hyperclip-cookies')
+    const legacyTokens = path.join(legacyDir, 'oauth_tokens.json')
+    const legacyStats = path.join(legacyDir, 'oauth_stats.json')
+    const legacyConfig = path.join(legacyDir, 'oauth_config.json')
+
+    if (fs.existsSync(legacyTokens) && !fs.existsSync(TOKENS_FILE)) {
+      try {
+        fs.copyFileSync(legacyTokens, TOKENS_FILE)
+        devLog('[TokenManager] Migrated oauth_tokens.json from legacy temp dir')
+      } catch (e) {
+        console.warn('[TokenManager] Failed to migrate legacy tokens:', e)
+      }
+    }
+    if (fs.existsSync(legacyStats) && !fs.existsSync(STATS_FILE)) {
+      try {
+        fs.copyFileSync(legacyStats, STATS_FILE)
+        devLog('[TokenManager] Migrated token_stats.json from legacy temp dir')
+      } catch {}
+    }
+    if (fs.existsSync(legacyConfig)) {
+      const migratedConfig = path.join(TOKENS_DIR, 'oauth_config.json')
+      if (!fs.existsSync(migratedConfig)) {
+        try {
+          fs.copyFileSync(legacyConfig, migratedConfig)
+          devLog('[TokenManager] Migrated oauth_config.json from legacy temp dir')
+        } catch {}
+      }
+    }
   }
 
   private _loadTokens(): void {
@@ -179,7 +214,7 @@ class TokenManager {
     try {
       if (fs.existsSync(TOKENS_FILE)) {
         const raw = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf-8'))
-        console.log(`[TokenManager] _loadTokens: file has ${Array.isArray(raw) ? raw.length + ' tokens' : '1 legacy token (object format)'}, first entry: ${Array.isArray(raw) ? (raw[0]?.projectId || 'none') : raw?.projectId || 'none'}`)
+        devLog(`[TokenManager] _loadTokens: file has ${Array.isArray(raw) ? raw.length + ' tokens' : '1 legacy token (object format)'}, first entry: ${Array.isArray(raw) ? (raw[0]?.projectId || 'none') : raw?.projectId || 'none'}`)
 
         // Multi-project format: array of OAuthTokenSet
         if (Array.isArray(raw)) {
@@ -220,13 +255,13 @@ class TokenManager {
             }
           }
           if (migrated) {
-            console.log('[TokenManager] Synced credentials from oauth_config.json')
+            devLog('[TokenManager] Synced credentials from oauth_config.json')
             this._saveTokens()
           }
         }
         // Legacy single-token format: convert to multi-project array
         else if (raw && typeof raw === 'object' && raw.access_token) {
-          console.log('[TokenManager] Converting legacy single-token format to multi-project array')
+          devLog('[TokenManager] Converting legacy single-token format to multi-project array')
           const legacy: OAuthTokenSet = {
             projectId: raw.projectId || 'proj-01',
             clientId: defaultClientId,
@@ -250,7 +285,7 @@ class TokenManager {
     if (this._tokens.length === 0) {
       console.warn('[TokenManager] No tokens configured — add OAuth credentials in Settings')
     } else {
-      console.log(`[TokenManager] Loaded ${this._tokens.length} tokens: ${this._tokens.map(t => t.projectId).join(', ')}`)
+      devLog(`[TokenManager] Loaded ${this._tokens.length} tokens: ${this._tokens.map(t => t.projectId).join(', ')}`)
     }
   }
 
@@ -260,7 +295,7 @@ class TokenManager {
         const raw = JSON.parse(fs.readFileSync(STATS_FILE, 'utf-8'))
         this._stats = new Map(Object.entries(raw.stats || {}))
         this._lastReset = raw.lastReset || Date.now()
-        this._lastResetPTDate = raw.lastResetPTDate || ''
+        this._lastResetUTCDate = raw.lastResetUTCDate || ''
         this._unauthorizedTokens = new Set(raw.unauthorizedTokens || [])
       }
     } catch {}
@@ -284,7 +319,7 @@ class TokenManager {
       fs.writeFileSync(STATS_FILE, JSON.stringify({
         stats: obj,
         lastReset: this._lastReset,
-        lastResetPTDate: this._lastResetPTDate,
+        lastResetUTCDate: this._lastResetUTCDate,
         unauthorizedTokens: [...this._unauthorizedTokens],
       }, null, 2), 'utf-8')
     } catch (e) {
@@ -300,14 +335,14 @@ class TokenManager {
   private _checkReset(): void {
     const now = new Date()
     const utcDate = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
-    if (this._lastResetPTDate === utcDate) return  // already reset today
+    if (this._lastResetUTCDate === utcDate) return  // already reset today
 
     this._stats.clear()
     this._unauthorizedTokens.clear()
     this._lastReset = Date.now()
-    this._lastResetPTDate = utcDate
+    this._lastResetUTCDate = utcDate
     this._saveStats()
-    console.log(`[TokenManager] Quota reset — UTC date: "${utcDate}"`)
+    devLog(`[TokenManager] Quota reset — UTC date: "${utcDate}"`)
   }
 
   /**
@@ -324,7 +359,7 @@ class TokenManager {
     const expiring = this._tokens.filter(t => t.expires_at - now < EXPIRY_THRESHOLD_MS)
     if (expiring.length === 0) return
 
-    console.log(`[TokenManager] Proactive refresh: ${expiring.length}/${this._tokens.length} tokens expiring soon`)
+    devLog(`[TokenManager] Proactive refresh: ${expiring.length}/${this._tokens.length} tokens expiring soon`)
 
     const results = await Promise.allSettled(
       expiring.map(async (t) => {
@@ -339,7 +374,7 @@ class TokenManager {
         const idx = this._tokens.findIndex(x => x.projectId === t.projectId)
         if (idx !== -1) this._tokens[idx] = refreshed
         this._saveTokens()
-        console.log(`[TokenManager] Proactive refresh OK: ${t.projectId} (expires ${new Date(refreshed.expires_at).toISOString()})`)
+        devLog(`[TokenManager] Proactive refresh OK: ${t.projectId} (expires ${new Date(refreshed.expires_at).toISOString()})`)
         return refreshed
       })
     )
@@ -453,7 +488,7 @@ class TokenManager {
     const now = Date.now()
     if (chosen.expires_at - 5 * 60 * 1000 < now) {
       const expiresIn = Math.round((chosen.expires_at - now) / 60000)
-      console.log(`[TokenManager] Token for ${chosen.projectId} expired (or expiring in ${expiresIn}min), refreshing...`)
+      devLog(`[TokenManager] Token for ${chosen.projectId} expired (or expiring in ${expiresIn}min), refreshing...`)
       try {
         const refreshed = await this.refreshToken(chosen)
         // null = refresh failed (bad credentials or token revoked) — mark for re-auth
@@ -466,7 +501,7 @@ class TokenManager {
         const idx = this._tokens.findIndex(t => t.projectId === chosen.projectId)
         if (idx !== -1) this._tokens[idx] = refreshed
         this._saveTokens()
-        console.log(`[TokenManager] Token refreshed for ${chosen.projectId} (expires ${new Date(refreshed.expires_at).toISOString()})`)
+        devLog(`[TokenManager] Token refreshed for ${chosen.projectId} (expires ${new Date(refreshed.expires_at).toISOString()})`)
         return {
           token: refreshed.access_token,
           projectId: refreshed.projectId,
@@ -529,7 +564,7 @@ class TokenManager {
       this._tokens.push(entry)
     }
     this._saveTokens()
-    console.log(`[TokenManager] Token added/updated for ${projectId}`)
+    devLog(`[TokenManager] Token added/updated for ${projectId}`)
   }
 
   getToken(projectId: string): OAuthTokenSet | null {
@@ -541,7 +576,7 @@ class TokenManager {
     this._stats.delete(projectId)
     this._saveTokens()
     this._saveStats()
-    console.log(`[TokenManager] Token removed for ${projectId}`)
+    devLog(`[TokenManager] Token removed for ${projectId}`)
   }
 
   /** Reload tokens from disk. Call after external code writes tokens (e.g., OAuth flow). */
@@ -555,7 +590,7 @@ class TokenManager {
     this._unauthorizedTokens.clear()
     this._lastReset = Date.now()
     this._saveStats()
-    console.log('[TokenManager] Reset all token quotas')
+    devLog('[TokenManager] Reset all token quotas')
   }
 
   /** Reset stats for a specific project (keeps the token, only clears usedToday/errors/unauthorized flag) */
@@ -564,7 +599,7 @@ class TokenManager {
     this._stats.delete(projectId)
     this._unauthorizedTokens.delete(projectId)
     this._saveStats()
-    console.log(`[TokenManager] Reset quota stats for ${projectId} (wasUnauthorized=${wasUnauthorized})`)
+    devLog(`[TokenManager] Reset quota stats for ${projectId} (wasUnauthorized=${wasUnauthorized})`)
     return { success: true, nextReset: this._getNextResetTime(), wasUnauthorized }
   }
 
@@ -580,7 +615,7 @@ class TokenManager {
     if (this._unauthorizedTokens.has(projectId)) {
       this._unauthorizedTokens.delete(projectId)
       this._saveStats()
-      console.log(`[TokenManager] Token ${projectId} authorized`)
+      devLog(`[TokenManager] Token ${projectId} authorized`)
     }
   }
 
@@ -620,29 +655,19 @@ class TokenManager {
     return this._tokens.length
   }
 
-  /** Compute timestamp of next midnight PT reset */
+  /** Compute timestamp of next midnight UTC reset */
   _getNextResetTime(): number {
     const now = new Date()
-    const utcHour = now.getUTCHours()
-    const utcYear = now.getUTCFullYear()
-    const march1 = new Date(Date.UTC(utcYear, 2, 1))
-    const firstSundayMarch = new Date(Date.UTC(utcYear, 2, march1.getUTCDay() === 0 ? 1 : 8 - march1.getUTCDay()))
-    const dstStart = new Date(Date.UTC(utcYear, 2, firstSundayMarch.getUTCDate()))
-    const nov1 = new Date(Date.UTC(utcYear, 10, 1))
-    const firstSundayNov = new Date(Date.UTC(utcYear, 10, nov1.getUTCDay() === 0 ? 1 : 8 - nov1.getUTCDay()))
-    const dstEnd = new Date(Date.UTC(utcYear, 10, firstSundayNov.getUTCDate()))
-    const isPDT = now >= dstStart && now < dstEnd
-    const ptOffsetHours = isPDT ? -7 : -8
-    const ptHour = utcHour + ptOffsetHours
-    const msUntilMidnightPT = ptHour >= 0
-      ? (24 - ptHour) * 3600 * 1000 - now.getUTCMinutes() * 60000 - now.getUTCSeconds() * 1000
-      : Math.abs(ptHour) * 3600 * 1000 - now.getUTCMinutes() * 60000 - now.getUTCSeconds() * 1000
-    return Date.now() + msUntilMidnightPT
+    const msUntilMidnightUTC = (24 - now.getUTCHours()) * 3600 * 1000
+      - now.getUTCMinutes() * 60000
+      - now.getUTCSeconds() * 1000
+      - now.getUTCMilliseconds()
+    return Date.now() + msUntilMidnightUTC
   }
 
   /** Get status for all tokens (for Settings UI) */
   getAllStatuses(): TokenStatus[] {
-    console.log(`[TokenManager] getAllStatuses: ${this._tokens.length} tokens loaded, _unauthorized: ${[...this._unauthorizedTokens].join(',')}`)
+    devLog(`[TokenManager] getAllStatuses: ${this._tokens.length} tokens loaded, _unauthorized: ${[...this._unauthorizedTokens].join(',')}`)
     return this._tokens.map(t => {
       const s = this._stats.get(t.projectId)
       const usedToday = s?.usedToday ?? 0

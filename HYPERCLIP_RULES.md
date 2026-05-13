@@ -6,7 +6,7 @@
 
 ## 1. Mục tiêu cốt lõi
 
-**Bắt 100% video mới trong < 10 giây, chạy 24/7 cho ~100 kênh YouTube.**
+**Bắt 100% video mới trong < 20 giây, chạy 24/7 cho ~100 kênh YouTube.**
 
 ### NGUYÊN LÝ HOẠT ĐỘNG CỐT LÕI (ĐỂ ĐẠT ĐƯỢC MỤC TIÊU TRÊN)
 
@@ -53,9 +53,10 @@ fetchSubscriptionFeed() → ALL channels (parallel, 5 concurrent)
    → Tracked: track(projectId) per channel, skip exhausted tokens
          ↓
 Filter: unseen (seenVideoIds dedup), not deleted/private
-  Tab order: trust YouTube Videos tab (newest-first). No age filter in Innertube path.
+  Tab order: trust YouTube Videos tab (newest-first). Age ≤ 10 min filter applied.
+  publishedAt=0 → OAuth verify (real upload timestamp) → accept if ≤ 10 min
          ↓
-autoDownload() → yt-dlp --download-sections (chỉ N phút cần thiết)
+autoDownload() → yt-dlp --download-sections (chỉ N phút cần thiết, web VP9)
 ```
 
 ### Innertube Detection (youtubei.js) — PRIMARY (2026-05-04)
@@ -465,6 +466,8 @@ App khởi động
 - ✅ **Auto-render opt-in** — `settings.autoRender` (default: false, user manually triggers)
 - ✅ Exhausted threshold: 5 quota errors per token → skip token
 - ✅ Token quota reset: UTC date midnight (kiểm tra mỗi 30 phút)
+- ✅ Age filter: skip videos > 10 min old; `publishedAt=0` → OAuth verify (real upload timestamp, not cached text)
+- ✅ Dedup: `return null` → `continue` — if top-1 seen, try top-2..top-5 (prevents 0-result after first successful poll)
 - ⚠️ activities?home=true **DEPRECATED** — không dùng nữa
 - ⚠️ Close Chrome trước khi start HyperClip — cookie lock prevention
 
@@ -489,10 +492,29 @@ App khởi động
 
 ---
 
-## 14. Ngày cập nhật: 2026-05-06
+## 14. Ngày cập nhật: 2026-05-13
+
+### Changes 2026-05-13 — Skip unparseable age + Download quality fix + Preview fix
+- **`publishedAt=0` → OAuth verify** (2026-05-13). Innertube trả empty `published_time_text` cho video mới (YouTube cache lag < 1 phút). Fix: khi Innertube trả `publishedAt=0`, gọi OAuth `/videos?id=...&part=snippet` để lấy real `publishedAt`. Accept nếu ≤ 10 phút, skip nếu > 10 phút hoặc error. OAuth chỉ trigger khi Innertube chính nó trả empty timestamp → quota cost ≈ 3-5 calls/poll × ~100 polls/day ≈ 300-500 units/ngày ≪ 313,500 quota.
+- **Xóa priority re-scan**: Khi Innertube trả 0 video, không re-scan nữa.
+- **Xóa `verifyVideoAgeByOAuth()`**: Không còn cần verify `publishedAt=0`.
+- **Xóa `getLatestVideoPriority()`**: Không còn được gọi.
+- **Xóa OAuth health check**: Vô nghĩa sau khi xóa `publishedAt=0` verification.
+- **Kết quả**: OAuth quota ≈ 0 consumption. OAuth chỉ dùng khi Innertube pool = 0.
+- **Download quality (2026-05-13):** `getDownloadSession()` luôn trả `po_token: null` (warmup PO Token cache + CDP navigation loop đã xóa). yt-dlp dùng `player_client=web` + Chrome cookies (`--cookies`) → VP9 DASH → 720p-1080p. SABR-only 360p (YouTube experiment) → không bypass được.
+  - Với PO Token: `player_client=android` → H.264 DASH → 720p-1080p (đường tốt nhất nhưng PO Token không đáng tin cậy)
+  - Không PO Token: `player_client=web` → VP9 → 720p-1080p (mặc định)
+- **Preview/render path fix (2026-05-13):** `downloadedPath` stored as relative (`"XYZ.mp4"`). VIDEO_FILE/VIDEO_BLOB handlers prepend `getVideoStoragePath()` → absolute path → `fs.existsSync()` finds file → preview + render hoạt động.
+
+### Changes 2026-05-12 (2 fixes)
+- **Fix #1 — Dedup bug (2026-05-12):** `return null` → `continue` trong `getLatestVideo()` và `getLatestVideoPriority()`. Bug: khi top-1 đã nằm trong `seenVideoIds`, code cũ trả `null` và skip cả channel → không bao giờ thử top-2..top-5 → sau poll đầu tiên thành công, poll tiếp theo luôn trả 0 cho tất cả channels → OAuth health check chỉ test 1 channel → OAuth fallback không được trigger. Fix: đổi `return null` → `continue` để thử video tiếp theo khi top-1 đã seen.
+- **Fix #2 — OAuth age verification (2026-05-12): SUPERSEDED 2026-05-13.** `publishedAt=0` → accept → OAuth verify → skip nếu > 10 phút. Bug: Innertube trả empty `published_time_text` cho video mới upload (< 2 phút) NHƯNG CŨNG cho video cũ mà YouTube chưa cache timestamp. Sau khi analyze log thực tế: 100% video `publishedAt=0` đều là video cũ (từ vài ngày đến vài năm). Video mới upload luôn có `published_time_text` parseable → fix mới: skip hoàn toàn `publishedAt=0` thay vì verify qua OAuth.
+
+### Changes 2026-05-12 — Age filter REFINED (SUPERSEDED 2026-05-13)
+- Accept `publishedAt=0` (unparseable) as likely new uploads instead of skipping. SUPERSEDED: thực tế 100% `publishedAt=0` là video cũ → skip thay vì accept + verify.
 
 ### Changes 2026-05-06
-- **Age filter REMOVED (2026-05-06):** `parseRelativeDate` fails for many formats ("X weeks ago", "X month ago" without 's', empty, "Live", etc.) → `publishedAt=0` → age check bypassed → old videos downloaded. Fix: trust YouTube tab order (newest-first) as the primary guard. `seenVideoIds` dedup prevents re-downloads. Trim limit (30 min) prevents old video processing.
+- **Age filter REMOVED (2026-05-06) — REVERTED 2026-05-12:** `parseRelativeDate` fails for many formats → `publishedAt=0` → age check bypassed → old videos downloaded. Initial fix removed age filter entirely; later refined to accept unparseable age only.
 
 ### Changes 2026-05-04
 - Sync Section 1 vs Section 12: Innertube PRIMARY (not DEPRECATED)

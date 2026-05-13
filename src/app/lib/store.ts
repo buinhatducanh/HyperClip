@@ -34,6 +34,8 @@ export interface Workspace {
   detectedAt?: string
   /** Video resolution (e.g. "1920x1080") */
   videoResolution?: string
+  /** yt-dlp quality setting used for this download (e.g. "720") — for compliance audit */
+  downloadQuality?: string
   trimLimit: number | 'full'  // number = minutes
   /** Export quality for this workspace — set when user edits in editor */
   quality: 1080 | 720 | 360
@@ -71,6 +73,7 @@ export interface AppSettings {
   autoDownloadQuality: string  // '360'|'480'|'720'|'1080'
   pollIntervalMs: number       // detection poll interval in ms (default: 5000)
   downloadsCleanupDays: number  // 0 = disabled, otherwise N days
+  maxConcurrentRenders: number  // max FFmpeg renders in parallel (default: 2)
 }
 
 export interface AppStore {
@@ -194,6 +197,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     autoDownloadQuality: '720',
     pollIntervalMs: 5000,
     downloadsCleanupDays: 7,
+    maxConcurrentRenders: 2,
   },
   renderQueueExpanded: false,
   toast: '',
@@ -226,6 +230,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
         isShort: w.isShort,
         isMultiInstance: w.isMultiInstance,
         preScaledPath: w.preScaledPath,
+        videoResolution: w.videoResolution,
+        downloadQuality: w.downloadQuality,
       }))
       set({ workspaces: ws })
     } catch (e) {
@@ -249,7 +255,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
       selectedWorkspaceId: s.selectedWorkspaceId === id ? null : s.selectedWorkspaceId,
     })),
 
-  selectWorkspace: (id) => set({ selectedWorkspaceId: id }),
+  selectWorkspace: (id) => {
+    set({ selectedWorkspaceId: id })
+    ipc.setActiveWorkspace(id)
+  },
 
   // Actions — Rendered Videos
   initRenderedVideos: async () => {

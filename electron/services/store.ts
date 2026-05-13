@@ -211,6 +211,8 @@ export interface WorkspaceData {
   retryableAt?: string
   /** Video resolution (e.g. "1920x1080", "1080x1920") */
   videoResolution?: string
+  /** yt-dlp quality setting used for this download (e.g. "720") — for compliance audit */
+  downloadQuality?: string
   /** Path to pre-scaled source video (pre-downscaled to export resolution) — speeds up render */
   preScaledPath?: string
 }
@@ -272,6 +274,21 @@ function resolveWorkspacePaths(ws: WorkspaceData): WorkspaceData {
   if (fs.existsSync(absPath)) return { ...ws, downloadedPath: absPath }
   // File not found at stored path — scan storage dirs for a file matching this workspaceId
   const found = findDownloadedFile(ws.id)
+  if (found && fs.existsSync(found)) return { ...ws, downloadedPath: found }
+  // Auto-downloaded files are named {videoId}_{videoId}.mp4 (workspaceId = videoId).
+  // findDownloadedFile may miss them due to stale file-index cache.
+  // Scan storage dirs directly for a file starting with the videoId.
+  if (ws.videoId) {
+    for (const dir of getKnownStorageDirs()) {
+      try {
+        if (!fs.existsSync(dir)) continue
+        const files = fs.readdirSync(dir).filter(f => f.startsWith(ws.videoId + '_') && /\.(mp4|webm|mkv)$/i.test(f))
+        if (files.length > 0) {
+          return { ...ws, downloadedPath: path.join(dir, files[0]) }
+        }
+      } catch {}
+    }
+  }
   return {
     ...ws,
     downloadedPath: found || absPath,  // use found path, or keep stored path (will be flagged as missing)

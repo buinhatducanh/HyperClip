@@ -10,7 +10,8 @@
 
 import path from 'path'
 import fs from 'fs'
-import os from 'os'
+import { devLog } from './dev_log.js'
+import { getAppStoreDir } from './paths.js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -33,7 +34,7 @@ interface KeyManagerData {
   keys: APIKey[]
   unauthorizedKeys: string[]
   lastReset: number
-  lastResetPTDate: string
+  lastResetUTCDate: string
 }
 
 export interface KeyStatus {
@@ -52,7 +53,7 @@ export interface KeyStatus {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const KEYS_DIR = path.join(os.homedir(), 'AppData', 'Roaming', 'HyperClip')
+const KEYS_DIR = getAppStoreDir()
 const KEYS_FILE = path.join(KEYS_DIR, 'api_keys.json')
 const STATS_FILE = path.join(KEYS_DIR, 'key_stats.json')
 
@@ -65,7 +66,7 @@ class KeyManager {
   private _keys: APIKey[] = []
   private _stats: Map<string, KeyStats> = new Map()
   private _lastReset: number = Date.now()
-  private _lastResetPTDate: string = ''  // tracks PT date for midnight-PT reset
+  private _lastResetUTCDate: string = ''  // tracks PT date for midnight-PT reset
   private _initialized: boolean = false
   private _unauthorizedKeys: Set<string> = new Set()
 
@@ -96,9 +97,9 @@ class KeyManager {
 
     if (this._keys.length === 0) {
       console.warn('[KeyManager] No API keys found in', KEYS_FILE)
-      console.warn('[KeyManager] Run HyperClip with a valid api_keys.json in AppData/Roaming/HyperClip/')
+      console.warn('[KeyManager] Run HyperClip with a valid api_keys.json in D:\\HyperClip-Data\\app\\HyperClip\\')
     } else {
-      console.log(`[KeyManager] Loaded ${this._keys.length} keys, smart rotation active`)
+      devLog(`[KeyManager] Loaded ${this._keys.length} keys, smart rotation active`)
       if (this._unauthorizedKeys.size > 0) {
         console.warn(`[KeyManager] ${this._unauthorizedKeys.size} key(s) marked as unauthorized`)
       }
@@ -111,7 +112,7 @@ class KeyManager {
         const data = JSON.parse(fs.readFileSync(STATS_FILE, 'utf-8'))
         this._stats = new Map(Object.entries(data.stats || {}))
         this._lastReset = data.lastReset || Date.now()
-        this._lastResetPTDate = data.lastResetPTDate || ''
+        this._lastResetUTCDate = data.lastResetPTDate || ''
       }
     } catch {}
   }
@@ -133,7 +134,7 @@ class KeyManager {
     try {
       const obj: Record<string, KeyStats> = {}
       for (const [k, v] of this._stats) obj[k] = v
-      fs.writeFileSync(STATS_FILE, JSON.stringify({ stats: obj, lastReset: this._lastReset, lastResetPTDate: this._lastResetPTDate }, null, 2), 'utf-8')
+      fs.writeFileSync(STATS_FILE, JSON.stringify({ stats: obj, lastReset: this._lastReset, lastResetPTDate: this._lastResetUTCDate }, null, 2), 'utf-8')
     } catch (e) {
       console.error('[KeyManager] Failed to persist stats:', e)
     }
@@ -141,42 +142,20 @@ class KeyManager {
 
   /**
    * Check if we need to reset daily stats.
-   * Resets at midnight PT (Pacific Time), aligned with Google's quota reset.
-   * Uses UTC + DST offset to compute PT without external timezone APIs.
+   * Resets at midnight UTC daily. Aligned with TokenManager for consistency.
+   * Note: Google's quota technically resets at midnight PT (08:00 UTC standard, 07:00 UTC DST),
+   * but UTC midnight provides a consistent reset window across both KeyManager and TokenManager.
    */
   private _checkReset(): void {
     const now = new Date()
-    const utcHour = now.getUTCHours()
+    const utcDateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
 
-    // PT is UTC-7 (PDT, summer) or UTC-8 (PST, winter)
-    // DST: second Sunday in March → first Sunday in November
-    const utcYear = now.getUTCFullYear()
-    const march1 = new Date(Date.UTC(utcYear, 2, 1))
-    // Find first Sunday of March
-    const firstSundayMarch = new Date(Date.UTC(utcYear, 2, march1.getUTCDay() === 0 ? 1 : 8 - march1.getUTCDay()))
-    const dstStart = new Date(Date.UTC(utcYear, 2, firstSundayMarch.getUTCDate()))
-    // Find first Sunday of November
-    const nov1 = new Date(Date.UTC(utcYear, 10, 1))
-    const firstSundayNov = new Date(Date.UTC(utcYear, 10, nov1.getUTCDay() === 0 ? 1 : 8 - nov1.getUTCDay()))
-    const dstEnd = new Date(Date.UTC(utcYear, 10, firstSundayNov.getUTCDate()))
-
-    const isPDT = now >= dstStart && now < dstEnd
-    const ptOffsetHours = isPDT ? -7 : -8
-    const ptHour = utcHour + ptOffsetHours
-
-    // PT date: if PT hour rolled negative, we're in previous PT day
-    // If PT hour is >= 0 and UTC, we're in same PT day
-    // Compare PT date strings to detect day change
-    const ptDateStr = ptHour >= 0
-      ? `${utcYear}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
-      : `${utcYear}-${String(new Date(now.getTime() - 86400000).getUTCMonth() + 1).padStart(2, '0')}-${String(new Date(now.getTime() - 86400000).getUTCDate()).padStart(2, '0')}`
-
-    if (this._lastResetPTDate !== ptDateStr) {
+    if (this._lastResetUTCDate !== utcDateStr) {
       this._stats.clear()
       this._lastReset = Date.now()
-      this._lastResetPTDate = ptDateStr
+      this._lastResetUTCDate = utcDateStr
       this._persistStats()
-      console.log(`[KeyManager] Daily reset at midnight PT (${ptDateStr}) — all key quotas refreshed`)
+      devLog(`[KeyManager] Daily reset at midnight UTC (${utcDateStr}) — all key quotas refreshed`)
     }
   }
 
@@ -264,7 +243,7 @@ class KeyManager {
     }
     this._keys.push({ key, projectId, name })
     this._persist()
-    console.log(`[KeyManager] Added key: ${name} (${key.slice(0, 12)}...)`)
+    devLog(`[KeyManager] Added key: ${name} (${key.slice(0, 12)}...)`)
   }
 
   /** Remove a key by key string */
@@ -275,7 +254,7 @@ class KeyManager {
     this._stats.delete(key)
     this._persist()
     this._persistStats()
-    console.log(`[KeyManager] Removed key: ${removed.name}`)
+    devLog(`[KeyManager] Removed key: ${removed.name}`)
   }
 
   /** Reset quota for a specific key */
@@ -288,7 +267,7 @@ class KeyManager {
       stat.lastResetAt = Date.now()
       this._stats.set(key, stat)
       this._persistStats()
-      console.log(`[KeyManager] Reset quota for key ${key.slice(0, 12)}...`)
+      devLog(`[KeyManager] Reset quota for key ${key.slice(0, 12)}...`)
     }
     return { success: true, nextReset: this._getNextResetTime() }
   }
@@ -298,7 +277,7 @@ class KeyManager {
     this._stats.clear()
     this._lastReset = Date.now()
     this._persistStats()
-    console.log('[KeyManager] Reset all key quotas')
+    devLog('[KeyManager] Reset all key quotas')
     return { success: true, nextReset: this._getNextResetTime() }
   }
 
@@ -314,7 +293,7 @@ class KeyManager {
     if (this._unauthorizedKeys.has(key)) {
       this._unauthorizedKeys.delete(key)
       this._persist()
-      console.log(`[KeyManager] Key ${key.slice(0, 12)}... authorized`)
+      devLog(`[KeyManager] Key ${key.slice(0, 12)}... authorized`)
     }
   }
 
@@ -323,25 +302,14 @@ class KeyManager {
     return this._unauthorizedKeys.size
   }
 
-  /** Compute timestamp of next midnight PT reset */
+  /** Compute timestamp of next midnight UTC reset */
   _getNextResetTime(): number {
     const now = new Date()
-    const utcHour = now.getUTCHours()
-    const utcYear = now.getUTCFullYear()
-    const march1 = new Date(Date.UTC(utcYear, 2, 1))
-    const firstSundayMarch = new Date(Date.UTC(utcYear, 2, march1.getUTCDay() === 0 ? 1 : 8 - march1.getUTCDay()))
-    const dstStart = new Date(Date.UTC(utcYear, 2, firstSundayMarch.getUTCDate()))
-    const nov1 = new Date(Date.UTC(utcYear, 10, 1))
-    const firstSundayNov = new Date(Date.UTC(utcYear, 10, nov1.getUTCDay() === 0 ? 1 : 8 - nov1.getUTCDay()))
-    const dstEnd = new Date(Date.UTC(utcYear, 10, firstSundayNov.getUTCDate()))
-    const isPDT = now >= dstStart && now < dstEnd
-    const ptOffsetHours = isPDT ? -7 : -8
-    const ptHour = utcHour + ptOffsetHours
-    // Next midnight PT
-    const msUntilMidnightPT = ptHour >= 0
-      ? (24 - ptHour) * 3600 * 1000 - now.getUTCMinutes() * 60000 - now.getUTCSeconds() * 1000
-      : Math.abs(ptHour) * 3600 * 1000 - now.getUTCMinutes() * 60000 - now.getUTCSeconds() * 1000
-    return Date.now() + msUntilMidnightPT
+    const msUntilMidnightUTC = (24 - now.getUTCHours()) * 3600 * 1000
+      - now.getUTCMinutes() * 60000
+      - now.getUTCSeconds() * 1000
+      - now.getUTCMilliseconds()
+    return Date.now() + msUntilMidnightUTC
   }
 
   // ── Query ─────────────────────────────────────────────────────────────────

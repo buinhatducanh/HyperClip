@@ -11,16 +11,18 @@
 ## Auto-Ingestion Pipeline
 
 ```
-YouTubePoller (5 giây ± 0.5s jitter)
+YouTubePoller (5 giây ± 20% jitter = 4-6s)
          ↓
-fetchSubscriptionFeed() → ALL channels (parallel, max 5 concurrent)
+fetchSubscriptionFeed() → ALL channels (parallel, max 10 concurrent)
          ↓
 1. Innertube API (30 Chrome sessions, SAPISIDHASH) — PRIMARY, NO QUOTA
-   → OAuth Data API v3 fallback khi Innertube trả 0 video
+   → getLatestVideo: check top-1..top-5, seen dedup (return null → continue)
+   → publishedAt=0 → OAuth verify (real upload timestamp)
+   → OAuth Data API v3 fallback khi Innertube die (pool=0)
          ↓
-Filter: age < 10 min, unseen, not deleted
+Filter: age ≤ 10 min, unseen, not deleted
          ↓
-autoDownload (yt-dlp --download-sections) → blur → workspace ready → notify
+autoDownload (yt-dlp --download-sections, multi-instance, 16 fragments, PO Token) → workspace ready → notify
 ```
 
 **Chi tiết quota system và Innertube failure modes:** xem HYPERCLIP_RULES.md section 3b.
@@ -165,4 +167,14 @@ Luôn chạy `npx tsc --noEmit` sau khi sửa backend Electron. IDE diagnostics 
 
 ---
 
-## Cập nhật: 2026-05-03
+## Cập nhật: 2026-05-13
+
+- `publishedAt=0` → OAuth verify (2026-05-13): gọi `/videos?id=...&part=snippet` để lấy real `publishedAt`. Accept nếu ≤ 10 min, skip nếu > 10 min. OAuth chỉ trigger khi Innertube trả empty timestamp → quota cost ~300-500 units/ngày.
+- Xóa priority re-scan + `getLatestVideoPriority()` + `verifyVideoAgeByOAuth()` + OAuth health check. OAuth quota ≈ 0 consumption.
+- Fix dedup bug: `return null` → `continue` trong `getLatestVideo`
+- **Download quality (2026-05-13):** `getDownloadSession()` → `po_token: null` (navigation loop removed). yt-dlp dùng `player_client=web` → VP9 DASH → 720p-1080p. Chrome cookies (`--cookies`) bypass EJS challenge. SABR-only 360p không bypass được.
+- **Preview/render fix (2026-05-13):** `downloadedPath` stored as relative filename (`"XYZ.mp4"`). VIDEO_FILE/VIDEO_BLOB handlers prepend `getVideoStoragePath()` to resolve absolute path. Fix `normalizedStored` undefined reference.
+
+## Cập nhật: 2026-05-12
+
+- DEV_LOG=1 enable qua `cross-env DEV_LOG=1` trong `electron:dev` script

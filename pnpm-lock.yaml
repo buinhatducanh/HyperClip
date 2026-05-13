@@ -231,6 +231,9 @@ importers:
       electron-builder:
         specifier: ^26.8.1
         version: 26.8.1(electron-builder-squirrel-windows@26.8.1)
+      extract-zip:
+        specifier: ^2.0.1
+        version: 2.0.1
       postcss:
         specifier: ^8.5.10
         version: 8.5.14

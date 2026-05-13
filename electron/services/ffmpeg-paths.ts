@@ -3,6 +3,7 @@ import fs from 'fs'
 import { execSync } from 'child_process'
 import os from 'os'
 import { app } from 'electron'
+import { devLog } from './dev_log.js'
 
 // Shared FFmpeg/FFprobe path resolution.
 // On Windows with Bash/Git environments, process.cwd() returns Unix-style paths
@@ -41,10 +42,10 @@ function resolveBinary(name: string): string {
               )
               const sz = fs.statSync(testFile).size
               nvencWorks = sz > 100
-              if (!nvencWorks) console.log(`[FFmpeg probe] ${path.basename(fp)} NVENC test: 0 bytes — driver incompatible`)
+              if (!nvencWorks) devLog(`[FFmpeg probe] ${path.basename(fp)} NVENC test: 0 bytes — driver incompatible`)
             } catch (e: any) {
               // NVENC not usable at runtime — either driver issue or build mismatch
-              console.log(`[FFmpeg probe] ${path.basename(fp)} NVENC test: FAILED (${e.status ?? 'signal'})`)
+              devLog(`[FFmpeg probe] ${path.basename(fp)} NVENC test: FAILED (${e.status ?? 'signal'})`)
             } finally {
               try { fs.unlinkSync(testFile) } catch {}
             }
@@ -150,8 +151,8 @@ function resolveBinary(name: string): string {
   }
 
   if (bestFp) {
-    console.log(`[FFmpeg] Resolved ${name}: ${bestFp}`)
-    console.log(`[FFmpeg] Binary: ${bestVersion} (CUDA score: ${bestScore})`)
+    devLog(`[FFmpeg] Resolved ${name}: ${bestFp}`)
+    devLog(`[FFmpeg] Binary: ${bestVersion} (CUDA score: ${bestScore})`)
     return bestFp
   }
 
@@ -213,7 +214,7 @@ export function getFfmpegVersion(ffmpegPath: string): FfmpegVersion {
     })
     result.version = versionOut.split('\n')[0]
     result.majorVersion = parseVersion(result.version)
-    console.log(`[FFmpeg] ${result.version} (major=${result.majorVersion})`)
+    devLog(`[FFmpeg] ${result.version} (major=${result.majorVersion})`)
   } catch (e) {
     console.warn('[FFmpeg] Could not get version:', e)
     _cachedVersion = result
@@ -232,8 +233,8 @@ export function getFfmpegVersion(ffmpegPath: string): FfmpegVersion {
     result.hasVaapi = encodersOut.includes('hevc_vaapi') || encodersOut.includes('h264_vaapi')
     result.hasNvencLookahead = encodersOut.includes('nvenc_lookahead')
 
-    console.log(`[FFmpeg] NVENC: ${result.hasNvenc ? '✓' : '✗'} | NVDEC: ${result.hasNvdec ? '✓' : '✗'} | CUVID: ${result.hasCuvid ? '✓' : '✗'} | QSV: ${result.hasQsv ? '✓' : '✗'} | VAAPI: ${result.hasVaapi ? '✓' : '✗'}`)
-    console.log(`[FFmpeg] CUDA filters: ${result.hasCudaFilters ? '✓' : '✗'} | NVENC lookahead: ${result.hasNvencLookahead ? '✓' : '✗'}`)
+    devLog(`[FFmpeg] NVENC: ${result.hasNvenc ? '✓' : '✗'} | NVDEC: ${result.hasNvdec ? '✓' : '✗'} | CUVID: ${result.hasCuvid ? '✓' : '✗'} | QSV: ${result.hasQsv ? '✓' : '✗'} | VAAPI: ${result.hasVaapi ? '✓' : '✗'}`)
+    devLog(`[FFmpeg] CUDA filters: ${result.hasCudaFilters ? '✓' : '✗'} | NVENC lookahead: ${result.hasNvencLookahead ? '✓' : '✗'}`)
   } catch (e) {
     console.warn('[FFmpeg] Could not enumerate encoders:', e)
   }
@@ -260,9 +261,9 @@ export function getFfmpegVersion(ffmpegPath: string): FfmpegVersion {
     // Only enable CUDA filters if NVDEC is available (meaning the GPU pipeline is complete)
     result.hasCudaFilters = hasCudaFiltersListed && hasNvDec
     if (result.hasCudaFilters) {
-      console.log(`[FFmpeg] CUDA-accelerated filters detected (scale_cuda, overlay_cuda) — GPU filter pipeline enabled`)
+      devLog(`[FFmpeg] CUDA-accelerated filters detected (scale_cuda, overlay_cuda) — GPU filter pipeline enabled`)
     } else if (hasCudaFiltersListed && !hasNvDec) {
-      console.log(`[FFmpeg] CUDA filters listed but NVDEC unavailable — using CPU filter pipeline`)
+      devLog(`[FFmpeg] CUDA filters listed but NVDEC unavailable — using CPU filter pipeline`)
     }
   } catch {}
 
