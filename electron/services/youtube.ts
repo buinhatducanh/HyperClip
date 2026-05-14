@@ -253,7 +253,8 @@ export interface DownloadProgress {
   workspaceId: string
   percent: number
   speed: string
-  eta: string
+  /** ETA: seconds (numeric) or 'M:SS' string — fmtEta handles both */
+  eta: number | string
   downloaded: string
   total: string
 }
@@ -266,6 +267,72 @@ export interface DownloadResult {
   duration?: number
   fileSize?: number
   error?: string
+}
+
+// ─── Simulated progress ticker ─────────────────────────────────────────────────
+// Simulates download progress when yt-dlp is slow to emit real %. Prevents 0% stuck bar.
+const _simTicker = new Map<string, ReturnType<typeof setInterval>>()
+
+function stopSimulation(workspaceId: string) {
+  const id = _simTicker.get(workspaceId)
+  if (id !== undefined) {
+    clearInterval(id)
+    _simTicker.delete(workspaceId)
+  }
+}
+
+function simulateDownloadProgress(
+  workspaceId: string,
+  onProgress: ((progress: DownloadProgress) => void) | undefined,
+  durationSec: number,
+  quality: string,
+  trimLimitSec: number,
+) {
+  stopSimulation(workspaceId)
+
+  // Estimate file size (MB) based on quality + duration
+  const kbps: Record<string, number> = { '360': 800, '480': 1500, '720': 3000, '1080': 6000 }
+  const speedKbps = kbps[quality] ?? 2000
+  const actualSec = trimLimitSec > 0 && trimLimitSec < durationSec ? trimLimitSec : durationSec
+  const estimatedSec = Math.max(10, (actualSec * speedKbps) / 4000) // generous estimate (kbps/4000 ≈ seconds for typical connection)
+  const totalTicks = Math.floor(estimatedSec * 4) // update every ~250ms
+  const tickMs = Math.max(150, Math.min(400, (estimatedSec * 1000) / totalTicks))
+
+  let tick = 0
+  let currentPct = 0
+  let stuckAt = 0 // if > 0, simulation is "stuck" waiting for real download
+
+  const ticker = setInterval(() => {
+    // Stop automatically when real progress has taken over (progressEmitted tracked by caller)
+    if (!_simTicker.has(workspaceId)) { clearInterval(ticker); return }
+
+    tick++
+    if (stuckAt > 0) {
+      // Stuck phase: advance very slowly (0.1-0.5%)
+      const inc = 0.1 + Math.random() * 0.4
+      currentPct = Math.min(stuckAt + inc, stuckAt + 2)
+      if (currentPct >= stuckAt + 2) stuckAt = 0 // unstick after 2%
+    } else if (currentPct < 90) {
+      // Normal phase: 0.1-2% per tick
+      const inc = 0.1 + Math.random() * 1.9
+      currentPct = Math.min(currentPct + inc, 90)
+      if (currentPct >= 88 && currentPct < 90) stuckAt = currentPct // start stuck phase near 90%
+    } else {
+      // Finishing phase: 0.1-0.5%
+      const inc = 0.1 + Math.random() * 0.4
+      currentPct = Math.min(currentPct + inc, 99.9)
+    }
+
+    const pct = Math.min(99.9, Math.max(0, currentPct))
+    const speedMap: Record<string, string> = { '360': '2.5MiB/s', '480': '4.5MiB/s', '720': '9MiB/s', '1080': '18MiB/s' }
+    const speed = speedMap[quality] ?? '5MiB/s'
+    const remainingSec = Math.max(1, Math.round((estimatedSec * (100 - pct)) / 100))
+
+    onProgress?.({ workspaceId, percent: pct, speed, eta: remainingSec, downloaded: '', total: '' })
+  }, tickMs)
+
+  _simTicker.set(workspaceId, ticker)
+  return stopSimulation.bind(null, workspaceId)
 }
 
 export interface YtdlpOptions {
@@ -929,17 +996,26 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
 
   // ── Multi-instance section download (1080p+ on good internet) ────────────────
   if (instanceCount > 1 && typeof trimLimit === 'number' && trimLimit > 0) {
+    // Start simulated progress (stopped by multiInstanceDownload's progressEmitted or on resolve)
+    const trimLimitSec = trimLimit * 60
+    const simStop = simulateDownloadProgress(workspaceId, onProgress, preFetchedDuration ?? trimLimit * 60, quality, trimLimitSec)
     const multiResult = await multiInstanceDownload({
       workspaceId, videoUrl, outputDir, formatSelector, trimLimit, instanceCount,
-      onProgress, ytdlp, preFetchedDuration: opts.preFetchedDuration, retryStrategy: opts.retryStrategy,
+      onProgress: (p) => { simStop(); onProgress?.(p) }, ytdlp, preFetchedDuration: opts.preFetchedDuration, retryStrategy: opts.retryStrategy,
       poToken: po_token, ytCookiesFile: opts.ytCookiesFile,
     })
+    simStop()
     if (multiResult) return multiResult
     // Fallthrough to single instance if multi failed
   }
 
   // ── Core download: spawns yt-dlp, resolves with result ─────────────────────
   const doDownload = (extraArgs: string[]): Promise<DownloadResult> => {
+    // Determine actual download duration for simulation
+    const trimLimitSec = typeof trimLimit === 'number' && trimLimit > 0 ? trimLimit * 60 : 0
+    const simDuration = preFetchedDuration ?? (trimLimitSec > 0 ? trimLimitSec : 300) // default 5 min if unknown
+    const simStop = simulateDownloadProgress(workspaceId, onProgress, simDuration, quality, trimLimitSec)
+
     const outputTemplate = path.join(outputDir, `${workspaceId}_%(id)s.%(ext)s`)
 
     const args: string[] = [
@@ -996,18 +1072,26 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
       let downloadedFile = ''
       let progressEmitted = false
 
-      const proc = spawn(ytdlp, args, {
-        env: { ...process.env, PATH: enrichedPath },
-      })
+      let proc
+      try {
+        proc = spawn(ytdlp, args, {
+          env: { ...process.env, PATH: enrichedPath },
+        })
+      } catch (err: any) {
+        simStop()
+        resolve({ success: false, workspaceId, error: `spawn failed: ${err.message}` })
+        return
+      }
 
       proc.on('error', (err) => {
+        simStop()
         resolve({ success: false, workspaceId, error: `spawn error: ${err.message}` })
       })
 
       // Emit progress IMMEDIATELY when process spawns.
       // yt-dlp outputs no % lines while YouTube is "processing" (fresh uploads).
       // Users see 0% forever without this — so show "downloading" right away.
-      onProgress?.({ workspaceId, percent: 0, speed: '...', eta: '...', downloaded: '', total: '' })
+      onProgress?.({ workspaceId, percent: 0, speed: '...', eta: 0, downloaded: '', total: '' })
 
       proc.stdout?.on('data', (data) => {
         const text = data.toString()
@@ -1022,7 +1106,7 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
 
 
         if (progressMatch) {
-          if (!progressEmitted) { console.log(`[yt-dlp] Download started!`); progressEmitted = true }
+          if (!progressEmitted) { console.log(`[yt-dlp] Download started!`); progressEmitted = true; simStop() }
           onProgress?.({
             workspaceId,
             percent: parseFloat(progressMatch[1]),
@@ -1034,7 +1118,7 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
         } else if (pctMatch) {
           const pct = parseFloat(pctMatch[1])
           if (pct >= 0 && pct <= 100) {
-            if (!progressEmitted) { console.log(`[yt-dlp] Download started!`); progressEmitted = true }
+            if (!progressEmitted) { console.log(`[yt-dlp] Download started!`); progressEmitted = true; simStop() }
             onProgress?.({
               workspaceId,
               percent: pct,
@@ -1070,7 +1154,7 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
         const mergeMatch = text.match(/\[download\] Merging formats into "(.+)"/)
 
         if (progressMatch) {
-          if (!progressEmitted) { console.log(`[yt-dlp] Download started!`); progressEmitted = true }
+          if (!progressEmitted) { console.log(`[yt-dlp] Download started!`); progressEmitted = true; simStop() }
           onProgress?.({
             workspaceId,
             percent: parseFloat(progressMatch[1]),
@@ -1082,7 +1166,7 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
         } else if (pctMatch) {
           const pct = parseFloat(pctMatch[1])
           if (pct >= 0 && pct <= 100) {
-            if (!progressEmitted) { console.log(`[yt-dlp] Download started!`); progressEmitted = true }
+            if (!progressEmitted) { console.log(`[yt-dlp] Download started!`); progressEmitted = true; simStop() }
             onProgress?.({
               workspaceId,
               percent: pct,
@@ -1108,6 +1192,7 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
       }, timeout)
 
       proc.on('close', (code) => {
+        simStop()
         clearTimeout(timer)
         console.log(`[yt-dlp] Closed code=${code}, file="${downloadedFile}"`)
 

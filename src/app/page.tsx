@@ -12,6 +12,7 @@ import { LoginScreen } from './components/LoginScreen'
 import type { Channel, Video, SystemStats, EditorState } from './types'
 import { useAppStore, type Workspace } from './lib/store'
 import { ipc } from './lib/ipc'
+import { type ActivityEntry, type ActivityType } from './components/ActivityLog'
 import { SkeletonQueue, SkeletonEditor, SkeletonChannelItem, SkeletonStyles } from './components/Skeleton'
 
 export const dynamic = 'force-dynamic'
@@ -53,11 +54,26 @@ function formatDateRaw(iso: string): string {
   }
 }
 
-function fmtEta(secs: number): string {
-  if (!secs || secs <= 0) return ''
-  if (secs < 60) return `~${Math.round(secs)}s`
-  const m = Math.floor(secs / 60)
-  const s = Math.round(secs % 60)
+function fmtEta(secs: number | string | undefined | null): string {
+  if (!secs) return ''
+  // Handle 'MM:SS' string format (yt-dlp / simulation output)
+  if (typeof secs === 'string' && secs.includes(':')) {
+    const parts = secs.split(':')
+    if (parts.length === 2) {
+      const m = parseInt(parts[0]) || 0
+      const s = parseInt(parts[1]) || 0
+      const totalSec = m * 60 + s
+      if (totalSec <= 0) return ''
+      if (totalSec < 60) return `~${totalSec}s`
+      return `~${m}m ${s}s`
+    }
+  }
+  // Handle numeric seconds
+  const n = typeof secs === 'string' ? parseFloat(secs) : secs
+  if (!n || n <= 0 || isNaN(n)) return ''
+  if (n < 60) return `~${Math.round(n)}s`
+  const m = Math.floor(n / 60)
+  const s = Math.round(n % 60)
   return s > 0 ? `~${m}m ${s}s` : `~${m}m`
 }
 
@@ -108,6 +124,8 @@ export default function DashboardPage() {
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [isLoadingChannels, setIsLoadingChannels] = useState(true)
   const [onboardingDone, setOnboardingDone] = useState(false)
+  /** Activity log entries — deduped by workspaceId. Only one entry per video. */
+  const [activityMap, setActivityMap] = useState<Map<string, ActivityEntry>>(new Map())
 
   // Fetch auth status on mount + listen for updates
   useEffect(() => {
@@ -265,7 +283,7 @@ export default function DashboardPage() {
   // Render + download progress — SINGLE global listener (no per-card listeners needed)
   useEffect(() => {
     const cleanup = window.electronAPI?.onRenderProgress((progress) => {
-      const p = progress as { workspaceId: string; percent: number; eta?: number; speed?: string }
+      const p = progress as { workspaceId: string; percent: number; eta?: number | string; speed?: string }
       if (!p.workspaceId || p.percent === undefined) return
       // Read CURRENT workspace status from store (not stale closure variable)
       const current = useAppStore.getState().workspaces.find(w => w.id === p.workspaceId)
@@ -332,6 +350,138 @@ export default function DashboardPage() {
     })
     return cleanup
   }, [initRenderedVideos])
+
+  // ─── Activity feed ─────────────────────────────────────────────────────────────
+  /**
+   * Upsert an activity entry. Each workspaceId gets exactly ONE entry at a time.
+   * Terminal states (done, error): entry stays permanently.
+   * Non-terminal states: replaced when the same workspace progresses.
+   */
+  function upsertActivity(
+    workspaceId: string,
+    type: ActivityType,
+    message: string,
+    detail?: string,
+    terminal = false,
+  ) {
+    setActivityMap(prev => {
+      const next = new Map(prev)
+      const existing = next.get(workspaceId)
+      if (existing && (existing.type === 'done' || existing.type === 'error') && !terminal) {
+        return prev
+      }
+      next.set(workspaceId, {
+        id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        timestamp: Date.now(),
+        type,
+        message,
+        detail,
+        workspaceId,
+      })
+      if (next.size > 8) {
+        const oldest = [...next.entries()].slice(0, next.size - 8)
+        oldest.forEach(([k]) => next.delete(k))
+      }
+      return next
+    })
+  }
+
+  // Auto-download: phát hiện video mới
+  useEffect(() => {
+    const cleanup = ipc.onAutoDownload((data) => {
+      const d = data as { videoId: string; title: string; channelName: string; workspaceId?: string }
+      if (!d.workspaceId) return
+      upsertActivity(d.workspaceId, 'detected', `Phát hiện video mới: ${d.title}`, undefined, false)
+    })
+    return cleanup
+  }, [])
+
+  // Download / render progress: cập nhật ETA trực tiếp
+  useEffect(() => {
+    const cleanup = ipc.onRenderProgress((progress) => {
+      const p = progress as { workspaceId: string; percent: number; eta?: number | string }
+      if (!p.workspaceId) return
+      const ws = useAppStore.getState().workspaces.find(w => w.id === p.workspaceId)
+      if (!ws) return
+
+      const eta = p.eta ? fmtEta(p.eta) : undefined
+      const etaMsg = eta ? ` — còn ${eta}` : ''
+
+      if (ws.status === 'downloading') {
+        upsertActivity(
+          p.workspaceId, 'downloading',
+          `Đang tải video về${etaMsg}`,
+          `📁 ${ws.videoTitle}`,
+        )
+      } else if (ws.status === 'rendering') {
+        upsertActivity(
+          p.workspaceId, 'rendering',
+          `Đang xử lý video${etaMsg}`,
+          `📁 ${ws.videoTitle}`,
+        )
+      }
+    })
+    return cleanup
+  }, [])
+
+  // Notifications: tải xong / render xong / lỗi
+  useEffect(() => {
+    const cleanup = ipc.onNotification((n) => {
+      const notif = n as {
+        type: string; message: string
+        workspaceId?: string; outputPath?: string; fileSize?: number
+      }
+      if (!notif.workspaceId) return
+      const ws = useAppStore.getState().workspaces.find(w => w.id === notif.workspaceId)
+      const title = ws?.videoTitle || 'Video'
+      const msg = notif.message || ''
+
+      if (notif.type === 'success') {
+        if (
+          msg.startsWith('Auto-ready') || msg.startsWith('Download done') ||
+          msg.startsWith('Download xong') || msg.includes('Download done')
+        ) {
+          const size = notif.fileSize
+            ? notif.fileSize > 1024 * 1024
+              ? `${(notif.fileSize / (1024 * 1024)).toFixed(0)}MB`
+              : `${(notif.fileSize / 1024).toFixed(0)}KB`
+            : null
+          upsertActivity(
+            notif.workspaceId, 'downloaded',
+            size ? `Tải video hoàn tất — ${size}` : `Tải video hoàn tất`,
+            `📁 ${title}`,
+            false,
+          )
+          return
+        }
+        if (msg.startsWith('Done') || msg.startsWith('Render done') || msg.startsWith('Render xong')) {
+          const fileName = notif.outputPath
+            ? notif.outputPath.split(/[/\\]/).pop()
+                ?.replace(/_chunked_output\.mp4|_output\.mp4/, '.mp4')
+            : null
+          upsertActivity(
+            notif.workspaceId, 'done',
+            fileName
+              ? `Xuất video thành công → ${fileName}`
+              : `Xuất video thành công`,
+            `📁 ${title}`,
+            true,
+          )
+          return
+        }
+      }
+
+      if (notif.type === 'error') {
+        upsertActivity(
+          notif.workspaceId, 'error',
+          `Có lỗi xảy ra`,
+          notif.message.slice(0, 60),
+          true,
+        )
+      }
+    })
+    return cleanup
+  }, [])
 
   // Map workspaces to videos for DetailEditor
   const videos: Video[] = workspaces.map((ws) => ({
@@ -608,6 +758,7 @@ export default function DashboardPage() {
           setSettings(patch)
           await ipc.updateSettings(patch)
         }}
+        activityEntries={[...activityMap.values()].reverse()}
       />
 
       {/* Main: workspace queue + editor */}
