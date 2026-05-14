@@ -148,6 +148,10 @@ export const IPC_CHANNELS = {
   // MMO Operation Center
   OPERATION_LOGS_READ: 'operation:logs-read',
   OPERATION_LOGS_CLEAR: 'operation:logs-clear',
+  OPERATION_LOGS_EVENT: 'operation:logs-event',
   POLLER_PAUSE: 'poller:pause',
   CHANNEL_BULK_ADD: 'channel:bulk-add',
+
+  // Activity feed (pipeline events for sidebar)
+  ACTIVITY_EVENT: 'activity:event',
 } as const

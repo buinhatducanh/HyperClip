@@ -415,4 +415,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('operation:logs-event', handler)
     return () => ipcRenderer.removeListener('operation:logs-event', handler)
   },
+  onActivityEvent: (callback: (entry: { id: string; timestamp: number; type: string; title: string; subtitle?: string; workspaceId?: string; eta?: string }) => void) => {
+    const handler = (_: any, entry: any) => callback(entry)
+    ipcRenderer.on('activity:event', handler)
+    return () => ipcRenderer.removeListener('activity:event', handler)
+  },
 })

@@ -129,6 +129,7 @@ export interface ElectronAPI {
   pausePoller: () => Promise<{ success: boolean }>
   bulkAddChannels: (urls: string[]) => Promise<Array<{ url: string; success: boolean; error?: string }>>
   onOpLogs: (callback: (entries: Array<{ id: string; timestamp: number; level: string; category: string; message: string; detail?: string }>) => void) => () => void
+  onActivityEvent: (callback: (entry: { id: string; timestamp: number; type: string; title: string; subtitle?: string; workspaceId?: string; eta?: string }) => void) => () => void
 }
 
 declare global {

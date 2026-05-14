@@ -374,4 +374,7 @@ export const ipc = {
   onOpLogs(callback: (entries: Array<{ id: string; timestamp: number; level: string; category: string; message: string; detail?: string }>) => void) {
     return window.electronAPI?.onOpLogs(callback as any) ?? (() => {})
   },
+  onActivityEvent(callback: (entry: { id: string; timestamp: number; type: string; title: string; subtitle?: string; workspaceId?: string; eta?: string }) => void) {
+    return window.electronAPI?.onActivityEvent(callback as any) ?? (() => {})
+  },
 }

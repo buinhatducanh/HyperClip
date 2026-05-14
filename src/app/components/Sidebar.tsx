@@ -7,6 +7,7 @@ import { useAppStore } from '../lib/store'
 import { NotificationCenter } from './NotificationCenter'
 import { SkeletonChannelItem } from './Skeleton'
 import { DetectionStatusBar } from './DetectionStatusBar'
+import { ActivityLog, type ActivityEntry } from './ActivityLog'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,6 +53,7 @@ interface Props {
   keyHealth?: { exhausted: number; unauthorized: number }
   settings?: AppSettings
   onSettingsChange?: (patch: Partial<AppSettings>) => void
+  activityEntries?: ActivityEntry[]
 }
 
 function AvatarWithFallback({ url, name, color }: { url: string; name: string; color: string }) {
@@ -91,6 +93,7 @@ export function Sidebar({
   keyHealth,
   settings,
   onSettingsChange,
+  activityEntries = [],
 }: Props) {
   const [pendingChange, setPendingChange] = useState<PendingChange | null>(null)
   /** Input value for trim — tracks user edits before Enter */
@@ -333,6 +336,9 @@ export function Sidebar({
             })}
         </div>
       </div>
+
+      {/* Activity log — pipeline events */}
+      <ActivityLog entries={activityEntries} />
 
       {/* Download settings */}
       <div style={{ padding: '8px 12px', borderTop: '1px solid #1E1E1E', flexShrink: 0 }}>
