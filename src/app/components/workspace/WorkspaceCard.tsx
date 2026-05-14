@@ -267,39 +267,45 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
           {/* Download progress overlay — prominent bar */}
           {status === 'downloading' && (
             <>
-              {/* Percentage badge — center of thumbnail */}
+              {/* Percentage badge — top-right of thumbnail */}
               <div style={{
-                position: 'absolute', top: '50%', left: '50%',
-                transform: 'translate(-50%, -50%)',
-                background: 'rgba(0,0,0,0.7)',
-                border: '1px solid #00B4FF44',
+                position: 'absolute', top: 6, right: 6,
+                background: 'rgba(0,0,0,0.8)',
+                border: '1px solid #00B4FF66',
                 borderRadius: 4,
-                padding: '4px 8px',
+                padding: '3px 8px',
                 backdropFilter: 'blur(4px)',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1,
               }}>
-                <span style={{
-                  fontSize: 16, fontWeight: 800, color: '#00B4FF',
-                  fontFamily: 'monospace', lineHeight: 1,
-                  textShadow: '0 0 8px #00B4FF',
-                }}>
-                  {Math.round(workspace.downloadProgress || 0)}%
-                </span>
-                <span style={{ fontSize: 7, color: '#00B4FF88', fontFamily: 'monospace', letterSpacing: '0.04em' }}>
-                  ↓ {workspace.downloadSpeed || '...'}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                  <span style={{
+                    fontSize: 13, fontWeight: 800, color: '#00B4FF',
+                    fontFamily: 'monospace', lineHeight: 1,
+                    textShadow: '0 0 8px #00B4FF',
+                  }}>
+                    {Math.round(workspace.downloadProgress || 0)}%
+                  </span>
+                  <span style={{ fontSize: 7, color: '#00B4FF88' }}>
+                    ↓ {workspace.downloadSpeed || '...'}
+                  </span>
+                </div>
+                {workspace.downloadEta && (
+                  <span style={{ fontSize: 7, color: '#00B4FF88', fontFamily: 'monospace' }}>
+                    {workspace.downloadEta}
+                  </span>
+                )}
               </div>
               {/* Progress bar — full width at bottom */}
               <div style={{
                 position: 'absolute', bottom: 0, left: 0, right: 0,
-                height: 6, background: 'rgba(0,0,0,0.7)',
+                height: 3, background: 'rgba(0,0,0,0.7)',
               }}>
                 <div style={{
                   height: '100%',
                   width: `${workspace.downloadProgress || 0}%`,
                   background: 'linear-gradient(90deg, #0088cc, #00B4FF)',
-                  boxShadow: '0 0 10px #00B4FF, 0 0 4px #00B4FF',
-                  transition: 'width 0.3s ease',
+                  boxShadow: '0 0 8px #00B4FF',
+                  transition: 'width 0.5s ease',
                 }} />
               </div>
             </>

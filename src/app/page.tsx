@@ -267,15 +267,15 @@ export default function DashboardPage() {
     const cleanup = window.electronAPI?.onRenderProgress((progress) => {
       const p = progress as { workspaceId: string; percent: number; eta?: number; speed?: string }
       if (!p.workspaceId || p.percent === undefined) return
-      const ws = useAppStore.getState().workspaces.find(w => w.id === p.workspaceId)
-      if (!ws) return
-      // Update Zustand store — components read from store, no per-card listeners needed
-      if (ws.status === 'rendering') {
+      // Read CURRENT workspace status from store (not stale closure variable)
+      const current = useAppStore.getState().workspaces.find(w => w.id === p.workspaceId)
+      if (!current) return
+      if (current.status === 'rendering') {
         updateWorkspace(p.workspaceId, {
           renderProgress: p.percent,
           renderEta: p.eta ? fmtEta(p.eta) : undefined,
         })
-      } else if (ws.status === 'downloading') {
+      } else if (current.status === 'downloading') {
         updateWorkspace(p.workspaceId, {
           downloadProgress: p.percent,
           downloadSpeed: p.speed,
