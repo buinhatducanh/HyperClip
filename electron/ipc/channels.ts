@@ -104,6 +104,7 @@ export const IPC_CHANNELS = {
   PROJECT_REPAIR: 'project:repair',
   PROJECT_TEST_ALL: 'project:test-all',
   PROJECT_BATCH_REPAIR: 'project:batch-repair',
+  PROJECT_AUTO_ASSIGN: 'project:auto-assign',
 
   // Chrome session management (SAPISIDHASH + Innertube API)
   SESSION_LIST: 'session:list',
@@ -143,4 +144,10 @@ export const IPC_CHANNELS = {
   // Log export (P1)
   LOGS_READ: 'logs:read',
   LOGS_EXPORT: 'logs:export',
+
+  // MMO Operation Center
+  OPERATION_LOGS_READ: 'operation:logs-read',
+  OPERATION_LOGS_CLEAR: 'operation:logs-clear',
+  POLLER_PAUSE: 'poller:pause',
+  CHANNEL_BULK_ADD: 'channel:bulk-add',
 } as const

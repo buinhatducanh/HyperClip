@@ -492,7 +492,17 @@ App khởi động
 
 ---
 
-## 14. Ngày cập nhật: 2026-05-13
+## 14. Ngày cập nhật: 2026-05-15
+
+### Changes 2026-05-15 — Download 1080p + Auto-Render + Channel UI
+- **`--cookies` + yt-dlp auto client = 1080p H.264** (2026-05-15). YouTube 2026 không còn yêu cầu PO Token khi có Chrome cookies. Chrome cookies authenticate request → YouTube trả highest quality có thể. yt-dlp auto-selects `WEB_EMBEDDED_PLAYER` → H.264 10800p @ 4943 kb/s. PO Token extraction từ Chrome JavaScript KHÔNG hoạt động (PO Token nằm ở network layer, không phải JS layer).
+  - Không set `player_client` → yt-dlp tự chọn
+  - `yt-dlp auto client + cookies` → **1920x1080 H.264** ✅
+  - `--remux-video mp4` → container .mp4 cho HTML5 player
+  - Evidence: `Stream: h264 (High), 1920x1080, 60fps, 4943 kb/s`
+- **Auto-render pipeline** (2026-05-15): sau download xong → check `settings.autoRender=true` → `preScaleVideo()` → render với `p1+ull` preset → pre-scaled cleanup. `autoRenderAttempted` flag ngăn infinite loop.
+- **Channel add UI** (2026-05-15): Sidebar có add bar trực tiếp. ChannelsStep trong onboarding có validation + duplicate check.
+- **`DEV_LOG=1`** trong `electron:dev` script.
 
 ### Changes 2026-05-13 — Skip unparseable age + Download quality fix + Preview fix
 - **`publishedAt=0` → OAuth verify** (2026-05-13). Innertube trả empty `published_time_text` cho video mới (YouTube cache lag < 1 phút). Fix: khi Innertube trả `publishedAt=0`, gọi OAuth `/videos?id=...&part=snippet` để lấy real `publishedAt`. Accept nếu ≤ 10 phút, skip nếu > 10 phút hoặc error. OAuth chỉ trigger khi Innertube chính nó trả empty timestamp → quota cost ≈ 3-5 calls/poll × ~100 polls/day ≈ 300-500 units/ngày ≪ 313,500 quota.
@@ -501,10 +511,7 @@ App khởi động
 - **Xóa `getLatestVideoPriority()`**: Không còn được gọi.
 - **Xóa OAuth health check**: Vô nghĩa sau khi xóa `publishedAt=0` verification.
 - **Kết quả**: OAuth quota ≈ 0 consumption. OAuth chỉ dùng khi Innertube pool = 0.
-- **Download quality (2026-05-13):** `getDownloadSession()` luôn trả `po_token: null` (warmup PO Token cache + CDP navigation loop đã xóa). yt-dlp dùng `player_client=web` + Chrome cookies (`--cookies`) → VP9 DASH → 720p-1080p. SABR-only 360p (YouTube experiment) → không bypass được.
-  - Với PO Token: `player_client=android` → H.264 DASH → 720p-1080p (đường tốt nhất nhưng PO Token không đáng tin cậy)
-  - Không PO Token: `player_client=web` → VP9 → 720p-1080p (mặc định)
-- **Preview/render path fix (2026-05-13):** `downloadedPath` stored as relative (`"XYZ.mp4"`). VIDEO_FILE/VIDEO_BLOB handlers prepend `getVideoStoragePath()` → absolute path → `fs.existsSync()` finds file → preview + render hoạt động.
+- **Download quality (SUPERSEDED 2026-05-15)**: Xem section mới ở trên.
 
 ### Changes 2026-05-12 (2 fixes)
 - **Fix #1 — Dedup bug (2026-05-12):** `return null` → `continue` trong `getLatestVideo()` và `getLatestVideoPriority()`. Bug: khi top-1 đã nằm trong `seenVideoIds`, code cũ trả `null` và skip cả channel → không bao giờ thử top-2..top-5 → sau poll đầu tiên thành công, poll tiếp theo luôn trả 0 cho tất cả channels → OAuth health check chỉ test 1 channel → OAuth fallback không được trigger. Fix: đổi `return null` → `continue` để thử video tiếp theo khi top-1 đã seen.

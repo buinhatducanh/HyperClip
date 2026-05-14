@@ -96,8 +96,57 @@ export function getRamDiskPath(): string {
   return process.platform === 'win32' ? 'R:\\hyperclip' : '/mnt/ramdisk/hyperclip'
 }
 
-// Subdirectories under HyperClip-Data for customer package organization.
-// All persistent data lives under one root folder.
+// ─── Project-based subdirectories ───────────────────────────────────────────────
+// NEW (2026-05-14): All project data lives in projects/{id}/ folder.
+// Channels, downloads, outputs, and archived renders have their own top-level dirs.
+
+/** Root for all 200 GCP project configs, tokens, and stats */
+export function getProjectsDir(): string {
+  return path.join(getHyperClipBaseDir(), 'projects')
+}
+
+/** Root for channel data: list, seen-videos, uploads cache */
+export function getChannelsDir(): string {
+  return path.join(getHyperClipBaseDir(), 'channels')
+}
+
+/** Individual project directory */
+export function getProjectDir(projectId: string): string {
+  return path.join(getProjectsDir(), projectId)
+}
+
+/** Project config file */
+export function getProjectConfigPath(projectId: string): string {
+  return path.join(getProjectDir(projectId), 'config.json')
+}
+
+/** Project OAuth token file */
+export function getProjectTokenPath(projectId: string): string {
+  return path.join(getProjectDir(projectId), 'token.json')
+}
+
+/** Project stats file */
+export function getProjectStatsPath(projectId: string): string {
+  return path.join(getProjectDir(projectId), 'stats.json')
+}
+
+/** Channel list file (moved from app/) */
+export function getChannelListPath(): string {
+  return path.join(getChannelsDir(), 'list.json')
+}
+
+/** Seen videos file (moved from app/) */
+export function getSeenVideosPath(): string {
+  return path.join(getChannelsDir(), 'seen-videos.json')
+}
+
+/** Uploads playlist cache (moved from app/) */
+export function getUploadsCachePath(): string {
+  return path.join(getChannelsDir(), 'uploads-cache.json')
+}
+
+// ─── Video storage subdirectories ───────────────────────────────────────────────
+
 export function getDownloadsDir(): string {
   return path.join(getHyperClipBaseDir(), 'downloads')
 }
@@ -106,12 +155,26 @@ export function getBlurDir(): string {
   return path.join(getHyperClipBaseDir(), 'blur')
 }
 
+/** Rendered output (BEFORE archive) */
 export function getOutputDir(): string {
   return path.join(getHyperClipBaseDir(), 'output')
 }
 
+/** FINAL output — all rendered videos organized by month */
 export function getArchivedDir(): string {
   return path.join(getHyperClipBaseDir(), 'archived')
+}
+
+/** Monthly archive subdirectory */
+export function getArchivedMonthDir(): string {
+  const now = new Date()
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  return path.join(getArchivedDir(), month)
+}
+
+/** App-wide logs directory */
+export function getLogsDir(): string {
+  return path.join(getHyperClipBaseDir(), 'logs')
 }
 
 // Legacy HyperClip data location (AppData\Roaming) — for migration check.

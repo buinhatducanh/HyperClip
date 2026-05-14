@@ -129,8 +129,7 @@ export async function navigateAndExtractPoToken(port: number, videoId: string): 
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`
   devLog(`[PoToken] Navigating to ${videoUrl} for PO Token extraction...`)
 
-  // Get the YouTube tab
-  let target = await getCDPTarget(port)
+  const target = await getCDPTarget(port)
   if (!target) {
     devLog(`[PoToken] No CDP target found on port ${port}`)
     return null
@@ -140,103 +139,209 @@ export async function navigateAndExtractPoToken(port: number, videoId: string): 
   try {
     await client.connect(target.webSocketDebuggerUrl)
 
-    // Navigate to the video page — must succeed for PO Token to be generated
     devLog(`[PoToken] Navigating to: ${videoUrl}`)
-    let navSuccess = false
     try {
       const navResult = await client.send('Page.navigate', { url: videoUrl }) as any
       devLog(`[PoToken] Navigate result: ${JSON.stringify(navResult)}`)
-      navSuccess = !navResult?.loadEventFired || true // navigation initiated
     } catch (e) {
       devLog(`[PoToken] Navigation error: ${e}`)
-      return null // Can't extract PO Token without navigation
-    }
-    // Wait for video player to load and generate PO Token
-    devLog(`[PoToken] Waiting 8s for video player to load...`)
-    await sleep(8000)
-
-    // Extract PO Token from the video page
-    // Simplest possible script — just check what's available
-    const script = `"ytInitialPlayerResponse" in window ? "EXISTS" : "NOT_FOUND"`
-
-    let evalResult: any
-    try {
-      evalResult = await client.send('Runtime.evaluate', { expression: script, returnByValue: true })
-    } catch (e) {
-      devLog(`[PoToken] Runtime.evaluate error: ${e}`)
       return null
     }
-    const ytIRExists = evalResult?.result?.value
-    devLog(`[PoToken] ytInitialPlayerResponse: ${ytIRExists}`)
 
-    // Now get ytInitialPlayerResponse
-    const script2 = `
+    // Wait for the video player to load
+    devLog(`[PoToken] Waiting for player to load...`)
+    let waited = 0
+    let playerLoaded = false
+    while (waited < 15000) {
+      await sleep(1000)
+      waited += 1000
+      try {
+        const check = await client.send('Runtime.evaluate', {
+          expression: '"ytInitialPlayerResponse" in window && window.ytInitialPlayerResponse && window.ytInitialPlayerResponse.streamingData ? "READY" : "NOT_READY"',
+          returnByValue: true,
+        })
+        const val = (check as any)?.result?.value
+        if (val === 'READY') {
+          playerLoaded = true
+          devLog(`[PoToken] Player ready after ${waited / 1000}s`)
+          break
+        }
+      } catch {}
+    }
+
+    // Strategy 1: Try JavaScript variable extraction (fastest)
+    const jsScript = `
       (function() {
-        try {
         var results = [];
 
-        // Try ytcfg
+        // yt.config_.PO_TOKEN / PLAYER_PO_TOKEN
         if (window.yt && window.yt.config_) {
-          if (window.yt.config_.PO_TOKEN) results.push({token: window.yt.config_.PO_TOKEN, source: 'ytcfg.PO_TOKEN'});
-          if (window.yt.config_.PLAYER_PO_TOKEN) results.push({token: window.yt.config_.PLAYER_PO_TOKEN, source: 'ytcfg.PLAYER_PO_TOKEN'});
-          if (window.yt.config_.INNERTUBE_API_KEY) results.push({source: 'ytcfg', innertubeKey: window.yt.config_.INNERTUBE_API_KEY ? 'found' : 'missing'});
+          var cfg = window.yt.config_;
+          if (cfg.PO_TOKEN) results.push({token: cfg.PO_TOKEN, source: 'ytcfg.PO_TOKEN'});
+          if (cfg.PLAYER_PO_TOKEN) results.push({token: cfg.PLAYER_PO_TOKEN, source: 'ytcfg.PLAYER_PO_TOKEN'});
         }
 
-        // Try ytInitialPlayerResponse (embedded in page HTML)
+        // ytInitialPlayerResponse streamingData
         if (window.ytInitialPlayerResponse) {
           var sd = window.ytInitialPlayerResponse.streamingData;
-          if (sd && sd.adaptiveFormats) {
-            for (var i = 0; i < sd.adaptiveFormats.length; i++) {
-              var url = sd.adaptiveFormats[i].url || sd.adaptiveFormats[i].signatureCipher || '';
-              var match = url.match(/[?&]pot=([^&]+)/);
-              if (match) results.push({token: decodeURIComponent(match[1]), source: 'streamingData.pot[' + i + ']', url: url.slice(0, 80)});
+          if (sd) {
+            var all = [].concat(sd.formats || [], sd.adaptiveFormats || [], sd.hlsFormats || []);
+            for (var i = 0; i < all.length; i++) {
+              var url = all[i].url || all[i].signatureCipher || '';
+              var m = url.match(/[?&]pot=([^&]+)/);
+              if (m && m[1]) results.push({token: decodeURIComponent(m[1]), source: 'streamingData.pot[' + i + ']'});
             }
           }
         }
 
-        // Try ytplayer.config.args
+        // ytplayer.config.args
         if (window.ytplayer && window.ytplayer.config && window.ytplayer.config.args) {
-          var args = window.ytplayer.config.args;
-          if (args.po_token) results.push({token: args.po_token, source: 'ytplayer.args'});
-          if (args.player_response) {
+          var a = window.ytplayer.config.args;
+          if (a.po_token) results.push({token: a.po_token, source: 'ytplayer.args'});
+        }
+
+        if (results.length > 0) return {token: results[0].token, source: results[0].source};
+        return null;
+      })()
+    `
+    try {
+      const jsResult = await client.send('Runtime.evaluate', { expression: jsScript, returnByValue: true }) as any
+      const jsData = (jsResult as any)?.result?.value
+      if (jsData?.token) {
+        devLog(`[PoToken] Extracted from JS: ${jsData.source} (${jsData.token.slice(0, 8)}...)`)
+        return jsData.token
+      }
+    } catch (e) {
+      devLog(`[PoToken] JS extraction error: ${e}`)
+    }
+
+    // Strategy 2: Click play and intercept video element src / MediaSource URLs
+    // PO Token for DASH streams is often embedded in the stream URL
+    devLog(`[PoToken] Trying video element capture...`)
+
+    const captureScript = `
+      (function() {
+        var results = [];
+        var videos = document.querySelectorAll('video');
+        for (var vi = 0; vi < videos.length; vi++) {
+          var v = videos[vi];
+          // video.src contains the actual streaming URL
+          if (v.src && v.src.length > 10) {
+            var src = v.src;
+            var potMatch = src.match(/[?&]pot=([^&]+)/);
+            if (potMatch) {
+              results.push({token: decodeURIComponent(potMatch[1]), source: 'video.src.pot', url: src.slice(0, 120)});
+            }
+          }
+          // MediaSource object
+          if (v.mozSrc) results.push({source: 'video.mozSrc', url: v.mozSrc.slice(0, 80)});
+          if (v.media && v.media.source) {
             try {
-              var pr = JSON.parse(args.player_response);
-              var prsd = pr.streamingData;
-              if (prsd && prsd.adaptiveFormats) {
-                for (var j = 0; j < prsd.adaptiveFormats.length; j++) {
-                  var prurl = prsd.adaptiveFormats[j].url || prsd.adaptiveFormats[j].signatureCipher || '';
-                  var prmatch = prurl.match(/[?&]pot=([^&]+)/);
-                  if (prmatch) results.push({token: decodeURIComponent(prmatch[1]), source: 'player_response.pot[' + j + ']'});
-                }
-              }
+              var ms = v.media.source;
+              var urls = ms.urls || Object.keys(ms);
+              results.push({source: 'mediaSource', keys: JSON.stringify(urls).slice(0, 200)});
             } catch(e) {}
           }
         }
 
-        if (results.length > 0) return { token: results[0].token, source: results[0].source, all: results.slice(0, 3) };
-        return { token: null, source: 'none', ytInitialPlayerResponse: !!window.ytInitialPlayerResponse, ytplayer: !!window.ytplayer, ytplayerConfig: !!(window.ytplayer && window.ytplayer.config), ytConfig: !!(window.yt && window.yt.config_) };
+        // Intercept fetch/XHR for streaming URLs
+        var origFetch = window.fetch;
+        var origXHROpen = window.XMLHttpRequest.prototype.open;
+        var interceptedURLs = [];
+
+        // Try to find streaming URLs in ytInitialPlayerResponse adaptiveFormats
+        if (window.ytInitialPlayerResponse && window.ytInitialPlayerResponse.streamingData) {
+          var sd2 = window.ytInitialPlayerResponse.streamingData;
+          var formats = [].concat(sd2.formats || [], sd2.adaptiveFormats || []);
+          for (var f = 0; f < formats.length; f++) {
+            var fmtUrl = formats[f].url || '';
+            if (fmtUrl) {
+              interceptedURLs.push(fmtUrl.slice(0, 150));
+              var m2 = fmtUrl.match(/[?&]pot=([^&]+)/);
+              if (m2) results.push({token: decodeURIComponent(m2[1]), source: 'adaptiveFormats.pot[' + f + ']', url: fmtUrl.slice(0, 150)});
+            }
+          }
+        }
+
+        return {results: results, videoCount: videos.length, streamingURLs: interceptedURLs.slice(0, 3)};
       })()
     `
-
-    const result = await client.send('Runtime.evaluate', { expression: script, returnByValue: true }) as any
-    const data = (result as any)?.result?.value || {}
-
-    if (data.token) {
-      devLog(`[PoToken] Extracted PO Token for ${videoId} — source: ${data.source}`)
-      return data.token
-    } else {
-      devLog(`[PoToken] No PO Token found for ${videoId} — details: ${JSON.stringify(data)}`)
-      return null
+    try {
+      const captureResult = await client.send('Runtime.evaluate', { expression: captureScript, returnByValue: true }) as any
+      const captureData = (captureResult as any)?.result?.value
+      if (captureData?.results?.length > 0) {
+        for (const r of captureData.results) {
+          if (r.token) {
+            devLog(`[PoToken] Extracted from capture: ${r.source} (${r.token.slice(0, 8)}...)`)
+            return r.token
+          }
+        }
+      }
+      devLog(`[PoToken] Capture: ${captureData?.videoCount || 0} videos, ${captureData?.streamingURLs?.length || 0} stream URLs`)
+      for (const u of (captureData?.streamingURLs || [])) {
+        devLog(`[PoToken] Stream URL: ${u}`)
+      }
+    } catch (e) {
+      devLog(`[PoToken] Capture error: ${e}`)
     }
+
+    // Strategy 3: Click play and wait, then re-check
+    devLog(`[PoToken] Clicking play and waiting for stream...`)
+    try {
+      const playResult = await client.send('Runtime.evaluate', {
+        expression: `
+          (function() {
+            var video = document.querySelector('video');
+            if (!video) return {action: 'no-video'};
+            video.currentTime = 0;
+            video.play().catch(function(e){});
+            return {action: 'played', src: video.src ? video.src.slice(0, 200) : '', readyState: video.readyState, networkState: video.networkState};
+          })()
+        `,
+        returnByValue: true,
+      }) as any
+      devLog(`[PoToken] Play result: ${JSON.stringify(playResult?.result?.value)}`)
+    } catch (e) {
+      devLog(`[PoToken] Play click error: ${e}`)
+    }
+
+    await sleep(5000)
+
+    // Try extraction again after play
+    try {
+      const afterResult = await client.send('Runtime.evaluate', {
+        expression: `
+          (function() {
+            var v = document.querySelector('video');
+            if (!v || !v.src) return null;
+            var m = v.src.match(/[?&]pot=([^&]+)/);
+            if (m) return {token: decodeURIComponent(m[1]), source: 'video.src.after-play'};
+            return null;
+          })()
+        `,
+        returnByValue: true,
+      }) as any
+      const afterData = (afterResult as any)?.result?.value
+      if (afterData?.token) {
+        devLog(`[PoToken] Extracted after play: ${afterData.source} (${afterData.token.slice(0, 8)}...)`)
+        return afterData.token
+      }
+    } catch (e) {
+      devLog(`[PoToken] After-play extraction error: ${e}`)
+    }
+
+    devLog(`[PoToken] All strategies exhausted — no PO Token found`)
+    return null
+
   } catch (e) {
-    devLog(`[PoToken] navigateAndExtractPoToken error: ${e} — ${String(e).slice(0, 100)}`)
+    devLog(`[PoToken] navigateAndExtractPoToken error: ${String(e).slice(0, 100)}`)
     return null
   } finally {
     await client.dispose()
   }
 }
 
-function getCDPPort(profileId: string): number {
+export function getCDPPort(profileId: string): number {
   const idx = parseInt(profileId, 10)
   return 9222 + (isNaN(idx) ? 0 : idx)
 }
@@ -247,121 +352,35 @@ function getCDPPort(profileId: string): number {
  * Extract PO Token from a Chrome profile via CDP.
  *
  * Flow:
- * 1. Try profile-specific port (sessions 2-30 — Chrome may be running)
- * 2. If that fails and profileId is "1", ensure persistent Chrome is running, then extract
- * 3. Fall back to null (will use web client instead)
+ * 1. Call navigateAndExtractPoToken — opens YouTube video page and extracts PO Token from player.
+ *    If a YouTube tab already exists, reuses it (fast). If not, navigates and waits 8s.
+ * 2. For profile "1", ensures persistent Chrome is running, then tries again.
+ * 3. Fall back to null (download will fail without PO Token).
+ *
+ * NOTE: YouTube now requires GVS PO Token for ALL client types (android, ios, web).
  */
 async function extractPoTokenFromProfile(profileId: string): Promise<string | null> {
-  // Strategy 1: Try profile-specific port (sessions 2-30)
+  // Use navigateAndExtractPoToken which navigates to YouTube and extracts PO Token.
+  // This is the ONLY approach that works: PO Token is generated server-side when the
+  // YouTube player page loads — you can't extract it from an arbitrary existing tab.
   const profilePort = getCDPPort(profileId)
-  let target = await getCDPTarget(profilePort)
-  let targetSource = `profile-${profileId}`
-
-  // Strategy 2: For session 1, try persistent Chrome (port 9223)
-  if (!target && profileId === '1') {
-    devLog(`[PoToken] No Chrome on port ${profilePort} — launching persistent Chrome...`)
-    const persistent = await ensurePersistentChrome()
-    if (persistent) {
-      target = await getCDPTarget(persistent.port)
-      targetSource = 'persistent'
-    }
-  }
-
-  if (!target) return null
-
-  const client = new CDPClient()
   try {
-    await client.connect(target.webSocketDebuggerUrl)
-
-    // No navigation — PO Token extraction from page HTML doesn't work (streamingData is null).
-    // PO Token is generated server-side by YouTube. Skip extraction entirely.
-
-    // Strategy 1: Try ytcfg.get('PO_TOKEN') — works for web player
-    // Strategy 2: Try ytcfg.get('PLAYER_PO_TOKEN') — android-specific
-    // Strategy 3: Try ytInitialPlayerResponse.streamingData.adaptiveFormats
-    //   where we look for po_token in the URL parameters
-    const script = `
-      (function() {
-        try {
-          // Strategy 1: ytcfg PO_TOKEN (web player)
-          if (typeof yt !== 'undefined' && yt.config_ && yt.config_.PO_TOKEN) {
-            return { token: yt.config_.PO_TOKEN, source: 'ytcfg.PO_TOKEN' };
-          }
-          // Strategy 2: ytcfg PLAYER_PO_TOKEN (android player)
-          if (typeof yt !== 'undefined' && yt.config_ && yt.config_.PLAYER_PO_TOKEN) {
-            return { token: yt.config_.PLAYER_PO_TOKEN, source: 'ytcfg.PLAYER_PO_TOKEN' };
-          }
-          // Strategy 3: ytInitialData or ytInitialPlayerResponse
-          var responses = [
-            window.ytInitialPlayerResponse,
-            window.ytInitialData,
-            window.__ytPlayerData
-          ];
-          for (var i = 0; i < responses.length; i++) {
-            var resp = responses[i];
-            if (!resp) continue;
-            // Check streamingData for pot parameter in URL
-            var formats = resp.streamingData ? resp.streamingData.adaptiveFormats : [];
-            for (var j = 0; j < formats.length; j++) {
-              var url = formats[j].url || formats[j].signatureCipher || '';
-              var match = url.match(/[?&]pot=([^&]+)/);
-              if (match && match[1]) {
-                return { token: decodeURIComponent(match[1]), source: 'streamingData.pot_param' };
-              }
-            }
-            // Check for poToken in any nested object
-            var str = JSON.stringify(resp);
-            var potMatch = str.match(/[?&]pot=([^&"']+)/);
-            if (potMatch && potMatch[1]) {
-              return { token: decodeURIComponent(potMatch[1]), source: 'string.pot_param' };
-            }
-          }
-          // Strategy 4: Try player response from any iframe
-          if (typeof window.ytplayer !== 'undefined' && window.ytplayer.config) {
-            var cfg = window.ytplayer.config;
-            if (cfg.args && cfg.args.po_token) return { token: cfg.args.po_token, source: 'ytplayer.args.po_token' };
-            if (cfg.args && cfg.args.player_response) {
-              try {
-                var pr = JSON.parse(cfg.args.player_response);
-                var formats2 = pr.streamingData ? pr.streamingData.adaptiveFormats : [];
-                for (var k = 0; k < formats2.length; k++) {
-                  var url2 = formats2[k].url || '';
-                  var m2 = url2.match(/[?&]pot=([^&]+)/);
-                  if (m2 && m2[1]) return { token: decodeURIComponent(m2[1]), source: 'player_response.pot' };
-                }
-              } catch(e) {}
-            }
-          }
-          // Strategy 5: __ytPlayerData
-          if (typeof window.__ytPlayerData !== 'undefined' && window.__ytPlayerData.po_token) {
-            return { token: window.__ytPlayerData.po_token, source: '__ytPlayerData' };
-          }
-          return null;
-        } catch(e) {
-          return { error: e.toString() };
-        }
-      })()
-    `
-
-    const result = await client.send<{ token?: string; source?: string; error?: string }>('Runtime.evaluate', {
-      expression: script,
-      returnByValue: true,
-      awaitPromise: false,
-    })
-
-    await client.dispose()
-
-    if (result && result.token) {
-      devLog(`[PoToken] Extracted PO Token from ${targetSource} (${target.title.slice(0, 30)}) — source: ${result.source || 'unknown'}`)
-      return result.token
-    }
-
-    return null
+    const token = await navigateAndExtractPoToken(profilePort, 'dQw4w9WgXcQ')
+    if (token) return token
   } catch (e) {
-    devLog(`[PoToken] navigateAndExtractPoToken error: ${e} — ${String(e).slice(0, 100)}`)
-    try { await client.dispose() } catch {}
-    return null
+    devLog(`[PoToken] extractPoTokenFromProfile(${profileId}) error: ${String(e).slice(0, 100)}`)
   }
+
+  // Profile "1" — ensure persistent Chrome is running, then try again
+  if (profileId === '1') {
+    try {
+      await ensurePersistentChrome()
+      const token = await navigateAndExtractPoToken(profilePort, 'dQw4w9WgXcQ')
+      if (token) return token
+    } catch {}
+  }
+
+  return null
 }
 
 // ─── Cookie Export for yt-dlp ───────────────────────────────────────────────
@@ -513,7 +532,7 @@ export async function refreshPoToken(profileId: string): Promise<string | null> 
 /**
  * Extract PO Tokens for ALL active Chrome profiles in parallel.
  * Call this once at startup to pre-warm the cache.
- * Sessions that have YouTube tabs open will get tokens; others will get null.
+ * Each profile gets navigated to a YouTube video page and the PO Token is extracted.
  * For session 1, ensures persistent Chrome is running first.
  */
 export async function warmupPoTokenCache(profileIds: string[]): Promise<void> {

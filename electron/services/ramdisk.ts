@@ -37,6 +37,25 @@ interface AppSettingsStore {
   pollIntervalMs?: number
   /** Max concurrent FFmpeg renders. Defaults to 2. */
   maxConcurrentRenders?: number
+  // ── MMO Operation Center ───────────────────────────────────────────────────────
+  /** Enable proxy for downloads. Defaults to false. */
+  proxyEnabled?: boolean
+  /** Proxy host (e.g. "proxy.example.com"). */
+  proxyHost?: string
+  /** Proxy port (e.g. 8080). */
+  proxyPort?: number
+  /** Proxy username for authenticated proxies. */
+  proxyUsername?: string
+  /** Proxy password for authenticated proxies. */
+  proxyPassword?: string
+  /** Max concurrent downloads. Defaults to 3 (RTX 5080 optimized). */
+  maxConcurrentDownloads?: number
+  /** Min video duration in seconds to auto-download. 0 = no minimum. Defaults to 0. */
+  videoMinDurationSec?: number
+  /** Max video duration in seconds to auto-download. 0 = no maximum. Defaults to 0. */
+  videoMaxDurationSec?: number
+  /** Whether the onboarding wizard has been completed. Defaults to false. */
+  onboardingComplete?: boolean
 }
 
 let _settings: AppSettingsStore | null = null
@@ -59,7 +78,10 @@ export function loadSettings(): AppSettingsStore {
   if (_settings.pollIntervalMs === undefined) _settings.pollIntervalMs = 5000
   if (_settings.maxConcurrentRenders === undefined) _settings.maxConcurrentRenders = 2
   if (_settings.autoDownloadQuality === undefined) _settings.autoDownloadQuality = '720'
-  
+  if (_settings.maxConcurrentDownloads === undefined) _settings.maxConcurrentDownloads = 3
+  if (_settings.videoMinDurationSec === undefined) _settings.videoMinDurationSec = 0
+  if (_settings.videoMaxDurationSec === undefined) _settings.videoMaxDurationSec = 0
+
   return _settings
 }
 

@@ -77,6 +77,7 @@ const IPC = {
   PROJECT_REPAIR: 'project:repair',
   PROJECT_TEST_ALL: 'project:test-all',
   PROJECT_BATCH_REPAIR: 'project:batch-repair',
+  PROJECT_AUTO_ASSIGN: 'project:auto-assign',
 
   // Chrome sessions (Innertube API)
   SESSION_LIST: 'session:list',
@@ -127,6 +128,12 @@ const IPC = {
   // Data portability
   DATA_EXPORT: 'data:export',
   DATA_IMPORT: 'data:import',
+
+  // MMO Operation Center
+  OPERATION_LOGS_READ: 'operation:logs-read',
+  OPERATION_LOGS_CLEAR: 'operation:logs-clear',
+  POLLER_PAUSE: 'poller:pause',
+  CHANNEL_BULK_ADD: 'channel:bulk-add',
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -331,6 +338,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC.PROJECT_TEST_ALL) as Promise<{ projects: unknown[]; checkedAt: number }>,
   batchRepairProjects: (projectIds: string[]) =>
     ipcRenderer.invoke(IPC.PROJECT_BATCH_REPAIR, projectIds) as Promise<Record<string, { success: boolean; error?: string; repaired?: boolean; refreshed?: boolean; needsCredentials?: boolean; needsOAuthFlow?: boolean }>>,
+  autoAssignChannels: () =>
+    ipcRenderer.invoke(IPC.PROJECT_AUTO_ASSIGN) as Promise<{ success: boolean; assigned: number; error?: string }>,
 
   // Chrome sessions (Innertube API — no quota limit)
   getSessionStatus: () =>
@@ -391,4 +400,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('logs:read') as Promise<{ files: { name: string; size: number; mtime: number; content?: string }[]; logDir: string }>,
   exportLogs: () =>
     ipcRenderer.invoke('logs:export') as Promise<{ success: boolean; path?: string; error?: string }>,
+
+  // MMO Operation Center
+  getOpLogs: () =>
+    ipcRenderer.invoke('operation:logs-read') as Promise<Array<{ id: string; timestamp: number; level: string; category: string; message: string; detail?: string }>>,
+  clearOpLogs: () =>
+    ipcRenderer.invoke('operation:logs-clear') as Promise<{ success: boolean }>,
+  pausePoller: () =>
+    ipcRenderer.invoke('poller:pause') as Promise<{ success: boolean }>,
+  bulkAddChannels: (urls: string[]) =>
+    ipcRenderer.invoke('channel:bulk-add', urls) as Promise<Array<{ url: string; success: boolean; error?: string }>>,
+  onOpLogs: (callback: (entries: Array<{ id: string; timestamp: number; level: string; category: string; message: string; detail?: string }>) => void) => {
+    const handler = (_: any, entries: any[]) => callback(entries)
+    ipcRenderer.on('operation:logs-event', handler)
+    return () => ipcRenderer.removeListener('operation:logs-event', handler)
+  },
 })

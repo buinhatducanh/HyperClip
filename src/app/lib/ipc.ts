@@ -10,7 +10,8 @@ type ElectronAPI = {
   getTrackers: () => Promise<unknown[]>
   getChannelInfo: (url: string) => Promise<unknown>
   getChannels: () => Promise<unknown[]>
-  syncChannels: () => Promise<{ added: number; removed: number }>
+  syncChannels: () => Promise<{ added: number; removed: number }>,
+  autoAssignChannels: () => Promise<{ success: boolean; assigned: number; error?: string }>,
   addChannel: (url: string) => Promise<unknown>
   updateChannel: (id: string, patch: object) => Promise<unknown>
   removeChannel: (id: string) => Promise<unknown>
@@ -100,11 +101,15 @@ export const ipc = {
     return window.electronAPI?.getChannelInfo(url)
   },
   async getChannels() {
-    return window.electronAPI?.getChannels()
+    const result = await window.electronAPI?.getChannels()
+    return Array.isArray(result) ? result : []
   },
 
   async syncChannels() {
     return window.electronAPI?.syncChannels() ?? { added: 0, removed: 0 }
+  },
+  async autoAssignChannels(): Promise<{ success: boolean; assigned: number; error?: string }> {
+    return window.electronAPI?.autoAssignChannels() ?? { success: false, assigned: 0, error: 'electronAPI not available' }
   },
   async addChannel(url: string) {
     return window.electronAPI?.addChannel(url)
@@ -201,9 +206,9 @@ export const ipc = {
     return window.electronAPI?.onChannelSynced(callback) ?? (() => {})
   },
   async getSettings() {
-    return window.electronAPI?.getSettings() ?? { videoStoragePath: undefined, outputPath: undefined, defaultTrimLimit: undefined, defaultQuality: undefined, autoDownloadQuality: undefined, autoDownloadEnabled: undefined, autoRender: undefined, autoRenderResolution: undefined, autoRenderFPS: undefined, downloadsCleanupDays: undefined, renderedOutputPath: undefined, pollIntervalMs: undefined, maxConcurrentRenders: undefined }
+    return window.electronAPI?.getSettings() ?? { videoStoragePath: undefined, outputPath: undefined, defaultTrimLimit: undefined, defaultQuality: undefined, autoDownloadQuality: undefined, autoDownloadEnabled: undefined, autoRender: undefined, autoRenderResolution: undefined, autoRenderFPS: undefined, downloadsCleanupDays: undefined, renderedOutputPath: undefined, pollIntervalMs: undefined, maxConcurrentRenders: undefined, proxyEnabled: undefined, proxyHost: undefined, proxyPort: undefined, proxyUsername: undefined, proxyPassword: undefined, maxConcurrentDownloads: undefined, videoMinDurationSec: undefined, videoMaxDurationSec: undefined }
   },
-  async updateSettings(patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number }) {
+  async updateSettings(patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number; proxyEnabled?: boolean; proxyHost?: string; proxyPort?: number; proxyUsername?: string; proxyPassword?: string; maxConcurrentDownloads?: number; videoMinDurationSec?: number; videoMaxDurationSec?: number }) {
     return window.electronAPI?.updateSettings(patch)
   },
   async getAuthStatus() {
@@ -350,5 +355,23 @@ export const ipc = {
 
   async exportLogs(): Promise<{ success: boolean; path?: string; error?: string }> {
     return window.electronAPI?.exportLogs() ?? { success: false, error: 'electronAPI not available' }
+  },
+
+  // ─── MMO Operation Center ─────────────────────────────────────────────────────
+  async getOpLogs(): Promise<Array<{ id: string; timestamp: number; level: string; category: string; message: string; detail?: string }>> {
+    const result = await window.electronAPI?.getOpLogs()
+    return Array.isArray(result) ? result : []
+  },
+  async clearOpLogs(): Promise<{ success: boolean }> {
+    return window.electronAPI?.clearOpLogs() ?? { success: false }
+  },
+  async pausePoller(): Promise<{ success: boolean }> {
+    return window.electronAPI?.pausePoller() ?? { success: false }
+  },
+  async bulkAddChannels(urls: string[]): Promise<Array<{ url: string; success: boolean; error?: string }>> {
+    return window.electronAPI?.bulkAddChannels(urls) ?? []
+  },
+  onOpLogs(callback: (entries: Array<{ id: string; timestamp: number; level: string; category: string; message: string; detail?: string }>) => void) {
+    return window.electronAPI?.onOpLogs(callback as any) ?? (() => {})
   },
 }

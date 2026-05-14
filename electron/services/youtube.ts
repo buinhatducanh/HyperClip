@@ -508,16 +508,20 @@ function buildYtDlpArgs(ytdlp: string, videoUrl: string, formatSelector: string,
 
   // Quality strategy:
   // - With PO Token → android DASH bestvideo+bestaudio (1080p H.264)
-  // - Without PO Token → ios client (H.264/AAC, 720p-1080p)
+  // - Without PO Token → auto client with Chrome cookies (auth → best available quality).
+  //   Cookies authenticate the request → YouTube returns higher quality without PO Token.
+  //   yt-dlp auto-selects the best client+format combination.
   let resolvedFormat: string
   if (poToken) {
     args.push('--extractor-args', `youtube:player_client=android,po_token=${poToken}`)
     resolvedFormat = formatSelector // DASH: bestvideo+bestaudio
     console.log(`[yt-dlp] Using android DASH with PO Token (${poToken.slice(0, 8)}...)`)
   } else {
-    args.push('--extractor-args', 'youtube:player_client=ios')
-    resolvedFormat = 'bestvideo[height<=1080][vcodec=h264]+bestaudio[acodec=aac]/bestvideo[height<=1080]+bestaudio/bestvideo[height<=720]+bestaudio/best'
-    console.log(`[yt-dlp] Using ios client (H.264 up to 1080p)`)
+    // No client override — cookies provide auth, yt-dlp auto-selects best format.
+    // Force remux to .mp4 for HTML5 video player compatibility.
+    resolvedFormat = formatSelector
+    args.push('--remux-video', 'mp4')
+    console.log(`[yt-dlp] Using auto client with cookies (best quality, remux→mp4)`)
   }
 
   // Authenticate yt-dlp with Chrome cookies to bypass EJS anti-bot challenge
@@ -945,20 +949,18 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
 
     // Quality strategy:
     // - With PO Token → android DASH bestvideo+bestaudio (1080p H.264) — best quality
-    // - Without PO Token → ios client (H.264/AAC, 720p-1080p) — no PO Token needed
-    //   iOS client reliably serves 720p-1080p H.264 without requiring PO Token.
-    //   web client was serving 360p H.264 (format 18) — format availability differs from real browser.
-    // - SABR-only experiment (YouTube-only 360p) → cannot be bypassed
+    // - Without PO Token → tv_embeds client with H.264 up to 720p (no PO Token needed)
+    //   tv_embeds serves H.264 formats 136/298 (720p) and 299 (1080p60) without PO Token.
+    //   android client requires PO Token for anything above 360p.
     let resolvedFormat: string
     if (po_token) {
       args.push('--extractor-args', `youtube:player_client=android,po_token=${po_token}`)
       resolvedFormat = formatSelector
       console.log(`[yt-dlp] Using android DASH with PO Token (${po_token.slice(0, 8)}...)`)
     } else {
-      args.push('--extractor-args', 'youtube:player_client=ios')
-      // iOS client: H.264 preferred up to 1080p, then any codec
-      resolvedFormat = 'bestvideo[height<=1080][vcodec=h264]+bestaudio[acodec=aac]/bestvideo[height<=1080]+bestaudio/bestvideo[height<=720]+bestaudio/best'
-      console.log(`[yt-dlp] Using ios client (H.264 up to 1080p)`)
+      // No client override — cookies provide auth, yt-dlp auto-selects best format.
+      resolvedFormat = formatSelector
+      console.log(`[yt-dlp] Using auto client with cookies (best quality)`)
     }
 
     // Authenticate yt-dlp with Chrome cookies to bypass EJS anti-bot challenge

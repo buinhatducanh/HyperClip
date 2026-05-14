@@ -1,7 +1,14 @@
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
-import { getAppStoreDir, getRamDiskPath } from './paths.js'
+import {
+  getAppStoreDir,
+  getRamDiskPath,
+  getChannelListPath,
+  getSeenVideosPath,
+  getChannelsDir,
+  getProjectsDir,
+} from './paths.js'
 
 const STORE_DIR = getAppStoreDir()
 const STORE_FILE = path.join(STORE_DIR, 'workspaces.json')
@@ -66,8 +73,12 @@ function makeStorableDownloadedPath(absPath: string): string {
   // Absolute → extract basename (filename only)
   return path.basename(absPath)
 }
-const CHANNELS_FILE = path.join(STORE_DIR, 'channels.json')
-const SEEN_VIDEOS_FILE = path.join(STORE_DIR, 'seen-videos.json')
+// ─── Channel store ───────────────────────────────────────────────────────────────
+
+// Channel list stored in channels/ directory (project-based structure)
+const CHANNELS_FILE = getChannelListPath()
+// Seen videos stored in channels/ directory
+const SEEN_VIDEOS_FILE = getSeenVideosPath()
 const RENDERED_FILE = path.join(STORE_DIR, 'rendered.json')
 
 // ─── Channel store ───────────────────────────────────────────────────────────────
@@ -215,6 +226,8 @@ export interface WorkspaceData {
   downloadQuality?: string
   /** Path to pre-scaled source video (pre-downscaled to export resolution) — speeds up render */
   preScaledPath?: string
+  /** True once auto-render has been triggered for this workspace — prevents infinite loops */
+  autoRenderAttempted?: boolean
 }
 
 interface Store {
@@ -226,6 +239,13 @@ interface Store {
 function ensureDir(): void {
   if (!fs.existsSync(STORE_DIR)) {
     fs.mkdirSync(STORE_DIR, { recursive: true })
+  }
+  // Ensure new directories exist (project-based structure, 2026-05-14)
+  if (!fs.existsSync(getChannelsDir())) {
+    fs.mkdirSync(getChannelsDir(), { recursive: true })
+  }
+  if (!fs.existsSync(getProjectsDir())) {
+    fs.mkdirSync(getProjectsDir(), { recursive: true })
   }
 }
 

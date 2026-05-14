@@ -1,16 +1,19 @@
 appId: com.loopcompany.hyperclip
 productName: HyperClip
+copyright: Copyright © 2026 HyperClip
 directories:
   output: release
-  buildResources: resources
+  buildResources: build
 files:
   - dist-electron/**/*
   - package.json
 extraResources:
   - from: resources/
     to: resources/
-  - from: resources/ffmpeg/
-    to: ffmpeg/
+    filter:
+      - "**/*"
+  - from: resources/ffmpeg/bin/
+    to: ffmpeg/bin/
   - from: resources/yt-dlp/
     to: yt-dlp/
 asarUnpack:
@@ -22,8 +25,23 @@ asarUnpack:
   - node_modules/next/**/*
 win:
   target:
-    - target: dir
+    - target: nsis
       arch:
         - x64
-  icon: resources/icon.ico
+  icon: build/icon.ico
+  artifactName: "${productName}-Setup-${version}.${ext}"
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: HyperClip
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  include: installer.nsh
+  perMachine: false
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+  createUploadArchive: false
 asar: true
+compression: maximum

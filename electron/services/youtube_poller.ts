@@ -10,7 +10,8 @@ import { fetchSubscriptionFeed } from './subscription_feed.js'
 import fs from 'fs'
 import path from 'path'
 import { devLog } from './dev_log.js'
-import { getAppStoreDir } from './paths.js'
+import { getChannelsDir } from './paths.js'
+// NOTE: opLog uses dynamic import inside class methods to avoid circular dependency
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -52,7 +53,7 @@ export interface PollerStatus {
 const DEFAULT_POLL_INTERVAL_MS = 2000 // 2 seconds — target < 20s detection latency
 const MAX_VIDEOS_PER_POLL = 5
 const SEEN_IDS_CAP = 10000 // cap to prevent unbounded memory growth
-const SEEN_IDS_FILE = path.join(getAppStoreDir(), 'seen-ids.json')
+const SEEN_IDS_FILE = path.join(getChannelsDir(), 'seen-ids.json')
 
 // ─── SeenVideoIds persistence ─────────────────────────────────────────────────
 
@@ -137,6 +138,31 @@ class YouTubePoller {
       this._exhaustionCount = 0
       devLog('[YouTubePoller] Backoff cleared — resuming polling')
     }
+  }
+
+  /** Pause polling — clears timer and stops the poll loop */
+  pause(): void {
+    if (this._pollTimer) {
+      clearTimeout(this._pollTimer)
+      this._pollTimer = null
+    }
+    this._active = false
+    devLog('[YouTubePoller] Polling paused by user')
+    ;(async () => {
+      const { opLog } = await import('./operation_log.js')
+      opLog.warn('system', 'Polling paused by user')
+    })()
+  }
+
+  /** Restart polling with a new interval (ms) — replaces existing restart() */
+  restart(intervalMs: number): void {
+    this._pollIntervalMs = intervalMs
+    if (this._pollTimer) {
+      clearTimeout(this._pollTimer)
+      this._pollTimer = null
+    }
+    this._scheduleNextPoll()
+    devLog(`[YouTubePoller] Restarted with ${intervalMs}ms interval`)
   }
 
   /**
@@ -301,6 +327,10 @@ class YouTubePoller {
     if (newVideos.length > 0) {
       this._lastNewVideosAt = Date.now()
       devLog(`[YouTubePoller] ${newVideos.length} video moi (${subResult.source}): ${newVideos.map(v => v.title.slice(0, 40) + ' (' + v.channelName + ')').join(', ')}`)
+      ;(async () => {
+        const { opLog } = await import('./operation_log.js')
+        opLog.info('scan', `Poll complete: ${newVideos.length} new video(s) via ${subResult.source}`, newVideos.map(v => v.title).join(', '))
+      })()
       this._onNewVideos?.(newVideos)
     }
   }
@@ -332,12 +362,6 @@ class YouTubePoller {
       this._pollTimer = null
     }
     devLog('[YouTubePoller] Stopped')
-  }
-
-  restart(intervalMs?: number): void {
-    if (intervalMs !== undefined) this._pollIntervalMs = intervalMs
-    this.stop()
-    this.start()
   }
 }
 

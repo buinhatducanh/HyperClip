@@ -1,11 +1,11 @@
 /**
- * Token Manager — HyperClip
+ * Token Manager — HyperClip (refactored 2026-05-14)
  *
- * Manages multiple OAuth tokens from different Google Cloud projects.
- * Each project = 1 OAuth client + 1 API key = 10,000 units/day.
+ * OAuth operations layer on top of ProjectManager.
+ * ProjectManager is the source of truth for credentials, tokens, and stats.
+ * TokenManager handles: refresh, getBestAvailable, testToken, track.
  *
- * Rotation: picks the token with the most remaining quota (least used today).
- * Persists tokens to oauth_tokens.json, stats to token_stats.json.
+ * Legacy compat: reads from oauth_tokens.json/oauth_config.json if no project data found.
  */
 
 import path from 'path'
@@ -13,62 +13,8 @@ import fs from 'fs'
 import os from 'os'
 import https from 'https'
 import { devLog } from './dev_log.js'
-import { getAppStoreDir } from './paths.js'
-
-// Direct fallback helpers that don't depend on token_manager state
-function _getDefaultClientId(): string {
-  // Try oauth_tokens.json first (credentials embedded per token entry)
-  try {
-    if (fs.existsSync(TOKENS_FILE)) {
-      const raw = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf-8'))
-      const tokens = Array.isArray(raw) ? raw : (raw?.access_token ? [raw] : [])
-      for (const t of tokens) {
-        if ((t as any).clientId) return (t as any).clientId
-      }
-    }
-  } catch {}
-  // Fall back to oauth_config.json
-  const configFile = path.join(getAppStoreDir(), 'oauth_config.json')
-  try {
-    if (fs.existsSync(configFile)) {
-      const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
-      if (typeof config === 'object') {
-        if (config.client_id) return config.client_id
-        for (const pid of ['proj-01', 'proj-02', 'proj-03', 'proj-04']) {
-          if (config[pid]?.clientId) return config[pid].clientId
-        }
-      }
-    }
-  } catch {}
-  return ''
-}
-
-function _getDefaultClientSecret(): string {
-  try {
-    if (fs.existsSync(TOKENS_FILE)) {
-      const raw = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf-8'))
-      const tokens = Array.isArray(raw) ? raw : (raw?.access_token ? [raw] : [])
-      for (const t of tokens) {
-        if ((t as any).clientSecret) return (t as any).clientSecret
-      }
-    }
-  } catch {}
-  const configFile = path.join(getAppStoreDir(), 'oauth_config.json')
-  try {
-    if (fs.existsSync(configFile)) {
-      const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
-      if (typeof config === 'object') {
-        // Try per-project credentials first (matching the projectId of stored tokens)
-        for (const pid of ['proj-01', 'proj-02', 'proj-03', 'proj-04']) {
-          if (config[pid]?.clientSecret) return config[pid].clientSecret
-        }
-        // Fall back to legacy single-project field
-        if (config.client_secret) return config.client_secret
-      }
-    }
-  } catch {}
-  return ''
-}
+import { getAppStoreDir, getProjectsDir } from './paths.js'
+import { getProjectManager, type GCPProject } from './project_manager.js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -82,14 +28,10 @@ export interface OAuthTokenSet {
   token_type: string
 }
 
-interface TokenStats {
-  usedToday: number
-  errors: number
-  lastUsed: number
-}
-
 export interface TokenStatus {
   projectId: string
+  projectName: string
+  gmailAccount: string
   clientId: string
   hasToken: boolean
   tokenExpiry: number | null
@@ -98,306 +40,165 @@ export interface TokenStatus {
   quotaPercent: number
   errors: number
   status: 'healthy' | 'warning' | 'rate_limited' | 'error' | 'exhausted' | 'unauthorized' | 'no_oauth'
+  lastUsed: number | null
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Legacy Compat ─────────────────────────────────────────────────────────────
+// Read from legacy files (oauth_tokens.json) if no project data exists.
+// Used for migration + backward compat with existing installations.
+
+const MAX_UNITS_PER_TOKEN = 9500
 
 const TOKENS_DIR = getAppStoreDir()
 const TOKENS_FILE = path.join(TOKENS_DIR, 'oauth_tokens.json')
 const STATS_FILE = path.join(TOKENS_DIR, 'token_stats.json')
-const MAX_UNITS_PER_TOKEN = 9500  // exhausted threshold: 9,500 units/day per project (500 buffer of 10,000)
-// Note: successful calls (1 unit each) don't count toward this threshold.
-// Exhausted threshold: 5 quota errors × 100 each = 500 units added to usedToday.
-// But the actual exhaustion signal is `errors >= 5` (not usedToday >= MAX_UNITS_PER_TOKEN).
-// This prevents reusing an already-exhausted token for subsequent batches.
+const CONFIG_FILE = path.join(TOKENS_DIR, 'oauth_config.json')
 
-// ─── Token Manager ──────────────────────────────────────────────────────────
+interface LegacyTokenEntry {
+  projectId: string
+  clientId: string
+  clientSecret: string
+  access_token: string
+  refresh_token: string
+  expires_at: number
+  token_type: string
+}
+
+function _loadLegacyTokens(): LegacyTokenEntry[] {
+  if (!fs.existsSync(TOKENS_FILE)) return []
+  try {
+    const raw = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf-8'))
+    if (Array.isArray(raw)) return raw
+    if (raw && typeof raw === 'object' && (raw as any).access_token) {
+      return [raw as LegacyTokenEntry]
+    }
+  } catch {}
+  return []
+}
+
+function _loadLegacyConfig(): Record<string, { clientId: string; clientSecret: string }> {
+  if (!fs.existsSync(CONFIG_FILE)) return {}
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'))
+    if (cfg.client_id) {
+      // Legacy single-project format → no projectId mapping
+      return {}
+    }
+    const result: Record<string, { clientId: string; clientSecret: string }> = {}
+    for (const [k, v] of Object.entries(cfg)) {
+      if (k === 'client_id' || k === 'client_secret') continue
+      if (v && typeof v === 'object') {
+        const cred = v as { clientId: string; clientSecret: string }
+        if (cred.clientId && cred.clientSecret) {
+          result[k] = cred
+        }
+      }
+    }
+    return result
+  } catch {}
+  return {}
+}
+
+function _hasProjectData(): boolean {
+  const projectsDir = getProjectsDir()
+  if (!fs.existsSync(projectsDir)) return false
+  const entries = fs.readdirSync(projectsDir, { withFileTypes: true })
+  return entries.some(e => e.isDirectory() && e.name.startsWith('proj-'))
+}
+
+function _migrateLegacyToken(entry: LegacyTokenEntry, configCreds: Record<string, { clientId: string; clientSecret: string }>): void {
+  const pm = getProjectManager()
+  const projectId = entry.projectId || `legacy-${Object.keys(_loadLegacyTokens()).length}`
+  const creds = configCreds[entry.projectId] as { clientId: string; clientSecret: string } | undefined
+
+  pm.addProject({
+    projectId,
+    projectName: entry.projectId || projectId,
+    gmailAccount: '',
+    clientId: creds?.clientId || entry.clientId || '',
+    clientSecret: creds?.clientSecret || entry.clientSecret || '',
+    apiKey: '',
+    status: entry.access_token ? 'active' : 'pending_auth',
+    createdAt: new Date().toISOString(),
+  })
+
+  if (entry.access_token) {
+    pm.saveToken(projectId, {
+      access_token: entry.access_token,
+      refresh_token: entry.refresh_token || '',
+      expires_at: entry.expires_at || Date.now() + 3600 * 1000,
+      token_type: entry.token_type || 'Bearer',
+    })
+  }
+
+  if (entry.clientId) pm.updateProject(projectId, { clientId: entry.clientId })
+  if (entry.clientSecret) pm.updateProject(projectId, { clientSecret: entry.clientSecret })
+}
+
+// ─── Token Manager ─────────────────────────────────────────────────────────────
 
 class TokenManager {
-  private _tokens: OAuthTokenSet[] = []
-  private _stats: Map<string, TokenStats> = new Map()
-  private _lastReset: number = Date.now()
-  private _lastResetUTCDate: string = ''  // tracks UTC date for midnight-UTC reset
-  private _initialized: boolean = false
   private _refreshTimer: ReturnType<typeof setInterval> | null = null
-  private _unauthorizedTokens: Set<string> = new Set()
   private _resetCheckTimer: ReturnType<typeof setInterval> | null = null
+  private _initialized: boolean = false
 
   constructor() {
-    this._loadTokens()
-    this._loadStats()
-    // Always check reset at startup (runs once per restart):
-    // Use UTC date for reset — Google quota resets at midnight PT (08:00 UTC next day).
-    // For Vietnam (UTC+7): 08:00 UTC = 15:00 local, same UTC day.
-    // UTC date alignment ensures local midnight != Google reset doesn't cause stale stats.
-    const now = new Date()
-    // getDate() returns local day of month
-    const todayUTCDate = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
+    this._init()
+  }
 
-    const prevDate = this._lastResetUTCDate
-    if (!prevDate || prevDate !== todayUTCDate) {
-      this._stats.clear()
-      this._unauthorizedTokens.clear()
-      this._lastReset = Date.now()
-      this._lastResetUTCDate = todayUTCDate
-      // Persist cleared stats BEFORE _saveStats() gets overwritten by normal operation.
-      // The _saveStats in the constructor saves empty stats. Subsequent track() / trackError()
-      // calls will re-populate _stats and save normally.
-      try {
-        const obj: Record<string, TokenStats> = {}
-        for (const [k, v] of this._stats) obj[k] = v
-        const dir = path.dirname(STATS_FILE)
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-        fs.writeFileSync(STATS_FILE, JSON.stringify({
-          stats: obj,
-          lastReset: this._lastReset,
-          lastResetUTCDate: this._lastResetUTCDate,
-          unauthorizedTokens: [...this._unauthorizedTokens],
-        }, null, 2), 'utf-8')
-      } catch {}
-      devLog(`[TokenManager] Quota reset (was:"${prevDate || '(none)'}", now:"${todayUTCDate}") — all quotas refreshed`)
+  private _init(): void {
+    // Legacy migration: if no project data exists but legacy tokens exist, migrate them
+    if (!_hasProjectData()) {
+      const legacyTokens = _loadLegacyTokens()
+      const configCreds = _loadLegacyConfig()
+      if (legacyTokens.length > 0) {
+        devLog(`[TokenManager] Migrating ${legacyTokens.length} legacy tokens to project structure...`)
+        for (const entry of legacyTokens) {
+          _migrateLegacyToken(entry, configCreds)
+        }
+        devLog('[TokenManager] Migration complete')
+      }
     }
+
     this._initialized = true
-    // Proactive refresh: check every 30 min + once at startup (after tokens loaded)
+
+    // Proactive refresh: every 30 min
     this._refreshTimer = setInterval(() => { this._proactiveRefresh() }, 30 * 60 * 1000)
     setTimeout(() => { this._proactiveRefresh() }, 5000)
 
-    // Periodic quota reset check: every 30 min (guards against midnight-PT logic failure)
+    // Periodic reset check: every 30 min
     this._resetCheckTimer = setInterval(() => { this._checkReset() }, 30 * 60 * 1000)
   }
 
-  // ── Load / Persist ────────────────────────────────────────────────────────
-
-  private _ensureDir(): void {
-    if (!fs.existsSync(TOKENS_DIR)) {
-      fs.mkdirSync(TOKENS_DIR, { recursive: true })
-    }
-    // Migrate tokens from legacy temp directory (v1 storage)
-    this._migrateFromLegacy()
-  }
-
-  private _migrateFromLegacy(): void {
-    const legacyDir = path.join(os.tmpdir(), 'hyperclip-cookies')
-    const legacyTokens = path.join(legacyDir, 'oauth_tokens.json')
-    const legacyStats = path.join(legacyDir, 'oauth_stats.json')
-    const legacyConfig = path.join(legacyDir, 'oauth_config.json')
-
-    if (fs.existsSync(legacyTokens) && !fs.existsSync(TOKENS_FILE)) {
-      try {
-        fs.copyFileSync(legacyTokens, TOKENS_FILE)
-        devLog('[TokenManager] Migrated oauth_tokens.json from legacy temp dir')
-      } catch (e) {
-        console.warn('[TokenManager] Failed to migrate legacy tokens:', e)
-      }
-    }
-    if (fs.existsSync(legacyStats) && !fs.existsSync(STATS_FILE)) {
-      try {
-        fs.copyFileSync(legacyStats, STATS_FILE)
-        devLog('[TokenManager] Migrated token_stats.json from legacy temp dir')
-      } catch {}
-    }
-    if (fs.existsSync(legacyConfig)) {
-      const migratedConfig = path.join(TOKENS_DIR, 'oauth_config.json')
-      if (!fs.existsSync(migratedConfig)) {
-        try {
-          fs.copyFileSync(legacyConfig, migratedConfig)
-          devLog('[TokenManager] Migrated oauth_config.json from legacy temp dir')
-        } catch {}
-      }
-    }
-  }
-
-  private _loadTokens(): void {
-    // Use direct helpers that read from oauth_tokens.json first, avoiding circular import
-    const defaultClientId = _getDefaultClientId()
-    const defaultClientSecret = _getDefaultClientSecret()
-    try {
-      if (fs.existsSync(TOKENS_FILE)) {
-        const raw = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf-8'))
-        devLog(`[TokenManager] _loadTokens: file has ${Array.isArray(raw) ? raw.length + ' tokens' : '1 legacy token (object format)'}, first entry: ${Array.isArray(raw) ? (raw[0]?.projectId || 'none') : raw?.projectId || 'none'}`)
-
-        // Multi-project format: array of OAuthTokenSet
-        if (Array.isArray(raw)) {
-          this._tokens = raw
-          // Sync credentials from oauth_config.json for all tokens.
-          // Tokens may have stale clientId/clientSecret from older setup.
-          const configFile = path.join(TOKENS_DIR, 'oauth_config.json')
-          let configCreds: Record<string, { clientId: string; clientSecret: string }> = {}
-          try {
-            if (fs.existsSync(configFile)) {
-              const cfg = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
-              for (const [k, v] of Object.entries(cfg)) {
-                if (k !== 'client_id' && k !== 'client_secret' && v && typeof v === 'object') {
-                  const cred = v as { clientId: string; clientSecret: string }
-                  if (cred.clientId && cred.clientSecret) {
-                    configCreds[k] = { clientId: cred.clientId, clientSecret: cred.clientSecret }
-                  }
-                }
-              }
-            }
-          } catch {}
-
-          let migrated = false
-          for (const t of this._tokens) {
-            const cfgCred = configCreds[t.projectId]
-            if (cfgCred) {
-              // Override with config credentials (config is source of truth)
-              if (t.clientId !== cfgCred.clientId || t.clientSecret !== cfgCred.clientSecret) {
-                t.clientId = cfgCred.clientId
-                t.clientSecret = cfgCred.clientSecret
-                migrated = true
-              }
-            } else if (!t.clientId || !t.clientSecret) {
-              // Fallback for tokens not in config
-              t.clientId = defaultClientId
-              t.clientSecret = defaultClientSecret
-              migrated = true
-            }
-          }
-          if (migrated) {
-            devLog('[TokenManager] Synced credentials from oauth_config.json')
-            this._saveTokens()
-          }
-        }
-        // Legacy single-token format: convert to multi-project array
-        else if (raw && typeof raw === 'object' && raw.access_token) {
-          devLog('[TokenManager] Converting legacy single-token format to multi-project array')
-          const legacy: OAuthTokenSet = {
-            projectId: raw.projectId || 'proj-01',
-            clientId: defaultClientId,
-            clientSecret: defaultClientSecret,
-            access_token: raw.access_token,
-            refresh_token: raw.refresh_token || '',
-            expires_at: raw.expires_at || Date.now() + 3600 * 1000,
-            token_type: raw.token_type || 'Bearer',
-          }
-          this._tokens = [legacy]
-          // Save in new format with credentials
-          this._saveTokens()
-        } else {
-          this._tokens = []
-        }
-      }
-    } catch (e) {
-      console.warn('[TokenManager] Failed to load tokens:', e)
-      this._tokens = []
-    }
-    if (this._tokens.length === 0) {
-      console.warn('[TokenManager] No tokens configured — add OAuth credentials in Settings')
-    } else {
-      devLog(`[TokenManager] Loaded ${this._tokens.length} tokens: ${this._tokens.map(t => t.projectId).join(', ')}`)
-    }
-  }
-
-  private _loadStats(): void {
-    try {
-      if (fs.existsSync(STATS_FILE)) {
-        const raw = JSON.parse(fs.readFileSync(STATS_FILE, 'utf-8'))
-        this._stats = new Map(Object.entries(raw.stats || {}))
-        this._lastReset = raw.lastReset || Date.now()
-        this._lastResetUTCDate = raw.lastResetUTCDate || ''
-        this._unauthorizedTokens = new Set(raw.unauthorizedTokens || [])
-      }
-    } catch {}
-  }
-
-  private _saveTokens(): void {
-    this._ensureDir()
-    try {
-      fs.writeFileSync(TOKENS_FILE, JSON.stringify(this._tokens, null, 2), 'utf-8')
-    } catch (e) {
-      console.error('[TokenManager] Failed to persist tokens:', e)
-    }
-  }
-
-  private _saveStats(): void {
-    try {
-      const obj: Record<string, TokenStats> = {}
-      for (const [k, v] of this._stats) obj[k] = v
-      const dir = path.dirname(STATS_FILE)
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-      fs.writeFileSync(STATS_FILE, JSON.stringify({
-        stats: obj,
-        lastReset: this._lastReset,
-        lastResetUTCDate: this._lastResetUTCDate,
-        unauthorizedTokens: [...this._unauthorizedTokens],
-      }, null, 2), 'utf-8')
-    } catch (e) {
-      console.error('[TokenManager] Failed to persist stats:', e)
-    }
-  }
-
-  /**
-   * Check if we need to reset daily stats.
-   * Uses local date — quotas reset at local midnight (17:00 UTC for Vietnam UTC+7),
-   * which is well before Google's midnight PT (08:00 UTC next day). Safe to reset early.
-   */
   private _checkReset(): void {
-    const now = new Date()
-    const utcDate = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
-    if (this._lastResetUTCDate === utcDate) return  // already reset today
-
-    this._stats.clear()
-    this._unauthorizedTokens.clear()
-    this._lastReset = Date.now()
-    this._lastResetUTCDate = utcDate
-    this._saveStats()
-    devLog(`[TokenManager] Quota reset — UTC date: "${utcDate}"`)
-  }
-
-  /**
-   * Proactively refresh tokens expiring within 30 minutes.
-   * Runs at startup (5s delay) and every 30 minutes.
-   * Logs each refresh result — warns if ALL tokens fail.
-   */
-  private async _proactiveRefresh(): Promise<void> {
-    if (this._tokens.length === 0) return
-
-    const now = Date.now()
-    const EXPIRY_THRESHOLD_MS = 30 * 60 * 1000 // 30 min
-
-    const expiring = this._tokens.filter(t => t.expires_at - now < EXPIRY_THRESHOLD_MS)
-    if (expiring.length === 0) return
-
-    devLog(`[TokenManager] Proactive refresh: ${expiring.length}/${this._tokens.length} tokens expiring soon`)
-
-    const results = await Promise.allSettled(
-      expiring.map(async (t) => {
-        const refreshed = await this.refreshToken(t)
-        if (!refreshed) {
-          this.recordError(t.projectId)
-          // Token refresh failed — keep it in the list. getBestAvailable will skip it
-          // if usedToday exceeds MAX_UNITS_PER_TOKEN. User can reset stats or re-auth in Settings.
-          console.warn(`[TokenManager] Proactive refresh failed for ${t.projectId} — keeping token`)
-          return null
-        }
-        const idx = this._tokens.findIndex(x => x.projectId === t.projectId)
-        if (idx !== -1) this._tokens[idx] = refreshed
-        this._saveTokens()
-        devLog(`[TokenManager] Proactive refresh OK: ${t.projectId} (expires ${new Date(refreshed.expires_at).toISOString()})`)
-        return refreshed
-      })
-    )
-
-    const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && r.value === null))
-    if (failed.length > 0) {
-      console.warn(`[TokenManager] Proactive refresh: ${failed.length} token(s) failed — will retry on next poll`)
-    }
+    const pm = getProjectManager()
+    pm.checkReset()
   }
 
   // ── Token Refresh ─────────────────────────────────────────────────────────
 
-  async refreshToken(tokenSet: OAuthTokenSet): Promise<OAuthTokenSet | null> {
-    // Guard: if credentials are empty, this is a broken legacy token — don't waste a refresh call
-    if (!tokenSet.clientId || !tokenSet.clientSecret) {
-      console.warn(`[TokenManager] Token for ${tokenSet.projectId} has no credentials — marking for re-auth`)
+  async refreshToken(projectId: string): Promise<GCPProjectTokenSet | null> {
+    const pm = getProjectManager()
+    const project = pm.getProject(projectId)
+    if (!project) return null
+
+    const { clientId, clientSecret } = project
+    if (!clientId || !clientSecret) {
+      devLog(`[TokenManager] refreshToken(${projectId}): no credentials — skipping`)
       return null
     }
+
+    const token = pm.getToken(projectId)
+    if (!token?.refresh_token) {
+      devLog(`[TokenManager] refreshToken(${projectId}): no refresh_token — needs re-auth`)
+      return null
+    }
+
     return new Promise((resolve) => {
       const body = new URLSearchParams({
-        client_id: tokenSet.clientId,
-        client_secret: tokenSet.clientSecret,
-        refresh_token: tokenSet.refresh_token,
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: token!.refresh_token,
         grant_type: 'refresh_token',
       }).toString()
 
@@ -418,22 +219,27 @@ class TokenManager {
           try {
             const json = JSON.parse(data)
             if (json.error) throw new Error(json.error_description || json.error)
-            const refreshed: OAuthTokenSet = {
-              ...tokenSet,
+
+            const refreshed: GCPProjectTokenSet = {
               access_token: json.access_token,
-              refresh_token: json.refresh_token || tokenSet.refresh_token,
+              refresh_token: json.refresh_token || token!.refresh_token,
               expires_at: Date.now() + (json.expires_in || 3600) * 1000,
               token_type: json.token_type || 'Bearer',
             }
+
+            // Save to project
+            pm.saveToken(projectId, refreshed)
+            devLog(`[TokenManager] Token refreshed for ${projectId} (expires ${new Date(refreshed.expires_at).toISOString()})`)
             resolve(refreshed)
           } catch (e) {
-            console.error(`[TokenManager] Token refresh failed for ${tokenSet.projectId}:`, e)
-            resolve(null) // null = refresh failed, caller should re-auth
+            console.error(`[TokenManager] Token refresh failed for ${projectId}:`, e)
+            pm.markUnauthorized(projectId)
+            resolve(null)
           }
         })
       })
       req.on('error', (e: Error) => {
-        console.error(`[TokenManager] Token refresh error for ${tokenSet.projectId}:`, e)
+        console.error(`[TokenManager] Token refresh error for ${projectId}:`, e)
         resolve(null)
       })
       req.write(body)
@@ -441,263 +247,246 @@ class TokenManager {
     })
   }
 
-  // ── Smart Rotation ────────────────────────────────────────────────────────
+  /**
+   * Proactively refresh tokens expiring within 30 minutes.
+   * Runs at startup (5s delay) and every 30 minutes.
+   */
+  private async _proactiveRefresh(): Promise<void> {
+    const pm = getProjectManager()
+    const projects = pm.getAllProjects()
+    const now = Date.now()
+    const EXPIRY_THRESHOLD_MS = 30 * 60 * 1000
+
+    const expiring = projects.filter(p => {
+      const token = pm.getToken(p.projectId)
+      if (!token) return false
+      return token.expires_at - now < EXPIRY_THRESHOLD_MS
+    })
+
+    if (expiring.length === 0) return
+    devLog(`[TokenManager] Proactive refresh: ${expiring.length}/${projects.length} tokens expiring soon`)
+
+    const results = await Promise.allSettled(
+      expiring.map(p => this.refreshToken(p.projectId))
+    )
+
+    const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && r.value === null))
+    if (failed.length > 0) {
+      console.warn(`[TokenManager] Proactive refresh: ${failed.length} token(s) failed`)
+    }
+  }
+
+  // ── Smart Rotation ─────────────────────────────────────────────────────────
 
   /**
-   * Get the best available token — least-used today, skip exhausted or errored.
-   * Returns token + projectId for pairing with API key.
+   * Get the best available token for a channel.
+   * 1. Use assigned project for this channel (coverage priority)
+   * 2. Fallback to least-used active project
+   * Auto-refreshes if token is expired.
    */
-  async getBestAvailable(): Promise<{ token: string; projectId: string; clientId: string; clientSecret: string } | null> {
-    this._checkReset()
-
-    if (this._tokens.length === 0) {
-      console.warn('[TokenManager] getBestAvailable: NO tokens in _tokens — returning null')
-      return null
-    }
-
-    // Filter candidates: skip unauthorized or exhausted (5+ quota errors) tokens.
-    // Error count is the signal — 5 quota errors = exhausted. usedToday accumulates but doesn't
-    // directly block (it's for logging/visibility only; MAX_UNITS_PER_TOKEN = 9,500 for docs).
-    const candidates = this._tokens.filter(t => {
-      if (this._unauthorizedTokens.has(t.projectId)) return false
-      const s = this._stats.get(t.projectId)
-      if (!s) return true
-      // Exhausted = 10 or more quota errors (system is rate-limited, not quota-exhausted)
-    return s.errors < 10
-    })
-
-    if (candidates.length === 0) {
-      console.warn(`[TokenManager] getBestAvailable: All ${this._tokens.length} tokens filtered out — _unauthorized: ${[...this._unauthorizedTokens].join(',')}`)
-      for (const t of this._tokens) {
-        const s = this._stats.get(t.projectId)
-        console.warn(`  token=${t.projectId} usedToday=${s?.usedToday ?? 0} >= ${MAX_UNITS_PER_TOKEN}=${(s?.usedToday ?? 0) >= MAX_UNITS_PER_TOKEN} unauthorized=${this._unauthorizedTokens.has(t.projectId)}`)
-      }
-      return null
-    }
-
-    // Sort by remaining quota (most remaining = least used)
-    candidates.sort((a, b) => {
-      const sa = this._stats.get(a.projectId)?.usedToday ?? 0
-      const sb = this._stats.get(b.projectId)?.usedToday ?? 0
-      return sa - sb
-    })
-
-    const chosen = candidates[0]
-
-    // Check expiry — refresh if needed (5 min buffer)
+  async getBestAvailable(channelId?: string): Promise<{ token: string; projectId: string; clientId: string; clientSecret: string } | null> {
+    const pm = getProjectManager()
     const now = Date.now()
-    if (chosen.expires_at - 5 * 60 * 1000 < now) {
-      const expiresIn = Math.round((chosen.expires_at - now) / 60000)
-      devLog(`[TokenManager] Token for ${chosen.projectId} expired (or expiring in ${expiresIn}min), refreshing...`)
-      try {
-        const refreshed = await this.refreshToken(chosen)
-        // null = refresh failed (bad credentials or token revoked) — mark for re-auth
-        if (!refreshed) {
-          console.warn(`[TokenManager] Refresh returned null for ${chosen.projectId} — removing token and trying next`)
-          this.removeToken(chosen.projectId)
-          // Try next available token instead
-          return this.getBestAvailable()
+
+    // Step 1: Get project for this channel (or least-used fallback)
+    let project: GCPProject | null = null
+    if (channelId) {
+      project = pm.getProjectForChannel(channelId)
+    }
+    if (!project) {
+      project = pm.getLeastUsedProject()
+    }
+    if (!project) {
+      devLog('[TokenManager] getBestAvailable: no projects available')
+      return null
+    }
+
+    // Step 2: Get token
+    let token = pm.getToken(project.projectId)
+    if (!token) {
+      devLog(`[TokenManager] getBestAvailable: ${project.projectId} has no token`)
+      return null
+    }
+
+    // Step 3: Refresh if needed (5 min buffer)
+    if (token.expires_at - 5 * 60 * 1000 < now) {
+      devLog(`[TokenManager] Token for ${project.projectId} expired — refreshing...`)
+      const refreshed = await this.refreshToken(project.projectId)
+      if (!refreshed) {
+        // Fallback to backup project or least-used
+        if (channelId) {
+          const backup = pm.getBackupProjectForChannel(channelId)
+          if (backup) {
+            let backupToken = pm.getToken(backup.projectId)
+            if (backupToken && backupToken.expires_at - 5 * 60 * 1000 >= now) {
+              return { token: backupToken.access_token, projectId: backup.projectId, clientId: backup.clientId, clientSecret: backup.clientSecret }
+            }
+            const backupRefreshed = await this.refreshToken(backup.projectId)
+            if (backupRefreshed) {
+              return { token: backupRefreshed.access_token, projectId: backup.projectId, clientId: backup.clientId, clientSecret: backup.clientSecret }
+            }
+          }
         }
-        const idx = this._tokens.findIndex(t => t.projectId === chosen.projectId)
-        if (idx !== -1) this._tokens[idx] = refreshed
-        this._saveTokens()
-        devLog(`[TokenManager] Token refreshed for ${chosen.projectId} (expires ${new Date(refreshed.expires_at).toISOString()})`)
-        return {
-          token: refreshed.access_token,
-          projectId: refreshed.projectId,
-          clientId: refreshed.clientId,
-          clientSecret: refreshed.clientSecret,
+        // Last resort: try least-used project
+        const fallback = pm.getLeastUsedProject()
+        if (fallback && fallback.projectId !== project.projectId) {
+          const fallbackToken = pm.getToken(fallback.projectId)
+          if (fallbackToken && fallbackToken.expires_at - 5 * 60 * 1000 >= now) {
+            return { token: fallbackToken.access_token, projectId: fallback.projectId, clientId: fallback.clientId, clientSecret: fallback.clientSecret }
+          }
         }
-      } catch (e) {
-        console.error(`[TokenManager] Refresh failed for ${chosen.projectId}:`, e)
         return null
       }
+      token = refreshed
     }
 
     return {
-      token: chosen.access_token,
-      projectId: chosen.projectId,
-      clientId: chosen.clientId,
-      clientSecret: chosen.clientSecret,
+      token: token.access_token,
+      projectId: project.projectId,
+      clientId: project.clientId,
+      clientSecret: project.clientSecret,
     }
   }
 
-  /** Track 1 unit consumed by a project */
+  // ── Tracking ───────────────────────────────────────────────────────────────
+
   track(projectId: string): void {
-    const s = this._stats.get(projectId) || { usedToday: 0, errors: 0, lastUsed: 0 }
-    s.usedToday++
-    s.lastUsed = Date.now()
-    this._stats.set(projectId, s)
-    this._saveStats()
+    const pm = getProjectManager()
+    pm.track(projectId, 1)
   }
 
-  /** Record an error for a project — increments error count without consuming quota units */
   recordError(projectId: string): void {
-    const s = this._stats.get(projectId) || { usedToday: 0, errors: 0, lastUsed: 0 }
-    s.errors++
-    this._stats.set(projectId, s)
-    this._saveStats()
-    console.warn(`[TokenManager] Error on ${projectId} — errors: ${s.errors}`)
+    const pm = getProjectManager()
+    pm.recordError(projectId)
   }
 
-  /** Track an API error (e.g., 403 quota exceeded) — increments usedToday to skip exhausted tokens */
   trackError(projectId: string): void {
-    const s = this._stats.get(projectId) || { usedToday: 0, errors: 0, lastUsed: 0 }
-    // Add 100 units to push exhausted tokens above MAX_UNITS_PER_TOKEN threshold
-    // This ensures getBestAvailable() skips them even without tracking every call
-    s.usedToday += 100
-    s.errors++
-    s.lastUsed = Date.now()
-    this._stats.set(projectId, s)
-    this._saveStats()
-    console.warn(`[TokenManager] trackError(${projectId}): +100 units, errors: ${s.errors} → usedToday: ${s.usedToday}`)
+    const pm = getProjectManager()
+    pm.recordQuotaError(projectId)
   }
 
   // ── CRUD ─────────────────────────────────────────────────────────────────
 
-  addToken(projectId: string, clientId: string, clientSecret: string, tokens: { access_token: string; refresh_token: string; expires_at: number; token_type: string }): void {
-    const idx = this._tokens.findIndex(t => t.projectId === projectId)
-    const entry: OAuthTokenSet = { projectId, clientId, clientSecret, ...tokens }
-    if (idx !== -1) {
-      this._tokens[idx] = entry
-    } else {
-      this._tokens.push(entry)
+  addToken(
+    projectId: string,
+    clientId: string,
+    clientSecret: string,
+    tokens: { access_token: string; refresh_token: string; expires_at: number; token_type: string },
+  ): void {
+    const pm = getProjectManager()
+    const project = pm.getProject(projectId) || pm.addProject({
+      projectId,
+      projectName: projectId,
+      gmailAccount: '',
+      clientId,
+      clientSecret,
+      apiKey: '',
+      status: tokens.access_token ? 'active' : 'pending_auth',
+      createdAt: new Date().toISOString(),
+    })
+
+    pm.updateProject(projectId, { clientId, clientSecret })
+    if (tokens.access_token) {
+      pm.saveToken(projectId, tokens)
     }
-    this._saveTokens()
     devLog(`[TokenManager] Token added/updated for ${projectId}`)
   }
 
-  getToken(projectId: string): OAuthTokenSet | null {
-    return this._tokens.find(t => t.projectId === projectId) || null
+  getToken(projectId: string): GCPProjectTokenSet | null {
+    return getProjectManager().getToken(projectId)
   }
 
   removeToken(projectId: string): void {
-    this._tokens = this._tokens.filter(t => t.projectId !== projectId)
-    this._stats.delete(projectId)
-    this._saveTokens()
-    this._saveStats()
+    getProjectManager().removeProject(projectId)
     devLog(`[TokenManager] Token removed for ${projectId}`)
   }
 
-  /** Reload tokens from disk. Call after external code writes tokens (e.g., OAuth flow). */
   reload(): void {
-    this._loadTokens()
-    this._loadStats()
+    // ProjectManager is always fresh — no-op
   }
 
   resetAll(): void {
-    this._stats.clear()
-    this._unauthorizedTokens.clear()
-    this._lastReset = Date.now()
-    this._saveStats()
+    getProjectManager().resetAll()
     devLog('[TokenManager] Reset all token quotas')
   }
 
-  /** Reset stats for a specific project (keeps the token, only clears usedToday/errors/unauthorized flag) */
   resetTokenStats(projectId: string): { success: boolean; nextReset: number; wasUnauthorized: boolean } {
-    const wasUnauthorized = this._unauthorizedTokens.has(projectId)
-    this._stats.delete(projectId)
-    this._unauthorizedTokens.delete(projectId)
-    this._saveStats()
-    devLog(`[TokenManager] Reset quota stats for ${projectId} (wasUnauthorized=${wasUnauthorized})`)
-    return { success: true, nextReset: this._getNextResetTime(), wasUnauthorized }
+    const pm = getProjectManager()
+    const project = pm.getProject(projectId)
+    const wasUnauthorized = project?.status === 'unauthorized'
+    pm.resetProject(projectId)
+    return { success: true, nextReset: pm.getNextResetTime(), wasUnauthorized }
   }
 
-  /** Mark a token as unauthorized (401 — token revoked or invalid) */
   markUnauthorized(projectId: string): void {
-    this._unauthorizedTokens.add(projectId)
-    this._saveStats()
-    console.warn(`[TokenManager] Token ${projectId} marked as unauthorized`)
+    getProjectManager().markUnauthorized(projectId)
   }
 
-  /** Mark a token as authorized — clears unauthorized flag */
   markAuthorized(projectId: string): void {
-    if (this._unauthorizedTokens.has(projectId)) {
-      this._unauthorizedTokens.delete(projectId)
-      this._saveStats()
-      devLog(`[TokenManager] Token ${projectId} authorized`)
-    }
+    // Re-enable: just reset stats
+    getProjectManager().resetProject(projectId)
   }
 
-  /** Test an OAuth token by making a lightweight API call */
+  /** Test a token by refreshing it */
   async testToken(projectId: string): Promise<{ valid: boolean; error?: string; errorType?: string }> {
-    const token = this._tokens.find(t => t.projectId === projectId)
-    if (!token) return { valid: false, error: 'Token not found', errorType: 'not_found' }
-
-    // Try to refresh to verify token is valid
-    const refreshed = await this.refreshToken(token)
+    const refreshed = await this.refreshToken(projectId)
     if (!refreshed) {
-      this.markUnauthorized(projectId)
       return { valid: false, error: 'Token expired or revoked', errorType: 'unauthorized' }
     }
-
-    // Update token in memory
-    const idx = this._tokens.findIndex(t => t.projectId === projectId)
-    if (idx !== -1) this._tokens[idx] = refreshed
-    this._saveTokens()
-    this.markAuthorized(projectId)
     return { valid: true }
   }
 
-  /** Stop background timer — call on app quit */
   dispose(): void {
-    if (this._refreshTimer) {
-      clearInterval(this._refreshTimer)
-      this._refreshTimer = null
-    }
-    if (this._resetCheckTimer) {
-      clearInterval(this._resetCheckTimer)
-      this._resetCheckTimer = null
-    }
+    if (this._refreshTimer) { clearInterval(this._refreshTimer); this._refreshTimer = null }
+    if (this._resetCheckTimer) { clearInterval(this._resetCheckTimer); this._resetCheckTimer = null }
   }
 
   getTokenCount(): number {
-    return this._tokens.length
+    return getProjectManager().getAllProjects().filter(p => p.token?.access_token).length
   }
 
-  /** Compute timestamp of next midnight UTC reset */
   _getNextResetTime(): number {
-    const now = new Date()
-    const msUntilMidnightUTC = (24 - now.getUTCHours()) * 3600 * 1000
-      - now.getUTCMinutes() * 60000
-      - now.getUTCSeconds() * 1000
-      - now.getUTCMilliseconds()
-    return Date.now() + msUntilMidnightUTC
+    return getProjectManager().getNextResetTime()
   }
 
   /** Get status for all tokens (for Settings UI) */
   getAllStatuses(): TokenStatus[] {
-    devLog(`[TokenManager] getAllStatuses: ${this._tokens.length} tokens loaded, _unauthorized: ${[...this._unauthorizedTokens].join(',')}`)
-    return this._tokens.map(t => {
-      const s = this._stats.get(t.projectId)
-      const usedToday = s?.usedToday ?? 0
-      const errors = s?.errors ?? 0
-      // quotaPercent = real API units only (errors are tracked separately for status)
+    const pm = getProjectManager()
+    return pm.getAllProjects().map(p => {
+      const usedToday = p.stats.usedToday
+      const errors = p.stats.errors
       const quotaPercent = Math.round((usedToday / MAX_UNITS_PER_TOKEN) * 100)
 
       let status: TokenStatus['status'] = 'healthy'
-      if (this._unauthorizedTokens.has(t.projectId)) status = 'unauthorized'
-      else if (usedToday >= MAX_UNITS_PER_TOKEN) status = 'exhausted'
+      if (!p.token?.access_token) status = 'no_oauth'
+      else if (p.status === 'unauthorized' || p.stats.unauthorized) status = 'unauthorized'
+      else if (usedToday >= MAX_UNITS_PER_TOKEN || p.status === 'exhausted') status = 'exhausted'
       else if (errors >= 10) status = 'rate_limited'
       else if (quotaPercent >= 80) status = 'warning'
       else if (errors > 0) status = 'error'
 
       return {
-        projectId: t.projectId,
-        clientId: t.clientId,
-        hasToken: !!t.access_token,
-        tokenExpiry: t.expires_at,
+        projectId: p.projectId,
+        projectName: p.projectName,
+        gmailAccount: p.gmailAccount,
+        clientId: p.clientId,
+        hasToken: !!p.token?.access_token,
+        tokenExpiry: p.token?.expires_at ?? null,
         usedToday,
         quotaTotal: MAX_UNITS_PER_TOKEN,
         quotaPercent: Math.min(100, quotaPercent),
         errors,
         status,
+        lastUsed: p.stats.lastUsed || null,
       }
     })
   }
 }
 
-// ─── Singleton ───────────────────────────────────────────────────────────────
+// Fix type alias (GCPProjectTokenSet is what we store)
+type GCPProjectTokenSet = { access_token: string; refresh_token: string; expires_at: number; token_type: string }
+
+// ─── Singleton ─────────────────────────────────────────────────────────────
 
 let _instance: TokenManager | null = null
 

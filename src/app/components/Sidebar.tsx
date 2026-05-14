@@ -2,6 +2,8 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import type { Channel, SystemStats } from '../types'
+import { ipc } from '../lib/ipc'
+import { useAppStore } from '../lib/store'
 import { NotificationCenter } from './NotificationCenter'
 import { SkeletonChannelItem } from './Skeleton'
 import { DetectionStatusBar } from './DetectionStatusBar'
@@ -95,6 +97,11 @@ export function Sidebar({
   const [trimInput, setTrimInput] = useState<number | 'full'>(
     () => settings?.defaultTrimLimit ?? 10
   )
+  /** Add channel input */
+  const [channelInput, setChannelInput] = useState('')
+  const [addingChannel, setAddingChannel] = useState(false)
+  const [channelError, setChannelError] = useState('')
+  const showToast = useAppStore((s) => s.showToast)
 
   const ramPct = Math.round((systemStats.ramUsed / systemStats.ramTotal) * 100)
   const gpuShort = systemStats.gpuName ? systemStats.gpuName.split(' ').slice(0, 2).join(' ') : 'GPU'
@@ -110,6 +117,31 @@ export function Sidebar({
       setTrimInput(settings.defaultTrimLimit)
     }
   }, [settings?.defaultTrimLimit])
+
+  /** Add a YouTube channel — called from the Add Channel bar */
+  const handleAddChannel = useCallback(async () => {
+    const url = channelInput.trim()
+    if (!url) return
+    setAddingChannel(true)
+    setChannelError('')
+    try {
+      const result = await ipc.addChannel(url)
+      if (result) {
+        setChannelInput('')
+        showToast(`✓ Đã thêm: ${(result as any).name || url}`)
+        // Trigger parent to reload channels so the new one appears immediately
+        if ((window as any).__reloadChannels) (window as any).__reloadChannels()
+      } else {
+        setChannelError('Could not add channel. Check the URL.')
+        showToast('Không thể thêm kênh')
+      }
+    } catch (e: any) {
+      setChannelError(e?.message || 'Unknown error')
+      showToast('Lỗi khi thêm kênh')
+    } finally {
+      setAddingChannel(false)
+    }
+  }, [channelInput, showToast])
 
   return (
     <div
@@ -163,6 +195,50 @@ export function Sidebar({
 
       {/* Channel list */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {/* Add Channel bar — always visible */}
+        <div style={{ padding: '8px 12px', borderBottom: '1px solid #1A1A1A', flexShrink: 0 }}>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <input
+              id="add-channel-input"
+              type="text"
+              placeholder="Channel URL or @handle"
+              value={channelInput}
+              onChange={(e) => setChannelInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !addingChannel && channelInput.trim()) handleAddChannel()
+              }}
+              style={{
+                flex: 1, height: 24, padding: '0 8px',
+                background: '#0D0D0D', border: channelError ? '1px solid #FF4444' : '1px solid #222',
+                borderRadius: 4, color: '#fff',
+                fontSize: 10, fontFamily: 'monospace',
+                outline: 'none',
+              }}
+            />
+            <button
+              onClick={handleAddChannel}
+              disabled={addingChannel || !channelInput.trim()}
+              title="Add channel"
+              style={{
+                width: 24, height: 24, flexShrink: 0,
+                background: addingChannel ? '#1A3A1A' : channelInput.trim() ? '#00B4FF' : '#1A1A1A',
+                border: 'none', borderRadius: 4,
+                color: addingChannel ? '#00FF88' : channelInput.trim() ? '#000' : '#333',
+                fontSize: 14, fontWeight: 700, cursor: addingChannel ? 'default' : 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'background 0.15s',
+              }}
+            >
+              {addingChannel ? '…' : '+'}
+            </button>
+          </div>
+          {channelError && (
+            <div style={{ fontSize: 9, color: '#FF4444', marginTop: 3, lineHeight: 1.4 }}>
+              {channelError}
+            </div>
+          )}
+        </div>
+
         {/* Channel items */}
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {isLoadingChannels ? (
@@ -174,8 +250,7 @@ export function Sidebar({
                 <rect x="3" y="6" width="12" height="12" rx="2" ry="2" />
               </svg>
               <span style={{ fontSize: 10, color: '#2A2A2A', textAlign: 'center', lineHeight: 1.5 }}>
-                No channels yet<br />
-                <a href="/settings" style={{ color: '#00B4FF', textDecoration: 'none', fontSize: 9 }}>Add in Settings →</a>
+                Paste a YouTube channel URL<br />or @username above to start
               </span>
             </div>
           ) : channels
@@ -229,6 +304,29 @@ export function Sidebar({
                         {count}
                       </div>
                     )}
+
+                    {/* Delete channel button */}
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        if (!confirm(`Remove "${ch.name}" from tracking?`)) return
+                        await ipc.removeChannel(ch.id)
+                        showToast(`Đã xóa: ${ch.name}`)
+                        if ((window as any).__reloadChannels) (window as any).__reloadChannels()
+                      }}
+                      title={`Remove ${ch.name}`}
+                      style={{
+                        width: 18, height: 18, flexShrink: 0, opacity: 0,
+                        background: 'transparent', border: 'none', borderRadius: 3,
+                        color: '#555', cursor: 'pointer', fontSize: 14,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: 'opacity 0.15s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = '#FF4444' }}
+                      onMouseLeave={e => { e.currentTarget.style.opacity = '0'; e.currentTarget.style.color = '#555' }}
+                    >
+                      ×
+                    </button>
                   </div>
                 </div>
               )

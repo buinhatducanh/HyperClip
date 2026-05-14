@@ -1,17 +1,22 @@
 /**
- * Key Manager — HyperClip
+ * Key Manager — HyperClip (refactored 2026-05-14)
  *
- * Manages YouTube Data API keys with smart least-used rotation.
- * Supports dynamic add/remove, quota tracking, and per-key stats.
+ * Manages YouTube Data API keys using ProjectManager as data source.
+ * Each GCP project has an associated API key in project.config.json.
  *
- * Smart Rotation: selects the key with the most remaining quota.
- * Persists keys and stats to separate JSON files.
+ * Smart Rotation: for a given project, returns the project's API key.
+ * For unassigned/detection keys: picks the project with most remaining quota.
+ *
+ * Quota tracking is done via ProjectManager (shared with OAuth quota).
+ * Each project = 10k units/day for ALL YouTube API calls (OAuth + key).
  */
 
 import path from 'path'
 import fs from 'fs'
+import https from 'https'
 import { devLog } from './dev_log.js'
 import { getAppStoreDir } from './paths.js'
+import { getProjectManager, type GCPProject } from './project_manager.js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -21,361 +26,231 @@ export interface APIKey {
   name: string
 }
 
-interface KeyStats {
-  key: string
-  usedToday: number   // units consumed today
-  errors: number       // consecutive errors
-  lastUsed: number    // timestamp
-  lastErrorAt: number  // timestamp
-  lastResetAt: number  // timestamp of last manual reset
-}
-
-interface KeyManagerData {
-  keys: APIKey[]
-  unauthorizedKeys: string[]
-  lastReset: number
-  lastResetUTCDate: string
-}
-
 export interface KeyStatus {
   key: string
   projectId: string
+  projectName: string
+  gmailAccount: string
   name: string
   usedToday: number
   quotaTotal: number
-  quotaPercent: number   // 0-100
+  quotaPercent: number
   errors: number
   lastUsed: number | null
-  status: 'healthy' | 'warning' | 'error' | 'exhausted' | 'unauthorized'
-  lastReset: number | null  // timestamp of last manual reset
-  nextReset: number | null   // timestamp of next midnight PT reset
+  status: 'healthy' | 'warning' | 'error' | 'exhausted' | 'unauthorized' | 'no_key'
+  lastReset: number | null
+  nextReset: number | null
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Legacy Compat ─────────────────────────────────────────────────────────────
 
 const KEYS_DIR = getAppStoreDir()
 const KEYS_FILE = path.join(KEYS_DIR, 'api_keys.json')
 const STATS_FILE = path.join(KEYS_DIR, 'key_stats.json')
 
-const MAX_UNITS_PER_KEY = 9500   // 500 unit buffer per key
-const MAX_ERRORS = 3             // mark unhealthy after 3 consecutive errors
+const MAX_UNITS_PER_KEY = 9500
+const MAX_ERRORS = 3
+
+interface LegacyKeyEntry {
+  key: string
+  projectId: string
+  name: string
+}
+
+function _loadLegacyKeys(): LegacyKeyEntry[] {
+  if (!fs.existsSync(KEYS_FILE)) return []
+  try {
+    const data = JSON.parse(fs.readFileSync(KEYS_FILE, 'utf-8'))
+    return (data.keys || []).filter((k: LegacyKeyEntry) => k.key && k.key !== 'YOUR_API_KEY_01')
+  } catch { return [] }
+}
 
 // ─── Key Manager ─────────────────────────────────────────────────────────────
 
 class KeyManager {
-  private _keys: APIKey[] = []
-  private _stats: Map<string, KeyStats> = new Map()
-  private _lastReset: number = Date.now()
-  private _lastResetUTCDate: string = ''  // tracks PT date for midnight-PT reset
+  private _legacyKeys: LegacyKeyEntry[] = []
   private _initialized: boolean = false
-  private _unauthorizedKeys: Set<string> = new Set()
 
   constructor() {
-    this._load()
-    this._loadStats()
-    this._checkReset()
-  }
-
-  // ── Load / Persist ──────────────────────────────────────────────────────────
-
-  private _ensureDir(): void {
-    if (!fs.existsSync(KEYS_DIR)) {
-      fs.mkdirSync(KEYS_DIR, { recursive: true })
+    // Legacy compat: migrate old api_keys.json to project configs
+    if (_loadLegacyKeys().length > 0) {
+      this._migrateLegacyKeys()
     }
+    this._initialized = true
   }
 
-  private _load(): void {
-    try {
-      if (fs.existsSync(KEYS_FILE)) {
-        const data = JSON.parse(fs.readFileSync(KEYS_FILE, 'utf-8'))
-        this._keys = (data.keys || []).filter((k: APIKey) => k.key && k.key !== 'YOUR_API_KEY_01')
-        this._unauthorizedKeys = new Set(data.unauthorizedKeys || [])
+  private _migrateLegacyKeys(): void {
+    const legacy = _loadLegacyKeys()
+    if (legacy.length === 0) return
+
+    const pm = getProjectManager()
+    for (const k of legacy) {
+      const project = pm.getProject(k.projectId)
+      if (project) {
+        pm.updateProject(k.projectId, { apiKey: k.key })
+        devLog(`[KeyManager] Migrated key for ${k.projectId}: ${k.key.slice(0, 12)}...`)
+      } else {
+        // Create project for legacy key
+        pm.addProject({
+          projectId: k.projectId,
+          projectName: k.name || k.projectId,
+          gmailAccount: '',
+          clientId: '',
+          clientSecret: '',
+          apiKey: k.key,
+          status: 'active',
+          createdAt: new Date().toISOString(),
+        })
+        devLog(`[KeyManager] Created project ${k.projectId} from legacy key`)
       }
-    } catch (e) {
-      console.warn('[KeyManager] Failed to load keys:', e)
     }
-
-    if (this._keys.length === 0) {
-      console.warn('[KeyManager] No API keys found in', KEYS_FILE)
-      console.warn('[KeyManager] Run HyperClip with a valid api_keys.json in D:\\HyperClip-Data\\app\\HyperClip\\')
-    } else {
-      devLog(`[KeyManager] Loaded ${this._keys.length} keys, smart rotation active`)
-      if (this._unauthorizedKeys.size > 0) {
-        console.warn(`[KeyManager] ${this._unauthorizedKeys.size} key(s) marked as unauthorized`)
-      }
-    }
-  }
-
-  private _loadStats(): void {
-    try {
-      if (fs.existsSync(STATS_FILE)) {
-        const data = JSON.parse(fs.readFileSync(STATS_FILE, 'utf-8'))
-        this._stats = new Map(Object.entries(data.stats || {}))
-        this._lastReset = data.lastReset || Date.now()
-        this._lastResetUTCDate = data.lastResetPTDate || ''
-      }
-    } catch {}
-  }
-
-  private _persist(): void {
-    this._ensureDir()
-    try {
-      fs.writeFileSync(KEYS_FILE, JSON.stringify({
-        keys: this._keys,
-        unauthorizedKeys: [...this._unauthorizedKeys],
-      }, null, 2), 'utf-8')
-    } catch (e) {
-      console.error('[KeyManager] Failed to persist keys:', e)
-    }
-    this._persistStats()
-  }
-
-  private _persistStats(): void {
-    try {
-      const obj: Record<string, KeyStats> = {}
-      for (const [k, v] of this._stats) obj[k] = v
-      fs.writeFileSync(STATS_FILE, JSON.stringify({ stats: obj, lastReset: this._lastReset, lastResetPTDate: this._lastResetUTCDate }, null, 2), 'utf-8')
-    } catch (e) {
-      console.error('[KeyManager] Failed to persist stats:', e)
-    }
-  }
-
-  /**
-   * Check if we need to reset daily stats.
-   * Resets at midnight UTC daily. Aligned with TokenManager for consistency.
-   * Note: Google's quota technically resets at midnight PT (08:00 UTC standard, 07:00 UTC DST),
-   * but UTC midnight provides a consistent reset window across both KeyManager and TokenManager.
-   */
-  private _checkReset(): void {
-    const now = new Date()
-    const utcDateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
-
-    if (this._lastResetUTCDate !== utcDateStr) {
-      this._stats.clear()
-      this._lastReset = Date.now()
-      this._lastResetUTCDate = utcDateStr
-      this._persistStats()
-      devLog(`[KeyManager] Daily reset at midnight UTC (${utcDateStr}) — all key quotas refreshed`)
-    }
+    devLog(`[KeyManager] Migrated ${legacy.length} legacy API keys`)
   }
 
   // ── Smart Rotation ─────────────────────────────────────────────────────────
 
   /**
-   * Get the best available key — the one with the most remaining quota.
-   * Skips exhausted or unhealthy keys.
+   * Get the best available API key for a project.
+   * If projectId provided: return that project's key.
+   * Otherwise: return key from least-used active project.
    */
-  getKey(): APIKey {
-    this._checkReset()
+  getKey(projectId?: string): APIKey | null {
+    const pm = getProjectManager()
 
-    if (this._keys.length === 0) {
-      throw new Error('No API keys configured. Add keys to ' + KEYS_FILE)
+    if (projectId) {
+      const project = pm.getProject(projectId)
+      if (project?.apiKey) {
+        return {
+          key: project.apiKey,
+          projectId: project.projectId,
+          name: project.projectName,
+        }
+      }
+      return null
     }
 
-    const candidates = this._keys.filter(k => {
-      if (this._unauthorizedKeys.has(k.key)) return false
-      const s = this._stats.get(k.key)
-      if (!s) return true
-      return s.usedToday < MAX_UNITS_PER_KEY && s.errors < MAX_ERRORS
-    })
+    // Get least-used project with a key
+    const candidates = pm.getActiveProjects().filter(p => p.apiKey)
+    if (candidates.length === 0) return null
 
-    if (candidates.length === 0) {
-      throw new Error('All API keys exhausted or unhealthy (quota reset at midnight PT)')
-    }
-
-    // Sort by remaining quota (least-used first = most remaining)
-    candidates.sort((a, b) => {
-      const sa = this._stats.get(a.key)
-      const sb = this._stats.get(b.key)
-      const ua = sa?.usedToday ?? 0
-      const ub = sb?.usedToday ?? 0
-      // Pick the key with LEAST usage (most quota remaining)
-      return ua - ub
-    })
-
+    candidates.sort((a, b) => a.stats.usedToday - b.stats.usedToday)
     const chosen = candidates[0]
-    const stat = this._stats.get(chosen.key) || { key: chosen.key, usedToday: 0, errors: 0, lastUsed: 0, lastErrorAt: 0, lastResetAt: 0 }
-    stat.lastUsed = Date.now()
-    this._stats.set(chosen.key, stat)
-    this._persistStats()
-    return chosen
+    return {
+      key: chosen.apiKey,
+      projectId: chosen.projectId,
+      name: chosen.projectName,
+    }
+  }
+
+  /**
+   * Get API key for a specific project.
+   */
+  getKeyForProject(projectId: string): APIKey | null {
+    return this.getKey(projectId)
   }
 
   // ── Tracking ───────────────────────────────────────────────────────────────
 
-  /** Track units consumed by a key */
-  track(key: string, units: number): void {
-    const stat = this._stats.get(key) || { key, usedToday: 0, errors: 0, lastUsed: 0, lastErrorAt: 0, lastResetAt: 0 }
-    stat.usedToday += units
-    this._stats.set(key, stat)
-    this._persistStats()
+  track(projectId: string, units: number = 1): void {
+    getProjectManager().track(projectId, units)
   }
 
-  /** Record an error for a key (increments consecutive error count) */
-  recordError(key: string): void {
-    const stat = this._stats.get(key) || { key, usedToday: 0, errors: 0, lastUsed: 0, lastErrorAt: 0, lastResetAt: 0 }
-    stat.errors++
-    stat.lastErrorAt = Date.now()
-    this._stats.set(key, stat)
-    this._persistStats()
-    console.warn(`[KeyManager] Error on key ${key.slice(0, 12)}... — errors: ${stat.errors}`)
+  recordError(projectId: string): void {
+    getProjectManager().recordError(projectId)
   }
 
-  /** Track an API error (e.g., 403 quota exceeded) — increments usedToday to push exhausted keys out of rotation */
-  trackError(key: string): void {
-    const stat = this._stats.get(key) || { key, usedToday: 0, errors: 0, lastUsed: 0, lastErrorAt: 0, lastResetAt: 0 }
-    const QUOTA_HIT_UNITS = 100
-    stat.usedToday += QUOTA_HIT_UNITS
-    stat.errors++
-    stat.lastErrorAt = Date.now()
-    this._stats.set(key, stat)
-    this._persistStats()
-    console.warn(`[KeyManager] trackError(${key.slice(0, 12)}...): +${QUOTA_HIT_UNITS} units → usedToday: ${stat.usedToday}`)
+  trackError(projectId: string): void {
+    getProjectManager().recordQuotaError(projectId)
   }
 
   // ── CRUD ──────────────────────────────────────────────────────────────────
 
-  /** Add a new key */
   addKey(key: string, projectId: string, name: string): void {
-    if (this._keys.find(k => k.key === key)) {
-      console.warn('[KeyManager] Key already exists:', key.slice(0, 12))
-      return
-    }
-    this._keys.push({ key, projectId, name })
-    this._persist()
-    devLog(`[KeyManager] Added key: ${name} (${key.slice(0, 12)}...)`)
+    const pm = getProjectManager()
+    pm.updateProject(projectId, { apiKey: key })
+    devLog(`[KeyManager] Added key: ${name} (${key.slice(0, 12)}...) for ${projectId}`)
   }
 
-  /** Remove a key by key string */
-  removeKey(key: string): void {
-    const idx = this._keys.findIndex(k => k.key === key)
-    if (idx === -1) return
-    const removed = this._keys.splice(idx, 1)[0]
-    this._stats.delete(key)
-    this._persist()
-    this._persistStats()
-    devLog(`[KeyManager] Removed key: ${removed.name}`)
+  removeKey(projectId: string): void {
+    const pm = getProjectManager()
+    pm.updateProject(projectId, { apiKey: '' })
+    devLog(`[KeyManager] Removed key for ${projectId}`)
   }
 
-  /** Reset quota for a specific key */
-  resetKey(key: string): { success: boolean; nextReset: number } {
-    const stat = this._stats.get(key)
-    if (stat) {
-      stat.usedToday = 0
-      stat.errors = 0
-      stat.lastUsed = 0
-      stat.lastResetAt = Date.now()
-      this._stats.set(key, stat)
-      this._persistStats()
-      devLog(`[KeyManager] Reset quota for key ${key.slice(0, 12)}...`)
-    }
-    return { success: true, nextReset: this._getNextResetTime() }
+  resetKey(projectId: string): { success: boolean; nextReset: number } {
+    const pm = getProjectManager()
+    pm.resetProject(projectId)
+    return { success: true, nextReset: pm.getNextResetTime() }
   }
 
-  /** Reset all key quotas */
   resetAll(): { success: boolean; nextReset: number } {
-    this._stats.clear()
-    this._lastReset = Date.now()
-    this._persistStats()
-    devLog('[KeyManager] Reset all key quotas')
-    return { success: true, nextReset: this._getNextResetTime() }
+    const pm = getProjectManager()
+    pm.resetAll()
+    return { success: true, nextReset: pm.getNextResetTime() }
   }
 
-  /** Mark a key as unauthorized (failed validation) */
-  markUnauthorized(key: string): void {
-    this._unauthorizedKeys.add(key)
-    this._persist()
-    console.warn(`[KeyManager] Key ${key.slice(0, 12)}... marked as unauthorized`)
+  markUnauthorized(projectId: string): void {
+    getProjectManager().markUnauthorized(projectId)
   }
 
-  /** Mark a key as authorized (passed validation) — clears unauthorized flag */
-  markAuthorized(key: string): void {
-    if (this._unauthorizedKeys.has(key)) {
-      this._unauthorizedKeys.delete(key)
-      this._persist()
-      devLog(`[KeyManager] Key ${key.slice(0, 12)}... authorized`)
-    }
+  markAuthorized(projectId: string): void {
+    getProjectManager().resetProject(projectId)
   }
 
-  /** Get unauthorized keys count */
-  getUnauthorizedCount(): number {
-    return this._unauthorizedKeys.size
-  }
-
-  /** Compute timestamp of next midnight UTC reset */
   _getNextResetTime(): number {
-    const now = new Date()
-    const msUntilMidnightUTC = (24 - now.getUTCHours()) * 3600 * 1000
-      - now.getUTCMinutes() * 60000
-      - now.getUTCSeconds() * 1000
-      - now.getUTCMilliseconds()
-    return Date.now() + msUntilMidnightUTC
+    return getProjectManager().getNextResetTime()
   }
 
   // ── Query ─────────────────────────────────────────────────────────────────
 
-  /** Get all keys with current stats */
   getAllKeys(): KeyStatus[] {
-    this._checkReset()
-    return this._keys.map(k => {
-      const stat = this._stats.get(k.key)
-      const usedToday = stat?.usedToday ?? 0
-      const errors = stat?.errors ?? 0
+    const pm = getProjectManager()
+    return pm.getAllProjects().map(p => {
+      const usedToday = p.stats.usedToday
+      const errors = p.stats.errors
       const quotaPercent = Math.round((usedToday / MAX_UNITS_PER_KEY) * 100)
 
       let status: KeyStatus['status'] = 'healthy'
-      if (this._unauthorizedKeys.has(k.key)) status = 'unauthorized'
-      else if (usedToday >= MAX_UNITS_PER_KEY || errors >= MAX_ERRORS) status = 'exhausted'
+      if (!p.apiKey) status = 'no_key'
+      else if (p.status === 'unauthorized' || p.stats.unauthorized) status = 'unauthorized'
+      else if (usedToday >= MAX_UNITS_PER_KEY || p.status === 'exhausted') status = 'exhausted'
       else if (quotaPercent >= 80) status = 'warning'
       else if (errors > 0) status = 'error'
 
       return {
-        key: k.key,
-        projectId: k.projectId,
-        name: k.name,
+        key: p.apiKey || '',
+        projectId: p.projectId,
+        projectName: p.projectName,
+        gmailAccount: p.gmailAccount,
+        name: p.projectName,
         usedToday,
         quotaTotal: MAX_UNITS_PER_KEY,
         quotaPercent: Math.min(100, quotaPercent),
         errors,
-        lastUsed: stat?.lastUsed ?? null,
+        lastUsed: p.stats.lastUsed || null,
         status,
-        lastReset: stat?.lastResetAt ?? null,
-        nextReset: this._getNextResetTime(),
+        lastReset: null,
+        nextReset: pm.getNextResetTime(),
       }
     })
   }
 
   getKeyCount(): number {
-    return this._keys.length
+    return getProjectManager().getAllProjects().filter(p => p.apiKey).length
   }
 
-  getKeyForProject(projectId: string): APIKey | null {
-    const candidates = this._keys.filter(k => k.projectId === projectId)
-    if (candidates.length === 0) return null
-    // Return the least-used key within this project
-    candidates.sort((a, b) => {
-      const sa = this._stats.get(a.key)?.usedToday ?? 0
-      const sb = this._stats.get(b.key)?.usedToday ?? 0
-      return sa - sb
-    })
-    return candidates[0]
+  getUnauthorizedCount(): number {
+    return getProjectManager().getAllProjects().filter(p => p.status === 'unauthorized').length
   }
 
-  /** Get usedToday for a specific key (for quota guard checks) */
-  getUsedToday(key: string): number {
-    return this._stats.get(key)?.usedToday ?? 0
+  getUsedToday(projectId: string): number {
+    return getProjectManager().getUsedToday(projectId)
   }
 
-  /**
-   * Test a key by making a lightweight API call.
-   * Returns result indicating: unauthorized (401), quota_exhausted (403), invalid_key, or ok.
-   */
+  /** Test an API key by making a lightweight API call */
   async testKey(key: string): Promise<{ valid: boolean; error?: string; errorType?: 'unauthorized' | 'quota_exhausted' | 'invalid_key' | 'network_error' }> {
-    const https = await import('https')
     const url = new URL('https://www.googleapis.com/youtube/v3/channels')
     url.searchParams.set('part', 'id')
-    // Use guideCategories — publicly accessible, no specific channel needed.
-    // Falls back to categories endpoint which returns results for any valid key.
     url.searchParams.set('regionCode', 'US')
     url.searchParams.set('key', key)
 

@@ -74,6 +74,16 @@ export interface AppSettings {
   pollIntervalMs: number       // detection poll interval in ms (default: 5000)
   downloadsCleanupDays: number  // 0 = disabled, otherwise N days
   maxConcurrentRenders: number  // max FFmpeg renders in parallel (default: 2)
+  // MMO Operation Center
+  proxyEnabled: boolean
+  proxyHost: string
+  proxyPort: number
+  proxyUsername: string
+  proxyPassword: string
+  maxConcurrentDownloads: number
+  videoMinDurationSec: number
+  videoMaxDurationSec: number
+  onboardingComplete?: boolean
 }
 
 export interface AppStore {
@@ -198,6 +208,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
     pollIntervalMs: 5000,
     downloadsCleanupDays: 7,
     maxConcurrentRenders: 2,
+    // MMO Operation Center defaults
+    proxyEnabled: false,
+    proxyHost: '',
+    proxyPort: 8080,
+    proxyUsername: '',
+    proxyPassword: '',
+    maxConcurrentDownloads: 3,
+    videoMinDurationSec: 0,
+    videoMaxDurationSec: 0,
   },
   renderQueueExpanded: false,
   toast: '',

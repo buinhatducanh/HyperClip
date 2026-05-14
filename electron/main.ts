@@ -27,14 +27,18 @@ import { createYouTubePoller, stopYouTubePoller, getYouTubePoller } from './serv
 import { refreshChannelCache } from './services/subscription_feed.js'
 import { initCookieManager, getCookieManager, authEvents, channelEvents } from './services/cookie_manager.js'
 import { getKeyManager } from './services/key_manager.js'
+import { getProjectManager } from './services/project_manager.js'
 import { getTokenManager } from './services/token_manager.js'
 import { killPersistentChrome } from './services/cdp.js'
 import { getSessionManager } from './services/chrome_cookies.js'
 import { getInnertubePoolSync } from './services/innertube_client.js'
 import type { SessionStatus } from './services/chrome_cookies.js'
 import { log, getLogDir, getSystemSnapshot } from './services/logger.js'
+import { addOpLog, getOpLogs, clearOpLogs, opLog } from './services/operation_log.js'
 
 import { devLog } from './services/dev_log.js'
+import { checkHealthAlerts, sendHealthAlerts, recordVideoDetected, recordDownloadFail, recordDownloadSuccess } from './services/health_alerts.js'
+import { startE2EServer, stopE2EServer } from './services/e2e_server.js'
 
 // Fix UTF-8 console output on Windows — set code page to 65001 (UTF-8)
 if (process.platform === 'win32') {
@@ -74,14 +78,20 @@ const bgDownloadQueue: Array<{
 }> = []
 let activeBgDownloads = 0
 
-/** Get safe concurrent download count based on free RAM.
+/** Get safe concurrent download count.
+ *  User's setting (maxConcurrentDownloads) takes priority if set (non-zero).
+ *  Falls back to RAM-adaptive logic otherwise.
  *  Each download needs ~2-4 GB (buffers + yt-dlp heap + OS network buffers).
  *  FFmpeg workers also need RAM, so leave headroom.
  */
 function getMaxConcurrentDownloads(): number {
+  const settings = loadSettings()
+  if (settings.maxConcurrentDownloads && settings.maxConcurrentDownloads > 0) {
+    return settings.maxConcurrentDownloads
+  }
   const freeGB = os.freemem() / (1024 ** 3)
   const totalGB = os.totalmem() / (1024 ** 3)
-  if (totalGB >= 48) return 3   // 5080 64GB: 3 concurrent
+  if (totalGB >= 48) return 3   // RTX 5080 64GB: 3 concurrent
   if (freeGB >= 8) return 2     // 4050 24GB: 2 concurrent (8GB+ free after OS)
   if (freeGB >= 4) return 1     // Low RAM: 1 at a time
   return 0                       // Too low: pause queue
@@ -218,9 +228,9 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
   const workspace = getWorkspace(workspaceId)
   if (!workspace) { resolve({ success: false, error: 'Workspace not found' }); startNextQueuedRender(); return }
 
-  // Use workspace.downloadedPath which is already the absolute path saved after download.
-  // findDownloadedFileAbs was unreliable for auto-downloaded workspaces (workspaceId ≠ YouTube videoId).
-  const videoPath = workspace.downloadedPath || findDownloadedFileAbs(workspaceId) || metadata.source_video
+  // Use pre-scaled path if available (auto-render pre-scaled the source to output resolution).
+  // Falls back to downloadedPath, then findDownloadedFileAbs, then metadata source.
+  const videoPath = workspace.preScaledPath || workspace.downloadedPath || findDownloadedFileAbs(workspaceId) || metadata.source_video
   if (!fs.existsSync(videoPath)) {
     console.error(`[RENDER] Source video not found: ${videoPath}`)
     resolve({ success: false, error: `Source video not found: ${path.basename(videoPath)}` })
@@ -324,6 +334,10 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
               sourceInfo: sourceInfoRecord,
             }
             addRenderedVideo(record)
+            // Cleanup pre-scaled source file after successful render
+            if (workspace.preScaledPath) {
+              try { fs.unlinkSync(workspace.preScaledPath) } catch {}
+            }
             cleanupWorkspace(workspace.id, workspace.downloadedPath)
             deleteWorkspace(workspace.id)
             broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, null)
@@ -414,6 +428,7 @@ async function autoDownloadFromWebSub(
     const settings = loadSettings()
     const autoTrimLimit: number | 'full' = settings.defaultTrimLimit ?? 10
     const autoQuality = qualityOverride ?? settings.autoDownloadQuality ?? '720'
+    const autoRenderEnabled = settings.autoRender === true
 
     // Find the 'waiting' workspace created by enqueueBgDownload
     let ws: ReturnType<typeof addWorkspace> | WorkspaceData | null | undefined
@@ -464,12 +479,28 @@ async function autoDownloadFromWebSub(
     devLog(`[Auto] DOWNLOAD START: "${title}" quality=${autoQuality}p trimLimit=${autoTrimLimit === 'full' ? 'full' : autoTrimLimit + 'm'}`)
 
     // Get PO Token from Innertube pool — needed for android client to access 1080p+ formats
+    // Strategy:
+    // 1. Try pool cache first (fast — warmup populated it at startup)
+    // 2. If null, ensure persistent Chrome is running and navigate to the video page
+    //    to extract a fresh PO Token (adds ~8s but gives 1080p vs 360p)
     let po_token: string | null = null
     try {
       const pool = getInnertubePoolSync()
       if (pool?.isReady()) {
         const session = await pool.getDownloadSession(videoId)
         po_token = session?.po_token ?? null
+      }
+      // Cache miss — force extract a fresh PO Token from Chrome
+      if (!po_token) {
+        devLog('[Auto] PO Token cache miss — launching Chrome to extract...')
+        const { ensurePersistentChrome } = await import('./services/cdp.js')
+        const { navigateAndExtractPoToken, getCDPPort } = await import('./services/po_token.js')
+        const chrome = await ensurePersistentChrome()
+        if (chrome) {
+          const port = getCDPPort(chrome.profileId)
+          po_token = await navigateAndExtractPoToken(port, videoId)
+          devLog(`[Auto] PO Token extracted: ${po_token ? '✓ ' + po_token.slice(0,8) + '...' : 'null'}`)
+        }
       }
     } catch (e) {
       console.warn('[Auto] Could not get PO Token:', e)
@@ -503,6 +534,7 @@ async function autoDownloadFromWebSub(
       // Download failed — mark workspace as 'error' with retry backoff
       const errorMsg = result.error || ''
       const isNotAvailable = errorMsg.includes('not available') || errorMsg.includes('Video unavailable')
+      recordDownloadFail()
       if (isNotAvailable) {
         devLog(`[Auto] Video permanently unavailable: ${title} (${videoId})`)
         updateWorkspace(ws.id, { status: 'error' })
@@ -601,6 +633,24 @@ async function autoDownloadFromWebSub(
     // blurBackgroundPath: vertical videos only (landscape uses thumbnail bg)
     const blurBgPath = (blurResult as any).success && !isLandscape ? blurPath : ''
 
+    // ── Pre-scale for auto-render ─────────────────────────────────────────────────
+    // Pre-scale the source to export resolution so the render pipeline skips the GPU scale filter.
+    // Net saving: ~5-10s per render. Pre-scale is sequential (depends on finalFilePath).
+    let preScaledPath = ''
+    if (autoRenderEnabled) {
+      const autoRes = settings.autoRenderResolution ?? '480x480'
+      const targetWidth = parseInt(autoRes.split('x')[0]) || 480
+      const preScaledOutput = finalFilePath.replace(/(\.\w+)$/, '_preScaled$1')
+      devLog(`[Auto] Pre-scaling to ${targetWidth}px: ${path.basename(finalFilePath)}`)
+      const scaleResult = await preScaleVideo(finalFilePath, preScaledOutput, targetWidth)
+      if (scaleResult.success) {
+        preScaledPath = preScaledOutput
+        devLog(`[Auto] Pre-scale OK: ${path.basename(preScaledPath)}`)
+      } else {
+        console.warn(`[Auto] Pre-scale failed (using original): ${scaleResult.error}`)
+      }
+    }
+
     updateWorkspace(ws.id, {
       status: 'ready',
       downloadedAt: new Date().toISOString(),
@@ -612,16 +662,45 @@ async function autoDownloadFromWebSub(
       isShort: aspect?.isShort ?? false,
       videoResolution: aspect ? `${aspect.width}x${aspect.height}` : undefined,
       blurBackgroundPath: blurBgPath,
-      preScaledPath: '',
+      preScaledPath,
       downloadQuality: autoQuality,
     })
     broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
     sendNotification('success', `Auto-ready: ${realTitle}`, ws.id)
     broadcast(IPC_CHANNELS.AUTO_DOWNLOAD_EVENT, { videoId, title: realTitle, channelName: finalChannelName, detectedAt: detectedAtNow })
     showWindowsToast('✅ Download xong!', `${realTitle}`)
+    recordDownloadSuccess()
+    recordVideoDetected()
 
-    // Auto-render is DISABLED. User manually triggers render in the editor.
-    devLog(`[Auto] Video downloaded — workspace ready for manual render`)
+    // ── Auto-render trigger ───────────────────────────────────────────────────────
+    // Only triggers if: settings.autoRender=true AND no prior attempt on this workspace.
+    // autoRenderAttempted flag prevents infinite loops when render fails → retries.
+    if (autoRenderEnabled && !ws.autoRenderAttempted) {
+      updateWorkspace(ws.id, { autoRenderAttempted: true })
+      const autoRes = settings.autoRenderResolution ?? '480x480'
+      const autoMetadata: RenderMetadata = {
+        workspace_id: ws.id,
+        source_video: preScaledPath || finalFilePath,
+        export_resolution: autoRes,
+        video_speed: 1.0,
+        fps_target: settings.autoRenderFPS ?? 30,
+        overlays: [],
+        trim: { start: 0, end: finalDuration },
+        codec: 'h264',
+        preset: 'p1',
+        tune: 'ull',
+        backgroundType: blurBgPath ? 'blur' : 'solid',
+        backgroundColor: '#000000',
+        blur_background: blurBgPath,
+        isShort: false,
+      }
+      devLog(`[Auto] Triggering render: ${realTitle} @ ${autoRes}`)
+      // Push to render queue and start — same pattern as RENDER_START IPC handler
+      renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve: () => {} })
+      startNextQueuedRender()
+    } else {
+      devLog(`[Auto] Downloaded — ready (autoRender=${autoRenderEnabled}, attempted=${!!ws.autoRenderAttempted})`)
+    }
 
     // Only mark as seen AFTER successful download — so YouTube processing delay doesn't block retry
     markVideoSeen(channelId, videoId)
@@ -1010,6 +1089,11 @@ async function createWindow() {
     },
     show: false,
     frame: true,
+  })
+
+  // Wire operation log to renderer for live streaming
+  import('./services/operation_log.js').then(({ setOpLogWindow }) => {
+    setOpLogWindow(mainWindow)
   })
 
   mainWindow.loadURL(`http://localhost:${NEXT_PORT}`)
@@ -1597,7 +1681,7 @@ async function registerIPCHandlers() {
     return loadSettings()
   })
 
-  ipcMain.handle(IPC_CHANNELS.SETTINGS_UPDATE, (_, patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number }) => {
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_UPDATE, (_, patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; proxyEnabled?: boolean; proxyHost?: string; proxyPort?: number; proxyUsername?: string; proxyPassword?: string; maxConcurrentDownloads?: number; videoMinDurationSec?: number; videoMaxDurationSec?: number }) => {
     const settings = loadSettings()
     saveSettings({ ...settings, ...patch })
 
@@ -1878,44 +1962,75 @@ async function registerIPCHandlers() {
   })
 
   ipcMain.handle(IPC_CHANNELS.CHANNEL_ADD, async (_, url: string): Promise<StoredChannel | null> => {
+    // ── Validate URL ────────────────────────────────────────────────────────────────
+    const urlTrimmed = url.trim()
+    if (!urlTrimmed) return null
+
+    const CHANNEL_COLORS = ['#00B4FF', '#7C3AED', '#00FF88', '#FF6B35', '#FF0080', '#FFB800']
+
+    // ── Extract channel ID / handle from URL ─────────────────────────────────────
+    let channelId: string | undefined
+    let handle: string | undefined
     try {
-      let name: string, handle: string, channelId: string | undefined, avatarUrl: string | undefined
-
-      try {
-        const info = await getChannelInfo(url)
-        if (info) {
-          name = info.channelName
-          handle = info.handle || `@${info.channelId}`
-          channelId = info.channelId
-          avatarUrl = info.avatarUrl
-        } else {
-          throw new Error('no info')
-        }
-      } catch {
-        const raw = url.replace(/^https?:\/\/(www\.)?youtube\.com\/(channel\/)?/, '').split(/[/?]/)[0] || 'Kênh Mới'
-        name = raw.charAt(0).toUpperCase() + raw.slice(1)
-        handle = `@${raw.toLowerCase()}`
+      const normalized = urlTrimmed.startsWith('http') ? urlTrimmed : 'https://www.youtube.com/' + urlTrimmed
+      const u = new URL(normalized)
+      const path = u.pathname
+      const m = path.match(/^\/(channel\/|@|c\/|user\/)?([\w.-]+)/)
+      if (m) {
+        if (path.startsWith('/channel/')) channelId = m[2]
+        else if (path.startsWith('/@')) handle = '@' + m[2]
+        else if (path.startsWith('/c/') || path.startsWith('/user/')) handle = m[2]
+        else handle = '@' + m[2] // bare path → treat as @handle
       }
+    } catch {}
 
-      const CHANNEL_COLORS = ['#00B4FF', '#7C3AED', '#00FF88', '#FF6B35', '#FF0080', '#FFB800']
-      const channels = getChannels()
-      const newCh: StoredChannel = {
-        id: `ch${Date.now()}`,
-        name,
-        handle,
-        avatarColor: CHANNEL_COLORS[channels.length % CHANNEL_COLORS.length],
-        channelId,
-        avatarUrl,
-        createdAt: new Date().toISOString(),
-      }
-      const saved = addChannel(newCh)
-      // Keep poller's channel cache in sync
-      refreshChannelCache()
-      return saved
-    } catch (e) {
-      console.error('[CHANNEL_ADD] failed:', e)
+    // ── Duplicate check ───────────────────────────────────────────────────────────
+    const existing = getChannels()
+    const isDupe = existing.some((ch) => {
+      if (channelId && ch.channelId === channelId) return true
+      if (handle && ch.handle?.toLowerCase() === handle.toLowerCase()) return true
+      return false
+    })
+    if (isDupe) {
+      console.warn(`[CHANNEL_ADD] Duplicate channel: ${channelId || handle || urlTrimmed}`)
       return null
     }
+
+    // ── Fetch channel metadata ───────────────────────────────────────────────────
+    let name: string, avatarUrl: string | undefined
+    try {
+      const info = await getChannelInfo(urlTrimmed)
+      if (info && info.channelName) {
+        name = info.channelName
+        channelId = info.channelId || channelId
+        handle = info.handle || handle
+        avatarUrl = info.avatarUrl
+      } else {
+        throw new Error('no channel info')
+      }
+    } catch {
+      // Fallback: derive name from URL path
+      const raw = urlTrimmed
+        .replace(/^https?:\/\/(www\.)?youtube\.com\/(channel\/|@|c\/|user\/)?/, '')
+        .split(/[/?]/)[0]
+        .replace(/^@/, '') || 'Kênh Mới'
+      name = raw.charAt(0).toUpperCase() + raw.slice(1)
+      if (!handle) handle = '@' + raw.toLowerCase().replace(/\s+/g, '')
+    }
+
+    // ── Save ──────────────────────────────────────────────────────────────────────
+    const newCh: StoredChannel = {
+      id: `ch${Date.now()}`,
+      name,
+      handle: handle || `@${channelId || name}`,
+      avatarColor: CHANNEL_COLORS[existing.length % CHANNEL_COLORS.length],
+      channelId,
+      avatarUrl,
+      createdAt: new Date().toISOString(),
+    }
+    const saved = addChannel(newCh)
+    refreshChannelCache()
+    return saved
   })
 
   ipcMain.handle(IPC_CHANNELS.CHANNEL_UPDATE, async (_, id: string, patch: Partial<StoredChannel>): Promise<StoredChannel | null> => {
@@ -2053,8 +2168,8 @@ async function registerIPCHandlers() {
     if (!workspace) return { success: false, workspaceId, error: 'Workspace not found' }
     if (!workspace.downloadedPath) return { success: false, workspaceId, error: 'Video not downloaded' }
 
-    // Use workspace.downloadedPath which is already the absolute path saved after download.
-    const videoPath = workspace.downloadedPath || findDownloadedFileAbs(workspaceId) || metadata.source_video
+    // Use pre-scaled path if available (auto-render pre-scaled the source to output resolution).
+    const videoPath = workspace.preScaledPath || workspace.downloadedPath || findDownloadedFileAbs(workspaceId) || metadata.source_video
     if (!fs.existsSync(videoPath)) {
       return { success: false, workspaceId, error: `Source video not found: ${path.basename(videoPath)}` }
     }
@@ -2144,6 +2259,10 @@ async function registerIPCHandlers() {
               renderedAt: new Date().toISOString(),
             }
             addRenderedVideo(record)
+            // Cleanup pre-scaled source file after successful render
+            if (workspace.preScaledPath) {
+              try { fs.unlinkSync(workspace.preScaledPath) } catch {}
+            }
             cleanupWorkspace(workspace.id, workspace.downloadedPath)
             deleteWorkspace(workspace.id)
             broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, null)
@@ -2279,9 +2398,78 @@ async function registerIPCHandlers() {
     const poller = getYouTubePoller()
     if (poller) {
       poller.resume()
+      opLog.info('system', 'Poller resumed')
       return { success: true }
     }
     return { success: false }
+  })
+
+  // Pause / stop polling
+  ipcMain.handle(IPC_CHANNELS.POLLER_PAUSE, () => {
+    const poller = getYouTubePoller()
+    if (poller) {
+      poller.pause()
+      opLog.warn('system', 'Poller paused by user')
+      return { success: true }
+    }
+    return { success: false }
+  })
+
+  // ─── Operation Logs ──────────────────────────────────────────────────────────────
+  ipcMain.handle(IPC_CHANNELS.OPERATION_LOGS_READ, () => {
+    return getOpLogs()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.OPERATION_LOGS_CLEAR, () => {
+    clearOpLogs()
+    return { success: true }
+  })
+
+  // ─── Channel Bulk Add ────────────────────────────────────────────────────────────
+  ipcMain.handle(IPC_CHANNELS.CHANNEL_BULK_ADD, async (_, urls: string[]) => {
+    const results: Array<{ url: string; success: boolean; error?: string }> = []
+    const CHANNEL_COLORS = ['#00B4FF', '#7C3AED', '#00FF88', '#FF6B35', '#FF0080', '#FFB800']
+
+    for (const url of urls) {
+      const trimmed = url.trim()
+      if (!trimmed) continue
+      try {
+        let name: string, handle: string, channelId: string | undefined, avatarUrl: string | undefined
+        try {
+          const info = await getChannelInfo(trimmed)
+          if (info) {
+            name = info.channelName
+            handle = info.handle || `@${info.channelId}`
+            channelId = info.channelId
+            avatarUrl = info.avatarUrl
+          } else {
+            throw new Error('no info')
+          }
+        } catch {
+          const raw = trimmed.replace(/^https?:\/\/(www\.)?youtube\.com\/(channel\/)?/, '').split(/[/?]/)[0] || 'Kênh Mới'
+          name = raw.charAt(0).toUpperCase() + raw.slice(1)
+          handle = `@${raw.toLowerCase()}`
+        }
+
+        const channels = getChannels()
+        const newCh: StoredChannel = {
+          id: `ch${Date.now()}`,
+          name,
+          handle,
+          avatarColor: CHANNEL_COLORS[channels.length % CHANNEL_COLORS.length],
+          channelId,
+          avatarUrl,
+          createdAt: new Date().toISOString(),
+        }
+        addChannel(newCh)
+        results.push({ url: trimmed, success: true })
+        opLog.success('channel', `Channel added: ${name}`)
+      } catch (e: any) {
+        results.push({ url: trimmed, success: false, error: e.message })
+        opLog.error('channel', `Error adding channel: ${trimmed} — ${e.message}`)
+      }
+    }
+    return results
   })
 
   // ─── Auth ────────────────────────────────────────────────────────────────────
@@ -2526,7 +2714,8 @@ async function registerIPCHandlers() {
 
     // Build project list from tokens (each token = 1 project)
     const projects: Array<{
-      projectId: string; clientId: string; hasToken: boolean; tokenExpiry: number | null
+      projectId: string; projectName: string; gmailAccount: string
+      clientId: string; hasToken: boolean; tokenExpiry: number | null
       usedToday: number; quotaTotal: number; errors: number; status: ProjectTokenStatus
       apiKey: string | null; apiKeyName: string | null; apiKeyUsed: number; apiKeyStatus: string
     }> = tokenStatuses.map(ts => {
@@ -2534,6 +2723,8 @@ async function registerIPCHandlers() {
       const primaryKey = projectKeys[0] || null
       return {
         projectId: ts.projectId,
+        projectName: ts.projectName || ts.projectId,
+        gmailAccount: ts.gmailAccount || '',
         clientId: ts.clientId,
         hasToken: ts.hasToken,
         tokenExpiry: ts.tokenExpiry,
@@ -2556,6 +2747,8 @@ async function registerIPCHandlers() {
         if (!existing) {
           projects.push({
             projectId: k.projectId,
+            projectName: k.projectName || k.projectId,
+            gmailAccount: k.gmailAccount || '',
             clientId: '',
             hasToken: false,
             tokenExpiry: null,
@@ -2752,7 +2945,7 @@ async function registerIPCHandlers() {
     const existingToken = tm.getToken(projectId)
     if (existingToken?.refresh_token) {
       devLog(`[Project] Trying token refresh first for ${projectId}...`)
-      const refreshed = await tm.refreshToken(existingToken)
+      const refreshed = await tm.refreshToken(projectId)
       if (refreshed) {
         tm.addToken(projectId, clientId, clientSecret, refreshed)
         tm.markAuthorized(projectId)
@@ -2846,7 +3039,7 @@ async function registerIPCHandlers() {
     // Try token refresh first
     const existingToken = tm.getToken(projectId)
     if (existingToken?.refresh_token) {
-      const refreshed = await tm.refreshToken(existingToken)
+      const refreshed = await tm.refreshToken(projectId)
       if (refreshed) {
         tm.addToken(projectId, clientId, clientSecret, refreshed)
         tm.markAuthorized(projectId)
@@ -2965,7 +3158,7 @@ async function registerIPCHandlers() {
 
         const existingToken = tm.getToken(projectId)
         if (existingToken?.refresh_token) {
-          const refreshed = await tm.refreshToken(existingToken)
+          const refreshed = await tm.refreshToken(projectId)
           if (refreshed) {
             tm.addToken(projectId, clientId, clientSecret, refreshed)
             tm.markAuthorized(projectId)
@@ -2986,6 +3179,22 @@ async function registerIPCHandlers() {
       results[projectId] = repairResult
     }
     return results
+  })
+
+  // ─── Project Auto-Assign ───────────────────────────────────────────────────
+
+  ipcMain.handle(IPC_CHANNELS.PROJECT_AUTO_ASSIGN, async () => {
+    try {
+      const pm = getProjectManager()
+      const channels = getChannels()
+      const channelIds = channels.map(ch => ch.channelId || ch.id)
+      pm.autoAssignChannels(channelIds)
+      const status = pm.getStatus()
+      return { success: true, assigned: channelIds.length }
+    } catch (e: any) {
+      console.error('[IPC] PROJECT_AUTO_ASSIGN error:', e)
+      return { success: false, assigned: 0, error: e.message }
+    }
   })
 
   // ─── Chrome Session Management ───────────────────────────────────────────────
@@ -3017,13 +3226,25 @@ async function registerIPCHandlers() {
   ipcMain.handle('logs:read', async () => {
     const logDir = getLogDir()
     const files: { name: string; size: number; mtime: number; content?: string }[] = []
+    const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5 MB per file
+    const MAX_LINES = 5000 // last 5000 lines
     try {
       for (const fname of fs.readdirSync(logDir)) {
         if (!fname.startsWith('hyperclip')) continue
         const fp = path.join(logDir, fname)
         const stat = fs.statSync(fp)
-        const lines = fs.readFileSync(fp, 'utf-8').split('\n')
-        files.push({ name: fname, size: stat.size, mtime: stat.mtimeMs, content: lines.join('\n') })
+        // Skip files larger than 5 MB — just show metadata
+        if (stat.size > MAX_FILE_SIZE) {
+          files.push({ name: fname, size: stat.size, mtime: stat.mtimeMs, content: undefined })
+          continue
+        }
+        // Read last MAX_LINES lines to avoid OOM on large files
+        const raw = fs.readFileSync(fp, 'utf-8')
+        const allLines = raw.split('\n')
+        const tail = allLines.length > MAX_LINES
+          ? allLines.slice(-MAX_LINES)
+          : allLines
+        files.push({ name: fname, size: stat.size, mtime: stat.mtimeMs, content: tail.join('\n') })
       }
     } catch {}
     return { files, logDir }
@@ -3288,6 +3509,27 @@ app.whenReady().then(async () => {
   createTray()
   await registerIPCHandlers()
 
+  // ─── Health Alert Checker (every 60s) ───────────────────────────────────────
+  // Runs periodic health checks and sends notifications to the renderer.
+  setInterval(async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    try {
+      const alerts = await checkHealthAlerts()
+      sendHealthAlerts(alerts, mainWindow)
+    } catch (e) {
+      devLog(`[HealthCheck] Error: ${(e as Error).message}`)
+    }
+  }, 60_000)
+
+  // Initial health check after 30 seconds (let things settle)
+  setTimeout(async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    try {
+      const alerts = await checkHealthAlerts()
+      sendHealthAlerts(alerts, mainWindow)
+    } catch {}
+  }, 30_000)
+
   // Resolve missing channelIds for demo channels at startup
   resolveChannelIdsForPoll()
 
@@ -3351,8 +3593,12 @@ app.whenReady().then(async () => {
         // Non-blocking: enqueue all detected videos for background download.
         // Each enqueueBgDownload() immediately creates a 'waiting' workspace → UI shows video right away.
         // Downloads run in parallel (max 2-3 concurrent) without blocking the poller.
+        if (videos.length > 0) {
+          opLog.success('scan', `Found ${videos.length} new video(s)`, videos.map(v => v.title).join(', '))
+        }
         for (const v of videos) {
           devLog(`[AutoIngest] new video detected: ${v.title} (${v.channelName}), enqueueing...`)
+          opLog.info('download', `Auto-download triggered: ${v.title}`, v.channelName)
 
           // Check for existing 'error' workspace with expired backoff — retry it directly
           const existingWorkspaces = getWorkspaces()
@@ -3458,3 +3704,13 @@ crashReporter.start({
 
 // Log startup banner
 log.info(`HyperClip starting — v${app.getVersion()} | Electron ${process.versions.electron} | Node ${process.version}`)
+
+// ─── E2E Test Server ───────────────────────────────────────────────────────────
+// Starts an HTTP server on port 9312 when HYPERCLIP_TEST=1.
+// The test client (scripts/test-e2e.mjs) connects to this server to run E2E tests.
+if (process.env.HYPERCLIP_TEST === '1') {
+  app.whenReady().then(() => {
+    startE2EServer()
+    app.on('quit', stopE2EServer)
+  })
+}

@@ -552,9 +552,13 @@ class InnertubeClientPool {
       console.warn('[InnertubePool] Hint: Close Chrome, then restart HyperClip. Or open Chrome profiles and log into YouTube.')
     }
 
-    // PO Token extraction from CDP is disabled (streamingData is null in page HTML).
-    // Reliable 720p+ path: export Chrome cookies + yt-dlp --cookies (at download level).
-    // No warmup needed here.
+    // Warm up PO Token cache for all sessions in the background.
+    // navigateAndExtractPoToken navigates to YouTube and extracts the PO Token from the player.
+    // This takes ~8s per session if no YouTube tab exists; parallel warmup minimizes total time.
+    const profileIds = this._sessions.map(e => e.profileId)
+    warmupPoTokenCache(profileIds).catch(e => {
+      console.warn('[InnertubePool] PO Token warmup failed:', e)
+    })
   }
 
   /**

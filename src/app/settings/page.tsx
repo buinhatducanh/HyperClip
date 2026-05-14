@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useAppStore } from '../lib/store'
 import { ipc } from '../lib/ipc'
@@ -11,6 +11,8 @@ export const dynamic = 'force-dynamic'
 
 interface Project {
   projectId: string
+  projectName: string
+  gmailAccount: string
   clientId: string
   hasToken: boolean
   tokenExpiry: number | null
@@ -1311,6 +1313,8 @@ function ProjectsSection() {
   const [showAdd, setShowAdd] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [filter, setFilter] = useState<'all' | 'healthy' | 'warning' | 'rate_limited' | 'exhausted' | 'no_oauth' | 'unauthorized'>('all')
+  const [groupByGmail, setGroupByGmail] = useState(true)
+  const [collapsedGmail, setCollapsedGmail] = useState<Set<string>>(new Set())
   const { showToast } = useAppStore()
 
   const load = () => {
@@ -1343,6 +1347,69 @@ function ProjectsSection() {
     }
   }
 
+  const handleBulkImportCSV = () => {
+    const input = window.prompt('Paste CSV content (projectId,apiKey,clientId,clientSecret,gmail,projectName):\nFirst row must be headers.\nExample:\nproj-001,AIza...,xxx,yyy,user1@gmail.com,Project A')
+    if (!input?.trim()) return
+    try {
+      const lines = input.trim().split('\n')
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
+      const projIdx = headers.indexOf('projectid')
+      const apiIdx = headers.indexOf('apikey')
+      const clientIdIdx = headers.indexOf('clientid')
+      const clientSecIdx = headers.indexOf('clientsecret')
+      const gmailIdx = headers.indexOf('gmail')
+      const nameIdx = headers.indexOf('projectname')
+
+      let imported = 0, errors = 0
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(',')
+        const pid = cols[projIdx]?.trim()
+        if (!pid) continue
+        const data = {
+          projectId: pid,
+          clientId: cols[clientIdIdx]?.trim() || '',
+          clientSecret: cols[clientSecIdx]?.trim() || '',
+          apiKey: cols[apiIdx]?.trim() || '',
+          apiKeyName: cols[nameIdx]?.trim() || pid,
+          gmail: cols[gmailIdx]?.trim() || '',
+        }
+        ipc.addProject(data).then(r => {
+          if (r.success) imported++; else { errors++; console.error('Add project error:', r.error) }
+        })
+      }
+      setTimeout(() => {
+        showToast(`Bulk import: ${imported} added, ${errors} errors`)
+        load()
+      }, 1000)
+    } catch (e: any) {
+      showToast(`CSV parse error: ${e.message}`)
+    }
+  }
+
+  const handleAutoAssignChannels = async () => {
+    try {
+      const result = await ipc.autoAssignChannels() as { success: boolean; assigned: number; error?: string }
+      if (result.success) {
+        showToast(`Auto-assigned channels to ${result.assigned} projects`)
+        load()
+      } else {
+        showToast(`Auto-assign failed: ${result.error}`)
+      }
+    } catch (e: any) {
+      showToast(`Auto-assign error: ${e.message}`)
+    }
+  }
+
+  const handleResetAll = async () => {
+    const confirmed = window.confirm(`Reset quota for ALL ${projects.length} projects?`)
+    if (!confirmed) return
+    for (const p of projects) {
+      await ipc.resetProjectQuota(p.projectId)
+    }
+    showToast(`Reset quota for ${projects.length} projects`)
+    load()
+  }
+
   const totalUsed = projects.reduce((s, p) => s + p.usedToday, 0)
   const totalQuota = projects.length * 9500
   const totalPct = totalQuota > 0 ? Math.round((totalUsed / totalQuota) * 100) : 0
@@ -1372,6 +1439,16 @@ function ProjectsSection() {
     : filter === 'no_oauth' ? projects.filter(p => p.status === 'no_oauth')
     : projects.filter(p => p.status === 'unauthorized')
 
+  // Group projects by Gmail account
+  const groupedByGmail: Record<string, Project[]> = {}
+  for (const p of filteredProjects) {
+    const gmail = p.gmailAccount || 'no-gmail'
+    if (!groupedByGmail[gmail]) groupedByGmail[gmail] = []
+    groupedByGmail[gmail].push(p)
+  }
+
+  const gmailGroups = Object.entries(groupedByGmail).sort(([a], [b]) => a.localeCompare(b))
+
   const handleResetProject = async (projectId: string) => {
     try {
       const result = await ipc.resetProjectQuota(projectId) as { success: boolean; nextReset: number; wasUnauthorized: boolean }
@@ -1391,7 +1468,7 @@ function ProjectsSection() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-      {/* Full-width header — consistent with ApiKeysSection */}
+      {/* Full-width header */}
       <div style={{
         padding: '14px 20px',
         background: '#0B0B0B',
@@ -1399,38 +1476,39 @@ function ProjectsSection() {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 800, color: '#fff', letterSpacing: '0.1em' }}>OAUTH PROJECTS</div>
+          <div style={{ fontSize: 11, fontWeight: 800, color: '#fff', letterSpacing: '0.1em' }}>
+            {projects.length >= 100 ? '200 PROJECTS' : 'OAUTH PROJECTS'}
+          </div>
+          {projects.length > 0 && (
+            <div style={{ fontSize: 8, color: '#00B4FF', background: '#00B4FF11', border: '1px solid #00B4FF22', borderRadius: 3, padding: '1px 6px' }}>
+              {totalPct}% quota used
+            </div>
+          )}
           <div style={{ width: 1, height: 12, background: '#222' }} />
-          <span style={{ fontSize: 8, color: '#333' }}>last refresh {refreshTime}</span>
-          {loading && <span style={{ fontSize: 8, color: '#00FF8844' }}>● polling...</span>}
+          <span style={{ fontSize: 8, color: '#333' }}>refresh {refreshTime}</span>
+          {loading && <span style={{ fontSize: 8, color: '#00FF8844' }}>● loading...</span>}
         </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <button
-            onClick={handleSyncChannels}
-            disabled={syncing}
-            style={{
-              height: 26, paddingLeft: 10, paddingRight: 10,
-              background: 'transparent', border: '1px solid #00FF8844', borderRadius: 4,
-              fontSize: 8, fontWeight: 700, color: '#00FF88', cursor: syncing ? 'not-allowed' : 'pointer',
-              opacity: syncing ? 0.5 : 1, letterSpacing: '0.06em',
-              transition: 'all 0.15s',
-            }}
-            onMouseEnter={e => { if (!syncing) { e.currentTarget.style.background = '#00FF8822' } }}
-            onMouseLeave={e => { if (!syncing) { e.currentTarget.style.background = 'transparent' } }}
-          >
-            {syncing ? '...' : '↻ SYNC CHANNELS'}
+        <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+          <button onClick={handleBulkImportCSV} style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: 'transparent', border: '1px solid #00B4FF33', borderRadius: 4, fontSize: 8, fontWeight: 700, color: '#00B4FF', cursor: 'pointer', letterSpacing: '0.05em', transition: 'all 0.15s' }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#00B4FF15' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+            CSV IMPORT
           </button>
-          <button
-            onClick={() => setShowAdd(v => !v)}
-            style={{
-              height: 26, paddingLeft: 10, paddingRight: 10,
-              background: showAdd ? '#00B4FF22' : 'transparent',
-              border: `1px solid ${showAdd ? '#00B4FF66' : '#00B4FF33'}`, borderRadius: 4,
-              fontSize: 8, fontWeight: 700, color: '#00B4FF', cursor: 'pointer',
-              transition: 'all 0.15s',
-            }}
-          >
-            + THÊM PROJECT
+          <button onClick={handleAutoAssignChannels} style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: 'transparent', border: '1px solid #00FF8844', borderRadius: 4, fontSize: 8, fontWeight: 700, color: '#00FF88', cursor: 'pointer', letterSpacing: '0.05em', transition: 'all 0.15s' }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#00FF8815' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+            AUTO-ASSIGN
+          </button>
+          <button onClick={handleResetAll} disabled={projects.length === 0} style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: 'transparent', border: '1px solid #FF664422', borderRadius: 4, fontSize: 8, fontWeight: 700, color: '#FF6644', cursor: projects.length === 0 ? 'not-allowed' : 'pointer', opacity: projects.length === 0 ? 0.4 : 1, letterSpacing: '0.05em', transition: 'all 0.15s' }}>
+            RESET ALL
+          </button>
+          <button onClick={handleSyncChannels} disabled={syncing} style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: 'transparent', border: '1px solid #00FF8844', borderRadius: 4, fontSize: 8, fontWeight: 700, color: '#00FF88', cursor: syncing ? 'not-allowed' : 'pointer', opacity: syncing ? 0.5 : 1, letterSpacing: '0.05em', transition: 'all 0.15s' }}
+            onMouseEnter={e => { if (!syncing) { e.currentTarget.style.background = '#00FF8822' } }}
+            onMouseLeave={e => { if (!syncing) { e.currentTarget.style.background = 'transparent' } }}>
+            {syncing ? '...' : 'SYNC'}
+          </button>
+          <button onClick={() => setShowAdd(v => !v)} style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: showAdd ? '#00B4FF22' : 'transparent', border: `1px solid ${showAdd ? '#00B4FF66' : '#00B4FF33'}`, borderRadius: 4, fontSize: 8, fontWeight: 700, color: '#00B4FF', cursor: 'pointer', transition: 'all 0.15s' }}>
+            + ADD
           </button>
           {(exhaustedProjects > 0 || rateLimitedProjects > 0 || noOauthProjects > 0 || unauthorizedProjects > 0) && (
             <button
@@ -1443,34 +1521,29 @@ function ProjectsSection() {
                 )
                 if (broken.length === 0) return
                 const ids = broken.map(p => p.projectId)
-                const confirmed = window.confirm(
-                  `Repair ${ids.length} project(s)?\n\n` +
-                  ids.map(id => '• ' + id).join('\n') +
-                  `\n\nNếu project thiếu token, trình duyệt sẽ mở ra để authorize.\nClick OK để bắt đầu.`
-                )
+                const confirmed = window.confirm(`Repair ${ids.length} project(s)?`)
                 if (!confirmed) return
                 setLoading(true)
                 const results = await ipc.batchRepairProjects(ids) as Record<string, any>
                 let ok = 0, fail = 0, noCreds = 0
                 for (const [pid, r] of Object.entries(results)) {
-                  if (r.success) ok++
-                  else if (r.needsCredentials) noCreds++
-                  else fail++
+                  if (r.success) ok++; else if (r.needsCredentials) noCreds++; else fail++
                 }
                 showToast(`Repair: ${ok} OK · ${fail} lỗi · ${noCreds} cần credentials mới`)
-                setLoading(false)
-                load()
+                setLoading(false); load()
               }}
-              style={{
-                height: 26, paddingLeft: 10, paddingRight: 10,
-                background: '#FF664422', border: '1px solid #FF664444', borderRadius: 4,
-                fontSize: 8, fontWeight: 700, color: '#FF6644', cursor: 'pointer',
-                letterSpacing: '0.06em', transition: 'all 0.15s',
-              }}
+              style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: '#FF664422', border: '1px solid #FF664444', borderRadius: 4, fontSize: 8, fontWeight: 700, color: '#FF6644', cursor: 'pointer', letterSpacing: '0.05em', transition: 'all 0.15s' }}
               onMouseEnter={e => { e.currentTarget.style.background = '#FF664430' }}
-              onMouseLeave={e => { e.currentTarget.style.background = '#FF664422' }}
-            >
-              🔧 REPAIR ALL ({projects.filter(p => p.status === 'exhausted' || p.status === 'rate_limited' || p.status === 'unauthorized' || p.status === 'no_oauth' || p.status === 'warning' || p.apiKeyStatus === 'exhausted' || p.apiKeyStatus === 'unauthorized').length})
+              onMouseLeave={e => { e.currentTarget.style.background = '#FF664422' }}>
+              REPAIR ({projects.filter(p => p.status === 'exhausted' || p.status === 'rate_limited' || p.status === 'unauthorized' || p.status === 'no_oauth' || p.status === 'warning' || p.apiKeyStatus === 'exhausted' || p.apiKeyStatus === 'unauthorized').length})
+            </button>
+          )}
+          {projects.length > 0 && (
+            <button
+              onClick={() => setGroupByGmail(v => !v)}
+              title={groupByGmail ? 'Ungroup by Gmail' : 'Group by Gmail'}
+              style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: groupByGmail ? '#00B4FF22' : 'transparent', border: `1px solid ${groupByGmail ? '#00B4FF44' : '#333'}`, borderRadius: 4, fontSize: 8, fontWeight: 700, color: groupByGmail ? '#00B4FF' : '#555', cursor: 'pointer', letterSpacing: '0.05em', transition: 'all 0.15s' }}>
+              GROUP: {groupByGmail ? 'GMAIL' : 'ALL'}
             </button>
           )}
         </div>
@@ -1674,7 +1747,47 @@ function ProjectsSection() {
               </button>
             )}
           </div>
+        ) : groupByGmail && gmailGroups.length > 1 ? (
+          // Gmail group view
+          gmailGroups.map(([gmail, gprojects]) => {
+            const collapsed = collapsedGmail.has(gmail)
+            const gHealthy = gprojects.filter(p => p.status === 'healthy').length
+            const gTotal = gprojects.length
+            return (
+              <div key={gmail} style={{ marginBottom: 16 }}>
+                <div
+                  onClick={() => setCollapsedGmail(prev => {
+                    const next = new Set(prev)
+                    if (next.has(gmail)) next.delete(gmail); else next.add(gmail)
+                    return next
+                  })}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+                    padding: '6px 10px', background: '#111', border: '1px solid #1a1a1a',
+                    borderRadius: 4, marginBottom: collapsed ? 0 : 8,
+                  }}>
+                  <span style={{ fontSize: 10, color: collapsed ? '#444' : '#00B4FF', transition: 'all 0.15s' }}>{collapsed ? '▶' : '▼'}</span>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: collapsed ? '#444' : '#ccc', letterSpacing: '0.06em', fontFamily: 'monospace' }}>{gmail}</span>
+                  <span style={{ fontSize: 8, color: '#333' }}>({gHealthy}/{gTotal} healthy)</span>
+                  <div style={{ flex: 1 }} />
+                  <span style={{ fontSize: 8, color: '#333' }}>{gprojects.length} projects</span>
+                </div>
+                {!collapsed && (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+                    gap: 8,
+                  }}>
+                    {gprojects.map(p => (
+                      <ProjectCard key={p.projectId} project={p} onRefresh={load} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })
         ) : (
+          // Flat list view
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
@@ -3170,6 +3283,636 @@ function DiagRow({ label, ok, okColor, errorColor, details, fix }: {
   )
 }
 
+// ─── Operation Panel (MMO Control Center) ─────────────────────────────────────
+
+interface OpLogEntry {
+  id: string
+  timestamp: number
+  level: string
+  category: string
+  message: string
+  detail?: string
+}
+
+function OperationPanel() {
+  const { settings, setSettings, showToast } = useAppStore()
+  const [channels, setChannels] = useState<any[]>([])
+  const [channelSearch, setChannelSearch] = useState('')
+  const [bulkImportText, setBulkImportText] = useState('')
+  const [bulkImporting, setBulkImporting] = useState(false)
+  const [bulkResults, setBulkResults] = useState<Array<{ url: string; success: boolean; error?: string }>>([])
+  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null)
+
+  // Proxy state
+  const [proxyEnabled, setProxyEnabled] = useState(settings.proxyEnabled ?? false)
+  const [proxyHost, setProxyHost] = useState(settings.proxyHost ?? '')
+  const [proxyPort, setProxyPort] = useState(settings.proxyPort ?? 8080)
+  const [proxyUser, setProxyUser] = useState(settings.proxyUsername ?? '')
+  const [proxyPass, setProxyPass] = useState(settings.proxyPassword ?? '')
+  const [proxyTesting, setProxyTesting] = useState(false)
+  const [proxyStatus, setProxyStatus] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
+
+  // Scan params
+  const [pollInterval, setPollInterval] = useState(Math.round((settings.pollIntervalMs ?? 5000) / 1000))
+  const [maxConcurrentDl, setMaxConcurrentDl] = useState(settings.maxConcurrentDownloads ?? 3)
+  const [videoAge, setVideoAge] = useState(Math.round((settings.pollIntervalMs ?? 5000) / 1000))
+
+  // Video filters
+  const [durationMode, setDurationMode] = useState<'all' | 'short' | 'long'>('all')
+  const [maxDurationMin, setMaxDurationMin] = useState(settings.videoMaxDurationSec ? Math.round(settings.videoMaxDurationSec / 60) : 0)
+
+  // Operation logs
+  const [opLogs, setOpLogs] = useState<OpLogEntry[]>([])
+  const [logsAutoScroll, setLogsAutoScroll] = useState(true)
+  const logsEndRef = useRef<HTMLDivElement>(null)
+
+  // Poller status
+  const [pollerStatus, setPollerStatus] = useState<any>(null)
+  const [pollerLoading, setPollerLoading] = useState(false)
+
+  // ─── Load channels ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    ipc.getChannels().then((ch: any) => setChannels(Array.isArray(ch) ? ch : []))
+    ipc.getPollerStatus().then((s: any) => s && setPollerStatus(s))
+    ipc.getOpLogs().then((logs: any) => setOpLogs(Array.isArray(logs) ? logs : []))
+  }, [])
+
+  // ─── Live operation logs via IPC event ───────────────────────────────────────
+  useEffect(() => {
+    const cleanup = ipc.onOpLogs((entries: any) => setOpLogs(Array.isArray(entries) ? entries : []))
+    return cleanup
+  }, [])
+
+  // ─── Auto-scroll logs ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (logsAutoScroll && logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [opLogs, logsAutoScroll])
+
+  // ─── Poller status polling ────────────────────────────────────────────────────
+  useEffect(() => {
+    const t = setInterval(() => {
+      ipc.getPollerStatus().then(setPollerStatus)
+    }, 5000)
+    return () => clearInterval(t)
+  }, [])
+
+  // ─── Handlers ─────────────────────────────────────────────────────────────────
+  const handleBulkImport = async () => {
+    const urls = bulkImportText.split('\n').map(u => u.trim()).filter(Boolean)
+    if (!urls.length) return
+    setBulkImporting(true)
+    setBulkResults([])
+    try {
+      const raw = await ipc.bulkAddChannels(urls)
+      const results = Array.isArray(raw) ? raw : []
+      setBulkResults(results)
+      // Refresh channel list
+      const ch = await ipc.getChannels()
+      setChannels(Array.isArray(ch) ? ch : [])
+      const ok = results.filter((r: any) => r.success).length
+      showToast(`Đã thêm ${ok}/${urls.length} kênh`)
+      setBulkImportText('')
+    } catch (err: any) {
+      showToast('Lỗi: ' + (err?.message || 'không rõ'))
+    } finally {
+      setBulkImporting(false)
+    }
+  }
+
+  const handleDeleteChannel = async (id: string) => {
+    await ipc.removeChannel(id)
+    setChannels(prev => prev.filter((c: any) => c.id !== id))
+    if (selectedChannelId === id) setSelectedChannelId(null)
+    showToast('Đã xóa kênh')
+  }
+
+  const handleRefreshChannels = async () => {
+    showToast('Đang sync kênh...')
+    try {
+      await ipc.syncChannels()
+    } catch {}
+    try {
+      const ch = await ipc.getChannels()
+      setChannels(Array.isArray(ch) ? ch : [])
+    } catch {}
+    showToast('Đã sync kênh')
+  }
+
+  const handleSaveProxySettings = async () => {
+    const patch = { proxyEnabled, proxyHost, proxyPort, proxyUsername: proxyUser, proxyPassword: proxyPass }
+    setSettings(patch)
+    await ipc.updateSettings(patch)
+    showToast('Đã lưu cấu hình proxy')
+  }
+
+  const handleProxyTest = async () => {
+    if (!proxyHost) { showToast('Nhập địa chỉ proxy trước'); return }
+    setProxyTesting(true)
+    setProxyStatus('testing')
+    try {
+      const testUrl = `http://${proxyHost}:${proxyPort}`
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 5000)
+      await fetch(testUrl, { signal: controller.signal }).catch(() => null)
+      clearTimeout(timeout)
+      setProxyStatus('ok')
+      showToast('Proxy kết nối được — ' + testUrl)
+    } catch {
+      setProxyStatus('fail')
+      showToast('Proxy không kết nối được')
+    }
+    setProxyTesting(false)
+  }
+
+  const handleSaveScanParams = async () => {
+    const patch = {
+      pollIntervalMs: pollInterval * 1000,
+      maxConcurrentDownloads: maxConcurrentDl,
+    }
+    setSettings(patch)
+    await ipc.updateSettings(patch)
+    showToast('Đã lưu thông số quét')
+  }
+
+  const handleSaveVideoFilters = async () => {
+    const patch = {
+      videoMinDurationSec: durationMode === 'short' ? 0 : 0,
+      videoMaxDurationSec: durationMode === 'short' ? 180 : durationMode === 'long' ? 0 : maxDurationMin * 60,
+    }
+    setSettings(patch)
+    await ipc.updateSettings(patch)
+    showToast('Đã lưu bộ lọc video')
+  }
+
+  const handleStartPoller = async () => {
+    setPollerLoading(true)
+    await ipc.resumePoller()
+    await new Promise(r => setTimeout(r, 500))
+    await ipc.getPollerStatus().then(setPollerStatus)
+    setPollerLoading(false)
+    showToast('Poller đã bắt đầu')
+  }
+
+  const handleStopPoller = async () => {
+    setPollerLoading(true)
+    await ipc.pausePoller()
+    await new Promise(r => setTimeout(r, 500))
+    await ipc.getPollerStatus().then(setPollerStatus)
+    setPollerLoading(false)
+    showToast('Poller đã dừng')
+  }
+
+  const handleClearLogs = async () => {
+    await ipc.clearOpLogs()
+    setOpLogs([])
+  }
+
+  // ─── Filtered channels ─────────────────────────────────────────────────────────
+  const filteredChannels = channels.filter(ch =>
+    ch.name?.toLowerCase().includes(channelSearch.toLowerCase()) ||
+    ch.id?.toLowerCase().includes(channelSearch.toLowerCase())
+  )
+
+  // ─── Styles ────────────────────────────────────────────────────────────────────
+  const sectionLabel = { fontSize: 9, fontWeight: 800, color: '#444', letterSpacing: '0.1em', marginBottom: 8 }
+  const inputStyle = {
+    width: '100%', height: 30, background: '#0a0a0a', border: '1px solid #222',
+    borderRadius: 3, color: '#ddd', fontSize: 10, paddingLeft: 8, outline: 'none',
+    boxSizing: 'border-box' as const,
+  }
+  const cardStyle = {
+    background: '#0D0D0D', border: '1px solid #1a1a1a',
+    borderRadius: 6, padding: '12px 14px', marginBottom: 12,
+  }
+
+  const pollerBadge = (() => {
+    if (!pollerStatus?.active) return { label: 'PAUSED', color: '#FFB800', bg: '#FFB80011', border: '#FFB80044' }
+    if (pollerStatus.exhaustedUntil && pollerStatus.exhaustedUntil > Date.now()) return { label: 'BACKOFF', color: '#FF4444', bg: '#FF444411', border: '#FF444444' }
+    return { label: 'ACTIVE', color: '#00FF88', bg: '#00FF8811', border: '#00FF8844' }
+  })()
+
+  return (
+    <div style={{ padding: 16, overflow: 'auto', height: '100%' }}>
+      {/* Header + Controls */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', letterSpacing: '0.08em' }}>OPERATION CENTER</div>
+          <div style={{ fontSize: 9, color: '#444', marginTop: 2 }}>MMO Edition — RTX 5080 Optimized</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{
+            padding: '4px 10px', borderRadius: 4,
+            background: pollerBadge.bg, border: `1px solid ${pollerBadge.border}`,
+            fontSize: 9, fontWeight: 800, color: pollerBadge.color, letterSpacing: '0.08em',
+          }}>
+            ● {pollerBadge.label}
+          </div>
+          <button
+            onClick={handleStartPoller}
+            disabled={pollerLoading || pollerStatus?.active}
+            style={{
+              height: 28, paddingLeft: 14, paddingRight: 14,
+              background: '#00FF8811', border: '1px solid #00FF8844', borderRadius: 4,
+              fontSize: 9, fontWeight: 800, color: '#00FF88', cursor: 'pointer',
+              opacity: (pollerLoading || pollerStatus?.active) ? 0.4 : 1,
+            }}
+          >▶ BẮT ĐẦU</button>
+          <button
+            onClick={handleStopPoller}
+            disabled={pollerLoading || !pollerStatus?.active}
+            style={{
+              height: 28, paddingLeft: 14, paddingRight: 14,
+              background: '#FF444411', border: '1px solid #FF444444', borderRadius: 4,
+              fontSize: 9, fontWeight: 800, color: '#FF4444', cursor: 'pointer',
+              opacity: (pollerLoading || !pollerStatus?.active) ? 0.4 : 1,
+            }}
+          >■ DỪNG</button>
+        </div>
+      </div>
+
+      {/* 2-column layout */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, alignItems: 'start' }}>
+
+        {/* ── LEFT COLUMN ────────────────────────────────────────────────────────── */}
+        <div>
+
+          {/* 1. Channel Manager */}
+          <div style={cardStyle}>
+            <div style={sectionLabel}>📡 QUẢN LÝ KÊNH</div>
+
+            {/* Search */}
+            <input
+              value={channelSearch}
+              onChange={e => setChannelSearch(e.target.value)}
+              placeholder="Tìm kiếm kênh..."
+              style={{ ...inputStyle, marginBottom: 8 }}
+            />
+
+            {/* Channel list */}
+            <div style={{ maxHeight: 160, overflowY: 'auto', marginBottom: 8 }}>
+              {filteredChannels.length === 0 ? (
+                <div style={{ fontSize: 9, color: '#333', textAlign: 'center', padding: '16px 0' }}>
+                  Chưa có kênh nào. Thêm kênh bên dưới.
+                </div>
+              ) : filteredChannels.map(ch => (
+                <div
+                  key={ch.id}
+                  onClick={() => setSelectedChannelId(selectedChannelId === ch.id ? null : ch.id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px',
+                    background: selectedChannelId === ch.id ? '#00B4FF11' : 'transparent',
+                    borderRadius: 3, cursor: 'pointer',
+                    border: selectedChannelId === ch.id ? '1px solid #00B4FF22' : '1px solid transparent',
+                  }}
+                >
+                  <div style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: ch.avatarColor || '#00B4FF', flexShrink: 0,
+                  }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 10, color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {ch.name || ch.id}
+                    </div>
+                    <div style={{ fontSize: 8, color: '#333', fontFamily: 'monospace' }}>
+                      {ch.id?.slice(0, 12)}...
+                    </div>
+                  </div>
+                  {selectedChannelId === ch.id && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeleteChannel(ch.id) }}
+                      style={{
+                        fontSize: 8, background: 'transparent', border: '1px solid #FF444444',
+                        borderRadius: 3, color: '#FF4444', cursor: 'pointer', padding: '2px 6px',
+                      }}
+                    >✕</button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Action buttons */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+              <button onClick={handleRefreshChannels} style={{
+                flex: 1, height: 26, background: '#FF6B3511', border: '1px solid #FF6B3544',
+                borderRadius: 3, fontSize: 9, fontWeight: 700, color: '#FF6B35', cursor: 'pointer',
+              }}>⟳ REFRESH</button>
+              {selectedChannelId && (
+                <button onClick={() => handleDeleteChannel(selectedChannelId)} style={{
+                  height: 26, paddingLeft: 10, paddingRight: 10,
+                  background: '#FF444411', border: '1px solid #FF444444',
+                  borderRadius: 3, fontSize: 9, fontWeight: 700, color: '#FF4444', cursor: 'pointer',
+                }}>✕ XÓA</button>
+              )}
+            </div>
+
+            {/* Bulk import */}
+            <div style={{ marginBottom: 4 }}>
+              <div style={{ fontSize: 8, color: '#444', marginBottom: 4 }}>NHẬP HÀNG LOẠT (mỗi dòng 1 link)</div>
+              <textarea
+                value={bulkImportText}
+                onChange={e => setBulkImportText(e.target.value)}
+                placeholder="https://www.youtube.com/@channel1&#10;https://www.youtube.com/@channel2&#10;..."
+                style={{
+                  width: '100%', height: 60, background: '#0a0a0a', border: '1px solid #222',
+                  borderRadius: 3, color: '#ddd', fontSize: 9, padding: '6px 8px',
+                  resize: 'vertical', outline: 'none', fontFamily: 'monospace', boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            <button
+              onClick={handleBulkImport}
+              disabled={bulkImporting || !bulkImportText.trim()}
+              style={{
+                width: '100%', height: 28,
+                background: bulkImporting ? '#1a3a1a' : '#00FF8811',
+                border: '1px solid #00FF8844', borderRadius: 3,
+                fontSize: 9, fontWeight: 800, color: '#00FF88', cursor: 'pointer',
+                opacity: (bulkImporting || !bulkImportText.trim()) ? 0.5 : 1,
+              }}
+            >
+              {bulkImporting ? 'ĐANG THÊM...' : 'THÊM KÊNH'}
+            </button>
+
+            {/* Bulk results */}
+            {bulkResults.length > 0 && (
+              <div style={{ marginTop: 8, fontSize: 8 }}>
+                {bulkResults.map((r, i) => (
+                  <div key={i} style={{ color: r.success ? '#00FF88' : '#FF4444', padding: '1px 0' }}>
+                    {r.success ? '✓' : '✗'} {r.url} {r.error ? `— ${r.error}` : ''}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 2. Proxy Configuration */}
+          <div style={cardStyle}>
+            <div style={sectionLabel}>🌐 CẤU HÌNH PROXY</div>
+
+            {/* Toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <button
+                onClick={() => {
+                  const next = !proxyEnabled
+                  setProxyEnabled(next)
+                  setSettings({ proxyEnabled: next })
+                  ipc.updateSettings({ proxyEnabled: next })
+                }}
+                style={{
+                  width: 40, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
+                  background: proxyEnabled ? '#00FF88' : '#333',
+                  transition: 'background 0.2s', position: 'relative', flexShrink: 0,
+                }}
+              >
+                <div style={{
+                  position: 'absolute', top: 2, left: proxyEnabled ? 20 : 2,
+                  width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                  transition: 'left 0.2s',
+                }} />
+              </button>
+              <span style={{ fontSize: 9, color: '#888' }}>Bật Proxy</span>
+              {proxyStatus === 'ok' && <span style={{ fontSize: 8, color: '#00FF88', marginLeft: 'auto' }}>● Đã kết nối</span>}
+              {proxyStatus === 'fail' && <span style={{ fontSize: 8, color: '#FF4444', marginLeft: 'auto' }}>● Kết nối thất bại</span>}
+              {proxyStatus === 'testing' && <span style={{ fontSize: 8, color: '#FFB800', marginLeft: 'auto' }}>● Đang kiểm tra...</span>}
+            </div>
+
+            <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+              <div style={{ flex: 2 }}>
+                <div style={{ fontSize: 8, color: '#444', marginBottom: 3 }}>HOST</div>
+                <input value={proxyHost} onChange={e => setProxyHost(e.target.value)} placeholder="proxy.example.com" style={inputStyle} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 8, color: '#444', marginBottom: 3 }}>PORT</div>
+                <input type="number" value={proxyPort} onChange={e => setProxyPort(Number(e.target.value))} placeholder="8080" style={inputStyle} />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 8, color: '#444', marginBottom: 3 }}>USERNAME</div>
+                <input value={proxyUser} onChange={e => setProxyUser(e.target.value)} placeholder="user" style={inputStyle} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 8, color: '#444', marginBottom: 3 }}>PASSWORD</div>
+                <input type="password" value={proxyPass} onChange={e => setProxyPass(e.target.value)} placeholder="••••" style={inputStyle} />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button onClick={handleProxyTest} disabled={proxyTesting} style={{
+                flex: 1, height: 26, background: '#FFB80011', border: '1px solid #FFB80044',
+                borderRadius: 3, fontSize: 9, fontWeight: 700, color: '#FFB800', cursor: 'pointer',
+                opacity: proxyTesting ? 0.5 : 1,
+              }}>{proxyTesting ? 'TESTING...' : 'TEST CONNECTION'}</button>
+              <button onClick={handleSaveProxySettings} style={{
+                flex: 1, height: 26, background: '#00FF8811', border: '1px solid #00FF8844',
+                borderRadius: 3, fontSize: 9, fontWeight: 700, color: '#00FF88', cursor: 'pointer',
+              }}>LƯU PROXY</button>
+            </div>
+          </div>
+
+          {/* 3. Scan Parameters */}
+          <div style={cardStyle}>
+            <div style={sectionLabel}>⚙️ THÔNG SỐ QUÉT</div>
+
+            {/* Poll interval */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 8, color: '#444', marginBottom: 4 }}>KHOẢNG CÁCH QUÉT (GIÂY)</div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[5, 10, 30, 60].map(sec => (
+                  <button key={sec} onClick={() => setPollInterval(sec)} style={{
+                    flex: 1, height: 24,
+                    background: pollInterval === sec ? '#00B4FF18' : 'transparent',
+                    border: `1px solid ${pollInterval === sec ? '#00B4FF' : '#222'}`,
+                    borderRadius: 3, fontSize: 10, fontWeight: 700,
+                    color: pollInterval === sec ? '#00B4FF' : '#444',
+                    cursor: 'pointer',
+                  }}>{sec}s</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Max concurrent downloads */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 8, color: '#444', marginBottom: 4 }}>SỐ LUỒNG TẢI ĐỒNG THỜI</div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[1, 2, 3, 4].map(n => (
+                  <button key={n} onClick={() => setMaxConcurrentDl(n)} style={{
+                    flex: 1, height: 24,
+                    background: maxConcurrentDl === n ? '#00FF8818' : 'transparent',
+                    border: `1px solid ${maxConcurrentDl === n ? '#00FF88' : '#222'}`,
+                    borderRadius: 3, fontSize: 10, fontWeight: 700,
+                    color: maxConcurrentDl === n ? '#00FF88' : '#444',
+                    cursor: 'pointer',
+                  }}>{n}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Video age filter */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 8, color: '#444', marginBottom: 4 }}>LẤY VIDEO ĐĂNG TRONG (PHÚT)</div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[5, 10, 15, 30, 60].map(min => (
+                  <button key={min} onClick={() => setVideoAge(min)} style={{
+                    flex: 1, height: 24,
+                    background: videoAge === min ? '#FF6B3518' : 'transparent',
+                    border: `1px solid ${videoAge === min ? '#FF6B35' : '#222'}`,
+                    borderRadius: 3, fontSize: 10, fontWeight: 700,
+                    color: videoAge === min ? '#FF6B35' : '#444',
+                    cursor: 'pointer',
+                  }}>{min}</button>
+                ))}
+              </div>
+            </div>
+
+            <button onClick={handleSaveScanParams} style={{
+              width: '100%', height: 28,
+              background: '#00FF8811', border: '1px solid #00FF8844',
+              borderRadius: 3, fontSize: 9, fontWeight: 800, color: '#00FF88', cursor: 'pointer',
+            }}>LƯU THÔNG SỐ</button>
+          </div>
+
+        </div>
+
+        {/* ── RIGHT COLUMN ───────────────────────────────────────────────────────── */}
+        <div>
+
+          {/* 4. Video Filters */}
+          <div style={cardStyle}>
+            <div style={sectionLabel}>🎬 BỘ LỌC VIDEO</div>
+
+            {/* Duration filter */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 8, color: '#444', marginBottom: 4 }}>THỜI LƯỢNG</div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {([['all', 'Tất cả'], ['short', 'Short (<3p)'], ['long', 'Dài (>3p)']] as const).map(([val, label]) => (
+                  <button key={val} onClick={() => {
+                    setDurationMode(val)
+                    const patch = {
+                      videoMinDurationSec: val === 'short' ? 0 : 0,
+                      videoMaxDurationSec: val === 'short' ? 180 : val === 'long' ? 0 : maxDurationMin * 60,
+                    }
+                    setSettings(patch)
+                    ipc.updateSettings(patch)
+                  }} style={{
+                    flex: 1, height: 24,
+                    background: durationMode === val ? '#00B4FF18' : 'transparent',
+                    border: `1px solid ${durationMode === val ? '#00B4FF' : '#222'}`,
+                    borderRadius: 3, fontSize: 9, fontWeight: 700,
+                    color: durationMode === val ? '#00B4FF' : '#444',
+                    cursor: 'pointer',
+                  }}>{label}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Max duration */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 8, color: '#444', marginBottom: 4 }}>GIỚI HẠN TỐI ĐA (PHÚT) — 0 = không giới hạn</div>
+              <input
+                type="number"
+                min={0}
+                value={maxDurationMin}
+                onChange={e => setMaxDurationMin(Number(e.target.value))}
+                style={{ ...inputStyle }}
+              />
+            </div>
+
+            <button onClick={handleSaveVideoFilters} style={{
+              width: '100%', height: 28,
+              background: '#00FF8811', border: '1px solid #00FF8844',
+              borderRadius: 3, fontSize: 9, fontWeight: 800, color: '#00FF88', cursor: 'pointer',
+            }}>ÁP DỤNG BỘ LỌC</button>
+          </div>
+
+          {/* 5. Real-time Operation Logs */}
+          <div style={cardStyle}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div style={sectionLabel}>📋 OPERATION LOGS</div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button onClick={handleClearLogs} style={{
+                  fontSize: 8, background: 'transparent', border: '1px solid #333',
+                  borderRadius: 3, color: '#555', cursor: 'pointer', padding: '2px 8px',
+                }}>CLEAR</button>
+                <button
+                  onClick={() => setLogsAutoScroll(v => !v)}
+                  style={{
+                    fontSize: 8, background: logsAutoScroll ? '#00B4FF15' : 'transparent',
+                    border: `1px solid ${logsAutoScroll ? '#00B4FF44' : '#333'}`,
+                    borderRadius: 3, color: logsAutoScroll ? '#00B4FF' : '#555',
+                    cursor: 'pointer', padding: '2px 8px',
+                  }}
+                >AUTO {logsAutoScroll ? 'ON' : 'OFF'}</button>
+              </div>
+            </div>
+
+            <div style={{
+              maxHeight: 280, overflowY: 'auto',
+              background: '#0a0a0a', border: '1px solid #141414',
+              borderRadius: 4, padding: 6,
+            }}>
+              {opLogs.length === 0 ? (
+                <div style={{ fontSize: 9, color: '#2a2a2a', textAlign: 'center', padding: '16px 0' }}>
+                  Chưa có log. Poller đang chạy sẽ hiển thị tại đây.
+                </div>
+              ) : opLogs.map(entry => {
+                const levelColor = entry.level === 'error' ? '#FF4444' : entry.level === 'warn' ? '#FFB800' : entry.level === 'success' ? '#00FF88' : '#888'
+                const time = new Date(entry.timestamp).toLocaleTimeString('en-US', { hour12: false })
+                return (
+                  <div key={entry.id} style={{ fontSize: 9, color: '#555', marginBottom: 3, lineHeight: 1.5 }}>
+                    <span style={{ color: '#2a2a2a', fontFamily: 'monospace' }}>[{time}]</span>
+                    <span style={{ color: levelColor, marginLeft: 4, fontWeight: 700 }}>[{entry.level.toUpperCase()}]</span>
+                    <span style={{ color: '#FF6B35', marginLeft: 4, fontSize: 8 }}>[{entry.category}]</span>
+                    <span style={{ color: levelColor, marginLeft: 4 }}>{entry.message}</span>
+                    {entry.detail && <span style={{ color: '#444', fontSize: 8, display: 'block', paddingLeft: 16 }}>{entry.detail}</span>}
+                  </div>
+                )
+              })}
+              <div ref={logsEndRef} />
+            </div>
+          </div>
+
+          {/* 6. License Info */}
+          <div style={cardStyle}>
+            <div style={sectionLabel}>📜 THÔNG TIN BẢN QUYỀN</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 10, color: '#888' }}>Phần mềm</span>
+                <span style={{ fontSize: 10, color: '#00FF88', fontWeight: 700, fontFamily: 'monospace' }}>HyperClip MMO</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 10, color: '#888' }}>User</span>
+                <span style={{ fontSize: 10, color: '#00B4FF', fontWeight: 700, fontFamily: 'monospace' }}>Customer RTX 5080</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 10, color: '#888' }}>Thời hạn</span>
+                <span style={{ fontSize: 10, color: '#00FF88', fontWeight: 700, fontFamily: 'monospace' }}>Còn 365 ngày</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 10, color: '#888' }}>Phiên bản</span>
+                <span style={{ fontSize: 10, color: '#888', fontFamily: 'monospace' }}>v1.0.0 MMO</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 10, color: '#888' }}>GPU</span>
+                <span style={{ fontSize: 10, color: '#00FF88', fontFamily: 'monospace' }}>NVIDIA RTX 5080</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 10, color: '#888' }}>Kênh đang theo dõi</span>
+                <span style={{ fontSize: 10, color: '#00B4FF', fontFamily: 'monospace' }}>{channels.length}</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Logs Section ─────────────────────────────────────────────────────────────
 
 function LogsSection() {
@@ -3183,14 +3926,22 @@ function LogsSection() {
   useEffect(() => {
     setLoading(true)
     ipc.readLogs().then(result => {
-      setLogs(result)
-      setLoading(false)
-      // Auto-select first log
-      if (result.files.length > 0 && !selectedLog) {
-        setSelectedLog(result.files[0].name)
-        setSelectedContent(result.files[0].content || '')
+      if (result) {
+        setLogs(result)
+        setLoading(false)
+        // Auto-select first log
+        if (result.files && result.files.length > 0 && !selectedLog) {
+          setSelectedLog(result.files[0].name)
+          setSelectedContent(result.files[0].content || '')
+        }
+      } else {
+        setLogs({ files: [], logDir: '' })
+        setLoading(false)
       }
-    }).catch(() => setLoading(false))
+    }).catch(() => {
+      setLogs({ files: [], logDir: '' })
+      setLoading(false)
+    })
   }, [refreshKey])
 
   const handleExport = async () => {
@@ -3319,7 +4070,7 @@ function LogsSection() {
 
 export default function SettingsPage() {
   const { settings, systemStats, setSettings } = useAppStore()
-  const [activeTab, setActiveTab] = useState<'status' | 'diag' | 'keys' | 'projects' | 'system' | 'logs'>('status')
+  const [activeTab, setActiveTab] = useState<'status' | 'diag' | 'keys' | 'projects' | 'system' | 'logs' | 'operation'>('status')
 
   const TABS = [
     { id: 'status' as const, label: 'STATUS', color: '#00FF88' },
@@ -3327,6 +4078,7 @@ export default function SettingsPage() {
     { id: 'projects' as const, label: 'OAUTH PROJECTS', color: '#00FF88' },
     { id: 'keys' as const, label: 'API KEYS', color: '#00B4FF' },
     { id: 'system' as const, label: 'SYSTEM', color: '#FFB800' },
+    { id: 'operation' as const, label: 'OPERATION', color: '#00FF88' },
     { id: 'logs' as const, label: 'LOGS', color: '#FF6B35' },
   ]
 
@@ -3572,6 +4324,9 @@ export default function SettingsPage() {
 
         {/* LOGS tab */}
         {activeTab === 'logs' && <LogsSection />}
+
+        {/* OPERATION tab */}
+        {activeTab === 'operation' && <OperationPanel />}
       </div>
 
       <style>{`

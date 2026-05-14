@@ -301,15 +301,18 @@ Write-Host "NEXT STEPS:" -ForegroundColor Cyan
 Write-Host "  1. RESTART your terminal / VS Code / any app that needs" -ForegroundColor White
 Write-Host "     the HYPERCLIP_DATA_DIR environment variable" -ForegroundColor White
 Write-Host ""
-Write-Host "  2. Open HyperClip" -ForegroundColor White
+Write-Host "  2. Open HyperClip — Onboarding Wizard will guide you through setup" -ForegroundColor White
 if ($exePath) {
     Write-Host "     Start: $exePath" -ForegroundColor Gray
 }
 Write-Host ""
-Write-Host "  3. Settings → Google Projects tab → Add OAuth credentials" -ForegroundColor White
-Write-Host "     (Required for YouTube channel tracking)" -ForegroundColor Gray
+Write-Host "  3. Follow the 5-step Onboarding Wizard to configure:" -ForegroundColor White
+Write-Host "     - Chrome login for detection (Step 1)" -ForegroundColor Gray
+Write-Host "     - Add YouTube channels to track (Step 2)" -ForegroundColor Gray
+Write-Host "     - Add GCP projects for OAuth backup (Step 3, optional)" -ForegroundColor Gray
+Write-Host "     - Configure detection speed (Step 4)" -ForegroundColor Gray
 Write-Host ""
-Write-Host "  4. Settings → Channels tab → Add channels to track" -ForegroundColor White
+Write-Host "  After onboarding, HyperClip will auto-detect new videos 24/7." -ForegroundColor Green
 Write-Host ""
 Write-Host "  Done! HyperClip will auto-detect new videos every 5 seconds." -ForegroundColor Green
 Write-Host ""

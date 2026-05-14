@@ -25,6 +25,7 @@ export interface ElectronAPI {
   getChannelInfo: (url: string) => Promise<unknown>
   getChannels: () => Promise<unknown[]>
   syncChannels: () => Promise<{ added: number; removed: number }>
+  autoAssignChannels: () => Promise<{ success: boolean; assigned: number; error?: string }>
   addChannel: (url: string) => Promise<unknown>
   updateChannel: (id: string, patch: object) => Promise<unknown>
   removeChannel: (id: string) => Promise<unknown>
@@ -122,6 +123,12 @@ export interface ElectronAPI {
   // Log export
   readLogs: () => Promise<{ files: { name: string; size: number; mtime: number; content?: string }[]; logDir: string }>
   exportLogs: () => Promise<{ success: boolean; path?: string; error?: string }>
+  // MMO Operation Center
+  getOpLogs: () => Promise<Array<{ id: string; timestamp: number; level: string; category: string; message: string; detail?: string }>>
+  clearOpLogs: () => Promise<{ success: boolean }>
+  pausePoller: () => Promise<{ success: boolean }>
+  bulkAddChannels: (urls: string[]) => Promise<Array<{ url: string; success: boolean; error?: string }>>
+  onOpLogs: (callback: (entries: Array<{ id: string; timestamp: number; level: string; category: string; message: string; detail?: string }>) => void) => () => void
 }
 
 declare global {

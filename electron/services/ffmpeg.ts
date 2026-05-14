@@ -1117,6 +1117,11 @@ function buildChunkArgs(
   const scale = hasGpuFilters ? 'scale_cuda' : 'scale'
   const overlay = hasGpuFilters ? 'overlay_cuda' : 'overlay'
 
+  // Pre-scaled source detection: when the source filename contains '_preScaled',
+  // it was already downscaled to the export resolution by preScaleVideo().
+  // This lets us skip or simplify the GPU scale filter, saving ~5-10s per render.
+  const isPreScaled = /_preScaled[.\w]*$/.test(sourceVideo)
+
   const speedFilter = videoSpeed && videoSpeed !== 1.0
     ? 'setpts=' + (1 / videoSpeed) + '*PTS'
     : ''
@@ -1141,6 +1146,11 @@ function buildChunkArgs(
     //   >= 0: source wide enough → scale to canvasH, center-crop width
     //   <  0: source narrower → scale by width, center-crop height
     // fps filter added after format to guarantee output fps (fixes 1fps slideshow)
+    //
+    // Pre-scaled optimization: when source is pre-scaled to export resolution, the scale
+    // filter is redundant (or even counterproductive — scaling 480→960→crop 480 is wasteful).
+    // When pre-scaled and cropXNum < 0 (source narrower than canvas): source is already at
+    // canvas width, just format+fps+crop.
     const cropXNum = Math.round((videoH * 16 / 9 - canvasW) / 2)
     let videoSection: string
     if (cropXNum >= 0) {
@@ -1151,9 +1161,18 @@ function buildChunkArgs(
         videoSection = '[0:v]' + scale + '=-2:' + videoH + ',format=yuv420p,fps=' + fpsTarget + ',crop=' + canvasW + ':' + videoH + ':' + cropXNum + ':0[vid]'
       }
     } else {
-      // Source narrower than canvas: scale by width, crop excess height
+      // Source narrower than canvas: scale by width, crop excess height.
+      // When pre-scaled: source is already at canvasW wide — skip scale, just format+fps+crop.
       const cropY = Math.round((canvasW * 9 / 16 - videoH) / 2)
-      if (speedFilter) {
+      if (isPreScaled) {
+        // Pre-scaled source is already canvasW wide — scale to cropY or pad to center.
+        // scale_cuda to canvasW keeps width (no-op for matching width), then crop.
+        if (speedFilter) {
+          videoSection = '[0:v]format=yuv420p,fps=' + fpsTarget + ',crop=' + canvasW + ':' + videoH + ':0:' + (cropY >= 0 ? cropY : 0) + '[scaled]; [scaled]' + speedFilter.replace(',', '') + '[vid]'
+        } else {
+          videoSection = '[0:v]format=yuv420p,fps=' + fpsTarget + ',crop=' + canvasW + ':' + videoH + ':0:' + (cropY >= 0 ? cropY : 0) + '[vid]'
+        }
+      } else if (speedFilter) {
         videoSection = '[0:v]' + scale + '=' + canvasW + ':-2,format=yuv420p,fps=' + fpsTarget + ',crop=' + canvasW + ':' + videoH + ':0:' + (cropY >= 0 ? cropY : 0) + '[scaled]; [scaled]' + speedFilter.replace(',', '') + '[vid]'
       } else {
         videoSection = '[0:v]' + scale + '=' + canvasW + ':-2,format=yuv420p,fps=' + fpsTarget + ',crop=' + canvasW + ':' + videoH + ':0:' + (cropY >= 0 ? cropY : 0) + '[vid]'
@@ -1222,13 +1241,27 @@ function buildChunkArgs(
   let finalLabel = '[vz]'
 
   // Section 1: video — scale → speed → fps (guarantee) → pad
-  const scaleChain = '[0:v]' + scale + '=' + videoW + ':' + videoH + ',format=yuv420p'
-  if (speedFilter) {
-    // Three stages: scale → setpts → fps (guarantee output fps) → pad
-    sections.push(scaleChain + ',' + speedFilter + '[sped]; [sped]fps=' + fpsTarget + '[sped_fps]; [sped_fps]pad=' + canvasW + ':' + canvasH + ':(ow-iw)/2:' + videoTop + '[vid]')
+  // When pre-scaled: the source is already at export resolution, so scale filter is redundant
+  // (e.g. 480x270 for 480x480 with 50% video height). Skip scale and apply format+fps+crop+pad.
+  let scaleChain: string
+  if (isPreScaled) {
+    // Pre-scaled source: scale is no-op since source dimensions match target. Apply format+fps+pad.
+    // crop and pad center the video in the canvas zone.
+    scaleChain = '[0:v]format=yuv420p,fps=' + fpsTarget + ',crop=' + videoW + ':' + videoH + ':(iw-' + videoW + ')/2:(ih-' + videoH + ')/2,pad=' + canvasW + ':' + canvasH + ':(ow-iw)/2:' + videoTop
+    if (speedFilter) {
+      sections.push(scaleChain + ',' + speedFilter + '[vid]')
+    } else {
+      sections.push(scaleChain + '[vid]')
+    }
   } else {
-    // Two stages: scale → fps (guarantee output fps) → pad
-    sections.push(scaleChain + ',fps=' + fpsTarget + ',pad=' + canvasW + ':' + canvasH + ':(ow-iw)/2:' + videoTop + '[vid]')
+    const fullScaleChain = '[0:v]' + scale + '=' + videoW + ':' + videoH + ',format=yuv420p'
+    if (speedFilter) {
+      // Three stages: scale → setpts → fps (guarantee output fps) → pad
+      sections.push(fullScaleChain + ',' + speedFilter + '[sped]; [sped]fps=' + fpsTarget + '[sped_fps]; [sped_fps]pad=' + canvasW + ':' + canvasH + ':(ow-iw)/2:' + videoTop + '[vid]')
+    } else {
+      // Two stages: scale → fps (guarantee output fps) → pad
+      sections.push(fullScaleChain + ',fps=' + fpsTarget + ',pad=' + canvasW + ':' + canvasH + ':(ow-iw)/2:' + videoTop + '[vid]')
+    }
   }
 
   // Section 2: background

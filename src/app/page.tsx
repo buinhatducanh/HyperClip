@@ -107,6 +107,7 @@ export default function DashboardPage() {
   const [diagIssues, setDiagIssues] = useState<string[]>([])
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [isLoadingChannels, setIsLoadingChannels] = useState(true)
+  const [onboardingDone, setOnboardingDone] = useState(false)
 
   // Fetch auth status on mount + listen for updates
   useEffect(() => {
@@ -120,10 +121,25 @@ export default function DashboardPage() {
     return () => { cleanupAuth(); cleanupCritical() }
   }, [showToast, addNotification, router])
 
+  // Redirect to onboarding if auth is ready but onboarding not complete
+  useEffect(() => {
+    if (authStatus.isReady && !onboardingDone) {
+      router.push('/onboarding')
+    }
+  }, [authStatus.isReady, onboardingDone, router])
+
   // Sync backend settings into Zustand store on startup — fixes UI showing stale defaults
+  // Redirect to onboarding if user hasn't completed setup yet
   useEffect(() => {
     ipc.getSettings().then((backendSettings: any) => {
-      if (backendSettings) setSettings(backendSettings)
+      if (backendSettings) {
+        setSettings(backendSettings)
+        if (!backendSettings.onboardingComplete && backendSettings.onboardingComplete !== undefined) {
+          setOnboardingDone(false)
+        } else {
+          setOnboardingDone(true)
+        }
+      }
     })
   }, [setSettings])
 
@@ -239,6 +255,12 @@ export default function DashboardPage() {
       initRenderedVideos(),
     ]).then(() => setIsLoadingData(false))
   }, [initChannels, initWorkspaces, initRenderedVideos])
+
+  // Expose reload function so Sidebar can refresh channels after adding
+  useEffect(() => {
+    ;(window as any).__reloadChannels = () => initChannels()
+    return () => { delete (window as any).__reloadChannels }
+  }, [initChannels])
 
   // Render + download progress — SINGLE global listener (no per-card listeners needed)
   useEffect(() => {
