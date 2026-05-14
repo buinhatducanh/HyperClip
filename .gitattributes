@@ -1,3 +1,5 @@
+# Git LFS — Large binary files
+# These exceed GitHub's 100MB push limit
 resources/ffmpeg/bin/ffmpeg.exe filter=lfs diff=lfs merge=lfs -text
 resources/ffmpeg/bin/avfilter-11.dll filter=lfs diff=lfs merge=lfs -text
 resources/ffmpeg/bin/avcodec-62.dll filter=lfs diff=lfs merge=lfs -text
