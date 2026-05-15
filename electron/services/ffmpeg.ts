@@ -528,19 +528,28 @@ function buildFilterComplex(opts: {
       // Build chain: video → drawtext → bg-overlay → [td]
       // Need [texted] BEFORE the bg overlay so overlay can use it as input.
       // Strategy: insert drawtext AFTER videoChain but BEFORE bgChain in the sections array.
+      // y-position: title zone starts at (videoTop + videoH) = (headerH + videoH).
+      // Center text in the title zone: titleCenterY = videoTop + videoH + titleH/2.
       const fontSize = Math.max(24, Math.floor(titleH * 0.15))
+      const titleCenterY = videoTop + videoH + Math.floor(titleH / 2)
       const escapedText = titleOl.content.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\]")
       const borderColor = titleOl.borderColor ?? '#00B4FF'
-      const drawtext = `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=white:borderw=2:bordercolor=${borderColor}:x=(w-text_w)/2:y=(h-text_h)/2`
+      const drawtext = `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=white:borderw=2:bordercolor=${borderColor}:x=(w-text_w)/2:y=${titleCenterY}-(text_h/2)`
       // Insert drawtext right after videoChain (index 1), before bgChain
       sections.splice(1, 0, `[vid]${drawtext}[texted]`)
       // Now overlay bg on [texted] to get [td]
       if (hdChain) {
-        // Header exists: header overlay was [vz][hd]overlay[fh]. Replace to use [texted].
-        // Remove the old [vz][hd]overlay[fh] section and replace with [fh][texted]overlay[td]
+        // Header exists: drawtext should be BELOW header (correct z-order: bg→video→drawtext→header).
+        // Find the [vz][hd]overlay[fh] section and replace with 2-step: drawtext on video, then header on top.
         const hdIdx = sections.findIndex(s => s.includes('[vz][hd]overlay'))
-        if (hdIdx !== -1) sections.splice(hdIdx, 1, `[fh][texted]${overlay}=0:0[td]`)
-        else sections.push(`[fh][texted]${overlay}=0:0[td]`)
+        if (hdIdx !== -1) {
+          sections.splice(hdIdx, 1,
+            `[vz][texted]${overlay}=0:${videoTop}[texted_vz];` +
+            `[texted_vz][hd]${overlay}=0:0[td]`
+          )
+        } else {
+          sections.push(`[bg][texted]${overlay}=0:${videoTop}[td]`)
+        }
       } else {
         // No header: overlay [texted] on [bg]
         sections.push(`[bg][texted]${overlay}=0:${videoTop}[td]`)
@@ -956,9 +965,12 @@ export async function renderVideo(
   devLog(`[RenderLayout] headerOl=${!!headerOl?.src} titleOl=${!!titleOl?.content} titleText="${titleOl?.content}" titleOverlayPath=${titleOverlayPath} fps_target=${fps_target}`)
   const filterComplex = buildFilterComplex({ useCuda: getHwCaps().hasCudaFilters, headerOl, titleOl, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, speedFilter, backgroundType: effectiveBackgroundType, titleOverlayPath, isShort, fpsTarget: fps_target || 30 })
 
-  // Determine output label — [td] if title (PNG or drawtext), [fh] if header/image-overlay, [vz] if neither
+  // Determine output label — [final] if title PNG, [td] if drawtext, [fh] if header-only, [vz] if none
   let mapOutput = '[vz]'
-  if (titleOl?.content) {
+  if (titleOverlayPath) {
+    // Title PNG: filter chain produces [final]
+    mapOutput = '[final]'
+  } else if (titleOl?.content) {
     mapOutput = '[td]'
   } else if (isShort && headerOl?.src) {
     // SHORT with header image: filter chain creates [fh]
@@ -1198,7 +1210,7 @@ function buildChunkArgs(
       }
     }
     const filterChain = sections.join('; ')
-    const mapOutput = titleOl?.content ? '[td]' : '[vz]'
+    const mapOutput = titleOverlayPath ? '[final]' : titleOl?.content ? '[td]' : '[vz]'
 
     // Background input index: [0]=video, [1]=bg, [2]=titleOverlay
     // For landscape, background is scaled to full canvas
@@ -1293,9 +1305,10 @@ function buildChunkArgs(
   } else if (titleOl?.content) {
     // Drawtext fallback: add text on [vid], then overlay bg+header on top
     const fontSize = Math.max(24, Math.floor(titleH * 0.15))
+    const titleCenterY = videoTop + videoH + Math.floor(titleH / 2)
     const escapedText = (titleOl.content || '').replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\]")
     const borderColor = titleOl.borderColor ?? '#00B4FF'
-    sections.push('[vid]drawtext=text=\'' + escapedText + '\':fontsize=' + fontSize + ':fontcolor=white:borderw=2:bordercolor=' + borderColor + ':x=(w-text_w)/2:y=(h-text_h)/2[texted]')
+    sections.push('[vid]drawtext=text=\'' + escapedText + '\':fontsize=' + fontSize + ':fontcolor=white:borderw=2:bordercolor=' + borderColor + ':x=(w-text_w)/2:y=' + titleCenterY + '-(text_h/2)[texted]')
     // Overlay [texted] on top of finalLabel
     sections.push(finalLabel + '[texted]' + overlay + '=0:0[td]')
     finalLabel = '[td]'

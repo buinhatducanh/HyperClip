@@ -54,6 +54,21 @@ function formatDateRaw(iso: string): string {
   }
 }
 
+/** Parse ETA value (number seconds or "M:SS" string) to raw seconds. */
+function parseEtaSecs(eta: number | string | undefined | null): number | null {
+  if (eta == null) return null
+  if (typeof eta === 'number') return eta > 0 ? Math.round(eta) : null
+  if (typeof eta === 'string' && eta.includes(':')) {
+    const parts = eta.split(':')
+    if (parts.length === 2) {
+      const total = parseInt(parts[0]) * 60 + parseInt(parts[1])
+      return total > 0 ? total : null
+    }
+  }
+  const n = parseFloat(eta)
+  return n > 0 ? Math.round(n) : null
+}
+
 function fmtEta(secs: number | string | undefined | null): string {
   if (!secs) return ''
   // Handle 'MM:SS' string format (yt-dlp / simulation output)
@@ -126,6 +141,53 @@ export default function DashboardPage() {
   const [onboardingDone, setOnboardingDone] = useState(false)
   /** Activity log entries — deduped by workspaceId. Only one entry per video. */
   const [activityMap, setActivityMap] = useState<Map<string, ActivityEntry>>(new Map())
+
+  // ─── Activity: stable local ETA countdown ─────────────────────────────────────
+  /** Raw seconds remaining per workspace — decremented every second by interval. */
+  const etaCountdownSec = useRef<Map<string, number>>(new Map())
+  /** Last ETA string we displayed — skip update if unchanged. */
+  const lastEtaDisplayed = useRef<Map<string, string>>(new Map())
+  /** Last time we updated ETA display per workspace. */
+  const lastEtaUpdateMs = useRef<Map<string, number>>(new Map())
+  /** Lightweight ETA display map — only updates when rounded value changes. */
+  const [etaDisplay, setEtaDisplay] = useState<Map<string, string>>(new Map())
+
+  useEffect(() => {
+    const tid = setInterval(() => {
+      const now = Date.now()
+      const newDisplay = new Map(etaDisplay)
+      let changed = false
+      const expired: string[] = []
+
+      etaCountdownSec.current.forEach((sec, wsId) => {
+        if (sec <= 0) { expired.push(wsId); return }
+
+        etaCountdownSec.current.set(wsId, sec - 1)
+        const displaySec = sec - 1
+        const display = displaySec <= 0 ? 'sắp xong…' : `còn ~${fmtEta(displaySec)}`
+
+        // Throttle: ≤10s → every 1s, ≤60s → every 5s, >60s → every 15s
+        const lastUpdate = lastEtaUpdateMs.current.get(wsId) ?? 0
+        const interval = displaySec <= 10 ? 1000 : displaySec <= 60 ? 5000 : 15000
+
+        if (now - lastUpdate >= interval && lastEtaDisplayed.current.get(wsId) !== display) {
+          lastEtaUpdateMs.current.set(wsId, now)
+          lastEtaDisplayed.current.set(wsId, display)
+          newDisplay.set(wsId, display)
+          changed = true
+        }
+      })
+
+      expired.forEach(id => {
+        etaCountdownSec.current.delete(id)
+        lastEtaDisplayed.current.delete(id)
+        lastEtaUpdateMs.current.delete(id)
+      })
+
+      if (changed) setEtaDisplay(newDisplay)
+    }, 1000)
+    return () => clearInterval(tid)
+  }, [etaDisplay])
 
   // Fetch auth status on mount + listen for updates
   useEffect(() => {
@@ -265,6 +327,30 @@ export default function DashboardPage() {
     return cleanup
   }, [showToast, addNotification])
 
+  // Download ETA throttle — prevents flickering when ETA oscillates between close values
+  const _lastDownloadEta = useRef<Map<string, string>>(new Map())
+
+  // Activity feed — pipeline events (detected, downloading, downloaded, rendering, done)
+  useEffect(() => {
+    const cleanup = ipc.onActivityEvent((entry) => {
+      const aEntry: ActivityEntry = {
+        id: entry.id || String(Date.now()),
+        timestamp: entry.timestamp || Date.now(),
+        type: entry.type as ActivityType,
+        message: entry.title,
+        detail: entry.subtitle ? (entry.eta ? `${entry.subtitle} • ETA: ${entry.eta}` : entry.subtitle) : (entry.eta ? `ETA: ${entry.eta}` : undefined),
+        workspaceId: entry.workspaceId,
+      }
+      setActivityMap(prev => {
+        const next = new Map(prev)
+        // Upsert by id — keep the newest entry per id (each workspaceId has one entry)
+        next.set(entry.id || aEntry.id, aEntry)
+        return next
+      })
+    })
+    return cleanup
+  }, [])
+
   // Load initial data
   useEffect(() => {
     Promise.all([
@@ -294,10 +380,46 @@ export default function DashboardPage() {
           renderEta: p.eta ? fmtEta(p.eta) : undefined,
         })
       } else if (current.status === 'downloading') {
+        // Throttle ETA: only update if new value differs by >3s from last shown.
+        // Prevents flickering when simulation/reality values oscillate between close seconds.
+        const newEta = p.eta ? fmtEta(p.eta) : undefined
+        let finalEta: string | undefined = undefined
+        if (p.speed === 'processing') {
+          // Post-processing phase — freeze bar at 99%, show "processing" status
+          updateWorkspace(p.workspaceId, {
+            downloadProgress: 99,
+            downloadSpeed: 'processing',
+            downloadEta: 'Merging…',
+          })
+          return
+        }
+        if (newEta && newEta !== '') {
+          const lastEta = _lastDownloadEta.current.get(p.workspaceId)
+          if (!lastEta) {
+            finalEta = newEta
+          } else {
+            // Parse seconds from "~1m 23s" or "~73s" to compare
+            const parseSec = (s: string): number => {
+              const m = s.match(/~(\d+)m\s*(\d+)s/)
+              if (m) return parseInt(m[1]) * 60 + parseInt(m[2])
+              const sMatch = s.match(/~(\d+)s/)
+              if (sMatch) return parseInt(sMatch[1])
+              return -1
+            }
+            const lastSec = parseSec(lastEta)
+            const newSec = parseSec(newEta)
+            if (lastSec < 0 || newSec < 0 || Math.abs(newSec - lastSec) > 3) {
+              finalEta = newEta
+            } else {
+              finalEta = lastEta // keep last shown value — prevents flicker
+            }
+          }
+          if (finalEta !== undefined) _lastDownloadEta.current.set(p.workspaceId, finalEta)
+        }
         updateWorkspace(p.workspaceId, {
           downloadProgress: p.percent,
-          downloadSpeed: p.speed,
-          downloadEta: p.eta ? fmtEta(p.eta) : undefined,
+          downloadSpeed: p.speed && p.speed !== '...' ? p.speed : current.downloadSpeed,
+          downloadEta: finalEta,
         })
       }
     })
@@ -392,11 +514,15 @@ export default function DashboardPage() {
       const d = data as { videoId: string; title: string; channelName: string; workspaceId?: string }
       if (!d.workspaceId) return
       upsertActivity(d.workspaceId, 'detected', `Phát hiện video mới: ${d.title}`, undefined, false)
+      // Seed ETA countdown with default 60s until render progress provides real ETA
+      etaCountdownSec.current.set(d.workspaceId, 60)
+      lastEtaDisplayed.current.set(d.workspaceId, '')
+      lastEtaUpdateMs.current.set(d.workspaceId, 0)
     })
     return cleanup
   }, [])
 
-  // Download / render progress: cập nhật ETA trực tiếp
+  // Download / render progress: update activity and seed/refresh ETA countdown
   useEffect(() => {
     const cleanup = ipc.onRenderProgress((progress) => {
       const p = progress as { workspaceId: string; percent: number; eta?: number | string }
@@ -404,19 +530,24 @@ export default function DashboardPage() {
       const ws = useAppStore.getState().workspaces.find(w => w.id === p.workspaceId)
       if (!ws) return
 
-      const eta = p.eta ? fmtEta(p.eta) : undefined
-      const etaMsg = eta ? ` — còn ${eta}` : ''
+      // Seed or refresh ETA countdown from backend ETA
+      const etaSecs = parseEtaSecs(p.eta)
+      if (etaSecs !== null) {
+        etaCountdownSec.current.set(p.workspaceId, etaSecs)
+        lastEtaDisplayed.current.set(p.workspaceId, '')
+        lastEtaUpdateMs.current.set(p.workspaceId, 0)
+      }
 
       if (ws.status === 'downloading') {
         upsertActivity(
           p.workspaceId, 'downloading',
-          `Đang tải video về${etaMsg}`,
+          `Đang tải video về`,
           `📁 ${ws.videoTitle}`,
         )
       } else if (ws.status === 'rendering') {
         upsertActivity(
           p.workspaceId, 'rendering',
-          `Đang xử lý video${etaMsg}`,
+          `Đang xử lý video`,
           `📁 ${ws.videoTitle}`,
         )
       }
@@ -452,6 +583,9 @@ export default function DashboardPage() {
             `📁 ${title}`,
             false,
           )
+          etaCountdownSec.current.delete(notif.workspaceId)
+          lastEtaDisplayed.current.delete(notif.workspaceId)
+          lastEtaUpdateMs.current.delete(notif.workspaceId)
           return
         }
         if (msg.startsWith('Done') || msg.startsWith('Render done') || msg.startsWith('Render xong')) {
@@ -467,6 +601,9 @@ export default function DashboardPage() {
             `📁 ${title}`,
             true,
           )
+          etaCountdownSec.current.delete(notif.workspaceId)
+          lastEtaDisplayed.current.delete(notif.workspaceId)
+          lastEtaUpdateMs.current.delete(notif.workspaceId)
           return
         }
       }
@@ -478,6 +615,9 @@ export default function DashboardPage() {
           notif.message.slice(0, 60),
           true,
         )
+        etaCountdownSec.current.delete(notif.workspaceId)
+        lastEtaDisplayed.current.delete(notif.workspaceId)
+        lastEtaUpdateMs.current.delete(notif.workspaceId)
       }
     })
     return cleanup
@@ -759,6 +899,7 @@ export default function DashboardPage() {
           await ipc.updateSettings(patch)
         }}
         activityEntries={[...activityMap.values()].reverse()}
+        etaDisplay={etaDisplay}
       />
 
       {/* Main: workspace queue + editor */}

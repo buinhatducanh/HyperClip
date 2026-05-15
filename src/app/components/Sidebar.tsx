@@ -54,6 +54,7 @@ interface Props {
   settings?: AppSettings
   onSettingsChange?: (patch: Partial<AppSettings>) => void
   activityEntries?: ActivityEntry[]
+  etaDisplay?: Map<string, string>
 }
 
 function AvatarWithFallback({ url, name, color }: { url: string; name: string; color: string }) {
@@ -94,6 +95,7 @@ export function Sidebar({
   settings,
   onSettingsChange,
   activityEntries = [],
+  etaDisplay,
 }: Props) {
   const [pendingChange, setPendingChange] = useState<PendingChange | null>(null)
   /** Input value for trim — tracks user edits before Enter */
@@ -338,7 +340,7 @@ export function Sidebar({
       </div>
 
       {/* Activity log — pipeline events */}
-      <ActivityLog entries={activityEntries} />
+      <ActivityLog entries={activityEntries} etaDisplay={etaDisplay} />
 
       {/* Download settings */}
       <div style={{ padding: '8px 12px', borderTop: '1px solid #1E1E1E', flexShrink: 0 }}>

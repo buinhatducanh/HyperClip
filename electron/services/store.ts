@@ -8,6 +8,7 @@ import {
   getSeenVideosPath,
   getChannelsDir,
   getProjectsDir,
+  getDownloadsDir,
 } from './paths.js'
 
 const STORE_DIR = getAppStoreDir()
@@ -38,22 +39,27 @@ function findDownloadedFileByName(filename: string): string | null {
 
 // All directories that might contain downloaded video files.
 function getKnownStorageDirs(): string[] {
-  return [
-    // Primary: APPDATA/HyperClip/downloads
-    path.join(STORE_DIR, 'downloads'),
-    // Legacy temp path
-    path.join(os.tmpdir(), 'hyperclip-video'),
-    // RAM disk path (if used)
-    ...(isRamDiskAvailable() ? [getVideoStorageDir()] : []),
-  ]
+  const dirs: string[] = []
+  // RAM disk (if available) — highest priority
+  if (isRamDiskAvailable()) dirs.push(getRamDiskPath())
+  // Primary storage — same fallback chain as getVideoStoragePath()
+  dirs.push(getDownloadsDir())
+  // Legacy store dir (D:\HyperClip-Data\app\downloads) — only add if different from primary
+  const legacyDir = path.join(STORE_DIR, 'downloads')
+  if (!dirs.includes(legacyDir)) dirs.push(legacyDir)
+  // Legacy temp path
+  dirs.push(path.join(os.tmpdir(), 'hyperclip-video'))
+  return dirs
 }
 
 // Get the primary video storage directory for this machine.
+// NOTE: This is used for the workspaces JSON store location (D:\HyperClip-Data\app\).
+// For actual video storage, use getVideoStoragePath() which checks configured/user paths.
 function getVideoStorageDir(): string {
   try {
     if (fs.existsSync(getRamDiskPath())) return getRamDiskPath()
   } catch {}
-  return path.join(STORE_DIR, 'downloads')
+  return getDownloadsDir()
 }
 
 function isRamDiskAvailable(): boolean {

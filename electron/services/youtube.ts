@@ -585,10 +585,10 @@ function buildYtDlpArgs(ytdlp: string, videoUrl: string, formatSelector: string,
     console.log(`[yt-dlp] Using android DASH with PO Token (${poToken.slice(0, 8)}...)`)
   } else {
     // No client override — cookies provide auth, yt-dlp auto-selects best format.
-    // Force remux to .mp4 for HTML5 video player compatibility.
+    // Keep downloaded container (MKV/MP4) as-is — no FFmpeg remux overhead.
+    // FFmpeg reads H.264+AAC from any container (mkv/mp4/webm).
     resolvedFormat = formatSelector
-    args.push('--remux-video', 'mp4')
-    console.log(`[yt-dlp] Using auto client with cookies (best quality, remux→mp4)`)
+    console.log(`[yt-dlp] Using auto client with cookies (best quality)`)
   }
 
   // Authenticate yt-dlp with Chrome cookies to bypass EJS anti-bot challenge
@@ -733,6 +733,11 @@ async function multiInstanceDownload(opts: MultiInstanceOpts): Promise<DownloadR
         if (destMatch && !downloadedFile) downloadedFile = destMatch[1].trim()
         const mergeMatch = data.toString().match(/Merging formats into "(.+)"/)
         if (mergeMatch) downloadedFile = mergeMatch[1]
+        // Detect FFmpeg post-processing start → freeze progress bar
+        const str = data.toString()
+        if (str.includes('Deleting original') || str.includes('Merging formats')) {
+          onProgress?.({ workspaceId, percent: 99, speed: 'processing', eta: 0, downloaded: '', total: '' })
+        }
       })
 
       proc.on('close', (code) => {
@@ -1133,6 +1138,9 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
         } else if (mergeMatch) {
           downloadedFile = mergeMatch[1]
           console.log(`[yt-dlp] Merged to: ${downloadedFile}`)
+          // FFmpeg post-processing started — freeze bar at 99%, stop simulation
+          simStop()
+          onProgress?.({ workspaceId, percent: 99, speed: 'processing', eta: 0, downloaded: '', total: '' })
         } else if (errorMatch) {
           stderr += errorMatch[1] + '\n'
         } else if (text.includes('[download]') && !text.includes('%') && !text.includes('ERROR')) {
@@ -1180,6 +1188,10 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
           downloadedFile = destMatch[1].trim()
         } else if (mergeMatch) {
           downloadedFile = mergeMatch[1]
+          // FFmpeg post-processing started — no more progress lines will follow.
+          // Emit 99% + speed='processing' to freeze the bar and signal "processing" state.
+          simStop()
+          onProgress?.({ workspaceId, percent: 99, speed: 'processing', eta: 0, downloaded: '', total: '' })
         }
       })
 

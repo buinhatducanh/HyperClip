@@ -279,18 +279,19 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
               }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
                   <span style={{
-                    fontSize: 13, fontWeight: 800, color: '#00B4FF',
+                    fontSize: 13, fontWeight: 800,
+                    color: workspace.downloadSpeed === 'processing' ? '#a855f7' : '#00B4FF',
                     fontFamily: 'monospace', lineHeight: 1,
-                    textShadow: '0 0 8px #00B4FF',
+                    textShadow: `0 0 8px ${workspace.downloadSpeed === 'processing' ? '#a855f7' : '#00B4FF'}`,
                   }}>
-                    {Math.round(workspace.downloadProgress || 0)}%
+                    {workspace.downloadSpeed === 'processing' ? '99%' : `${Math.round(workspace.downloadProgress || 0)}%`}
                   </span>
-                  <span style={{ fontSize: 7, color: '#00B4FF88' }}>
-                    ↓ {workspace.downloadSpeed || '...'}
+                  <span style={{ fontSize: 7, color: workspace.downloadSpeed === 'processing' ? '#a855f788' : '#00B4FF88' }}>
+                    {workspace.downloadSpeed === 'processing' ? '● MERGE' : `↓ ${workspace.downloadSpeed || '...'}`}
                   </span>
                 </div>
                 {workspace.downloadEta && (
-                  <span style={{ fontSize: 7, color: '#00B4FF88', fontFamily: 'monospace' }}>
+                  <span style={{ fontSize: 7, color: '#a855f788', fontFamily: 'monospace' }}>
                     {workspace.downloadEta}
                   </span>
                 )}
@@ -303,8 +304,10 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
                 <div style={{
                   height: '100%',
                   width: `${workspace.downloadProgress || 0}%`,
-                  background: 'linear-gradient(90deg, #0088cc, #00B4FF)',
-                  boxShadow: '0 0 8px #00B4FF',
+                  background: workspace.downloadSpeed === 'processing'
+                    ? 'linear-gradient(90deg, #7c3aed, #a855f7)'
+                    : 'linear-gradient(90deg, #0088cc, #00B4FF)',
+                  boxShadow: `0 0 8px ${workspace.downloadSpeed === 'processing' ? '#a855f7' : '#00B4FF'}`,
                   transition: 'width 0.5s ease',
                 }} />
               </div>
@@ -474,11 +477,11 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                 {/* Animated download icon */}
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0 }}>
-                  <path d="M5 1v5M5 6l-2 2M5 6l2 2" stroke="#00B4FF" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M2 8h6" stroke="#00B4FF" strokeWidth="1.2" strokeLinecap="round"/>
+                  <path d="M5 1v5M5 6l-2 2M5 6l2 2" stroke={workspace.downloadSpeed === 'processing' ? '#a855f7' : '#00B4FF'} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M2 8h6" stroke={workspace.downloadSpeed === 'processing' ? '#a855f7' : '#00B4FF'} strokeWidth="1.2" strokeLinecap="round"/>
                 </svg>
-                <span style={{ fontSize: 9, color: '#00B4FF', fontFamily: 'monospace', fontWeight: 700 }}>
-                  {workspace.downloadSpeed || 'starting...'}
+                <span style={{ fontSize: 9, color: workspace.downloadSpeed === 'processing' ? '#a855f7' : '#00B4FF', fontFamily: 'monospace', fontWeight: 700 }}>
+                  {workspace.downloadSpeed === 'processing' ? 'Merging…' : (workspace.downloadSpeed || 'starting...')}
                 </span>
                 {workspace.isMultiInstance && (
                   <span style={{
@@ -490,8 +493,8 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
                   </span>
                 )}
               </div>
-              <span style={{ fontSize: 9, color: '#00B4FF', fontFamily: 'monospace', fontWeight: 600 }}>
-                {workspace.downloadEta ? `ETA ${workspace.downloadEta}` : workspace.downloadProgress !== undefined ? `${workspace.downloadProgress.toFixed(0)}%` : ''}
+              <span style={{ fontSize: 9, color: workspace.downloadSpeed === 'processing' ? '#a855f7' : '#00B4FF', fontFamily: 'monospace', fontWeight: 600 }}>
+                {workspace.downloadEta ? (workspace.downloadSpeed === 'processing' ? workspace.downloadEta : `ETA ${workspace.downloadEta}`) : workspace.downloadProgress !== undefined ? `${workspace.downloadProgress.toFixed(0)}%` : ''}
               </span>
             </div>
           )}

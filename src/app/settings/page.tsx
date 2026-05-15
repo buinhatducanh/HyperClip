@@ -2042,9 +2042,6 @@ function PollerStatusPanel() {
   useEffect(() => {
     const cleanup = ipc.onInnertubeDegraded((data) => {
       setInnertubeDegraded(data.degraded)
-      if (data.degraded) {
-        showToast('⚠️ Innertube degraded — đang kiểm tra health...')
-      }
     })
     return cleanup
   }, [])

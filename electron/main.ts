@@ -165,6 +165,14 @@ function enqueueBgDownload(video: {
   // Broadcast immediately so UI shows the video right away
   broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, ws)
   showWindowsToast('📥 Video mới!', `${resolvedChannelName}: ${video.title}`)
+  broadcast(IPC_CHANNELS.ACTIVITY_EVENT, {
+    id: ws.id,
+    timestamp: Date.now(),
+    type: 'detected',
+    title: `Phát hiện: ${video.title.length > 45 ? video.title.slice(0, 45) + '…' : video.title}`,
+    subtitle: `${resolvedChannelName} • đang tải...`,
+    workspaceId: ws.id,
+  })
 
   bgDownloadQueue.push({
     videoId: video.videoId,
@@ -252,6 +260,14 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
 
   updateWorkspace(workspaceId, { status: 'rendering', renderProgress: 0 })
   sendNotification('info', `Rendering: ${workspace.videoTitle}`, workspaceId)
+  broadcast(IPC_CHANNELS.ACTIVITY_EVENT, {
+    id: workspaceId,
+    timestamp: Date.now(),
+    type: 'rendering',
+    title: `Render: ${workspace.videoTitle?.length > 38 ? workspace.videoTitle.slice(0, 38) + '…' : (workspace.videoTitle || 'Video')}`,
+    subtitle: `${renderQuality}p • ${metadata.codec ?? 'hevc'} • ${trimDuration}s`,
+    workspaceId,
+  })
 
   const outputDir = getOutputPath()
   ensureStorageDirs()
@@ -268,6 +284,14 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
     if (result.success) {
       updateWorkspace(workspaceId, { status: 'done', renderProgress: 100, outputPath: result.outputPath || '' })
       sendNotification('success', `Done: ${workspace.videoTitle}`, workspaceId)
+      broadcast(IPC_CHANNELS.ACTIVITY_EVENT, {
+        id: workspaceId,
+        timestamp: Date.now(),
+        type: 'done',
+        title: `Xong: ${workspace.videoTitle?.length > 40 ? workspace.videoTitle.slice(0, 40) + '…' : (workspace.videoTitle || 'Video')}`,
+        subtitle: `${renderElapsed}s`,
+        workspaceId,
+      })
       // Auto-archive to D:\HyperClip\Rendered
       ;(async () => {
         try {
@@ -455,6 +479,14 @@ async function autoDownloadFromWebSub(
     // Update to 'downloading' so UI reflects actual progress
     updateWorkspace(ws.id, { status: 'downloading', downloadProgress: 0 })
     broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
+    broadcast(IPC_CHANNELS.ACTIVITY_EVENT, {
+      id: ws.id,
+      timestamp: Date.now(),
+      type: 'downloading',
+      title: `Đang tải: ${title.length > 40 ? title.slice(0, 40) + '…' : title}`,
+      subtitle: `${channelName} • ${autoQuality}p`,
+      workspaceId: ws.id,
+    })
 
     const channel = getChannel(channelId)
     const finalChannelName = channelName || channel?.name || 'Unknown Channel'
@@ -651,7 +683,11 @@ async function autoDownloadFromWebSub(
       }
     }
 
-    updateWorkspace(ws.id, {
+    // ── Persist workspace state ──────────────────────────────────────────────────
+    // updateWorkspace saves to disk synchronously (makeStorableDownloadedPath strips to basename).
+    // getWorkspace reads back with resolveWorkspacePaths → absolute path reconstructed.
+    // Return value has resolved preScaledPath + downloadedPath — use these for the render trigger.
+    const updatedWs = updateWorkspace(ws.id, {
       status: 'ready',
       downloadedAt: new Date().toISOString(),
       downloadedPath: finalFilePath,
@@ -665,39 +701,58 @@ async function autoDownloadFromWebSub(
       preScaledPath,
       downloadQuality: autoQuality,
     })
-    broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
+    broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, updatedWs)
     sendNotification('success', `Auto-ready: ${realTitle}`, ws.id)
     broadcast(IPC_CHANNELS.AUTO_DOWNLOAD_EVENT, { videoId, title: realTitle, channelName: finalChannelName, detectedAt: detectedAtNow })
     showWindowsToast('✅ Download xong!', `${realTitle}`)
     recordDownloadSuccess()
     recordVideoDetected()
+    broadcast(IPC_CHANNELS.ACTIVITY_EVENT, {
+      id: ws.id,
+      timestamp: Date.now(),
+      type: 'downloaded',
+      title: `Đã tải: ${realTitle.length > 40 ? realTitle.slice(0, 40) + '…' : realTitle}`,
+      subtitle: `${finalChannelName} • ${fileSizeMB} MB • ${downloadElapsed}s`,
+      workspaceId: ws.id,
+    })
 
     // ── Auto-render trigger ───────────────────────────────────────────────────────
     // Only triggers if: settings.autoRender=true AND no prior attempt on this workspace.
     // autoRenderAttempted flag prevents infinite loops when render fails → retries.
+    // Uses updatedWs (resolved paths from store) to avoid "file not found" race condition.
     if (autoRenderEnabled && !ws.autoRenderAttempted) {
       updateWorkspace(ws.id, { autoRenderAttempted: true })
       const autoRes = settings.autoRenderResolution ?? '480x480'
-      const autoMetadata: RenderMetadata = {
-        workspace_id: ws.id,
-        source_video: preScaledPath || finalFilePath,
-        export_resolution: autoRes,
-        video_speed: 1.0,
-        fps_target: settings.autoRenderFPS ?? 30,
-        overlays: [],
-        trim: { start: 0, end: finalDuration },
-        codec: 'h264',
-        preset: 'p1',
-        tune: 'ull',
-        backgroundType: blurBgPath ? 'blur' : 'solid',
-        backgroundColor: '#000000',
-        blur_background: blurBgPath,
-        isShort: false,
+      // source_video: prefer preScaledPath (already validated to exist above), fallback to downloadedPath
+      const sourceVideo = updatedWs?.preScaledPath || updatedWs?.downloadedPath || preScaledPath || finalFilePath
+      // Only queue if the source file actually exists on disk
+      if (!sourceVideo || !fs.existsSync(sourceVideo)) {
+        devLog(`[Auto] Render skipped — source file not found: ${sourceVideo}`)
+      } else {
+        const autoMetadata: RenderMetadata = {
+          workspace_id: ws.id,
+          source_video: sourceVideo,
+          export_resolution: autoRes,
+          video_speed: 1.0,
+          fps_target: settings.autoRenderFPS ?? 30,
+          overlays: [],
+          trim: { start: 0, end: finalDuration },
+          codec: 'h264',
+          preset: 'p1',
+          tune: 'ull',
+          backgroundType: blurBgPath ? 'blur' : 'solid',
+          backgroundColor: '#000000',
+          blur_background: blurBgPath,
+          isShort: false,
+        }
+        devLog(`[Auto] Triggering render: ${realTitle} @ ${autoRes}`)
+        // Push to render queue and start — same pattern as RENDER_START IPC handler
+        renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve: () => {} })
+        const max = loadSettings().maxConcurrentRenders ?? 2
+        if (getPoolStatus().active < max) {
+          startNextQueuedRender()
+        }
       }
-      devLog(`[Auto] Triggering render: ${realTitle} @ ${autoRes}`)
-      // Push to render queue and start — same pattern as RENDER_START IPC handler
-      renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve: () => {} })
-      startNextQueuedRender()
     } else {
       devLog(`[Auto] Downloaded — ready (autoRender=${autoRenderEnabled}, attempted=${!!ws.autoRenderAttempted})`)
     }
