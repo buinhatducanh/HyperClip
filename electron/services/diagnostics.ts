@@ -69,6 +69,8 @@ export interface DiagnosticResult {
     path: string
     version: string
     hasNvenc: boolean
+    hasNvdec: boolean   // hardware video decode — required for fast GPU pipeline
+    hasCudaFilters: boolean  // CUDA filter pipeline — required for GPU scale/crop/overlay
     bundled: boolean
     error?: string
   }
@@ -97,6 +99,8 @@ export async function runDiagnostics(): Promise<DiagnosticResult> {
   let ffmpegPath = ''
   let ffmpegVersion = ''
   let ffmpegHasNvenc = false
+  let ffmpegHasNvdec = false
+  let ffmpegHasCudaFilters = false
   let ffmpegBundled = false
   let ffmpegError = ''
 
@@ -121,14 +125,16 @@ export async function runDiagnostics(): Promise<DiagnosticResult> {
 
   if (ffmpegPath) {
     try {
-      const { execSync } = await import('child_process')
-      const verOut = execSync(`"${ffmpegPath}" -version 2>&1`, { encoding: 'utf-8', timeout: 5000 })
-      ffmpegVersion = verOut.split('\n')[0].trim()
-      // Check encoders list (NOT version output) for NVENC support.
-      // Version output contains --enable-nvenc flag but NOT the encoder names.
-      const encOut = execSync(`"${ffmpegPath}" -hide_banner -encoders 2>&1`, { encoding: 'utf-8', timeout: 5000 }).toString()
-      ffmpegHasNvenc = encOut.includes('h264_nvenc') || encOut.includes('hevc_nvenc')
-      ffmpegOk = true
+      // Use getFfmpegVersion which does comprehensive hardware capability detection:
+      // - NVDEC (hardware video decode): h264_nvdec/hevc_nvdec in decoders list
+      // - CUDA filters (GPU scale/crop/overlay): scale_cuda/overlay_cuda in filters list
+      // - NVENC (hardware video encode): h264_nvenc/hevc_nvenc in encoders list
+      const ver = getFfmpegVersion(ffmpegPath)
+      ffmpegVersion = ver.version
+      ffmpegHasNvenc = ver.hasNvenc
+      ffmpegHasNvdec = ver.hasNvdec
+      ffmpegHasCudaFilters = ver.hasCudaFilters
+      ffmpegOk = ver.version !== 'unknown' && ver.version !== '';
     } catch (e) {
       ffmpegError = String(e)
       issues.push('FFmpeg not executable')
@@ -163,7 +169,7 @@ export async function runDiagnostics(): Promise<DiagnosticResult> {
 
   return {
     timestamp,
-    ffmpeg: { ok: ffmpegOk, path: ffmpegPath, version: ffmpegVersion, hasNvenc: ffmpegHasNvenc, bundled: ffmpegBundled, error: ffmpegError },
+    ffmpeg: { ok: ffmpegOk, path: ffmpegPath, version: ffmpegVersion, hasNvenc: ffmpegHasNvenc, hasNvdec: ffmpegHasNvdec, hasCudaFilters: ffmpegHasCudaFilters, bundled: ffmpegBundled, error: ffmpegError },
     ytDlp: { ok: ytdlpOk, path: ytdlpPath, version: ytdlpVersion, error: ytdlpError },
     storage: { ramDiskAvailable, storeDir },
     overall: { ready, issues },

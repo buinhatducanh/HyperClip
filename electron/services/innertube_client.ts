@@ -32,7 +32,7 @@ console.error = (...args: unknown[]) => {
 import Innertube from 'youtubei.js'
 import { getSessionManager } from './chrome_cookies.js'
 import type { YouTubeCookies } from './chrome_cookies.js'
-import { warmupPoTokenCache, getPoTokenForProfile, refreshPoToken } from './po_token.js'
+import { getPoTokenForProfile, refreshPoToken } from './po_token.js'
 import { devLog } from './dev_log.js'
 
 export interface InnertubePoolStatus {
@@ -552,13 +552,8 @@ class InnertubeClientPool {
       console.warn('[InnertubePool] Hint: Close Chrome, then restart HyperClip. Or open Chrome profiles and log into YouTube.')
     }
 
-    // Warm up PO Token cache for all sessions in the background.
-    // navigateAndExtractPoToken navigates to YouTube and extracts the PO Token from the player.
-    // This takes ~8s per session if no YouTube tab exists; parallel warmup minimizes total time.
-    const profileIds = this._sessions.map(e => e.profileId)
-    warmupPoTokenCache(profileIds).catch(e => {
-      console.warn('[InnertubePool] PO Token warmup failed:', e)
-    })
+    // PO Token extraction is no longer used — yt-dlp auto client + Chrome cookies
+    // provides sufficient quality (1080p H.264) without PO Token overhead.
   }
 
   /**

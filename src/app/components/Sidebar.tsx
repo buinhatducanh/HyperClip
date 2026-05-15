@@ -4,7 +4,6 @@ import { useState, useCallback, useEffect } from 'react'
 import type { Channel, SystemStats } from '../types'
 import { ipc } from '../lib/ipc'
 import { useAppStore } from '../lib/store'
-import { NotificationCenter } from './NotificationCenter'
 import { SkeletonChannelItem } from './Skeleton'
 import { DetectionStatusBar } from './DetectionStatusBar'
 import { ActivityLog, type ActivityEntry } from './ActivityLog'
@@ -84,6 +83,36 @@ function AvatarWithFallback({ url, name, color }: { url: string; name: string; c
   )
 }
 
+/** Compact path row for Storage panel */
+function StorageRow({ label, path, onOpen, onChange }: { label: string; path: string; onOpen: () => void; onChange: () => void }) {
+  const short = path.length > 30 ? '…' + path.slice(-28) : path
+  return (
+    <div style={{ marginBottom: 5 }}>
+      <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+        <span style={{ fontSize: 7, color: '#00B4FF55', fontWeight: 800, letterSpacing: '0.06em', flexShrink: 0, width: 20 }}>{label}</span>
+        <span
+          title={path}
+          style={{ flex: 1, fontSize: 8, color: '#555', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        >
+          {short}
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: 3, marginTop: 2 }}>
+        <button
+          onClick={onOpen}
+          title="Open in Explorer"
+          style={{ height: 16, paddingLeft: 5, paddingRight: 5, background: '#1A1A1A', border: '1px solid #222', borderRadius: 2, fontSize: 7, fontWeight: 600, color: '#555', cursor: 'pointer', flex: 1 }}
+        >OPEN</button>
+        <button
+          onClick={onChange}
+          title="Change path"
+          style={{ height: 16, paddingLeft: 5, paddingRight: 5, background: '#1A1A1A', border: '1px solid #00B4FF33', borderRadius: 2, fontSize: 7, fontWeight: 700, color: '#00B4FF', cursor: 'pointer', flex: 1 }}
+        >CHANGE</button>
+      </div>
+    </div>
+  )
+}
+
 export function Sidebar({
   channels, isLoadingChannels, activeChannelId, newCounts,
   onChannelSelect,
@@ -102,6 +131,13 @@ export function Sidebar({
   const [trimInput, setTrimInput] = useState<number | 'full'>(
     () => settings?.defaultTrimLimit ?? 10
   )
+  /** Storage stats */
+  const [storageStats, setStorageStats] = useState<{
+    downloadPath: string; outputPath: string; downloads: number; blur: number; total: number; freeBytes: number
+  } | null>(null)
+  const [storageOpen, setStorageOpen] = useState(false)
+  const [clearingDl, setClearingDl] = useState(false)
+  const [clearingBlr, setClearingBlr] = useState(false)
   /** Add channel input */
   const [channelInput, setChannelInput] = useState('')
   const [addingChannel, setAddingChannel] = useState(false)
@@ -115,6 +151,19 @@ export function Sidebar({
   const handleSettingChange = useCallback((label: string, patch: Partial<AppSettings>) => {
     setPendingChange({ label, patch })
   }, [])
+
+  /** Load storage stats on mount and periodically */
+  const loadStorageStats = useCallback(async () => {
+    try {
+      const stats = await ipc.getStorageSize()
+      setStorageStats(stats as any)
+    } catch {}
+  }, [])
+  useEffect(() => { loadStorageStats() }, [loadStorageStats])
+  useEffect(() => {
+    const t = setInterval(loadStorageStats, 30000)
+    return () => clearInterval(t)
+  }, [loadStorageStats])
 
   /** Sync trimInput when settings load from backend (overwrites stale mount value) */
   useEffect(() => {
@@ -162,7 +211,6 @@ export function Sidebar({
           <svg width="10" height="10" viewBox="0 0 10 10"><polygon points="1,1 9,5 1,9" fill="white" /></svg>
         </div>
         <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.06em', flex: 1 }}>HyperClip</span>
-        <NotificationCenter />
         {/* Key health badge */}
         {keyHealth && (keyHealth.exhausted > 0 || keyHealth.unauthorized > 0) && (
           <div
@@ -341,6 +389,140 @@ export function Sidebar({
 
       {/* Activity log — pipeline events */}
       <ActivityLog entries={activityEntries} etaDisplay={etaDisplay} />
+
+      {/* Storage manager */}
+      <div style={{ padding: '6px 10px 4px', borderTop: '1px solid #1E1E1E', flexShrink: 0 }}>
+        {/* Header — collapsible */}
+        <div
+          onClick={() => setStorageOpen(o => !o)}
+          style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', userSelect: 'none', marginBottom: storageOpen ? 6 : 0 }}
+        >
+          <span style={{ fontSize: 8, fontWeight: 800, color: '#2A2A2A', letterSpacing: '0.1em', flex: 1 }}>STORAGE</span>
+          {storageStats && (
+            <span style={{ fontSize: 8, color: '#00B4FF66', fontFamily: 'monospace' }}>
+              {storageStats.downloads > 0 ? `${(storageStats.downloads).toFixed(0)}MB` : ''}
+            </span>
+          )}
+          <svg width="7" height="7" viewBox="0 0 7 7" fill="none" style={{ transform: storageOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s', color: '#333' }}>
+            <path d="M1 2l2.5 3L6 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </div>
+
+        {storageOpen && (
+          <div>
+            {/* Download path */}
+            <StorageRow
+              label="DL"
+              path={storageStats?.downloadPath ?? '…'}
+              onOpen={() => storageStats?.downloadPath && ipc.openFolder(storageStats.downloadPath)}
+              onChange={async () => {
+                const r = await ipc.pickFolder(storageStats?.downloadPath)
+                if (r?.path) {
+                  await (window.electronAPI as any)?.updateSettings({ videoStoragePath: r.path })
+                  showToast('Download path updated — restart app')
+                  loadStorageStats()
+                }
+              }}
+            />
+            {/* Output path */}
+            <StorageRow
+              label="OUT"
+              path={storageStats?.outputPath ?? '…'}
+              onOpen={() => storageStats?.outputPath && ipc.openFolder(storageStats.outputPath)}
+              onChange={async () => {
+                const r = await ipc.pickFolder(storageStats?.outputPath)
+                if (r?.path) {
+                  await (window.electronAPI as any)?.updateSettings({ outputPath: r.path })
+                  showToast('Output path updated — restart app')
+                  loadStorageStats()
+                }
+              }}
+            />
+            {/* Disk usage bar */}
+            {storageStats && storageStats.downloadPath && (() => {
+              const freeGB = storageStats.freeBytes / (1024**3)
+              const usedGB = storageStats.downloads
+              const totalGB = freeGB + usedGB
+              const usedPct = totalGB > 0 ? Math.round((usedGB / totalGB) * 100) : 0
+              const isLow = freeGB < 5
+              return (
+                <div style={{ marginBottom: 5 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                    <span style={{ fontSize: 8, color: isLow ? '#FF4444' : '#555', fontFamily: 'monospace' }}>
+                      {usedGB > 0 ? `${usedGB.toFixed(1)}MB` : '—'} used
+                    </span>
+                    <span style={{ fontSize: 8, color: isLow ? '#FF4444' : '#444', fontFamily: 'monospace' }}>
+                      {freeGB.toFixed(0)}GB free
+                    </span>
+                  </div>
+                  <div style={{ height: 3, background: '#1A1A1A', borderRadius: 2 }}>
+                    <div style={{
+                      width: `${Math.min(usedPct, 100)}%`, height: '100%',
+                      background: isLow ? '#FF4444' : (usedPct > 70 ? '#FFB800' : '#00B4FF'),
+                      borderRadius: 2, transition: 'width 0.5s ease',
+                    }} />
+                  </div>
+                </div>
+              )
+            })()}
+            {/* Quick clear */}
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button
+                onClick={async () => {
+                  setClearingDl(true)
+                  const r = await ipc.clearDownloads()
+                  setClearingDl(false)
+                  if (r.success) { showToast(`Freed ${r.freedMB}MB`); loadStorageStats() }
+                  else showToast('Clear failed')
+                }}
+                disabled={clearingDl || !storageStats || storageStats.downloads === 0}
+                style={{
+                  flex: 1, height: 20, fontSize: 8, fontWeight: 700,
+                  background: 'transparent',
+                  border: '1px solid #222',
+                  borderRadius: 3, cursor: 'pointer',
+                  color: '#444', letterSpacing: '0.04em',
+                  opacity: (clearingDl || !storageStats || storageStats.downloads === 0) ? 0.4 : 1,
+                }}
+              >
+                {clearingDl ? '…' : 'CLEAR DL'}
+              </button>
+              <button
+                onClick={async () => {
+                  setClearingBlr(true)
+                  const r = await ipc.clearBlur()
+                  setClearingBlr(false)
+                  if (r.success) { showToast(`Cleared blur`); loadStorageStats() }
+                }}
+                disabled={clearingBlr || !storageStats || storageStats.blur === 0}
+                style={{
+                  flex: 1, height: 20, fontSize: 8, fontWeight: 700,
+                  background: 'transparent',
+                  border: '1px solid #222',
+                  borderRadius: 3, cursor: 'pointer',
+                  color: '#444', letterSpacing: '0.04em',
+                  opacity: (clearingBlr || !storageStats || storageStats.blur === 0) ? 0.4 : 1,
+                }}
+              >
+                {clearingBlr ? '…' : 'CLEAR BLR'}
+              </button>
+              <button
+                onClick={() => window.location.href = '/settings'}
+                title="More storage options"
+                style={{
+                  height: 20, paddingLeft: 6, paddingRight: 6,
+                  background: 'transparent',
+                  border: '1px solid #222',
+                  borderRadius: 3, cursor: 'pointer',
+                  color: '#333', fontSize: 8, fontWeight: 700,
+                }}
+              >
+                ⚙
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Download settings */}
       <div style={{ padding: '8px 12px', borderTop: '1px solid #1E1E1E', flexShrink: 0 }}>

@@ -17,7 +17,6 @@ interface Props {
   onClick: () => void
   onQuickAction?: (action: 'open' | 'delete', id: string) => void
   onRetry?: (id: string) => void
-  onRedownloadHd?: (id: string) => void
   onSplit?: (id: string, partMinutes: number) => void
   trimLimitMinutes?: number
 }
@@ -80,7 +79,7 @@ function parseRes(res?: string): number {
   return Math.min(w, h) || Math.max(w, h)
 }
 
-export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, onRetry, onRedownloadHd, onSplit, trimLimitMinutes = 10 }: Props) {
+export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, onRetry, onSplit, trimLimitMinutes = 10 }: Props) {
   const isShort = workspace.isShort === true
   const status = workspace.status as WorkspaceStatus
   const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.ready
@@ -125,7 +124,6 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
   }, [workspace.thumbnail, workspace.id, isLocalThumb])
 
   const showRetry = (status === 'waiting' || status === 'error') && !!onRetry
-  const showHdRedownload = status === 'ready' && !!onRedownloadHd
   const durSec = parseDur(workspace.duration)
   const showSplit = status === 'ready' && durSec > trimLimitMinutes * 60
 
@@ -435,37 +433,24 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
           </div>
 
           {/* Metadata row */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            {/* Source resolution — only shown when downloadQuality cap is NOT set (user wants original quality) */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 12 }}>
             {workspace.videoResolution && !workspace.downloadQuality && (
-              <span style={{ fontSize: 8, color: '#555', fontFamily: 'monospace', display: 'flex', alignItems: 'center', gap: 3 }}>
-                <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-                  <rect x="0.5" y="1.5" width="7" height="5" rx="0.5" stroke="#555" strokeWidth="0.8" />
-                </svg>
+              <span style={{ fontSize: 8, color: '#555', fontFamily: 'monospace', flexShrink: 0 }}>
                 {workspace.videoResolution}
               </span>
             )}
-            {/* Download cap — show when configured (overrides source resolution) */}
             {workspace.downloadQuality && (
-              <span style={{ fontSize: 8, color: '#FFB800', fontFamily: 'monospace', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3 }}>
-                <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-                  <rect x="0.5" y="1.5" width="7" height="5" rx="0.5" stroke="#FFB800" strokeWidth="0.8" />
-                </svg>
+              <span style={{ fontSize: 8, color: '#FFB800', fontFamily: 'monospace', fontWeight: 700, flexShrink: 0 }}>
                 {workspace.downloadQuality}p cap
               </span>
             )}
-            {workspace.publishedAt && (
-              <span style={{ fontSize: 8, color: '#444' }}>
-                YT {formatTimeAgo(workspace.publishedAt)}
-              </span>
-            )}
-            {workspace.detectedAt && (
-              <span style={{ fontSize: 8, color: '#333' }}>
-                detected {formatTimeAgo(workspace.detectedAt)}
+            {workspace.downloadedAt && (
+              <span style={{ fontSize: 8, color: '#00FF88', fontFamily: 'monospace', fontWeight: 700, flexShrink: 0 }}>
+                ↓ {formatTimeAgo(workspace.downloadedAt)}
               </span>
             )}
             {workspace.fileSize && workspace.fileSize !== '0 B' && (
-              <span style={{ fontSize: 8, color: '#444', fontFamily: 'monospace' }}>
+              <span style={{ fontSize: 8, color: '#555', fontFamily: 'monospace', flexShrink: 0 }}>
                 {workspace.fileSize}
               </span>
             )}
@@ -473,28 +458,26 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
 
           {/* Download speed/ETA */}
           {status === 'downloading' && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                {/* Animated download icon */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0 }}>
                   <path d="M5 1v5M5 6l-2 2M5 6l2 2" stroke={workspace.downloadSpeed === 'processing' ? '#a855f7' : '#00B4FF'} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
                   <path d="M2 8h6" stroke={workspace.downloadSpeed === 'processing' ? '#a855f7' : '#00B4FF'} strokeWidth="1.2" strokeLinecap="round"/>
                 </svg>
-                <span style={{ fontSize: 9, color: workspace.downloadSpeed === 'processing' ? '#a855f7' : '#00B4FF', fontFamily: 'monospace', fontWeight: 700 }}>
+                <span style={{
+                  fontSize: 9, color: workspace.downloadSpeed === 'processing' ? '#a855f7' : '#00B4FF',
+                  fontFamily: 'monospace', fontWeight: 700, minWidth: 60,
+                }}>
                   {workspace.downloadSpeed === 'processing' ? 'Merging…' : (workspace.downloadSpeed || 'starting...')}
                 </span>
-                {workspace.isMultiInstance && (
-                  <span style={{
-                    fontSize: 7, fontWeight: 800, color: '#00FF88',
-                    background: '#00FF8812', border: '1px solid #00FF8844',
-                    borderRadius: 2, padding: '1px 4px', letterSpacing: '0.06em',
-                  }}>
-                    2× INST
-                  </span>
-                )}
               </div>
-              <span style={{ fontSize: 9, color: workspace.downloadSpeed === 'processing' ? '#a855f7' : '#00B4FF', fontFamily: 'monospace', fontWeight: 600 }}>
-                {workspace.downloadEta ? (workspace.downloadSpeed === 'processing' ? workspace.downloadEta : `ETA ${workspace.downloadEta}`) : workspace.downloadProgress !== undefined ? `${workspace.downloadProgress.toFixed(0)}%` : ''}
+              <span style={{
+                fontSize: 9, color: workspace.downloadSpeed === 'processing' ? '#a855f7' : '#00B4FF',
+                fontFamily: 'monospace', fontWeight: 600, minWidth: 56, textAlign: 'right',
+              }}>
+                {workspace.downloadEta
+                  ? (workspace.downloadSpeed === 'processing' ? workspace.downloadEta : 'ETA ' + workspace.downloadEta)
+                  : (workspace.downloadProgress !== undefined ? workspace.downloadProgress.toFixed(0) + '%' : '')}
               </span>
             </div>
           )}
@@ -519,30 +502,30 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
         </div>
       </div>
 
-      {/* Hover action strip */}
+      {/* Action strip */}
       <div
         className="card-actions"
         style={{
-          display: 'flex', gap: 12, alignItems: 'center',
+          display: 'flex', gap: 10, alignItems: 'center',
           marginTop: 7, paddingTop: 6, borderTop: '1px solid #1e1e1e',
-          opacity: 0, transition: 'opacity 0.15s',
+          opacity: 0.5, transition: 'opacity 0.15s',
         }}
       >
         {onQuickAction && (
           <>
             <button
               onClick={(e) => { e.stopPropagation(); onQuickAction('open', workspace.id) }}
-              style={{ fontSize: 9, fontWeight: 600, color: '#666', background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0' }}
-              onMouseEnter={e => (e.currentTarget.style.color = '#00B4FF')}
-              onMouseLeave={e => (e.currentTarget.style.color = '#666')}
+              style={{ fontSize: 9, fontWeight: 600, color: '#00B4FF', background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.06em', padding: '2px 0' }}
+              onMouseEnter={e => (e.currentTarget.style.color = '#00D4FF')}
+              onMouseLeave={e => (e.currentTarget.style.color = '#00B4FF')}
             >
-              MỞ
+              CHI TIẾT
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); onQuickAction('delete', workspace.id) }}
-              style={{ fontSize: 9, fontWeight: 600, color: '#666', background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0' }}
+              style={{ fontSize: 9, fontWeight: 600, color: '#555', background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0' }}
               onMouseEnter={e => (e.currentTarget.style.color = '#FF4444')}
-              onMouseLeave={e => (e.currentTarget.style.color = '#666')}
+              onMouseLeave={e => (e.currentTarget.style.color = '#555')}
             >
               XÓA
             </button>
@@ -566,16 +549,6 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
             onMouseLeave={e => (e.currentTarget.style.color = '#666')}
           >
             TÁCH
-          </button>
-        )}
-        {showHdRedownload && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onRedownloadHd!(workspace.id) }}
-            style={{ fontSize: 9, fontWeight: 600, color: '#666', background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0' }}
-            onMouseEnter={e => (e.currentTarget.style.color = '#00B4FF')}
-            onMouseLeave={e => (e.currentTarget.style.color = '#666')}
-          >
-            1080P
           </button>
         )}
       </div>

@@ -259,7 +259,7 @@ export function getFfmpegVersion(ffmpegPath: string): FfmpegVersion {
     }).toString()
     const hasCudaFiltersListed = filtersOut.includes('scale_cuda') || filtersOut.includes('overlay_cuda')
     // Only enable CUDA filters if NVDEC is available (meaning the GPU pipeline is complete)
-    result.hasCudaFilters = hasCudaFiltersListed && hasNvDec
+    result.hasCudaFilters = hasCudaFiltersListed && result.hasNvdec
     if (result.hasCudaFilters) {
       devLog(`[FFmpeg] CUDA-accelerated filters detected (scale_cuda, overlay_cuda) — GPU filter pipeline enabled`)
     } else if (hasCudaFiltersListed && !hasNvDec) {

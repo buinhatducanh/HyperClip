@@ -272,8 +272,23 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
   const outputDir = getOutputPath()
   ensureStorageDirs()
 
-  // Build resolved metadata with absolute video path for FFmpeg
-  const resolvedMetadata = { ...metadata, source_video: videoPath }
+  // Build resolved metadata with workspace state merged in:
+  // 1. blur_background: prefer workspace's blurBackgroundPath over metadata's value.
+  //    Without this, a 'blur' backgroundType falls back to solid black (no thumbnail canvas bg).
+  // 2. source_video: always absolute path from workspace.
+  // 3. overlays: keep EXACTLY as metadata specifies (auto-render: [], manual: from editorState).
+  // 4. backgroundImage: for landscape 'image' type, fall back to workspace thumbnail if not set.
+  const wsBlurBg = workspace?.blurBackgroundPath || ''
+  const wsThumbPath = path.join(getVideoStoragePath(), `thumb_${workspaceId}.jpg`)
+  const resolvedMetadata = {
+    ...metadata,
+    source_video: videoPath,
+    // Prefer IPC metadata's blur_background (manual render), fallback to workspace state (auto-render/recovery).
+    blur_background: metadata.blur_background || wsBlurBg,
+    // For landscape with 'image' type but no backgroundImage → use workspace thumbnail.
+    // Only apply when blur is not available (landscape videos don't generate blur).
+    backgroundImage: !metadata.backgroundImage && !wsBlurBg && fs.existsSync(wsThumbPath) ? wsThumbPath : metadata.backgroundImage,
+  }
 
   const gpuTier = getGPUCapabilities().tier
   renderVideo(resolvedMetadata, outputDir, (progress: RenderProgress) => {
@@ -362,9 +377,10 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
             if (workspace.preScaledPath) {
               try { fs.unlinkSync(workspace.preScaledPath) } catch {}
             }
-            cleanupWorkspace(workspace.id, workspace.downloadedPath)
-            deleteWorkspace(workspace.id)
-            broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, null)
+            // TODO (debug): keep workspace in pipeline instead of deleting — for testing
+            // cleanupWorkspace(workspace.id, workspace.downloadedPath)
+            // deleteWorkspace(workspace.id)
+            // broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, null)
             const _fileSizeMB = ((workspace.fileSize || 0) / 1024 / 1024).toFixed(1)
             const totalElapsed = ((Date.now() - renderStartMs) / 1000).toFixed(1)
             devLog(`[TIMER] ARCHIVE DONE: ${archiveResult.archivedPath}`)
@@ -512,31 +528,8 @@ async function autoDownloadFromWebSub(
 
     // Get PO Token from Innertube pool — needed for android client to access 1080p+ formats
     // Strategy:
-    // 1. Try pool cache first (fast — warmup populated it at startup)
-    // 2. If null, ensure persistent Chrome is running and navigate to the video page
-    //    to extract a fresh PO Token (adds ~8s but gives 1080p vs 360p)
-    let po_token: string | null = null
-    try {
-      const pool = getInnertubePoolSync()
-      if (pool?.isReady()) {
-        const session = await pool.getDownloadSession(videoId)
-        po_token = session?.po_token ?? null
-      }
-      // Cache miss — force extract a fresh PO Token from Chrome
-      if (!po_token) {
-        devLog('[Auto] PO Token cache miss — launching Chrome to extract...')
-        const { ensurePersistentChrome } = await import('./services/cdp.js')
-        const { navigateAndExtractPoToken, getCDPPort } = await import('./services/po_token.js')
-        const chrome = await ensurePersistentChrome()
-        if (chrome) {
-          const port = getCDPPort(chrome.profileId)
-          po_token = await navigateAndExtractPoToken(port, videoId)
-          devLog(`[Auto] PO Token extracted: ${po_token ? '✓ ' + po_token.slice(0,8) + '...' : 'null'}`)
-        }
-      }
-    } catch (e) {
-      console.warn('[Auto] Could not get PO Token:', e)
-    }
+    // PO Token extraction disabled — yt-dlp auto client + Chrome cookies → 1080p H.264 (2026-05-15)
+    const po_token: string | null = null
 
     // Export Chrome cookies (cached 5 min) for yt-dlp authentication (bypasses EJS challenge)
     const { getYtCookiesFile } = await import('./services/po_token.js')
@@ -665,23 +658,13 @@ async function autoDownloadFromWebSub(
     // blurBackgroundPath: vertical videos only (landscape uses thumbnail bg)
     const blurBgPath = (blurResult as any).success && !isLandscape ? blurPath : ''
 
-    // ── Pre-scale for auto-render ─────────────────────────────────────────────────
-    // Pre-scale the source to export resolution so the render pipeline skips the GPU scale filter.
-    // Net saving: ~5-10s per render. Pre-scale is sequential (depends on finalFilePath).
+    // ── Pre-scale disabled ────────────────────────────────────────────────────────
+    // preScaleVideo() is intentionally NOT called here. GPU scale (scale_cuda) in the
+    // render pipeline is fast enough for all sources (<3s). Pre-scaling portrait sources
+    // to canvas dimensions corrupts the render (pre-scaled 480x480 gets upscaled to
+    // 960x960 then cropped — quality loss). Pre-scaling landscape to portrait dims
+    // also corrupts aspect ratio. Let the render pipeline handle all scaling.
     let preScaledPath = ''
-    if (autoRenderEnabled) {
-      const autoRes = settings.autoRenderResolution ?? '480x480'
-      const targetWidth = parseInt(autoRes.split('x')[0]) || 480
-      const preScaledOutput = finalFilePath.replace(/(\.\w+)$/, '_preScaled$1')
-      devLog(`[Auto] Pre-scaling to ${targetWidth}px: ${path.basename(finalFilePath)}`)
-      const scaleResult = await preScaleVideo(finalFilePath, preScaledOutput, targetWidth)
-      if (scaleResult.success) {
-        preScaledPath = preScaledOutput
-        devLog(`[Auto] Pre-scale OK: ${path.basename(preScaledPath)}`)
-      } else {
-        console.warn(`[Auto] Pre-scale failed (using original): ${scaleResult.error}`)
-      }
-    }
 
     // ── Persist workspace state ──────────────────────────────────────────────────
     // updateWorkspace saves to disk synchronously (makeStorableDownloadedPath strips to basename).
@@ -735,13 +718,18 @@ async function autoDownloadFromWebSub(
           export_resolution: autoRes,
           video_speed: 1.0,
           fps_target: settings.autoRenderFPS ?? 30,
-          overlays: [],
+          // Default "PART 1" title overlay — drawtext renders it at bottom of canvas.
+          overlays: [{ type: 'title', content: 'PART 1', borderColor: '#00B4FF' }],
           trim: { start: 0, end: finalDuration },
           codec: 'h264',
           preset: 'p1',
           tune: 'ull',
-          backgroundType: blurBgPath ? 'blur' : 'solid',
+          // Landscape (16:9) videos: use thumbnail as canvas background image.
+          // Portrait (9:16) videos: blur_background is generated separately.
+          // thumbPath is created at line 812 above — available at this point.
+          backgroundType: blurBgPath ? 'blur' : 'image',
           backgroundColor: '#000000',
+          backgroundImage: blurBgPath ? undefined : path.join(storagePath, `thumb_${ws.id}.jpg`),
           blur_background: blurBgPath,
           isShort: false,
         }
@@ -926,6 +914,92 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
       updateWorkspace(ws.id, { status: 'waiting', retryableAt: new Date(Date.now() + 5 * 60 * 1000).toISOString() })
     }
     broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
+  }
+}
+
+// ─── Auto-render catch-up on startup ────────────────────────────────────────────
+// Finds 'ready' workspaces where auto-render was never triggered (e.g., autoRender
+// was disabled at download time, or workspace was created before the feature existed).
+// Triggers auto-render for each one — so nothing slips through the cracks.
+function triggerAutoRenderForReadyWorkspaces(): void {
+  const settings = loadSettings()
+  if (settings.autoRender !== true) return
+
+  const workspaces = getWorkspaces()
+  const storagePath = getVideoStoragePath()
+
+  for (const ws of workspaces) {
+    // Only process 'ready' workspaces without a prior auto-render attempt
+    if (ws.status !== 'ready') continue
+    if ((ws as any).autoRenderAttempted === true) continue
+
+    // Resolve the downloaded file — stored as basename, reconstruct absolute path
+    const storedName = ws.downloadedPath || ''
+    let videoPath = storedName
+    if (storedName && !path.isAbsolute(storedName)) {
+      const candidates = [storagePath, getVideoStoragePath()]
+      for (const dir of candidates) {
+        const candidate = path.join(dir, storedName)
+        if (fs.existsSync(candidate)) { videoPath = candidate; break }
+      }
+    }
+    if (!videoPath || !fs.existsSync(videoPath)) {
+      devLog(`[AutoCatchup] Skipping ${ws.id} — file not found: ${videoPath || storedName}`)
+      continue
+    }
+
+    // Get blur background if available
+    const { blurPath } = generateWorkspacePaths(ws.id)
+    const blurBgPath = ws.blurBackgroundPath || (fs.existsSync(blurPath) ? blurPath : '')
+
+    // Resolve thumbnail path: workspace.thumbnail is "local-video:///D:/path/to/thumb_xxx.jpg"
+    // Extract the filesystem path from this URI to find the actual thumbnail location.
+    // This is more reliable than reconstructing from storagePath (which may differ from
+    // the actual download directory on machines with multiple storage paths).
+    let thumbnailPath = ''
+    if (ws.thumbnail?.startsWith('local-video:///')) {
+      thumbnailPath = ws.thumbnail.replace('local-video:///', '').replace(/\//g, '\\')
+    } else {
+      // Fallback: scan known dirs for thumb_{wsId}.jpg
+      const thumbCandidates = [
+        path.join(storagePath, `thumb_${ws.id}.jpg`),
+        path.join(getVideoStoragePath(), `thumb_${ws.id}.jpg`),
+        path.join('D:\\HyperClip-Data\\downloads', `thumb_${ws.id}.jpg`),
+      ]
+      for (const tc of thumbCandidates) {
+        if (fs.existsSync(tc)) { thumbnailPath = tc; break }
+      }
+    }
+
+    const autoRes = settings.autoRenderResolution ?? '480x480'
+    const autoMetadata: RenderMetadata = {
+      workspace_id: ws.id,
+      source_video: videoPath,
+      export_resolution: autoRes,
+      video_speed: 1.0,
+      fps_target: settings.autoRenderFPS ?? 30,
+      overlays: [{ type: 'title', content: 'PART 1', borderColor: '#00B4FF' }],
+      trim: { start: 0, end: ws.duration || 0 },
+      codec: 'h264',
+      preset: 'p1',
+      tune: 'ull',
+      // Portrait (9:16): use blur bg. Landscape (16:9): use thumbnail.
+      backgroundType: blurBgPath ? 'blur' : 'image',
+      backgroundColor: '#000000',
+      backgroundImage: blurBgPath ? undefined : (thumbnailPath && fs.existsSync(thumbnailPath) ? thumbnailPath : undefined),
+      blur_background: blurBgPath,
+      isShort: ws.isShort ?? false,
+    }
+
+    // Mark as attempted FIRST to avoid double-trigger
+    updateWorkspace(ws.id, { autoRenderAttempted: true } as any)
+
+    devLog(`[AutoCatchup] Triggering render for ${ws.id} (${ws.videoTitle?.slice(0, 40)})`)
+    renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve: () => {} })
+    const max = loadSettings().maxConcurrentRenders ?? 2
+    if (getPoolStatus().active < max) {
+      startNextQueuedRender()
+    }
   }
 }
 
@@ -1420,17 +1494,8 @@ async function registerIPCHandlers() {
     const storagePath = getVideoStoragePath()
     ensureStorageDirs()
 
-    // Get PO Token from Innertube pool — needed for android client to access 1080p+ formats
-    let po_token: string | null = null
-    try {
-      const pool = getInnertubePoolSync()
-      if (pool?.isReady()) {
-        const session = await pool.getDownloadSession(ws.videoId)
-        po_token = session?.po_token ?? null
-      }
-    } catch (e) {
-      console.warn('[WORKSPACE_RETRY] Could not get PO Token:', e)
-    }
+    // PO Token extraction disabled — yt-dlp auto client + Chrome cookies → 1080p H.264
+    const po_token: string | null = null
 
     const settings = loadSettings()
     const retryQuality = settings.autoDownloadQuality ?? '720'
@@ -1891,17 +1956,8 @@ async function registerIPCHandlers() {
       broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, workspace)
       sendNotification('info', `Downloading: ${info.title}`, workspace.id)
 
-      // Get PO Token from Innertube pool — needed for android client to access 1080p+ formats
-      let po_token: string | null = null
-      try {
-        const pool = getInnertubePoolSync()
-        if (pool?.isReady()) {
-          const session = await pool.getDownloadSession(info.id)
-          po_token = session?.po_token ?? null
-        }
-      } catch (e) {
-        console.warn('[TRACKER_ADD] Could not get PO Token:', e)
-      }
+      // PO Token extraction disabled — yt-dlp auto client + Chrome cookies → 1080p H.264
+      const po_token: string | null = null
 
       // Export Chrome cookies for yt-dlp authentication (bypasses EJS challenge)
       const { getYtCookiesFile } = await import('./services/po_token.js')
@@ -2258,8 +2314,18 @@ async function registerIPCHandlers() {
     const outputDir = getOutputPath()
     ensureStorageDirs()
 
-    // Build resolved metadata with absolute video path for FFmpeg
-    const resolvedMetadata = { ...metadata, source_video: videoPath }
+    // Build resolved metadata: merge workspace blur background and thumbnail image.
+    // Landscape videos: use thumbnail as backgroundImage. Portrait: use blur_background.
+    const wsBlurBg = workspace?.blurBackgroundPath || ''
+    const wsThumbPath = path.join(getVideoStoragePath(), `thumb_${workspaceId}.jpg`)
+    const resolvedMetadata = {
+      ...metadata,
+      source_video: videoPath,
+      blur_background: metadata.blur_background || wsBlurBg,
+      // For landscape with 'image' type but no backgroundImage → use thumbnail
+      // Also check: if metadata.backgroundImage is set but the file doesn't exist → fall back to workspace thumbnail.
+      backgroundImage: (!metadata.backgroundImage || !fs.existsSync(metadata.backgroundImage)) && !wsBlurBg && fs.existsSync(wsThumbPath) ? wsThumbPath : metadata.backgroundImage,
+    }
 
     const result = await renderChunked(
       resolvedMetadata,
@@ -2318,9 +2384,10 @@ async function registerIPCHandlers() {
             if (workspace.preScaledPath) {
               try { fs.unlinkSync(workspace.preScaledPath) } catch {}
             }
-            cleanupWorkspace(workspace.id, workspace.downloadedPath)
-            deleteWorkspace(workspace.id)
-            broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, null)
+            // TODO (debug): keep workspace in pipeline instead of deleting — for testing
+            // cleanupWorkspace(workspace.id, workspace.downloadedPath)
+            // deleteWorkspace(workspace.id)
+            // broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, null)
             const _fileSizeMB = ((workspace.fileSize || 0) / 1024 / 1024).toFixed(1)
             devLog(`[TIMER] ARCHIVE DONE: ${archiveResult.archivedPath}`)
             devLog(`[TIMER]   Archive file size: ${_fileSizeMB} MB`)
@@ -2408,11 +2475,10 @@ async function registerIPCHandlers() {
         renderedAt: new Date().toISOString(),
       }
       addRenderedVideo(renderedRecord)
-      // Clean up workspace (input video, blur, output) but keep the archived file
-      cleanupWorkspace(ws.id, ws.downloadedPath)
-      // Delete the workspace record
-      deleteWorkspace(ws.id)
-      broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, null)
+      // TODO (debug): keep downloaded video instead of cleaning up — for testing
+      // cleanupWorkspace(ws.id, ws.downloadedPath)
+      // deleteWorkspace(ws.id)
+      // broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, null)
     }
 
     return result
@@ -3498,10 +3564,62 @@ app.whenReady().then(async () => {
     sendNotification('info', 'FFmpeg không có NVENC — render sẽ chậm. Khuyến nghị FFmpeg build có hỗ trợ NVIDIA NVENC.')
   }
 
+  // NVDEC + CUDA filter pipeline status: required for fast GPU-accelerated rendering.
+  // NVDEC = hardware video decode (GPU, not CPU). CUDA filters = scale/crop/overlay on GPU.
+  // Without these: software decode + CPU filter pipeline = 10-20x slower renders.
+  const nvDecStatus = diag.ffmpeg.hasNvdec
+    ? `✓ NVDEC (GPU decode) — ${caps.gpuName}`
+    : '✗ Không có NVDEC (software decode)'
+  const cudaFilterStatus = diag.ffmpeg.hasCudaFilters
+    ? '✓ CUDA filters (GPU scale/crop/overlay)'
+    : '✗ Không có CUDA filters (CPU filter pipeline)'
+  devLog(`[HyperClip] FFmpeg pipeline: ${nvDecStatus}`)
+  devLog(`[HyperClip] FFmpeg pipeline: ${cudaFilterStatus}`)
+
+  if (diag.ffmpeg.ok && (!diag.ffmpeg.hasNvdec || !diag.ffmpeg.hasCudaFilters)) {
+    console.warn('[HyperClip] RENDER: CPU decode + CPU filter + NVENC GPU encode (không có NVDEC/CUDA filters)')
+    sendNotification('info', `Render: CPU decode + CPU filter + NVENC GPU encode. CÀI FFmpeg build có NVDEC để render nhanh hơn.`)
+  }
+
   // P2: RAM disk not available
   if (!diag.storage.ramDiskAvailable) {
     devLog('[HyperClip] RAM disk not available — videos will be stored on disk (slower I/O).')
     sendNotification('info', 'RAM disk chưa bật — video sẽ lưu ổ C (chậm hơn RAM disk). Có thể bỏ qua nếu không cần tốc độ cao.')
+  }
+
+  // Setup: copy Arial font to resources/fonts/ for FFmpeg drawtext (lavfi requires no `:` in fontfile paths).
+  // FFmpeg gyan.dev lavfi parser splits option values at COLON characters (drive letter `D:`).
+  // Using a relative path `resources/fonts/arial.ttf` avoids this issue entirely.
+  // Additionally, create fontconfig config so FFmpeg can find the font via fontfile=arial.ttf.
+  {
+    const fontsDir = path.join(__dirname, '..', 'resources', 'fonts')
+    const fontPath = path.join(fontsDir, 'arial.ttf')
+    // Also create fontconfig at D:\fonts\fonts.conf for FONTCONFIG_FILE env var
+    const fcDir = 'D:\\fonts'
+    const fcPath = path.join(fcDir, 'fonts.conf')
+    const fcXml = `<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <dir>${fontsDir.replace(/\\/g, '\\\\')}</dir>
+  <dir>${fcDir.replace(/\\/g, '\\\\')}</dir>
+</fontconfig>
+`
+    if (!fs.existsSync(fontPath)) {
+      try {
+        fs.mkdirSync(fontsDir, { recursive: true })
+        const systemFont = 'C:\\Windows\\Fonts\\arial.ttf'
+        if (fs.existsSync(systemFont)) {
+          fs.copyFileSync(systemFont, fontPath)
+          devLog(`[Setup] Copied Arial font to ${fontPath}`)
+        } else {
+          devLog(`[Setup] System Arial font not found at ${systemFont} — text overlays may fail`)
+        }
+      } catch (e) {
+        devLog(`[Setup] Font copy failed: ${e}`)
+      }
+    } else {
+      devLog(`[Setup] Arial font already present at ${fontPath}`)
+    }
   }
 
   // Auto-boot Next.js if not already running on port 3000
@@ -3616,6 +3734,11 @@ app.whenReady().then(async () => {
   // Scan storage directory for existing downloaded files — register them as "seen"
   // so poll won't re-download files already on disk
   scanExistingDownloadedFiles()
+
+  // Catch up: auto-render any 'ready' workspaces that didn't get rendered yet.
+  // This handles workspaces created before auto-render was enabled, or where
+  // the trigger was skipped due to a prior crash / missing autoRenderAttempted field.
+  triggerAutoRenderForReadyWorkspaces()
 
   // Init cookie manager (auto-refresh every 15m + sub sync every 2m)
   const cookieResult = await initCookieManager()

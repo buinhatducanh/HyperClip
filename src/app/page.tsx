@@ -343,8 +343,10 @@ export default function DashboardPage() {
       }
       setActivityMap(prev => {
         const next = new Map(prev)
-        // Upsert by id — keep the newest entry per id (each workspaceId has one entry)
-        next.set(entry.id || aEntry.id, aEntry)
+        // Upsert by workspaceId — same workspaceId replaces the existing entry.
+        // Falls back to entry.id only if workspaceId is absent (for backward compat).
+        const key = entry.workspaceId || entry.id || aEntry.id
+        next.set(key, aEntry)
         return next
       })
     })
@@ -676,13 +678,6 @@ export default function DashboardPage() {
     else showToast(`Retry failed: ${result.error}`)
   }
 
-  const handleRedownloadHd = async (id: string) => {
-    showToast('Re-downloading at HD quality...')
-    const result = await ipc.redownloadHd(id) as { success: boolean; error?: string }
-    if (result.success) showToast('HD version downloaded')
-    else showToast(`HD download failed: ${result.error}`)
-  }
-
   const handleEditorChange = (patch: Partial<EditorState>) => {
     updateEditorState(patch)
     if (patch.exportQuality !== undefined && selectedWorkspaceId) {
@@ -921,7 +916,6 @@ export default function DashboardPage() {
             onSelectRendered={handleRenderedVideoSelect}
             onQuickAction={handleQuickAction}
             onRetry={handleRetry}
-            onRedownloadHd={handleRedownloadHd}
             onRemoveRendered={(id) => {
               if (selectedRenderedVideoId === id) setSelectedRenderedVideoId(null)
               removeRenderedVideo(id)

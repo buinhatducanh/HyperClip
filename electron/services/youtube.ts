@@ -892,15 +892,19 @@ async function multiInstanceDownload(opts: MultiInstanceOpts): Promise<DownloadR
 export async function preScaleVideo(
   sourcePath: string,
   outputPath: string,
-  targetWidth: number,
+  canvasW: number,
+  canvasH: number,
 ): Promise<{ success: boolean; error?: string }> {
   const ffmpeg = getFfmpegPath()
 
-  // Use libx264 with ultrafast preset — scale only, no quality loss
-  // The source is being downscaled so ultrafast is perfectly fine
+  // Scale portrait source to EXACTLY canvas dimensions so the render pipeline's scale
+  // filter becomes a no-op (or trivial center-crop). This saves ~5-10s per render.
+  // For portrait source entering portrait canvas: scale to canvasW, then pad/crop to canvasH.
+  // The key insight: for 9:16 source → 9:16 canvas, scale by HEIGHT matches better
+  // (avoids excess pillarboxing in the crop step).
   const args: string[] = [
     '-i', quotePath(sourcePath),
-    '-vf', `scale=${targetWidth}:-2:force_original_aspect_ratio=decrease`,
+    '-vf', `scale=${canvasW}:${canvasH}:force_original_aspect_ratio=decrease`,
     '-c:v', 'libx264',
     '-preset', 'ultrafast',
     '-crf', '18',           // Lossless for practical purposes (CRF 18 ≈ high quality)
