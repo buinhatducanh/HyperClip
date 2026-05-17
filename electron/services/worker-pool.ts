@@ -200,13 +200,16 @@ function normalizePath(p: string): string {
 export async function runFfmpeg(opts: FfmpegRunOptions): Promise<PoolResult> {
   const { jobId, args, outputFile, onProgress, onFps, timeoutMs = 2 * 60 * 60 * 1000 } = opts
 
-  // Debug: log first 3 and last 3 args to trace corruption
-  const firstFew = args.slice(0, 3).join(' | ')
-  const lastFew = args.slice(-3).join(' | ')
+  // Debug: log all args with input indices marked
   const filterIdx = args.indexOf('-filter_complex')
   const filterVal = filterIdx !== -1 ? args[filterIdx + 1] : '(none)'
-  devLog(`[runFfmpeg] job=${jobId} args[0..2]="${firstFew}" filter_complex="${filterVal}" last="${lastFew}"`)
-  devLog(`[runFfmpeg] total args=${args.length}`)
+  const inputs: string[] = []
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '-i') inputs.push(`  [${inputs.length}]: ${args[i + 1]}`)
+  }
+  devLog(`[runFfmpeg] job=${jobId} inputs: ${inputs.join(' | ')}`)
+  devLog(`[runFfmpeg] filter_complex="${filterVal}"`)
+  devLog(`[runFfmpeg] output=${args[args.length - 1]}`)
 
   return new Promise((resolve) => {
     const t0 = Date.now()
@@ -228,6 +231,7 @@ export async function runFfmpeg(opts: FfmpegRunOptions): Promise<PoolResult> {
 
     const LINE_BUF_SIZE = 200
     const lineBuf: string[] = []
+    let closed = false  // prevent progress after close
 
     // Extract total duration from args for progress calculation.
     let totalSec = 300
@@ -243,12 +247,14 @@ export async function runFfmpeg(opts: FfmpegRunOptions): Promise<PoolResult> {
     }
 
     const timeout = setTimeout(() => {
+      closed = true
       if (!proc.killed) proc.kill()
       renderPool.release(jobId)
       resolve({ success: false, error: 'Timeout' })
     }, timeoutMs)
 
     proc.stderr?.on('data', (data: Buffer) => {
+      if (closed) return
       const chunk = data.toString()
       const lines = chunk.split('\n')
       for (const line of lines) {
@@ -259,7 +265,7 @@ export async function runFfmpeg(opts: FfmpegRunOptions): Promise<PoolResult> {
       }
 
       const recent = lineBuf.slice(-30).join('\n')
-      const timeMatch = recent.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d+)/)
+      const timeMatch = recent.match(/time=(\d+):(\d+):(\d+\.?\d*)/)
       const fpsMatch = recent.match(/fps=\s*(\d+)/)
       const speedMatch = recent.match(/speed=\s*([\d.]+)x/)
 
@@ -279,14 +285,20 @@ export async function runFfmpeg(opts: FfmpegRunOptions): Promise<PoolResult> {
     })
 
     proc.on('error', (err) => {
+      closed = true
       clearTimeout(timeout)
       renderPool.release(jobId)
       resolve({ success: false, error: err.message })
     })
 
     proc.on('close', (code) => {
+      if (closed) return
+      closed = true
       clearTimeout(timeout)
       renderPool.release(jobId)
+
+      // Force 100% on close (FFmpeg may not emit final time= line)
+      onProgress?.(100, Date.now() - t0)
 
       const cleanPath = outputFile.replace(/"/g, '')
       if (code === 0 && fs.existsSync(cleanPath)) {

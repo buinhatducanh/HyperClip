@@ -280,9 +280,18 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
   // 4. backgroundImage: for landscape 'image' type, fall back to workspace thumbnail if not set.
   const wsBlurBg = workspace?.blurBackgroundPath || ''
   const wsThumbPath = path.join(getVideoStoragePath(), `thumb_${workspaceId}.jpg`)
+  // Header overlay fallback: use thumbnail when blurBackgroundPath is not available.
+  // Ensures header always shows content even if blur generation failed.
+  const resolvedOverlays = (metadata.overlays || []).map((ol: any) => {
+    if (ol.type === 'header' && !ol.src && fs.existsSync(wsThumbPath)) {
+      return { ...ol, src: wsThumbPath }
+    }
+    return ol
+  })
   const resolvedMetadata = {
     ...metadata,
     source_video: videoPath,
+    overlays: resolvedOverlays,
     // Prefer IPC metadata's blur_background (manual render), fallback to workspace state (auto-render/recovery).
     blur_background: metadata.blur_background || wsBlurBg,
     // For landscape with 'image' type but no backgroundImage → use workspace thumbnail.
@@ -601,7 +610,8 @@ async function autoDownloadFromWebSub(
 
     // Download succeeded — probe aspect ratio to determine if this is a 9:16 vertical video
     const aspect = await probeVideoAspect(result.filePath)
-    devLog(`[Auto] Aspect: ${aspect ? `${aspect.width}x${aspect.height} (${aspect.isShort ? '9:16 VERTICAL — skipping' : '16:9 LANDSCAPE — OK'})` : 'unknown'}`)
+    const fileSizeMB = result.fileSize ? (result.fileSize / 1024 / 1024).toFixed(1) : '?'
+    devLog(`[Auto] DOWNLOADED: "${title}" → ${result.filePath} (${fileSizeMB}MB) ASPECT=${aspect ? aspect.width + 'x' + aspect.height : 'unknown'} ${aspect?.isShort ? '(VERTICAL)' : '(LANDSCAPE)'}`)
 
     // Skip 9:16 vertical videos — user only wants landscape 16:9 content
     if (aspect?.isShort) {
@@ -614,7 +624,6 @@ async function autoDownloadFromWebSub(
     }
 
     const downloadElapsed = ((Date.now() - downloadStartMs) / 1000).toFixed(1)
-    const fileSizeMB = result.fileSize ? (result.fileSize / 1024 / 1024).toFixed(1) : '?'
     devLog(`[Auto] DOWNLOAD DONE: "${title}" (${downloadElapsed}s, ${fileSizeMB} MB)`)
     playSuccessBeep()
 

@@ -1184,7 +1184,16 @@ async function downloadWithClient(opts: DownloadWithClientOpts): Promise<Downloa
 
   const q = parseInt(quality)
   const maxHeight = isNaN(q) ? 720 : q
-  const formatSelector = `bestvideo[height<=${maxHeight}][vcodec=h264]+bestaudio[acodec=aac]/bestvideo[height<=${maxHeight}][vcodec!=vp9][vcodec!=av1]+bestaudio[acodec=aac]/bestvideo[height<=${maxHeight}]+bestaudio/bestvideo+bestaudio/best`
+  // Priority: any codec @ target quality + AAC -> any codec @ target + best audio
+  // -> any codec @ lower quality -> bestvideo+bestaudio (no cap).
+  // This ensures VP9/AV1 1080p is picked over H.264 360p when H.264 1080p unavailable.
+  const formatSelector = [
+    // Any codec @ target quality + AAC
+    `bestvideo[height<=${maxHeight}]+bestaudio[acodec=aac]/bestvideo[height<=${maxHeight}]+bestaudio/bestvideo+bestaudio/bestvideo+bestaudio`,
+    // Any codec @ any quality + best audio
+    `bestvideo+bestaudio/bestvideo+bestaudio/bestvideo+bestaudio/bestvideo+bestaudio`,
+  ].join('/')
+  console.log(`[Download] quality=${quality} maxHeight=${maxHeight}p selector=${formatSelector}`)
 
   // Multi-instance: only for 1080p+ with enough free RAM AND video > 30s
   const freeMemGB = os.freemem() / (1024 ** 3)

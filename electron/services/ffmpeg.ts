@@ -38,6 +38,10 @@ export interface RenderMetadata {
   audioBitrate?: string
   /** Height of the bottom bar (opaque bar at canvas bottom). Video shrinks to leave gap. Default: 64. Set to 0 to disable. */
   bottomBarH?: number
+  /** Bottom bar accent color hex — used for SHORT mode bottom bar bar color */
+  bottomBarColor?: string
+  /** Enable bottom bar in SHORT mode. Default: true. */
+  bottomBarEnabled?: boolean
 }
 
 export interface Overlay {
@@ -616,16 +620,19 @@ function buildFilterComplex(opts: {
   const sections: string[] = [videoChain, bgChain]
 
   if (bbOverlay) {
-    // CORRECT z-order: bg → video → [vz] → bb → [vb] → header → [final]
-    const bottomBarY = headerH + videoH  // canvasH - bottomBarH
-    sections.push(`[bg][vid]${ov}=0:${headerH}[vz]`)  // MUST create [vz] first
-    sections.push(bbOverlay, `[vz][bb]${ov}=0:${bottomBarY}[vb]`)
+    // Z-order: bg → video → [vz] → header → [vh] → bottom bar → [final]
+    // Header (thumbnail) goes on TOP of video zone first (y=0, full header zone).
+    // Then bottom bar goes on TOP of header+video zone (y=bottomBarY).
+    // Bottom bar PNG is transparent at top (only bottom portion has the bar graphic).
+    sections.push(`[bg][vid]${ov}=0:${headerH}[vz]`)
     if (hdChain) {
-      // Header goes on TOP of bottom bar
-      sections.push(hdChain, `[vb][hd]${ov}=0:0[final]`)
+      // Header on TOP of [vz] → [vh]
+      sections.push(hdChain, `[vz][hd]${ov}=0:0[vh]`)
     } else {
-      sections.push(`[vb]null[final]`)
+      sections.push(`[vz]null[vh]`)
     }
+    // Bottom bar on TOP of header+video → [final]
+    sections.push(bbOverlay, `[vh][bb]${ov}=0:${headerH + videoH}[final]`)
   } else if (hdChain) {
     // CORRECT: create [vz] first (bg + video), then overlay header on top.
     sections.push(`[bg][vid]${ov}=0:${headerH}[vz]`, hdChain, `[vz][hd]${ov}=0:0[final]`)
@@ -651,7 +658,7 @@ function buildFilterComplex(opts: {
 // Per-architecture NVENC tuning for RTX 5080 and other GPUs.
 // Uses GPUCapabilities to get architecture-specific session limits and surface counts.
 
-function getNvencParams(codec: 'h264' | 'hevc', isChunked: boolean, gpuTier: GPUTier = 'software', canvasW = 0, canvasH = 0): string[] {
+function getNvencParams(codec: 'h264' | 'hevc', isChunked: boolean, gpuTier: GPUTier = 'software', canvasW = 0, canvasH = 0, userPreset?: 'p1' | 'p2' | 'p3'): string[] {
   const isHighTier = gpuTier === 'high'
   const isMidTier = gpuTier === 'mid'
 
@@ -673,16 +680,17 @@ function getNvencParams(codec: 'h264' | 'hevc', isChunked: boolean, gpuTier: GPU
   //   RTX 5080 (high): p1 for chunked (speed), p3 for single (quality)
   //   RTX 3060 (mid):  p2 for chunked, p3 for single
   //   others (low):   p3 for both
-  const preset = isChunked
+  // User preset (from editor) takes priority — only use tier default if not set.
+  const preset = userPreset || (isChunked
     ? (isHighTier ? 'p1' : isMidTier ? 'p2' : 'p3')
-    : 'p3'
+    : 'p3')
 
   // CQ tuning: RTX 5080 uses balanced CQ (quality vs file size)
   //   Chunked: speed focus → slightly higher CQ (smaller files, fast encode)
   //   Single-pass: quality focus → lower CQ (better quality)
   const cq = codec === 'hevc'
-    ? (isChunked ? '26' : '24')
-    : (isChunked ? '22' : '20')
+    ? (isChunked ? '24' : '20')
+    : (isChunked ? '20' : '18')
 
   // Tune: 'ull' = ultra-low-latency, fastest encode on RTX 5080
   //        'll'  = low-latency for mid-tier
@@ -691,14 +699,14 @@ function getNvencParams(codec: 'h264' | 'hevc', isChunked: boolean, gpuTier: GPU
     ? (isHighTier ? 'ull' : isMidTier ? 'll' : 'll')
     : 'hq'
 
-  // Bitrate cap based on output resolution — prevents huge file sizes
-  // when CQ mode produces high bitrate on simple content.
-  // Target: ~1.5-2 Mbps for 360p vertical, ~3 Mbps for 720p vertical.
+  // Bitrate cap based on output resolution — portrait upscaling needs more bitrate.
+  // Target: ~3 Mbps for 360p, ~6 Mbps for 720p, ~12 Mbps for 1080p.
+  // VBR HQ mode respects both max bitrate AND CQ quality target.
   let maxBitrate = ''
   if (canvasH > 0) {
-    if (canvasH <= 640) maxBitrate = '1500k'
-    else if (canvasH <= 1080) maxBitrate = '3000k'
-    else maxBitrate = '5000k'
+    if (canvasH <= 640) maxBitrate = '3000k'
+    else if (canvasH <= 1080) maxBitrate = '6000k'
+    else maxBitrate = '12000k'
   }
 
   const params: string[] = [
@@ -712,8 +720,10 @@ function getNvencParams(codec: 'h264' | 'hevc', isChunked: boolean, gpuTier: GPU
   ]
 
   // Add bitrate cap for VBR mode — prevents oversized files
+  // bufsize = 2× maxrate (FFmpeg best practice for rate control)
   if (maxBitrate) {
-    params.push('-maxrate', maxBitrate, '-bufsize', maxBitrate)
+    const bufsizeK = String(parseInt(maxBitrate) * 2) + 'k'
+    params.push('-maxrate', maxBitrate, '-bufsize', bufsizeK)
   }
 
   if (isChunked) {
@@ -843,8 +853,15 @@ export async function preRenderOverlays(
   workspaceId: string,
   gpuTier: GPUTier = 'software',
 ): Promise<{ bottomBarOverlayPath: string | null; titleOverlayPath: string | null; error: string | null }> {
+  // Bottom bar is created when bottomBarEnabled=true (regardless of title text).
+  // If there's title text, it's drawn on the bar. If not, the bar is still created (solid color bar).
   const titleOl = metadata.overlays?.find(o => o.type === 'title' && o.content)
-  if (!titleOl?.content) return { bottomBarOverlayPath: null, titleOverlayPath: null, error: null }
+  const bottomBarEnabled = metadata.bottomBarEnabled !== false  // default true
+  if (!bottomBarEnabled) return { bottomBarOverlayPath: null, titleOverlayPath: null, error: null }
+
+  // Text on bar (empty string if no title text)
+  const barText = titleOl?.content || 'PART 1'
+  const escapedText = barText.replace(/"/g, '""')
 
   // Zone math
   const [canvasW, canvasH] = (metadata.export_resolution || '1080x1920').split('x').map(Number)
@@ -855,12 +872,13 @@ export async function preRenderOverlays(
   const landscapeVideoH = Math.floor(canvasH * vidHeightPct / 100)
   const landscapeTitleH = Math.floor(canvasH * (100 - vidHeightPct) / 100)
 
-  // Hex color from borderColor prop (e.g. #00B4FF)
-  const hex = (titleOl.borderColor || '#00B4FF').replace(/^#/, '')
+  // Hex color: use editorState.bottomBarColor (for SHORT bottom bar) first,
+  // fallback to titleOl.borderColor (for LANDSCAPE title) if not available.
+  const hex = (metadata.bottomBarColor || titleOl?.borderColor || '#00B4FF').replace(/^#/, '')
   const r = parseInt(hex.slice(0, 2), 16)
   const g = parseInt(hex.slice(2, 4), 16)
   const b2 = parseInt(hex.slice(4, 6), 16)
-  const escapedText = titleOl.content.replace(/"/g, '""')
+  const escapedTitleText = (titleOl?.content || '').replace(/"/g, '""')
 
   // ── SHORT mode: bottom bar PNG (barW × bottomBarH, FULLY opaque bar + text) ──
   // PNG is the EXACT bar size (not canvas). Overlay directly at bottomBarY.
@@ -916,10 +934,10 @@ export async function preRenderOverlays(
     '$g.DrawRectangle($pen,$b,$b,$w-$b*2,$h-$b*2)',
     '$pen.Dispose()',
     '$font=New-Object System.Drawing.Font("Arial",' + fontSize + ',[System.Drawing.FontStyle]::Bold)',
-    '$size=$g.MeasureString("' + escapedText + '",$font)',
+    '$size=$g.MeasureString("' + escapedTitleText + '",$font)',
     '$tw=[int]$size.Width;$th=[int]$size.Height',
     '$tx=($w-$tw)/2;$ty=($h-$th)/2',
-    '$g.DrawString("' + escapedText + '",$font,(New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)),$tx,$ty)',
+    '$g.DrawString("' + escapedTitleText + '",$font,(New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)),$tx,$ty)',
     '$g.Dispose();$font.Dispose()',
     '$bmp.Save("' + titleOverlayPath.replace(/\\/g, '/') + '",[System.Drawing.Imaging.ImageFormat]::Png)',
     '$bmp.Dispose()',
@@ -1138,6 +1156,18 @@ export async function renderVideo(
   devLog(`[RenderLayout] canvas=${canvasW}x${canvasH} isShort=${resolvedIsShort} headerH=${headerH} videoH=${videoH} videoTop=${videoTop} bottomBarH=${bottomBarH}`)
   devLog(`[FilterComplex] ${filterComplex}`)
 
+  // ── ENCODER CONFIG ───────────────────────────────────────────────────────
+  const encParams = isGpuAvailable ? getNvencParams(codec, false, gpuTier, canvasW, canvasH, metadata.preset) : ['-preset', 'ultrafast', '-crf', '20']
+  const srcExists = fs.existsSync(source_video)
+  const srcSize = srcExists ? Math.round(fs.statSync(source_video).size / 1024 / 1024) : 0
+  const crfVal = codec === 'hevc' ? (isGpuAvailable ? '20' : '26') : (isGpuAvailable ? '18' : '22')
+  const maxrateVal = canvasH <= 640 ? '3M' : canvasH <= 1080 ? '6M' : '12M'
+  const bufsizeVal = canvasH <= 640 ? '6M' : canvasH <= 1080 ? '12M' : '24M'
+  devLog(`[RenderConfig] SOURCE=${source_video} (${srcSize}MB) CANVAS=${canvasW}x${canvasH}(${canvasH}p) CODEC=${nvencCodec} PRESET=${metadata.preset || (isGpuAvailable ? 'p3' : 'ultrafast')} CRF=${crfVal} MAXRATE=${maxrateVal} BUFSIZE=${bufsizeVal} HEADER=${headerOl?.src || 'THUMBNAIL_FALLBACK'} BOTTOMBAR=${bottomBarOverlayPath ? 'ENABLED' : 'DISABLED'} BGTYPE=${effectiveBackgroundType} SPEED=${video_speed || 1}x TRIM=${trimStart}s-${trimStart + duration}s(${duration}s) AUDIO=${metadata.audioCodec || 'aac'}/${metadata.audioBitrate || '192k'} OUTPUT=${outputFile}`)
+  devLog(`[RenderConfig] FFMPEG=${getFfmpegPath()}`)
+  devLog(`[RenderConfig] ENCPARAMS=${encParams.join(' ')}`)
+  // ───────────────────────────────────────────────────────────────────────
+
   // Build FFmpeg args
   // Inputs: [0]=source, [1]=background, [2]=header image, [3]=overlay PNG
   const args: string[] = [
@@ -1162,7 +1192,7 @@ export async function renderVideo(
     '-map', mapOutput,
     '-map', '0:a?',
     '-c:v', nvencCodec,
-    ...(isGpuAvailable ? getNvencParams(codec, false, gpuTier, canvasW, canvasH) : ['-preset', 'ultrafast', '-crf', '20']),
+    ...(isGpuAvailable ? getNvencParams(codec, false, gpuTier, canvasW, canvasH, metadata.preset) : ['-preset', 'ultrafast', '-crf', '20']),
     '-c:a', audioCodec,
     '-b:a', audioBitrate,
     '-t', String(duration),

@@ -715,10 +715,13 @@ export default function DashboardPage() {
     const overlays: object[] = []
     if (editorState.headerImageDiskPath) {
       overlays.push({ type: 'header', src: editorState.headerImageDiskPath })
-    } else if (editorState.backgroundImageDiskPath || ws.blurBackgroundPath) {
-      // SHORT: thumbnail shown in header zone (above video). LANDSCAPE: thumbnail shown in header zone.
-      const thumbSrc = editorState.backgroundImageDiskPath || ws.blurBackgroundPath || ''
-      overlays.push({ type: 'header', src: thumbSrc })
+    } else if (editorState.backgroundImageDiskPath) {
+      // Custom background image → use as header overlay
+      overlays.push({ type: 'header', src: editorState.backgroundImageDiskPath })
+    } else {
+      // No custom image → header overlay will be filled with thumbnail disk path in executeRenderJob
+      // Empty src signals "use thumbnail fallback" (executeRenderJob checks fs.existsSync(wsThumbPath))
+      overlays.push({ type: 'header', src: '' })
     }
     const isShort = ws.isShort !== false
     // SHORT mode + bottom bar: title text goes to bottom bar, not as video overlay
@@ -748,6 +751,8 @@ export default function DashboardPage() {
       isShort,
       vidHeightPct: editorState.vidHeightPct,
       bottomBarH,
+      bottomBarColor: editorState.bottomBarColor,
+      bottomBarEnabled: editorState.bottomBarEnabled,
     }
 
     updateWorkspace(ws.id, { status: 'rendering', renderProgress: 0 })
@@ -835,6 +840,8 @@ export default function DashboardPage() {
       isShort,
       vidHeightPct: editorState.vidHeightPct,
       bottomBarH,
+      bottomBarColor: editorState.bottomBarColor,
+      bottomBarEnabled: editorState.bottomBarEnabled,
     }
 
     updateWorkspace(ws.id, { status: 'rendering', renderProgress: 0 })

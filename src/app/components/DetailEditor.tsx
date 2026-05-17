@@ -1261,9 +1261,14 @@ function CanvasArea({ video, editorState, onChange, onTimeUpdate }: {
               }}
             >
               {isShort ? (
-                // SHORT mode: header image zone
+                // SHORT mode: header image zone — show thumbnail (like FFmpeg render)
                 editorState.headerImageUrl ? (
                   <img src={editorState.headerImageUrl} alt="header"
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: `center ${editorState.headerImageOffsetY}%`, pointerEvents: 'none' }}
+                  />
+                ) : localThumbSrc ? (
+                  // Show thumbnail in header zone (matches FFmpeg header overlay)
+                  <img src={localThumbSrc} alt="header"
                     style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: `center ${editorState.headerImageOffsetY}%`, pointerEvents: 'none' }}
                   />
                 ) : (
@@ -1306,9 +1311,10 @@ function CanvasArea({ video, editorState, onChange, onTimeUpdate }: {
                   style={{
                     width: '100%',
                     height: '100%',
-                    // SHORT: contain (show 16:9 video in 9:16 zone)
-                    // LANDSCAPE: cover + center = crop to square (match FFmpeg pad output)
-                    objectFit: isShort ? 'contain' : 'cover',
+                    // Both SHORT and LANDSCAPE use cover + center: scale to fill zone, crop excess.
+                    // This matches FFmpeg render: scale to fit height → crop excess width (SHORT)
+                    // or scale to fit width → crop excess height (LANDSCAPE).
+                    objectFit: 'cover',
                     objectPosition: 'center',
                     display: 'block',
                   }}
@@ -1334,7 +1340,8 @@ function CanvasArea({ video, editorState, onChange, onTimeUpdate }: {
                   style={{
                     width: '100%',
                     height: '100%',
-                    objectFit: isShort ? 'contain' : 'cover',
+                    // Cover + center: crop to fill zone (matches FFmpeg render crop behavior)
+                    objectFit: 'cover',
                     objectPosition: 'center',
                     display: 'block',
                     pointerEvents: 'none',
@@ -1391,21 +1398,31 @@ function CanvasArea({ video, editorState, onChange, onTimeUpdate }: {
               </div>
 
               {isShort && editorState.bottomBarEnabled ? (
-                // Bottom bar preview: full-width opaque bar
+                // Bottom bar preview: background blur image + accent color overlay + white text
+                // Matches FFmpeg: background shows through bar gap, solid bar on top, text on bar
                 <div style={{
                   width: '100%', height: '100%',
-                  background: editorState.bottomBarColor || '#00B4FF',
+                  position: 'relative',
+                  background: `url(${localThumbSrc || video.thumbnail}) center/cover`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
-                  {editorState.titleText ? (
-                    <span style={{ fontSize: Math.round(bottomBarH * 0.3), fontWeight: 700, color: '#FFF', textAlign: 'center', lineHeight: 1.2 }}>
-                      {editorState.titleText}
-                    </span>
-                  ) : (
-                    <span style={{ fontSize: Math.round(bottomBarH * 0.25), fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>
-                      PART 1
-                    </span>
-                  )}
+                  {/* Accent color overlay + bottom bar solid bar */}
+                  <div style={{
+                    position: 'absolute', inset: 0,
+                    background: `linear-gradient(transparent 20%, ${editorState.bottomBarColor || '#00B4FF'} 55%)`,
+                    opacity: 0.92,
+                  }} />
+                  {/* Bar top edge line */}
+                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1, background: 'rgba(255,255,255,0.2)' }} />
+                  {/* Text */}
+                  <span style={{
+                    position: 'relative', zIndex: 1,
+                    fontSize: Math.round(bottomBarH * 0.35),
+                    fontWeight: 700, color: '#FFF', textAlign: 'center', lineHeight: 1.2,
+                    textShadow: '0 1px 3px rgba(0,0,0,0.6)',
+                  }}>
+                    {editorState.titleText || 'PART 1'}
+                  </span>
                 </div>
               ) : (
                 // Title overlay preview
