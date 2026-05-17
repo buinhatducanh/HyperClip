@@ -182,6 +182,8 @@ const INIT_EDITOR: EditorState = {
   backgroundImageDiskPath: null,
   backgroundColor: '#000000',
   vidHeightPct: 50,
+  bottomBarEnabled: true,
+  bottomBarColor: '#00B4FF',
 }
 
 // ─── Store ─────────────────────────────────────────────────────────────────────

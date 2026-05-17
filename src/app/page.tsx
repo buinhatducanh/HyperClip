@@ -462,18 +462,17 @@ export default function DashboardPage() {
     return cleanup
   }, [showToast, addNotification])
 
-  // Render-complete → refresh rendered videos list
+  // Render-complete → add rendered video to list via IPC event
   useEffect(() => {
-    const cleanup = ipc.onNotification((n) => {
-      const notif = n as { type: string; message: string; workspaceId?: string }
-      if ((notif.type === 'success') && notif.workspaceId &&
-          (notif.message?.startsWith('Done') || notif.message?.startsWith('Render done') || notif.message?.startsWith('Render xong'))) {
-        // Reload list from backend so it includes thumbnailData and correct output paths
-        initRenderedVideos()
+    const cleanup = window.electronAPI?.onRenderedAdd((video) => {
+      const rv = video as { id: string; workspaceId?: string; videoTitle?: string; archivedPath?: string; thumbnail?: string; thumbnailData?: string; duration?: number; fileSize?: number; renderedAt?: string; codec?: string; quality?: number }
+      if (rv?.id) {
+        // Prepend to the list (most recent first)
+        useAppStore.setState((s) => ({ renderedVideos: [rv as any, ...s.renderedVideos] }))
       }
     })
-    return cleanup
-  }, [initRenderedVideos])
+    return cleanup ?? (() => {})
+  }, [])
 
   // ─── Activity feed ─────────────────────────────────────────────────────────────
   /**
@@ -664,8 +663,13 @@ export default function DashboardPage() {
   const handleQuickAction = (action: 'open' | 'delete', id: string) => {
     if (action === 'delete') {
       removeWorkspace(id)
-      ipc.deleteWorkspace(id).catch(() => {})
-      showToast('Workspace removed')
+      ipc.deleteWorkspace(id).then((result) => {
+        const r = result as { bytesFreed?: number; filesDeleted?: number } | null
+        if (r && r.bytesFreed && r.bytesFreed > 0) {
+          const freedMB = (r.bytesFreed / 1024 / 1024).toFixed(1)
+          showToast(`Deleted (${r.filesDeleted} files, ${freedMB} MB freed)`)
+        }
+      }).catch(() => {})
     } else {
       selectWorkspace(id)
     }
@@ -704,29 +708,46 @@ export default function DashboardPage() {
     const trimStartSec = Math.round((editorState.trimStart / 100) * totalSec)
     const trimEndSec = Math.round((editorState.trimEnd / 100) * totalSec)
 
+    const exportRes = editorState.exportQuality === 360 ? '360x640' : editorState.exportQuality === 720 ? '720x1280' : '1080x1920'
+    const canvasH = parseInt(exportRes.split('x')[1])
+    const bottomBarH = Math.floor(canvasH * 0.10)
+
     const overlays: object[] = []
     if (editorState.headerImageDiskPath) {
       overlays.push({ type: 'header', src: editorState.headerImageDiskPath })
-    } else if ((ws.isShort === false) && (editorState.backgroundImageDiskPath || ws.blurBackgroundPath)) {
+    } else if (editorState.backgroundImageDiskPath || ws.blurBackgroundPath) {
+      // SHORT: thumbnail shown in header zone (above video). LANDSCAPE: thumbnail shown in header zone.
       const thumbSrc = editorState.backgroundImageDiskPath || ws.blurBackgroundPath || ''
       overlays.push({ type: 'header', src: thumbSrc })
     }
-    if (editorState.titleText) overlays.push({
-      type: 'title', content: editorState.titleText, shape: editorState.titleShape,
-      borderColor: editorState.titleBorderColor, bgColor: editorState.titleBgColor, fontSize: editorState.titleFontSize,
-    })
+    const isShort = ws.isShort !== false
+    // SHORT mode + bottom bar: title text goes to bottom bar, not as video overlay
+    if (editorState.titleText && !(isShort && editorState.bottomBarEnabled)) {
+      overlays.push({
+        type: 'title', content: editorState.titleText, shape: editorState.titleShape,
+        borderColor: editorState.titleBorderColor, bgColor: editorState.titleBgColor, fontSize: editorState.titleFontSize,
+      })
+    }
+    // SHORT mode: add title text to bottom bar if enabled
+    if (isShort && editorState.bottomBarEnabled && editorState.titleText) {
+      overlays.push({
+        type: 'title', content: editorState.titleText,
+        borderColor: editorState.bottomBarColor,
+      })
+    }
 
     const metadata = {
       workspace_id: ws.id, source_video: ws.downloadedPath,
-      export_resolution: editorState.exportQuality === 360 ? '360x640' : editorState.exportQuality === 720 ? '720x1280' : '1080x1920',
+      export_resolution: exportRes,
       video_speed: editorState.speedMultiplier, fps_target: 30, overlays,
       trim: { start: trimStartSec, end: trimEndSec },
       codec: editorState.exportCodec, preset: editorState.exportPreset, tune: editorState.exportTune,
       backgroundType: editorState.backgroundType, backgroundColor: editorState.backgroundColor,
       backgroundImage: editorState.backgroundImageDiskPath || undefined,
       blur_background: (editorState.backgroundType === 'blur' && ws.blurBackgroundPath) ? ws.blurBackgroundPath : '',
-      isShort: ws.isShort !== false,
+      isShort,
       vidHeightPct: editorState.vidHeightPct,
+      bottomBarH,
     }
 
     updateWorkspace(ws.id, { status: 'rendering', renderProgress: 0 })
@@ -782,22 +803,38 @@ export default function DashboardPage() {
       // Landscape: header overlay = custom thumbnail image
       overlays.push({ type: 'header', src: editorState.backgroundImageDiskPath })
     }
-    if (editorState.titleText) overlays.push({
-      type: 'title', content: editorState.titleText, shape: editorState.titleShape,
-      borderColor: editorState.titleBorderColor, bgColor: editorState.titleBgColor, fontSize: editorState.titleFontSize,
-    })
+    const isShort = ws.isShort !== false
+    // SHORT mode + bottom bar: title text goes to bottom bar, not as video overlay
+    if (editorState.titleText && !(isShort && editorState.bottomBarEnabled)) {
+      overlays.push({
+        type: 'title', content: editorState.titleText, shape: editorState.titleShape,
+        borderColor: editorState.titleBorderColor, bgColor: editorState.titleBgColor, fontSize: editorState.titleFontSize,
+      })
+    }
+    // SHORT mode: add title text to bottom bar if enabled
+    if (isShort && editorState.bottomBarEnabled && editorState.titleText) {
+      overlays.push({
+        type: 'title', content: editorState.titleText,
+        borderColor: editorState.bottomBarColor,
+      })
+    }
+
+    const exportRes = editorState.exportQuality === 360 ? '360x640' : editorState.exportQuality === 720 ? '720x1280' : '1080x1920'
+    const canvasH = parseInt(exportRes.split('x')[1])
+    const bottomBarH = Math.floor(canvasH * 0.10)
 
     const metadata = {
       workspace_id: ws.id, source_video: ws.downloadedPath,
-      export_resolution: editorState.exportQuality === 360 ? '360x640' : editorState.exportQuality === 720 ? '720x1280' : '1080x1920',
+      export_resolution: exportRes,
       video_speed: editorState.speedMultiplier, fps_target: 30, overlays,
       trim: { start: trimStartSec, end: trimEndSec },
       codec: editorState.exportCodec, preset: editorState.exportPreset, tune: editorState.exportTune,
       backgroundType: editorState.backgroundType, backgroundColor: editorState.backgroundColor,
       backgroundImage: editorState.backgroundImageDiskPath || undefined,
       blur_background: (editorState.backgroundType === 'blur' && ws.blurBackgroundPath) ? ws.blurBackgroundPath : '',
-      isShort: ws.isShort !== false,
+      isShort,
       vidHeightPct: editorState.vidHeightPct,
+      bottomBarH,
     }
 
     updateWorkspace(ws.id, { status: 'rendering', renderProgress: 0 })

@@ -111,6 +111,7 @@ const IPC = {
 
   // Rendered videos
   RENDERED_LIST: 'rendered:list',
+  RENDERED_ADD: 'rendered:add',
   RENDERED_ARCHIVE: 'rendered:archive',
   RENDERED_REMOVE: 'rendered:remove',
   RENDERED_OPEN_FOLDER: 'rendered:openFolder',
@@ -212,6 +213,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_: unknown, ws: unknown) => callback(ws)
     ipcRenderer.on(IPC.WORKSPACE_UPDATE_EVENT, handler)
     return () => ipcRenderer.removeListener(IPC.WORKSPACE_UPDATE_EVENT, handler)
+  },
+  onRenderedAdd: (callback: (video: unknown) => void) => {
+    const handler = (_: unknown, video: unknown) => callback(video)
+    ipcRenderer.on(IPC.RENDERED_ADD, handler)
+    return () => ipcRenderer.removeListener(IPC.RENDERED_ADD, handler)
   },
   onQuickAdd: (callback: () => void) => {
     const handler = () => callback()

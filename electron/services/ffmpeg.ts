@@ -457,7 +457,7 @@ function buildFilterComplex(opts: {
   // format=yuv420p after every scale_cuda bridges the gap — output becomes system RAM yuv420p,
   // which overlay_cuda (and all downstream filters) can consume directly.
   const scale = useCuda ? 'scale_cuda' : 'scale'
-  const overlay = useCuda ? 'overlay_cuda' : 'overlay'
+  const ov = useCuda ? 'overlay_cuda' : 'overlay'
 
   // ── LANDSCAPE layout: thumbnail bg + landscape video + part number ──
   // IMPORTANT: sections[1] = bgChain2 outputs [bg] via [1:v].
@@ -491,25 +491,28 @@ function buildFilterComplex(opts: {
       // Scale source to videoH tall (preserves aspect), then crop to canvasW wide.
       // e.g. canvas 1080x1920, videoH=960: scale 1920x1080 → 1707x960, crop 157 each side → 1080x960.
       const cropX = cropXNum
-      // fps filter: decimate + rescale timestamps to exact 30fps output.
-      // select='not(mod(n\,2))' drops frames but KEEPS original timestamps → encoder duplicates
-      // frames to fill gaps → stuttering. fps=N both decimate AND rescale timestamps → smooth output.
+      // Frame rate: fps=30 BEFORE trim+setpts (like PS1 script).
+      // Order: fps→setpts (NOT setpts→fps). fps normalizes framerate first, setpts resets timestamps.
+      // NO select filter — causes 2x frame halving when combined with fps=30.
+      const fpsTag = fpsTarget ? `fps=${fpsTarget},` : ''
       const trimSection = (trimStart > 0 || trimDuration > 0)
-        ? `trim=start=${trimStart}:duration=${trimDuration > 0 ? trimDuration : 999999},setpts=PTS-STARTPTS,fps=${fpsTarget},`
-        : `fps=${fpsTarget},setpts=PTS-STARTPTS,`
+        ? `[0:v]${fpsTag}trim=start=${trimStart}:duration=${trimDuration > 0 ? trimDuration : 999999},setpts=PTS-STARTPTS,`
+        : `[0:v]${fpsTag}setpts=PTS-STARTPTS,`
       // cropY: center the video content vertically in the video zone.
       // Shift by videoTop so video starts at row videoTop (below header zone).
       const cropY = videoTop
-      videoChain2 = `[0:v]${trimSection}${scale}=-2:${videoH},crop=${canvasW}:${videoH}:${cropX}:${cropY}${speedFilter ? ',' + speedFilter : ''}[vid]`
+      videoChain2 = `${trimSection}${scale}=-2:${videoH},crop=${canvasW}:${videoH}:${cropX}:${cropY}${speedFilter ? ',' + speedFilter : ''}[vid]`
     } else {
       // Source narrower than canvas aspect: scale to canvasW wide, crop excess height.
       // e.g. canvas 1080x1920, videoH=960, canvasW=1080: cropY=(1080*9/16-960)/2 = -281 < 0
       // → cropY < 0 means source is too tall for video zone → crop 0 top, center the video.
       const cropY = Math.round((canvasW * 9 / 16 - videoH) / 2) + videoTop
+      // Frame rate: fps=30 BEFORE trim+setpts. NO select filter (2x halving bug).
+      const fpsTag = fpsTarget ? `fps=${fpsTarget},` : ''
       const trimSection = (trimStart > 0 || trimDuration > 0)
-        ? `trim=start=${trimStart}:duration=${trimDuration > 0 ? trimDuration : 999999},setpts=PTS-STARTPTS,fps=${fpsTarget},`
-        : `fps=${fpsTarget},setpts=PTS-STARTPTS,`
-      videoChain2 = `[0:v]${trimSection}${scale}=${canvasW}:-2,crop=${canvasW}:${videoH}:0:${cropY >= 0 ? cropY : 0}${speedFilter ? ',' + speedFilter : ''}[vid]`
+        ? `[0:v]${fpsTag}trim=start=${trimStart}:duration=${trimDuration > 0 ? trimDuration : 999999},setpts=PTS-STARTPTS,`
+        : `[0:v]${fpsTag}setpts=PTS-STARTPTS,`
+      videoChain2 = `${trimSection}${scale}=${canvasW}:-2,crop=${canvasW}:${videoH}:0:${cropY >= 0 ? cropY : 0}${speedFilter ? ',' + speedFilter : ''}[vid]`
     }
     // [1:v] thumbnail → FILL canvas (not fit within).
     // force_original_aspect_ratio=increase: scale up until canvas is covered.
@@ -518,22 +521,22 @@ function buildFilterComplex(opts: {
     // Video OVER thumbnail bg: video at videoTop (below header), thumbnail shows in header zone.
     // [bg][vid]overlay=0:videoTop = bg bottom, vid top: bg shows in header/title zones, video covers video zone.
     // Z-order: bg (bottom), video (middle), headerOl (top) — thumbnail visible in header zone.
-    const vzChain2 = `[bg][vid]${overlay}=0:${videoTop}[vz]`
+    const vzChain2 = `[bg][vid]${ov}=0:${videoTop}[vz]`
     // Header overlay: scale header image to canvas width × headerH, overlay on [vz].
     // Z-order: bg (bottom) → video (middle) → headerOl (top).
     // Header on top → thumbnail shows in header zone (where video doesn't cover).
     const hdChain2 = headerOl?.src
-      ? `[2:v]${scale}=${canvasW}:${headerH}:force_original_aspect_ratio=increase,crop=${canvasW}:${headerH}:(ow-iw)/2:(oh-ih)/2[hd];[vz][hd]${overlay}=0:0[fh]`
+      ? `[2:v]${scale}=${canvasW}:${headerH}:force_original_aspect_ratio=increase,crop=${canvasW}:${headerH}:(ow-iw)/2:(oh-ih)/2[hd];[vz][hd]${ov}=0:0[fh]`
       : ''
     // Title overlay (part number) at bottom
     if (titleOl?.content) {
       const sections = [videoChain2, bgChain2, vzChain2]
       if (hdChain2) sections.push(hdChain2)
-      const titleBase = hdChain2 ? '[fh]' : '[vz]'
+      const titleBase = hdChain2 ? 'fh' : 'vz'
       if (titleOverlayPath) {
         // PNG overlay: scale title image and overlay
         const titleInputIdx = hdChain2 ? '3' : '2'
-        sections.push(`[${titleInputIdx}:v]${scale}=${canvasW}:${titleH}:force_original_aspect_ratio=increase,crop=${canvasW}:${titleH}:(ow-iw)/2:(oh-ih)/2[titleScaled]`, `[${titleBase}][titleScaled]${overlay}=0:${canvasH - titleH}[td]`)
+        sections.push(`[${titleInputIdx}:v]${scale}=${canvasW}:${titleH}:force_original_aspect_ratio=increase,crop=${canvasW}:${titleH}:(ow-iw)/2:(oh-ih)/2[titleScaled]`, `[${titleBase}][titleScaled]${ov}=0:${canvasH - titleH}[td]`)
       } else {
         // Drawtext fallback: add text on top of [fh] (or [vz]).
         // Z-order: bg → video → header → text (text on TOP of header).
@@ -550,7 +553,7 @@ function buildFilterComplex(opts: {
         const drawtext = `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=white:box=1:boxcolor=${borderColor}:boxborderw=20:x=(w-text_w)/2:y=${titleY}-text_h/2:fontfile=${FONT_FILE}`
         // [fh] (header) bottom, [tdo] (header+text) top → text on top of header
         sections.push(`[${titleBase}]${drawtext}[tdo]`)
-        sections.push(`[${titleBase}][tdo]${overlay}=0:0[td]`)
+        sections.push(`[${titleBase}][tdo]${ov}=0:0[td]`)
       }
       return sections.join('; ')
     }
@@ -566,14 +569,16 @@ function buildFilterComplex(opts: {
   // Video shrinking: videoH = canvasH - headerH - bottomBarH.
   // BottomBarH defaults to 64px. Video bottom edge touches bar top edge — no overlap.
   //
-  // Trim filter: replaces input seeking (-ss) which causes timestamp corruption on
-  // FFmpeg gyan.dev 7.1 (→ 1fps playback).
-  // fps=${fpsTarget}: decimate + rescale timestamps to exact 30fps. Safe for VFR sources.
-  // setpts=PTS-STARTPTS always applied: resets timestamps after trim so output starts at 0.
+  // Filter order (MIRRORS scripts/render-core.ps1):
+  //   fps=30 → setpts=PTS-STARTPTS → trim → scale → crop
+  // NO select='not(mod(n\,2))' — causes 2x frame halving when combined with fps=30.
   const needsTrim = trimStart > 0 || trimDuration > 0
+  const fpsTag = fpsTarget ? `fps=${fpsTarget},` : ''
+  // fps BEFORE trim+setpts: normalizes framerate first, then setpts resets timestamps to 0.
+  // No select filter: fps=30 already outputs correct 30fps by duplicating/dropping frames as needed.
   const trimSection = needsTrim
-    ? `[0:v]trim=start=${trimStart}:duration=${trimDuration > 0 ? trimDuration : 999999},setpts=PTS-STARTPTS,fps=${fpsTarget}[trimmed]; `
-    : `[0:v]fps=${fpsTarget},setpts=PTS-STARTPTS[trimmed]; `
+    ? `[0:v]${fpsTag}trim=start=${trimStart}:duration=${trimDuration > 0 ? trimDuration : 999999},setpts=PTS-STARTPTS[trimmed]; `
+    : `[0:v]${fpsTag}setpts=PTS-STARTPTS[trimmed]; `
   // Video: fill canvas width, crop to videoH tall (bottomBarH gap left at bottom).
   // For 16:9 source → 9:16 canvas (1080x1920) with 64px bottom bar:
   //   scale=-2:videoH → source 1920x1080 → 1920x1472 (scales to target height, width auto)
@@ -603,37 +608,43 @@ function buildFilterComplex(opts: {
   const bbOverlay = bottomBarOverlayPath ? `[3:v]null[bb]` : ''
 
   // Build sections
-  // Z-order: bg(bottom) → video(middle, touches bar top) → header(top) → bottom bar(very bottom)
+  // CORRECT z-order: bg(bottom) → video(middle) → bottom bar → header(top)
   // Layer chain:
   //   [bg][vid]overlay=0:headerH → [vz] (bg + video, bg shows in header + bottom bar gap)
-  //   [vz][hd]overlay=0:0 → [fh] (header on top)
-  //   [fh][bb]overlay=0:(canvasH-bottomBarH) → [final] (bottom bar at very bottom)
+  //   [vz][bb]overlay=0:bottomBarY → [vb] (bottom bar on top of video)
+  //   [vb][hd]overlay=0:0 → [final] (header on top of bottom bar)
   const sections: string[] = [videoChain, bgChain]
 
-  if (hdChain) sections.push(hdChain, `[vz][hd]${overlay}=0:0[fh]`)
   if (bbOverlay) {
-    const baseLabel = hdChain ? '[fh]' : '[vz]'
+    // CORRECT z-order: bg → video → [vz] → bb → [vb] → header → [final]
     const bottomBarY = headerH + videoH  // canvasH - bottomBarH
-    sections.push(bbOverlay, `${baseLabel}[bb]${overlay}=0:${bottomBarY}[final]`)
+    sections.push(`[bg][vid]${ov}=0:${headerH}[vz]`)  // MUST create [vz] first
+    sections.push(bbOverlay, `[vz][bb]${ov}=0:${bottomBarY}[vb]`)
+    if (hdChain) {
+      // Header goes on TOP of bottom bar
+      sections.push(hdChain, `[vb][hd]${ov}=0:0[final]`)
+    } else {
+      sections.push(`[vb]null[final]`)
+    }
+  } else if (hdChain) {
+    // CORRECT: create [vz] first (bg + video), then overlay header on top.
+    sections.push(`[bg][vid]${ov}=0:${headerH}[vz]`, hdChain, `[vz][hd]${ov}=0:0[final]`)
   } else if (titleOl?.content) {
-    // Drawtext bottom bar: text drawn directly at the bottom bar zone Y.
-    // textY = headerH + videoH + bottomBarH/2 - text_h/2 = bottomBarCenter - text_h/2
+    // CORRECT: create [vz] first (bg + video), then apply drawtext on top.
+    sections.push(`[bg][vid]${ov}=0:${headerH}[vz]`)
     const bbY = headerH + videoH // top of bottom bar zone
     const bbCenter = bbY + Math.floor((canvasH - bbY) / 2)
     const fontSize = Math.max(24, Math.floor((canvasH - bbY) * 0.25))
     const escapedText = titleOl.content.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\]")
     const borderColor = toFfmpegColor(titleOl.borderColor ?? '#00B4FF')
-    const baseLabel = hdChain ? '[fh]' : '[vz]'
-    // Draw opaque background rectangle for the bar, then text on top
-    const barH = canvasH - bbY
-    const barY = bbY
+    const baseLabel = hdChain ? 'fh' : 'vz'
     const drawtext = `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=white:box=1:boxcolor=${borderColor}:boxborderw=20:x=(w-text_w)/2:y=${bbCenter}-text_h/2:fontfile=${FONT_FILE}`
-    sections.push(`${baseLabel}${drawtext}[final]`)
-  } else if (hdChain) {
-    sections.push('[vz][hd]' + overlay + '=0:0[final]')
+    sections.push(`[${baseLabel}]${drawtext}[final]`)
   }
 
-  return sections.join('; ')
+  const fc = sections.join('; ')
+  devLog(`[FilterComplex] ${fc}`)
+  return fc
 }
 
 // ─── Optimized NVENC parameters ─────────────────────────────────────────────────
@@ -777,7 +788,7 @@ export async function renderTextOverlay(
   //   because FFmpeg 7.x lavfi parser doesn't treat single quotes as string delimiters.
   const filter =
     // Generate semi-transparent bg color source (FFmpeg 7.x syntax)
-    `color=${borderColor}:alpha=${alpha}:s=${boxW}x${boxH}:d=1:r=1,` +
+    `color=${borderColor}@${alpha}:s=${boxW}x${boxH}:d=1:r=1,` +
     `format=yuva420p[bg];` +
     // Solid border color source (FFmpeg 7.x syntax)
     `color=${borderColor}:s=${boxW}x${boxH}:d=1:r=1,` +
@@ -791,7 +802,7 @@ export async function renderTextOverlay(
     `[bgBorder][texted]overlay=x=${boxX}:y=${boxY},format=yuva420p[bgBorderText];` +
     // Crop final to box size, then pad to full canvas (FFmpeg 7.x syntax)
     `crop=${boxW}:${boxH}:${boxX}:${boxY},` +
-    `pad=${canvasW}:${canvasH}:0:0:color=black:alpha=0[out]`
+    `pad=${canvasW}:${canvasH}:0:0:color=black@0.0[out]`
 
   return new Promise((resolve) => {
     const args = [
@@ -1038,43 +1049,34 @@ export async function renderVideo(
     codec = 'h264',
     backgroundType = 'blur', backgroundColor = '#000000', backgroundImage,
     blur_background,
-    isShort = true,
     vidHeightPct = 50,
     audioCodec = 'aac',
     audioBitrate = '192k',
   } = metadata
 
-  // Parse resolution from export_resolution — this IS used
   const [outW, outH] = export_resolution.split('x').map(Number)
   if (!outW || !outH) {
     return { success: false, workspaceId: workspace_id, error: 'Invalid resolution' }
   }
 
+  // Determine SHORT vs LANDSCAPE from canvas dimensions (not source aspect ratio)
+  const resolvedIsShort = outH >= outW
   const outputFile = path.join(outputDir, `${workspace_id}_output.mp4`)
-
-  // 3-zone layout derived from OUTPUT resolution
   const canvasW = outW
   const canvasH = outH
 
-  // SHORT:     header (20%) + video (60%) + title (20%)
-  // LANDSCAPE: vidHeightPct% for video zone, rest is thumbnail background, title below
-
-  // Fix: landscape videos don't have blur generated (only vertical videos do).
-  // When user selected BLUR but blur_background is empty → use thumbnail as background.
+  // If user chose "blur" but no blur file exists, fall back to image
   const effectiveBackgroundType = (backgroundType === 'blur' && !blur_background) ? 'image' : backgroundType
 
-  // SHORT: header=20%, video=remaining (after header + bottomBarH), bottomBarH=64px
-  // LANDSCAPE: header zone split evenly, video=vidHeightPct%, title=remaining
+  // Zone dimensions
   const bottomBarH = metadata.bottomBarH ?? Math.floor(canvasH * BOTTOM_PCT)
-  const headerH = isShort
+  const headerH = resolvedIsShort
     ? Math.floor(canvasH * HEADER_PCT)
     : Math.floor((canvasH - Math.floor(canvasH * vidHeightPct / 100)) / 2)
-  const titleH = isShort ? 0 : Math.floor(canvasH * (100 - vidHeightPct) / 100)
-  // SHORT: video fills from headerH to canvasH-bottomBarH (video bottom touches bar top)
-  const videoH = isShort
+  const videoH = resolvedIsShort
     ? canvasH - headerH - bottomBarH
     : Math.floor(canvasH * vidHeightPct / 100)
-  const videoTop = isShort ? headerH : Math.floor((canvasH - videoH) / 2)
+  const videoTop = resolvedIsShort ? headerH : Math.floor((canvasH - videoH) / 2)
   const videoW = Math.floor(videoH * 16 / 9)
 
   const trimStart = trim.start
@@ -1082,93 +1084,87 @@ export async function renderVideo(
   const duration = trimEnd - trimStart
 
   // Speed filter: setpts to change playback speed
-  // e.g. video_speed=1.5 → setpts=0.67*PTS (faster), video_speed=0.5 → setpts=2.0*PTS (slower)
   const speedFilter = video_speed !== 1.0 ? `setpts=${1 / video_speed}*PTS` : ''
 
-  // Overlay inputs
+  // Overlay inputs from editor
   const headerOl = overlays.find(o => o.type === 'header' && o.src)
   const titleOl = overlays.find(o => o.type === 'title' && o.content)
 
-  // Encoder: use NVENC if GPU is available, otherwise CPU (libx264/libx265).
-  // GPU detection sets tier='software' when h264_nvenc test fails (RTX 5080 + gyan.dev FFmpeg).
+  // Encoder
   const isGpuAvailable = gpuTier !== 'software'
   const nvencCodec = isGpuAvailable
     ? (codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc')
     : (codec === 'hevc' ? 'libx265' : 'libx264')
-
-  // CPU-aware threading: use all available cores for the filter pipeline.
-  // RTX 5080 + Core Ultra 9 (24 cores): can handle more threads.
-  // Cap at 16 to avoid thread oversubscription on the filter chain.
   const numThreads = Math.min(os.cpus().length, 16)
 
-  // Use CUDA hardware decode when available (h264_cuvid/hevc_cuvid).
-  // CUVID decodes directly to GPU memory — filter chain then runs on GPU.
-  // NOTE: Hardware decode is now safe because we use trim filter instead of input seeking (-ss).
-  // Input seeking caused timestamp corruption with NVDEC on FFmpeg gyan.dev 7.1 → 1fps playback.
-  // Trim filter + setpts=PTS-STARTPTS produces correct timestamps regardless of decoder.
-
-  // Build filter complex: GPU-accelerated (scale_cuda/overlay_cuda) with format=yuv420p after scale
-  // SHORT: pre-render bottom bar PNG (opaque bar with text). LANDSCAPE: pre-render title overlay PNG.
+  // Pre-render overlays (bottom bar PNG for SHORT, title PNG for LANDSCAPE)
   const overlayResult = await preRenderOverlays(metadata, outputDir, workspace_id, gpuTier)
   const bottomBarOverlayPath = overlayResult.bottomBarOverlayPath ?? undefined
   const titleOverlayPath = overlayResult.titleOverlayPath ?? undefined
 
-  // DEBUG: log all layout parameters to diagnose preview vs render mismatch
-  devLog(`[RenderLayout] canvas=${canvasW}x${canvasH} isShort=${isShort} headerH=${headerH} videoH=${videoH} videoTop=${videoTop} videoW=${videoW} bottomBarH=${bottomBarH} bottomBarOverlay=${!!bottomBarOverlayPath}`)
-  devLog(`[RenderLayout] backgroundType=${effectiveBackgroundType} (orig=${backgroundType}) backgroundImage=${backgroundImage} blur=${blur_background}`)
-  devLog(`[RenderLayout] headerOl=${!!headerOl?.src} titleOl=${!!titleOl?.content} titleText="${titleOl?.content}" fps_target=${fps_target}`)
-  const filterComplex = buildFilterComplex({ useCuda: getHwCaps().hasCudaFilters, headerOl, titleOl, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, speedFilter, backgroundType: effectiveBackgroundType, titleOverlayPath, bottomBarOverlayPath, isShort, fpsTarget: fps_target || 30, trimStart: trimStart, trimDuration: duration })
+  // Build filter complex using the corrected SHORT/LANDSCAPE logic
+  const filterComplex = buildFilterComplex({
+    useCuda: getHwCaps().hasCudaFilters,
+    headerOl,
+    titleOl,
+    canvasW,
+    canvasH,
+    headerH,
+    titleH: 0,
+    videoH,
+    videoTop,
+    videoW,
+    speedFilter,
+    backgroundType: effectiveBackgroundType,
+    titleOverlayPath,
+    bottomBarOverlayPath,
+    isShort: resolvedIsShort,
+    fpsTarget: fps_target || 30,
+    trimStart,
+    trimDuration: duration,
+  })
 
-  // Determine output label — [final] if bottomBar/title PNG, [td] if drawtext, [fh] if header exists, [vz] if none
+  // Determine which output label from the filter chain to use
   let mapOutput = '[vz]'
-  if (bottomBarOverlayPath) {
-    // Bottom bar PNG (SHORT): filter chain produces [final]
-    mapOutput = '[final]'
-  } else if (titleOverlayPath) {
-    // Title PNG (LANDSCAPE): filter chain produces [final]
-    mapOutput = '[final]'
-  } else if (titleOl?.content) {
-    mapOutput = '[final]'
-  } else if (headerOl?.src) {
-    // Header image (SHORT or LANDSCAPE): filter chain produces [fh]
-    mapOutput = '[fh]'
+  if (resolvedIsShort) {
+    if (bottomBarOverlayPath || titleOl?.content) mapOutput = '[final]'
+    else if (headerOl?.src) mapOutput = '[fh]'
+  } else {
+    if (titleOverlayPath) mapOutput = '[final]'
+    else if (titleOl?.content) mapOutput = '[td]'
+    else if (headerOl?.src) mapOutput = '[fh]'
   }
 
-  // Build ffmpeg args
-  // Inputs: [0]=source video, [1]=background, [2]=header image (optional), [3]=bottomBar/title overlay PNG
-  // SHORT: [3]=bottomBar overlay. LANDSCAPE: [3]=title overlay PNG.
-  //
-  // TRIM STRATEGY: NO input seeking (-ss). Trim is handled by filter chain (trim filter).
-  // Input seeking (-ss before -i) causes timestamp corruption with ALL decoders on FFmpeg
-  // gyan.dev 7.1 → 1fps playback. Trim filter + setpts=PTS-STARTPTS fixes timestamps.
-  // Hardware decode is now safe (no input seeking = no timestamp corruption).
+  devLog(`[RenderLayout] canvas=${canvasW}x${canvasH} isShort=${resolvedIsShort} headerH=${headerH} videoH=${videoH} videoTop=${videoTop} bottomBarH=${bottomBarH}`)
+  devLog(`[FilterComplex] ${filterComplex}`)
+
+  // Build FFmpeg args
+  // Inputs: [0]=source, [1]=background, [2]=header image, [3]=overlay PNG
   const args: string[] = [
     '-threads', String(numThreads),
     '-avoid_negative_ts', 'make_zero',
     '-i', quotePath(source_video),
-    // NVDEC GPU decode via per-stream -c:v, filter runs on CPU/GPU depending on build
-    ...(backgroundType === 'solid'
+    // Background: solid color, image, or blur thumbnail
+    ...(effectiveBackgroundType === 'solid'
       ? ['-f', 'lavfi', '-i', `color=${backgroundColor}:s=${canvasW}x${canvasH}:d=1:r=1`]
-      // Image/thumbnail must loop forever so overlay doesn't freeze after 1 frame
-      : backgroundType === 'image' && backgroundImage
+      : effectiveBackgroundType === 'image' && backgroundImage
         ? ['-loop', '1', '-i', quotePath(backgroundImage)]
         : blur_background
           ? ['-loop', '1', '-i', quotePath(blur_background)]
           : ['-f', 'lavfi', '-i', `color=black:s=${canvasW}x${canvasH}:d=1:r=1`]),
-    // Input [2]: header image for both SHORT and LANDSCAPE modes
-    ...(headerOl?.src ? ['-i', quotePath(headerOl.src)] : ['-f', 'lavfi', '-i', 'color=black:alpha=0:s=2x2:d=1:r=1']),
-    // Input [3]: bottom bar PNG (SHORT) or title overlay PNG (LANDSCAPE)
-    ...((isShort && bottomBarOverlayPath) || (!isShort && titleOverlayPath)
-      ? ['-i', quotePath((isShort ? bottomBarOverlayPath : titleOverlayPath)!)]
+    // Header overlay (always present — thumbnail or custom image)
+    ...(headerOl?.src ? ['-i', quotePath(headerOl.src)] : ['-f', 'lavfi', '-i', 'color=black:s=2x2:d=1:r=1']),
+    // Bottom bar PNG (SHORT) or title overlay PNG (LANDSCAPE)
+    ...((resolvedIsShort && bottomBarOverlayPath) || (!resolvedIsShort && titleOverlayPath)
+      ? ['-i', quotePath((resolvedIsShort ? bottomBarOverlayPath : titleOverlayPath)!)]
       : []),
     '-filter_complex', filterComplex,
     '-map', mapOutput,
     '-map', '0:a?',
     '-c:v', nvencCodec,
-    ...getNvencParams(codec, false, gpuTier, canvasW, canvasH),
+    ...(isGpuAvailable ? getNvencParams(codec, false, gpuTier, canvasW, canvasH) : ['-preset', 'ultrafast', '-crf', '20']),
     '-c:a', audioCodec,
     '-b:a', audioBitrate,
-    '-r', String(fps_target),
     '-t', String(duration),
     '-max_muxing_queue_size', '1024',
     '-y', quotePath(outputFile),
@@ -1195,6 +1191,12 @@ export async function renderVideo(
       })
     },
   })
+
+  if (result.success) {
+    devLog(`[TIMER] RENDER DONE: ${workspace_id} — ${result.outputFile} (${Math.round((result.fileSize ?? 0) / 1024 / 1024)} MB)`)
+  } else {
+    devLog(`[TIMER] RENDER FAILED: ${workspace_id} — ${result.error}`)
+  }
 
   return {
     success: result.success,
@@ -1315,6 +1317,8 @@ function buildChunkArgs(
     bgInput = ['-f', 'lavfi', '-i', 'color=black:s=' + canvasW + 'x' + canvasH + ':d=1:r=1']
   }
 
+  // Frame rate: fps=30 (no select filter — causes 2x halving when combined with fps=N)
+
   if (!isShort) {
     // Landscape: scale source to videoH, crop/pad to fit canvasW.
     // cropXNum = (videoH * 16/9 - canvasW) / 2
@@ -1327,10 +1331,8 @@ function buildChunkArgs(
     // canvas width, just format+fps+crop.
     const cropXNum = Math.round((videoH * 16 / 9 - canvasW) / 2)
     let videoSection: string
-    // Trim filter: replaces input seeking (-ss) to avoid timestamp corruption (→ 1fps).
-    // fps filter: decimate + rescale timestamps to exact 30fps. Safe for VFR sources.
     const trimPre = (trimStart > 0 || trimDuration > 0)
-      ? "trim=start=" + trimStart + ":duration=" + (trimDuration > 0 ? trimDuration : 999999) + ",setpts=PTS-STARTPTS,fps=" + fpsTarget + ","
+      ? "trim=start=" + trimStart + ":duration=" + (trimDuration > 0 ? trimDuration : 999999) + ",fps=" + fpsTarget + ",setpts=PTS-STARTPTS,"
       : "fps=" + fpsTarget + ",setpts=PTS-STARTPTS,"
     if (cropXNum >= 0) {
       // Scale source to videoH tall (preserves aspect), crop horizontally to canvasW.
@@ -1423,7 +1425,7 @@ function buildChunkArgs(
       '-avoid_negative_ts', 'make_zero',
       '-i', quotePath(sourceVideo),
       ...bgInput,
-      ...(headerOlSrc ? ['-i', quotePath(headerOlSrc)] : ['-f', 'lavfi', '-i', 'color=black:alpha=0:s=2x2:d=1:r=1']),
+      ...(headerOlSrc ? ['-i', quotePath(headerOlSrc)] : ['-f', 'lavfi', '-i', 'color=black:s=2x2:d=1:r=1']),
       ...(titleOverlayPath ? ['-i', quotePath(titleOverlayPath)] : []),
       '-filter_threads', '16',
       '-filter_complex', fixedFilterChain,
@@ -1432,7 +1434,6 @@ function buildChunkArgs(
       ...getNvencParams(codec, true, gpuTier, canvasW, canvasH),
       '-max_muxing_queue_size', '512',
       '-c:a', audioCodec, '-b:a', audioBitrate,
-      '-r', String(fpsTarget),
       '-t', String(trimDuration),
       '-y', quotePath(outputFile),
     ]
@@ -1440,10 +1441,9 @@ function buildChunkArgs(
 
   // Build section array for SHORT mode with correct ordering:
   // Layout: header (top) → video (middle, bottom touches bar) → bottom bar (bottom)
-  // Trim filter at the very start: replaces input seeking (-ss) to avoid timestamp corruption.
-  // fps filter: decimate + rescale timestamps to exact 30fps. Safe for VFR sources.
+  // Frame rate: fps=N (no select filter — causes 2x halving when combined with fps=N)
   const trimPre = (trimStart > 0 || trimDuration > 0)
-    ? 'trim=start=' + trimStart + ':duration=' + (trimDuration > 0 ? trimDuration : 999999) + ',setpts=PTS-STARTPTS,fps=' + fpsTarget + ','
+    ? 'trim=start=' + trimStart + ':duration=' + (trimDuration > 0 ? trimDuration : 999999) + ',fps=' + fpsTarget + ',setpts=PTS-STARTPTS,'
     : 'fps=' + fpsTarget + ',setpts=PTS-STARTPTS,'
   const sections: string[] = []
   const hasHeader = !!headerOlSrc
@@ -1471,28 +1471,38 @@ function buildChunkArgs(
   // BG shows through header zone and bottom bar gap.
   sections.push('[bg][vid]' + overlay + '=0:' + headerH + '[vz]')
 
-  // Section 4: header on top of [vz] → [fh]
-  if (hasHeader) {
-    sections.push('[2:v]' + scale + '=' + canvasW + ':' + headerH + ':force_original_aspect_ratio=increase,crop=' + canvasW + ':' + headerH + ':(ow-iw)/2:(oh-ih)/2,setsar=1[hd]')
-    sections.push('[vz][hd]' + overlay + '=0:0[fh]')
-    finalLabel = '[fh]'
-  }
-
-  // Section 5: bottom bar overlay (opaque bar with text at canvas bottom)
+  // CORRECT z-order: bg → video → bottom bar → header (header on top)
+  // Layer chain:
+  //   [vz][bb]overlay=bottomBarY → [vb] (bottom bar on top of video)
+  //   [vb][hd]overlay=0:0 → [final] (header on top of bottom bar)
   const bottomBarY = headerH + videoH  // = canvasH - bottomBarH
+
   if (hasBottomBar) {
+    // Bottom bar on video FIRST (below header in z-order)
     if (titleOverlayPath) {
-      // PNG bottom bar: overlay at y = bottomBarY
       sections.push('[3:v]null[bb]')
-      sections.push(finalLabel + '[bb]' + overlay + '=0:' + bottomBarY + '[final]')
+      sections.push('[vz][bb]' + overlay + '=0:' + bottomBarY + '[vb]')
     } else if (titleOl?.content) {
       // Drawtext bottom bar: text drawn at center of bottom bar zone.
       const fontSize = Math.max(24, Math.floor(bbH * 0.35))
       const textCenterY = bottomBarY + Math.floor(bbH / 2)
       const escapedText = (titleOl.content || '').replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\]")
       const borderColor = toFfmpegColor(titleOl.borderColor ?? '#00B4FF')
-      sections.push(finalLabel + 'drawtext=text=\'' + escapedText + '\':fontsize=' + fontSize + ':fontcolor=white:box=1:boxcolor=' + borderColor + ':boxborderw=20:x=(w-text_w)/2:y=' + textCenterY + '-text_h/2:fontfile=' + FONT_FILE + '[final]')
+      sections.push('[vz]drawtext=text=\'' + escapedText + '\':fontsize=' + fontSize + ':fontcolor=white:box=1:boxcolor=' + borderColor + ':boxborderw=20:x=(w-text_w)/2:y=' + textCenterY + '-text_h/2:fontfile=' + FONT_FILE + '[vb]')
     }
+
+    // Header on TOP of bottom bar
+    if (hasHeader) {
+      sections.push('[2:v]' + scale + '=' + canvasW + ':' + headerH + ':force_original_aspect_ratio=increase,crop=' + canvasW + ':' + headerH + ':(ow-iw)/2:(oh-ih)/2,setsar=1[hd]')
+      sections.push('[vb][hd]' + overlay + '=0:0[final]')
+    } else {
+      sections.push('[vb]null[final]')
+    }
+    finalLabel = '[final]'
+  } else if (hasHeader) {
+    // No bottom bar — header directly on video
+    sections.push('[2:v]' + scale + '=' + canvasW + ':' + headerH + ':force_original_aspect_ratio=increase,crop=' + canvasW + ':' + headerH + ':(ow-iw)/2:(oh-ih)/2,setsar=1[hd]')
+    sections.push('[vz][hd]' + overlay + '=0:0[final]')
     finalLabel = '[final]'
   }
 
@@ -1507,7 +1517,7 @@ function buildChunkArgs(
     '-i', quotePath(sourceVideo),
     ...bgInput,
     ...(isShort
-      ? (headerOlSrc ? ['-i', quotePath(headerOlSrc)] : ['-f', 'lavfi', '-i', 'color=black:alpha=0:s=2x2:d=1:r=1'])
+      ? (headerOlSrc ? ['-i', quotePath(headerOlSrc)] : ['-f', 'lavfi', '-i', 'color=black:s=2x2:d=1:r=1'])
       : []),
     ...(isShort && hasBottomBar ? ['-i', quotePath(titleOverlayPath!)] : []),
     '-filter_threads', '16',
@@ -1517,7 +1527,6 @@ function buildChunkArgs(
     ...getNvencParams(codec, true, gpuTier),
     '-max_muxing_queue_size', '512',
     '-c:a', audioCodec, '-b:a', audioBitrate,
-    '-r', String(fpsTarget),
     '-t', String(trimDuration),
     '-y', quotePath(outputFile),
   ]
@@ -1753,16 +1762,18 @@ export async function renderChunked(
   const [outW, outH] = metadata.export_resolution.split('x').map(Number)
   const canvasW = outW || 1080
   const canvasH = outH || 1920
+  // Override isShort from CANVAS dimensions, not from source video aspect ratio.
+  const resolvedIsShort2 = canvasH >= canvasW
   // SHORT: header=20%, video=remaining (after header + bottomBarH), bottomBarH=64px
   const bottomBarH = metadata.bottomBarH ?? Math.floor(canvasH * BOTTOM_PCT)
-  const headerH = isShort
+  const headerH = resolvedIsShort2
     ? Math.floor(canvasH * HEADER_PCT)
     : Math.floor((canvasH - Math.floor(canvasH * vidHeightPct / 100)) / 2)
-  const titleH = isShort ? 0 : Math.floor(canvasH * (100 - vidHeightPct) / 100)
-  const videoH = isShort
+  const titleH = resolvedIsShort2 ? 0 : Math.floor(canvasH * (100 - vidHeightPct) / 100)
+  const videoH = resolvedIsShort2
     ? canvasH - headerH - bottomBarH
     : Math.floor(canvasH * vidHeightPct / 100)
-  const videoTop = isShort ? headerH : Math.floor((canvasH - videoH) / 2)
+  const videoTop = resolvedIsShort2 ? headerH : Math.floor((canvasH - videoH) / 2)
   const videoW = Math.floor(videoH * 16 / 9)
 
   const trimStart = trim.start
@@ -1842,12 +1853,12 @@ export async function renderChunked(
         workspace_id, source_video, blur_background || '', startSec, durationSec, chunkFile,
         codec as 'h264' | 'hevc',
         canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW,
-        isShort ? bottomBarOverlayPath : (titleOverlayPath ?? undefined),
+        resolvedIsShort2 ? bottomBarOverlayPath : (titleOverlayPath ?? undefined),
         (pct) => {
           const chunkOverall = ((idx + pct / 100) / numChunks) * 90 + 5
           onProgress?.({ workspaceId: workspace_id, percent: chunkOverall, currentTime: 0, totalTime: 0, fps: 0, speed: '', bitrate: '', phase: 'encode', chunkIndex: idx })
         },
-        isShort,
+        resolvedIsShort2,
         video_speed,
         gpuTier,
         metadata.backgroundType,

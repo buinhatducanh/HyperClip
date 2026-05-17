@@ -65,6 +65,10 @@ export interface EditorState {
   backgroundColor: string;
   // Landscape video zone height (30-100% of canvas) — larger = video bigger, less thumbnail
   vidHeightPct: number;
+  /** Enable bottom bar (opaque bar at canvas bottom, text inside) — SHORT mode only */
+  bottomBarEnabled: boolean;
+  /** Bottom bar accent color hex */
+  bottomBarColor: string;
 }
 
 export interface KeyStatus {

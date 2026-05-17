@@ -114,6 +114,7 @@ export const IPC_CHANNELS = {
 
   // Rendered videos
   RENDERED_LIST: 'rendered:list',
+  RENDERED_ADD: 'rendered:add',
   RENDERED_ARCHIVE: 'rendered:archive',
   RENDERED_REMOVE: 'rendered:remove',
   RENDERED_OPEN_FOLDER: 'rendered:openFolder',

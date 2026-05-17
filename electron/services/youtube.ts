@@ -6,6 +6,7 @@ import https from 'https'
 import { app } from 'electron'
 import { getFfmpegPath, getFfprobePath } from './ffmpeg-paths.js'
 import { buildArgs, runSimpleFfmpeg, quotePath } from './ffmpeg.js'
+import { devLog } from './dev_log.js'
 
 // ─── HTTP helpers ───────────────────────────────────────────────────────────────
 function httpGet(url: string, timeout = 10000): Promise<string> {
@@ -882,6 +883,545 @@ async function multiInstanceDownload(opts: MultiInstanceOpts): Promise<DownloadR
   }
 }
 
+// ─── Video availability pre-check ──────────────────────────────────────────────
+// Fast probe: runs yt-dlp --no-download to check if a video is accessible.
+// Used BEFORE downloading to avoid wasting time on private/geo-blocked/deleted videos.
+// Returns null on probe failure (caller should proceed with caution).
+
+export interface VideoProbeResult {
+  available: boolean
+  isPrivate: boolean       // yt-dlp says "Private video"
+  isNotFound: boolean      // yt-dlp says "Video unavailable" / "not found"
+  isRateLimited: boolean   // yt-dlp says 429 / "Too Many Requests"
+  isProcessing: boolean     // yt-dlp says "is being processed"
+  title: string
+  duration: number         // actual duration from ffprobe (seconds), 0 if unknown
+  error?: string           // raw error message if not available
+}
+
+/**
+ * Probe video availability without downloading.
+ * Uses web client + Chrome cookies for best detection accuracy.
+ * Falls back to tv_embedded on "Private video" error.
+ */
+export async function probeVideoAvailability(
+  videoUrl: string,
+  ytCookiesFile: string | null,
+): Promise<VideoProbeResult | null> {
+  const ytdlp = getYtdlpPath()
+  const ffmpeg = getFfmpegPath()
+  const ffmpegDir = path.dirname(ffmpeg)
+  const ytDlpDir = path.dirname(ytdlp)
+  const enrichedPath = ffmpegDir + path.delimiter + ytDlpDir + path.delimiter + (process.env.PATH || '')
+
+  const tryClient = async (client: string): Promise<VideoProbeResult | null> => {
+    return new Promise((resolve) => {
+      const args = [
+        videoUrl,
+        ...getJsRuntimeArgs(),
+        '--extractor-args', `youtube:player_client=${client}`,
+        '--dump-json',
+        '--no-download',
+        '--no-playlist',
+        '--socket-timeout', '15',
+      ]
+      if (ytCookiesFile) {
+        args.push('--cookies', ytCookiesFile)
+      }
+
+      const proc = spawn(ytdlp, args, {
+        env: { ...process.env, PATH: enrichedPath },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+
+      let stdout = ''
+      let stderr = ''
+
+      proc.stdout?.on('data', (d) => { stdout += d.toString() })
+      proc.stderr?.on('data', (d) => { stderr += d.toString() })
+
+      const killTimer = setTimeout(() => {
+        if (!proc.killed) proc.kill()
+        resolve(null)
+      }, 20000)
+
+      proc.on('close', (code) => {
+        clearTimeout(killTimer)
+        const err = stderr.toLowerCase()
+
+        if (code === 0 && stdout.trim()) {
+          try {
+            const info = JSON.parse(stdout.trim())
+            return resolve({
+              available: true,
+              isPrivate: false,
+              isNotFound: false,
+              isRateLimited: false,
+              isProcessing: false,
+              title: info.title || '',
+              duration: info.duration || 0,
+            })
+          } catch {
+            return resolve(null)
+          }
+        }
+
+        const isPrivate = err.includes('private video')
+        const isNotFound = err.includes('not available') || err.includes('video unavailable') || err.includes('video not found')
+        const isRateLimited = err.includes('429') || err.includes('too many requests')
+        const isProcessing = err.includes('processing') || err.includes('is being processed')
+
+        if (isPrivate || isNotFound || isRateLimited || isProcessing) {
+          return resolve({
+            available: false,
+            isPrivate,
+            isNotFound,
+            isRateLimited,
+            isProcessing,
+            title: '',
+            duration: 0,
+            error: stderr.trim().slice(0, 300),
+          })
+        }
+
+        // Unknown error — return null to signal "couldn't determine"
+        resolve(null)
+      })
+
+      proc.on('error', () => {
+        clearTimeout(killTimer)
+        resolve(null)
+      })
+    })
+  }
+
+  // Try web client first
+  const webResult = await tryClient('web')
+  if (webResult) {
+    // If web says private, try tv_embedded as fallback probe
+    if (webResult.isPrivate) {
+      const tvResult = await tryClient('tv_embedded')
+      if (tvResult) return tvResult
+      // tv_embedded also failed — return web's result
+      return webResult
+    }
+    return webResult
+  }
+
+  // Probe failed entirely — return null (caller should attempt download with caution)
+  return null
+}
+
+/** Use ffprobe to get real video duration from a downloaded file. */
+export async function probeActualDuration(filePath: string): Promise<number> {
+  if (!fs.existsSync(filePath)) return 0
+  try {
+    const ffprobePath = getFfprobePath()
+    const out = execSync(
+      `"${ffprobePath}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 -- "${filePath}"`,
+      { encoding: 'utf-8', timeout: 10000 },
+    )
+    return Math.max(0, Math.floor(parseFloat(out.trim())))
+  } catch {
+    return 0
+  }
+}
+
+// ─── Client strategy download with fallback chain ───────────────────────────────
+// Client chain: web → tv_embedded → ios
+// - web: VP9/H.264, best quality up to 1080p+
+// - tv_embedded: H.264 720p, more lenient auth (works for some private/geo-blocked)
+// - ios: H.264, another fallback for edge cases
+//
+// Error classification:
+//   Private → try next client
+//   429 / rate-limit → exponential backoff + try next client
+//   not available / deleted → STOP, return error
+//   processing → exponential backoff, retry same client
+//   probe failure → try next client
+//   all failed → return error
+
+type YtdlpClient = 'web' | 'tv_embedded' | 'ios'
+
+interface DownloadStrategyOpts {
+  workspaceId: string
+  videoUrl: string
+  outputDir: string
+  trimLimit: number | 'full'
+  quality?: string
+  maxInstances?: 'auto' | number
+  onProgress?: (progress: DownloadProgress) => void
+  ytCookiesFile?: string | null
+  /** Pre-probed availability result — skips the pre-check probe if provided. */
+  preChecked?: VideoProbeResult
+}
+
+interface DownloadStrategyResult {
+  success: boolean
+  workspaceId: string
+  filePath?: string
+  duration?: number
+  fileSize?: number
+  error?: string
+  /** Client that succeeded */
+  client?: string
+  /** Why download ended (for logging) */
+  reason?: string
+}
+
+/**
+ * High-level download function with client fallback chain.
+ * Replaces the old downloadVideo() — callers should use this.
+ *
+ * Flow:
+ * 1. (Optional) Fast pre-check probe — detect private/short/unavailable BEFORE downloading
+ * 2. Client chain: web → tv_embedded → ios, each with section→full fallback
+ * 3. Multi-instance only if video is actually > 30s
+ * 4. Rate-limit detection with exponential backoff
+ */
+export async function downloadVideoStrategy(
+  opts: DownloadStrategyOpts,
+): Promise<DownloadStrategyResult> {
+  const {
+    workspaceId, videoUrl, outputDir, trimLimit,
+    quality = '720', maxInstances = 'auto',
+    onProgress, ytCookiesFile, preChecked,
+  } = opts
+
+  const clients: YtdlpClient[] = ['web', 'tv_embedded', 'ios']
+
+  for (let i = 0; i < clients.length; i++) {
+    const client = clients[i]
+    devLog(`[Download] Trying client: ${client} (${i + 1}/${clients.length})`)
+
+    const result = await downloadWithClient({
+      ...opts,
+      client,
+    })
+
+    if (result.success) {
+      devLog(`[Download] ${client} succeeded: ${result.filePath}`)
+      return result
+    }
+
+    const err = result.error || ''
+
+    // Fatal errors — stop trying other clients
+    if (result.isNotFound) {
+      devLog(`[Download] ${client} → video not available/deleted — giving up`)
+      return result
+    }
+
+    if (result.isRateLimited) {
+      devLog(`[Download] ${client} → rate-limited (429) — exponential backoff`)
+      // Exponential backoff: 2s, 4s, 8s
+      const delay = 2000 * Math.pow(2, i)
+      await new Promise(r => setTimeout(r, delay))
+      // Continue to next client
+      continue
+    }
+
+    if (result.isProcessing) {
+      devLog(`[Download] ${client} → video still processing — exponential backoff`)
+      const delay = 15000 + Math.random() * 10000
+      await new Promise(r => setTimeout(r, delay))
+      // Retry same client after backoff
+      const retry = await downloadWithClient({ ...opts, client })
+      if (retry.success) return retry
+    }
+
+    // Private video — try next client
+    if (result.isPrivate) {
+      devLog(`[Download] ${client} → private/unauthorized — trying next client`)
+      continue
+    }
+
+    // Unknown error — try next client
+    devLog(`[Download] ${client} → unknown error: ${err.slice(0, 100)} — trying next client`)
+    continue
+  }
+
+  // All clients failed
+  return {
+    success: false,
+    workspaceId,
+    error: 'All download clients failed',
+  }
+}
+
+interface DownloadWithClientOpts extends DownloadStrategyOpts {
+  client: YtdlpClient
+}
+
+async function downloadWithClient(opts: DownloadWithClientOpts): Promise<DownloadStrategyResult & { isPrivate?: boolean; isNotFound?: boolean; isRateLimited?: boolean; isProcessing?: boolean }> {
+  const { workspaceId, videoUrl, outputDir, trimLimit, quality = '720', maxInstances = 'auto', onProgress, ytCookiesFile, client } = opts
+
+  const ytdlp = getYtdlpPath()
+  if (!fs.existsSync(ytdlp)) {
+    return { success: false, workspaceId, error: `yt-dlp not found at ${ytdlp}` }
+  }
+
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true })
+  }
+
+  // Check for existing file
+  const existingFiles = (() => {
+    try {
+      return fs.readdirSync(outputDir).filter(f =>
+        f.startsWith(workspaceId + '_') && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f)
+      )
+    } catch { return [] }
+  })()
+  if (existingFiles.length > 0) {
+    const existingFile = path.join(outputDir, existingFiles[0])
+    let fileSize = 0
+    try { fileSize = fs.statSync(existingFile).size } catch {}
+    const duration = await probeActualDuration(existingFile)
+    devLog(`[Download] File already exists: ${existingFile} (${(fileSize / 1024 / 1024).toFixed(1)} MB)`)
+    return { success: true, workspaceId, filePath: existingFile, duration, fileSize, reason: 'existing_file' }
+  }
+
+  const q = parseInt(quality)
+  const maxHeight = isNaN(q) ? 720 : q
+  const formatSelector = `bestvideo[height<=${maxHeight}][vcodec=h264]+bestaudio[acodec=aac]/bestvideo[height<=${maxHeight}][vcodec!=vp9][vcodec!=av1]+bestaudio[acodec=aac]/bestvideo[height<=${maxHeight}]+bestaudio/bestvideo+bestaudio/best`
+
+  // Multi-instance: only for 1080p+ with enough free RAM AND video > 30s
+  const freeMemGB = os.freemem() / (1024 ** 3)
+  let instanceCount = 1
+  if (maxInstances === 'auto' && freeMemGB >= 8 && maxHeight >= 1080) {
+    instanceCount = 2
+  } else if (typeof maxInstances === 'number' && maxInstances > 1) {
+    instanceCount = Math.min(maxInstances, 4)
+  }
+
+  // ── Try section download first (fast) ──────────────────────────────────────
+  const sectionArg = (() => {
+    if (typeof trimLimit !== 'number' || trimLimit <= 0) return null
+    const totalSeconds = trimLimit * 60
+    const hh = String(Math.floor(totalSeconds / 3600)).padStart(2, '0')
+    const mm = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0')
+    const ss = String(totalSeconds % 60).padStart(2, '0')
+    return `*00:00:00-${hh}:${mm}:${ss}`
+  })()
+
+  if (sectionArg && instanceCount > 1) {
+    // For multi-instance: use trimLimit duration, but verify video is long enough AFTER download
+    // by checking the file size. If file is suspiciously small (< 100KB per 10s), skip multi.
+    const result = await spawnDownload({
+      workspaceId, videoUrl, outputDir, formatSelector, client, ytCookiesFile,
+      extraArgs: ['--download-sections', sectionArg],
+      instanceCount, sectionArg, maxInstances, quality, onProgress,
+    })
+
+    if (result.success) {
+      // Verify actual duration with ffprobe
+      const actualDuration = await probeActualDuration(result.filePath!)
+      if (actualDuration > 0 && actualDuration < 30) {
+        devLog(`[Download] Section succeeded but video is only ${actualDuration}s — multi-instance wasted, continuing`)
+      }
+      return result
+    }
+
+    // Section failed — classify error
+    const classified = classifyError(result.error || '', result.stderr || '')
+    if (classified.isNotFound) return { ...result, ...classified }
+    if (classified.isRateLimited) return { ...result, ...classified }
+    if (classified.isProcessing) return { ...result, ...classified }
+
+    // For private/error: try full download below
+    devLog(`[Download] Section failed: ${result.error?.slice(0, 80)} — falling back to full`)
+  }
+
+  // ── Full download ────────────────────────────────────────────────────────────
+  if (sectionArg) {
+    devLog(`[Download] Attempting full download (skipping section)`)
+  }
+
+  const result = await spawnDownload({
+    workspaceId, videoUrl, outputDir, formatSelector, client, ytCookiesFile,
+    extraArgs: [],
+    instanceCount: 1, sectionArg: null, maxInstances: 1, quality, onProgress,
+  })
+
+  if (result.success) {
+    const actualDuration = await probeActualDuration(result.filePath!)
+    return { ...result, duration: actualDuration > 0 ? actualDuration : result.duration }
+  }
+
+  const classified = classifyError(result.error || '', result.stderr || '')
+  return { ...result, ...classified }
+}
+
+interface SpawnDownloadOpts {
+  workspaceId: string
+  videoUrl: string
+  outputDir: string
+  formatSelector: string
+  client: YtdlpClient
+  ytCookiesFile?: string | null
+  extraArgs: string[]
+  instanceCount: number
+  sectionArg: string | null
+  maxInstances: 'auto' | number
+  quality: string
+  onProgress?: (progress: DownloadProgress) => void
+}
+
+function classifyError(error: string, stderr: string): { isPrivate: boolean; isNotFound: boolean; isRateLimited: boolean; isProcessing: boolean } {
+  const combined = (error + ' ' + stderr).toLowerCase()
+  return {
+    isPrivate: combined.includes('private video') || combined.includes('sign in if you\'ve been granted access'),
+    isNotFound: combined.includes('not available') || combined.includes('video unavailable') || combined.includes('video not found') || combined.includes('removed by'),
+    isRateLimited: combined.includes('429') || combined.includes('too many requests') || combined.includes('rate limit'),
+    isProcessing: combined.includes('processing') && combined.includes('video'),
+  }
+}
+
+async function spawnDownload(opts: SpawnDownloadOpts): Promise<DownloadStrategyResult & { stderr?: string }> {
+  const { workspaceId, videoUrl, outputDir, formatSelector, client, ytCookiesFile, extraArgs, onProgress } = opts
+
+  const ytdlp = getYtdlpPath()
+  const ffmpeg = getFfmpegPath()
+  const ffmpegDir = path.dirname(ffmpeg)
+  const ytDlpDir = path.dirname(ytdlp)
+  const enrichedPath = ffmpegDir + path.delimiter + ytDlpDir + path.delimiter + (process.env.PATH || '')
+
+  const outputTemplate = path.join(outputDir, `${workspaceId}_%(id)s.%(ext)s`)
+  const args: string[] = [
+    videoUrl,
+    ...getJsRuntimeArgs(),
+    '--extractor-args', `youtube:player_client=${client}`,
+    '--cookies', ytCookiesFile || '',
+    '-f', formatSelector,
+    '--output', outputTemplate,
+    '--no-playlist',
+    '--newline',
+    '--concurrent-fragments', '16',
+    '--retries', '3',
+    '--fragment-retries', '3',
+    '--socket-timeout', '15',
+    '--http-chunk-size', '10485760',
+    ...extraArgs,
+  ]
+
+  devLog(`[Download] Spawning yt-dlp (${client}): ${ytdlp}`)
+  devLog(`[Download] Args:`, args.map(a => a.length > 60 ? a.slice(0, 60) + '...' : a))
+
+  return new Promise((resolve) => {
+    let proc: ReturnType<typeof spawn>
+    try {
+      proc = spawn(ytdlp, args, {
+        env: { ...process.env, PATH: enrichedPath },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+    } catch (err: any) {
+      resolve({ success: false, workspaceId, error: `spawn failed: ${err.message}` })
+      return
+    }
+
+    let stderr = ''
+    let downloadedFile = ''
+    let progressEmitted = false
+
+    onProgress?.({ workspaceId, percent: 0, speed: '...', eta: 0, downloaded: '', total: '' })
+
+    proc.stdout?.on('data', (data: Buffer) => {
+      const text = data.toString()
+      const pctMatch = text.match(/(\d+\.?\d*)%/)
+      const destMatch = text.match(/(?:Dest(?:ination)?):\s*(.+)/)
+      const mergeMatch = text.match(/Merging formats into "(.+)"/)
+      const errorMatch = text.match(/ERROR.*?:?\s*(.+)/)
+
+      if (pctMatch) {
+        const pct = parseFloat(pctMatch[1])
+        if (pct >= 0 && pct <= 100) {
+          if (!progressEmitted) { devLog(`[Download] Progress: ${pct}%`); progressEmitted = true }
+          onProgress?.({ workspaceId, percent: pct, speed: '', eta: '', downloaded: '', total: '' })
+        }
+      } else if (destMatch) {
+        downloadedFile = destMatch[1].trim()
+        devLog(`[Download] Dest: ${downloadedFile}`)
+      } else if (mergeMatch) {
+        downloadedFile = mergeMatch[1]
+        devLog(`[Download] Merged: ${downloadedFile}`)
+        onProgress?.({ workspaceId, percent: 99, speed: 'processing', eta: 0, downloaded: '', total: '' })
+      } else if (errorMatch) {
+        stderr += errorMatch[1] + '\n'
+      } else if (text.includes('[download]') && !text.includes('%') && !text.includes('ERROR')) {
+        const trimmed = text.trim().slice(0, 100)
+        if (trimmed) devLog(`[Download] ${trimmed}`)
+      }
+    })
+
+    proc.stderr?.on('data', (data: Buffer) => {
+      const text = data.toString()
+      stderr += text
+      const pctMatch = text.match(/(\d+\.?\d*)%/)
+      const destMatch = text.match(/(?:\[download\]\s*Dest(?:ination)?:)\s*(.+)/)
+      const mergeMatch = text.match(/\[download\] Merging formats into "(.+)"/)
+
+      if (pctMatch) {
+        const pct = parseFloat(pctMatch[1])
+        if (pct >= 0 && pct <= 100) {
+          if (!progressEmitted) { progressEmitted = true }
+          onProgress?.({ workspaceId, percent: pct, speed: '', eta: '', downloaded: '', total: '' })
+        }
+      } else if (destMatch && !downloadedFile) {
+        downloadedFile = destMatch[1].trim()
+      } else if (mergeMatch) {
+        downloadedFile = mergeMatch[1]
+        onProgress?.({ workspaceId, percent: 99, speed: 'processing', eta: 0, downloaded: '', total: '' })
+      }
+    })
+
+    proc.on('error', (err) => {
+      resolve({ success: false, workspaceId, error: `spawn error: ${err.message}`, stderr })
+    })
+
+    const timeout = extraArgs.length > 0 ? 15 * 60 * 1000 : 30 * 60 * 1000
+    const timer = setTimeout(() => {
+      if (!proc.killed) proc.kill()
+      resolve({ success: false, workspaceId, error: 'Download timeout', stderr })
+    }, timeout)
+
+    proc.on('close', (code) => {
+      clearTimeout(timer)
+      devLog(`[Download] Closed code=${code}, file="${downloadedFile}"`)
+
+      if (!downloadedFile) {
+        try {
+          const files = fs.readdirSync(outputDir)
+          const match = files.find(f => f.startsWith(workspaceId + '_') && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f))
+          if (match) downloadedFile = path.join(outputDir, match)
+        } catch {}
+      }
+
+      const isFatal = code !== 0 && code !== 2
+      if (isFatal || !downloadedFile) {
+        const errorLines = stderr.trim().split('\n').filter(l => l.includes('ERROR'))
+        const fullError = errorLines.join(' | ') || `yt-dlp code ${code}`
+        resolve({ success: false, workspaceId, error: fullError, stderr })
+        return
+      }
+
+      let fileSize = 0
+      try { fileSize = fs.statSync(downloadedFile).size } catch {}
+
+      // Verify file is not corrupt (must be > 50KB)
+      if (fileSize < 50_000) {
+        devLog(`[Download] File too small (${fileSize} bytes) — likely corrupt`)
+        try { fs.unlinkSync(downloadedFile) } catch {}
+        resolve({ success: false, workspaceId, error: `File too small (${fileSize} bytes)`, stderr })
+        return
+      }
+
+      const actualDuration = fs.existsSync(downloadedFile) ? 0 : 0 // will be probed by caller
+      resolve({ success: true, workspaceId, filePath: downloadedFile, duration: actualDuration, fileSize, stderr })
+    })
+  })
+}
+
 // ─── Pre-scale source video to output resolution ─────────────────────────────────
 // OPTIMIZATION #3+#6: Downscale the source video to the target export resolution
 // AFTER download/trim but BEFORE render. This eliminates the scale filter from the render
@@ -942,366 +1482,56 @@ export async function preScaleVideo(
   })
 }
 
+/**
+ * Download wrapper — delegates to downloadVideoStrategy with full client fallback chain.
+ * Maintains backward compatibility with callers that pass playerClient/po_token.
+ *
+ * New callers: prefer downloadVideoStrategy() directly for cleaner API.
+ */
 export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult> {
-  const { workspaceId, videoUrl, outputDir, trimLimit, onProgress, quality = '720', maxInstances = 'auto', preFetchedDuration, retryStrategy, po_token, playerClient } = opts
-  const ytdlp = getYtdlpPath()
-
-  // Verify yt-dlp exists before attempting spawn
-  if (!fs.existsSync(ytdlp)) {
-    const err = `[yt-dlp] NOT FOUND at: ${ytdlp}\n  Install: pip install yt-dlp\n  Or: winget install yt-dlp`
-    console.error(err)
-    return { success: false, workspaceId, error: err }
-  }
-
-  // Ensure output dir exists
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true })
-  }
-
-  // Check if file already exists (user may have manually saved it or app restarted mid-download)
-  const existingFiles = (() => {
-    try {
-      return fs.readdirSync(outputDir).filter(f => f.startsWith(workspaceId + '_') && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f))
-    } catch { return [] }
-  })()
-  if (existingFiles.length > 0) {
-    const existingFile = path.join(outputDir, existingFiles[0])
-    let fileSize = 0
-    try { fileSize = fs.statSync(existingFile).size } catch {}
-    console.log(`[yt-dlp] File already exists: ${existingFile} (${fileSize} bytes) — skipping download`)
-    let duration = 0
-    try {
-      const ffprobePath = getFfprobePath()
-      const out = execSync(`"${ffprobePath}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${existingFile}"`, { encoding: 'utf-8', timeout: 10000 })
-      duration = Math.floor(parseFloat(out.trim()))
-    } catch {}
-    return { success: true, workspaceId, filePath: existingFile, duration, fileSize }
-  }
-
-  // Quality-aware format selector:
-  // Priority 1: H.264 (fast decode) at or below quality cap
-  // Priority 2: any codec at or below quality cap
-  // Priority 3: best available at quality cap (no H.264 available)
-  // Priority 4: best available without quality cap (corrupted/inaccessible video)
-  const q = parseInt(quality)
-  const maxHeight = isNaN(q) ? 720 : q
-  const formatSelector = `bestvideo[height<=${maxHeight}][vcodec=h264]+bestaudio[acodec=aac]/bestvideo[height<=${maxHeight}][vcodec!=vp9][vcodec!=av1]+bestaudio[acodec=aac]/bestvideo[height<=${maxHeight}]+bestaudio/bestvideo+bestaudio/best`
-
-  // Determine how many yt-dlp instances to use.
-  // - 1080p+ with fast internet (200+ Mbps): multi-instance cuts download time by ~N
-  // - 360-720p: single instance (CDN bottleneck, multi-instance won't help much)
-  // - Low RAM (< 8GB free): limit to 1 instance
-  const freeMemGB = os.freemem() / (1024 ** 3)
-  const isHighQuality = maxHeight >= 1080
-
-  let instanceCount: number
-  if (maxInstances === 1) {
-    instanceCount = 1
-  } else if (maxInstances === 'auto') {
-    if (freeMemGB >= 8 && isHighQuality) {
-      // 1080p+ on decent RAM: 2 instances for near-doubling throughput
-      // Cap at 2 to avoid YouTube rate-limit
-      instanceCount = 2
-    } else {
-      instanceCount = 1
-    }
-  } else {
-    instanceCount = Math.min(maxInstances, 4)
-  }
-
-  // ── Multi-instance section download (1080p+ on good internet) ────────────────
-  if (instanceCount > 1 && typeof trimLimit === 'number' && trimLimit > 0) {
-    // Start simulated progress (stopped by multiInstanceDownload's progressEmitted or on resolve)
-    const trimLimitSec = trimLimit * 60
-    const simStop = simulateDownloadProgress(workspaceId, onProgress, preFetchedDuration ?? trimLimit * 60, quality, trimLimitSec)
-    const multiResult = await multiInstanceDownload({
-      workspaceId, videoUrl, outputDir, formatSelector, trimLimit, instanceCount,
-      onProgress: (p) => { simStop(); onProgress?.(p) }, ytdlp, preFetchedDuration: opts.preFetchedDuration, retryStrategy: opts.retryStrategy,
-      poToken: po_token, ytCookiesFile: opts.ytCookiesFile,
+  // If explicit playerClient is given (e.g. 'tv_embedded'), use it directly without the
+  // fallback chain (caller is already retrying with a specific client).
+  if (opts.playerClient) {
+    const client = opts.playerClient as YtdlpClient
+    const result = await downloadWithClient({
+      workspaceId: opts.workspaceId,
+      videoUrl: opts.videoUrl,
+      outputDir: opts.outputDir,
+      trimLimit: opts.trimLimit,
+      quality: opts.quality,
+      maxInstances: opts.maxInstances,
+      onProgress: opts.onProgress,
+      ytCookiesFile: opts.ytCookiesFile,
+      client,
     })
-    simStop()
-    if (multiResult) return multiResult
-    // Fallthrough to single instance if multi failed
-  }
-
-  // ── Core download: spawns yt-dlp, resolves with result ─────────────────────
-  const doDownload = (extraArgs: string[]): Promise<DownloadResult> => {
-    // Determine actual download duration for simulation
-    const trimLimitSec = typeof trimLimit === 'number' && trimLimit > 0 ? trimLimit * 60 : 0
-    const simDuration = preFetchedDuration ?? (trimLimitSec > 0 ? trimLimitSec : 300) // default 5 min if unknown
-    const simStop = simulateDownloadProgress(workspaceId, onProgress, simDuration, quality, trimLimitSec)
-
-    const outputTemplate = path.join(outputDir, `${workspaceId}_%(id)s.%(ext)s`)
-
-    const args: string[] = [
-      videoUrl,
-      ...getJsRuntimeArgs(),
-    ]
-
-    // Quality strategy:
-    // - With PO Token → android DASH bestvideo+bestaudio (1080p H.264) — best quality
-    // - With explicit playerClient override → use that client (e.g. 'tv_embedded' for retry)
-    // - Without PO Token → web client with Chrome cookies (1080p VP9/H.264).
-    //   web client works for most public videos. On "Private video" error, caller retries
-    //   with tv_embedded client (more lenient, H.264 720p).
-    let resolvedFormat: string
-    if (po_token) {
-      args.push('--extractor-args', `youtube:player_client=android,po_token=${po_token}`)
-      resolvedFormat = formatSelector
-      console.log(`[yt-dlp] Using android DASH with PO Token (${po_token.slice(0, 8)}...)`)
-    } else if (playerClient) {
-      // Explicit client override (e.g. 'tv_embedded' as fallback)
-      args.push('--extractor-args', `youtube:player_client=${playerClient}`)
-      resolvedFormat = formatSelector
-      console.log(`[yt-dlp] Using ${playerClient} client with Chrome cookies`)
-    } else {
-      // web client: works with session cookies for most public videos.
-      // Accepts VP9 when H.264 isn't available at the requested quality.
-      args.push('--extractor-args', 'youtube:player_client=web')
-      resolvedFormat = formatSelector
-      console.log(`[yt-dlp] Using web client with Chrome cookies (best quality)`)
-    }
-
-    // Authenticate yt-dlp with Chrome cookies to bypass EJS anti-bot challenge
-    if (opts.ytCookiesFile) {
-      args.push('--cookies', opts.ytCookiesFile)
-      console.log(`[yt-dlp] Using Chrome cookies: ${opts.ytCookiesFile!.split(/[/\\]/).pop()}`)
-    }
-
-    args.push(
-      '-f', resolvedFormat,
-      '--output', outputTemplate,
-      '--no-playlist',
-      '--newline',
-      '--concurrent-fragments', '32',
-      '--retries', '3',
-      '--fragment-retries', '3',
-      '--socket-timeout', '10',
-      '--http-chunk-size', '10485760',
-      ...extraArgs,
-    )
-
-    // Build ffmpeg-enriched PATH
-    const ffmpegPath = getFfmpegPath()
-    const ffmpegDir = path.dirname(ffmpegPath)
-    const ytDlpDir = path.dirname(ytdlp)
-    const enrichedPath = ffmpegDir + path.delimiter + ytDlpDir + path.delimiter + (process.env.PATH || '')
-    console.log(`[yt-dlp] Spawning: "${ytdlp}"`)
-    console.log(`[yt-dlp] Args:`, args)
-
-    return new Promise((resolve) => {
-      let stdout = ''
-      let stderr = ''
-      let downloadedFile = ''
-      let progressEmitted = false
-
-      let proc
-      try {
-        proc = spawn(ytdlp, args, {
-          env: { ...process.env, PATH: enrichedPath },
-        })
-      } catch (err: any) {
-        simStop()
-        resolve({ success: false, workspaceId, error: `spawn failed: ${err.message}` })
-        return
-      }
-
-      proc.on('error', (err) => {
-        simStop()
-        resolve({ success: false, workspaceId, error: `spawn error: ${err.message}` })
-      })
-
-      // Emit progress IMMEDIATELY when process spawns.
-      // yt-dlp outputs no % lines while YouTube is "processing" (fresh uploads).
-      // Users see 0% forever without this — so show "downloading" right away.
-      onProgress?.({ workspaceId, percent: 0, speed: '...', eta: 0, downloaded: '', total: '' })
-
-      proc.stdout?.on('data', (data) => {
-        const text = data.toString()
-        stdout += text
-        // Parse standard progress line: "  25.3% of   45.00MiB at  1.23MiB/s ETA 0:32"
-        const progressMatch = text.match(/(\d+\.?\d*)%.*at\s+([\d.]+\w+)\s+ETA\s+([\d:]+)/)
-        // Fallback: just percent + file size (for section downloads that omit speed/ETA)
-        const pctMatch = text.match(/(\d+\.?\d*)%.*(?:of\s+[^\s]+\s+)?(?:at\s+([\d.]+\w+)\/s)?\s*(?:ETA\s+([\d:]+))?/)
-        const destMatch = text.match(/(?:Dest(?:ination)?):\s*(.+)/)
-        const mergeMatch = text.match(/Merging formats into "(.+)"/)
-        const errorMatch = text.match(/ERROR.*?:?\s*(.+)/)
-
-
-        if (progressMatch) {
-          if (!progressEmitted) { console.log(`[yt-dlp] Download started!`); progressEmitted = true; simStop() }
-          onProgress?.({
-            workspaceId,
-            percent: parseFloat(progressMatch[1]),
-            speed: progressMatch[2],
-            eta: progressMatch[3],
-            downloaded: '',
-            total: '',
-          })
-        } else if (pctMatch) {
-          const pct = parseFloat(pctMatch[1])
-          if (pct >= 0 && pct <= 100) {
-            if (!progressEmitted) { console.log(`[yt-dlp] Download started!`); progressEmitted = true; simStop() }
-            onProgress?.({
-              workspaceId,
-              percent: pct,
-              speed: pctMatch[2] ? pctMatch[2] + '/s' : '',
-              eta: pctMatch[3] || '',
-              downloaded: '',
-              total: '',
-            })
-          }
-        } else if (destMatch) {
-          console.log(`[yt-dlp] Dest: ${destMatch[1].trim()}`)
-        } else if (mergeMatch) {
-          downloadedFile = mergeMatch[1]
-          console.log(`[yt-dlp] Merged to: ${downloadedFile}`)
-          // FFmpeg post-processing started — freeze bar at 99%, stop simulation
-          simStop()
-          onProgress?.({ workspaceId, percent: 99, speed: 'processing', eta: 0, downloaded: '', total: '' })
-        } else if (errorMatch) {
-          stderr += errorMatch[1] + '\n'
-        } else if (text.includes('[download]') && !text.includes('%') && !text.includes('ERROR')) {
-          // Log interesting download events: fragment info, merge steps, etc.
-          const trimmed = text.trim().slice(0, 120)
-          if (trimmed) console.log(`[yt-dlp] ${trimmed}`)
-        }
-      })
-
-      proc.stderr?.on('data', (data) => {
-        const text = data.toString()
-        stderr += text
-
-        // On Windows, yt-dlp sends progress to stderr — parse it here
-        const progressMatch = text.match(/(\d+\.?\d*)%.*at\s+([\d.]+\w+)\s+ETA\s+([\d:]+)/)
-        const pctMatch = text.match(/(\d+\.?\d*)%.*(?:of\s+[^\s]+\s+)?(?:at\s+([\d.]+\w+)\/s)?\s*(?:ETA\s+([\d:]+))?/)
-        // Match both formats: "[download] Destination: ..." and "[yt-dlp] Dest: ..."
-        const destMatch = text.match(/(?:\[download\]\s*Dest(?:ination)?:|\[yt-dlp\]\s*Dest:)\s*(.+)/)
-        const mergeMatch = text.match(/\[download\] Merging formats into "(.+)"/)
-
-        if (progressMatch) {
-          if (!progressEmitted) { console.log(`[yt-dlp] Download started!`); progressEmitted = true; simStop() }
-          onProgress?.({
-            workspaceId,
-            percent: parseFloat(progressMatch[1]),
-            speed: progressMatch[2],
-            eta: progressMatch[3],
-            downloaded: '',
-            total: '',
-          })
-        } else if (pctMatch) {
-          const pct = parseFloat(pctMatch[1])
-          if (pct >= 0 && pct <= 100) {
-            if (!progressEmitted) { console.log(`[yt-dlp] Download started!`); progressEmitted = true; simStop() }
-            onProgress?.({
-              workspaceId,
-              percent: pct,
-              speed: pctMatch[2] ? pctMatch[2] + '/s' : '',
-              eta: pctMatch[3] || '',
-              downloaded: '',
-              total: '',
-            })
-          }
-        } else if (destMatch && !downloadedFile) {
-          downloadedFile = destMatch[1].trim()
-        } else if (mergeMatch) {
-          downloadedFile = mergeMatch[1]
-          // FFmpeg post-processing started — no more progress lines will follow.
-          // Emit 99% + speed='processing' to freeze the bar and signal "processing" state.
-          simStop()
-          onProgress?.({ workspaceId, percent: 99, speed: 'processing', eta: 0, downloaded: '', total: '' })
-        }
-      })
-
-      // Timeout: 15 min for section download (YouTube processing delay),
-      // 30 min for full download
-      const timeout = extraArgs.length > 0 ? 15 * 60 * 1000 : 30 * 60 * 1000
-      const timer = setTimeout(() => {
-        if (!proc.killed) proc.kill()
-        resolve({ success: false, workspaceId, error: 'Download timeout' })
-      }, timeout)
-
-      proc.on('close', (code) => {
-        simStop()
-        clearTimeout(timer)
-        console.log(`[yt-dlp] Closed code=${code}, file="${downloadedFile}"`)
-
-        if (stderr.length > 0) {
-          const lines = stderr.trim().split('\n').slice(0, 10)
-          console.log(`[yt-dlp] stderr: ${lines.join(' | ')}`)
-        }
-
-        // Fallback: scan for file by workspaceId pattern
-        if (!downloadedFile) {
-          try {
-            const files = fs.readdirSync(outputDir)
-            // Accept any video extension — yt-dlp may produce .webm, .mkv, .mp4, etc.
-        const match = files.find(f => f.startsWith(workspaceId + '_') && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f))
-            if (match) downloadedFile = path.join(outputDir, match)
-          } catch {}
-        }
-
-        const isFatalError = code !== 0 && code !== 2
-        if (isFatalError || !downloadedFile) {
-          const errorLines = stderr.trim().split('\n').filter(l => l.includes('ERROR'))
-          const fullError = errorLines.join(' | ') || `yt-dlp code ${code}`
-          // Classify error for better debugging
-          if (fullError.includes('429') || fullError.includes('Too Many Requests')) {
-            console.log(`[yt-dlp] 429 Rate Limit — YouTube is throttling this request`)
-          } else if (fullError.includes('processing this video') || fullError.includes('processing this video')) {
-            console.log(`[yt-dlp] Video still processing — YouTube hasn't finished encoding yet`)
-          } else if (fullError.includes('not available')) {
-            console.log(`[yt-dlp] Video unavailable or deleted`)
-          } else {
-            console.log(`[yt-dlp] Download failed: ${fullError.slice(0, 200)}`)
-          }
-          resolve({ success: false, workspaceId, error: fullError })
-          return
-        }
-
-        let fileSize = 0
-        try { fileSize = fs.statSync(downloadedFile).size } catch {}
-
-        let duration = 0
-        try {
-          const ffprobePath = getFfprobePath()
-          const out = execSync(`"${ffprobePath}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${downloadedFile}"`, { encoding: 'utf-8', timeout: 10000 })
-          duration = Math.floor(parseFloat(out.trim()))
-        } catch {}
-
-        resolve({ success: true, workspaceId, filePath: downloadedFile, duration, fileSize })
-      })
-    })
-  }
-
-  // Step 1: try section download (fast — downloads only needed portion).
-  // NOTE: section download is skipped for videos > trimLimit because yt-dlp can't
-  // append sections. In that case we download full, then FFmpeg cuts the trim.
-  const sectionArg = (() => {
-    if (typeof trimLimit !== 'number' || trimLimit <= 0) return null
-    const totalSeconds = trimLimit * 60
-    const hh = String(Math.floor(totalSeconds / 3600)).padStart(2, '0')
-    const mm = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0')
-    const ss = String(totalSeconds % 60).padStart(2, '0')
-    return `*00:00:00-${hh}:${mm}:${ss}`
-  })()
-
-  if (sectionArg) {
-    const sectionResult = await doDownload(['--download-sections', sectionArg])
-    if (sectionResult.success && sectionResult.filePath) {
-      // Verify: file must be > 100KB (corrupt/invalid section download = tiny file)
-      if (sectionResult.fileSize && sectionResult.fileSize > 100_000) {
-        console.log(`[yt-dlp] Section download OK: ${sectionResult.filePath} (${sectionResult.fileSize} bytes)`)
-        return sectionResult
-      }
-      // Suspiciously small — section download may have produced corrupt output
-      console.warn(`[yt-dlp] Section produced tiny file (${sectionResult.fileSize} bytes) — retrying full`)
-    } else {
-      console.warn(`[yt-dlp] Section download failed: ${sectionResult.error} — retrying full`)
+    return {
+      success: result.success,
+      workspaceId: result.workspaceId,
+      filePath: result.filePath,
+      duration: result.duration,
+      fileSize: result.fileSize,
+      error: result.error,
     }
   }
 
-  // Step 2: fallback to full download (covers section-parse failures + 'full' trim limit)
-  console.log('[yt-dlp] Falling back to full download...')
-  return doDownload([])
+  // Default: use the full client fallback chain (web → tv_embedded → ios)
+  const strategyResult = await downloadVideoStrategy({
+    workspaceId: opts.workspaceId,
+    videoUrl: opts.videoUrl,
+    outputDir: opts.outputDir,
+    trimLimit: opts.trimLimit,
+    quality: opts.quality,
+    maxInstances: opts.maxInstances,
+    onProgress: opts.onProgress,
+    ytCookiesFile: opts.ytCookiesFile,
+  })
+
+  return {
+    success: strategyResult.success,
+    workspaceId: strategyResult.workspaceId,
+    filePath: strategyResult.filePath,
+    duration: strategyResult.duration,
+    fileSize: strategyResult.fileSize,
+    error: strategyResult.error,
+  }
 }

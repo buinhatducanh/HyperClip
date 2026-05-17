@@ -81,7 +81,12 @@ export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowT
     const result = await ipc.removeRenderedVideo(id)
     if (result?.success) {
       onRemove(id)
-      onShowToast('Removed from list')
+      if (result.bytesFreed > 0) {
+        const freedMB = (result.bytesFreed / 1024 / 1024).toFixed(1)
+        onShowToast(`Deleted (${freedMB} MB freed)`)
+      } else {
+        onShowToast('Removed from list')
+      }
     } else {
       onShowToast('Failed to remove')
     }

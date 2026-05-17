@@ -17,7 +17,7 @@ type ElectronAPI = {
   removeChannel: (id: string) => Promise<unknown>
   getWorkspaces: () => Promise<unknown[]>
   updateWorkspace: (id: string, patch: object) => Promise<unknown>
-  deleteWorkspace: (id: string) => Promise<unknown>
+  deleteWorkspace: (id: string) => Promise<{ success: boolean; bytesFreed: number; filesDeleted: number }>
   retryWorkspace: (id: string) => Promise<unknown>
   redownloadHd: (id: string) => Promise<{ success: boolean; error?: string }>
   regenerateWorkspaceBlur: (id: string) => Promise<{ success: boolean; blurPath?: string; error?: string }>
@@ -73,7 +73,7 @@ type ElectronAPI = {
   cloneSessionOne: () => Promise<{ success: boolean; clonedCount: number; error?: string }>
   getRenderedVideos: () => Promise<unknown[]>
   archiveRendered: (workspaceId: string, customArchiveDir?: string) => Promise<{ success: boolean; archivedPath?: string; error?: string }>
-  removeRenderedVideo: (id: string) => Promise<{ success: boolean }>
+  removeRenderedVideo: (id: string) => Promise<{ success: boolean; bytesFreed: number }>
   openRenderedFolder: (id?: string) => Promise<{ success: boolean }>
   setRenderedArchivePath: (path: string) => Promise<{ success: boolean }>
   getStorageSize: () => Promise<{ downloads: number; blur: number; total: number; downloadPath: string; outputPath: string; freeBytes?: number }>
@@ -318,8 +318,9 @@ export const ipc = {
     return window.electronAPI?.archiveRendered(workspaceId, customArchiveDir) ?? { success: false, error: 'electronAPI not available' }
   },
 
-  async removeRenderedVideo(id: string) {
-    return window.electronAPI?.removeRenderedVideo(id) ?? { success: false }
+  async removeRenderedVideo(id: string): Promise<{ success: boolean; bytesFreed: number }> {
+    const r = await window.electronAPI?.removeRenderedVideo(id)
+    return r as { success: boolean; bytesFreed: number } ?? { success: false, bytesFreed: 0 }
   },
 
   async openRenderedFolder(id?: string) {

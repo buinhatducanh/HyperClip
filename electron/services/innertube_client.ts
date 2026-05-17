@@ -591,6 +591,61 @@ class InnertubeClientPool {
   }
 
   /**
+   * Fetch the uploads playlist directly from a channel's metadata.
+   * This bypasses the tab-based approach that fails when a channel has no
+   * Videos/Featured tabs (brand-new channels, restricted channels, etc.).
+   *
+   * Strategy: getChannelVideos() calls getTab('videos') internally.
+   * If that also fails → use the Innertube browse action to navigate directly
+   * to the channel's /videos URL, bypassing tab discovery.
+   */
+  private async _fetchUploadsTab(client: Innertube, channelId: string, channel: any): Promise<any | null> {
+    // Strategy 1: try getChannelVideos() — some channels have a /videos tab
+    // even when getVideos() (tab discovery) fails
+    try {
+      devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): trying getChannelVideos()`)
+      const videosTab = await (channel as any).getChannelVideos()
+      if (videosTab) {
+        devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): getChannelVideos succeeded`)
+        return videosTab
+      }
+    } catch (e) {
+      devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): getChannelVideos failed — ${String(e).slice(0, 80)}`)
+    }
+
+    // Strategy 2: navigate directly to /videos using browse action.
+    // Extract the uploads URL from channel info. The channel page always contains
+    // the /videos URL in channelMetadataRenderer.
+    try {
+      const info = (channel as any).info
+      const metadata = info?.metadata?.channelMetadataRenderer
+      const uploadsUrl = metadata?.uploadsUrl
+
+      if (uploadsUrl) {
+        devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): navigating to ${uploadsUrl}`)
+        const session = (client as any).session
+        if (session) {
+          const response = await session.actions.execute('/browse', {
+            browseId: channelId,
+            params: 'EgZ2aWRlb3M%3D',
+          })
+          if (response) {
+            devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): browse succeeded`)
+            return { page: response, current_tab: { content: response } }
+          }
+        }
+      } else {
+        devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): no uploadsUrl in channel metadata`)
+      }
+    } catch (e) {
+      devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): browse fallback failed — ${String(e).slice(0, 80)}`)
+    }
+
+    return null
+  }
+
+
+  /**
    * Fetch the NEWEST video from a channel using Innertube.
    * Returns null if no unseen video found or fetch fails.
    *
@@ -617,13 +672,32 @@ class InnertubeClientPool {
 
       // Some channels have no "Videos" tab (only Home/Shorts/Playlists).
       // Try videos tab first; fall back to home tab if not found.
+      // If both fail (e.g. channel has neither), try to get the uploads playlist directly
+      // from channel metadata — every channel has an uploads playlist regardless of tab structure.
       let videosTab: any
-      let usedFallback = false
+      let bothTabsFailed = false
       try {
         videosTab = await channel.getVideos()
       } catch {
-        videosTab = await channel.getHome()
-        usedFallback = true
+        try {
+          videosTab = await channel.getHome()
+        } catch {
+          bothTabsFailed = true
+        }
+      }
+
+      // When both standard tabs are unavailable, fetch the uploads playlist directly.
+      // This handles: brand-new channels, channels with no Videos/Featured tabs,
+      // channels that require authentication for tab access.
+      if (bothTabsFailed) {
+        devLog(`[InnertubePool] getLatestVideo(${channelId}): standard tabs unavailable — trying uploads playlist`)
+        const uploadsTab = await this._fetchUploadsTab(entry.client, channelId, channel)
+        if (uploadsTab) {
+          videosTab = uploadsTab
+        } else {
+          devLog(`[InnertubePool] getLatestVideo(${channelId}): uploads playlist fetch also failed`)
+          return null
+        }
       }
 
       const videoItems = extractVideosFromTab(videosTab)
@@ -797,18 +871,27 @@ class InnertubeClientPool {
       const channel = await entry.client.getChannel(channelId)
 
       let videosTab: any
-      let usedFallback = false
+      let bothTabsFailed = false
       try {
         videosTab = await channel.getVideos()
       } catch {
-        videosTab = await channel.getHome()
-        usedFallback = true
+        try {
+          videosTab = await channel.getHome()
+        } catch {
+          bothTabsFailed = true
+        }
       }
 
-      const videoItems = extractVideosFromTab(videosTab)
+      // When both standard tabs are unavailable, try the uploads playlist
+      if (bothTabsFailed) {
+        devLog(`[InnertubePool] getLatestVideos(${channelId}): standard tabs unavailable — trying uploads playlist`)
+        videosTab = await this._fetchUploadsTab(entry.client, channelId, channel) ?? undefined
+      }
+
+      const videoItems = videosTab ? extractVideosFromTab(videosTab) : []
 
       if (videoItems.length === 0) {
-        devLog(`[InnertubePool] getLatestVideos(${channelId}): tab="${(videosTab as any).title ?? (videosTab as any).current_tab?.title ?? '?'}" (fallback=${usedFallback}), 0 videos — session=${entry.profileId}`)
+        devLog(`[InnertubePool] getLatestVideos(${channelId}): 0 videos — session=${entry.profileId}`)
         return []
       }
 

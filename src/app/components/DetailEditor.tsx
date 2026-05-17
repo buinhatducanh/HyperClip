@@ -88,6 +88,15 @@ function IconPalette({ size = 12, color = '#555' }: { size?: number; color?: str
   )
 }
 
+function IconBarBottom({ size = 12, color = '#555' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  )
+}
+
 function IconPlay({ size = 18, color = '#FFF' }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
@@ -704,6 +713,80 @@ function TitleSection({ titleText, titleShape, titleBorderColor, titleBgColor, t
   )
 }
 
+// ─── Bottom Bar Section (SHORT mode only) ─────────────────────────────────────────
+
+function BottomBarSection({ bottomBarEnabled, bottomBarColor, titleText, onChange }: {
+  bottomBarEnabled: boolean
+  bottomBarColor: string
+  titleText: string
+  onChange: (p: Partial<EditorState>) => void
+}) {
+  return (
+    <div style={{ padding: '10px 0 8px' }}>
+      {/* Enable toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <input
+          type="checkbox"
+          id="bb-enabled"
+          checked={bottomBarEnabled}
+          onChange={(e) => {
+            onChange({ bottomBarEnabled: e.target.checked })
+            // Default text when enabling
+            if (e.target.checked && !titleText) {
+              onChange({ titleText: 'PART 1', bottomBarColor: '#00B4FF' })
+            }
+          }}
+          style={{ accentColor: '#00B4FF', width: 14, height: 14, cursor: 'pointer' }}
+        />
+        <label htmlFor="bb-enabled" style={{ fontSize: 11, color: '#888', cursor: 'pointer', flex: 1 }}>
+          Opaque bar at canvas bottom (SHORT only)
+        </label>
+      </div>
+
+      {bottomBarEnabled && (
+        <>
+          {/* Text */}
+          <input
+            type="text"
+            value={titleText}
+            onChange={(e) => onChange({ titleText: e.target.value })}
+            placeholder="PART 1"
+            style={{
+              width: '100%', background: '#080808', borderWidth: 1, borderStyle: 'solid',
+              borderColor: '#1A1A1A', borderRadius: 3, color: '#AAA', fontSize: 12,
+              padding: '6px 8px', outline: 'none', fontFamily: 'Inter',
+            }}
+          />
+
+          {/* Color + Info row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+            <div style={{ position: 'relative', height: 24, width: 60, borderRadius: 2, background: bottomBarColor, border: '1px solid #222', overflow: 'hidden', flexShrink: 0 }}>
+              <input
+                type="color"
+                value={bottomBarColor}
+                onChange={(e) => onChange({ bottomBarColor: e.target.value })}
+                style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }}
+              />
+            </div>
+            <span style={{ fontSize: 10, color: '#555' }}>
+              Bar color — text is auto white
+            </span>
+          </div>
+
+          {/* Preview strip */}
+          <div style={{
+            marginTop: 8, height: 16, borderRadius: 2,
+            background: bottomBarColor, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 9, fontWeight: 700, color: 'white', letterSpacing: 1,
+          }}>
+            {titleText || 'PART 1'}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ─── Speed Section ───────────────────────────────────────────────────────────────
 
 const SPEED_PRESETS = [1.0, 1.5, 2.0]
@@ -1120,8 +1203,9 @@ function CanvasArea({ video, editorState, onChange, onTimeUpdate }: {
   // Landscape: thumb + video(vidHeightPct%) + part
   const isShort = video.isShort !== false
   const headerH = isShort ? Math.round(quality * 0.20) : Math.round(quality * (100 - editorState.vidHeightPct) / 2 / 100)
-  const titleH = isShort ? Math.round(quality * 0.20) : Math.round(quality * (100 - editorState.vidHeightPct) / 2 / 100)
-  const videoH = isShort ? Math.round(quality * 0.60) : Math.round(quality * editorState.vidHeightPct / 100)
+  const bottomBarH = isShort ? Math.round(quality * 0.10) : 0
+  const titleH = isShort ? bottomBarH : Math.round(quality * (100 - editorState.vidHeightPct) / 2 / 100)
+  const videoH = isShort ? Math.round(quality * 0.70) : Math.round(quality * editorState.vidHeightPct / 100)
   // Title font: clamp to not overflow the zone
   const maxTitleFont = Math.floor(titleH * 0.15)
 
@@ -1294,37 +1378,58 @@ function CanvasArea({ video, editorState, onChange, onTimeUpdate }: {
               </div>
             </div>
 
-            {/* Zone 3: Title (short) / Part Number (landscape) */}
+            {/* Zone 3: Bottom bar (short + enabled) / Title overlay (landscape or short + disabled) */}
             <div style={{
               width: '100%', height: `${(titleH / NATIVE_H) * 100}%`,
               background: isDark ? '#000' : '#FFF',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexShrink: 0, position: 'relative',
+              overflow: 'hidden',
             }}>
               <div style={{ position: 'absolute', top: 3, left: 4, fontSize: 7, color: '#333', fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.05em' }}>
-                {isShort ? 'TITLE' : 'PART'}
+                {isShort && editorState.bottomBarEnabled ? 'BOTTOM BAR' : (isShort ? 'TITLE' : 'PART')}
               </div>
-              {/* Always show box: filled if has text, dashed border placeholder if empty */}
-              <div style={{
-                width: '70%',
-                background: editorState.titleBgColor,
-                borderWidth: 2, borderStyle: editorState.titleText ? 'solid' : 'dashed',
-                borderColor: editorState.titleBorderColor,
-                borderRadius: editorState.titleShape === 'rounded' ? 999 : 4,
-                padding: `${Math.round(editorState.titleFontSize * 0.6)}px ${Math.round(editorState.titleFontSize * 0.8)}px`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-                minHeight: maxTitleFont * 2,
-              }}>
-                {editorState.titleText ? (
-                  <span style={{ fontSize: Math.min(editorState.titleFontSize, maxTitleFont), fontWeight: 700, color: isDark ? '#FFF' : '#000', textAlign: 'center', lineHeight: 1.2, wordBreak: 'break-word' }}>
-                    {editorState.titleText}
-                  </span>
-                ) : (
-                  <span style={{ fontSize: Math.min(editorState.titleFontSize, maxTitleFont), fontWeight: 600, color: isDark ? '#333' : '#999', textAlign: 'center', lineHeight: 1.2 }}>
-                    {isShort ? 'Nhập tiêu đề...' : 'Part 1, 2, 3...'}
-                  </span>
-                )}
-              </div>
+
+              {isShort && editorState.bottomBarEnabled ? (
+                // Bottom bar preview: full-width opaque bar
+                <div style={{
+                  width: '100%', height: '100%',
+                  background: editorState.bottomBarColor || '#00B4FF',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {editorState.titleText ? (
+                    <span style={{ fontSize: Math.round(bottomBarH * 0.3), fontWeight: 700, color: '#FFF', textAlign: 'center', lineHeight: 1.2 }}>
+                      {editorState.titleText}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: Math.round(bottomBarH * 0.25), fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>
+                      PART 1
+                    </span>
+                  )}
+                </div>
+              ) : (
+                // Title overlay preview
+                <div style={{
+                  width: '70%',
+                  background: editorState.titleBgColor,
+                  borderWidth: 2, borderStyle: editorState.titleText ? 'solid' : 'dashed',
+                  borderColor: editorState.titleBorderColor,
+                  borderRadius: editorState.titleShape === 'rounded' ? 999 : 4,
+                  padding: `${Math.round(editorState.titleFontSize * 0.6)}px ${Math.round(editorState.titleFontSize * 0.8)}px`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                  minHeight: maxTitleFont * 2,
+                }}>
+                  {editorState.titleText ? (
+                    <span style={{ fontSize: Math.min(editorState.titleFontSize, maxTitleFont), fontWeight: 700, color: isDark ? '#FFF' : '#000', textAlign: 'center', lineHeight: 1.2, wordBreak: 'break-word' }}>
+                      {editorState.titleText}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: Math.min(editorState.titleFontSize, maxTitleFont), fontWeight: 600, color: isDark ? '#333' : '#999', textAlign: 'center', lineHeight: 1.2 }}>
+                      {isShort ? 'Nhập tiêu đề...' : 'Part 1, 2, 3...'}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Video controls overlay */}
@@ -1508,6 +1613,17 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
             titleBorderColor={editorState.titleBorderColor}
             titleBgColor={editorState.titleBgColor}
             titleFontSize={editorState.titleFontSize}
+            onChange={onChange}
+          />
+        )}
+
+        {/* BOTTOM BAR */}
+        <SectionHeader icon={<IconBarBottom size={11} color="#555" />} label="BOTTOM BAR" isExpanded={is('bb')} onToggle={() => toggle('bb')} />
+        {is('bb') && (
+          <BottomBarSection
+            bottomBarEnabled={editorState.bottomBarEnabled}
+            bottomBarColor={editorState.bottomBarColor}
+            titleText={editorState.titleText}
             onChange={onChange}
           />
         )}

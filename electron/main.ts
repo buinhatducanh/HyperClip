@@ -17,7 +17,7 @@ import {
   type WorkspaceData,
   getRenderedVideos, addRenderedVideo, removeRenderedVideo, type RenderedVideoRecord, type RenderConfigRecord, type SourceInfoRecord,
 } from './services/store.js'
-import { downloadVideo, getVideoInfo, getChannelInfo, getChannelId, preScaleVideo, type YtdlpVideoInfo, type YtdlpChannelInfo } from './services/youtube.js'
+import { downloadVideo, downloadVideoStrategy, probeVideoAvailability, probeActualDuration, getVideoInfo, getChannelInfo, getChannelId, preScaleVideo, type YtdlpVideoInfo, type YtdlpChannelInfo } from './services/youtube.js'
 import { renderVideo, renderChunked, generateBlurBackground, extractVideoThumbnail, cancelChunked, cancelAllChunked, probeVideoAspect, trimVideo, type RenderMetadata, type RenderProgress, type ChunkConfig } from './services/ffmpeg.js'
 import { cancelFfmpeg, cancelAllFfmpeg, getPoolStatus } from './services/worker-pool.js'
 import { getFfmpegPath, validateFfmpeg } from './services/ffmpeg-paths.js'
@@ -373,14 +373,13 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
               sourceInfo: sourceInfoRecord,
             }
             addRenderedVideo(record)
+            broadcast(IPC_CHANNELS.RENDERED_ADD, record)
+            // [TEST-MODE] Cleanup DISABLED — keep downloaded files for render testing
             // Cleanup pre-scaled source file after successful render
-            if (workspace.preScaledPath) {
-              try { fs.unlinkSync(workspace.preScaledPath) } catch {}
-            }
-            // TODO (debug): keep workspace in pipeline instead of deleting — for testing
-            // cleanupWorkspace(workspace.id, workspace.downloadedPath)
-            // deleteWorkspace(workspace.id)
-            // broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, null)
+            // if (workspace.preScaledPath) { try { fs.unlinkSync(workspace.preScaledPath) } catch {} }
+            // Cleanup downloaded video + blur after successful archive (storage optimization)
+            // const { bytesFreed } = cleanupWorkspace(workspace.id, workspace.downloadedPath)
+            // if (bytesFreed > 0) { const freedMB = (bytesFreed / 1024 / 1024).toFixed(1); devLog(`[AutoArchive] Cleaned ${freedMB} MB of downloaded files after archive`) }
             const _fileSizeMB = ((workspace.fileSize || 0) / 1024 / 1024).toFixed(1)
             const totalElapsed = ((Date.now() - renderStartMs) / 1000).toFixed(1)
             devLog(`[TIMER] ARCHIVE DONE: ${archiveResult.archivedPath}`)
@@ -507,44 +506,64 @@ async function autoDownloadFromWebSub(
     const channel = getChannel(channelId)
     const finalChannelName = channelName || channel?.name || 'Unknown Channel'
     const detectedAtNow = new Date().toISOString()
+    const videoUrl = 'https://www.youtube.com/watch?v=' + videoId
     devLog(`[Auto] Downloading: ${title} (${videoId}) from ${finalChannelName}, workspace=${ws.id}`)
 
-    // OPTIMIZATION #1: Pre-probe video duration before download.
-    // getVideoInfo --no-download is fast (~1-3s). Running it first lets multi-instance
-    // skip its internal probe, saving ~1-3s on the critical path for 1080p videos.
-    const videoUrl = 'https://www.youtube.com/watch?v=' + videoId
-    let preFetchedDuration: number | undefined
-    try {
-      const probe = await getVideoInfo(videoUrl)
-      if (probe?.duration && probe.duration > 0) {
-        preFetchedDuration = probe.duration
-        devLog(`[Auto] Pre-probed duration: ${preFetchedDuration}s`)
+    // Export Chrome cookies (cached 5 min) for yt-dlp authentication
+    const { getYtCookiesFile } = await import('./services/po_token.js')
+    const ytCookiesFile = await getYtCookiesFile()
+
+    // ── PHASE 0: Pre-check — detect private/short/unavailable BEFORE wasting time downloading ──
+    // This saves 1-5 minutes per private/short/deleted video.
+    devLog(`[Auto] Pre-check: probing video availability...`)
+    const preCheck = await probeVideoAvailability(videoUrl, ytCookiesFile)
+    if (preCheck) {
+      if (preCheck.isPrivate) {
+        devLog(`[Auto] Pre-check: video is PRIVATE — skipping download, marking as error`)
+        markVideoSeen(channelId, videoId)
+        updateWorkspace(ws.id, { status: 'error' })
+        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
+        sendNotification('error', `Private: ${title}`, ws.id)
+        return
       }
-    } catch {
-      // Probe failed — multi-instance will probe internally (acceptable)
+      if (preCheck.isNotFound) {
+        devLog(`[Auto] Pre-check: video not found/deleted — skipping download, marking as error`)
+        markVideoSeen(channelId, videoId)
+        updateWorkspace(ws.id, { status: 'error' })
+        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
+        sendNotification('error', `Unavailable: ${title}`, ws.id)
+        return
+      }
+      if (preCheck.isRateLimited) {
+        devLog(`[Auto] Pre-check: rate-limited — waiting 30s before attempting download`)
+        await new Promise(r => setTimeout(r, 30000))
+      }
+      if (preCheck.available && preCheck.duration > 0 && preCheck.duration < 60) {
+        devLog(`[Auto] Pre-check: video is ${preCheck.duration}s — too short (Shorts), skipping`)
+        markVideoSeen(channelId, videoId)
+        updateWorkspace(ws.id, { status: 'error' })
+        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
+        return
+      }
+      if (preCheck.available) {
+        devLog(`[Auto] Pre-check: available, duration=${preCheck.duration}s`)
+      }
+    } else {
+      devLog(`[Auto] Pre-check: could not determine availability — proceeding with download`)
     }
 
     devLog(`[Auto] DOWNLOAD START: "${title}" quality=${autoQuality}p trimLimit=${autoTrimLimit === 'full' ? 'full' : autoTrimLimit + 'm'}`)
 
-    // Get PO Token from Innertube pool — needed for android client to access 1080p+ formats
-    // Strategy:
-    // PO Token extraction disabled — yt-dlp auto client + Chrome cookies → 1080p H.264 (2026-05-15)
-    const po_token: string | null = null
-
-    // Export Chrome cookies (cached 5 min) for yt-dlp authentication (bypasses EJS challenge)
-    const { getYtCookiesFile } = await import('./services/po_token.js')
-    const ytCookiesFile = await getYtCookiesFile()
-
     const downloadStartMs = Date.now()
+    // downloadVideoStrategy handles the full client chain (web → tv_embedded → ios)
+    // with proper error classification, rate-limit backoff, and processing retry.
     let result = await downloadVideo({
       workspaceId: ws.id,
       videoUrl,
       outputDir: storagePath,
       trimLimit: autoTrimLimit,
       quality: autoQuality,
-      preFetchedDuration, // ← multi-instance uses this instead of re-probing
-      po_token,
-      ytCookiesFile, // ← Chrome cookies bypass EJS challenge → enables 1080p VP9
+      ytCookiesFile,
       onProgress: (progress) => {
         broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
           workspaceId: ws.id,
@@ -556,51 +575,23 @@ async function autoDownloadFromWebSub(
     })
 
     if (!result.success || !result.filePath) {
-      // Download failed — mark workspace as 'error' with retry backoff
-      const errorMsg = result.error || ''
-      const isNotAvailable = errorMsg.includes('not available') || errorMsg.includes('Video unavailable')
-      const isPrivateError = errorMsg.includes('Private video') || errorMsg.includes('private')
       recordDownloadFail()
+      const errorMsg = result.error || ''
+      const isNotAvailable = errorMsg.includes('not available') || errorMsg.includes('video unavailable') || errorMsg.includes('not found')
+      const isPrivate = errorMsg.includes('private video')
 
       if (isNotAvailable) {
         devLog(`[Auto] Video permanently unavailable: ${title} (${videoId})`)
-        updateWorkspace(ws.id, { status: 'error' })
         markVideoSeen(channelId, videoId)
-      } else if (isPrivateError) {
-        // "Private video" from yt-dlp means YouTube session validation failed for this client.
-        // NOT that the video is actually private. Retry with tv_embedded client (more lenient).
-        devLog(`[Auto] "Private video" — retrying with tv_embedded client...`)
-        const retryResult = await downloadVideo({
-          workspaceId: ws.id,
-          videoUrl,
-          outputDir: storagePath,
-          trimLimit: autoTrimLimit,
-          quality: autoQuality,
-          preFetchedDuration,
-          po_token: null,
-          ytCookiesFile,
-          playerClient: 'tv_embedded',
-          onProgress: (progress) => {
-            broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
-              workspaceId: ws.id,
-              percent: progress.percent,
-              speed: progress.speed,
-              eta: progress.eta,
-            })
-          },
-        })
-        if (retryResult.success && retryResult.filePath) {
-          result = retryResult
-        } else {
-          devLog(`[Auto] Retry also failed: ${retryResult.error}`)
-          const retryableAt = new Date(Date.now() + 5 * 60 * 1000).toISOString()
-          updateWorkspace(ws.id, { status: 'error', retryableAt })
-          broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
-          return
-        }
+        updateWorkspace(ws.id, { status: 'error' })
+      } else if (isPrivate) {
+        // All clients (web + tv_embedded + ios) returned Private — genuinely inaccessible
+        devLog(`[Auto] All clients returned Private: ${title} (${videoId}) — marking as permanently unavailable`)
+        markVideoSeen(channelId, videoId)
+        updateWorkspace(ws.id, { status: 'error' })
       } else {
-        devLog(`[Auto] Download failed (retryable): ${result.error}`)
-        // Set retryableAt = 5 minutes from now
+        // Network/rate-limit/timeout — set retryableAt for backoff
+        devLog(`[Auto] Download failed (retryable): ${errorMsg}`)
         const retryableAt = new Date(Date.now() + 5 * 60 * 1000).toISOString()
         updateWorkspace(ws.id, { status: 'error', retryableAt })
       }
@@ -810,21 +801,8 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
     return
   }
 
-  // Respect user's download quality setting
   const settings = loadSettings()
   const retryQuality = settings.autoDownloadQuality ?? '720'
-
-  // Get PO Token from Innertube pool — needed for android client to access 1080p+ formats
-  let po_token: string | null = null
-  try {
-    const pool = getInnertubePoolSync()
-    if (pool?.isReady()) {
-      const session = await pool.getDownloadSession(ws.videoId)
-      po_token = session?.po_token ?? null
-    }
-  } catch (e) {
-    console.warn('[Retry] Could not get PO Token:', e)
-  }
 
   // Export Chrome cookies for yt-dlp authentication (bypasses EJS challenge → enables 1080p VP9)
   const { getYtCookiesFile } = await import('./services/po_token.js')
@@ -833,13 +811,13 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
   updateWorkspace(ws.id, { status: 'downloading', downloadProgress: 0 })
   broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
 
+  // downloadVideo delegates to downloadVideoStrategy (web → tv_embedded → ios)
   const result = await downloadVideo({
     workspaceId: ws.id,
     videoUrl,
     outputDir: storagePath,
     trimLimit: ws.trimLimit || 10,
     quality: retryQuality,
-    po_token,
     ytCookiesFile,
     onProgress: (progress) => {
       broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
@@ -852,13 +830,15 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
   })
 
   if (result.success && result.filePath) {
+    // Probe actual duration from downloaded file (not yt-dlp metadata, which can be stale)
+    const actualDuration = await probeActualDuration(result.filePath)
     // Parallel: thumbnail + video info run simultaneously
     const thumbPath = path.join(storagePath, `thumb_${ws.id}.jpg`)
     const [thumbResult, videoInfo] = await Promise.all([
       extractVideoThumbnail(result.filePath, thumbPath),
       getVideoInfo(videoUrl),
     ])
-    const realDuration = result.duration || videoInfo?.duration || 0
+    const realDuration = actualDuration || videoInfo?.duration || 0
     const localThumbnail = thumbResult.success
       ? 'local-video:///' + thumbPath.replace(/\\/g, '/')
       : (videoInfo?.thumbnail || `https://img.youtube.com/vi/${ws.videoId}/mqdefault.jpg`)
@@ -940,8 +920,12 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
     markVideoSeen(ws.channelId, ws.videoId)
   } else {
     const errorMsg = result.error || ''
-    const isNotAvailable = errorMsg.includes('not available') || errorMsg.includes('Video unavailable')
-    if (isNotAvailable) {
+    const isNotAvailable = errorMsg.includes('not available') || errorMsg.includes('video unavailable') || errorMsg.includes('not found')
+    const isPrivate = errorMsg.includes('private video')
+    if (isPrivate) {
+      // All clients failed with private → genuinely inaccessible
+      updateWorkspace(ws.id, { status: 'error' })
+    } else if (isNotAvailable) {
       updateWorkspace(ws.id, { status: 'error' })
     } else {
       // Still retryable — stay in waiting with next retryableAt
@@ -1507,9 +1491,11 @@ async function registerIPCHandlers() {
 
   ipcMain.handle(IPC_CHANNELS.WORKSPACE_DELETE, async (_, id: string) => {
     const ws = getWorkspace(id)
-    cleanupWorkspace(id, ws?.downloadedPath)
+    const { bytesFreed, filesDeleted } = cleanupWorkspace(id, ws?.downloadedPath)
     deleteWorkspace(id)
-    return { success: true }
+    const freedMB = (bytesFreed / 1024 / 1024).toFixed(1)
+    sendNotification('success', `Deleted (${filesDeleted} files, ${freedMB} MB freed)`, id)
+    return { success: true, bytesFreed, filesDeleted }
   })
 
   ipcMain.handle(IPC_CHANNELS.WORKSPACE_RETRY, async (_, id: string) => {
@@ -1528,9 +1514,6 @@ async function registerIPCHandlers() {
     const storagePath = getVideoStoragePath()
     ensureStorageDirs()
 
-    // PO Token extraction disabled — yt-dlp auto client + Chrome cookies → 1080p H.264
-    const po_token: string | null = null
-
     const settings = loadSettings()
     const retryQuality = settings.autoDownloadQuality ?? '720'
     const retryTrimLimit = ws.trimLimit || 10
@@ -1541,13 +1524,13 @@ async function registerIPCHandlers() {
     const ytCookiesFile = await getYtCookiesFile()
 
     try {
+      // downloadVideo now uses downloadVideoStrategy internally (web → tv_embedded → ios)
       const result = await downloadVideo({
         workspaceId: id,
         videoUrl,
         outputDir: storagePath,
         trimLimit: retryTrimLimit,
         quality: retryQuality,
-        po_token,
         ytCookiesFile,
         onProgress: (progress) => {
           broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
@@ -1561,6 +1544,8 @@ async function registerIPCHandlers() {
 
       if (result.success && result.filePath) {
         const videoInfo = await getVideoInfo(videoUrl)
+        // Probe actual duration from downloaded file (not yt-dlp metadata, which can be stale)
+        const actualDuration = await probeActualDuration(result.filePath)
         updateWorkspace(id, {
           status: 'ready',
           downloadedAt: new Date().toISOString(),
@@ -1568,7 +1553,7 @@ async function registerIPCHandlers() {
           fileSize: result.fileSize || 0,
           thumbnail: videoInfo?.thumbnail || ws.thumbnail || '',
           videoTitle: videoInfo?.title || ws.videoTitle || '',
-          duration: result.duration || videoInfo?.duration || 0,
+          duration: actualDuration || videoInfo?.duration || 0,
           downloadQuality: retryQuality,
         })
         broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id))
@@ -1581,10 +1566,14 @@ async function registerIPCHandlers() {
         return { success: true }
       } else {
         const errorMsg = result.error || ''
-        const isNotAvailable = errorMsg.includes('not available') || errorMsg.includes('Video unavailable')
-        updateWorkspace(id, {
-          status: isNotAvailable ? 'error' : 'waiting',
-        })
+        const isNotAvailable = errorMsg.includes('not available') || errorMsg.includes('video unavailable') || errorMsg.includes('not found')
+        const isPrivate = errorMsg.includes('private video')
+        if (isPrivate) {
+          // All clients failed with private → genuinely inaccessible
+          updateWorkspace(id, { status: 'error' })
+        } else {
+          updateWorkspace(id, { status: isNotAvailable ? 'error' : 'waiting' })
+        }
         broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id))
         return { success: false, error: result.error }
       }
@@ -1997,9 +1986,6 @@ async function registerIPCHandlers() {
       broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, workspace)
       sendNotification('info', `Downloading: ${info.title}`, workspace.id)
 
-      // PO Token extraction disabled — yt-dlp auto client + Chrome cookies → 1080p H.264
-      const po_token: string | null = null
-
       // Export Chrome cookies for yt-dlp authentication (bypasses EJS challenge)
       const { getYtCookiesFile } = await import('./services/po_token.js')
       const ytCookiesFile = await getYtCookiesFile()
@@ -2010,7 +1996,6 @@ async function registerIPCHandlers() {
         outputDir: storagePath,
         trimLimit,
         quality,
-        po_token,
         ytCookiesFile,
         onProgress: (progress) => {
           broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, { workspaceId: workspace.id, percent: progress.percent, speed: progress.speed, eta: progress.eta })
@@ -2280,13 +2265,21 @@ async function registerIPCHandlers() {
 
   ipcMain.handle(IPC_CHANNELS.TRACKER_REMOVE, async (_, channelId: string) => {
     const workspaces = getWorkspaces()
+    let totalBytesFreed = 0
+    let totalFilesDeleted = 0
     for (const ws of workspaces) {
       if (ws.channelId === channelId) {
-        cleanupWorkspace(ws.id, ws.downloadedPath)
+        const { bytesFreed, filesDeleted } = cleanupWorkspace(ws.id, ws.downloadedPath)
+        totalBytesFreed += bytesFreed
+        totalFilesDeleted += filesDeleted
         deleteWorkspace(ws.id)
       }
     }
-    return { success: true }
+    if (totalBytesFreed > 0) {
+      const freedMB = (totalBytesFreed / 1024 / 1024).toFixed(1)
+      sendNotification('success', `Removed channel (${totalFilesDeleted} files, ${freedMB} MB freed)`)
+    }
+    return { success: true, bytesFreed: totalBytesFreed, filesDeleted: totalFilesDeleted }
   })
 
   ipcMain.handle(IPC_CHANNELS.RENDER_START, async (_, workspaceId: string, metadata: RenderMetadata): Promise<{ success: boolean; outputPath?: string; error?: string }> => {
@@ -2421,14 +2414,13 @@ async function registerIPCHandlers() {
               renderedAt: new Date().toISOString(),
             }
             addRenderedVideo(record)
+            broadcast(IPC_CHANNELS.RENDERED_ADD, record)
+            // [TEST-MODE] Cleanup DISABLED — keep downloaded files for render testing
             // Cleanup pre-scaled source file after successful render
-            if (workspace.preScaledPath) {
-              try { fs.unlinkSync(workspace.preScaledPath) } catch {}
-            }
-            // TODO (debug): keep workspace in pipeline instead of deleting — for testing
-            // cleanupWorkspace(workspace.id, workspace.downloadedPath)
-            // deleteWorkspace(workspace.id)
-            // broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, null)
+            // if (workspace.preScaledPath) { try { fs.unlinkSync(workspace.preScaledPath) } catch {} }
+            // Cleanup downloaded video + blur after successful archive (storage optimization)
+            // const { bytesFreed } = cleanupWorkspace(workspace.id, workspace.downloadedPath)
+            // if (bytesFreed > 0) { const freedMB = (bytesFreed / 1024 / 1024).toFixed(1); devLog(`[AutoArchive] Cleaned ${freedMB} MB of downloaded files after archive`) }
             const _fileSizeMB = ((workspace.fileSize || 0) / 1024 / 1024).toFixed(1)
             devLog(`[TIMER] ARCHIVE DONE: ${archiveResult.archivedPath}`)
             devLog(`[TIMER]   Archive file size: ${_fileSizeMB} MB`)
@@ -2516,17 +2508,34 @@ async function registerIPCHandlers() {
         renderedAt: new Date().toISOString(),
       }
       addRenderedVideo(renderedRecord)
-      // TODO (debug): keep downloaded video instead of cleaning up — for testing
-      // cleanupWorkspace(ws.id, ws.downloadedPath)
-      // deleteWorkspace(ws.id)
-      // broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, null)
+      broadcast(IPC_CHANNELS.RENDERED_ADD, renderedRecord)
+      // Cleanup downloaded video + blur after successful archive (storage optimization)
+      const { bytesFreed } = cleanupWorkspace(ws.id, ws.downloadedPath)
+      if (bytesFreed > 0) {
+        const freedMB = (bytesFreed / 1024 / 1024).toFixed(1)
+        devLog(`[Render] Cleaned ${freedMB} MB of downloaded files after archive`)
+      }
     }
 
     return result
   })
 
   ipcMain.handle(IPC_CHANNELS.RENDERED_REMOVE, (_, id: string) => {
-    return { success: removeRenderedVideo(id) }
+    const videos = getRenderedVideos()
+    const video = videos.find(v => v.id === id)
+    let bytesFreed = 0
+    if (video?.archivedPath) {
+      try {
+        if (fs.existsSync(video.archivedPath)) {
+          const stat = fs.statSync(video.archivedPath)
+          bytesFreed = stat.size
+          fs.unlinkSync(video.archivedPath)
+          devLog(`[Rendered] Deleted (${(bytesFreed / 1024 / 1024).toFixed(1)} MB): ${video.archivedPath}`)
+        }
+      } catch {}
+    }
+    removeRenderedVideo(id)
+    return { success: true, bytesFreed }
   })
 
   ipcMain.handle(IPC_CHANNELS.RENDERED_OPEN_FOLDER, (_, id?: string) => {

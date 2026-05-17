@@ -308,8 +308,11 @@ export function getFreeDiskSpace(dirPath: string): number {
 }
 
 // Clean up old workspace files
-export function cleanupWorkspace(workspaceId: string, downloadedPath?: string): void {
+// Returns bytes freed and files deleted count
+export function cleanupWorkspace(workspaceId: string, downloadedPath?: string): { bytesFreed: number; filesDeleted: number } {
   const storagePath = getVideoStoragePath()
+  let bytesFreed = 0
+  let filesDeleted = 0
 
   // Resolve a potentially-relative path to absolute (downloadedPath is stored as relative)
   const resolvePath = (p: string): string => {
@@ -347,13 +350,18 @@ export function cleanupWorkspace(workspaceId: string, downloadedPath?: string): 
   for (const filePath of filesToClean) {
     try {
       if (filePath && fs.existsSync(filePath)) {
+        const stat = fs.statSync(filePath)
+        bytesFreed += stat.size
         fs.unlinkSync(filePath)
-        devLog(`[RAMDisk] Cleaned: ${filePath}`)
+        filesDeleted++
+        devLog(`[RAMDisk] Cleaned (${formatBytes(stat.size)}): ${filePath}`)
       }
     } catch (err) {
       // Ignore errors for files that don't exist
     }
   }
+
+  return { bytesFreed, filesDeleted }
 }
 
 // Format bytes to human readable

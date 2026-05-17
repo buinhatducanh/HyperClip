@@ -51,6 +51,7 @@ export interface ElectronAPI {
   onRenderProgress: (callback: (progress: object) => void) => () => void
   onNotification: (callback: (n: object) => void) => () => void
   onWorkspaceUpdate: (callback: (ws: object) => void) => () => void
+  onRenderedAdd: (callback: (video: object) => void) => () => void
   onQuickAdd: (callback: () => void) => () => void
   onAutoDownload: (callback: (data: unknown) => void) => () => void
   onInnertubeDegraded: (callback: (data: { degraded: boolean }) => void) => () => void
