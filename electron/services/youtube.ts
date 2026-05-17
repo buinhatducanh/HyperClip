@@ -1088,7 +1088,10 @@ export async function downloadVideoStrategy(
     onProgress, ytCookiesFile, preChecked,
   } = opts
 
-  const clients: YtdlpClient[] = ['web', 'tv_embedded', 'ios']
+  // tv_embedded first: returns H.264 720p/1080p (avc1.64001f/avc1.64002a)
+  // even when 'web' client is limited to 360p by EJS challenge with Chrome session cookies.
+  // web second: fallback for edge cases (private videos, geo-restrictions).
+  const clients: YtdlpClient[] = ['tv_embedded', 'web', 'ios']
 
   for (let i = 0; i < clients.length; i++) {
     const client = clients[i]
