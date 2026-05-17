@@ -373,6 +373,13 @@ export interface YtdlpOptions {
    * yt-dlp uses --cookies flag to authenticate and bypass EJS anti-bot challenge.
    */
   ytCookiesFile?: string | null
+  /**
+   * Override the default yt-dlp player client.
+   * Use 'tv_embedded' for more lenient auth (H.264 720p without PO Token).
+   * Use 'web' for standard web client (VP9/H.264 1080p with cookies).
+   * If not set, yt-dlp auto-selects the best client.
+   */
+  playerClient?: string
 }
 
 export async function getChannelId(videoUrl: string): Promise<string | null> {
@@ -575,20 +582,19 @@ function buildYtDlpArgs(ytdlp: string, videoUrl: string, formatSelector: string,
 
   // Quality strategy:
   // - With PO Token → android DASH bestvideo+bestaudio (1080p H.264)
-  // - Without PO Token → auto client with Chrome cookies (auth → best available quality).
-  //   Cookies authenticate the request → YouTube returns higher quality without PO Token.
-  //   yt-dlp auto-selects the best client+format combination.
+  // - Without PO Token → web client with Chrome cookies (1080p VP9/H.264).
+  //   web client works for most public videos. On "Private video" error, caller retries
+  //   with tv_embedded client (more lenient, H.264 720p).
   let resolvedFormat: string
   if (poToken) {
     args.push('--extractor-args', `youtube:player_client=android,po_token=${poToken}`)
     resolvedFormat = formatSelector // DASH: bestvideo+bestaudio
     console.log(`[yt-dlp] Using android DASH with PO Token (${poToken.slice(0, 8)}...)`)
   } else {
-    // No client override — cookies provide auth, yt-dlp auto-selects best format.
-    // Keep downloaded container (MKV/MP4) as-is — no FFmpeg remux overhead.
-    // FFmpeg reads H.264+AAC from any container (mkv/mp4/webm).
+    // web client: works with session cookies for most public videos.
+    args.push('--extractor-args', 'youtube:player_client=web')
     resolvedFormat = formatSelector
-    console.log(`[yt-dlp] Using auto client with cookies (best quality)`)
+    console.log(`[yt-dlp] Using web client with cookies (best quality)`)
   }
 
   // Authenticate yt-dlp with Chrome cookies to bypass EJS anti-bot challenge
@@ -937,7 +943,7 @@ export async function preScaleVideo(
 }
 
 export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult> {
-  const { workspaceId, videoUrl, outputDir, trimLimit, onProgress, quality = '720', maxInstances = 'auto', preFetchedDuration, retryStrategy, po_token } = opts
+  const { workspaceId, videoUrl, outputDir, trimLimit, onProgress, quality = '720', maxInstances = 'auto', preFetchedDuration, retryStrategy, po_token, playerClient } = opts
   const ytdlp = getYtdlpPath()
 
   // Verify yt-dlp exists before attempting spawn
@@ -1034,18 +1040,26 @@ export async function downloadVideo(opts: YtdlpOptions): Promise<DownloadResult>
 
     // Quality strategy:
     // - With PO Token → android DASH bestvideo+bestaudio (1080p H.264) — best quality
-    // - Without PO Token → tv_embeds client with H.264 up to 720p (no PO Token needed)
-    //   tv_embeds serves H.264 formats 136/298 (720p) and 299 (1080p60) without PO Token.
-    //   android client requires PO Token for anything above 360p.
+    // - With explicit playerClient override → use that client (e.g. 'tv_embedded' for retry)
+    // - Without PO Token → web client with Chrome cookies (1080p VP9/H.264).
+    //   web client works for most public videos. On "Private video" error, caller retries
+    //   with tv_embedded client (more lenient, H.264 720p).
     let resolvedFormat: string
     if (po_token) {
       args.push('--extractor-args', `youtube:player_client=android,po_token=${po_token}`)
       resolvedFormat = formatSelector
       console.log(`[yt-dlp] Using android DASH with PO Token (${po_token.slice(0, 8)}...)`)
-    } else {
-      // No client override — cookies provide auth, yt-dlp auto-selects best format.
+    } else if (playerClient) {
+      // Explicit client override (e.g. 'tv_embedded' as fallback)
+      args.push('--extractor-args', `youtube:player_client=${playerClient}`)
       resolvedFormat = formatSelector
-      console.log(`[yt-dlp] Using auto client with cookies (best quality)`)
+      console.log(`[yt-dlp] Using ${playerClient} client with Chrome cookies`)
+    } else {
+      // web client: works with session cookies for most public videos.
+      // Accepts VP9 when H.264 isn't available at the requested quality.
+      args.push('--extractor-args', 'youtube:player_client=web')
+      resolvedFormat = formatSelector
+      console.log(`[yt-dlp] Using web client with Chrome cookies (best quality)`)
     }
 
     // Authenticate yt-dlp with Chrome cookies to bypass EJS anti-bot challenge

@@ -536,7 +536,7 @@ async function autoDownloadFromWebSub(
     const ytCookiesFile = await getYtCookiesFile()
 
     const downloadStartMs = Date.now()
-    const result = await downloadVideo({
+    let result = await downloadVideo({
       workspaceId: ws.id,
       videoUrl,
       outputDir: storagePath,
@@ -559,11 +559,45 @@ async function autoDownloadFromWebSub(
       // Download failed — mark workspace as 'error' with retry backoff
       const errorMsg = result.error || ''
       const isNotAvailable = errorMsg.includes('not available') || errorMsg.includes('Video unavailable')
+      const isPrivateError = errorMsg.includes('Private video') || errorMsg.includes('private')
       recordDownloadFail()
+
       if (isNotAvailable) {
         devLog(`[Auto] Video permanently unavailable: ${title} (${videoId})`)
         updateWorkspace(ws.id, { status: 'error' })
         markVideoSeen(channelId, videoId)
+      } else if (isPrivateError) {
+        // "Private video" from yt-dlp means YouTube session validation failed for this client.
+        // NOT that the video is actually private. Retry with tv_embedded client (more lenient).
+        devLog(`[Auto] "Private video" — retrying with tv_embedded client...`)
+        const retryResult = await downloadVideo({
+          workspaceId: ws.id,
+          videoUrl,
+          outputDir: storagePath,
+          trimLimit: autoTrimLimit,
+          quality: autoQuality,
+          preFetchedDuration,
+          po_token: null,
+          ytCookiesFile,
+          playerClient: 'tv_embedded',
+          onProgress: (progress) => {
+            broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
+              workspaceId: ws.id,
+              percent: progress.percent,
+              speed: progress.speed,
+              eta: progress.eta,
+            })
+          },
+        })
+        if (retryResult.success && retryResult.filePath) {
+          result = retryResult
+        } else {
+          devLog(`[Auto] Retry also failed: ${retryResult.error}`)
+          const retryableAt = new Date(Date.now() + 5 * 60 * 1000).toISOString()
+          updateWorkspace(ws.id, { status: 'error', retryableAt })
+          broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
+          return
+        }
       } else {
         devLog(`[Auto] Download failed (retryable): ${result.error}`)
         // Set retryableAt = 5 minutes from now
@@ -1856,7 +1890,14 @@ async function registerIPCHandlers() {
           console.error(`[Split] FFmpeg trim failed for part ${i + 1}: ${trimResult.error}`)
           // Clean up already-created parts
           for (const nw of newWorkspaces) {
-            try { if (nw.downloadedPath) fs.unlinkSync(nw.downloadedPath) } catch {}
+            try {
+              if (nw.downloadedPath) {
+                const abs = nw.downloadedPath.startsWith('/') || /^[A-Z]:/i.test(nw.downloadedPath)
+                  ? nw.downloadedPath
+                  : path.join(getVideoStoragePath(), nw.downloadedPath)
+                if (fs.existsSync(abs)) fs.unlinkSync(abs)
+              }
+            } catch {}
           }
           return { success: false, error: `Part ${i + 1} FFmpeg failed: ${trimResult.error}` }
         }

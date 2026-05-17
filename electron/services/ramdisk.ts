@@ -309,22 +309,40 @@ export function getFreeDiskSpace(dirPath: string): number {
 
 // Clean up old workspace files
 export function cleanupWorkspace(workspaceId: string, downloadedPath?: string): void {
-  // Clean the actual downloaded file (yt-dlp uses {workspaceId}_{videoId}.mp4)
-  // and the generic path (for backward compat / cleanup of old format files)
+  const storagePath = getVideoStoragePath()
+
+  // Resolve a potentially-relative path to absolute (downloadedPath is stored as relative)
+  const resolvePath = (p: string): string => {
+    if (!p) return ''
+    if (p.startsWith('/') || /^[A-Z]:/i.test(p)) return p
+    return path.join(storagePath, p)
+  }
+
+  // Also scan for any leftover files matching {workspaceId}_*.{ext} pattern
+  let patternFiles: string[] = []
+  try {
+    const entries = fs.readdirSync(storagePath)
+    patternFiles = entries
+      .filter(f => f.startsWith(`${workspaceId}_`))
+      .map(f => path.join(storagePath, f))
+  } catch {}
+
   const { videoPath, blurPath, metadataPath, outputPath } = generateWorkspacePaths(workspaceId)
 
   const filesToClean = new Set<string>()
-  if (downloadedPath) filesToClean.add(downloadedPath)
-  filesToClean.add(videoPath)  // generic workspaceId.mp4 (old format)
-  // Also try workspaceId_*.mp4 pattern (yt-dlp new format without knowing videoId)
-  filesToClean.add(blurPath)
-  filesToClean.add(metadataPath)
+  if (downloadedPath) filesToClean.add(resolvePath(downloadedPath))
+  filesToClean.add(resolvePath(videoPath))   // generic workspaceId.mp4 (old format)
+  filesToClean.add(resolvePath(blurPath))
+  filesToClean.add(resolvePath(metadataPath))
   // output file
   try {
     if (fs.existsSync(outputPath)) {
       filesToClean.add(outputPath)
     }
   } catch {}
+
+  // Add any additional files found by pattern scan
+  for (const f of patternFiles) filesToClean.add(f)
 
   for (const filePath of filesToClean) {
     try {

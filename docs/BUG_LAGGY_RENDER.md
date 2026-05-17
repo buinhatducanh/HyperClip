@@ -248,6 +248,71 @@ vidHeightPct = 85  ❌ NOT PASSED  → undefined → undefined → landscape dù
 
 ---
 
+## Bug 7: Header zone black — video overlay position wrong in LANDSCAPE mode
+
+**Ngày:** 2026-05-16
+**File:** `electron/services/ffmpeg.ts`
+**Mức độ:** Cao (header zone hiển thị nội dung video thay vì thumbnail)
+**Trạng thái:** Đã fix
+
+**Vấn đề:** LANDSCAPE mode có 2 bug:
+
+1. **Video overlay ở `0:0`**: Video được scale lên full canvas height (1920px cho 85% video height) và overlay ở `0:0`. Video lấp đầy toàn bộ canvas kể cả header zone → thumbnail không bao giờ hiển thị trong header zone.
+
+2. **Không có `[fh]` output**: Filter chain LANDSCAPE không tạo `[fh]` label. `mapOutput` trong `renderVideo` cho LANDSCAPE với `backgroundType='image'` set `mapOutput='[fh]'` nhưng `[fh]` không tồn tại → FFmpeg lỗi hoặc output sai stream.
+
+**Fix:**
+
+1. **Overlay position**: `overlay=0:0` → `overlay=0:${videoTop}`. Video bắt đầu ở hàng `videoTop` (bên dưới header zone), thumbnail hiển thị trong header zone.
+
+2. **Crop offset**: Thêm `videoTop` vào crop Y offset để video content được center trong video zone:
+   - cropXNum >= 0: `crop=${canvasW}:${videoH}:${cropXNum}:${videoTop}`
+   - cropXNum < 0: `cropY = Math.round((canvasW*9/16 - videoH)/2) + videoTop`
+
+3. **Header overlay section**: Thêm `hdChain2` vào LANDSCAPE filter chain:
+   ```javascript
+   const hdChain2 = headerOl?.src
+     ? `[2:v]scale=...headerH...[hd];[vz][hd]overlay=0:0[fh]`
+     : ''
+   ```
+
+4. **Input mapping**: Input [2] = header image cho cả SHORT và LANDSCAPE mode.
+
+5. **mapOutput**: Đơn giản hóa → `[fh]` khi `headerOl?.src` tồn tại.
+
+---
+
+## Bug 8: SHORT mode chunked title format sai — `borderw=2` thay vì `box=1:boxborderw=20`
+
+**Ngày:** 2026-05-16
+**File:** `electron/services/ffmpeg.ts` — `buildChunkArgs` SHORT mode section (line ~1354)
+**Mức độ:** Trung bình (title hiển thị outline mỏng 2px thay vì box rõ ràng 20px)
+**Trạng thái:** Đã fix
+
+**Vấn đề:** SHORT mode trong `buildChunkArgs` dùng `borderw=2:bordercolor` (outline mỏng 2px) thay vì `box=1:boxcolor=:boxborderw=20` (box rõ ràng 20px). Không match với LANDSCAPE mode và `buildFilterComplex` (đã dùng box=1:boxborderw=20).
+
+**Fix:** Thay `borderw=2:bordercolor=X` → `box=1:boxcolor=X:boxborderw=20` trong drawtext cho SHORT mode chunked.
+
+---
+
+## Bug 9: SHORT mode chunked input mapping sai khi có cả header và title
+
+**Ngày:** 2026-05-16
+**File:** `electron/services/ffmpeg.ts` — `buildChunkArgs` SHORT mode
+**Mức độ:** Cao (title overlay dùng input [2]=header image thay vì [3]=title overlay)
+**Trạng thái:** Đã fix
+
+**Vấn đề:** Khi SHORT mode có cả header (input [2]) và title PNG (input [3]), code cũ dùng `headerOlSrc ? '3' : '2'` cho title overlay input. Khi `headerOlSrc` tồn tại → dùng '3' (đúng). Nhưng trong `renderVideo`, SHORT mode input [2] = header và input [3] = title. Trong `buildChunkArgs`, input [2] = header và không có input [3] cho title.
+
+**Fix:** Đổi input mapping trong `buildChunkArgs` SHORT mode:
+- Input [2] = header (nếu có) hoặc placeholder
+- Input [3] = title PNG (nếu có)
+
+Đồng thời fix z-order cho SHORT mode khi có cả header và title:
+- `[fh][texted]overlay=0:0[td]` thay vì `[texted_vz][hd]overlay=0:0[td]`
+
+---
+
 ## Các File Đã Thay Đổi
 
 - `electron/services/ffmpeg.ts` — 7 chỗ `force_original_aspect_ratio=decrease` → `increase+crop`
@@ -259,6 +324,9 @@ vidHeightPct = 85  ❌ NOT PASSED  → undefined → undefined → landscape dù
 - `electron/main.ts` — cải thiện thumbnail fallback cho `RENDER_CHUNKED` (file existence check)
 - `electron/services/ffmpeg.ts` — thêm `-loop 1` cho background image input + `shortest=1:eof_action=pass` trên overlay filters (Bug 6b fix)
 - `electron/services/ffmpeg.ts` — fix drawtext Y position + `borderw` → `box=1:boxborderw=20` (Bug 6c fix)
+- `electron/services/ffmpeg.ts` — fix LANDSCAPE header zone: overlay position + `[fh]` output + crop offset (Bug 7 fix)
+- `electron/services/ffmpeg.ts` — fix SHORT mode chunked title format: `borderw=2` → `box=1:boxborderw=20` (Bug 8 fix)
+- `electron/services/ffmpeg.ts` — fix SHORT mode chunked input mapping + z-order khi có header+title (Bug 9 fix)
 
 ## Tổng Kết — Tình Trạng
 
@@ -273,3 +341,6 @@ vidHeightPct = 85  ❌ NOT PASSED  → undefined → undefined → landscape dù
 | Bug 6a | Input seeking + NVDEC → timestamp corruption → 1fps | ✅ Đã fix |
 | Bug 6b | Image input 1 frame → background freeze | ✅ Đã fix |
 | Bug 6c | Title position + outline format sai | ✅ Đã fix |
+| Bug 7 | Header zone black: LANDSCAPE overlay position + `[fh]` missing | ✅ Đã fix 2026-05-16 |
+| Bug 8 | SHORT mode chunked title format: `borderw=2` | ✅ Đã fix 2026-05-16 |
+| Bug 9 | SHORT mode chunked input mapping: title dùng `[2]=header` | ✅ Đã fix 2026-05-16 |

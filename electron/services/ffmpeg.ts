@@ -36,6 +36,8 @@ export interface RenderMetadata {
   audioCodec?: 'aac' | 'libopus'
   /** Audio bitrate. Default: '192k'. Lower values (64k, 96k) = faster encode, smaller file. */
   audioBitrate?: string
+  /** Height of the bottom bar (opaque bar at canvas bottom). Video shrinks to leave gap. Default: 64. Set to 0 to disable. */
+  bottomBarH?: number
 }
 
 export interface Overlay {
@@ -72,6 +74,15 @@ export interface RenderResult {
   duration?: number
   error?: string
 }
+
+// ─── SHORT (9:16) canvas zone constants ─────────────────────────────────────────
+// All values as % of canvasH. Responsive to any canvas resolution (360, 720, 1080).
+//
+// Layout: HEADER (20%) | VIDEO (70%) | BOTTOM (10%)
+// Video bottom touches top of bottom zone — no overlap.
+export const HEADER_PCT = 0.20   // 20% — header overlay zone
+export const BOTTOM_PCT = 0.10   // 10% — bottom bar zone (opaque bar + title)
+export const VIDEO_PCT  = 1 - HEADER_PCT - BOTTOM_PCT  // 70% — video zone
 
 // ─── Shared font path for drawtext ─────────────────────────────────────────────
 // The font is copied to resources/fonts/arial.ttf at startup.
@@ -129,6 +140,13 @@ function getOverlayFilter(useGpu: boolean): string {
 // Path quoting utility — exported for use by youtube.ts pre-scale function
 export function quotePath(p: string): string {
   return '"' + p.replace(/"/g, '""') + '"'
+}
+
+// Convert CSS hex (#RRGGBB) to FFmpeg hex (0xRRGGBB) for drawtext boxcolor.
+// FFmpeg drawtext interprets 0xRRGGBB as RGB (confirmed by drawbox test).
+// CSS colors can be passed directly: #00B4FF → 0x00B4FF → RGB(0,180,255) = cyan.
+function toFfmpegColor(hex: string): string {
+  return '0x' + hex.replace(/^#/, '')
 }
 
 export function buildArgs(program: string, args: string[]): string {
@@ -411,6 +429,8 @@ function buildFilterComplex(opts: {
   backgroundType?: 'blur' | 'solid' | 'image'
   /** Pre-rendered title overlay PNG — replaces CPU drawtext per frame */
   titleOverlayPath?: string
+  /** Pre-rendered bottom bar PNG (opaque bar with text, NOT transparent). */
+  bottomBarOverlayPath?: string
   /** Source video is a short (9:16 or taller). Landscape (16:9 or wider) uses thumbnail-bg + square-cropped video */
   isShort?: boolean
   /** Output frame rate. Default 30. Added as explicit fps filter to guarantee output fps. */
@@ -424,6 +444,7 @@ function buildFilterComplex(opts: {
     headerOl, titleOl, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, speedFilter,
     backgroundType = 'blur',
     titleOverlayPath,
+    bottomBarOverlayPath,
     isShort = true,
     useCuda = true,
     fpsTarget = 30,
@@ -476,12 +497,15 @@ function buildFilterComplex(opts: {
       const trimSection = (trimStart > 0 || trimDuration > 0)
         ? `trim=start=${trimStart}:duration=${trimDuration > 0 ? trimDuration : 999999},setpts=PTS-STARTPTS,fps=${fpsTarget},`
         : `fps=${fpsTarget},setpts=PTS-STARTPTS,`
-      videoChain2 = `[0:v]${trimSection}${scale}=-2:${videoH},crop=${canvasW}:${videoH}:${cropX}:0${speedFilter ? ',' + speedFilter : ''}[vid]`
+      // cropY: center the video content vertically in the video zone.
+      // Shift by videoTop so video starts at row videoTop (below header zone).
+      const cropY = videoTop
+      videoChain2 = `[0:v]${trimSection}${scale}=-2:${videoH},crop=${canvasW}:${videoH}:${cropX}:${cropY}${speedFilter ? ',' + speedFilter : ''}[vid]`
     } else {
       // Source narrower than canvas aspect: scale to canvasW wide, crop excess height.
       // e.g. canvas 1080x1920, videoH=960, canvasW=1080: cropY=(1080*9/16-960)/2 = -281 < 0
       // → cropY < 0 means source is too tall for video zone → crop 0 top, center the video.
-      const cropY = Math.round((canvasW * 9 / 16 - videoH) / 2)
+      const cropY = Math.round((canvasW * 9 / 16 - videoH) / 2) + videoTop
       const trimSection = (trimStart > 0 || trimDuration > 0)
         ? `trim=start=${trimStart}:duration=${trimDuration > 0 ? trimDuration : 999999},setpts=PTS-STARTPTS,fps=${fpsTarget},`
         : `fps=${fpsTarget},setpts=PTS-STARTPTS,`
@@ -491,40 +515,56 @@ function buildFilterComplex(opts: {
     // force_original_aspect_ratio=increase: scale up until canvas is covered.
     // crop: center-cut to exact canvas dimensions — no black bars.
     const bgChain2 = `[1:v]${scale}=${canvasW}:${canvasH}:force_original_aspect_ratio=increase,crop=${canvasW}:${canvasH}:(ow-iw)/2:(oh-ih)/2[bg]`
-    // Video over thumbnail bg — positioned at videoTop (centered for landscape)
+    // Video OVER thumbnail bg: video at videoTop (below header), thumbnail shows in header zone.
+    // [bg][vid]overlay=0:videoTop = bg bottom, vid top: bg shows in header/title zones, video covers video zone.
+    // Z-order: bg (bottom), video (middle), headerOl (top) — thumbnail visible in header zone.
     const vzChain2 = `[bg][vid]${overlay}=0:${videoTop}[vz]`
+    // Header overlay: scale header image to canvas width × headerH, overlay on [vz].
+    // Z-order: bg (bottom) → video (middle) → headerOl (top).
+    // Header on top → thumbnail shows in header zone (where video doesn't cover).
+    const hdChain2 = headerOl?.src
+      ? `[2:v]${scale}=${canvasW}:${headerH}:force_original_aspect_ratio=increase,crop=${canvasW}:${headerH}:(ow-iw)/2:(oh-ih)/2[hd];[vz][hd]${overlay}=0:0[fh]`
+      : ''
     // Title overlay (part number) at bottom
     if (titleOl?.content) {
       const sections = [videoChain2, bgChain2, vzChain2]
+      if (hdChain2) sections.push(hdChain2)
+      const titleBase = hdChain2 ? '[fh]' : '[vz]'
       if (titleOverlayPath) {
         // PNG overlay: scale title image and overlay
-        sections.push(`[2:v]${scale}=${canvasW}:${titleH}:force_original_aspect_ratio=increase,crop=${canvasW}:${titleH}:(ow-iw)/2:(oh-ih)/2[titleScaled]`, `[vz][titleScaled]${overlay}=0:${canvasH - titleH}[td]`)
+        const titleInputIdx = hdChain2 ? '3' : '2'
+        sections.push(`[${titleInputIdx}:v]${scale}=${canvasW}:${titleH}:force_original_aspect_ratio=increase,crop=${canvasW}:${titleH}:(ow-iw)/2:(oh-ih)/2[titleScaled]`, `[${titleBase}][titleScaled]${overlay}=0:${canvasH - titleH}[td]`)
       } else {
-        // Drawtext fallback: add text on top of [vz]
+        // Drawtext fallback: add text on top of [fh] (or [vz]).
+        // Z-order: bg → video → header → text (text on TOP of header).
+        // CRITICAL: drawtext outputs to [tdo] (intermediate), NOT [fh].
+        // Then overlay [fh][tdo]: [fh] (header) bottom, [tdo] (header+text) top.
         const fontSize = Math.max(24, Math.floor(titleH * 0.15))
         const escapedText = titleOl.content.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\]")
-        const borderColor = titleOl.borderColor ?? '#00B4FF'
+        const borderColor = toFfmpegColor(titleOl.borderColor ?? '#00B4FF')
         // Landscape: title centered in header zone. headerH is TypeScript var — substitute numeric value.
         // FFmpeg drawtext can't use TS variable names; compute Y as fixed pixel value instead.
         // Center of header zone: headerH/2 (top of canvas to middle of header)
         // Then subtract text_h/2 to center text vertically in that zone.
         const titleY = Math.floor(headerH / 2) // integer — FFmpeg can subtract text_h from this
         const drawtext = `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=white:box=1:boxcolor=${borderColor}:boxborderw=20:x=(w-text_w)/2:y=${titleY}-text_h/2:fontfile=${FONT_FILE}`
-        sections.push(`[vz]${drawtext}[td]`)
+        // [fh] (header) bottom, [tdo] (header+text) top → text on top of header
+        sections.push(`[${titleBase}]${drawtext}[tdo]`)
+        sections.push(`[${titleBase}][tdo]${overlay}=0:0[td]`)
       }
       return sections.join('; ')
     }
+    if (hdChain2) return [videoChain2, bgChain2, vzChain2, hdChain2].join('; ')
     return [videoChain2, bgChain2, vzChain2].join('; ')
   }
 
-  // ── SHORT (vertical) layout: header + video zone + title ──
-  // Filter chain with explicit labels to avoid FFmpeg parsing ambiguity.
-  // Stage 1: trim (if needed) → output=[trimmed]
-  // Stage 2: scale → output=[scaled]
-  // Stage 3: setpts → output=[sped] (only if speed != 1.0)
-  // Stage 4: fps → output=[sped_fps] (guarantee output fps, fix 1fps slideshow bug)
-  // Stage 5: pad → output=[vid]
-  // Use EXPLICIT target dimensions (no force_original_aspect_ratio) — matches editor preview exactly.
+  // ── SHORT (vertical) layout: header + video + bottom bar ──
+  // Layout: [0 .. headerH-1] = header overlay (top)
+  //         [headerH .. canvasH-bottomBarH-1] = video (middle, bottom touches bar)
+  //         [canvasH-bottomBarH .. canvasH-1] = bottom bar (opaque, y = canvasH-bottomBarH)
+  //
+  // Video shrinking: videoH = canvasH - headerH - bottomBarH.
+  // BottomBarH defaults to 64px. Video bottom edge touches bar top edge — no overlap.
   //
   // Trim filter: replaces input seeking (-ss) which causes timestamp corruption on
   // FFmpeg gyan.dev 7.1 (→ 1fps playback).
@@ -534,73 +574,63 @@ function buildFilterComplex(opts: {
   const trimSection = needsTrim
     ? `[0:v]trim=start=${trimStart}:duration=${trimDuration > 0 ? trimDuration : 999999},setpts=PTS-STARTPTS,fps=${fpsTarget}[trimmed]; `
     : `[0:v]fps=${fpsTarget},setpts=PTS-STARTPTS[trimmed]; `
-  // scaleChain uses [trimmed] as input — guaranteed to exist in both trim/no-trim cases
-  const scaleChain = `${trimSection}[trimmed]${scale}=${videoW}:${videoH}[scaled]`
-  let videoChain: string
-  if (speedFilter) {
-    videoChain = `${scaleChain}; [scaled]${speedFilter}[sped]; [sped]pad=${canvasW}:${canvasH}:(ow-iw)/2:${videoTop}[vid]`
-  } else {
-    videoChain = `${scaleChain}; [scaled]pad=${canvasW}:${canvasH}:(ow-iw)/2:${videoTop}[vid]`
-  }
+  // Video: fill canvas width, crop to videoH tall (bottomBarH gap left at bottom).
+  // For 16:9 source → 9:16 canvas (1080x1920) with 64px bottom bar:
+  //   scale=-2:videoH → source 1920x1080 → 1920x1472 (scales to target height, width auto)
+  //   crop=canvasW:videoH:cropX:0 → crop center columns from scaled source
+  //   cropX = (scaledW - canvasW) / 2 = (1920*videoH/1080 - canvasW) / 2
+  //   Result: video covers rows headerH..(canvasH-bottomBarH-1), BG shows in header + bottom bar gap
+  const scaledW = Math.round(videoH * 16 / 9)
+  const cropX = Math.round((scaledW - canvasW) / 2)
+  const speedFps = speedFilter ? ',' + speedFilter : ''
+  const scaleChain = `${trimSection}[trimmed]${scale}=-2:${videoH},crop=${canvasW}:${videoH}:${cropX}:0${speedFps}[vid]`
+  const videoChain = scaleChain
 
   // Scale background to canvas — FILL canvas (not fit within).
-  // force_original_aspect_ratio=increase + crop: scale up to cover canvas, then center-cut.
-  // solid: color filter outputs exact size already.
+  // BG shows through: header zone (top) + bottom bar gap (bottom).
   const bgChain = backgroundType === 'solid'
     ? `[1:v]null[bg]`
-    : `[1:v]${scale}=${canvasW}:${canvasH}:force_original_aspect_ratio=increase,crop=${canvasW}:${canvasH}:(ow-iw)/2:(oh-ih)/2[bg]`
+    : `[1:v]${scale}=${canvasW}:${canvasH}:force_original_aspect_ratio=increase,crop=${canvasW}:${canvasH}:(ow-iw)/2:(oh-ih)/2,setsar=1[bg]`
 
   // Header image scale (full canvas width) — FILL header zone
+  // Use 'increase' so small header images (e.g. 320x160) scale UP to fill the zone
   const hdChain = headerOl?.src ? `[2:v]${scale}=${canvasW}:${headerH}:force_original_aspect_ratio=increase,crop=${canvasW}:${headerH}:(ow-iw)/2:(oh-ih)/2[hd]` : ''
 
-  // Video over bg → [vz]
-  const vzChain = `[bg][vid]${overlay}=0:${videoTop}[vz]`
+  // Bottom bar: pre-rendered opaque PNG (canvasW x bottomBarH).
+  // Y = canvasH - bottomBarH (top of bottom bar zone).
+  // If bottomBarOverlayPath provided, use it (input index 3).
+  // If not, drawtext inline on the bg at the bottom bar zone.
+  const bbOverlay = bottomBarOverlayPath ? `[3:v]null[bb]` : ''
 
   // Build sections
+  // Z-order: bg(bottom) → video(middle, touches bar top) → header(top) → bottom bar(very bottom)
+  // Layer chain:
+  //   [bg][vid]overlay=0:headerH → [vz] (bg + video, bg shows in header + bottom bar gap)
+  //   [vz][hd]overlay=0:0 → [fh] (header on top)
+  //   [fh][bb]overlay=0:(canvasH-bottomBarH) → [final] (bottom bar at very bottom)
   const sections: string[] = [videoChain, bgChain]
 
-  if (hdChain) {
-    sections.push(hdChain, `[vz][hd]${overlay}=0:0[fh]`)
-  }
-
-  if (titleOl?.content) {
-    if (titleOverlayPath) {
-      // Pre-rendered PNG overlay — overlay PNG on top of everything
-      // Input [3:v] = pre-rendered title PNG
-      const baseLabel = hdChain ? '[fh]' : '[vz]'
-      sections.push(`[3:v]null[titleOverlay]`, `${baseLabel}[titleOverlay]${overlay}=0:0[td]`)
-    } else {
-      // Fallback: inline drawtext when PNG pre-render failed.
-      // Build chain: video → drawtext → bg-overlay → [td]
-      // Need [texted] BEFORE the bg overlay so overlay can use it as input.
-      // Strategy: insert drawtext AFTER videoChain but BEFORE bgChain in the sections array.
-      // y-position: title zone starts at (videoTop + videoH) = (headerH + videoH).
-      // Center text in the title zone: titleCenterY = videoTop + videoH + titleH/2.
-      const fontSize = Math.max(24, Math.floor(titleH * 0.15))
-      const titleCenterY = videoTop + videoH + Math.floor(titleH / 2)
-      const escapedText = titleOl.content.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\]")
-      const borderColor = titleOl.borderColor ?? '#00B4FF'
-      const drawtext = `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=white:box=1:boxcolor=${borderColor}:boxborderw=20:x=(w-text_w)/2:y=${titleCenterY}-(text_h/2):fontfile=${FONT_FILE}`
-      // Insert drawtext right after videoChain (index 1), before bgChain
-      sections.splice(1, 0, `[vid]${drawtext}[texted]`)
-      // Now overlay bg on [texted] to get [td]
-      if (hdChain) {
-        // Header exists: drawtext should be BELOW header (correct z-order: bg→video→drawtext→header).
-        // Find the [vz][hd]overlay[fh] section and replace with 2-step: drawtext on video, then header on top.
-        const hdIdx = sections.findIndex(s => s.includes('[vz][hd]overlay'))
-        if (hdIdx !== -1) {
-          sections.splice(hdIdx, 1,
-            `[vz][texted]${overlay}=0:${videoTop}[texted_vz];` +
-            `[texted_vz][hd]${overlay}=0:0[td]`
-          )
-        } else {
-          sections.push(`[bg][texted]${overlay}=0:${videoTop}[td]`)
-        }
-      } else {
-        // No header: overlay [texted] on [bg]
-        sections.push(`[bg][texted]${overlay}=0:${videoTop}[td]`)
-      }
-    }
+  if (hdChain) sections.push(hdChain, `[vz][hd]${overlay}=0:0[fh]`)
+  if (bbOverlay) {
+    const baseLabel = hdChain ? '[fh]' : '[vz]'
+    const bottomBarY = headerH + videoH  // canvasH - bottomBarH
+    sections.push(bbOverlay, `${baseLabel}[bb]${overlay}=0:${bottomBarY}[final]`)
+  } else if (titleOl?.content) {
+    // Drawtext bottom bar: text drawn directly at the bottom bar zone Y.
+    // textY = headerH + videoH + bottomBarH/2 - text_h/2 = bottomBarCenter - text_h/2
+    const bbY = headerH + videoH // top of bottom bar zone
+    const bbCenter = bbY + Math.floor((canvasH - bbY) / 2)
+    const fontSize = Math.max(24, Math.floor((canvasH - bbY) * 0.25))
+    const escapedText = titleOl.content.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\]")
+    const borderColor = toFfmpegColor(titleOl.borderColor ?? '#00B4FF')
+    const baseLabel = hdChain ? '[fh]' : '[vz]'
+    // Draw opaque background rectangle for the bar, then text on top
+    const barH = canvasH - bbY
+    const barY = bbY
+    const drawtext = `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=white:box=1:boxcolor=${borderColor}:boxborderw=20:x=(w-text_w)/2:y=${bbCenter}-text_h/2:fontfile=${FONT_FILE}`
+    sections.push(`${baseLabel}${drawtext}[final]`)
+  } else if (hdChain) {
+    sections.push('[vz][hd]' + overlay + '=0:0[final]')
   }
 
   return sections.join('; ')
@@ -791,22 +821,132 @@ export async function renderTextOverlay(
   })
 }
 
-// Pre-render all title overlays in metadata to PNG files
+// Pre-render overlays to PNG using PowerShell System.Drawing.
+// FFmpeg gyan.dev 7.x does NOT support `color:alpha=N` → pre-render via FFmpeg impossible.
+//
+// SHORT mode: bottom bar PNG (opaque accent-colored bar with white text at bottom).
+// LANDSCAPE mode: title overlay PNG (border+text, used in title zone).
 export async function preRenderOverlays(
   metadata: RenderMetadata,
   outputDir: string,
   workspaceId: string,
   gpuTier: GPUTier = 'software',
-): Promise<{ titleOverlayPath: string | null; error: string | null }> {
+): Promise<{ bottomBarOverlayPath: string | null; titleOverlayPath: string | null; error: string | null }> {
   const titleOl = metadata.overlays?.find(o => o.type === 'title' && o.content)
-  if (!titleOl?.content) return { titleOverlayPath: null, error: null }
+  if (!titleOl?.content) return { bottomBarOverlayPath: null, titleOverlayPath: null, error: null }
 
-  // FFmpeg 7.x gyan.dev does NOT support alpha transparency in the color filter
-  // (`color:alpha=N` → "Option not found"). This breaks pre-rendering on all tiers.
-  // Since inline drawtext in the main render pipeline works correctly and is fast,
-  // skip pre-rendering entirely to avoid unnecessary failures.
-  devLog('[TextOverlay] Skipping pre-render — using inline drawtext in main render')
-  return { titleOverlayPath: null, error: null }
+  // Zone math
+  const [canvasW, canvasH] = (metadata.export_resolution || '1080x1920').split('x').map(Number)
+  const isShort = canvasH >= canvasW
+  const bottomBarH = metadata.bottomBarH ?? Math.floor(canvasH * BOTTOM_PCT)
+  const headerH = isShort ? Math.floor(canvasH * HEADER_PCT) : Math.floor((canvasH - Math.floor(canvasH * 0.50)) / 2)
+  const vidHeightPct = metadata.vidHeightPct ?? 50
+  const landscapeVideoH = Math.floor(canvasH * vidHeightPct / 100)
+  const landscapeTitleH = Math.floor(canvasH * (100 - vidHeightPct) / 100)
+
+  // Hex color from borderColor prop (e.g. #00B4FF)
+  const hex = (titleOl.borderColor || '#00B4FF').replace(/^#/, '')
+  const r = parseInt(hex.slice(0, 2), 16)
+  const g = parseInt(hex.slice(2, 4), 16)
+  const b2 = parseInt(hex.slice(4, 6), 16)
+  const escapedText = titleOl.content.replace(/"/g, '""')
+
+  // ── SHORT mode: bottom bar PNG (barW × bottomBarH, FULLY opaque bar + text) ──
+  // PNG is the EXACT bar size (not canvas). Overlay directly at bottomBarY.
+  // LockBits forces A=255 on all pixels to fix anti-aliasing artifacts from FillRectangle.
+  const bottomBarOverlayPath = path.join(outputDir, 'bottom_bar_overlay.png')
+  const bbFontSize = Math.max(36, Math.floor(bottomBarH * 0.45))
+  const bbPs1 = [
+    'Add-Type -AssemblyName System.Drawing',
+    `$w=${canvasW};$h=${bottomBarH};$bmp=New-Object System.Drawing.Bitmap($w,$h)`,
+    '$g=[System.Drawing.Graphics]::FromImage($bmp)',
+    '$g.SmoothingMode=[System.Drawing.Drawing2D.SmoothingMode]::AntiAlias',
+    '$g.TextRenderingHint=[System.Drawing.Text.TextRenderingHint]::AntiAlias',
+    '$brush=New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255,' + r + ',' + g + ',' + b2 + '))',
+    '$g.FillRectangle($brush,0,0,$w,$h)',
+    '$brush.Dispose()',
+    '$font=New-Object System.Drawing.Font("Arial",' + bbFontSize + ',[System.Drawing.FontStyle]::Bold)',
+    '$sf=New-Object System.Drawing.StringFormat',
+    '$sf.Alignment=[System.Drawing.StringAlignment]::Center',
+    '$sf.LineAlignment=[System.Drawing.StringAlignment]::Center',
+    '$rect=New-Object System.Drawing.RectangleF(0,0,$w,$h)',
+    '$g.DrawString("' + escapedText + '",$font,(New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)),$rect,$sf)',
+    '$g.Dispose();$font.Dispose();$sf.Dispose()',
+    '$rect2=New-Object System.Drawing.Rectangle(0,0,$w,$h)',
+    '$bd=$bmp.LockBits($rect2,[System.Drawing.Imaging.ImageLockMode]::ReadWrite,[System.Drawing.Imaging.PixelFormat]::Format32bppArgb)',
+    '$bytes=[byte[]]::new($bd.Stride*$h)',
+    '[System.Runtime.InteropServices.Marshal]::Copy($bd.Scan0,$bytes,0,$bytes.Length)',
+    'for($i=3;$i -lt $bytes.Length;$i+=4){$bytes[$i]=255}',
+    '[System.Runtime.InteropServices.Marshal]::Copy($bytes,0,$bd.Scan0,$bytes.Length)',
+    '$bmp.UnlockBits($bd)',
+    '$bmp.Save("' + bottomBarOverlayPath.replace(/\\/g, '/') + '",[System.Drawing.Imaging.ImageFormat]::Png)',
+    '$bmp.Dispose()',
+    'Write-Host OK',
+  ].join(';')
+
+  const bbPs1File = path.join(os.tmpdir(), 'hc_bb_' + Date.now() + '.ps1').replace(/\\/g, '/')
+  fs.writeFileSync(bbPs1File, bbPs1)
+
+  // ── LANDSCAPE mode: title overlay PNG (transparent bg, border+text) ──
+  let titleOverlayPath: string | null = null
+  const titleBarH = landscapeTitleH
+  const borderPx = Math.max(5, Math.floor(titleBarH * 0.02))
+  const fontSize = Math.max(28, Math.floor(titleBarH * 0.28))
+  titleOverlayPath = path.join(outputDir, 'title_overlay.png')
+  const titlePs1 = [
+    'Add-Type -AssemblyName System.Drawing',
+    `$w=${canvasW};$h=${titleBarH};$b=${borderPx}`,
+    '$bmp=New-Object System.Drawing.Bitmap($w,$h)',
+    '$g=[System.Drawing.Graphics]::FromImage($bmp)',
+    '$g.SmoothingMode=[System.Drawing.Drawing2D.SmoothingMode]::AntiAlias',
+    '$g.TextRenderingHint=[System.Drawing.Text.TextRenderingHint]::AntiAlias',
+    '$g.Clear([System.Drawing.Color]::Transparent)',
+    '$pen=New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(255,' + r + ',' + g + ',' + b2 + '),$b)',
+    '$g.DrawRectangle($pen,$b,$b,$w-$b*2,$h-$b*2)',
+    '$pen.Dispose()',
+    '$font=New-Object System.Drawing.Font("Arial",' + fontSize + ',[System.Drawing.FontStyle]::Bold)',
+    '$size=$g.MeasureString("' + escapedText + '",$font)',
+    '$tw=[int]$size.Width;$th=[int]$size.Height',
+    '$tx=($w-$tw)/2;$ty=($h-$th)/2',
+    '$g.DrawString("' + escapedText + '",$font,(New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)),$tx,$ty)',
+    '$g.Dispose();$font.Dispose()',
+    '$bmp.Save("' + titleOverlayPath.replace(/\\/g, '/') + '",[System.Drawing.Imaging.ImageFormat]::Png)',
+    '$bmp.Dispose()',
+    'Write-Host OK',
+  ].join(';')
+
+  const titlePs1File = path.join(os.tmpdir(), 'hc_title_' + Date.now() + '.ps1').replace(/\\/g, '/')
+  fs.writeFileSync(titlePs1File, titlePs1)
+
+  // Run both in parallel
+  const runPs = (f: string) => new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
+    const proc = spawn('powershell', ['-ExecutionPolicy', 'Bypass', '-File', f], { stdio: ['pipe', 'pipe', 'pipe'] })
+    let so = '', se = ''
+    proc.stdout?.on('data', d => { so += d.toString() })
+    proc.stderr?.on('data', d => { se += d.toString() })
+    proc.on('close', code => {
+      try { fs.unlinkSync(f) } catch {}
+      resolve({ code: code ?? 1, stdout: so, stderr: se })
+    })
+    proc.on('error', e => { try { fs.unlinkSync(f) } catch {}; resolve({ code: 1, stdout: '', stderr: e.message }) })
+  })
+
+  const [bbResult, titleResult] = await Promise.all([runPs(bbPs1File), runPs(titlePs1File)])
+
+  const bbOk = bbResult.code === 0 && bbResult.stdout.trim() === 'OK' && fs.existsSync(bottomBarOverlayPath)
+  const titleOk = titleResult.code === 0 && titleResult.stdout.trim() === 'OK' && fs.existsSync(titleOverlayPath)
+
+  if (bbOk) devLog('[TextOverlay] Bottom bar: ' + bottomBarOverlayPath)
+  else devLog('[TextOverlay] Bottom bar failed: ' + bbResult.stderr.slice(0, 100))
+
+  if (titleOk) devLog('[TextOverlay] Title overlay: ' + titleOverlayPath)
+  else devLog('[TextOverlay] Title overlay failed: ' + titleResult.stderr.slice(0, 100))
+
+  return {
+    bottomBarOverlayPath: bbOk ? bottomBarOverlayPath : null,
+    titleOverlayPath: isShort ? null : (titleOk ? titleOverlayPath : null),
+    error: null,
+  }
 }
 
 // ─── Smart keyframe finder ──────────────────────────────────────────────────────
@@ -923,9 +1063,17 @@ export async function renderVideo(
   // When user selected BLUR but blur_background is empty → use thumbnail as background.
   const effectiveBackgroundType = (backgroundType === 'blur' && !blur_background) ? 'image' : backgroundType
 
-  const headerH = isShort ? Math.floor(canvasH * 0.20) : Math.floor((canvasH - Math.floor(canvasH * vidHeightPct / 100)) / 2)
-  const titleH = isShort ? Math.floor(canvasH * 0.20) : Math.floor(canvasH * (100 - vidHeightPct) / 100)
-  const videoH = isShort ? canvasH - headerH - titleH : Math.floor(canvasH * vidHeightPct / 100)
+  // SHORT: header=20%, video=remaining (after header + bottomBarH), bottomBarH=64px
+  // LANDSCAPE: header zone split evenly, video=vidHeightPct%, title=remaining
+  const bottomBarH = metadata.bottomBarH ?? Math.floor(canvasH * BOTTOM_PCT)
+  const headerH = isShort
+    ? Math.floor(canvasH * HEADER_PCT)
+    : Math.floor((canvasH - Math.floor(canvasH * vidHeightPct / 100)) / 2)
+  const titleH = isShort ? 0 : Math.floor(canvasH * (100 - vidHeightPct) / 100)
+  // SHORT: video fills from headerH to canvasH-bottomBarH (video bottom touches bar top)
+  const videoH = isShort
+    ? canvasH - headerH - bottomBarH
+    : Math.floor(canvasH * vidHeightPct / 100)
   const videoTop = isShort ? headerH : Math.floor((canvasH - videoH) / 2)
   const videoW = Math.floor(videoH * 16 / 9)
 
@@ -960,33 +1108,35 @@ export async function renderVideo(
   // Trim filter + setpts=PTS-STARTPTS produces correct timestamps regardless of decoder.
 
   // Build filter complex: GPU-accelerated (scale_cuda/overlay_cuda) with format=yuv420p after scale
-  const titleOverlayResult = await preRenderOverlays(metadata, outputDir, workspace_id, gpuTier)
-  const titleOverlayPath = titleOverlayResult.titleOverlayPath ?? undefined
+  // SHORT: pre-render bottom bar PNG (opaque bar with text). LANDSCAPE: pre-render title overlay PNG.
+  const overlayResult = await preRenderOverlays(metadata, outputDir, workspace_id, gpuTier)
+  const bottomBarOverlayPath = overlayResult.bottomBarOverlayPath ?? undefined
+  const titleOverlayPath = overlayResult.titleOverlayPath ?? undefined
 
   // DEBUG: log all layout parameters to diagnose preview vs render mismatch
-  devLog(`[RenderLayout] canvas=${canvasW}x${canvasH} isShort=${isShort} headerH=${headerH} videoH=${videoH} videoTop=${videoTop} videoW=${videoW}`)
+  devLog(`[RenderLayout] canvas=${canvasW}x${canvasH} isShort=${isShort} headerH=${headerH} videoH=${videoH} videoTop=${videoTop} videoW=${videoW} bottomBarH=${bottomBarH} bottomBarOverlay=${!!bottomBarOverlayPath}`)
   devLog(`[RenderLayout] backgroundType=${effectiveBackgroundType} (orig=${backgroundType}) backgroundImage=${backgroundImage} blur=${blur_background}`)
-  devLog(`[RenderLayout] headerOl=${!!headerOl?.src} titleOl=${!!titleOl?.content} titleText="${titleOl?.content}" titleOverlayPath=${titleOverlayPath} fps_target=${fps_target}`)
-  const filterComplex = buildFilterComplex({ useCuda: getHwCaps().hasCudaFilters, headerOl, titleOl, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, speedFilter, backgroundType: effectiveBackgroundType, titleOverlayPath, isShort, fpsTarget: fps_target || 30, trimStart: trimStart, trimDuration: duration })
+  devLog(`[RenderLayout] headerOl=${!!headerOl?.src} titleOl=${!!titleOl?.content} titleText="${titleOl?.content}" fps_target=${fps_target}`)
+  const filterComplex = buildFilterComplex({ useCuda: getHwCaps().hasCudaFilters, headerOl, titleOl, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, speedFilter, backgroundType: effectiveBackgroundType, titleOverlayPath, bottomBarOverlayPath, isShort, fpsTarget: fps_target || 30, trimStart: trimStart, trimDuration: duration })
 
-  // Determine output label — [final] if title PNG, [td] if drawtext, [fh] if header-only, [vz] if none
+  // Determine output label — [final] if bottomBar/title PNG, [td] if drawtext, [fh] if header exists, [vz] if none
   let mapOutput = '[vz]'
-  if (titleOverlayPath) {
-    // Title PNG: filter chain produces [final]
+  if (bottomBarOverlayPath) {
+    // Bottom bar PNG (SHORT): filter chain produces [final]
+    mapOutput = '[final]'
+  } else if (titleOverlayPath) {
+    // Title PNG (LANDSCAPE): filter chain produces [final]
     mapOutput = '[final]'
   } else if (titleOl?.content) {
-    mapOutput = '[td]'
-  } else if (isShort && headerOl?.src) {
-    // SHORT with header image: filter chain creates [fh]
-    mapOutput = '[fh]'
-  } else if (!isShort && backgroundType === 'image' && backgroundImage) {
-    // LANDSCAPE with custom thumbnail as header overlay: filter chain creates [fh]
+    mapOutput = '[final]'
+  } else if (headerOl?.src) {
+    // Header image (SHORT or LANDSCAPE): filter chain produces [fh]
     mapOutput = '[fh]'
   }
 
   // Build ffmpeg args
-  // Inputs: [0]=source video, [1]=background, [2]=header image (optional), [3]=title overlay PNG (optional)
-  // For LANDSCAPE: [1] = thumbnail (used as bg), [2] = title overlay PNG
+  // Inputs: [0]=source video, [1]=background, [2]=header image (optional), [3]=bottomBar/title overlay PNG
+  // SHORT: [3]=bottomBar overlay. LANDSCAPE: [3]=title overlay PNG.
   //
   // TRIM STRATEGY: NO input seeking (-ss). Trim is handled by filter chain (trim filter).
   // Input seeking (-ss before -i) causes timestamp corruption with ALL decoders on FFmpeg
@@ -1005,12 +1155,12 @@ export async function renderVideo(
         : blur_background
           ? ['-loop', '1', '-i', quotePath(blur_background)]
           : ['-f', 'lavfi', '-i', `color=black:s=${canvasW}x${canvasH}:d=1:r=1`]),
-    // Input [2]: header image for short mode; title overlay for landscape mode
-    ...(isShort
-      ? (headerOl?.src ? ['-i', quotePath(headerOl.src)] : ['-f', 'lavfi', '-i', 'color=black:alpha=0:s=2x2:d=1:r=1'])
-      : (titleOverlayPath ? ['-i', quotePath(titleOverlayPath)] : [])),
-    // Input [3]: title overlay for short mode
-    ...(isShort && titleOverlayPath ? ['-i', quotePath(titleOverlayPath)] : []),
+    // Input [2]: header image for both SHORT and LANDSCAPE modes
+    ...(headerOl?.src ? ['-i', quotePath(headerOl.src)] : ['-f', 'lavfi', '-i', 'color=black:alpha=0:s=2x2:d=1:r=1']),
+    // Input [3]: bottom bar PNG (SHORT) or title overlay PNG (LANDSCAPE)
+    ...((isShort && bottomBarOverlayPath) || (!isShort && titleOverlayPath)
+      ? ['-i', quotePath((isShort ? bottomBarOverlayPath : titleOverlayPath)!)]
+      : []),
     '-filter_complex', filterComplex,
     '-map', mapOutput,
     '-map', '0:a?',
@@ -1019,6 +1169,7 @@ export async function renderVideo(
     '-c:a', audioCodec,
     '-b:a', audioBitrate,
     '-r', String(fps_target),
+    '-t', String(duration),
     '-max_muxing_queue_size', '1024',
     '-y', quotePath(outputFile),
   ]
@@ -1122,6 +1273,7 @@ function buildChunkArgs(
   titleOl?: Overlay,
   fpsTarget: number = 30,
   vidHeightPct?: number,
+  bottomBarH?: number,
 ): string[] {
   const isGpuAvailable = gpuTier !== 'software'
   const nvencCodec = isGpuAvailable
@@ -1182,66 +1334,85 @@ function buildChunkArgs(
       : "fps=" + fpsTarget + ",setpts=PTS-STARTPTS,"
     if (cropXNum >= 0) {
       // Scale source to videoH tall (preserves aspect), crop horizontally to canvasW.
+      // Shift crop by videoTop so video content starts at row videoTop (below header zone).
+      const cropYChunked = videoTop
       if (speedFilter) {
-        videoSection = '[0:v]' + trimPre + scale + '=-2:' + videoH + ',crop=' + canvasW + ':' + videoH + ':' + cropXNum + ':0[scaled]; [scaled]' + speedFilter.replace(',', '') + '[vid]'
+        videoSection = '[0:v]' + trimPre + scale + '=-2:' + videoH + ',crop=' + canvasW + ':' + videoH + ':' + cropXNum + ':' + cropYChunked + '[scaled]; [scaled]' + speedFilter.replace(',', '') + '[vid]'
       } else {
-        videoSection = '[0:v]' + trimPre + scale + '=-2:' + videoH + ',crop=' + canvasW + ':' + videoH + ':' + cropXNum + ':0[vid]'
+        videoSection = '[0:v]' + trimPre + scale + '=-2:' + videoH + ',crop=' + canvasW + ':' + videoH + ':' + cropXNum + ':' + cropYChunked + '[vid]'
       }
     } else {
       // Source narrower than canvas: scale by width, crop excess height.
       // When pre-scaled: source is already at canvasW wide — skip scale, just format+crop.
-      const cropY = Math.round((canvasW * 9 / 16 - videoH) / 2)
+      const cropY = Math.round((canvasW * 9 / 16 - videoH) / 2) + videoTop
       if (isPreScaled) {
         // Pre-scaled source is already canvasW wide — scale to cropY or pad to center.
         if (speedFilter) {
-          videoSection = '[0:v]' + trimPre + 'format=yuv420p,crop=' + canvasW + ':' + videoH + ':0:' + (cropY >= 0 ? cropY : 0) + '[scaled]; [scaled]' + speedFilter.replace(',', '') + '[vid]'
+          videoSection = '[0:v]' + trimPre + 'format=yuv420p,crop=' + canvasW + ':' + videoH + ':0:' + cropY + '[scaled]; [scaled]' + speedFilter.replace(',', '') + '[vid]'
         } else {
-          videoSection = '[0:v]' + trimPre + 'format=yuv420p,crop=' + canvasW + ':' + videoH + ':0:' + (cropY >= 0 ? cropY : 0) + '[vid]'
+          videoSection = '[0:v]' + trimPre + 'format=yuv420p,crop=' + canvasW + ':' + videoH + ':0:' + cropY + '[vid]'
         }
       } else if (speedFilter) {
-        videoSection = '[0:v]' + trimPre + scale + '=' + canvasW + ':-2,crop=' + canvasW + ':' + videoH + ':0:' + (cropY >= 0 ? cropY : 0) + '[scaled]; [scaled]' + speedFilter.replace(',', '') + '[vid]'
+        videoSection = '[0:v]' + trimPre + scale + '=' + canvasW + ':-2,crop=' + canvasW + ':' + videoH + ':0:' + cropY + '[scaled]; [scaled]' + speedFilter.replace(',', '') + '[vid]'
       } else {
-        videoSection = '[0:v]' + trimPre + scale + '=' + canvasW + ':-2,crop=' + canvasW + ':' + videoH + ':0:' + (cropY >= 0 ? cropY : 0) + '[vid]'
+        videoSection = '[0:v]' + trimPre + scale + '=' + canvasW + ':-2,crop=' + canvasW + ':' + videoH + ':0:' + cropY + '[vid]'
       }
     }
 
-    const sections = [
+    // Header overlay section: scale header image to canvas width × headerH, overlay on [vz] → [fh].
+    // Z-order: bg (bottom) → video (middle) → header (top). Thumbnail shows in header zone.
+    const hdChain2 = headerOlSrc
+      ? '[2:v]' + scale + '=' + canvasW + ':' + headerH + ':force_original_aspect_ratio=increase,crop=' + canvasW + ':' + headerH + ':(ow-iw)/2:(oh-ih)/2[hd];[vz][hd]' + overlay + '=0:0[fh]'
+      : ''
+    const hasHeader = !!headerOlSrc
+
+    const sections: string[] = [
       videoSection,
-      '[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=increase,crop=' + canvasW + ':' + canvasH + ':(ow-iw)/2:(oh-ih)/2[bg]',
+      '[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=increase,crop=' + canvasW + ':' + canvasH + ':(ow-iw)/2:(oh-ih)/2,setsar=1[bg]',
       '[bg][vid]' + overlay + '=0:' + videoTop + '[vz]',
     ]
 
-    // Title: drawtext on [vz] for both PNG and fallback
-    if (titleOl?.content) {
-      if (titleOverlayPath) {
-        sections.push('[' + (headerOlSrc ? '3' : '2') + ':v]' + scale + '=' + canvasW + ':' + titleH + ':force_original_aspect_ratio=increase,crop=' + canvasW + ':' + titleH + ':(ow-iw)/2:(oh-ih)/2[titleScaled]')
-        sections.push('[vz][titleScaled]' + overlay + '=0:' + (canvasH - titleH) + '[final]')
+    // Title: PNG overlay or drawtext. Handle header overlay placement correctly.
+    if (titleOl?.content && titleOverlayPath) {
+      // PNG title overlay: add header overlay if exists, then title PNG overlay
+      if (hdChain2) sections.push(hdChain2)
+      const titleInputIdx = hasHeader ? '3' : '2'
+      sections.push('[' + titleInputIdx + ':v]' + scale + '=' + canvasW + ':' + titleH + ':force_original_aspect_ratio=increase,crop=' + canvasW + ':' + titleH + ':(ow-iw)/2:(oh-ih)/2[titleScaled]')
+      sections.push('[fh][titleScaled]' + overlay + '=0:' + (canvasH - titleH) + '[final]')
+    } else if (titleOl?.content) {
+      // Drawtext fallback: z-order depends on whether header exists.
+      // NO header: drawtext on [vz], overlay on [bg] → [td]
+      // WITH header: header on bottom, text on top. Use [tdo] intermediate to avoid [fh]→dst conflict.
+      if (hasHeader) {
+        // Replace the pushed hdChain2 with correct z-order:
+        // bg overlay on [vid] → [vz2]; header on [vz2] → [fh]; drawtext on [fh] → [tdo]; overlay [fh][tdo] → [td]
+        // Header on BOTTOM ([fh]), text on TOP ([tdo]).
+        sections.pop() // remove the old hdChain2
+        sections.push('[bg][vid]' + overlay + '=0:' + videoTop + '[vz2];' +
+          '[2:v]' + scale + '=' + canvasW + ':' + headerH + ':force_original_aspect_ratio=increase,crop=' + canvasW + ':' + headerH + ':(ow-iw)/2:(oh-ih)/2[hd];' +
+          '[vz2][hd]' + overlay + '=0:0[fh];' +
+          '[fh]drawtext=text=\'' + titleOl.content.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\") + '\':fontsize=' + Math.max(24, Math.floor(titleH * 0.15)) + ':fontcolor=white:box=1:boxcolor=' + toFfmpegColor(titleOl.borderColor ?? '#00B4FF') + ':boxborderw=20:x=(w-text_w)/2:y=' + Math.floor(headerH / 2) + '-text_h/2:fontfile=' + FONT_FILE + '[tdo];' +
+          '[fh][tdo]' + overlay + '=0:0[td]')
       } else {
-        const fontSize = Math.max(24, Math.floor(titleH * 0.15))
-        const escapedText = (titleOl.content || '').replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\]")
-        const borderColor = titleOl.borderColor ?? '#00B4FF'
-        // Title text: center in header zone for LANDSCAPE, in title zone (bottom) for SHORT.
-        // SHORT: video occupies rows [headerH..canvasH-titleH], title zone = bottom [canvasH-titleH..canvasH].
-        // LANDSCAPE: video occupies rows [headerH..canvasH-headerH], header zone = top [0..headerH].
-        // NOTE: headerH/canvasH/titleH are TypeScript vars — substitute numeric values in FFmpeg filter.
-        const titleY = isShort
-          ? String(canvasH - Math.floor(titleH / 2)) + '-text_h/2'           // SHORT: bottom zone center
-          : String(Math.floor(headerH / 2)) + '-text_h/2'                  // LANDSCAPE: header center
-        sections.push('[vz]drawtext=text=\'' + escapedText + '\':fontsize=' + fontSize + ':fontcolor=white:box=1:boxcolor=' + borderColor + ':boxborderw=20:x=(w-text_w)/2:y=' + titleY + ':fontfile=' + FONT_FILE + '[td]')
+        // No header: drawtext on [vz], overlay on [bg]
+        sections.push('[vz]drawtext=text=\'' + titleOl.content.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\") + '\':fontsize=' + Math.max(24, Math.floor(titleH * 0.15)) + ':fontcolor=white:box=1:boxcolor=' + toFfmpegColor(titleOl.borderColor ?? '#00B4FF') + ':boxborderw=20:x=(w-text_w)/2:y=' + Math.floor(headerH / 2) + '-text_h/2:fontfile=' + FONT_FILE + '[td]')
       }
+    } else if (hdChain2) {
+      // No title — just add header overlay
+      sections.push(hdChain2)
     }
     const filterChain = sections.join('; ')
-    const mapOutput = titleOverlayPath ? '[final]' : titleOl?.content ? '[td]' : '[vz]'
+    const mapOutput = titleOverlayPath ? '[final]' : (titleOl?.content ? '[td]' : (hasHeader ? '[fh]' : '[vz]'))
 
-    // Background input index: [0]=video, [1]=bg, [2]=titleOverlay
+    // Background input index: [0]=video, [1]=bg, [2]=header image, [3]=title overlay PNG
     // For landscape, background is scaled to full canvas — FILL (not fit within)
-    let bgScaleFilter = '[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=increase,crop=' + canvasW + ':' + canvasH + ':(ow-iw)/2:(oh-ih)/2[bg]'
+    let bgScaleFilter = '[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=increase,crop=' + canvasW + ':' + canvasH + ':(ow-iw)/2:(oh-ih)/2,setsar=1[bg]'
     if (backgroundType === 'solid') {
       // Solid bg: bgInput IS the full-canvas color, no extra scale needed
       bgScaleFilter = '[1:v]null[bg]'
     } else if (backgroundType === 'image' && backgroundImage) {
       // Image bg: scale to full canvas — FILL
-      bgScaleFilter = '[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=increase,crop=' + canvasW + ':' + canvasH + ':(ow-iw)/2:(oh-ih)/2[bg]'
+      bgScaleFilter = '[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=increase,crop=' + canvasW + ':' + canvasH + ':(ow-iw)/2:(oh-ih)/2,setsar=1[bg]'
     }
     // Replace sections[1] with bgScaleFilter
     const fixedSections = [sections[0], bgScaleFilter, ...sections.slice(2)]
@@ -1252,6 +1423,7 @@ function buildChunkArgs(
       '-avoid_negative_ts', 'make_zero',
       '-i', quotePath(sourceVideo),
       ...bgInput,
+      ...(headerOlSrc ? ['-i', quotePath(headerOlSrc)] : ['-f', 'lavfi', '-i', 'color=black:alpha=0:s=2x2:d=1:r=1']),
       ...(titleOverlayPath ? ['-i', quotePath(titleOverlayPath)] : []),
       '-filter_threads', '16',
       '-filter_complex', fixedFilterChain,
@@ -1261,84 +1433,74 @@ function buildChunkArgs(
       '-max_muxing_queue_size', '512',
       '-c:a', audioCodec, '-b:a', audioBitrate,
       '-r', String(fpsTarget),
+      '-t', String(trimDuration),
       '-y', quotePath(outputFile),
     ]
   }
 
   // Build section array for SHORT mode with correct ordering:
-  // Layer order: [vid] → [vz] (bg+vid) → [fh] (header) → [td] (title)
+  // Layout: header (top) → video (middle, bottom touches bar) → bottom bar (bottom)
   // Trim filter at the very start: replaces input seeking (-ss) to avoid timestamp corruption.
   // fps filter: decimate + rescale timestamps to exact 30fps. Safe for VFR sources.
   const trimPre = (trimStart > 0 || trimDuration > 0)
     ? 'trim=start=' + trimStart + ':duration=' + (trimDuration > 0 ? trimDuration : 999999) + ',setpts=PTS-STARTPTS,fps=' + fpsTarget + ','
     : 'fps=' + fpsTarget + ',setpts=PTS-STARTPTS,'
   const sections: string[] = []
+  const hasHeader = !!headerOlSrc
+  const hasBottomBar = !!titleOverlayPath || !!titleOl?.content
+  const bbH = bottomBarH ?? 64
   let finalLabel = '[vz]'
 
-  // Section 1: video — trim → select (clean 60→30fps) → scale → speed → pad
-  // When pre-scaled: the source is already at export resolution, so scale filter is redundant
-  // (e.g. 480x270 for 480x480 with 50% video height). Skip scale and apply format+crop+pad.
-  let scaleChain: string
+  // Section 1: video — trim → fps → scale → crop to videoH tall
+  // videoH = canvasH - headerH - bbH (bottomBarH gap left at bottom)
   if (isPreScaled) {
-    // Pre-scaled source: scale is no-op since source dimensions match target. Apply format+crop+pad.
-    // crop and pad center the video in the canvas zone.
-    scaleChain = '[0:v]' + trimPre + 'format=yuv420p,crop=' + videoW + ':' + videoH + ':(iw-' + videoW + ')/2:(ih-' + videoH + ')/2,pad=' + canvasW + ':' + canvasH + ':(ow-iw)/2:' + videoTop
-    if (speedFilter) {
-      sections.push(scaleChain + ',' + speedFilter + '[vid]')
-    } else {
-      sections.push(scaleChain + '[vid]')
-    }
+    const sc = '[0:v]' + trimPre + 'format=yuv420p,crop=in_w:' + videoH + ':0:(in_h/2-' + videoH + '/2)'
+    sections.push(speedFilter ? sc + ',' + speedFilter + '[vid]' : sc + '[vid]')
   } else {
-    const fullScaleChain = '[0:v]' + trimPre + scale + '=' + videoW + ':' + videoH + ''
-    if (speedFilter) {
-      // Three stages: scale → setpts → pad
-      sections.push(fullScaleChain + ',' + speedFilter + '[sped]; [sped]pad=' + canvasW + ':' + canvasH + ':(ow-iw)/2:' + videoTop + '[vid]')
-    } else {
-      // Two stages: scale → pad
-      sections.push(fullScaleChain + ',pad=' + canvasW + ':' + canvasH + ':(ow-iw)/2:' + videoTop + '[vid]')
-    }
+    // scale=-2:videoH → source 1920x1080 → 1920x1472; crop center canvasW columns
+    sections.push('[0:v]' + trimPre + scale + '=-2:' + videoH + ',crop=' + canvasW + ':' + videoH + ':(iw-' + canvasW + ')/2:0[vid]')
   }
 
-  // Section 2: background — FILL canvas (not fit within).
-  let bgFilter: string
-  if (backgroundType === 'solid') {
-    bgFilter = '[1:v]null[bg]'
-  } else {
-    // increase + crop: scale up to cover canvas, center-cut to exact size.
-    bgFilter = '[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=increase,crop=' + canvasW + ':' + canvasH + ':(ow-iw)/2:(oh-ih)/2[bg]'
-  }
+  // Section 2: background — FILL canvas.
+  const bgFilter = backgroundType === 'solid'
+    ? '[1:v]null[bg]'
+    : '[1:v]' + scale + '=' + canvasW + ':' + canvasH + ':force_original_aspect_ratio=increase,crop=' + canvasW + ':' + canvasH + ':(ow-iw)/2:(oh-ih)/2,setsar=1[bg]'
   sections.push(bgFilter)
 
-  // Section 3: video over bg → [vz]
-  sections.push('[bg][vid]' + overlay + '=0:' + videoTop + '[vz]')
+  // Section 3: video over bg at y=headerH → [vz].
+  // BG shows through header zone and bottom bar gap.
+  sections.push('[bg][vid]' + overlay + '=0:' + headerH + '[vz]')
 
   // Section 4: header on top of [vz] → [fh]
-  if (headerOlSrc) {
-    sections.push('[2:v]' + scale + '=' + canvasW + ':' + headerH + ':force_original_aspect_ratio=increase,crop=' + canvasW + ':' + headerH + ':(ow-iw)/2:(oh-ih)/2[hd]')
+  if (hasHeader) {
+    sections.push('[2:v]' + scale + '=' + canvasW + ':' + headerH + ':force_original_aspect_ratio=increase,crop=' + canvasW + ':' + headerH + ':(ow-iw)/2:(oh-ih)/2,setsar=1[hd]')
     sections.push('[vz][hd]' + overlay + '=0:0[fh]')
     finalLabel = '[fh]'
   }
 
-  // Section 5: title overlay
-  if (titleOverlayPath) {
-    sections.push('[' + (headerOlSrc ? '3' : '2') + ':v]null[titleOl]')
-    sections.push(finalLabel + '[titleOl]' + overlay + '=0:0[final]')
+  // Section 5: bottom bar overlay (opaque bar with text at canvas bottom)
+  const bottomBarY = headerH + videoH  // = canvasH - bottomBarH
+  if (hasBottomBar) {
+    if (titleOverlayPath) {
+      // PNG bottom bar: overlay at y = bottomBarY
+      sections.push('[3:v]null[bb]')
+      sections.push(finalLabel + '[bb]' + overlay + '=0:' + bottomBarY + '[final]')
+    } else if (titleOl?.content) {
+      // Drawtext bottom bar: text drawn at center of bottom bar zone.
+      const fontSize = Math.max(24, Math.floor(bbH * 0.35))
+      const textCenterY = bottomBarY + Math.floor(bbH / 2)
+      const escapedText = (titleOl.content || '').replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\]")
+      const borderColor = toFfmpegColor(titleOl.borderColor ?? '#00B4FF')
+      sections.push(finalLabel + 'drawtext=text=\'' + escapedText + '\':fontsize=' + fontSize + ':fontcolor=white:box=1:boxcolor=' + borderColor + ':boxborderw=20:x=(w-text_w)/2:y=' + textCenterY + '-text_h/2:fontfile=' + FONT_FILE + '[final]')
+    }
     finalLabel = '[final]'
-  } else if (titleOl?.content) {
-    // Drawtext fallback: add text on [vid], then overlay bg+header on top
-    const fontSize = Math.max(24, Math.floor(titleH * 0.15))
-    const titleCenterY = videoTop + videoH + Math.floor(titleH / 2)
-    const escapedText = (titleOl.content || '').replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\]")
-    const borderColor = titleOl.borderColor ?? '#00B4FF'
-    sections.push('[vid]drawtext=text=\'' + escapedText + '\':fontsize=' + fontSize + ':fontcolor=white:borderw=2:bordercolor=' + borderColor + ':x=(w-text_w)/2:y=' + titleCenterY + '-(text_h/2):fontfile=' + FONT_FILE + '[texted]')
-    // Overlay [texted] on top of finalLabel
-    sections.push(finalLabel + '[texted]' + overlay + '=0:0[td]')
-    finalLabel = '[td]'
   }
 
   const filterChain = sections.join('; ')
-  // finalLabel is already set correctly by the sections construction above
 
+  // Input mapping: [0]=video, [1]=bg, [2]=header (if SHORT), [3]=bottomBarPNG (if SHORT+bottomBar)
+  // For SHORT mode: input [2] = header, input [3] = bottom bar (if exists)
+  // For SHORT without header: input [2] = placeholder (not used)
   return [
     '-threads', String(chunkThreads),
     '-avoid_negative_ts', 'make_zero',
@@ -1346,8 +1508,8 @@ function buildChunkArgs(
     ...bgInput,
     ...(isShort
       ? (headerOlSrc ? ['-i', quotePath(headerOlSrc)] : ['-f', 'lavfi', '-i', 'color=black:alpha=0:s=2x2:d=1:r=1'])
-      : (titleOverlayPath ? ['-i', quotePath(titleOverlayPath)] : [])),
-    ...(isShort && titleOverlayPath ? ['-i', quotePath(titleOverlayPath)] : []),
+      : []),
+    ...(isShort && hasBottomBar ? ['-i', quotePath(titleOverlayPath!)] : []),
     '-filter_threads', '16',
     '-filter_complex', filterChain,
     '-map', finalLabel, '-map', '0:a?',
@@ -1356,6 +1518,7 @@ function buildChunkArgs(
     '-max_muxing_queue_size', '512',
     '-c:a', audioCodec, '-b:a', audioBitrate,
     '-r', String(fpsTarget),
+    '-t', String(trimDuration),
     '-y', quotePath(outputFile),
   ]
 }
@@ -1390,6 +1553,7 @@ async function encodeChunk(
   titleOl?: Overlay,
   fpsTarget?: number,
   vidHeightPct?: number,
+  bottomBarH?: number,
 ): Promise<{ success: boolean; fileSize: number; encodeMs: number; error?: string; decodeFps?: number; encodeFps?: number }> {
   const ffmpeg = getFfmpegPath()
   const numThreads = Math.min(os.cpus().length, 16)
@@ -1404,6 +1568,7 @@ async function encodeChunk(
     titleOl,
     fpsTarget ?? 30,
     vidHeightPct,
+    bottomBarH,
   )
 
   return new Promise((resolve) => {
@@ -1588,9 +1753,15 @@ export async function renderChunked(
   const [outW, outH] = metadata.export_resolution.split('x').map(Number)
   const canvasW = outW || 1080
   const canvasH = outH || 1920
-  const headerH = isShort ? Math.floor(canvasH * 0.20) : Math.floor((canvasH - Math.floor(canvasH * vidHeightPct / 100)) / 2)
-  const titleH = isShort ? Math.floor(canvasH * 0.20) : Math.floor(canvasH * (100 - vidHeightPct) / 100)
-  const videoH = isShort ? canvasH - headerH - titleH : Math.floor(canvasH * vidHeightPct / 100)
+  // SHORT: header=20%, video=remaining (after header + bottomBarH), bottomBarH=64px
+  const bottomBarH = metadata.bottomBarH ?? Math.floor(canvasH * BOTTOM_PCT)
+  const headerH = isShort
+    ? Math.floor(canvasH * HEADER_PCT)
+    : Math.floor((canvasH - Math.floor(canvasH * vidHeightPct / 100)) / 2)
+  const titleH = isShort ? 0 : Math.floor(canvasH * (100 - vidHeightPct) / 100)
+  const videoH = isShort
+    ? canvasH - headerH - bottomBarH
+    : Math.floor(canvasH * vidHeightPct / 100)
   const videoTop = isShort ? headerH : Math.floor((canvasH - videoH) / 2)
   const videoW = Math.floor(videoH * 16 / 9)
 
@@ -1651,8 +1822,9 @@ export async function renderChunked(
   onProgress?.({ workspaceId: workspace_id, percent: 5, currentTime: 0, totalTime: 0, fps: 0, speed: '', bitrate: '', phase: 'encode', chunkIndex: 0 })
 
   // Pre-render title overlay once (shared across all chunks)
-  const titleOverlayResult = await preRenderOverlays(metadata, outputDir, workspace_id, gpuTier)
-  const titleOverlayPath = titleOverlayResult.titleOverlayPath
+  const overlayResult = await preRenderOverlays(metadata, outputDir, workspace_id, gpuTier)
+  const bottomBarOverlayPath = overlayResult.bottomBarOverlayPath ?? undefined
+  const titleOverlayPath = overlayResult.titleOverlayPath ?? undefined
   const headerOl = overlays?.find(o => o.type === 'header' && o.src)
   const titleOl = overlays?.find(o => o.type === 'title' && o.content)
 
@@ -1670,7 +1842,7 @@ export async function renderChunked(
         workspace_id, source_video, blur_background || '', startSec, durationSec, chunkFile,
         codec as 'h264' | 'hevc',
         canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW,
-        titleOverlayPath ?? undefined,
+        isShort ? bottomBarOverlayPath : (titleOverlayPath ?? undefined),
         (pct) => {
           const chunkOverall = ((idx + pct / 100) / numChunks) * 90 + 5
           onProgress?.({ workspaceId: workspace_id, percent: chunkOverall, currentTime: 0, totalTime: 0, fps: 0, speed: '', bitrate: '', phase: 'encode', chunkIndex: idx })
@@ -1687,6 +1859,7 @@ export async function renderChunked(
         titleOl,
         fps_target,
         vidHeightPct,
+        bottomBarH,
       )
 
       return { idx, startSec, endSec, chunkFile, result }
