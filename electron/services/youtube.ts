@@ -1028,10 +1028,91 @@ export async function probeActualDuration(filePath: string): Promise<number> {
 }
 
 // ─── Client strategy download with fallback chain ───────────────────────────────
-// Client chain: web → tv_embedded → ios
-// - web: VP9/H.264, best quality up to 1080p+
-// - tv_embedded: H.264 720p, more lenient auth (works for some private/geo-blocked)
+// Client chain: tv_embedded → web → ios
+// - tv_embedded: H.264 720p/1080p60 (avc1.64001f/avc1.64002a), bypasses EJS via HLS
+// - web: H.264 360p only when EJS blocks it with Chrome session cookies
 // - ios: H.264, another fallback for edge cases
+
+// ─── Available formats probe ───────────────────────────────────────────────────
+// Probes YouTube for available video heights without downloading.
+// Returns the heights (360, 720, 1080) that are actually available.
+// tv_embedded probe (not web) since it returns full format list even when EJS challenges web.
+
+export interface AvailableFormatsResult {
+  videoId: string
+  heights: number[]  // e.g. [360, 720, 1080] — sorted ascending
+}
+
+export async function probeAvailableFormats(
+  videoUrl: string,
+  ytCookiesFile: string | null,
+): Promise<AvailableFormatsResult | null> {
+  const ytdlp = getYtdlpPath()
+  const ffmpeg = getFfmpegPath()
+  const ffmpegDir = path.dirname(ffmpeg)
+  const ytDlpDir = path.dirname(ytdlp)
+  const enrichedPath = ffmpegDir + path.delimiter + ytDlpDir + path.delimiter + (process.env.PATH || '')
+
+  // Try tv_embedded first — returns full format list even when web is EJS-blocked
+  for (const client of ['tv_embedded', 'web'] as const) {
+    const result = await new Promise<AvailableFormatsResult | null>((resolve) => {
+      const args = [
+        videoUrl,
+        ...getJsRuntimeArgs(),
+        '--extractor-args', `youtube:player_client=${client}`,
+        '--dump-json',
+        '--no-download',
+        '--no-playlist',
+        '--socket-timeout', '15',
+      ]
+      if (ytCookiesFile) args.push('--cookies', ytCookiesFile)
+
+      const proc = spawn(ytdlp, args, {
+        env: { ...process.env, PATH: enrichedPath },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+
+      let stdout = ''
+      let stderr = ''
+
+      proc.stdout?.on('data', (d) => { stdout += d.toString() })
+      proc.stderr?.on('data', (d) => { stderr += d.toString() })
+
+      const killTimer = setTimeout(() => { if (!proc.killed) proc.kill(); resolve(null) }, 15000)
+
+      proc.on('close', (code) => {
+        clearTimeout(killTimer)
+        if (code === 0 && stdout.trim()) {
+          try {
+            const info = JSON.parse(stdout.trim())
+            const formats: Array<{ height?: number; vcodec?: string }> = info.formats || []
+            const heights = [...new Set(
+              formats
+                .filter(f => f.height != null && f.height > 0 && f.vcodec !== 'none' && !f.vcodec?.startsWith('jpg'))
+                .map(f => f.height!)
+            )]
+            heights.sort((a, b) => a - b)
+
+            // Extract videoId from URL
+            const idMatch = videoUrl.match(/[?&]v=([^&]+)/)
+            const videoId = idMatch ? idMatch[1] : ''
+
+            resolve({ videoId, heights })
+          } catch {
+            resolve(null)
+          }
+        }
+        resolve(null)
+      })
+
+      proc.on('error', () => { clearTimeout(killTimer); resolve(null) })
+    })
+
+    if (result && result.heights.length > 0) return result
+  }
+
+  return null
+}
 //
 // Error classification:
 //   Private → try next client
@@ -1304,7 +1385,7 @@ async function spawnDownload(opts: SpawnDownloadOpts): Promise<DownloadStrategyR
     videoUrl,
     ...getJsRuntimeArgs(),
     '--extractor-args', `youtube:player_client=${client}`,
-    '--cookies', ytCookiesFile || '',
+    ...(ytCookiesFile ? ['--cookies', ytCookiesFile] : []),
     '-f', formatSelector,
     '--output', outputTemplate,
     '--no-playlist',

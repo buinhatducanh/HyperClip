@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Channel, Video, SystemStats, EditorState, RenderedVideo } from '../types'
+import type { Channel, Video, SystemStats, EditorState, RenderedVideo, LicenseStatus, UpdateStatus } from '../types'
 import { ipc } from './ipc'
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
@@ -19,6 +19,10 @@ export interface Workspace {
   channelId: string
   channelName: string
   channelColor: string
+  /** YouTube video ID */
+  videoId?: string
+  /** YouTube video URL */
+  videoUrl?: string
   videoTitle: string
   thumbnail: string
   duration: string
@@ -57,6 +61,8 @@ export interface Workspace {
   preScaledPath?: string
   /** Detected on download: true = vertical 9:16 short, false = landscape 16:9+ video */
   isShort?: boolean
+  /** YouTube available video heights (e.g. [360, 720, 1080]) — for quality validation UI */
+  availableFormats?: number[]
 }
 
 export interface AppSettings {
@@ -100,6 +106,12 @@ export interface AppStore {
   toast: string
   notifications: AppNotification[]
   isInitialLoading: boolean
+
+  // License
+  license: LicenseStatus
+  update: UpdateStatus
+  setLicense: (status: LicenseStatus) => void
+  setUpdate: (status: UpdateStatus) => void
 
   // Actions — Notifications
   addNotification: (n: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => void
@@ -226,6 +238,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
   editorState: INIT_EDITOR,
   isInitialLoading: true,
 
+  // License — starts as "checking"
+  license: { activated: false, valid: false, reason: 'Loading...' },
+  update: { available: false, progress: 0 },
+
+  // Actions
+  setLicense: (status) => set({ license: status }),
+  setUpdate: (status) => set({ update: status }),
+
   // Actions — Workspace
   initWorkspaces: async () => {
     try {
@@ -235,6 +255,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
         channelId: w.channelId,
         channelName: (w.channelName && w.channelName !== 'N/A') ? w.channelName : 'Unknown Channel',
         channelColor: w.channelColor || '#00B4FF',
+        videoId: w.videoId,
+        videoUrl: w.videoUrl,
         videoTitle: w.videoTitle || 'Unknown Video',
         thumbnail: w.thumbnail || '',
         duration: formatDuration(w.duration),
@@ -253,6 +275,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         preScaledPath: w.preScaledPath,
         videoResolution: w.videoResolution,
         downloadQuality: w.downloadQuality,
+        availableFormats: w.availableFormats,
       }))
       set({ workspaces: ws })
     } catch (e) {

@@ -1,4 +1,4 @@
-# Technology Overview — HyperClip (2026-05-17)
+# Technology Overview — HyperClip (2026-05-18)
 
 > Document cập nhật trạng thái công nghệ tại 2026-05-17. Source of truth cho nghiệp vụ: `HYPERCLIP_RULES.md`.
 
@@ -41,13 +41,17 @@ Renderer (Next.js) ←→ preload.ts (IPC bridge) ←→ Main (Electron)
 
 ### yt-dlp + Chrome Cookies
 ```
-yt-dlp --extractor-args "youtube:player_client=web" \
+yt-dlp --extractor-args "youtube:player_client=tv_embedded" \
        --cookies _yt_cookies.txt \
-       -f "bestvideo[height<=N][vcodec=h264]+bestaudio[acodec=aac]"
+       -f "bestvideo[height<=N]+bestaudio[acodec=aac]/bestvideo[height<=N]+bestaudio/bestvideo+bestaudio"
 ```
-- Chrome cookies bypass EJS challenge
-- `player_client=web` → yt-dlp auto-selects best format
+- **Client priority: `tv_embedded` → `web` → `ios`** (2026-05-18 fix)
+  - `tv_embedded` returns H.264 720p/1080p even when `web` client is limited to 360p by EJS challenge
+  - `web` client with Chrome session cookies → EJS challenge limit → only 360p
+  - Root cause: Chrome CDP cookies lack full `PREF` preferences needed for `web` client high-res formats
+- Chrome cookies bypass EJS challenge for `tv_embedded`
 - 16 concurrent fragments for 1080p+
+- Format selector: resolution-prioritized (no H.264 codec restriction) — VP9/AV1 1080p picked before H.264 360p
 
 ### Quality
 - `autoDownloadQuality` setting (default: 720)
@@ -137,14 +141,22 @@ yt-dlp selects best format ≤ N. If YouTube only has 360p → downloads 360p (n
 ### Render
 Canvas always rendered at selected quality (360p/720p/1080p). Source is upscaled if lower.
 
-### UI Validation (TODO)
-Quality buttons in editor should be disabled if YouTube doesn't have that format:
-- `getVideoFormats(videoId)` → check available heights
-- Disable buttons for unavailable qualities
+### UI Validation (FIXED 2026-05-18)
+Quality buttons in editor disabled when YouTube doesn't have that format:
+- `probeAvailableFormats()` in `youtube.ts` → yt-dlp `--dump-json` → parse `formats[].height`
+- IPC: `formats:get` → `handleVideoSelect` probes on video select
+- `availableFormats` stored in workspace → `ControlsPanel` disables `1080` if `!availableFormats.includes(1080)`
+- Header badge: `YT: 360p/720p/1080p` (green) shows available heights
+
+### Download Quality: 1080p ✅ E2E (2026-05-18)
+Full E2E verified: 1920x1080 source → 1080p canvas render → archive ✅
+- Download: 288.7 MB in 30.4s via `tv_embedded` client
+- Render: 874 MB output, 265s @ 1x speed
+- Archive: `Nhật Đức Anh Bùi_TÔI GHÉT CÂY..._1920p_h264_2026-05-17T18-27-22.mp4`
 
 ---
 
-## 6. Issues Log (2026-05-17)
+## 6. Issues Log (2026-05-18)
 
 | # | Description | Status |
 |---|-------------|--------|
@@ -153,10 +165,11 @@ Quality buttons in editor should be disabled if YouTube doesn't have that format
 | 3 | Bottom bar missing | FIXED — `bottomBarEnabled` metadata + always push header overlay |
 | 4 | Zilk Kay skipped (Tab "featured" not found) | FIXED — `_fetchUploadsTab` |
 | 5 | Filter chain `[3:v]null` bottom bar | FIXED — `preRenderOverlays` creates bar when enabled |
-| 6 | Progress 93.3% after render done | PENDING |
-| 7 | Quality validation (disable unavailable options) | PENDING |
+| 6 | Progress 93.3% after render done | FIXED — `closed` flag + `onProgress(100)` on close |
+| 7 | Quality validation (disable unavailable options) | FIXED — `probeAvailableFormats()` via yt-dlp JSON → `availableFormats` stored in workspace → quality buttons disabled when `!availableFormats.includes(q)` |
 | 8 | PO Token extraction fails | DOCUMENTED — Chrome cookies + yt-dlp auto bypass |
 | 9 | Cookie DB lock when Chrome running | KNOWN |
+| 10 | Download 360p instead of 1080p | FIXED — `tv_embedded` client priority + resolution-prioritized format selector |
 
 ---
 

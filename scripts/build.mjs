@@ -22,6 +22,9 @@ function run(cmd, args) {
 }
 
 async function main() {
+  // Resolve TypeScript binary — pnpm isolates modules, so tsc lives in .pnpm/
+  const tscPath = path.join(root, 'node_modules', '.pnpm', 'typescript@6.0.3', 'node_modules', 'typescript', 'lib', 'tsc.js')
+
   try {
     // ── Step 0: Download and extract full CUDA FFmpeg ────────────────────────────
     // gyan.dev full build includes CUDA runtime + NVENC + NVDEC + CUDA filters.
@@ -73,8 +76,8 @@ async function main() {
     }
 
     await run('npx', ['next', 'build'])
-    await run('npx', ['tsc', '-p', 'electron/tsconfig.main.json'])
-    await run('npx', ['tsc', '-p', 'electron/tsconfig.preload.json'])
+    await run('node', [tscPath, '-p', 'electron/tsconfig.main.json'])
+    await run('node', [tscPath, '-p', 'electron/tsconfig.preload.json'])
     await run('npx', ['electron-builder', '--win', '--config', 'electron-builder.yml'])
 
     console.log('[build] Build complete!')

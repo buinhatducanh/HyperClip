@@ -56,7 +56,7 @@ Filter: unseen (seenVideoIds dedup), not deleted/private
   Tab order: trust YouTube Videos tab (newest-first). Age ≤ 10 min filter applied.
   publishedAt=0 → OAuth verify (real upload timestamp) → accept if ≤ 10 min
          ↓
-autoDownload() → yt-dlp --download-sections (chỉ N phút cần thiết, web VP9)
+autoDownload() → yt-dlp --download-sections (chỉ N phút cần thiết, tv_embedded client → H.264 720p/1080p)
 ```
 
 ### Innertube Detection (youtubei.js) — PRIMARY (2026-05-04)
@@ -492,7 +492,19 @@ App khởi động
 
 ---
 
-## 14. Ngày cập nhật: 2026-05-15
+## 14. Ngày cập nhật: 2026-05-18
+
+## 14. Ngày cập nhật: 2026-05-18
+
+### Changes 2026-05-18 — Download: `tv_embedded` Client Priority (FIX 1080p)
+- **Root cause**: `web` client với Chrome CDP session cookies bị YouTube giới hạn 360p. Nguyên nhân: cookies extract từ Chrome CDP (in-memory) thiếu `PREF` preferences đầy đủ → YouTube serve 360p only cho `web` client → yt-dlp EJS challenge fail → format limit.
+- **Fix**: Đổi client priority: `['tv_embedded', 'web', 'ios']` — `tv_embedded` dùng HLS (m3u8) thay vì DASH → bypass EJS → trả về H.264 720p/1080p60.
+  - `tv_embedded`: 1080p60 (avc1.64002a) ✅
+  - `web` (old): only 360p ❌
+- **Format selector**: Bỏ codec restrictions — ưu tiên resolution trước. VP9/AV1 1080p được pick trước H.264 360p.
+- **E2E verified**: 1920x1080 source → 288.7MB download (30.4s) → 874MB render output (265s) → archive ✅
+
+## 14b. Ngày cập nhật: 2026-05-15
 
 ### Changes 2026-05-15 — Download 1080p + Auto-Render + Channel UI
 - **`--cookies` + yt-dlp auto client = 1080p H.264** (2026-05-15). YouTube 2026 không còn yêu cầu PO Token khi có Chrome cookies. Chrome cookies authenticate request → YouTube trả highest quality có thể. yt-dlp auto-selects `WEB_EMBEDDED_PLAYER` → H.264 10800p @ 4943 kb/s. PO Token extraction từ Chrome JavaScript KHÔNG hoạt động (PO Token nằm ở network layer, không phải JS layer).

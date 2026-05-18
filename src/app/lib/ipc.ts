@@ -85,6 +85,30 @@ type ElectronAPI = {
   importData: () => Promise<{ success: boolean; channelsImported?: number; seenImported?: number; error?: string }>
   readLogs: () => Promise<{ files: { name: string; size: number; mtime: number; content?: string }[]; logDir: string }>
   exportLogs: () => Promise<{ success: boolean; path?: string; error?: string }>
+  /** Probe YouTube for available video heights (360, 720, 1080) — for quality validation UI */
+  getAvailableFormats: (videoId: string, videoUrl: string) => Promise<{ videoId: string; heights: number[] } | null>
+
+  // ─── License ───────────────────────────────────────────────────────────────────
+  getLicenseStatus: () => Promise<{
+    activated: boolean; valid: boolean; reason?: string; record?: {
+      keyId: string; machineId: string; features: string[]; expiresAt: string | null; issuedAt: string; activatedAt: string
+    }; updateAvailable?: boolean; latestVersion?: string; updateProgress?: number
+  }>
+  activateLicense: (key: string) => Promise<{
+    success: boolean; error?: string; code?: string; record?: {
+      keyId: string; machineId: string; features: string[]; expiresAt: string | null; issuedAt: string; activatedAt: string
+    }
+  }>
+  validateLicense: () => Promise<{ activated: boolean; valid: boolean; reason?: string; record?: unknown }>
+  revokeLicense: () => Promise<{ success: boolean }>
+  onLicenseInit: (callback: (status: unknown) => void) => () => void
+
+  // ─── Auto-update ────────────────────────────────────────────────────────────────
+  checkForUpdate: () => Promise<{ available: boolean; version?: string }>
+  downloadUpdate: () => Promise<{ success: boolean }>
+  installUpdate: () => Promise<{ success: boolean }>
+  getUpdateStatus: () => Promise<{ available: boolean; version?: string; progress: number }>
+  onUpdateEvent: (callback: (event: { type: string; version?: string; percent?: number }) => void) => () => void
 }
 
 export const ipc = {
@@ -377,5 +401,44 @@ export const ipc = {
   },
   onActivityEvent(callback: (entry: { id: string; timestamp: number; type: string; title: string; subtitle?: string; workspaceId?: string; eta?: string }) => void) {
     return window.electronAPI?.onActivityEvent(callback as any) ?? (() => {})
+  },
+
+  // ─── YouTube formats probe ─────────────────────────────────────────────────────
+  async getAvailableFormats(videoId: string, videoUrl: string): Promise<{ videoId: string; heights: number[] } | null> {
+    return window.electronAPI?.getAvailableFormats(videoId, videoUrl) ?? null
+  },
+
+  // ─── License ────────────────────────────────────────────────────────────────────
+  async getLicenseStatus() {
+    return window.electronAPI?.getLicenseStatus() ?? { activated: false, valid: false, reason: 'electronAPI not available' }
+  },
+  async activateLicense(key: string) {
+    return window.electronAPI?.activateLicense(key) ?? { success: false, error: 'electronAPI not available' }
+  },
+  async validateLicense() {
+    return window.electronAPI?.validateLicense() ?? { activated: false, valid: false, reason: 'electronAPI not available' }
+  },
+  async revokeLicense() {
+    return window.electronAPI?.revokeLicense() ?? { success: false }
+  },
+  onLicenseInit(callback: (status: unknown) => void) {
+    return window.electronAPI?.onLicenseInit(callback as any) ?? (() => {})
+  },
+
+  // ─── Auto-update ─────────────────────────────────────────────────────────────────
+  async checkForUpdate() {
+    return window.electronAPI?.checkForUpdate() ?? { available: false }
+  },
+  async downloadUpdate() {
+    return window.electronAPI?.downloadUpdate() ?? { success: false }
+  },
+  async installUpdate() {
+    return window.electronAPI?.installUpdate() ?? { success: false }
+  },
+  async getUpdateStatus() {
+    return window.electronAPI?.getUpdateStatus() ?? { available: false, progress: 0 }
+  },
+  onUpdateEvent(callback: (event: { type: string; version?: string; percent?: number }) => void) {
+    return window.electronAPI?.onUpdateEvent(callback as any) ?? (() => {})
   },
 }

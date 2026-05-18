@@ -55,9 +55,6 @@ export const IPC_CHANNELS = {
   POLLER_STATUS: 'poller:status',
   POLLER_RESUME: 'poller:resume',
 
-  // WebSub
-  WEBSUB_TEST: 'websub:test',
-
   // Auth
   AUTH_STATUS: 'auth:status',
   AUTH_LOGOUT: 'auth:logout',
@@ -65,7 +62,6 @@ export const IPC_CHANNELS = {
   AUTH_OAUTH_SET_CREDS: 'auth:oauth-set-creds',
   AUTH_OAUTH_GET_CREDS: 'auth:oauth-get-creds',
   AUTH_UPDATE_EVENT: 'auth:update-event',
-  AUTH_SUBS_SYNCED_EVENT: 'auth:subs-synced-event',
   AUTH_COOKIE_CRITICAL: 'auth:cookie-critical',
 
   // Per-project OAuth
@@ -149,10 +145,25 @@ export const IPC_CHANNELS = {
   // MMO Operation Center
   OPERATION_LOGS_READ: 'operation:logs-read',
   OPERATION_LOGS_CLEAR: 'operation:logs-clear',
-  OPERATION_LOGS_EVENT: 'operation:logs-event',
   POLLER_PAUSE: 'poller:pause',
   CHANNEL_BULK_ADD: 'channel:bulk-add',
 
   // Activity feed (pipeline events for sidebar)
   ACTIVITY_EVENT: 'activity:event',
+
+  // YouTube available formats probe (for quality validation UI)
+  FORMATS_GET: 'formats:get',
+
+  // License
+  LICENSE_STATUS: 'license:status',
+  LICENSE_ACTIVATE: 'license:activate',
+  LICENSE_VALIDATE: 'license:validate',
+  LICENSE_REVOKE: 'license:revoke',
+
+  // Auto-update
+  UPDATE_CHECK: 'update:check',
+  UPDATE_DOWNLOAD: 'update:download',
+  UPDATE_INSTALL: 'update:install',
+  UPDATE_STATUS: 'update:status',
+  UPDATE_EVENT: 'update:event',
 } as const

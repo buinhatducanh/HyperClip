@@ -214,7 +214,9 @@ export default function DashboardPage() {
     ipc.getSettings().then((backendSettings: any) => {
       if (backendSettings) {
         setSettings(backendSettings)
-        if (!backendSettings.onboardingComplete && backendSettings.onboardingComplete !== undefined) {
+        // Only show onboarding screen if backend explicitly says not complete
+        // undefined/null = default to NOT showing onboarding (assume already done)
+        if (backendSettings.onboardingComplete === false) {
           setOnboardingDone(false)
         } else {
           setOnboardingDone(true)
@@ -652,7 +654,17 @@ export default function DashboardPage() {
     setSelectedRenderedVideoId(null) // clear rendered selection when selecting a workspace
     resetEditorState()
     const ws = workspaces.find(w => w.id === id)
-    if (ws) updateEditorState({ exportQuality: ws.quality || 1080 })
+    if (ws) {
+      updateEditorState({ exportQuality: ws.quality || 1080 })
+      // Probe YouTube available formats for quality validation UI
+      if (ws.videoId && ws.videoUrl) {
+        ipc.getAvailableFormats(ws.videoId, ws.videoUrl).then(result => {
+          if (result && result.heights.length > 0) {
+            updateWorkspace(id, { availableFormats: result.heights })
+          }
+        }).catch(() => { /* ignore — quality buttons will fall back to source resolution */ })
+      }
+    }
   }
 
   const handleRenderedVideoSelect = (id: string | null) => {
@@ -992,6 +1004,7 @@ export default function DashboardPage() {
               onSplit={handleSplit}
               settings={settings}
               downloadQuality={selectedVideo?.downloadQuality}
+              availableFormats={selectedVideo?.availableFormats}
             />
           )}
         </div>

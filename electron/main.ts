@@ -17,7 +17,7 @@ import {
   type WorkspaceData,
   getRenderedVideos, addRenderedVideo, removeRenderedVideo, type RenderedVideoRecord, type RenderConfigRecord, type SourceInfoRecord,
 } from './services/store.js'
-import { downloadVideo, downloadVideoStrategy, probeVideoAvailability, probeActualDuration, getVideoInfo, getChannelInfo, getChannelId, preScaleVideo, type YtdlpVideoInfo, type YtdlpChannelInfo } from './services/youtube.js'
+import { downloadVideo, downloadVideoStrategy, probeVideoAvailability, probeActualDuration, getVideoInfo, getChannelInfo, getChannelId, preScaleVideo, probeAvailableFormats, type YtdlpVideoInfo, type YtdlpChannelInfo } from './services/youtube.js'
 import { renderVideo, renderChunked, generateBlurBackground, extractVideoThumbnail, cancelChunked, cancelAllChunked, probeVideoAspect, trimVideo, type RenderMetadata, type RenderProgress, type ChunkConfig } from './services/ffmpeg.js'
 import { cancelFfmpeg, cancelAllFfmpeg, getPoolStatus } from './services/worker-pool.js'
 import { getFfmpegPath, validateFfmpeg } from './services/ffmpeg-paths.js'
@@ -300,6 +300,7 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
   }
 
   const gpuTier = getGPUCapabilities().tier
+
   renderVideo(resolvedMetadata, outputDir, (progress: RenderProgress) => {
     updateWorkspace(workspaceId, { renderProgress: progress.percent })
     broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, progress)
@@ -1274,9 +1275,6 @@ async function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show()
-    if (isDev) {
-      mainWindow?.webContents.openDevTools()
-    }
   })
 
   mainWindow.on('close', (e) => {
@@ -1496,6 +1494,17 @@ async function registerIPCHandlers() {
     const updated = updateWorkspace(id, patch)
     if (updated) broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, updated)
     return updated || { success: false }
+  })
+
+  // ─── Available formats probe ───────────────────────────────────────────────
+  ipcMain.handle(IPC_CHANNELS.FORMATS_GET, async (_, videoId: string, videoUrl: string) => {
+    const { getYtCookiesFile } = await import('./services/po_token.js')
+    const ytCookiesFile = await getYtCookiesFile()
+    const result = await probeAvailableFormats(videoUrl, ytCookiesFile)
+    if (result) {
+      devLog(`[Formats] ${videoId}: available heights = [${result.heights.join(', ')}]`)
+    }
+    return result
   })
 
   ipcMain.handle(IPC_CHANNELS.WORKSPACE_DELETE, async (_, id: string) => {
@@ -3492,6 +3501,7 @@ async function registerIPCHandlers() {
       return { success: false, error: String(e) }
     }
   })
+
 }
 
 // Relay auth status changes to renderer (registered at module load — catches early OAuth events)

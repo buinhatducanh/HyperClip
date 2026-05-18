@@ -2,6 +2,34 @@ export type VideoStatus = 'new' | 'rendering' | 'done';
 export type CanvasBg = 'black' | 'white';
 export type TitleShape = 'rounded' | 'square' | 'diamond';
 
+// ─── License ─────────────────────────────────────────────────────────────────────
+export interface LicenseRecord {
+  keyId: string
+  machineId: string
+  features: string[]
+  expiresAt: string | null
+  issuedAt: string
+  activatedAt: string
+}
+
+export interface LicenseStatus {
+  activated: boolean
+  valid: boolean
+  reason?: string
+  record?: LicenseRecord
+  updateAvailable?: boolean
+  latestVersion?: string
+  updateProgress?: number
+}
+
+export interface UpdateStatus {
+  available: boolean
+  version?: string
+  progress: number
+  downloading?: boolean
+  ready?: boolean
+}
+
 export interface Channel {
   id: string;
   name: string;
@@ -30,6 +58,8 @@ export interface Video {
   videoResolution?: string;
   /** yt-dlp quality cap used for download (e.g. "720") — max export quality */
   downloadQuality?: string;
+  /** YouTube available video heights (e.g. [360, 720, 1080]) — for quality validation UI */
+  availableFormats?: number[];
 }
 
 export interface EditorState {

@@ -22,7 +22,7 @@ fetchSubscriptionFeed() → ALL channels (parallel, max 10 concurrent)
          ↓
 Filter: age ≤ 10 min, unseen, not deleted
          ↓
-autoDownload (yt-dlp --download-sections, multi-instance, 16 fragments, PO Token) → workspace ready → notify
+autoDownload (yt-dlp --download-sections, multi-instance, 16 fragments, tv_embedded client) → workspace ready → notify
 ```
 
 **Chi tiết quota system và Innertube failure modes:** xem HYPERCLIP_RULES.md section 3b.
@@ -172,7 +172,7 @@ Luôn chạy `npx tsc --noEmit` sau khi sửa backend Electron. IDE diagnostics 
 - `publishedAt=0` → OAuth verify (2026-05-13): gọi `/videos?id=...&part=snippet` để lấy real `publishedAt`. Accept nếu ≤ 10 min, skip nếu > 10 min. OAuth chỉ trigger khi Innertube trả empty timestamp → quota cost ~300-500 units/ngày.
 - Xóa priority re-scan + `getLatestVideoPriority()` + `verifyVideoAgeByOAuth()` + OAuth health check. OAuth quota ≈ 0 consumption.
 - Fix dedup bug: `return null` → `continue` trong `getLatestVideo`
-- **Download quality (2026-05-13):** `getDownloadSession()` → `po_token: null` (navigation loop removed). yt-dlp dùng `player_client=web` → VP9 DASH → 720p-1080p. Chrome cookies (`--cookies`) bypass EJS challenge. SABR-only 360p không bypass được.
+- **Download quality (2026-05-18):** Client priority: `tv_embedded` → `web` → `ios`. `web` client với Chrome CDP cookies bị giới hạn 360p (EJS challenge). `tv_embedded` bypass EJS qua HLS → 1080p60 H.264. Format selector: ưu tiên resolution (không H.264 restriction). E2E verified: 1920x1080 → 288.7MB download → 874MB render → archive ✅
 - **Preview/render fix (2026-05-13):** `downloadedPath` stored as relative filename (`"XYZ.mp4"`). VIDEO_FILE/VIDEO_BLOB handlers prepend `getVideoStoragePath()` to resolve absolute path. Fix `normalizedStored` undefined reference.
 
 ## Cập nhật: 2026-05-12

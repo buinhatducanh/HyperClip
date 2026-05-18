@@ -115,15 +115,26 @@ export function getProjectDir(projectId: string): string {
   return path.join(getProjectsDir(), projectId)
 }
 
-/** Project config file */
+/** Project config file (plain JSON — legacy, auto-migrated to .enc.yaml) */
 export function getProjectConfigPath(projectId: string): string {
   return path.join(getProjectDir(projectId), 'config.json')
 }
 
-/** Project OAuth token file */
+/** Project config file (encrypted YAML — replaces config.json) */
+export function getProjectConfigEncPath(projectId: string): string {
+  return path.join(getProjectDir(projectId), 'config.enc.yaml')
+}
+
+/** Project OAuth token file (plain JSON — legacy, auto-migrated) */
 export function getProjectTokenPath(projectId: string): string {
   return path.join(getProjectDir(projectId), 'token.json')
 }
+
+/** Project OAuth token file (encrypted YAML) */
+export function getProjectTokenEncPath(projectId: string): string {
+  return path.join(getProjectDir(projectId), 'token.enc.yaml')
+}
+
 
 /** Project stats file */
 export function getProjectStatsPath(projectId: string): string {

@@ -8,21 +8,17 @@ files:
   - dist-electron/**/*
   - package.json
 extraResources:
-  - from: resources/
-    to: resources/
-    filter:
-      - "**/*"
   - from: resources/ffmpeg/bin/
     to: ffmpeg/bin/
   - from: resources/yt-dlp/
     to: yt-dlp/
-asarUnpack:
-  # sql.js WASM binary must be outside asar archive for Node.js fs access
-  - node_modules/sql.js/dist/sql-wasm.wasm
-  # FFmpeg must be outside asar for spawn() access
-  - ffmpeg/**
-  # Unpack next module so Next.js CLI can read files and resolve deps
-  - node_modules/next/**/*
+asarUnpack: []
+
+# Auto-update configuration (disabled — manual update only)
+# publish:
+#   provider: generic
+#   url: https://cdn.hyperclip.io/updates/
+#   channel: latest
 win:
   target:
     - target: nsis
@@ -30,6 +26,7 @@ win:
         - x64
   icon: build/icon.ico
   artifactName: "${productName}-Setup-${version}.${ext}"
+
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
@@ -42,6 +39,7 @@ nsis:
   perMachine: false
   deleteAppDataOnUninstall: false
   runAfterFinish: true
-  createUploadArchive: false
-asar: true
+
+asar: false
 compression: maximum
+

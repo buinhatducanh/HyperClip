@@ -42,6 +42,8 @@ export interface RenderMetadata {
   bottomBarColor?: string
   /** Enable bottom bar in SHORT mode. Default: true. */
   bottomBarEnabled?: boolean
+  /** Watermark text to draw at bottom-right of rendered output. Set automatically from license. */
+  watermarkText?: string
 }
 
 export interface Overlay {
@@ -443,6 +445,8 @@ function buildFilterComplex(opts: {
   trimStart?: number
   /** Trim duration in seconds. Default unlimited. */
   trimDuration?: number
+  /** Watermark text (license info) — drawn at bottom-right corner. */
+  watermarkText?: string
 }): string {
   const {
     headerOl, titleOl, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, speedFilter,
@@ -454,6 +458,7 @@ function buildFilterComplex(opts: {
     fpsTarget = 30,
     trimStart = 0,
     trimDuration = 0,
+    watermarkText,
   } = opts
 
   // GPU pipeline: scale_cuda/overlay_cuda with format=yuv420p conversion.
@@ -650,8 +655,20 @@ function buildFilterComplex(opts: {
   }
 
   const fc = sections.join('; ')
-  devLog(`[FilterComplex] ${fc}`)
-  return fc
+
+  // ── Watermark: draw license info at bottom-right corner ────────────────────────
+  // Watermark is ALWAYS the last step — applied after all other overlays.
+  // Determine the correct output label (last used label in the chain).
+  // Then apply watermark on top of it.
+  const lastLabel = sections.length > 0
+    ? (sections[sections.length - 1].match(/\[([^\]]+)\]$/m)?.[1] ?? 'final')
+    : 'final'
+  const wmFc = watermarkText
+    ? fc + `; [${lastLabel}]drawtext=text='${watermarkText.replace(/'/g, "\\'").replace(/:/g, "\\:")}':fontsize=${Math.max(6, Math.floor(canvasH * 0.008))}:fontcolor=ffffff44:borderw=1:bordercolor=00000088:x=(w-text_w)-${Math.floor(canvasW * 0.015)}:y=(h-text_h)-${Math.floor(canvasH * 0.01)}:fontfile=${FONT_FILE}[wm_final]`
+    : fc
+
+  devLog(`[FilterComplex] ${wmFc}`)
+  return wmFc
 }
 
 // ─── Optimized NVENC parameters ─────────────────────────────────────────────────
@@ -1140,17 +1157,22 @@ export async function renderVideo(
     fpsTarget: fps_target || 30,
     trimStart,
     trimDuration: duration,
+    watermarkText: metadata.watermarkText,
   })
 
   // Determine which output label from the filter chain to use
-  let mapOutput = '[vz]'
-  if (resolvedIsShort) {
-    if (bottomBarOverlayPath || titleOl?.content) mapOutput = '[final]'
-    else if (headerOl?.src) mapOutput = '[fh]'
-  } else {
-    if (titleOverlayPath) mapOutput = '[final]'
-    else if (titleOl?.content) mapOutput = '[td]'
-    else if (headerOl?.src) mapOutput = '[fh]'
+  // If watermark is enabled, the final label is [wm_final]
+  const hasWatermark = !!(metadata.watermarkText)
+  let mapOutput = hasWatermark ? '[wm_final]' : '[vz]'
+  if (!hasWatermark) {
+    if (resolvedIsShort) {
+      if (bottomBarOverlayPath || titleOl?.content) mapOutput = '[final]'
+      else if (headerOl?.src) mapOutput = '[fh]'
+    } else {
+      if (titleOverlayPath) mapOutput = '[final]'
+      else if (titleOl?.content) mapOutput = '[td]'
+      else if (headerOl?.src) mapOutput = '[fh]'
+    }
   }
 
   devLog(`[RenderLayout] canvas=${canvasW}x${canvasH} isShort=${resolvedIsShort} headerH=${headerH} videoH=${videoH} videoTop=${videoTop} bottomBarH=${bottomBarH}`)

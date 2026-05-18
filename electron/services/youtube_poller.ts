@@ -271,7 +271,6 @@ class YouTubePoller {
         const backoffMs = Math.min(baseBackoff * Math.pow(2, this._exhaustionCount), maxBackoff)
         this._exhaustionCount = (this._exhaustionCount ?? 0) + 1
         this._exhaustedBackoffUntil = now + backoffMs
-        this._backoffReason = 'oauth'
 
         if (now - this._lastExhaustedWarnAt > backoffMs) {
           this._lastExhaustedWarnAt = now

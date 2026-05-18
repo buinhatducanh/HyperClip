@@ -131,6 +131,28 @@ export interface ElectronAPI {
   bulkAddChannels: (urls: string[]) => Promise<Array<{ url: string; success: boolean; error?: string }>>
   onOpLogs: (callback: (entries: Array<{ id: string; timestamp: number; level: string; category: string; message: string; detail?: string }>) => void) => () => void
   onActivityEvent: (callback: (entry: { id: string; timestamp: number; type: string; title: string; subtitle?: string; workspaceId?: string; eta?: string }) => void) => () => void
+  // YouTube formats probe — returns available heights for quality validation UI
+  getAvailableFormats: (videoId: string, videoUrl: string) => Promise<{ videoId: string; heights: number[] } | null>
+  // License
+  getLicenseStatus: () => Promise<{
+    activated: boolean; valid: boolean; reason?: string; record?: {
+      keyId: string; machineId: string; features: string[]; expiresAt: string | null; issuedAt: string; activatedAt: string
+    }; updateAvailable?: boolean; latestVersion?: string; updateProgress?: number
+  }>
+  activateLicense: (key: string) => Promise<{
+    success: boolean; error?: string; code?: string; record?: {
+      keyId: string; machineId: string; features: string[]; expiresAt: string | null; issuedAt: string; activatedAt: string
+    }
+  }>
+  validateLicense: () => Promise<{ activated: boolean; valid: boolean; reason?: string; record?: unknown }>
+  revokeLicense: () => Promise<{ success: boolean }>
+  onLicenseInit: (callback: (status: unknown) => void) => () => void
+  // Auto-update
+  checkForUpdate: () => Promise<{ available: boolean; version?: string }>
+  downloadUpdate: () => Promise<{ success: boolean }>
+  installUpdate: () => Promise<{ success: boolean }>
+  getUpdateStatus: () => Promise<{ available: boolean; version?: string; progress: number }>
+  onUpdateEvent: (callback: (event: { type: string; version?: string; percent?: number }) => void) => () => void
 }
 
 declare global {

@@ -1,13 +1,14 @@
 /**
- * Project Manager — HyperClip (2026-05-14)
+ * Project Manager — HyperClip (2026-05-14, updated 2026-05-18)
  *
  * Manages up to 200 GCP projects organized in projects/{id}/ folder structure.
- * Each project = 1 folder containing config.json, token.json, stats.json.
+ * Sensitive files (config, token) are stored as encrypted YAML (AES-256-GCM, hwId-keyed).
+ * Stats are stored as plain JSON (not sensitive).
  *
  * Responsibilities:
- * 1. Load all project configs from projects/ directory
+ * 1. Load all project configs from projects/ directory (encrypted YAML)
  * 2. Auto-assign channels to projects (round-robin, 2 projects/channel)
- * 3. Track quota stats per project (stats.json)
+ * 3. Track quota stats per project (plain JSON)
  * 4. Auto-disable exhausted projects
  * 5. Smart rotation: getLeastUsedProject() for detection
  * 6. Midnight UTC reset: re-enable all projects
@@ -15,9 +16,9 @@
  * Storage layout:
  *   HyperClip-Data/
  *     projects/
- *       proj-001/config.json   ← credentials
- *       proj-001/token.json   ← OAuth token
- *       proj-001/stats.json   ← quota stats
+ *       proj-001/config.enc.yaml  ← credentials (encrypted)
+ *       proj-001/token.enc.yaml   ← OAuth token (encrypted)
+ *       proj-001/stats.json       ← quota stats (plain JSON)
  *       proj-002/
  *       ...
  */
@@ -29,11 +30,19 @@ import {
   getProjectsDir,
   getProjectDir,
   getProjectConfigPath,
+  getProjectConfigEncPath,
   getProjectTokenPath,
+  getProjectTokenEncPath,
   getProjectStatsPath,
   getChannelsDir,
   getChannelListPath,
 } from './paths.js'
+import {
+  readEncryptedFile,
+  writeEncryptedFile,
+  migrateToEncrypted,
+  isEncryptedYaml,
+} from './encrypted_yaml.js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -140,7 +149,9 @@ class ProjectManager {
     this._logSummary()
   }
 
-  /** Load all project configs from projects/{id}/config.json */
+  /** Load all project configs from projects/{id}/config.enc.yaml (encrypted)
+   *  Falls back to config.json for legacy projects (auto-migrates on first write).
+   */
   private _loadAllProjects(): void {
     const projectsDir = getProjectsDir()
 
@@ -154,25 +165,38 @@ class ProjectManager {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue
       const projectId = entry.name
-      const configPath = getProjectConfigPath(projectId)
 
-      if (!fs.existsSync(configPath)) continue
+      const encPath = getProjectConfigEncPath(projectId)
+      const jsonPath = getProjectConfigPath(projectId)
 
-      try {
-        const config: GCPProjectConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
-        const stats = this._loadProjectStats(projectId)
-        const token = this._loadProjectToken(projectId)
+      let config: GCPProjectConfig | null = null
 
-        const project: GCPProject = {
-          ...config,
-          token,
-          stats,
+      // Try encrypted YAML first
+      if (isEncryptedYaml(encPath)) {
+        config = readEncryptedFile<GCPProjectConfig>(encPath)
+      } else if (fs.existsSync(jsonPath)) {
+        // Legacy JSON — migrate in memory (write encrypted on next save)
+        try {
+          config = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'))
+          devLog(`[ProjectManager] Legacy project config found for ${projectId} — will migrate on next save`)
+        } catch (e) {
+          console.warn(`[ProjectManager] Failed to parse project config ${projectId}:`, e)
+          continue
         }
-
-        this._projects.set(projectId, project)
-      } catch (e) {
-        console.warn(`[ProjectManager] Failed to load project ${projectId}:`, e)
       }
+
+      if (!config) continue
+
+      const stats = this._loadProjectStats(projectId)
+      const token = this._loadProjectToken(projectId)
+
+      const project: GCPProject = {
+        ...config,
+        token,
+        stats,
+      }
+
+      this._projects.set(projectId, project)
     }
   }
 
@@ -187,11 +211,20 @@ class ProjectManager {
   }
 
   private _loadProjectToken(projectId: string): GCPProjectToken | undefined {
-    const tokenPath = getProjectTokenPath(projectId)
-    if (fs.existsSync(tokenPath)) {
+    const encPath = getProjectTokenEncPath(projectId)
+    const jsonPath = getProjectTokenPath(projectId)
+
+    // Try encrypted YAML first
+    if (isEncryptedYaml(encPath)) {
+      const token = readEncryptedFile<GCPProjectToken>(encPath)
+      if (token?.access_token) return token
+      return undefined
+    }
+
+    // Legacy JSON fallback
+    if (fs.existsSync(jsonPath)) {
       try {
-        const token: GCPProjectToken = JSON.parse(fs.readFileSync(tokenPath, 'utf-8'))
-        // Empty token = not authorized
+        const token: GCPProjectToken = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'))
         if (!token.access_token) return undefined
         return token
       } catch {}
@@ -359,7 +392,7 @@ class ProjectManager {
 
   // ── Token Management ─────────────────────────────────────────────────────────
 
-  /** Save OAuth token for a project */
+  /** Save OAuth token for a project (encrypted YAML) */
   saveToken(projectId: string, token: GCPProjectToken): void {
     const project = this._projects.get(projectId)
     if (!project) return
@@ -367,10 +400,9 @@ class ProjectManager {
     project.token = token
     project.status = 'active'
 
-    const tokenPath = getProjectTokenPath(projectId)
-    fs.writeFileSync(tokenPath, JSON.stringify(token, null, 2), 'utf-8')
+    this._saveProjectTokenEnc(projectId, token)
     this._saveProjectConfig(project)
-    devLog(`[ProjectManager] Token saved for ${projectId}`)
+    devLog(`[ProjectManager] Token saved (encrypted) for ${projectId}`)
   }
 
   /** Get token for a project */
@@ -581,10 +613,26 @@ class ProjectManager {
 
   // ── Persistence ──────────────────────────────────────────────────────────────
 
+  /** Save project config as encrypted YAML (migrates legacy JSON on first write). */
   private _saveProjectConfig(project: GCPProject): void {
-    const configPath = getProjectConfigPath(project.projectId)
+    const encPath = getProjectConfigEncPath(project.projectId)
+    const jsonPath = getProjectConfigPath(project.projectId)
     const { token: _token, stats: _stats, ...config } = project
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
+    writeEncryptedFile(encPath, config)
+    // Remove legacy plain JSON after successful encrypted write
+    if (fs.existsSync(jsonPath)) {
+      try { fs.unlinkSync(jsonPath) } catch {}
+    }
+  }
+
+  /** Save project token as encrypted YAML (migrates legacy JSON on first write). */
+  private _saveProjectTokenEnc(projectId: string, token: GCPProjectToken): void {
+    const encPath = getProjectTokenEncPath(projectId)
+    const jsonPath = getProjectTokenPath(projectId)
+    writeEncryptedFile(encPath, token)
+    if (fs.existsSync(jsonPath)) {
+      try { fs.unlinkSync(jsonPath) } catch {}
+    }
   }
 
   private _saveProjectStats(project: GCPProject): void {

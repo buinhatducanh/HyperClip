@@ -1,5 +1,5 @@
 {
-  "name": "@figma/my-make-file",
+  "name": "hyperclip",
   "private": true,
   "version": "0.0.1",
   "description": "HyperClip — Auto-Render Vertical Video Desktop App",
@@ -12,7 +12,8 @@
     "build": "next build",
     "start": "next start",
     "electron:dev": "npx tsc -p electron/tsconfig.main.json && npx tsc -p electron/tsconfig.preload.json && cross-env DEV_LOG=1 npx electron .",
-    "electron:build": "npx tsc --noEmit -p electron/tsconfig.main.json && npx tsc --noEmit -p electron/tsconfig.preload.json && node scripts/build.mjs",
+    "electron:build": "node node_modules/.pnpm/typescript@6.0.3/node_modules/typescript/lib/tsc.js --noEmit -p electron/tsconfig.main.json && node node_modules/.pnpm/typescript@6.0.3/node_modules/typescript/lib/tsc.js --noEmit -p electron/tsconfig.preload.json && node scripts/build.mjs",
+    "license:server": "node license-server/index.js",
     "setup:ffmpeg": "powershell -ExecutionPolicy Bypass -File scripts/setup-ffmpeg.ps1",
     "setup:ytdlp": "node scripts/setup-ytdlp.mjs",
     "typecheck": "npx tsc --noEmit && npx tsc --noEmit -p electron/tsconfig.main.json && npx tsc --noEmit -p electron/tsconfig.preload.json"
@@ -85,6 +86,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "@types/react": "19.2.14",
     "@types/sql.js": "^1.4.11",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "4.7.0",

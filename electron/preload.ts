@@ -27,6 +27,9 @@ const IPC = {
   WORKSPACE_SPLIT: 'workspace:split',
   WORKSPACE_SET_ACTIVE: 'workspace:set-active',
 
+  // YouTube formats probe
+  FORMATS_GET: 'formats:get',
+
   // Render
   RENDER_START: 'render:start',
   RENDER_CANCEL: 'render:cancel',
@@ -135,6 +138,20 @@ const IPC = {
   OPERATION_LOGS_CLEAR: 'operation:logs-clear',
   POLLER_PAUSE: 'poller:pause',
   CHANNEL_BULK_ADD: 'channel:bulk-add',
+
+  // License
+  LICENSE_STATUS: 'license:status',
+  LICENSE_ACTIVATE: 'license:activate',
+  LICENSE_VALIDATE: 'license:validate',
+  LICENSE_REVOKE: 'license:revoke',
+  LICENSE_INIT_EVENT: 'license:init',
+
+  // Auto-update
+  UPDATE_CHECK: 'update:check',
+  UPDATE_DOWNLOAD: 'update:download',
+  UPDATE_INSTALL: 'update:install',
+  UPDATE_STATUS: 'update:status',
+  UPDATE_EVENT: 'update:event',
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -177,6 +194,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC.WORKSPACE_SPLIT, id, partMinutes) as Promise<{ success: boolean; newWorkspaces?: any[]; error?: string }>,
   setActiveWorkspace: (workspaceId: string | null) =>
     ipcRenderer.invoke(IPC.WORKSPACE_SET_ACTIVE, workspaceId) as Promise<{ success: boolean }>,
+
+  // YouTube formats probe — returns available heights for quality validation UI
+  getAvailableFormats: (videoId: string, videoUrl: string) =>
+    ipcRenderer.invoke(IPC.FORMATS_GET, videoId, videoUrl) as Promise<{ videoId: string; heights: number[] } | null>,
 
   // Rendering
   startRender: (workspaceId: string, metadata: Record<string, unknown>) =>
@@ -425,5 +446,45 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_: any, entry: any) => callback(entry)
     ipcRenderer.on('activity:event', handler)
     return () => ipcRenderer.removeListener('activity:event', handler)
+  },
+
+  // License
+  getLicenseStatus: () =>
+    ipcRenderer.invoke(IPC.LICENSE_STATUS) as Promise<{
+      activated: boolean; valid: boolean; reason?: string; record?: {
+        keyId: string; machineId: string; features: string[]; expiresAt: string | null; issuedAt: string; activatedAt: string
+      }; updateAvailable?: boolean; latestVersion?: string; updateProgress?: number
+    }>,
+  activateLicense: (key: string) =>
+    ipcRenderer.invoke(IPC.LICENSE_ACTIVATE, key) as Promise<{
+      success: boolean; error?: string; code?: string; record?: {
+        keyId: string; machineId: string; features: string[]; expiresAt: string | null; issuedAt: string; activatedAt: string
+      }
+    }>,
+  validateLicense: () =>
+    ipcRenderer.invoke(IPC.LICENSE_VALIDATE) as Promise<{
+      activated: boolean; valid: boolean; reason?: string; record?: unknown
+    }>,
+  revokeLicense: () =>
+    ipcRenderer.invoke(IPC.LICENSE_REVOKE) as Promise<{ success: boolean }>,
+  onLicenseInit: (callback: (status: unknown) => void) => {
+    const handler = (_: any, status: unknown) => callback(status)
+    ipcRenderer.on(IPC.LICENSE_INIT_EVENT, handler)
+    return () => ipcRenderer.removeListener(IPC.LICENSE_INIT_EVENT, handler)
+  },
+
+  // Auto-update
+  checkForUpdate: () =>
+    ipcRenderer.invoke(IPC.UPDATE_CHECK) as Promise<{ available: boolean; version?: string }>,
+  downloadUpdate: () =>
+    ipcRenderer.invoke(IPC.UPDATE_DOWNLOAD) as Promise<{ success: boolean }>,
+  installUpdate: () =>
+    ipcRenderer.invoke(IPC.UPDATE_INSTALL) as Promise<{ success: boolean }>,
+  getUpdateStatus: () =>
+    ipcRenderer.invoke(IPC.UPDATE_STATUS) as Promise<{ available: boolean; version?: string; progress: number }>,
+  onUpdateEvent: (callback: (event: { type: string; version?: string; percent?: number }) => void) => {
+    const handler = (_: any, data: { type: string; version?: string; percent?: number }) => callback(data)
+    ipcRenderer.on(IPC.UPDATE_EVENT, handler)
+    return () => ipcRenderer.removeListener(IPC.UPDATE_EVENT, handler)
   },
 })

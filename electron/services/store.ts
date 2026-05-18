@@ -13,6 +13,7 @@ import {
 
 const STORE_DIR = getAppStoreDir()
 const STORE_FILE = path.join(STORE_DIR, 'workspaces.json')
+const FILE_INDEX_TTL_MS = 60_000  // 1 minute — file index cache TTL
 
 // Resolve a stored downloadedPath to an absolute filesystem path.
 // Cross-machine compatible: store only filename, resolve using current machine's storage dir.
@@ -234,6 +235,8 @@ export interface WorkspaceData {
   preScaledPath?: string
   /** True once auto-render has been triggered for this workspace — prevents infinite loops */
   autoRenderAttempted?: boolean
+  /** YouTube available video heights (e.g. [360, 720, 1080]) — for quality validation UI */
+  availableFormats?: number[]
 }
 
 interface Store {
@@ -450,7 +453,6 @@ export function clearDoneWorkspaces(): number {
 
 const MAX_RENDERED_ENTRIES = 500
 const MAX_RENDERED_DAYS = 30
-const FILE_INDEX_TTL_MS = 60_000
 
 export interface RenderConfigRecord {
   exportResolution: string     // e.g. "1080x1920"

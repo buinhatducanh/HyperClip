@@ -17,6 +17,8 @@ interface Props {
   settings?: { defaultTrimLimit: number | 'full' }
   /** Download quality cap (e.g. "720") — max export quality */
   downloadQuality?: string
+  /** YouTube available video heights (e.g. [360, 720, 1080]) — for quality validation UI */
+  availableFormats?: number[]
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────────
@@ -597,6 +599,7 @@ function HeaderSection({ headerImageUrl, headerImageOffsetY, onChange }: { heade
             const ext = f.name.split('.').pop() || 'png'
             const result = await ipc.saveBlobToFile(uint8, `header_${Date.now()}.${ext}`)
             const blobUrl = URL.createObjectURL(f)
+            blobRef.current.add(blobUrl)
             onChange({ headerImageUrl: blobUrl, headerImageDiskPath: result?.diskPath ?? null })
           }
         }}
@@ -905,6 +908,7 @@ function BackgroundSection({ backgroundType, backgroundColor, backgroundImageUrl
     const prefix = editorIsShort ? 'bg' : 'thumb'
     const result = await ipc.saveBlobToFile(uint8, `${prefix}_${Date.now()}.${ext}`)
     const blobUrl = URL.createObjectURL(f)
+    blobRef.current.add(blobUrl)
     onChange({ backgroundImageUrl: blobUrl, backgroundImageDiskPath: result?.diskPath ?? null })
   }
 
@@ -1539,7 +1543,7 @@ function CanvasArea({ video, editorState, onChange, onTimeUpdate }: {
 
 // ─── Controls Panel ─────────────────────────────────────────────────────────────
 
-function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRendering, systemStats, editorIsShort, videoDuration, currentTime, videoId, onShowToast, renderProgress, workspaceId, isReady, trimLimitMinutes, onSplit, sourceResolution, downloadQuality }: {
+function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRendering, systemStats, editorIsShort, videoDuration, currentTime, videoId, onShowToast, renderProgress, workspaceId, isReady, trimLimitMinutes, onSplit, sourceResolution, downloadQuality, availableFormats }: {
   editorState: EditorState
   onChange: (p: Partial<EditorState>) => void
   onRender: () => void
@@ -1559,8 +1563,16 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
   sourceResolution?: string
   /** Download quality cap (e.g. "720") — max export quality */
   downloadQuality?: string
+  /** YouTube available video heights (e.g. [360, 720, 1080]) — for quality validation UI */
+  availableFormats?: number[]
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['trim']))
+  // Track blob URLs for cleanup — revoke on unmount to prevent memory leaks
+  const blobRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const urls = blobRef.current
+    return () => { urls.forEach(u => URL.revokeObjectURL(u)) }
+  }, [])
 
   const toggle = (id: string) =>
     setExpanded(prev => {
@@ -1573,7 +1585,10 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
 
   const sourceHeight = sourceResolution ? parseInt(sourceResolution.split('x')[1]) : 0
   // Max export quality: download config if set, else source resolution
-  const maxAllowedHeight = downloadQuality ? parseInt(downloadQuality) : (sourceHeight || 1080)
+  // availableFormats from YouTube probe takes priority — reflects actual available heights
+  const maxAllowedHeight = availableFormats && availableFormats.length > 0
+    ? Math.max(...availableFormats) // YouTube-probed max
+    : downloadQuality ? parseInt(downloadQuality) : (sourceHeight || 1080)
   return (
     <div style={{ width: 280, borderLeft: '1px solid #1A1A1A', display: 'flex', flexDirection: 'column', background: '#111' }}>
       {/* Scrollable content */}
@@ -1703,12 +1718,16 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
           <div style={{ display: 'flex', gap: 3 }}>
             {([1080, 720, 360] as const).map(q => {
               const active = editorState.exportQuality === q
-              const disabled = q > maxAllowedHeight
+              // Disable if: YouTube doesn't have this height (availableFormats probe)
+              // OR height exceeds max allowed (download cap / source resolution)
+              const ytUnavailable = availableFormats ? !availableFormats.includes(q) : false
+              const overMax = q > maxAllowedHeight
+              const disabled = ytUnavailable || overMax
               return (
                 <button
                   key={q}
                   onClick={() => !disabled && onChange({ exportQuality: q as 1080 | 720 | 360 })}
-                  title={disabled ? `Max ${maxAllowedHeight}p` : `${q}p`}
+                  title={ytUnavailable ? `YouTube: no ${q}p` : overMax ? `Max ${maxAllowedHeight}p` : `${q}p`}
                   style={{
                     height: 22, padding: '0 8px',
                     background: active ? '#00B4FF' : disabled ? '#0d0d0d' : '#1A1A1A',
@@ -1748,7 +1767,7 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
 
         {/* Row 2: Render button */}
         <button
-          onClick={editorState.enableChunked && onExportChunked ? onExportChunked : onRender}
+          onClick={editorState.enableChunked && onExportChunked ? onExportChunked : onRender as () => void}
           disabled={isRendering}
           style={{
             width: '100%', height: 40,
@@ -1781,7 +1800,7 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
           )}
         </button>
         <div style={{ fontSize: 9, color: '#2A2A2A', textAlign: 'center', letterSpacing: '0.04em', marginTop: 5 }}>
-          NVENC · RTX 5080
+          NVENC · {systemStats?.gpuName || 'GPU'}
         </div>
       </div>
     </div>
@@ -1816,8 +1835,14 @@ function SectionHeader({ icon, label, isExpanded, onToggle }: { icon: React.Reac
 
 // ─── Main DetailEditor ──────────────────────────────────────────────────────────
 
-export function DetailEditor({ video, editorState, onChange, onRender, onExportChunked, systemStats, onShowToast, onSplit, settings, downloadQuality }: Props) {
+export function DetailEditor({ video, editorState, onChange, onRender, onExportChunked, systemStats, onShowToast, onSplit, settings, downloadQuality, availableFormats }: Props) {
   const [currentTime, setCurrentTime] = useState(0)
+  // Track blob URLs for cleanup — revoke on unmount to prevent memory leaks
+  const blobRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const urls = blobRef.current
+    return () => { urls.forEach(u => URL.revokeObjectURL(u)) }
+  }, [])
 
   if (!video) return <EmptyState />
 
@@ -1857,6 +1882,16 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
             <>
               <span style={{ color: '#444', fontWeight: 600 }}>MAX</span>
               <span style={{ color: '#FFB800', fontWeight: 700 }}>{downloadQuality}p</span>
+              <span style={{ color: '#2A2A2A' }}>·</span>
+            </>
+          )}
+          {/* YouTube available formats — quality validation badge */}
+          {availableFormats && availableFormats.length > 0 && (
+            <>
+              <span style={{ color: '#333', fontWeight: 600 }}>YT</span>
+              <span style={{ color: '#00FF88', fontWeight: 700, fontSize: 8 }}>
+                {availableFormats.map(h => `${h}p`).join('/')}
+              </span>
               <span style={{ color: '#2A2A2A' }}>·</span>
             </>
           )}
@@ -1903,6 +1938,7 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
           onSplit={onSplit}
           sourceResolution={video?.videoResolution}
           downloadQuality={downloadQuality}
+          availableFormats={availableFormats}
         />
       </div>
 

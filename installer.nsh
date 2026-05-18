@@ -12,10 +12,6 @@
   ; Create shortcuts
   CreateShortcut "$DESKTOP\HyperClip.lnk" "$INSTDIR\HyperClip.exe" "" "$INSTDIR\HyperClip.exe" 0
   CreateShortcut "$SMPROGRAMS\HyperClip.lnk" "$INSTDIR\HyperClip.exe" "" "$INSTDIR\HyperClip.exe" 0
-
-  ; Write installer marker so first-run can detect fresh install
-  WriteIniStr "$APPDATA\HyperClip\installed.ini" "installer" "version" "${VERSION}"
-  WriteIniStr "$APPDATA\HyperClip\installed.ini" "installer" "installedAt" "$INSTTIME"
 !macroend
 
 !macro customUnInstall
