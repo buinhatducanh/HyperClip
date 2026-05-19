@@ -486,9 +486,10 @@ export interface RenderedVideoRecord {
   videoTitle: string
   archivedPath: string
   outputPath: string   // original output path (before archive)
-  quality: number      // 360, 720, or 1080
+  quality: number      // 360, 720, or 1080 (short side for portrait)
   codec: string        // 'h264' or 'hevc'
-  fileSize: number     // bytes
+  fileSize: string    // human-readable (e.g. "168.4 MB")
+  fileSizeBytes: number // raw bytes
   duration: number     // seconds
   thumbnail: string
   /** base64 JPEG data URI — populated on render completion, survives workspace deletion */

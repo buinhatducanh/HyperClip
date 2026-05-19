@@ -1,7 +1,7 @@
 /**
  * Channel IPC handlers.
  * Channels: CHANNEL_INFO, CHANNEL_LIST, CHANNEL_SYNC, CHANNEL_ADD,
- *           CHANNEL_UPDATE, CHANNEL_REMOVE, CHANNEL_BULK_ADD
+ *           CHANNEL_UPDATE, CHANNEL_REMOVE, CHANNEL_UNSUBSCRIBE, CHANNEL_BULK_ADD
  */
 
 import type { IpcMain } from 'electron'
@@ -18,6 +18,9 @@ import { getChannelInfo } from '../../services/youtube.js'
 import { getCookieManager } from '../../services/cookie_manager.js'
 import { refreshChannelCache } from '../../services/subscription_feed.js'
 import { getAppStoreDir } from '../../services/paths.js'
+import { unsubscribeChannel } from '../../services/youtube_auth.js'
+import { getTokenManager } from '../../services/token_manager.js'
+import { devLog } from '../../services/unified_log.js'
 
 const CHANNEL_COLORS = ['#00B4FF', '#7C3AED', '#00FF88', '#FF6B35', '#FF0080', '#FFB800']
 
@@ -112,6 +115,28 @@ export function registerChannelHandlers(ipcMain: IpcMain): void {
 
   ipcMain.handle(IPC_CHANNELS.CHANNEL_REMOVE, async (_, id: string): Promise<boolean> => {
     return removeChannel(id)
+  })
+
+  // ── Unsubscribe from YouTube ─────────────────────────────────────────────────
+  ipcMain.handle(IPC_CHANNELS.CHANNEL_UNSUBSCRIBE, async (_, id: string): Promise<{ success: boolean; error?: string }> => {
+    const channels = getChannels()
+    const ch = channels.find(c => c.id === id)
+    if (!ch) return { success: false, error: 'Channel not found' }
+    if (!ch.channelId) return { success: false, error: 'No YouTube channel ID' }
+
+    const tokenData = await getTokenManager().getBestAvailable(ch.channelId)
+    if (!tokenData) return { success: false, error: 'No OAuth token available — please configure OAuth credentials in Settings' }
+
+    devLog(`[CHANNEL_UNSUBSCRIBE] Unsubscribing from ${ch.name} (${ch.channelId})`)
+    const result = await unsubscribeChannel(tokenData.token, ch.channelId)
+
+    if (result.success) {
+      // Also remove from local tracking
+      removeChannel(id)
+      refreshChannelCache()
+      devLog(`[CHANNEL_UNSUBSCRIBE] Success — ${ch.name} unsubscribed and removed from tracking`)
+    }
+    return result
   })
 
   // ── Bulk add ─────────────────────────────────────────────────────────────────

@@ -102,6 +102,7 @@ class YouTubePoller {
   private _backoffReason: 'oauth' | null = null
   private _exhaustionCount: number = 0        // tracks how many times we've backed off (for exponential backoff)
   private _innertubeDegraded: boolean = false // true when Innertube returns 0 videos for 3+ polls
+  private _degradedNotified: boolean = false // prevents duplicate degraded notifications per episode
   private _notifyDegraded?: () => void
 
   constructor(options: PollerOptions) {
@@ -242,11 +243,16 @@ class YouTubePoller {
     })
 
     // Emit degraded event to UI when Innertube has returned 0 videos for 3+ consecutive polls
+    // Only notify ONCE per degraded episode — prevents spam every 5s
     if (subResult.degraded) {
       this._innertubeDegraded = true
-      this._notifyDegraded?.()
+      if (!this._degradedNotified) {
+        this._degradedNotified = true
+        this._notifyDegraded?.()
+      }
     } else if (subResult.videos.length > 0) {
       this._innertubeDegraded = false
+      this._degradedNotified = false // reset for next degraded episode
     }
 
     if (subResult.videos.length === 0) {

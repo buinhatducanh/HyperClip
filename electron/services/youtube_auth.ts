@@ -641,3 +641,87 @@ export async function fetchMySubscriptions(accessToken: string): Promise<Subscri
 
   return subscriptions
 }
+
+/**
+ * Unsubscribe from a YouTube channel via the Data API v3.
+ * Requires a valid OAuth access token with `https://www.googleapis.com/auth/youtube` scope.
+ * Returns { success: true } on success, or { success: false, error: string } on failure.
+ */
+export async function unsubscribeChannel(
+  accessToken: string,
+  channelId: string,
+): Promise<{ success: boolean; error?: string }> {
+  // First: find the subscription ID for this channel
+  let nextPageToken: string | undefined = undefined
+  do {
+    const params = new URLSearchParams({
+      part: 'id,snippet',
+      mine: 'true',
+      maxResults: '50',
+    })
+    if (nextPageToken) params.set('pageToken', nextPageToken)
+
+    const result: { data: any; error?: string } = await new Promise((resolve) => {
+      const options = {
+        hostname: 'www.googleapis.com',
+        path: `/youtube/v3/subscriptions?${params.toString()}`,
+        method: 'GET',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+      const req = https.request(options, (res) => {
+        let data = ''
+        res.on('data', (c) => { data += c })
+        res.on('end', () => {
+          try { resolve({ data: JSON.parse(data) }) }
+          catch { resolve({ data: {}, error: 'parse error' }) }
+        })
+      })
+      req.on('error', (e) => resolve({ data: {}, error: e.message }))
+      req.setTimeout(15000, () => { req.destroy(); resolve({ data: {}, error: 'timeout' }) })
+      req.end()
+    })
+
+    if (result.error || result.data.error) return { success: false, error: result.error || result.data.error.message }
+
+    for (const item of result.data.items || []) {
+      const resource = item.snippet?.resourceId
+      if (resource?.channelId === channelId) {
+        const subscriptionId = item.id
+        // Found — now unsubscribe
+        const unsubResult: { data: any; error?: string } = await new Promise((resolve) => {
+          const body = JSON.stringify({ id: subscriptionId })
+          const options = {
+            hostname: 'www.googleapis.com',
+            path: '/youtube/v3/subscriptions',
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(body),
+            },
+          }
+          const req = https.request(options, (res) => {
+            let data = ''
+            res.on('data', (c) => { data += c })
+            res.on('end', () => {
+              try { resolve({ data: JSON.parse(data) }) }
+              catch { resolve({ data: {}, error: 'parse error' }) }
+            })
+          })
+          req.on('error', (e) => resolve({ data: {}, error: e.message }))
+          req.setTimeout(15000, () => { req.destroy(); resolve({ data: {}, error: 'timeout' }) })
+          req.write(body)
+          req.end()
+        })
+        if (unsubResult.error || unsubResult.data.error) {
+          return { success: false, error: unsubResult.error || unsubResult.data.error.message }
+        }
+        return { success: true }
+      }
+    }
+
+    nextPageToken = result.data.nextPageToken
+  } while (nextPageToken)
+
+  return { success: false, error: `Subscription not found for channel ${channelId}` }
+}

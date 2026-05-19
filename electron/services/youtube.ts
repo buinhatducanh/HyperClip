@@ -1071,7 +1071,7 @@ export async function probeAvailableFormats(
 
       proc.stdout?.on('data', (d) => { stdout += d.toString() })
 
-      const killTimer = setTimeout(() => { if (!proc.killed) proc.kill(); resolve(null) }, 15000)
+      const killTimer = setTimeout(() => { if (!proc.killed) proc.kill(); resolve(null) }, 5000)
 
       proc.on('close', (code) => {
         clearTimeout(killTimer)

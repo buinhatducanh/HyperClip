@@ -185,8 +185,8 @@ const INIT_EDITOR: EditorState = {
   headerImageOffsetY: 50,
   titleText: '',
   titleShape: 'rounded',
-  titleBorderColor: '#00B4FF',
-  titleBgColor: 'rgba(0, 180, 255, 0.12)',
+  titleBorderColor: '#000000',
+  titleBgColor: 'rgba(0, 0, 0, 0.12)',
   titleFontSize: 13,
   speedMultiplier: 1.0,
   exportQuality: 1080,
@@ -201,7 +201,7 @@ const INIT_EDITOR: EditorState = {
   backgroundColor: '#000000',
   vidHeightPct: 50,
   bottomBarEnabled: true,
-  bottomBarColor: '#00B4FF',
+  bottomBarColor: '#000000',
 }
 
 // ─── Store ─────────────────────────────────────────────────────────────────────

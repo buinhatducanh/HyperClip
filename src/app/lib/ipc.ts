@@ -147,6 +147,9 @@ export const ipc = {
   async removeChannel(id: string) {
     return window.electronAPI?.removeChannel(id)
   },
+  async unsubscribeChannel(id: string) {
+    return window.electronAPI?.unsubscribeChannel(id)
+  },
   async getWorkspaces() {
     return window.electronAPI?.getWorkspaces()
   },

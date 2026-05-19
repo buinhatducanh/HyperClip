@@ -11,6 +11,22 @@ import { URL } from 'url'
 import { IPC_CHANNELS } from './ipc/channels.js'
 import { collectSystemStats, getGPUCapabilities, detectSystemProfile, type SystemStats } from './services/system.js'
 import { runDiagnostics } from './services/diagnostics.js'
+
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return '—'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+function extractQualityFromResolution(res: string): number {
+  const parts = (res || '1080x1920').split('x').map(Number)
+  const w = parts[0] || 1080
+  const h = parts[1] || 1920
+  return h >= w ? w : h
+}
+
 import {
   getWorkspaces, getWorkspace, addWorkspace, updateWorkspace, deleteWorkspace,
   getChannels, getChannel, addChannel, updateChannel, removeChannel, markVideoSeen, loadSeenVideos, saveSeenVideos, type StoredChannel,
@@ -340,7 +356,8 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
       // Auto-archive to D:\HyperClip\Rendered
       void (async () => {
         try {
-          const quality = parseInt((metadata.export_resolution || '1080x1920').split('x')[1])
+          const exportRes = metadata.export_resolution || '1080x1920'
+          const quality = extractQualityFromResolution(exportRes)
           const codec = (metadata.codec as string) || 'hevc'
 
           // Capture thumbnail as base64 data URI before workspace is deleted
@@ -353,7 +370,7 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
             result.outputPath!,
             workspace.channelName,
             workspace.videoTitle,
-            quality || 1080,
+            quality,
             codec,
             workspace.fileSize || 0,
             workspace.duration || 0,
@@ -382,6 +399,7 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
               originalFileSize: workspace.fileSize || 0,
               downloadQuality: workspace.downloadQuality,
             }
+            const actualBytes = fs.existsSync(result.outputPath!) ? fs.statSync(result.outputPath!).size : 0
             const record: RenderedVideoRecord = {
               id: `rv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
               workspaceId: workspace.id,
@@ -390,9 +408,10 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
               videoTitle: workspace.videoTitle,
               archivedPath: archiveResult.archivedPath,
               outputPath: result.outputPath!,
-              quality: quality || 1080,
+              quality,
               codec,
-              fileSize: workspace.fileSize || 0,
+              fileSize: formatBytes(actualBytes),
+              fileSizeBytes: actualBytes,
               duration: workspace.duration || 0,
               thumbnail: workspace.thumbnail,
               thumbnailData: thumbData,
@@ -410,7 +429,7 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
             // Cleanup downloaded video + blur after successful archive (storage optimization)
             // const { bytesFreed } = cleanupWorkspace(workspace.id, workspace.downloadedPath)
             // if (bytesFreed > 0) { const freedMB = (bytesFreed / 1024 / 1024).toFixed(1); devLog(`[AutoArchive] Cleaned ${freedMB} MB of downloaded files after archive`) }
-            const _fileSizeMB = ((workspace.fileSize || 0) / 1024 / 1024).toFixed(1)
+            const _fileSizeMB = (actualBytes / 1024 / 1024).toFixed(1)
             const totalElapsed = ((Date.now() - renderStartMs) / 1000).toFixed(1)
             devLog(`[TIMER] ARCHIVE DONE: ${archiveResult.archivedPath}`)
             devLog(`[TIMER]   Archive file size: ${_fileSizeMB} MB | Total elapsed: ${totalElapsed}s`)
@@ -648,11 +667,16 @@ async function autoDownloadFromWebSub(
     devLog(`[Auto] DOWNLOAD DONE: "${title}" (${downloadElapsed}s, ${fileSizeMB} MB)`)
     playSuccessBeep()
 
+    // Probe actual duration from file (not yt-dlp metadata, which can be stale/wrong).
+    // ffprobe reads container metadata in ~100ms — worth the extra call to ensure correct duration.
+    const actualDuration = await probeActualDuration(result.filePath)
+    const realDuration = actualDuration || result.duration || 0
+
     // Phase 1+2: Parallel — thumbnail, video info, trim, and blur ALL run simultaneously.
     // Saves ~15-20s vs sequential execution.
     const thumbnailPath = path.join(storagePath, `thumb_${ws.id}.jpg`)
     const trimLimitSec = typeof autoTrimLimit === 'number' ? autoTrimLimit * 60 : 0
-    const doTrim = trimLimitSec > 0 && (result.duration || 0) > trimLimitSec
+    const doTrim = trimLimitSec > 0 && realDuration > trimLimitSec
     const isLandscape = !aspect?.isShort
     const { blurPath } = generateWorkspacePaths(ws.id)
 
@@ -678,11 +702,10 @@ async function autoDownloadFromWebSub(
         return null
       })(),
       // Blur: only for vertical videos. Landscape uses thumbnail bg — skip to save ~10-15s.
-      (isLandscape ? Promise.resolve({ success: true }) : generateBlurBackground(result.filePath, blurPath, 1080, 1920, result.duration || undefined)),
+      (isLandscape ? Promise.resolve({ success: true }) : generateBlurBackground(result.filePath, blurPath, 1080, 1920, realDuration || undefined)),
     ])
 
     const realTitle = videoInfo?.title || title
-    const realDuration = result.duration || videoInfo?.duration || 0
     const localThumbnail = thumbResult.success
       ? 'local-video:///' + thumbnailPath.replace(/\\/g, '/')
       : (videoInfo?.thumbnail || `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`)

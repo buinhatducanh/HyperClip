@@ -84,11 +84,11 @@ export interface RenderResult {
 // ─── SHORT (9:16) canvas zone constants ─────────────────────────────────────────
 // All values as % of canvasH. Responsive to any canvas resolution (360, 720, 1080).
 //
-// Layout: HEADER (20%) | VIDEO (70%) | BOTTOM (10%)
+// Layout: HEADER (25%) | VIDEO (50%) | BOTTOM (25%)
 // Video bottom touches top of bottom zone — no overlap.
-export const HEADER_PCT = 0.20   // 20% — header overlay zone
-export const BOTTOM_PCT = 0.10   // 10% — bottom bar zone (opaque bar + title)
-export const VIDEO_PCT  = 1 - HEADER_PCT - BOTTOM_PCT  // 70% — video zone
+export const HEADER_PCT = 0.25   // 25% — header overlay zone
+export const BOTTOM_PCT = 0.25   // 25% — bottom bar zone (opaque bar + title)
+export const VIDEO_PCT  = 1 - HEADER_PCT - BOTTOM_PCT  // 50% — video zone
 
 // ─── Shared font path for drawtext ─────────────────────────────────────────────
 // The font is copied to resources/fonts/arial.ttf at startup.
@@ -382,8 +382,8 @@ export async function extractVideoThumbnail(
       '-ss', seekStr,
       '-i', videoPath,
       '-vframes', '1',
-      '-vf', 'scale=320:-1:force_original_aspect_ratio=decrease',
-      '-q:v', '3',
+      '-vf', 'scale=1280:-2:force_original_aspect_ratio=decrease',
+      '-q:v', '2',
       '-y', outputPath,
     ]
 
@@ -560,7 +560,7 @@ function buildFilterComplex(opts: {
         // Center of header zone: headerH/2 (top of canvas to middle of header)
         // Then subtract text_h/2 to center text vertically in that zone.
         const titleY = Math.floor(headerH / 2) // integer — FFmpeg can subtract text_h from this
-        const drawtext = `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=white:box=1:boxcolor=${borderColor}:boxborderw=20:x=(w-text_w)/2:y=${titleY}-text_h/2:fontfile=${FONT_FILE}`
+        const drawtext = `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=white:x=(w-text_w)/2:y=${titleY}-text_h/2:fontfile=${FONT_FILE}`
         // [fh] (header) bottom, [tdo] (header+text) top → text on top of header
         sections.push(`[${titleBase}]${drawtext}[tdo]`)
         sections.push(`[${titleBase}][tdo]${ov}=0:0[td]`)
@@ -651,7 +651,7 @@ function buildFilterComplex(opts: {
     const escapedText = titleOl.content.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\]")
     const borderColor = toFfmpegColor(titleOl.borderColor ?? '#00B4FF')
     const baseLabel = hdChain ? 'fh' : 'vz'
-    const drawtext = `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=white:box=1:boxcolor=${borderColor}:boxborderw=20:x=(w-text_w)/2:y=${bbCenter}-text_h/2:fontfile=${FONT_FILE}`
+    const drawtext = `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=white:x=(w-text_w)/2:y=${bbCenter}-text_h/2:fontfile=${FONT_FILE}`
     sections.push(`[${baseLabel}]${drawtext}[final]`)
   }
 
@@ -823,7 +823,7 @@ export async function renderTextOverlay(
     `format=yuva420p[border];` +
     // Draw text centered in box (FFmpeg 7.x syntax, double-quoted fontfile for FFmpeg 7.x)
     `color=black:s=${boxW}x${boxH}:d=1:r=1,` +
-    `drawtext=text='${escapedText}':fontsize=${fs2}:fontcolor=white:box=1:boxcolor=${borderColor}:boxborderw=20:x=(w-text_w)/2:y=(h-text_h)/2:fontfile=${FONT_FILE}[texted];` +
+    `drawtext=text='${escapedText}':fontsize=${fs2}:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2:fontfile=${FONT_FILE}[texted];` +
     // Overlay border on bg
     `[bg][border]overlay=x=${boxX}:y=${boxY},format=yuva420p[bgBorder];` +
     // Overlay text on bg+border
@@ -1462,11 +1462,11 @@ function buildChunkArgs(
         sections.push('[bg][vid]' + overlay + '=0:' + videoTop + '[vz2];' +
           '[2:v]' + scale + '=' + canvasW + ':' + headerH + ':force_original_aspect_ratio=increase,crop=' + canvasW + ':' + headerH + ':(ow-iw)/2:(oh-ih)/2[hd];' +
           '[vz2][hd]' + overlay + '=0:0[fh];' +
-          '[fh]drawtext=text=\'' + titleOl.content.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\") + '\':fontsize=' + Math.max(24, Math.floor(titleH * 0.15)) + ':fontcolor=white:box=1:boxcolor=' + toFfmpegColor(titleOl.borderColor ?? '#00B4FF') + ':boxborderw=20:x=(w-text_w)/2:y=' + Math.floor(headerH / 2) + '-text_h/2:fontfile=' + FONT_FILE + '[tdo];' +
+          '[fh]drawtext=text=\'' + titleOl.content.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\") + '\':fontsize=' + Math.max(24, Math.floor(titleH * 0.15)) + ':fontcolor=white:x=(w-text_w)/2:y=' + Math.floor(headerH / 2) + '-text_h/2:fontfile=' + FONT_FILE + '[tdo];' +
           '[fh][tdo]' + overlay + '=0:0[td]')
       } else {
         // No header: drawtext on [vz], overlay on [bg]
-        sections.push('[vz]drawtext=text=\'' + titleOl.content.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\") + '\':fontsize=' + Math.max(24, Math.floor(titleH * 0.15)) + ':fontcolor=white:box=1:boxcolor=' + toFfmpegColor(titleOl.borderColor ?? '#00B4FF') + ':boxborderw=20:x=(w-text_w)/2:y=' + Math.floor(headerH / 2) + '-text_h/2:fontfile=' + FONT_FILE + '[td]')
+        sections.push('[vz]drawtext=text=\'' + titleOl.content.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\") + '\':fontsize=' + Math.max(24, Math.floor(titleH * 0.15)) + ':fontcolor=white:x=(w-text_w)/2:y=' + Math.floor(headerH / 2) + '-text_h/2:fontfile=' + FONT_FILE + '[td]')
       }
     } else if (hdChain2) {
       // No title — just add header overlay
@@ -1553,11 +1553,11 @@ function buildChunkArgs(
       sections.push('[vz][bb]' + overlay + '=0:' + bottomBarY + '[vb]')
     } else if (titleOl?.content) {
       // Drawtext bottom bar: text drawn at center of bottom bar zone.
-      const fontSize = Math.max(24, Math.floor(bbH * 0.35))
+      const fontSize = Math.max(24, Math.floor(bbH * 0.45))
       const textCenterY = bottomBarY + Math.floor(bbH / 2)
       const escapedText = (titleOl.content || '').replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\]")
       const borderColor = toFfmpegColor(titleOl.borderColor ?? '#00B4FF')
-      sections.push('[vz]drawtext=text=\'' + escapedText + '\':fontsize=' + fontSize + ':fontcolor=white:box=1:boxcolor=' + borderColor + ':boxborderw=20:x=(w-text_w)/2:y=' + textCenterY + '-text_h/2:fontfile=' + FONT_FILE + '[vb]')
+      sections.push('[vz]drawtext=text=\'' + escapedText + '\':fontsize=' + fontSize + ':fontcolor=white:x=(w-text_w)/2:y=' + textCenterY + '-text_h/2:fontfile=' + FONT_FILE + '[vb]')
     }
 
     // Header on TOP of bottom bar
@@ -1833,7 +1833,7 @@ export async function renderChunked(
   const canvasH = outH || 1920
   // Override isShort from CANVAS dimensions, not from source video aspect ratio.
   const resolvedIsShort2 = canvasH >= canvasW
-  // SHORT: header=20%, video=remaining (after header + bottomBarH), bottomBarH=64px
+  // SHORT: header=25%, video=50%, bottomBarH=25% (BOTTOM_PCT)
   const bottomBarH = metadata.bottomBarH ?? Math.floor(canvasH * BOTTOM_PCT)
   const headerH = resolvedIsShort2
     ? Math.floor(canvasH * HEADER_PCT)

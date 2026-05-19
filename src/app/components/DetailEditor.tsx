@@ -649,7 +649,7 @@ function HeaderSection({ headerImageUrl, headerImageOffsetY, onChange, blobRef }
   )
 }
 
-// ─── Title Section ───────────────────────────────────────────────────────────────
+// ─── Title Section (merged: title overlay + bottom bar for SHORT) ─────────────────
 
 const SHAPE_PRESETS = [
   { id: 'rounded', label: '●', title: 'Rounded' },
@@ -657,8 +657,9 @@ const SHAPE_PRESETS = [
   { id: 'diamond', label: '◆', title: 'Diamond' },
 ] as const
 
-function TitleSection({ titleText, titleShape, titleBorderColor, titleBgColor, titleFontSize, onChange }: {
+function TitleSection({ titleText, titleShape, titleBorderColor, titleBgColor, titleFontSize, bottomBarEnabled, bottomBarColor, onChange }: {
   titleText: string; titleShape: 'rounded' | 'square' | 'diamond'; titleBorderColor: string; titleBgColor: string; titleFontSize: number
+  bottomBarEnabled: boolean; bottomBarColor: string
   onChange: (p: Partial<EditorState>) => void
 }) {
   return (
@@ -675,6 +676,7 @@ function TitleSection({ titleText, titleShape, titleBorderColor, titleBgColor, t
           resize: 'none', outline: 'none', fontFamily: 'Inter', lineHeight: 1.3,
         }}
       />
+
       {/* Shape buttons */}
       <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
         {SHAPE_PRESETS.map(s => {
@@ -689,6 +691,7 @@ function TitleSection({ titleText, titleShape, titleBorderColor, titleBgColor, t
           )
         })}
       </div>
+
       {/* Colors + Font size */}
       <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
         <div style={{ flex: 1 }}>
@@ -714,55 +717,28 @@ function TitleSection({ titleText, titleShape, titleBorderColor, titleBgColor, t
         onChange={(e) => onChange({ titleFontSize: +e.target.value })}
         style={{ width: '100%', height: 3, marginTop: 4 }}
       />
-    </div>
-  )
-}
 
-// ─── Bottom Bar Section (SHORT mode only) ─────────────────────────────────────────
-
-function BottomBarSection({ bottomBarEnabled, bottomBarColor, titleText, onChange }: {
-  bottomBarEnabled: boolean
-  bottomBarColor: string
-  titleText: string
-  onChange: (p: Partial<EditorState>) => void
-}) {
-  return (
-    <div style={{ padding: '10px 0 8px' }}>
-      {/* Enable toggle */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+      {/* Bottom bar toggle (SHORT only) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, paddingTop: 10, borderTop: '1px solid #1A1A1A' }}>
         <input
           type="checkbox"
           id="bb-enabled"
           checked={bottomBarEnabled}
           onChange={(e) => {
             onChange({ bottomBarEnabled: e.target.checked })
-            // Default text when enabling
             if (e.target.checked && !titleText) {
-              onChange({ titleText: 'PART 1', bottomBarColor: '#00B4FF' })
+              onChange({ titleText: 'PART 1', bottomBarColor: '#000000' })
             }
           }}
           style={{ accentColor: '#00B4FF', width: 14, height: 14, cursor: 'pointer' }}
         />
         <label htmlFor="bb-enabled" style={{ fontSize: 11, color: '#888', cursor: 'pointer', flex: 1 }}>
-          Opaque bar at canvas bottom (SHORT only)
+          Bottom bar (SHORT only)
         </label>
       </div>
 
       {bottomBarEnabled && (
         <>
-          {/* Text */}
-          <input
-            type="text"
-            value={titleText}
-            onChange={(e) => onChange({ titleText: e.target.value })}
-            placeholder="PART 1"
-            style={{
-              width: '100%', background: '#080808', borderWidth: 1, borderStyle: 'solid',
-              borderColor: '#1A1A1A', borderRadius: 3, color: '#AAA', fontSize: 12,
-              padding: '6px 8px', outline: 'none', fontFamily: 'Inter',
-            }}
-          />
-
           {/* Color + Info row */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
             <div style={{ position: 'relative', height: 24, width: 60, borderRadius: 2, background: bottomBarColor, border: '1px solid #222', overflow: 'hidden', flexShrink: 0 }}>
@@ -1214,13 +1190,13 @@ function CanvasArea({ video, editorState, onChange, onTimeUpdate }: {
   const selectedDuration = trimEndSec - trimStartSec
   const progress = videoDuration > 0 ? (currentTime / videoDuration) * 100 : 0
   const isDark = editorState.canvasBg === 'black'
-  // Short: header(20%) + video(60%) + title(20%)
+  // Short: header(25%) + video(50%) + title(25%)
   // Landscape: thumb + video(vidHeightPct%) + part
   const isShort = video.isShort !== false
-  const headerH = isShort ? Math.round(quality * 0.20) : Math.round(quality * (100 - editorState.vidHeightPct) / 2 / 100)
-  const bottomBarH = isShort ? Math.round(quality * 0.10) : 0
+  const headerH = isShort ? Math.round(quality * 0.25) : Math.round(quality * (100 - editorState.vidHeightPct) / 2 / 100)
+  const bottomBarH = isShort ? Math.round(quality * 0.25) : 0
   const titleH = isShort ? bottomBarH : Math.round(quality * (100 - editorState.vidHeightPct) / 2 / 100)
-  const videoH = isShort ? Math.round(quality * 0.70) : Math.round(quality * editorState.vidHeightPct / 100)
+  const videoH = isShort ? Math.round(quality * 0.50) : Math.round(quality * editorState.vidHeightPct / 100)
   // Title font: clamp to not overflow the zone
   const maxTitleFont = Math.floor(titleH * 0.15)
 
@@ -1417,36 +1393,29 @@ function CanvasArea({ video, editorState, onChange, onTimeUpdate }: {
                 // Matches FFmpeg BOTTOM_ZONE: fully opaque accent, no thumbnail, text on top
                 <div style={{
                   width: '100%', height: '100%',
-                  background: editorState.bottomBarColor || '#00B4FF',
+                  background: editorState.bottomBarColor || '#000000',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
                   {/* Text */}
                   <span style={{
-                    fontSize: Math.round(bottomBarH * 0.35),
+                    fontSize: Math.round(bottomBarH * 0.45),
                     fontWeight: 700, color: '#FFF', textAlign: 'center', lineHeight: 1.2,
-                    textShadow: '0 1px 3px rgba(0,0,0,0.6)',
                   }}>
                     {editorState.titleText || 'PART 1'}
                   </span>
                 </div>
               ) : (
-                // Title overlay preview
+                // Title overlay preview — matches FFmpeg drawtext (no box, text only on video)
                 <div style={{
-                  width: '70%',
-                  background: editorState.titleBgColor,
-                  borderWidth: 2, borderStyle: editorState.titleText ? 'solid' : 'dashed',
-                  borderColor: editorState.titleBorderColor,
-                  borderRadius: editorState.titleShape === 'rounded' ? 999 : 4,
-                  padding: `${Math.round(editorState.titleFontSize * 0.6)}px ${Math.round(editorState.titleFontSize * 0.8)}px`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-                  minHeight: maxTitleFont * 2,
+                  width: '100%', height: '100%',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
                   {editorState.titleText ? (
-                    <span style={{ fontSize: Math.min(editorState.titleFontSize, maxTitleFont), fontWeight: 700, color: isDark ? '#FFF' : '#000', textAlign: 'center', lineHeight: 1.2, wordBreak: 'break-word' }}>
+                    <span style={{ fontSize: Math.min(editorState.titleFontSize, maxTitleFont), fontWeight: 700, color: '#FFF', textAlign: 'center', lineHeight: 1.2, wordBreak: 'break-word', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
                       {editorState.titleText}
                     </span>
                   ) : (
-                    <span style={{ fontSize: Math.min(editorState.titleFontSize, maxTitleFont), fontWeight: 600, color: isDark ? '#333' : '#999', textAlign: 'center', lineHeight: 1.2 }}>
+                    <span style={{ fontSize: Math.min(editorState.titleFontSize, maxTitleFont), fontWeight: 600, color: 'rgba(255,255,255,0.4)', textAlign: 'center', lineHeight: 1.2 }}>
                       {isShort ? 'Nhập tiêu đề...' : 'Part 1, 2, 3...'}
                     </span>
                   )}
@@ -1614,12 +1583,12 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
       ? Math.min(parseInt(downloadQuality), sourceHeight || 1080) // cap download cap by actual source
       : (sourceHeight || 1080)
 
-  // BUG FIX 1: Auto-downgrade exportQuality when probe reveals lower max.
-  // Fires once when availableFormats transitions from undefined → known value.
+  // Auto-upgrade only when probe reveals a higher available format AND current is below that max.
+  // Never auto-downgrade — respect the user's manual selection.
   useEffect(() => {
     if (availableFormats === undefined || availableFormats.length === 0) return
     const probeMax = Math.max(...availableFormats)
-    if (editorState.exportQuality > probeMax) {
+    if (editorState.exportQuality < probeMax) {
       onChange({ exportQuality: probeMax as 1080 | 720 | 360 })
     }
   }, [availableFormats])
@@ -1671,7 +1640,7 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
           </>
         )}
 
-        {/* TITLE */}
+        {/* TITLE (merged: title overlay + bottom bar) */}
         <SectionHeader icon={<IconType size={11} color="#555" />} label="TITLE" isExpanded={is('title')} onToggle={() => toggle('title')} />
         {is('title') && (
           <TitleSection
@@ -1680,17 +1649,8 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
             titleBorderColor={editorState.titleBorderColor}
             titleBgColor={editorState.titleBgColor}
             titleFontSize={editorState.titleFontSize}
-            onChange={onChange}
-          />
-        )}
-
-        {/* BOTTOM BAR */}
-        <SectionHeader icon={<IconBarBottom size={11} color="#555" />} label="BOTTOM BAR" isExpanded={is('bb')} onToggle={() => toggle('bb')} />
-        {is('bb') && (
-          <BottomBarSection
             bottomBarEnabled={editorState.bottomBarEnabled}
             bottomBarColor={editorState.bottomBarColor}
-            titleText={editorState.titleText}
             onChange={onChange}
           />
         )}
@@ -1768,34 +1728,27 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
               </div>
             )}
             {([1080, 720, 360] as const).map(q => {
+              // Only render if: YouTube has this height AND it's within max allowed
+              if (availableFormats && !availableFormats.includes(q)) return null
+              if (q > maxAllowedHeight) return null
               const active = editorState.exportQuality === q
-              // Disable if: YouTube doesn't have this height (availableFormats probe)
-              // OR height exceeds max allowed (download cap / source resolution)
-              const ytUnavailable = availableFormats ? !availableFormats.includes(q) : false
-              const overMax = q > maxAllowedHeight
-              const disabled = ytUnavailable || overMax
               return (
                 <button
                   key={q}
-                  onClick={() => !disabled && onChange({ exportQuality: q as 1080 | 720 | 360 })}
-                  title={ytUnavailable ? `YouTube: no ${q}p available` : overMax ? `Max ${maxAllowedHeight}p (source/download cap)` : `${q}p — click to select`}
+                  onClick={() => onChange({ exportQuality: q as 1080 | 720 | 360 })}
+                  title={`${q}p`}
                   style={{
                     height: 22, padding: '0 8px',
-                    background: active ? '#00B4FF' : disabled ? '#0d0d0d' : '#1A1A1A',
-                    border: `1px solid ${active ? '#00B4FF' : disabled ? '#222' : '#222'}`,
+                    background: active ? '#00B4FF' : '#1A1A1A',
+                    border: `1px solid ${active ? '#00B4FF' : '#222'}`,
                     borderRadius: 2, fontSize: 10, fontWeight: 700,
-                    color: active ? '#000' : disabled ? '#2a2a2a' : '#444',
-                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    color: active ? '#000' : '#444',
+                    cursor: 'pointer',
                     fontFamily: 'monospace',
                     position: 'relative',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                  <span style={{
-                    textDecoration: disabled ? 'line-through' : 'none',
-                    opacity: disabled ? 0.5 : 1,
-                  }}>
-                    {q}p
-                  </span>
+                  {q}p
                 </button>
               )
             })}

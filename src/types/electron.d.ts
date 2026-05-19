@@ -29,6 +29,7 @@ export interface ElectronAPI {
   addChannel: (url: string) => Promise<unknown>
   updateChannel: (id: string, patch: object) => Promise<unknown>
   removeChannel: (id: string) => Promise<unknown>
+  unsubscribeChannel: (id: string) => Promise<{ success: boolean; error?: string }>
   getWorkspaces: () => Promise<unknown[]>
   updateWorkspace: (id: string, patch: object) => Promise<unknown>
   deleteWorkspace: (id: string) => Promise<unknown>
@@ -86,6 +87,7 @@ export interface ElectronAPI {
   resumePoller: () => Promise<{ success: boolean }>
   // Project management
   getProjects: () => Promise<unknown[]>
+  getProjectTokenStatuses: () => Promise<unknown[]>
   addProject: (data: { projectId: string; clientId: string; clientSecret: string; apiKey: string; apiKeyName?: string }) => Promise<{ success: boolean; projectId: string; error?: string }>
   removeProject: (projectId: string) => Promise<{ success: boolean }>
   resetProjectQuota: (projectId: string) => Promise<{ success: boolean }>

@@ -28,12 +28,27 @@ function formatRenderTime(ms?: number): string {
   return s > 0 ? `${m}m ${s}s` : `${m}m`
 }
 
-function formatFileSize(bytes?: number): string {
+function formatFileSize(bytes?: number | string): string {
   if (!bytes) return '—'
+  if (typeof bytes === 'string') return bytes // already formatted (new format)
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+/** Display quality: use short side (YouTube convention).
+ * Portrait "1080x1920" → quality = 1080 (width).
+ * Landscape "1920x1080" → quality = 1080 (height). */
+function displayQuality(video: RenderedVideo): number {
+  const res = video.videoResolution
+  if (res) {
+    const parts = res.split('x').map(Number)
+    if (parts.length === 2 && parts[1] > parts[0]) {
+      return parts[0] // portrait: short side = width
+    }
+  }
+  return video.quality
 }
 
 function formatAbsoluteDate(renderedAt: string): string {
@@ -354,7 +369,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
           <div style={{ padding: '5px 12px', borderBottom: '1px solid #1A1A1A' }}>
             <div style={{ fontSize: 7, color: '#444' }}>File Size</div>
             <div style={{ fontSize: 9, color: '#00FF88', fontFamily: 'monospace', fontWeight: 600 }}>
-              {video.fileSize}
+              {formatFileSize(video.fileSize as any)}
             </div>
           </div>
 
@@ -431,9 +446,9 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
           background: '#141414', border: '1px solid #1E1E1E', borderRadius: 6,
           padding: '4px 12px',
         }}>
-          <InfoRow label="Quality" value={`${video.quality}p`} color="#00B4FF" mono />
+          <InfoRow label="Quality" value={`${displayQuality(video)}p`} color="#00B4FF" mono />
           <InfoRow label="Codec" value={video.codec?.toUpperCase()} color="#7C3AED" mono />
-          <InfoRow label="File Size" value={video.fileSize} mono />
+          <InfoRow label="File Size" value={formatFileSize(video.fileSize as any)} mono />
           <InfoRow label="Duration" value={formatDuration(video.duration)} mono />
           <InfoRow label="Rendered At" value={video.renderedAt} />
           <InfoRow label="Output Path" value={video.outputPath ? video.outputPath.split(/[\\/]/).pop() : '—'} mono />

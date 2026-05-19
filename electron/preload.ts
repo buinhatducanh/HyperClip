@@ -56,6 +56,7 @@ const IPC = {
   CHANNEL_ADD: 'channel:add',
   CHANNEL_UPDATE: 'channel:update',
   CHANNEL_REMOVE: 'channel:remove',
+  CHANNEL_UNSUBSCRIBE: 'channel:unsubscribe',
 
   // Settings
   SETTINGS_GET: 'settings:get',
@@ -171,6 +172,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   addChannel: (url: string) => ipcRenderer.invoke(IPC.CHANNEL_ADD, url),
   updateChannel: (id: string, patch: object) => ipcRenderer.invoke(IPC.CHANNEL_UPDATE, id, patch),
   removeChannel: (id: string) => ipcRenderer.invoke(IPC.CHANNEL_REMOVE, id),
+  unsubscribeChannel: (id: string) => ipcRenderer.invoke(IPC.CHANNEL_UNSUBSCRIBE, id) as Promise<{ success: boolean; error?: string }>,
 
   // Workspaces
   getWorkspaces: () => ipcRenderer.invoke(IPC.WORKSPACE_LIST),

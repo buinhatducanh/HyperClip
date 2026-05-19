@@ -28,6 +28,8 @@ interface AppSettingsStore {
   autoDownloadEnabled?: boolean
   /** Auto-render after auto-download. Defaults to false. */
   autoRender?: boolean
+  /** Title template for auto-rendered videos. Defaults to '' (use video title). Variables: {title}, {channel}, {date:YYYY-MM-DD}, {time:HH:MM} */
+  autoRenderTitleTemplate?: string
   /** Resolution for auto-render: '480x480' | '720x720' | '1080x1080'. Defaults to '480x480'. */
   autoRenderResolution?: string
   /** FPS for auto-render: 30 | 60. Defaults to 30. */

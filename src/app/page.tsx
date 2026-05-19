@@ -3,6 +3,9 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+// SHORT layout: HEADER(25%) | VIDEO(50%) | BOTTOM(25%)
+// Must match electron/services/ffmpeg.ts HEADER_PCT / BOTTOM_PCT constants.
+const BOTTOM_PCT = 0.25
 import { Sidebar } from './components/Sidebar'
 import { WorkspaceQueue } from './components/workspace/WorkspaceQueue'
 import { RenderQueueBar } from './components/workspace/RenderQueueBar'
@@ -719,13 +722,35 @@ function DashboardContent() {
     const ws = workspaces.find(w => w.id === id)
     if (ws) {
       updateEditorState({ exportQuality: ws.quality || 1080 })
+      // Clear previous formats immediately to avoid stale flash
+      updateWorkspace(id, { availableFormats: undefined })
       // Probe YouTube available formats for quality validation UI
       if (ws.videoId && ws.videoUrl) {
+        let settled = false // prevents fallback → probe race overwriting a valid result
+        const probeTimeout = setTimeout(() => {
+          settled = true // don't let slow probe overwrite fallback
+          if (ws.downloadQuality) {
+            const fallback = [360, 720, 1080].filter(h => h <= parseInt(ws.downloadQuality))
+            if (fallback.length > 0) {
+              updateWorkspace(id, { availableFormats: fallback })
+            }
+          }
+        }, 3000)
         ipc.getAvailableFormats(ws.videoId, ws.videoUrl).then(result => {
-          if (result && result.heights.length > 0) {
+          clearTimeout(probeTimeout)
+          if (result && result.heights.length > 0 && !settled) {
             updateWorkspace(id, { availableFormats: result.heights })
           }
-        }).catch(() => { /* ignore — quality buttons will fall back to source resolution */ })
+        }).catch(() => {
+          clearTimeout(probeTimeout)
+          // Probe failed — use conservative fallback so buttons still render
+          if (ws.downloadQuality) {
+            const fallback = [360, 720, 1080].filter(h => h <= parseInt(ws.downloadQuality))
+            if (fallback.length > 0) {
+              updateWorkspace(id, { availableFormats: fallback })
+            }
+          }
+        })
       }
     }
   }
@@ -795,7 +820,7 @@ function DashboardContent() {
 
     const exportRes = editorState.exportQuality === 360 ? '360x640' : editorState.exportQuality === 720 ? '720x1280' : '1080x1920'
     const canvasH = parseInt(exportRes.split('x')[1])
-    const bottomBarH = Math.floor(canvasH * 0.10)
+    const bottomBarH = Math.floor(canvasH * BOTTOM_PCT)
 
     const overlays: object[] = []
     if (editorState.headerImageDiskPath) {
@@ -911,7 +936,7 @@ function DashboardContent() {
 
     const exportRes = editorState.exportQuality === 360 ? '360x640' : editorState.exportQuality === 720 ? '720x1280' : '1080x1920'
     const canvasH = parseInt(exportRes.split('x')[1])
-    const bottomBarH = Math.floor(canvasH * 0.10)
+    const bottomBarH = Math.floor(canvasH * BOTTOM_PCT)
 
     const metadata = {
       workspace_id: ws.id, source_video: ws.downloadedPath,

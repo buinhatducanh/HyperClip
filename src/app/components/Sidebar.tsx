@@ -362,7 +362,42 @@ export function Sidebar({
                       </div>
                     )}
 
-                    {/* Delete channel button */}
+                    {/* Unsubscribe from YouTube button */}
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        setConfirmDialog({
+                          title: 'Hủy theo dõi YouTube',
+                          message: `Hủy theo dõi "${ch.name}" trên YouTube VÀ xóa khỏi HyperClip? Các video đã tải vẫn được giữ lại.`,
+                          confirmLabel: 'Hủy theo dõi',
+                          confirmDanger: true,
+                          onConfirm: async () => {
+                            setConfirmDialog(null)
+                            const result = await ipc.unsubscribeChannel(ch.id) as { success: boolean; error?: string }
+                            if (result.success) {
+                              showToast(`Đã hủy theo dõi: ${ch.name}`)
+                            } else {
+                              showToast(`Lỗi: ${result.error || 'Không thể hủy theo dõi'}`)
+                            }
+                            if ((window as any).__reloadChannels) (window as any).__reloadChannels()
+                          },
+                        })
+                      }}
+                      title={`Hủy theo dõi ${ch.name} trên YouTube`}
+                      style={{
+                        width: 18, height: 18, flexShrink: 0, opacity: 0,
+                        background: 'transparent', border: 'none', borderRadius: 3,
+                        color: '#555', cursor: 'pointer', fontSize: 10,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: 'opacity 0.15s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = '#FFB800' }}
+                      onMouseLeave={e => { e.currentTarget.style.opacity = '0'; e.currentTarget.style.color = '#555' }}
+                    >
+                      YT
+                    </button>
+
+                    {/* Delete channel button (local tracking only) */}
                     <button
                       onClick={async (e) => {
                         e.stopPropagation()
@@ -379,7 +414,7 @@ export function Sidebar({
                           },
                         })
                       }}
-                      title={`Remove ${ch.name}`}
+                      title={`Xóa "${ch.name}" khỏi HyperClip`}
                       style={{
                         width: 18, height: 18, flexShrink: 0, opacity: 0,
                         background: 'transparent', border: 'none', borderRadius: 3,

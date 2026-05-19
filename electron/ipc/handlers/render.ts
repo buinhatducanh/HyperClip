@@ -11,11 +11,21 @@ import fs from 'fs'
 import { IPC_CHANNELS } from '../channels.js'
 import { broadcast, sendNotification } from '../ipc-state.js'
 import { getWorkspace, updateWorkspace, getRenderedVideos, addRenderedVideo, removeRenderedVideo, type RenderedVideoRecord, type RenderConfigRecord, type SourceInfoRecord } from '../../services/store.js'
-import { loadSettings, saveSettings, getVideoStoragePath, getOutputPath, archiveRenderedFile, openArchiveFolder, showInFolder, getAppStoreDir } from '../../services/ramdisk.js'
+import { loadSettings, saveSettings, getVideoStoragePath, getOutputPath, archiveRenderedFile, openArchiveFolder, showInFolder, getAppStoreDir, formatBytes } from '../../services/ramdisk.js'
 import { renderVideo, renderChunked, cancelChunked, type RenderMetadata, type RenderProgress, type ChunkConfig } from '../../services/ffmpeg.js'
 import { cancelFfmpeg, getPoolStatus } from '../../services/worker-pool.js'
 import { getGPUCapabilities } from '../../services/system.js'
 import { devLog } from '../../services/unified_log.js'
+
+/** Extract quality number (short side) from resolution string.
+ * Portrait "1080x1920" → 1080 (width = short side).
+ * Landscape "1920x1080" → 1080 (height = short side). */
+function extractQualityFromResolution(res: string): number {
+  const parts = (res || '1080x1920').split('x').map(Number)
+  const w = parts[0] || 1080
+  const h = parts[1] || 1920
+  return h >= w ? w : h
+}
 
 // ─── Render Queue ─────────────────────────────────────────────────────────────────
 type RenderJob = {
@@ -99,6 +109,7 @@ function executeRenderJob(job: RenderJob): void {
     const renderElapsed = ((Date.now() - renderStartMs) / 1000).toFixed(1)
     if (result.success) {
       updateWorkspace(workspaceId, { status: 'done', renderProgress: 100, outputPath: result.outputPath || '' })
+        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(workspaceId))
       sendNotification('success', `Done: ${workspace.videoTitle}`, workspaceId)
       broadcast(IPC_CHANNELS.ACTIVITY_EVENT, {
         id: workspaceId,
@@ -142,6 +153,7 @@ function executeRenderJob(job: RenderJob): void {
               originalFileSize: workspace.fileSize || 0,
               downloadQuality: workspace.downloadQuality,
             }
+            const actualBytes = fs.existsSync(result.outputPath!) ? fs.statSync(result.outputPath!).size : 0
             const record: RenderedVideoRecord = {
               id: `rv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
               workspaceId: workspace.id,
@@ -150,9 +162,10 @@ function executeRenderJob(job: RenderJob): void {
               videoTitle: workspace.videoTitle,
               archivedPath: archiveResult.archivedPath,
               outputPath: result.outputPath!,
-              quality: quality || 1080,
+              quality,
               codec,
-              fileSize: workspace.fileSize || 0,
+              fileSize: formatBytes(actualBytes),
+              fileSizeBytes: actualBytes,
               duration: workspace.duration || 0,
               thumbnail: workspace.thumbnail,
               thumbnailData: thumbData,
@@ -170,6 +183,7 @@ function executeRenderJob(job: RenderJob): void {
           } else {
             sendNotification('warning', `Render done, archive failed: ${archiveResult.error || 'unknown'}`, workspaceId)
             updateWorkspace(workspaceId, { status: 'done', renderProgress: 100, outputPath: result.outputPath || '' })
+        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(workspaceId))
           }
         } catch (e) {
           sendNotification('error', `Archive error: ${e}`, workspaceId)
@@ -289,6 +303,7 @@ export function registerRenderHandlers(ipcMain: IpcMain): void {
 
     if (result.success) {
       updateWorkspace(workspaceId, { status: 'done', renderProgress: 100, outputPath: result.outputPath || '' })
+        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(workspaceId))
       sendNotification('success', `Done (chunked): ${workspace.videoTitle}`, workspaceId)
       const chunkRenderElapsed = ((Date.now() - chunkRenderStartMs) / 1000).toFixed(1)
       devLog(`[TIMER] RENDER DONE (GPU MAX CHUNKED): "${workspace.videoTitle}" — ${chunkRenderElapsed}s`)
@@ -298,13 +313,15 @@ export function registerRenderHandlers(ipcMain: IpcMain): void {
         : undefined
       void (async () => {
         try {
-          const quality = parseInt((metadata.export_resolution || '1080x1920').split('x')[1])
+          const exportRes = metadata.export_resolution || '1080x1920'
+          const quality = extractQualityFromResolution(exportRes)
           const codec = (metadata.codec as string) || 'hevc'
           const archiveResult = await archiveRenderedFile(
             result.outputPath!, workspace.channelName, workspace.videoTitle,
-            quality || 1080, codec, workspace.fileSize || 0, workspace.duration || 0,
+            quality, codec, workspace.fileSize || 0, workspace.duration || 0,
           )
           if (archiveResult.success && archiveResult.archivedPath) {
+            const actualBytes = fs.existsSync(result.outputPath!) ? fs.statSync(result.outputPath!).size : 0
             const record: RenderedVideoRecord = {
               id: `rv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
               workspaceId: workspace.id,
@@ -313,9 +330,10 @@ export function registerRenderHandlers(ipcMain: IpcMain): void {
               videoTitle: workspace.videoTitle,
               archivedPath: archiveResult.archivedPath,
               outputPath: result.outputPath!,
-              quality: quality || 1080,
+              quality,
               codec,
-              fileSize: workspace.fileSize || 0,
+              fileSize: formatBytes(actualBytes),
+              fileSizeBytes: actualBytes,
               duration: workspace.duration || 0,
               thumbnail: workspace.thumbnail,
               thumbnailData: thumbData,
@@ -329,6 +347,7 @@ export function registerRenderHandlers(ipcMain: IpcMain): void {
           } else {
             sendNotification('warning', `Render done, archive failed: ${archiveResult.error || 'unknown'}`, workspaceId)
             updateWorkspace(workspaceId, { status: 'done', renderProgress: 100, outputPath: result.outputPath || '' })
+        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(workspaceId))
           }
         } catch (e) {
           sendNotification('error', `Archive error: ${e}`, workspaceId)
@@ -378,6 +397,7 @@ export function registerRenderHandlers(ipcMain: IpcMain): void {
       const thumbData = fs.existsSync(thumbPath)
         ? 'data:image/jpeg;base64,' + fs.readFileSync(thumbPath).toString('base64')
         : undefined
+      const actualBytes = fs.existsSync(result.archivedPath) ? fs.statSync(result.archivedPath).size : 0
       const renderedRecord: RenderedVideoRecord = {
         id: `rv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         workspaceId: ws.id,
@@ -388,7 +408,8 @@ export function registerRenderHandlers(ipcMain: IpcMain): void {
         outputPath: ws.outputPath,
         quality,
         codec,
-        fileSize: ws.fileSize,
+        fileSize: formatBytes(actualBytes),
+        fileSizeBytes: actualBytes,
         duration: ws.duration,
         thumbnail: ws.thumbnail,
         thumbnailData: thumbData,

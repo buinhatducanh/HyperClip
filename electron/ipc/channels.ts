@@ -45,6 +45,7 @@ export const IPC_CHANNELS = {
   CHANNEL_ADD: 'channel:add',
   CHANNEL_UPDATE: 'channel:update',
   CHANNEL_REMOVE: 'channel:remove',
+  CHANNEL_UNSUBSCRIBE: 'channel:unsubscribe',
   CHANNEL_SYNCED_EVENT: 'channel:synced-event',
 
   // Settings

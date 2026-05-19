@@ -134,6 +134,14 @@ export function StorageWidget() {
   // Concurrency state
   const [maxConcurrentRenders, setMaxConcurrentRenders] = useState(2)
 
+  // Auto-render state
+  const [autoRenderEnabled, setAutoRenderEnabled] = useState(settings.autoRender ?? false)
+  const [titleTemplate, setTitleTemplate] = useState(settings.autoRenderTitleTemplate ?? '')
+
+  // Load settings on change
+  useEffect(() => { setAutoRenderEnabled(settings.autoRender ?? false) }, [settings.autoRender])
+  useEffect(() => { setTitleTemplate(settings.autoRenderTitleTemplate ?? '') }, [settings.autoRenderTitleTemplate])
+
   const load = async () => {
     const [s, st] = await Promise.all([ipc.getStorageSize(), ipc.getSettings()])
     setStats(s)
