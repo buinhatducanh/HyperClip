@@ -12,7 +12,7 @@ import path from 'path'
 import fs from 'fs'
 import os from 'os'
 import https from 'https'
-import { devLog } from './dev_log.js'
+import { devLog } from './unified_log.js'
 import { getAppStoreDir, getProjectsDir } from './paths.js'
 import { getProjectManager, type GCPProject } from './project_manager.js'
 
@@ -163,11 +163,11 @@ class TokenManager {
     this._initialized = true
 
     // Proactive refresh: every 30 min
-    this._refreshTimer = setInterval(() => { this._proactiveRefresh() }, 30 * 60 * 1000)
-    setTimeout(() => { this._proactiveRefresh() }, 5000)
+    this._refreshTimer = setInterval(() => { void this._proactiveRefresh() }, 30 * 60 * 1000)
+    setTimeout(() => { void this._proactiveRefresh() }, 5000)
 
     // Periodic reset check: every 30 min
-    this._resetCheckTimer = setInterval(() => { this._checkReset() }, 30 * 60 * 1000)
+    this._resetCheckTimer = setInterval(() => { void this._checkReset() }, 30 * 60 * 1000)
   }
 
   private _checkReset(): void {

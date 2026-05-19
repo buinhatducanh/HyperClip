@@ -21,7 +21,7 @@ import os from 'os'
 import { spawn } from 'child_process'
 import { app, shell } from 'electron'
 import initSqlJs from 'sql.js'
-import { devLog } from './dev_log.js'
+import { devLog } from './unified_log.js'
 import { getChromeProfilesDir } from './paths.js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -53,12 +53,44 @@ export interface ChromeSession {
   refreshFailCount: number
 }
 
+/** Sanitized session data sent to renderer — NEVER includes cookies or sensitive fields */
+export interface SessionPublic {
+  profileId: string
+  profileName: string
+  usedToday: number
+  lastUsed: number
+  error?: string
+  isLoggedIn: boolean
+  wasLoggedIn: boolean
+  isConsented: boolean
+  refreshFailCount: number
+  /** Whether the session has been initialized with Chrome cookies */
+  hasCookies: boolean
+}
+
+/** Sanitize a session object — strips all sensitive data before IPC */
+export function toSessionPublic(s: ChromeSession): SessionPublic {
+  return {
+    profileId: s.profileId,
+    profileName: s.profileName,
+    usedToday: s.usedToday,
+    lastUsed: s.lastUsed,
+    error: s.error,
+    isLoggedIn: s.isLoggedIn,
+    wasLoggedIn: s.wasLoggedIn,
+    isConsented: s.isConsented,
+    refreshFailCount: s.refreshFailCount,
+    hasCookies: s.cookies !== null,
+    // STRIP: cookies, rawSocs, profileDir — never send to renderer
+  }
+}
+
 export interface SessionStatus {
   ready: boolean
   sessionCount: number
   loggedInCount: number
   consentedCount: number
-  sessions: ChromeSession[]
+  sessions: SessionPublic[]
   /** Cookie health metrics */
   health: {
     /** Percentage of sessions with valid cookies (0-100) */
@@ -827,7 +859,7 @@ export class ChromeSessionManager {
       sessionCount: this._sessions.length,
       loggedInCount: this._sessions.filter(s => s.cookies).length,
       consentedCount: this._sessions.filter(s => s.isConsented).length,
-      sessions: this._sessions,
+      sessions: this._sessions.map(s => toSessionPublic(s)),
       health: this._computeHealth(),
     }
   }
@@ -1053,14 +1085,14 @@ let _manager: ChromeSessionManager | null = null
 export function getSessionManager(): ChromeSessionManager {
   if (!_manager) {
     // RAM-aware: laptop ≤32GB → 15 sessions, desktop >32GB → 30 sessions
-    const sessionCount = (() => {
-      try {
-        const { getSessionCount } = require('./system.js')
-        return getSessionCount()
-      } catch {
-        return 15  // safe default for laptop (conservative)
-      }
-    })()
+    let sessionCount = 15
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic import at runtime to avoid circular dep at module init
+      const { getSessionCount } = require('./system.js')
+      sessionCount = getSessionCount()
+    } catch {
+      // safe default for laptop (conservative)
+    }
     _manager = new ChromeSessionManager(sessionCount)
   }
   return _manager

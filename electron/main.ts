@@ -17,7 +17,7 @@ import {
   type WorkspaceData,
   getRenderedVideos, addRenderedVideo, removeRenderedVideo, type RenderedVideoRecord, type RenderConfigRecord, type SourceInfoRecord,
 } from './services/store.js'
-import { downloadVideo, downloadVideoStrategy, probeVideoAvailability, probeActualDuration, getVideoInfo, getChannelInfo, getChannelId, preScaleVideo, probeAvailableFormats, type YtdlpVideoInfo, type YtdlpChannelInfo } from './services/youtube.js'
+import { downloadVideo, downloadVideoStrategy, probeVideoAvailability, probeActualDuration, getVideoInfo, getChannelInfo, getChannelId, type YtdlpVideoInfo, type YtdlpChannelInfo } from './services/youtube.js'
 import { renderVideo, renderChunked, generateBlurBackground, extractVideoThumbnail, cancelChunked, cancelAllChunked, probeVideoAspect, trimVideo, type RenderMetadata, type RenderProgress, type ChunkConfig } from './services/ffmpeg.js'
 import { cancelFfmpeg, cancelAllFfmpeg, getPoolStatus } from './services/worker-pool.js'
 import { getFfmpegPath, validateFfmpeg } from './services/ffmpeg-paths.js'
@@ -33,12 +33,14 @@ import { killPersistentChrome } from './services/cdp.js'
 import { getSessionManager } from './services/chrome_cookies.js'
 import { getInnertubePoolSync } from './services/innertube_client.js'
 import type { SessionStatus } from './services/chrome_cookies.js'
-import { log, getLogDir, getSystemSnapshot } from './services/logger.js'
-import { addOpLog, getOpLogs, clearOpLogs, opLog } from './services/operation_log.js'
-
-import { devLog } from './services/dev_log.js'
+import { log, devLog, opLog, setLogWindow, cleanupOldLogs } from './services/unified_log.js'
+import { getLogDir, getSystemSnapshot } from './services/unified_log.js'
 import { checkHealthAlerts, sendHealthAlerts, recordVideoDetected, recordDownloadFail, recordDownloadSuccess } from './services/health_alerts.js'
 import { startE2EServer, stopE2EServer } from './services/e2e_server.js'
+import { registerSettingsHandlers } from './ipc/handlers/settings.js'
+import { registerStorageHandlers } from './ipc/handlers/storage.js'
+import { setIPCState, broadcast as _broadcast, sendNotification as _sendNotification, getActiveWorkspaceId } from './ipc/ipc-state.js'
+import { registerAllHandlers } from './ipc/handlers/index.js'
 
 // Fix UTF-8 console output on Windows — set code page to 65001 (UTF-8)
 if (process.platform === 'win32') {
@@ -220,8 +222,6 @@ const renderQueue: Array<{
 }> = []
 
 // Track which workspace is currently open in the DetailEditor — used to protect from auto-cleanup
-let _activeWorkspaceId: string | null = null
-
 function startNextQueuedRender(): void {
   const max = loadSettings().maxConcurrentRenders ?? 2
   if (getPoolStatus().active >= max) return
@@ -229,6 +229,26 @@ function startNextQueuedRender(): void {
 
   const job = renderQueue.shift()!
   executeRenderJob(job)
+}
+
+// Scan known storage directories for a downloaded video file by workspaceId.
+function findDownloadedFileAbs(workspaceId: string): string | null {
+  const dirs = [
+    getVideoStoragePath(),
+    path.join(os.tmpdir(), 'hyperclip-video'),
+  ]
+  for (const dir of dirs) {
+    try {
+      if (!fs.existsSync(dir)) continue
+      const files = fs.readdirSync(dir).filter(f =>
+        (f.startsWith(workspaceId + '_') || f.startsWith(workspaceId + '.')) && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f)
+      )
+      if (files.length > 0) {
+        return path.join(dir, files[0])
+      }
+    } catch {}
+  }
+  return null
 }
 
 function executeRenderJob(job: typeof renderQueue[0]): void {
@@ -318,7 +338,7 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
         workspaceId,
       })
       // Auto-archive to D:\HyperClip\Rendered
-      ;(async () => {
+      void (async () => {
         try {
           const quality = parseInt((metadata.export_resolution || '1080x1920').split('x')[1])
           const codec = (metadata.codec as string) || 'hevc'
@@ -1155,11 +1175,11 @@ function isPortOpen(port: number): Promise<boolean> {
 // ─── Next.js server ────────────────────────────────────────────────────────────
 function startNextServer(): Promise<void> {
   // In packaged app:
-  //   - .next/ and src/ are in app.asar.unpacked/ (extracted to disk for Node.js access)
-  //   - node_modules/next is also in app.asar.unpacked/
-  //   - cwd = appUnpacked (resources/app.asar.unpacked/) so Next.js finds .next/ and src/ on disk
+  //   - app is unpacked (asar: false), all files in resources/app/
+  //   - Next.js bin: resources/app/node_modules/next/dist/bin/next
+  //   - cwd must be resources/app/ so Next.js finds .next/ in current dir
   const appUnpacked = app.isPackaged
-    ? path.join(process.resourcesPath!, 'app.asar.unpacked')
+    ? path.join(process.resourcesPath!, 'app')
     : path.join(__dirname, '..')
   const nextBin = path.join(appUnpacked, 'node_modules', 'next', 'dist', 'bin', 'next')
 
@@ -1171,7 +1191,18 @@ function startNextServer(): Promise<void> {
   return new Promise<void>((resolve) => {
     startupResolve = resolve
 
-    nextServer = spawn('node', [nextBin, '-p', String(NEXT_PORT)], {
+    // Find node executable — use system PATH or search common locations
+    let nodeExe = 'node'
+    try {
+      const { execSync } = require('child_process')
+      const result = execSync('where node', { timeout: 5000, encoding: 'utf-8' })
+      const firstPath = result.trim().split('\n')[0]
+      if (firstPath && fs.existsSync(firstPath)) nodeExe = firstPath
+    } catch {}
+
+    devLog(`[HyperClip] node executable: ${nodeExe}`)
+
+    nextServer = spawn(nodeExe, [nextBin, '-p', String(NEXT_PORT)], {
       cwd: appUnpacked,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, NODE_ENV: isDev ? 'development' : 'production', PATH: (process.env.PATH || '') + path.delimiter + path.dirname(process.execPath), PORT: String(NEXT_PORT) },
@@ -1248,12 +1279,10 @@ async function createWindow() {
     frame: true,
   })
 
-  // Wire operation log to renderer for live streaming
-  import('./services/operation_log.js').then(({ setOpLogWindow }) => {
-    setOpLogWindow(mainWindow)
-  })
+  // Wire unified log to renderer for live streaming
+  setLogWindow(mainWindow)
 
-  mainWindow.loadURL(`http://localhost:${NEXT_PORT}`)
+  void mainWindow.loadURL(`http://localhost:${NEXT_PORT}`)
 
   // Retry load if initial attempt fails (server might still be warming up)
   let loadRetries = 0
@@ -1264,7 +1293,7 @@ async function createWindow() {
     if (loadRetries <= maxRetries) {
       setTimeout(() => {
         devLog(`[HyperClip] Retrying load (attempt ${loadRetries + 1}/${maxRetries + 1})...`)
-        mainWindow?.webContents.loadURL(`http://localhost:${NEXT_PORT}`)
+        void mainWindow?.webContents.loadURL(`http://localhost:${NEXT_PORT}`)
       }, 2000)
     }
   })
@@ -1278,8 +1307,14 @@ async function createWindow() {
   })
 
   mainWindow.on('close', (e) => {
-    e.preventDefault()
-    mainWindow?.hide()
+    if (loadSettings().quitOnClose !== false) {
+      // quitOnClose=true (default): actually quit
+      void quitAll()
+    } else {
+      // Legacy: minimize to tray instead of quitting
+      e.preventDefault()
+      mainWindow?.hide()
+    }
   })
 }
 
@@ -1382,7 +1417,7 @@ function createTray() {
     { type: 'separator' },
     { label: 'Quick Add Tracker', click: () => mainWindow?.webContents.send('quick-add') },
     { type: 'separator' },
-    { label: 'Quit', click: () => { quitAll() } },
+    { label: 'Quit', click: () => { void quitAll() } },
   ])
 
   tray.setToolTip('HyperClip — Auto-Render')
@@ -1391,11 +1426,9 @@ function createTray() {
 }
 
 // ─── Broadcast helpers ─────────────────────────────────────────────────────────
-function broadcast(channel: string, data: unknown) {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send(channel, data)
-  }
-}
+// Delegates to the shared state module so extracted handlers stay in sync.
+function broadcast(channel: string, data: unknown) { void _broadcast(channel, data) }
+function sendNotification(type: 'success' | 'error' | 'warning' | 'info', message: string, workspaceId?: string) { void _sendNotification(type, message, workspaceId) }
 
 // ─── Audio notification ────────────────────────────────────────────────────────────
 function playSuccessBeep() {
@@ -1433,2076 +1466,38 @@ function showWindowsToast(title: string, body: string) {
   }).catch(() => {})
 }
 
-function sendNotification(type: 'success' | 'error' | 'warning' | 'info', message: string, workspaceId?: string) {
-  broadcast(IPC_CHANNELS.NOTIFICATION_EVENT, {
-    id: `notif-${Date.now()}`,
-    type,
-    message,
-    workspaceId,
-    timestamp: new Date().toISOString(),
-  })
-}
 
-// ─── Video File Resolution ─────────────────────────────────────────────────────
-// Scan known storage directories for a downloaded video file by workspaceId.
-function findDownloadedFileAbs(workspaceId: string): string | null {
-  const dirs = [
-    getVideoStoragePath(),           // primary: APPDATA/HyperClip/downloads or RAM disk
-    path.join(os.tmpdir(), 'hyperclip-video'),  // legacy temp path
-  ]
-  for (const dir of dirs) {
-    try {
-      if (!fs.existsSync(dir)) continue
-      const files = fs.readdirSync(dir).filter(f =>
-        (f.startsWith(workspaceId + '_') || f.startsWith(workspaceId + '.')) && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f)
-      )
-      if (files.length > 0) {
-        return path.join(dir, files[0])
-      }
-    } catch {}
-  }
-  return null
-}
-
-// ─── IPC Handlers ─────────────────────────────────────────────────────────────
-async function registerIPCHandlers() {
-  ipcMain.handle(IPC_CHANNELS.SYSTEM_STATS, async (): Promise<SystemStats> => {
-    return collectSystemStats()
-  })
-
-  ipcMain.handle(IPC_CHANNELS.SYSTEM_OPEN_FOLDER, async (_, folderPath: string) => {
-    await shell.openPath(folderPath)
-    return { success: true }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.SYSTEM_OPEN_URL, async (_, url: string) => {
-    shell.openExternal(url)
-    return { success: true }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE_LIST, async (): Promise<WorkspaceData[]> => {
-    return getWorkspaces()
-  })
-
-  // Track which workspace is currently open in DetailEditor — protects from auto-cleanup
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE_SET_ACTIVE, async (_, workspaceId: string | null) => {
-    _activeWorkspaceId = workspaceId
-    return { success: true }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE_UPDATE, async (_, id: string, patch: Partial<WorkspaceData>) => {
-    const updated = updateWorkspace(id, patch)
-    if (updated) broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, updated)
-    return updated || { success: false }
-  })
-
-  // ─── Available formats probe ───────────────────────────────────────────────
-  ipcMain.handle(IPC_CHANNELS.FORMATS_GET, async (_, videoId: string, videoUrl: string) => {
-    const { getYtCookiesFile } = await import('./services/po_token.js')
-    const ytCookiesFile = await getYtCookiesFile()
-    const result = await probeAvailableFormats(videoUrl, ytCookiesFile)
-    if (result) {
-      devLog(`[Formats] ${videoId}: available heights = [${result.heights.join(', ')}]`)
-    }
-    return result
-  })
-
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE_DELETE, async (_, id: string) => {
-    const ws = getWorkspace(id)
-    const { bytesFreed, filesDeleted } = cleanupWorkspace(id, ws?.downloadedPath)
-    deleteWorkspace(id)
-    const freedMB = (bytesFreed / 1024 / 1024).toFixed(1)
-    sendNotification('success', `Deleted (${filesDeleted} files, ${freedMB} MB freed)`, id)
-    return { success: true, bytesFreed, filesDeleted }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE_RETRY, async (_, id: string) => {
-    const ws = getWorkspace(id)
-    if (!ws) return { success: false, error: 'Workspace not found' }
-    if (!['waiting', 'error'].includes(ws.status)) {
-      return { success: false, error: `Cannot retry status: ${ws.status}` }
-    }
-
-    const videoUrl = ws.videoUrl || (ws.videoId ? `https://www.youtube.com/watch?v=${ws.videoId}` : null)
-    if (!videoUrl) return { success: false, error: 'No video URL stored' }
-
-    updateWorkspace(id, { status: 'downloading', downloadProgress: 0 })
-    broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id))
-
-    const storagePath = getVideoStoragePath()
-    ensureStorageDirs()
-
-    const settings = loadSettings()
-    const retryQuality = settings.autoDownloadQuality ?? '720'
-    const retryTrimLimit = ws.trimLimit || 10
-    devLog(`[WORKSPACE_RETRY] quality=${retryQuality}p trimLimit=${retryTrimLimit}m (user config: quality=${settings.autoDownloadQuality}p)`)
-
-    // Export Chrome cookies for yt-dlp authentication (bypasses EJS challenge)
-    const { getYtCookiesFile } = await import('./services/po_token.js')
-    const ytCookiesFile = await getYtCookiesFile()
-
-    try {
-      // downloadVideo now uses downloadVideoStrategy internally (web → tv_embedded → ios)
-      const result = await downloadVideo({
-        workspaceId: id,
-        videoUrl,
-        outputDir: storagePath,
-        trimLimit: retryTrimLimit,
-        quality: retryQuality,
-        ytCookiesFile,
-        onProgress: (progress) => {
-          broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
-            workspaceId: id,
-            percent: progress.percent,
-            speed: progress.speed,
-            eta: progress.eta,
-          })
-        },
-      })
-
-      if (result.success && result.filePath) {
-        const videoInfo = await getVideoInfo(videoUrl)
-        // Probe actual duration from downloaded file (not yt-dlp metadata, which can be stale)
-        const actualDuration = await probeActualDuration(result.filePath)
-        updateWorkspace(id, {
-          status: 'ready',
-          downloadedAt: new Date().toISOString(),
-          downloadedPath: result.filePath,
-          fileSize: result.fileSize || 0,
-          thumbnail: videoInfo?.thumbnail || ws.thumbnail || '',
-          videoTitle: videoInfo?.title || ws.videoTitle || '',
-          duration: actualDuration || videoInfo?.duration || 0,
-          downloadQuality: retryQuality,
-        })
-        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id))
-
-        // Generate blur background
-        const { blurPath } = generateWorkspacePaths(id)
-        const blurResult = await generateBlurBackground(result.filePath, blurPath)
-        updateWorkspace(id, { blurBackgroundPath: blurResult.success ? blurPath : '' })
-        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id))
-        return { success: true }
-      } else {
-        const errorMsg = result.error || ''
-        const isNotAvailable = errorMsg.includes('not available') || errorMsg.includes('video unavailable') || errorMsg.includes('not found')
-        const isPrivate = errorMsg.includes('private video')
-        if (isPrivate) {
-          // All clients failed with private → genuinely inaccessible
-          updateWorkspace(id, { status: 'error' })
-        } else {
-          updateWorkspace(id, { status: isNotAvailable ? 'error' : 'waiting' })
-        }
-        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id))
-        return { success: false, error: result.error }
-      }
-    } catch (err) {
-      updateWorkspace(id, { status: 'waiting' })
-      broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id))
-      return { success: false, error: (err as Error).message }
-    }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE_REGENERATE_BLUR, async (_, id: string) => {
-    const ws = getWorkspace(id)
-    if (!ws) return { success: false, error: 'Workspace not found' }
-    if (!ws.downloadedPath || !fs.existsSync(ws.downloadedPath)) {
-      return { success: false, error: 'Video file not found' }
-    }
-    try {
-      const { blurPath } = generateWorkspacePaths(id)
-      // Overwrite existing blur
-      const result = await generateBlurBackground(ws.downloadedPath, blurPath)
-      const blurBgPath = result.success ? blurPath : ''
-      updateWorkspace(id, { blurBackgroundPath: blurBgPath })
-      broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id))
-      return { success: result.success, blurPath: blurBgPath }
-    } catch (err) {
-      return { success: false, error: (err as Error).message }
-    }
-  })
-
-  // ─── Storage management ─────────────────────────────────────────────────────────
-  ipcMain.handle(IPC_CHANNELS.STORAGE_GET_SIZE, async (): Promise<{ downloads: number; blur: number; total: number; downloadPath: string; outputPath: string; freeBytes: number }> => {
-    try {
-      const storagePath = getVideoStoragePath()
-      const outputDir = getOutputPath()
-      let downloadSize = 0
-      let blurSize = 0
-
-      try {
-        const entries = fs.readdirSync(storagePath)
-        for (const entry of entries) {
-          const fullPath = path.join(storagePath, entry)
-          try {
-            const stat = fs.statSync(fullPath)
-            if (entry.startsWith('blur_')) {
-              blurSize += stat.size
-            } else if (entry.endsWith('.mp4') || entry.endsWith('.mkv') || entry.endsWith('.webm')) {
-              downloadSize += stat.size
-            }
-          } catch {}
-        }
-      } catch {}
-
-      return {
-        downloads: parseFloat((downloadSize / (1024 ** 2)).toFixed(1)),
-        blur: parseFloat((blurSize / (1024 ** 2)).toFixed(1)),
-        total: parseFloat(((downloadSize + blurSize) / (1024 ** 2)).toFixed(1)),
-        downloadPath: storagePath,
-        outputPath: outputDir,
-        freeBytes: getFreeDiskSpace(storagePath),
-      }
-    } catch {
-      return { downloads: 0, blur: 0, total: 0, downloadPath: '', outputPath: '', freeBytes: 0 }
-    }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.STORAGE_CLEAR_DOWNLOADS, async (): Promise<{ success: boolean; freedMB: number }> => {
-    try {
-      const storagePath = getVideoStoragePath()
-      let freedBytes = 0
-
-      // Only delete video files, not blur images
-      const entries = fs.readdirSync(storagePath)
-      for (const entry of entries) {
-        if (entry.startsWith('blur_')) continue
-        const ext = path.extname(entry).toLowerCase()
-        if (!['.mp4', '.mkv', '.webm', '.avi', '.mov'].includes(ext)) continue
-
-        const fullPath = path.join(storagePath, entry)
-        try {
-          const stat = fs.statSync(fullPath)
-          fs.unlinkSync(fullPath)
-          freedBytes += stat.size
-          devLog(`[Storage] Deleted: ${entry} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`)
-        } catch {}
-      }
-
-      sendNotification('info', `Cleared ${(freedBytes / 1024 / 1024).toFixed(0)} MB of downloads`, undefined)
-      return { success: true, freedMB: parseFloat((freedBytes / (1024 ** 2)).toFixed(1)) }
-    } catch (err) {
-      sendNotification('error', `Clear failed: ${(err as Error).message}`, undefined)
-      return { success: false, freedMB: 0 }
-    }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.STORAGE_CLEAR_BLUR, async (): Promise<{ success: boolean; freedMB: number }> => {
-    try {
-      const storagePath = getVideoStoragePath()
-      let freedBytes = 0
-
-      const entries = fs.readdirSync(storagePath)
-      for (const entry of entries) {
-        if (!entry.startsWith('blur_')) continue
-        const fullPath = path.join(storagePath, entry)
-        try {
-          const stat = fs.statSync(fullPath)
-          fs.unlinkSync(fullPath)
-          freedBytes += stat.size
-          devLog(`[Storage] Deleted: ${entry} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`)
-        } catch {}
-      }
-
-      sendNotification('info', `Cleared ${(freedBytes / 1024 / 1024).toFixed(0)} MB of blur images`, undefined)
-      return { success: true, freedMB: parseFloat((freedBytes / (1024 ** 2)).toFixed(1)) }
-    } catch (err) {
-      sendNotification('error', `Clear failed: ${(err as Error).message}`, undefined)
-      return { success: false, freedMB: 0 }
-    }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.STORAGE_PICK_FOLDER, async (_, currentPath?: string): Promise<{ path: string } | null> => {
-    const win = BrowserWindow.getFocusedWindow()
-    if (!win) return null
-    const result = await dialog.showOpenDialog(win, {
-      properties: ['openDirectory', 'createDirectory'],
-      defaultPath: currentPath || undefined,
-      title: 'Chọn thư mục',
-    })
-    if (result.canceled || !result.filePaths?.[0]) return null
-    return { path: result.filePaths[0] }
-  })
-
-  // ─── System diagnostics (P0) ───────────────────────────────────────────────
-  ipcMain.handle(IPC_CHANNELS.DIAGNOSTICS_RUN, async () => {
-    return runDiagnostics()
-  })
-
-  // ─── Data portability (P1) ─────────────────────────────────────────────────
-  ipcMain.handle(IPC_CHANNELS.DATA_EXPORT, async (): Promise<{ success: boolean; path?: string; error?: string }> => {
-    try {
-      const win = BrowserWindow.getFocusedWindow()
-      const result = await dialog.showSaveDialog(win!, {
-        title: 'Export HyperClip Data',
-        defaultPath: `hyperclip-backup-${new Date().toISOString().slice(0, 10)}.json`,
-        filters: [{ name: 'JSON', extensions: ['json'] }],
-      })
-      if (result.canceled || !result.filePath) return { success: false, error: 'Cancelled' }
-
-      const channels = getChannels()
-      const seen = loadSeenVideos()
-
-      const payload = {
-        exportedAt: new Date().toISOString(),
-        appVersion: '1.0',
-        channels,
-        seenVideos: seen,
-        // Exclude workspaces (too large + contain absolute paths)
-        // Exclude rendered (referenced by workspaceId)
-      }
-      fs.writeFileSync(result.filePath, JSON.stringify(payload, null, 2), 'utf-8')
-      sendNotification('success', `Exported ${channels.length} channels`, undefined)
-      return { success: true, path: result.filePath }
-    } catch (err) {
-      return { success: false, error: (err as Error).message }
-    }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.DATA_IMPORT, async (): Promise<{ success: boolean; channelsImported?: number; seenImported?: number; error?: string }> => {
-    try {
-      const win = BrowserWindow.getFocusedWindow()
-      const result = await dialog.showOpenDialog(win!, {
-        title: 'Import HyperClip Data',
-        filters: [{ name: 'JSON', extensions: ['json'] }],
-        properties: ['openFile'],
-      })
-      if (result.canceled || !result.filePaths?.[0]) return { success: false, error: 'Cancelled' }
-
-      const content = fs.readFileSync(result.filePaths[0], 'utf-8')
-      const data = JSON.parse(content) as { channels?: StoredChannel[]; seenVideos?: Record<string, { ids: string[]; expiresAt: number }> }
-
-      let channelsImported = 0
-      let seenImported = 0
-
-      if (data.channels?.length) {
-        const existing = getChannels()
-        const existingIds = new Set(existing.map(c => c.id))
-        for (const ch of data.channels) {
-          if (!existingIds.has(ch.id)) {
-            addChannel(ch)
-            channelsImported++
-          }
-        }
-      }
-
-      if (data.seenVideos && typeof data.seenVideos === 'object') {
-        const existingSeen = loadSeenVideos()
-        for (const [channelId, entry] of Object.entries(data.seenVideos)) {
-          if (!existingSeen[channelId]) {
-            existingSeen[channelId] = entry
-            seenImported++
-          }
-        }
-        saveSeenVideos(existingSeen)
-      }
-
-      sendNotification('success', `Imported ${channelsImported} channels, ${seenImported} seen entries`, undefined)
-      return { success: true, channelsImported, seenImported }
-    } catch (err) {
-      return { success: false, error: (err as Error).message }
-    }
-  })
-
-  // ─── Auto-cleanup downloads (P3) ─────────────────────────────────────────────
-  // Runs on startup: delete video files older than downloadsCleanupDays.
-  // Skips files belonging to workspaces currently open in the DetailEditor.
+// ─── Auto-cleanup runs on startup ─────────────────────────────────────────────────
+;(() => {
   const cleanupDays = loadSettings().downloadsCleanupDays ?? 7
-  if (cleanupDays > 0) {
-    try {
-      const storagePath = getVideoStoragePath()
-      const cutoff = Date.now() - cleanupDays * 24 * 60 * 60 * 1000
-      const workspaces = getWorkspaces()
-      const activeIds = new Set(workspaces.map(w => w.id))
-      if (_activeWorkspaceId) activeIds.add(_activeWorkspaceId)
-      let cleaned = 0
-      for (const entry of fs.readdirSync(storagePath)) {
-        if (entry.startsWith('blur_')) continue
-        const ext = path.extname(entry).toLowerCase()
-        if (!['.mp4', '.mkv', '.webm', '.avi', '.mov'].includes(ext)) continue
-        // Skip if this file belongs to an active workspace
-        const entryBase = entry.replace(/\.\w+$/, '')
-        const isActive = Array.from(activeIds).some(id => entryBase.startsWith(id + '_') || entryBase === id)
-        if (isActive) continue
-        const fullPath = path.join(storagePath, entry)
-        try {
-          const stat = fs.statSync(fullPath)
-          if (stat.mtimeMs < cutoff) {
-            fs.unlinkSync(fullPath)
-            cleaned++
-            devLog(`[AutoCleanup] Removed old download: ${entry}`)
-          }
-        } catch {}
-      }
-      if (cleaned > 0) devLog(`[AutoCleanup] Done — removed ${cleaned} old video files`)
-    } catch {}
-  }
-
-  // ─── Settings ─────────────────────────────────────────────────────────────────
-  ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, () => {
-    return loadSettings()
-  })
-
-  ipcMain.handle(IPC_CHANNELS.SETTINGS_UPDATE, (_, patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; proxyEnabled?: boolean; proxyHost?: string; proxyPort?: number; proxyUsername?: string; proxyPassword?: string; maxConcurrentDownloads?: number; videoMinDurationSec?: number; videoMaxDurationSec?: number }) => {
-    const settings = loadSettings()
-    saveSettings({ ...settings, ...patch })
-
-    // Apply poller interval change immediately if poller is running
-    if (patch.pollIntervalMs !== undefined) {
-      const poller = getYouTubePoller()
-      if (poller) poller.restart(patch.pollIntervalMs)
-    }
-
-    return loadSettings()
-  })
-
-  // ─── Split workspace into multiple workspaces by trim limit ─────────────────────
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE_SPLIT, async (_, id: string, partMinutes = 10): Promise<{ success: boolean; newWorkspaces?: WorkspaceData[]; error?: string }> => {
-    try {
-      const ws = getWorkspace(id)
-      if (!ws) return { success: false, error: 'Workspace not found' }
-      if (ws.status !== 'ready' || !ws.downloadedPath || !fs.existsSync(ws.downloadedPath)) {
-        return { success: false, error: 'Video not ready' }
-      }
-
-      const totalSec = typeof ws.duration === 'number' ? ws.duration : 0
-      if (totalSec === 0) return { success: false, error: 'Unknown video duration' }
-
-      const partSec = partMinutes * 60
-      if (totalSec <= partSec) {
-        return { success: false, error: `Video is ${Math.floor(totalSec / 60)}m — no split needed (trim limit: ${partMinutes}m)` }
-      }
-
-      const numParts = Math.ceil(totalSec / partSec)
-      if (numParts < 2) return { success: false, error: 'No split needed' }
-
-      devLog(`[Split] Splitting "${ws.videoTitle}" (${totalSec}s) into ${numParts} parts of ${partMinutes}m each`)
-      devLog(`[Split] Original workspace ${ws.id} = Part 1 (0s – ${partSec}s)`)
-      devLog(`[Split] Will create ${numParts - 1} new workspaces for remaining parts`)
-
-      const newWorkspaces: WorkspaceData[] = []
-
-      // For each part (0 = original workspace, 1..n-1 = new workspaces)
-      for (let i = 1; i < numParts; i++) {
-        const startSec = i * partSec
-        const endSec = Math.min((i + 1) * partSec, totalSec)
-        const partDuration = endSec - startSec
-        const partFileName = `${ws.id}_part${i + 1}.${path.extname(ws.downloadedPath).slice(1) || 'mp4'}`
-        const partFilePath = path.join(path.dirname(ws.downloadedPath), partFileName)
-
-        devLog(`[Split] Part ${i + 1}/${numParts}: ${startSec}s – ${endSec}s (${partDuration}s)`)
-
-        // FFmpeg stream-copy the part (no re-encode, very fast)
-        const trimResult = await trimVideo(ws.downloadedPath, partFilePath, startSec, partDuration)
-        if (!trimResult.success) {
-          console.error(`[Split] FFmpeg trim failed for part ${i + 1}: ${trimResult.error}`)
-          // Clean up already-created parts
-          for (const nw of newWorkspaces) {
-            try {
-              if (nw.downloadedPath) {
-                const abs = nw.downloadedPath.startsWith('/') || /^[A-Z]:/i.test(nw.downloadedPath)
-                  ? nw.downloadedPath
-                  : path.join(getVideoStoragePath(), nw.downloadedPath)
-                if (fs.existsSync(abs)) fs.unlinkSync(abs)
-              }
-            } catch {}
-          }
-          return { success: false, error: `Part ${i + 1} FFmpeg failed: ${trimResult.error}` }
-        }
-
-        const partSize = fs.statSync(partFilePath).size
-
-        // Create workspace with its own ID BEFORE generating paths that reference it
-        const newWs = addWorkspace({
-          channelId: ws.channelId,
-          channelName: ws.channelName,
-          channelColor: ws.channelColor || '#00B4FF',
-          videoId: ws.videoId,
-          videoTitle: ws.videoTitle,
-          videoUrl: ws.videoUrl,
-          thumbnail: ws.thumbnail,
-          duration: partDuration,
-          trimLimit: ws.trimLimit,
-          status: 'ready',
-          renderProgress: 0,
-          downloadedAt: new Date().toISOString(),
-          downloadedPath: partFilePath,
-          blurBackgroundPath: '',
-          outputPath: '',
-          metadataPath: '',
-          fileSize: partSize,
-          renderMetadata: null,
-          publishedAt: ws.publishedAt,
-          detectedAt: ws.detectedAt,
-          isShort: ws.isShort,
-          videoResolution: ws.videoResolution,
-          downloadQuality: ws.downloadQuality,
-        })
-
-        // Extract thumbnail for this part
-        const partThumbPath = path.join(path.dirname(ws.downloadedPath), `thumb_${newWs.id}.jpg`)
-        const partThumbResult = await extractVideoThumbnail(partFilePath, partThumbPath)
-
-        // Generate blur for this part — use new workspace's own ID
-        const { blurPath: partBlurPath } = generateWorkspacePaths(newWs.id)
-        const partBlurResult = await generateBlurBackground(partFilePath, partBlurPath)
-
-        updateWorkspace(newWs.id, {
-          thumbnail: partThumbResult.success ? 'local-video:///' + partThumbPath.replace(/\\/g, '/') : ws.thumbnail,
-          blurBackgroundPath: partBlurResult.success ? partBlurPath : '',
-        });
-
-        newWorkspaces.push(newWs)
-        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, newWs)
-        devLog(`[Split] Created workspace ${newWs.id} (${newWs.videoTitle})`)
-      }
-
-      sendNotification('success', `Split "${ws.videoTitle}" into ${numParts} parts`, ws.id)
-      return { success: true, newWorkspaces }
-    } catch (err) {
-      return { success: false, error: (err as Error).message }
-    }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.TRACKER_ADD, async (_, url: string, trimLimit: number | 'full'): Promise<WorkspaceData | null> => {
-    try {
-      const info = await getVideoInfo(url)
-      if (!info) {
-        sendNotification('error', 'Failed to fetch video info. Check URL.', undefined)
-        return null
-      }
-
-      const storagePath = getVideoStoragePath()
-      ensureStorageDirs()
-
-      // Use user's preferred quality setting (default 720p) — declared early to record on workspace
-      const settings = loadSettings()
-      const quality = settings.autoDownloadQuality ?? '720'
-      devLog(`[TRACKER_ADD] quality=${quality}p trimLimit=${trimLimit === 'full' ? 'full' : trimLimit + 'm'} (user config)`)
-
-      const workspace = addWorkspace({
-        channelId: info.channelId,
-        channelName: info.channelName,
-        channelColor: '#00B4FF',
-        videoId: info.id,
-        videoTitle: info.title,
-        videoUrl: url,
-        thumbnail: info.thumbnail,
-        duration: info.duration,
-        trimLimit,
-        status: 'downloading',
-        renderProgress: 0,
-        downloadedAt: '',
-        downloadedPath: '',
-        blurBackgroundPath: '',
-        outputPath: '',
-        metadataPath: '',
-        fileSize: 0,
-        renderMetadata: null,
-        downloadQuality: quality,
-      })
-
-      broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, workspace)
-      sendNotification('info', `Downloading: ${info.title}`, workspace.id)
-
-      // Export Chrome cookies for yt-dlp authentication (bypasses EJS challenge)
-      const { getYtCookiesFile } = await import('./services/po_token.js')
-      const ytCookiesFile = await getYtCookiesFile()
-
-      const result = await downloadVideo({
-        workspaceId: workspace.id,
-        videoUrl: url,
-        outputDir: storagePath,
-        trimLimit,
-        quality,
-        ytCookiesFile,
-        onProgress: (progress) => {
-          broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, { workspaceId: workspace.id, percent: progress.percent, speed: progress.speed, eta: progress.eta })
-        },
-      })
-
-      if (result.success && result.filePath) {
-        // Step 1: Extract local thumbnail from downloaded video
-        const storagePath = getVideoStoragePath()
-        const thumbnailPath = path.join(storagePath, `thumb_${workspace.id}.jpg`)
-        extractVideoThumbnail(result.filePath, thumbnailPath).then((thumbResult) => {
-          if (thumbResult.success) {
-            const update = updateWorkspace(workspace.id, {
-              thumbnail: 'local-video:///' + thumbnailPath.replace(/\\/g, '/'),
-            })
-            if (update) broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, update)
-          }
-        }).catch(() => {})
-
-        // Step 1b: Mark ready immediately after download
-        const { blurPath } = generateWorkspacePaths(workspace.id)
-        const initialUpdate = updateWorkspace(workspace.id, {
-          status: 'ready',
-          downloadedAt: new Date().toISOString(),
-          downloadedPath: result.filePath,
-          fileSize: result.fileSize || 0,
-          blurBackgroundPath: '',
-          downloadQuality: quality,
-          renderMetadata: {
-            workspace_id: workspace.id,
-            source_video: result.filePath,
-            blur_background: '',
-            export_resolution: '1080x1920',
-            video_speed: 1.0,
-            fps_target: 30,
-            overlays: [],
-            trim: { start: 0, end: result.duration || 300 },
-          },
-        })
-        if (initialUpdate) broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, initialUpdate)
-        sendNotification('success', `Ready: ${info.title}`, workspace.id)
-
-        // Step 2: Generate blur background in parallel (non-blocking)
-        generateBlurBackground(result.filePath, blurPath).then((blurResult) => {
-          const blurUpdate = updateWorkspace(workspace.id, {
-            blurBackgroundPath: blurResult.success ? blurPath : '',
-            renderMetadata: {
-              workspace_id: workspace.id,
-              source_video: result.filePath,
-              blur_background: blurResult.success ? blurPath : '',
-              export_resolution: '1080x1920',
-              video_speed: 1.0,
-              fps_target: 30,
-              overlays: [],
-              trim: { start: 0, end: result.duration || 300 },
-            },
-          })
-          if (blurUpdate) broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, blurUpdate)
-        }).catch((e) => {
-          console.warn('[Blur] Background generation failed:', e)
-        })
-      } else {
-        updateWorkspace(workspace.id, { status: 'waiting' })
-        sendNotification('error', `Download failed: ${result.error}`, workspace.id)
-      }
-
-      return getWorkspace(workspace.id)
-    } catch (err) {
-      console.error('[Tracker] Add error:', err)
-      sendNotification('error', `Error: ${(err as Error).message}`)
-      return null
-    }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.TRACKER_LIST, async () => {
-    const workspaces = getWorkspaces()
-    const channels = new Map<string, { channelId: string; channelName: string }>()
-    for (const ws of workspaces) {
-      if (!channels.has(ws.channelId)) {
-        channels.set(ws.channelId, { channelId: ws.channelId, channelName: ws.channelName })
-      }
-    }
-    return Array.from(channels.values())
-  })
-
-  ipcMain.handle(IPC_CHANNELS.CHANNEL_INFO, async (_, url: string): Promise<YtdlpChannelInfo | null> => {
-    return await getChannelInfo(url)
-  })
-
-  ipcMain.handle(IPC_CHANNELS.CHANNEL_LIST, async (): Promise<StoredChannel[]> => {
-    return getChannels()
-  })
-
-  ipcMain.handle(IPC_CHANNELS.CHANNEL_SYNC, async () => {
-    const cm = getCookieManager()
-    const result = await cm.syncSubscriptionList()
-    // Refresh channel cache so new channels are picked up by poller immediately
-    const { refreshChannelCache } = await import('./services/subscription_feed.js')
-    refreshChannelCache()
-    return result
-  })
-
-  ipcMain.handle(IPC_CHANNELS.CHANNEL_ADD, async (_, url: string): Promise<StoredChannel | null> => {
-    // ── Validate URL ────────────────────────────────────────────────────────────────
-    const urlTrimmed = url.trim()
-    if (!urlTrimmed) return null
-
-    const CHANNEL_COLORS = ['#00B4FF', '#7C3AED', '#00FF88', '#FF6B35', '#FF0080', '#FFB800']
-
-    // ── Extract channel ID / handle from URL ─────────────────────────────────────
-    let channelId: string | undefined
-    let handle: string | undefined
-    try {
-      const normalized = urlTrimmed.startsWith('http') ? urlTrimmed : 'https://www.youtube.com/' + urlTrimmed
-      const u = new URL(normalized)
-      const path = u.pathname
-      const m = path.match(/^\/(channel\/|@|c\/|user\/)?([\w.-]+)/)
-      if (m) {
-        if (path.startsWith('/channel/')) channelId = m[2]
-        else if (path.startsWith('/@')) handle = '@' + m[2]
-        else if (path.startsWith('/c/') || path.startsWith('/user/')) handle = m[2]
-        else handle = '@' + m[2] // bare path → treat as @handle
-      }
-    } catch {}
-
-    // ── Duplicate check ───────────────────────────────────────────────────────────
-    const existing = getChannels()
-    const isDupe = existing.some((ch) => {
-      if (channelId && ch.channelId === channelId) return true
-      if (handle && ch.handle?.toLowerCase() === handle.toLowerCase()) return true
-      return false
-    })
-    if (isDupe) {
-      console.warn(`[CHANNEL_ADD] Duplicate channel: ${channelId || handle || urlTrimmed}`)
-      return null
-    }
-
-    // ── Fetch channel metadata ───────────────────────────────────────────────────
-    let name: string, avatarUrl: string | undefined
-    try {
-      const info = await getChannelInfo(urlTrimmed)
-      if (info && info.channelName) {
-        name = info.channelName
-        channelId = info.channelId || channelId
-        handle = info.handle || handle
-        avatarUrl = info.avatarUrl
-      } else {
-        throw new Error('no channel info')
-      }
-    } catch {
-      // Fallback: derive name from URL path
-      const raw = urlTrimmed
-        .replace(/^https?:\/\/(www\.)?youtube\.com\/(channel\/|@|c\/|user\/)?/, '')
-        .split(/[/?]/)[0]
-        .replace(/^@/, '') || 'Kênh Mới'
-      name = raw.charAt(0).toUpperCase() + raw.slice(1)
-      if (!handle) handle = '@' + raw.toLowerCase().replace(/\s+/g, '')
-    }
-
-    // ── Save ──────────────────────────────────────────────────────────────────────
-    const newCh: StoredChannel = {
-      id: `ch${Date.now()}`,
-      name,
-      handle: handle || `@${channelId || name}`,
-      avatarColor: CHANNEL_COLORS[existing.length % CHANNEL_COLORS.length],
-      channelId,
-      avatarUrl,
-      createdAt: new Date().toISOString(),
-    }
-    const saved = addChannel(newCh)
-    refreshChannelCache()
-    return saved
-  })
-
-  ipcMain.handle(IPC_CHANNELS.CHANNEL_UPDATE, async (_, id: string, patch: Partial<StoredChannel>): Promise<StoredChannel | null> => {
-    return updateChannel(id, patch)
-  })
-
-  ipcMain.handle(IPC_CHANNELS.CHANNEL_REMOVE, async (_, id: string): Promise<boolean> => {
-    return removeChannel(id)
-  })
-
-  // Serve video file path for HTML5 preview player
-  ipcMain.handle(IPC_CHANNELS.VIDEO_FILE, async (_, workspaceId: string): Promise<{ path: string; url: string } | null> => {
-    const ws = getWorkspace(workspaceId)
-    if (!ws || !ws.downloadedPath) return null
-
-    // Resolve to absolute path: try stored path first, then scan known storage dirs
-    const stored = ws.downloadedPath
-    const abs = stored.startsWith("/") || stored.match(/^[A-Z]:/i) ? stored : path.join(getVideoStoragePath(), stored)
-    let absPath = abs
-    if (!fs.existsSync(absPath)) {
-      // Not found at stored path — scan for it
-      const found = findDownloadedFileAbs(workspaceId)
-      if (found) {
-        absPath = found
-      } else {
-        console.warn(`[VIDEO_FILE] file not found: ${ws.downloadedPath}`)
-        return null
-      }
-    }
-
-    // Protocol needs forward slashes; THREE slashes for valid Windows path in URL
-    const protocolPath = absPath.replace(/\\/g, '/')
-    // local-video:// protocol: MUST use /// (three slashes) so Chromium correctly
-    // passes C:/Users/... to the file handler. Two slashes → C: treated as host → broken.
-    const videoUrl = 'local-video:///' + protocolPath
-    return { path: absPath, url: videoUrl }
-  })
-
-  // Serve full video file as ArrayBuffer (for blob URL playback)
-  ipcMain.handle(IPC_CHANNELS.VIDEO_BLOB, async (_, workspaceId: string): Promise<Uint8Array | null> => {
-    const ws = getWorkspace(workspaceId)
-    if (!ws || !ws.downloadedPath) return null
-    const stored = ws.downloadedPath
-    const abs = stored.startsWith("/") || stored.match(/^[A-Z]:/i) ? stored : path.join(getVideoStoragePath(), stored)
-    let absPath = abs
-    if (!fs.existsSync(absPath)) {
-      const found = findDownloadedFileAbs(workspaceId)
-      if (found) absPath = found
-      else {
-        console.warn(`[VIDEO_BLOB] file not found: ${ws.downloadedPath}`)
-        return null
-      }
-    }
-    try {
-      const data = fs.readFileSync(absPath)
-      return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-    } catch (err) {
-      console.error(`[VIDEO_BLOB] read error: ${err}`)
-      return null
-    }
-  })
-
-  // Serve image file as base64 data URI (for <img> src — local-video:// doesn't work in img tags)
-  ipcMain.handle(IPC_CHANNELS.IMAGE_FILE, async (_, workspaceId: string): Promise<{ path: string; dataUrl: string } | null> => {
+  if (cleanupDays <= 0) return
+  try {
     const storagePath = getVideoStoragePath()
-    const thumbPath = path.join(storagePath, `thumb_${workspaceId}.jpg`)
-    if (!fs.existsSync(thumbPath)) {
-      return null
-    }
-    try {
-      const data = fs.readFileSync(thumbPath)
-      return {
-        path: thumbPath,
-        dataUrl: `data:image/jpeg;base64,${data.toString('base64')}`,
-      }
-    } catch {
-      return null
-    }
-  })
-
-  // Save binary data from renderer to disk. Renderer sends Uint8Array (converted from File.arrayBuffer()).
-  // This avoids the old approach of passing blob:// URLs which fail in main process context.
-  ipcMain.handle(IPC_CHANNELS.BLOB_SAVE, async (_, arrayBuffer: Uint8Array, filename: string): Promise<{ diskPath: string } | null> => {
-    try {
-      const dir = path.join(getAppStoreDir(), 'temp_assets')
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-      const filePath = path.join(dir, filename)
-      fs.writeFileSync(filePath, Buffer.from(arrayBuffer))
-      return { diskPath: filePath }
-    } catch (err) {
-      console.error('[blob:save] failed:', err)
-      return null
-    }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.TRACKER_REMOVE, async (_, channelId: string) => {
+    const cutoff = Date.now() - cleanupDays * 24 * 60 * 60 * 1000
     const workspaces = getWorkspaces()
-    let totalBytesFreed = 0
-    let totalFilesDeleted = 0
-    for (const ws of workspaces) {
-      if (ws.channelId === channelId) {
-        const { bytesFreed, filesDeleted } = cleanupWorkspace(ws.id, ws.downloadedPath)
-        totalBytesFreed += bytesFreed
-        totalFilesDeleted += filesDeleted
-        deleteWorkspace(ws.id)
-      }
-    }
-    if (totalBytesFreed > 0) {
-      const freedMB = (totalBytesFreed / 1024 / 1024).toFixed(1)
-      sendNotification('success', `Removed channel (${totalFilesDeleted} files, ${freedMB} MB freed)`)
-    }
-    return { success: true, bytesFreed: totalBytesFreed, filesDeleted: totalFilesDeleted }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.RENDER_START, async (_, workspaceId: string, metadata: RenderMetadata): Promise<{ success: boolean; outputPath?: string; error?: string }> => {
-    return new Promise((resolve) => {
-      renderQueue.push({ workspaceId, metadata, resolve })
-      const max = loadSettings().maxConcurrentRenders ?? 2
-      if (getPoolStatus().active < max) {
-        startNextQueuedRender()
-      }
-    })
-  })
-
-  ipcMain.handle(IPC_CHANNELS.RENDER_CANCEL, async (_, workspaceId: string) => {
-    // Remove from queue if pending
-    const queueIdx = renderQueue.findIndex(j => j.workspaceId === workspaceId)
-    if (queueIdx !== -1) {
-      const job = renderQueue.splice(queueIdx, 1)[0]
-      job.resolve({ success: false, error: 'Cancelled before start' })
-    }
-    // Cancel standard render (via worker pool) and chunked render (direct processes)
-    cancelFfmpeg(`single:${workspaceId}`)
-    cancelChunked(workspaceId)
-    updateWorkspace(workspaceId, { status: 'ready', renderProgress: 0 })
-    sendNotification('warning', 'Render cancelled', workspaceId)
-    return { success: true }
-  })
-
-  // ─── Chunked Parallel Encoding ──────────────────────────────────────────────
-  ipcMain.handle(IPC_CHANNELS.RENDER_CHUNKED, async (_, workspaceId: string, metadata: RenderMetadata, config?: ChunkConfig) => {
-    const workspace = getWorkspace(workspaceId)
-    if (!workspace) return { success: false, workspaceId, error: 'Workspace not found' }
-    if (!workspace.downloadedPath) return { success: false, workspaceId, error: 'Video not downloaded' }
-
-    // Use pre-scaled path if available (auto-render pre-scaled the source to output resolution).
-    const videoPath = workspace.preScaledPath || workspace.downloadedPath || findDownloadedFileAbs(workspaceId) || metadata.source_video
-    if (!fs.existsSync(videoPath)) {
-      return { success: false, workspaceId, error: `Source video not found: ${path.basename(videoPath)}` }
-    }
-
-    // GPU-aware config injection — RTX 5080 tier gets 14 workers / 90s chunks (more parallelism)
-    // RTX 4050 Laptop: 4 workers / 120s chunks (fewer workers, longer chunks to reduce overhead)
-    const gpuCaps = getGPUCapabilities()
-    const effectiveConfig: ChunkConfig = {
-      workers: config?.workers ?? gpuCaps.maxChunkWorkers,
-      chunkDuration: config?.chunkDuration ?? (gpuCaps.tier === 'high' ? 90 : 120),
-      minChunkDuration: config?.minChunkDuration ?? 10,
-      gpuTier: gpuCaps.tier,
-      fpsTarget: (metadata.fps_target || 30),
-    }
-
-    updateWorkspace(workspaceId, { status: 'rendering', renderProgress: 0 })
-    sendNotification('info', `GPU MAX (${effectiveConfig.workers}x): ${workspace.videoTitle}`, workspaceId)
-
-    const chunkRenderStartMs = Date.now()
-    const chunkQuality = parseInt((metadata.export_resolution || '1080x1920').split('x')[1]) || 1080
-    const chunkSpeed = metadata.video_speed ?? 1.0
-    const chunkTrimStart = metadata.trim?.start ?? 0
-    const chunkTrimEnd = metadata.trim?.end ?? 0
-    const chunkTrimDuration = chunkTrimEnd - chunkTrimStart
-    devLog(`[TIMER] ═══════════════════════════════════════════════`)
-    devLog(`[TIMER] RENDER START (GPU MAX CHUNKED): "${workspace.videoTitle}"`)
-    devLog(`[TIMER]   Quality: ${chunkQuality}p | Speed: ${chunkSpeed}x | Trim: ${chunkTrimDuration}s (${chunkTrimStart}s–${chunkTrimEnd}s)`)
-    devLog(`[TIMER]   Codec: ${metadata.codec ?? 'hevc'} | Workers: ${effectiveConfig.workers}x | Chunk duration: ${effectiveConfig.chunkDuration}s | Source: ${path.basename(videoPath)}`)
-    devLog(`[TIMER]   ═══════════════════════════════════════════════`)
-
-    const outputDir = getOutputPath()
-    ensureStorageDirs()
-
-    // Build resolved metadata: merge workspace blur background and thumbnail image.
-    // Landscape videos: use thumbnail as backgroundImage. Portrait: use blur_background.
-    const wsBlurBg = workspace?.blurBackgroundPath || ''
-    const wsThumbPath = path.join(getVideoStoragePath(), `thumb_${workspaceId}.jpg`)
-    const resolvedMetadata = {
-      ...metadata,
-      source_video: videoPath,
-      blur_background: metadata.blur_background || wsBlurBg,
-      // For landscape with 'image' type but no backgroundImage → use thumbnail
-      // Also check: if metadata.backgroundImage is set but the file doesn't exist → fall back to workspace thumbnail.
-      backgroundImage: (!metadata.backgroundImage || !fs.existsSync(metadata.backgroundImage)) && !wsBlurBg && fs.existsSync(wsThumbPath) ? wsThumbPath : metadata.backgroundImage,
-    }
-
-    const result = await renderChunked(
-      resolvedMetadata,
-      outputDir,
-      effectiveConfig,
-      (progress) => {
-        updateWorkspace(workspaceId, { renderProgress: Math.round(progress.percent) })
-        broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, progress)
-      },
-    )
-
-    if (result.success) {
-      updateWorkspace(workspaceId, { status: 'done', renderProgress: 100, outputPath: result.outputPath || '' })
-      sendNotification('success', `Done (chunked): ${workspace.videoTitle}`, workspaceId)
-      const chunkRenderElapsed = ((Date.now() - chunkRenderStartMs) / 1000).toFixed(1)
-      devLog(`[TIMER] RENDER DONE (GPU MAX CHUNKED): "${workspace.videoTitle}" — ${chunkRenderElapsed}s`)
-      // Capture thumbnail as base64 before workspace is deleted
-      const thumbPath = path.join(getVideoStoragePath(), `thumb_${workspace.id}.jpg`)
-      const thumbData = fs.existsSync(thumbPath)
-        ? 'data:image/jpeg;base64,' + fs.readFileSync(thumbPath).toString('base64')
-        : undefined
-      // Auto-archive to D:\HyperClip\Rendered
-      ;(async () => {
-        try {
-          const quality = parseInt((metadata.export_resolution || '1080x1920').split('x')[1])
-          const codec = (metadata.codec as string) || 'hevc'
-          const archiveResult = await archiveRenderedFile(
-            result.outputPath!,
-            workspace.channelName,
-            workspace.videoTitle,
-            quality || 1080,
-            codec,
-            workspace.fileSize || 0,
-            workspace.duration || 0,
-          )
-          if (archiveResult.success && archiveResult.archivedPath) {
-            const record: RenderedVideoRecord = {
-              id: `rv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-              workspaceId: workspace.id,
-              channelId: workspace.channelId,
-              channelName: workspace.channelName,
-              videoTitle: workspace.videoTitle,
-              archivedPath: archiveResult.archivedPath,
-              outputPath: result.outputPath!,
-              quality: quality || 1080,
-              codec,
-              fileSize: workspace.fileSize || 0,
-              duration: workspace.duration || 0,
-              thumbnail: workspace.thumbnail,
-              thumbnailData: thumbData,
-              videoResolution: workspace.videoResolution,
-              renderedAt: new Date().toISOString(),
-            }
-            addRenderedVideo(record)
-            broadcast(IPC_CHANNELS.RENDERED_ADD, record)
-            // [TEST-MODE] Cleanup DISABLED — keep downloaded files for render testing
-            // Cleanup pre-scaled source file after successful render
-            // if (workspace.preScaledPath) { try { fs.unlinkSync(workspace.preScaledPath) } catch {} }
-            // Cleanup downloaded video + blur after successful archive (storage optimization)
-            // const { bytesFreed } = cleanupWorkspace(workspace.id, workspace.downloadedPath)
-            // if (bytesFreed > 0) { const freedMB = (bytesFreed / 1024 / 1024).toFixed(1); devLog(`[AutoArchive] Cleaned ${freedMB} MB of downloaded files after archive`) }
-            const _fileSizeMB = ((workspace.fileSize || 0) / 1024 / 1024).toFixed(1)
-            devLog(`[TIMER] ARCHIVE DONE: ${archiveResult.archivedPath}`)
-            devLog(`[TIMER]   Archive file size: ${_fileSizeMB} MB`)
-            devLog(`[TIMER] ═══════════════════════════════════════════════`)
-          } else {
-            // Archive failed but render succeeded — notify user, keep workspace
-            sendNotification('warning', `Render done, archive failed: ${archiveResult.error || 'unknown'}`, workspaceId)
-            console.warn(`[AutoArchive] failed: ${archiveResult.error} — workspace ${workspace.id} NOT deleted`)
-            updateWorkspace(workspaceId, { status: 'done', renderProgress: 100, outputPath: result.outputPath || '' })
-          }
-        } catch (e) {
-          sendNotification('error', `Archive error: ${e}`, workspaceId)
-          console.warn('[AutoArchive] failed:', e)
-        }
-      })()
-    } else {
-      updateWorkspace(workspaceId, { status: 'ready', renderProgress: 0 })
-      sendNotification('error', `Chunked render failed: ${result.error}`, workspaceId)
-    }
-
-    // Advance standard queue after chunked render completes (whether success or fail)
-    startNextQueuedRender()
-
-    return result
-  })
-
-  // ─── Rendered videos ───────────────────────────────────────────────────────────
-  ipcMain.handle(IPC_CHANNELS.RENDERED_LIST, () => {
-    return getRenderedVideos()
-  })
-
-  ipcMain.handle(IPC_CHANNELS.RENDERED_ARCHIVE, async (_, workspaceId: string, customArchiveDir?: string): Promise<{ success: boolean; archivedPath?: string; error?: string }> => {
-    const ws = getWorkspace(workspaceId)
-    if (!ws) return { success: false, error: 'Workspace not found' }
-    if (!ws.outputPath) return { success: false, error: 'No output file' }
-
-    // Override archive path if custom path provided
-    let prevArchivePath: string | undefined
-    if (customArchiveDir) {
-      const settings = loadSettings()
-      prevArchivePath = settings.renderedOutputPath
-      saveSettings({ ...settings, renderedOutputPath: customArchiveDir })
-    }
-
-    const quality = (ws as any).quality || 1080
-    const codec = (ws as any).codec || 'hevc'
-
-    const result = await archiveRenderedFile(
-      ws.outputPath,
-      ws.channelName,
-      ws.videoTitle,
-      quality,
-      codec,
-      ws.fileSize,
-      ws.duration,
-    )
-
-    // Restore archive path
-    if (customArchiveDir && prevArchivePath !== undefined) {
-      const settings = loadSettings()
-      saveSettings({ ...settings, renderedOutputPath: prevArchivePath })
-    }
-
-    if (result.success && result.archivedPath) {
-      // Capture thumbnail as base64 before workspace is deleted
-      const thumbPath = path.join(getVideoStoragePath(), `thumb_${ws.id}.jpg`)
-      const thumbData = fs.existsSync(thumbPath)
-        ? 'data:image/jpeg;base64,' + fs.readFileSync(thumbPath).toString('base64')
-        : undefined
-      const renderedRecord: RenderedVideoRecord = {
-        id: `rv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        workspaceId: ws.id,
-        channelId: ws.channelId,
-        channelName: ws.channelName,
-        videoTitle: ws.videoTitle,
-        archivedPath: result.archivedPath,
-        outputPath: ws.outputPath,
-        quality,
-        codec,
-        fileSize: ws.fileSize,
-        duration: ws.duration,
-        thumbnail: ws.thumbnail,
-        thumbnailData: thumbData,
-        videoResolution: ws.videoResolution,
-        renderedAt: new Date().toISOString(),
-      }
-      addRenderedVideo(renderedRecord)
-      broadcast(IPC_CHANNELS.RENDERED_ADD, renderedRecord)
-      // Cleanup downloaded video + blur after successful archive (storage optimization)
-      const { bytesFreed } = cleanupWorkspace(ws.id, ws.downloadedPath)
-      if (bytesFreed > 0) {
-        const freedMB = (bytesFreed / 1024 / 1024).toFixed(1)
-        devLog(`[Render] Cleaned ${freedMB} MB of downloaded files after archive`)
-      }
-    }
-
-    return result
-  })
-
-  ipcMain.handle(IPC_CHANNELS.RENDERED_REMOVE, (_, id: string) => {
-    const videos = getRenderedVideos()
-    const video = videos.find(v => v.id === id)
-    let bytesFreed = 0
-    if (video?.archivedPath) {
+    const activeIds = new Set(workspaces.map(w => w.id))
+    const activeWsId = getActiveWorkspaceId()
+    if (activeWsId) activeIds.add(activeWsId)
+    let cleaned = 0
+    for (const entry of fs.readdirSync(storagePath)) {
+      if (entry.startsWith('blur_')) continue
+      const ext = path.extname(entry).toLowerCase()
+      if (!['.mp4', '.mkv', '.webm', '.avi', '.mov'].includes(ext)) continue
+      const entryBase = entry.replace(/\.\w+$/, '')
+      const isActive = Array.from(activeIds).some(id => entryBase.startsWith(id + '_') || entryBase === id)
+      if (isActive) continue
+      const fullPath = path.join(storagePath, entry)
       try {
-        if (fs.existsSync(video.archivedPath)) {
-          const stat = fs.statSync(video.archivedPath)
-          bytesFreed = stat.size
-          fs.unlinkSync(video.archivedPath)
-          devLog(`[Rendered] Deleted (${(bytesFreed / 1024 / 1024).toFixed(1)} MB): ${video.archivedPath}`)
+        const stat = fs.statSync(fullPath)
+        if (stat.mtimeMs < cutoff) {
+          fs.unlinkSync(fullPath)
+          cleaned++
         }
       } catch {}
     }
-    removeRenderedVideo(id)
-    return { success: true, bytesFreed }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.RENDERED_OPEN_FOLDER, (_, id?: string) => {
-    if (id) {
-      const videos = getRenderedVideos()
-      const video = videos.find(v => v.id === id)
-      if (video && fs.existsSync(video.archivedPath)) {
-        showInFolder(video.archivedPath)
-        return { success: true }
-      }
-    }
-    // Open the archive folder itself
-    openArchiveFolder()
-    return { success: true }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.RENDERED_SET_ARCHIVE_PATH, (_, newPath: string) => {
-    const settings = loadSettings()
-    saveSettings({ ...settings, renderedOutputPath: newPath })
-    return { success: true }
-  })
-
-  // Poller status: return current YouTubePoller state
-  ipcMain.handle(IPC_CHANNELS.POLLER_STATUS, () => {
-    const poller = getYouTubePoller()
-    return poller ? poller.getStatus() : null
-  })
-
-  // Resume polling immediately — clears exhaustion backoff
-  ipcMain.handle(IPC_CHANNELS.POLLER_RESUME, () => {
-    const poller = getYouTubePoller()
-    if (poller) {
-      poller.resume()
-      opLog.info('system', 'Poller resumed')
-      return { success: true }
-    }
-    return { success: false }
-  })
-
-  // Pause / stop polling
-  ipcMain.handle(IPC_CHANNELS.POLLER_PAUSE, () => {
-    const poller = getYouTubePoller()
-    if (poller) {
-      poller.pause()
-      opLog.warn('system', 'Poller paused by user')
-      return { success: true }
-    }
-    return { success: false }
-  })
-
-  // ─── Operation Logs ──────────────────────────────────────────────────────────────
-  ipcMain.handle(IPC_CHANNELS.OPERATION_LOGS_READ, () => {
-    return getOpLogs()
-  })
-
-  ipcMain.handle(IPC_CHANNELS.OPERATION_LOGS_CLEAR, () => {
-    clearOpLogs()
-    return { success: true }
-  })
-
-  // ─── Channel Bulk Add ────────────────────────────────────────────────────────────
-  ipcMain.handle(IPC_CHANNELS.CHANNEL_BULK_ADD, async (_, urls: string[]) => {
-    const results: Array<{ url: string; success: boolean; error?: string }> = []
-    const CHANNEL_COLORS = ['#00B4FF', '#7C3AED', '#00FF88', '#FF6B35', '#FF0080', '#FFB800']
-
-    for (const url of urls) {
-      const trimmed = url.trim()
-      if (!trimmed) continue
-      try {
-        let name: string, handle: string, channelId: string | undefined, avatarUrl: string | undefined
-        try {
-          const info = await getChannelInfo(trimmed)
-          if (info) {
-            name = info.channelName
-            handle = info.handle || `@${info.channelId}`
-            channelId = info.channelId
-            avatarUrl = info.avatarUrl
-          } else {
-            throw new Error('no info')
-          }
-        } catch {
-          const raw = trimmed.replace(/^https?:\/\/(www\.)?youtube\.com\/(channel\/)?/, '').split(/[/?]/)[0] || 'Kênh Mới'
-          name = raw.charAt(0).toUpperCase() + raw.slice(1)
-          handle = `@${raw.toLowerCase()}`
-        }
-
-        const channels = getChannels()
-        const newCh: StoredChannel = {
-          id: `ch${Date.now()}`,
-          name,
-          handle,
-          avatarColor: CHANNEL_COLORS[channels.length % CHANNEL_COLORS.length],
-          channelId,
-          avatarUrl,
-          createdAt: new Date().toISOString(),
-        }
-        addChannel(newCh)
-        results.push({ url: trimmed, success: true })
-        opLog.success('channel', `Channel added: ${name}`)
-      } catch (e: any) {
-        results.push({ url: trimmed, success: false, error: e.message })
-        opLog.error('channel', `Error adding channel: ${trimmed} — ${e.message}`)
-      }
-    }
-    return results
-  })
-
-  // ─── Auth ────────────────────────────────────────────────────────────────────
-  ipcMain.handle(IPC_CHANNELS.AUTH_STATUS, async () => {
-    const cm = getCookieManager()
-    return cm.getAuthStatus()
-  })
-
-  ipcMain.handle(IPC_CHANNELS.AUTH_LOGOUT, async () => {
-    const cm = getCookieManager()
-    await cm.logout()
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(IPC_CHANNELS.NOTIFICATION_EVENT, { type: 'info', message: 'Đã đăng xuất YouTube' })
-    }
-    return { success: true }
-  })
-
-  // Triggers OAuth flow from LoginScreen (manual re-login when tokens expired)
-  ipcMain.handle(IPC_CHANNELS.AUTH_OAUTH_START, async () => {
-    const cm = getCookieManager()
-    await cm.startOAuthFlow()
-    // Reload TokenManager so it picks up the newly saved token (saved by youtube_auth.saveTokens)
-    getTokenManager().reload()
-    return cm.getAuthStatus()
-  })
-
-  ipcMain.handle(IPC_CHANNELS.AUTH_OAUTH_SET_CREDS, async (_, clientId: string, clientSecret: string) => {
-    const fs2 = await import('fs')
-    const path2 = await import('path')
-    const os2 = await import('os')
-    const configFile = path2.join(getAppStoreDir(), 'oauth_config.json')
-    const dir = path2.dirname(configFile)
-    if (!fs2.existsSync(dir)) fs2.mkdirSync(dir, { recursive: true })
-    // Preserve existing per-project credentials, add/update legacy single-project fields
-    let config: Record<string, any> = {}
-    try {
-      if (fs2.existsSync(configFile)) {
-        config = JSON.parse(fs2.readFileSync(configFile, 'utf-8'))
-        // If old format (array or single-project object), migrate to per-project
-        if (!config['proj-01']) {
-          // Keep existing non-project entries (like proj-01, proj-02, etc.)
-          // Old format was { client_id, client_secret } — don't destroy per-project data
-        }
-      }
-    } catch {}
-    // Save as per-project format
-    const projectIds = ['proj-01', 'proj-02', 'proj-03', 'proj-04']
-    for (const pid of projectIds) {
-      if (!config[pid]) config[pid] = {}
-      if (!config[pid].clientId) {
-        // If this project has no clientId yet, use the provided one (for single-project migration)
-        if (!config[pid].clientId) {
-          config[pid] = { clientId, clientSecret }
-          break // only apply to first project without credentials
-        }
-      }
-    }
-    // Also save legacy fields for backward compat
-    config['client_id'] = clientId
-    config['client_secret'] = clientSecret
-    fs2.writeFileSync(configFile, JSON.stringify(config, null, 2), 'utf-8')
-    devLog('[OAuth] Credentials saved to oauth_config.json (per-project format)')
-
-    // Also update credentials in oauth_tokens.json — this file is now the single source of truth
-    // for credentials. getOAuthClientId() reads from there first.
-    try {
-      const fs3 = await import('fs')
-      const path3 = await import('path')
-      const os3 = await import('os')
-      const tokensFile = path3.join(getAppStoreDir(), 'oauth_tokens.json')
-      if (fs3.existsSync(tokensFile)) {
-        const raw = JSON.parse(fs3.readFileSync(tokensFile, 'utf-8'))
-        const tokens = Array.isArray(raw) ? raw : []
-        let updated = 0
-        for (const t of tokens) {
-          // Only update entries that don't have explicit credentials (legacy migrated entries)
-          if (!(t as any).clientId && !(t as any).clientSecret) {
-            (t as any).clientId = clientId
-            ;(t as any).clientSecret = clientSecret
-            updated++
-          }
-        }
-        if (updated > 0) {
-          fs3.writeFileSync(tokensFile, JSON.stringify(tokens, null, 2), 'utf-8')
-          devLog(`[OAuth] Updated credentials in oauth_tokens.json for ${updated} token(s)`)
-        }
-      }
-    } catch (e) {
-      console.warn('[OAuth] Failed to update oauth_tokens.json:', e)
-    }
-
-    // Reload TokenManager so in-memory state reflects new credentials
-    try {
-      const tokens2 = await import('./services/token_manager.js')
-      tokens2.getTokenManager().reload()
-      devLog('[OAuth] TokenManager reloaded with new credentials')
-    } catch (e) {
-      console.warn('[OAuth] Failed to reload TokenManager:', e)
-    }
-
-    return { success: true }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.AUTH_OAUTH_GET_CREDS, async () => {
-    const { getOAuthClientId, getOAuthClientSecret } = await import('./services/youtube_auth.js')
-    return { clientId: getOAuthClientId(), clientSecret: getOAuthClientSecret() }
-  })
-
-  // ─── Per-project OAuth (multi-token) ─────────────────────────────────────────
-  ipcMain.handle(IPC_CHANNELS.AUTH_OAUTH_START_PER_PROJECT, async (_, clientId: string, clientSecret: string, projectId: string) => {
-    const { startOAuthFlow } = await import('./services/youtube_auth.js')
-    const result = await startOAuthFlow(clientId, clientSecret, projectId)
-    if (result.success && result.tokens && result.projectId) {
-      getTokenManager().addToken(result.projectId, clientId, clientSecret, result.tokens)
-      devLog(`[OAuth] Token stored in TokenManager for ${result.projectId} — ${result.tokens.access_token.slice(0, 10)}... expires ${new Date(result.tokens.expires_at).toLocaleString()}`)
-    }
-    return result
-  })
-
-  ipcMain.handle(IPC_CHANNELS.TOKEN_STATUS_LIST, () => {
-    return getTokenManager().getAllStatuses()
-  })
-
-  ipcMain.handle(IPC_CHANNELS.TOKEN_REMOVE, (_, projectId: string) => {
-    getTokenManager().removeToken(projectId)
-    return { success: true }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.TOKEN_TEST, async (_, projectId: string) => {
-    const result = await getTokenManager().testToken(projectId)
-    return result
-  })
-
-  ipcMain.handle(IPC_CHANNELS.TOKEN_GET_DEFAULT_CREDS, async () => {
-    // Return per-project credentials from oauth_config.json
-    const fs = await import('fs')
-    const path = await import('path')
-    const os = await import('os')
-    const configFile = path.join(getAppStoreDir(), 'oauth_config.json')
-    try {
-      if (fs.existsSync(configFile)) {
-        const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
-        // Support new per-project format: { proj-01: { clientId, clientSecret }, ... }
-        if (typeof config === 'object' && !config.client_id) {
-          return config
-        }
-      }
-    } catch {}
-    return {}
-  })
-
-  // ─── Key Management ──────────────────────────────────────────────────────────
-  ipcMain.handle(IPC_CHANNELS.KEY_LIST, () => {
-    return getKeyManager().getAllKeys()
-  })
-
-  ipcMain.handle(IPC_CHANNELS.KEY_ADD, async (_, key: string, projectId: string, name: string) => {
-    // Test the key before adding it — reject invalid keys
-    const km = getKeyManager()
-    const testResult = await km.testKey(key)
-
-    if (!testResult.valid) {
-      const friendlyError: Record<string, string> = {
-        unauthorized: 'Key không hợp lệ hoặc đã bị revoke. Vui lòng kiểm tra lại API Key.',
-        quota_exhausted: 'Key đã hết quota. Chọn key khác hoặc reset quota trên Google Cloud Console.',
-        invalid_key: 'Định dạng key không hợp lệ. Key phải bắt đầu bằng "AIzaSy".',
-        network_error: 'Không thể kết nối YouTube API. Kiểm tra kết nối mạng.',
-      }
-      return {
-        success: false,
-        keys: km.getAllKeys(),
-        error: friendlyError[testResult.errorType || 'invalid_key'] || testResult.error,
-        errorType: testResult.errorType,
-      }
-    }
-
-    // Key is valid — add it
-    km.addKey(key, projectId, name)
-    devLog(`[KeyManager] Key validated and added: ${name} (${key.slice(0, 12)}...)`)
-    return { success: true, keys: km.getAllKeys() }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.KEY_REMOVE, (_, key: string) => {
-    getKeyManager().removeKey(key)
-    return { success: true, keys: getKeyManager().getAllKeys() }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.KEY_RESET, (_, key?: string) => {
-    const km = getKeyManager()
-    let result: { success: boolean; nextReset: number }
-    if (key) {
-      result = km.resetKey(key)
-    } else {
-      result = km.resetAll()
-    }
-    return { success: result.success, keys: km.getAllKeys(), nextReset: result.nextReset }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.KEY_TEST, async (_, key: string) => {
-    const km = getKeyManager()
-    const result = await km.testKey(key)
-    // If unauthorized, mark the key so it gets excluded from rotation
-    if (!result.valid && result.errorType === 'unauthorized') {
-      km.markUnauthorized(key)
-    } else if (result.valid) {
-      km.markAuthorized(key)
-    }
-    return result
-  })
-
-  ipcMain.handle(IPC_CHANNELS.KEY_TEST_ALL, async () => {
-    const km = getKeyManager()
-    const keys = km.getAllKeys()
-    const results: Array<{ key: string; name: string; valid: boolean; error?: string; errorType?: string }> = []
-
-    for (const k of keys) {
-      const result = await km.testKey(k.key)
-      if (!result.valid && result.errorType === 'unauthorized') {
-        km.markUnauthorized(k.key)
-      } else if (result.valid) {
-        km.markAuthorized(k.key)
-      }
-      results.push({ key: k.key, name: k.name, ...result })
-    }
-
-    return { results, keys: km.getAllKeys() }
-  })
-
-  // ─── Dynamic Project Management ─────────────────────────────────────────────
-
-  /**
-   * List all configured projects with full status.
-   * Each project has OAuth credentials + API key + quota stats.
-   */
-  ipcMain.handle(IPC_CHANNELS.PROJECT_LIST, () => {
-    const km = getKeyManager()
-    const tm = getTokenManager()
-    const tokenStatuses = tm.getAllStatuses()
-    const keys = km.getAllKeys()
-
-    type ProjectTokenStatus = 'healthy' | 'warning' | 'rate_limited' | 'error' | 'exhausted' | 'unauthorized' | 'no_oauth'
-
-    // Build project list from tokens (each token = 1 project)
-    const projects: Array<{
-      projectId: string; projectName: string; gmailAccount: string
-      clientId: string; hasToken: boolean; tokenExpiry: number | null
-      usedToday: number; quotaTotal: number; errors: number; status: ProjectTokenStatus
-      apiKey: string | null; apiKeyName: string | null; apiKeyUsed: number; apiKeyStatus: string
-    }> = tokenStatuses.map(ts => {
-      const projectKeys = keys.filter(k => k.projectId === ts.projectId)
-      const primaryKey = projectKeys[0] || null
-      return {
-        projectId: ts.projectId,
-        projectName: ts.projectName || ts.projectId,
-        gmailAccount: ts.gmailAccount || '',
-        clientId: ts.clientId,
-        hasToken: ts.hasToken,
-        tokenExpiry: ts.tokenExpiry,
-        usedToday: ts.usedToday,
-        quotaTotal: ts.quotaTotal,
-        errors: ts.errors,
-        status: ts.status,
-        apiKey: primaryKey?.key || null,
-        apiKeyName: primaryKey?.name || null,
-        apiKeyUsed: primaryKey?.usedToday || 0,
-        apiKeyStatus: primaryKey?.status || 'unauthorized' as string,
-      }
-    })
-
-    // Also include projects that have API keys but no token
-    const tokenProjectIds = new Set(tokenStatuses.map(t => t.projectId))
-    for (const k of keys) {
-      if (!tokenProjectIds.has(k.projectId)) {
-        const existing = projects.find(p => p.projectId === k.projectId)
-        if (!existing) {
-          projects.push({
-            projectId: k.projectId,
-            projectName: k.projectName || k.projectId,
-            gmailAccount: k.gmailAccount || '',
-            clientId: '',
-            hasToken: false,
-            tokenExpiry: null,
-            usedToday: 0,
-            quotaTotal: 9500,
-            errors: 0,
-            status: 'no_oauth',
-            apiKey: k.key,
-            apiKeyName: k.name,
-            apiKeyUsed: k.usedToday,
-            apiKeyStatus: k.status,
-          })
-        }
-      }
-    }
-
-    return projects
-  })
-
-  /**
-   * Add a project: OAuth credentials + API key.
-   * 1. Save OAuth credentials (clientId + clientSecret)
-   * 2. Start OAuth browser flow to get token
-   * 3. Save API key
-   */
-  ipcMain.handle(IPC_CHANNELS.PROJECT_ADD, async (_, data: {
-    projectId: string
-    clientId: string
-    clientSecret: string
-    apiKey: string
-    apiKeyName?: string
-  }) => {
-    const { projectId, clientId, clientSecret, apiKey, apiKeyName } = data
-    const tm = getTokenManager()
-    const km = getKeyManager()
-
-    // 0. Save credentials to oauth_config.json so re-authorize works later
-    const fs = await import('fs')
-    const pathMod = await import('path')
-    const configFile = pathMod.join(getAppStoreDir(), 'oauth_config.json')
-    let config: Record<string, any> = {}
-    try {
-      if (fs.existsSync(configFile)) config = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
-    } catch {}
-    config[projectId] = { clientId: clientId.trim(), clientSecret: clientSecret.trim() }
-    // Also save legacy fields for backward compat
-    config['client_id'] = clientId.trim()
-    config['client_secret'] = clientSecret.trim()
-    if (!fs.existsSync(pathMod.dirname(configFile))) {
-      fs.mkdirSync(pathMod.dirname(configFile), { recursive: true })
-    }
-    fs.writeFileSync(configFile, JSON.stringify(config, null, 2), 'utf-8')
-    devLog(`[Project] Credentials saved for ${projectId}`)
-
-    // 1. Save API key
-    const name = apiKeyName?.trim() || `Project ${projectId}`
-    km.addKey(apiKey.trim(), projectId, name)
-
-    // 2. Start OAuth flow
-    const { startOAuthFlow } = await import('./services/youtube_auth.js')
-    const result = await startOAuthFlow(clientId.trim(), clientSecret.trim(), projectId)
-
-    if (result.success && result.tokens && result.projectId) {
-      tm.addToken(result.projectId, clientId.trim(), clientSecret.trim(), result.tokens)
-      devLog(`[Project] Added ${projectId}: OAuth OK + API key OK`)
-      return { success: true, projectId, oauthResult: result }
-    }
-
-    // Key was saved but OAuth failed
-    return {
-      success: false,
-      projectId,
-      error: result.error || 'OAuth failed — API key saved but token not authorized',
-      oauthResult: result,
-    }
-  })
-
-  /**
-   * Remove a project: delete both token and API key.
-   */
-  ipcMain.handle(IPC_CHANNELS.PROJECT_REMOVE, (_, projectId: string) => {
-    const tm = getTokenManager()
-    const km = getKeyManager()
-    tm.removeToken(projectId)
-    // Remove all keys belonging to this project
-    const keys = km.getAllKeys().filter(k => k.projectId === projectId)
-    for (const k of keys) {
-      km.removeKey(k.key)
-    }
-    devLog(`[Project] Removed ${projectId}: token + ${keys.length} key(s)`)
-    return { success: true }
-  })
-
-  /**
-   * Reset quota for a project (both token and key stats).
-   */
-  ipcMain.handle(IPC_CHANNELS.PROJECT_RESET_QUOTA, (_, projectId: string) => {
-    const tm = getTokenManager()
-    const km = getKeyManager()
-    const keys = km.getAllKeys().filter(k => k.projectId === projectId)
-    for (const k of keys) {
-      km.resetKey(k.key)
-    }
-    const tokenResult = tm.resetTokenStats(projectId)
-    return { success: true, nextReset: tokenResult.nextReset, wasUnauthorized: tokenResult.wasUnauthorized }
-  })
-
-  /**
-   * Re-authorize a project: read credentials from oauth_config.json and trigger OAuth flow.
-   * Before starting the OAuth browser flow, tries refreshing the existing token first.
-   * If refresh succeeds → credentials are still valid (just quota issue). No re-auth needed.
-   * If refresh fails with invalid_client → OAuth client deleted/secret regenerated → clear error.
-   * If refresh fails with invalid_grant → refresh token revoked → proceed with new OAuth flow.
-   */
-  ipcMain.handle(IPC_CHANNELS.PROJECT_REAUTHORIZE, async (_, projectId: string) => {
-    const fs = await import('fs')
-    const path = await import('path')
-    process.stderr.write(`[DEBUG] PROJECT_REAUTHORIZE called: ${projectId}\n`)
-
-    // Read from %APPDATA% first (primary), fallback to %TEMP% (legacy)
-    const appDataConfig = path.join(getAppStoreDir(), 'oauth_config.json')
-    const legacyConfig = path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json')
-
-    process.stderr.write(`[DEBUG] appDataConfig=${appDataConfig}\n`)
-    process.stderr.write(`[DEBUG] legacyConfig=${legacyConfig}\n`)
-
-    let clientId = ''
-    let clientSecret = ''
-
-    const readFromFile = (configFile: string) => {
-      process.stderr.write(`[DEBUG] Checking config: ${configFile}\n`)
-      try {
-        if (!fs.existsSync(configFile)) {
-          process.stderr.write(`[DEBUG] Config not found: ${configFile}\n`)
-          return false
-        }
-        const content = fs.readFileSync(configFile, 'utf-8')
-        const config = JSON.parse(content)
-        process.stderr.write(`[DEBUG] Config keys: ${Object.keys(config).join('|')}\n`)
-        const proj = config[projectId]
-        if (proj?.clientId && proj?.clientSecret) {
-          clientId = proj.clientId
-          clientSecret = proj.clientSecret
-          process.stderr.write(`[DEBUG] Found credentials for ${projectId}\n`)
-          return true
-        } else if (config.client_id && config.client_secret) {
-          clientId = config.client_id
-          clientSecret = config.client_secret
-          process.stderr.write(`[DEBUG] Found legacy credentials for ${projectId}\n`)
-          return true
-        } else {
-          process.stderr.write(`[DEBUG] No credentials for ${projectId} in ${configFile}\n`)
-        }
-      } catch (e) {
-        process.stderr.write(`[DEBUG] Error reading ${configFile}: ${e}\n`)
-      }
-      return false
-    }
-
-    // Primary: %APPDATA%
-    if (!readFromFile(appDataConfig)) {
-      process.stderr.write(`[DEBUG] Not found in %APPDATA%, trying legacy\n`)
-      if (readFromFile(legacyConfig)) {
-        process.stderr.write(`[DEBUG] Found in legacy %TEMP%, migrating...\n`)
-        try {
-          if (!fs.existsSync(path.dirname(appDataConfig))) {
-            fs.mkdirSync(path.dirname(appDataConfig), { recursive: true })
-          }
-          const appDataContent = fs.existsSync(appDataConfig)
-            ? JSON.parse(fs.readFileSync(appDataConfig, 'utf-8'))
-            : {}
-          const legacyContent = JSON.parse(fs.readFileSync(legacyConfig, 'utf-8'))
-          const merged = { ...legacyContent, ...appDataContent }
-          merged[projectId] = { clientId, clientSecret }
-          fs.writeFileSync(appDataConfig, JSON.stringify(merged, null, 2), 'utf-8')
-          process.stderr.write(`[DEBUG] Migrated to %APPDATA%\n`)
-        } catch (e) {
-          process.stderr.write(`[DEBUG] Migration error: ${e}\n`)
-        }
-      }
-    }
-
-    if (!clientId || !clientSecret) {
-      return {
-        success: false,
-        error: `Không tìm thấy OAuth credentials cho "${projectId}" trong config. Vui lòng xóa project này và thêm lại.`,
-        errorType: 'credentials_not_found',
-      }
-    }
-
-    const tm = getTokenManager()
-
-    // Step 1: Try refreshing the existing token first — if it works, credentials are still valid
-    const existingToken = tm.getToken(projectId)
-    if (existingToken?.refresh_token) {
-      devLog(`[Project] Trying token refresh first for ${projectId}...`)
-      const refreshed = await tm.refreshToken(projectId)
-      if (refreshed) {
-        tm.addToken(projectId, clientId, clientSecret, refreshed)
-        tm.markAuthorized(projectId)
-        tm.resetTokenStats(projectId)
-        devLog(`[Project] Token refresh OK for ${projectId} — no re-auth needed, quota reset`)
-        return { success: true, refreshed: true }
-      }
-    }
-
-    // Step 2: Token refresh failed — start new OAuth flow
-    devLog(`[Project] Token refresh failed for ${projectId} — starting OAuth flow`)
-    const { startOAuthFlow } = await import('./services/youtube_auth.js')
-    const result = await startOAuthFlow(clientId.trim(), clientSecret.trim(), projectId)
-
-    if (result.success && result.tokens) {
-      tm.addToken(projectId, clientId.trim(), clientSecret.trim(), result.tokens)
-      tm.markAuthorized(projectId)
-      tm.resetTokenStats(projectId)
-      devLog(`[Project] Re-authorized ${projectId}`)
-      return { success: true }
-    }
-
-    // Step 3: OAuth flow failed — analyze the error for a clear message
-    const errMsg = result.error || 'OAuth failed'
-    let errorType = 'oauth_failed'
-    let userHint = ''
-
-    if (errMsg.toLowerCase().includes('invalid_client') || errMsg.toLowerCase().includes('client secret')) {
-      errorType = 'client_deleted_or_secret_regenerated'
-      userHint = 'OAuth Client đã bị XÓA hoặc Client Secret đã được REGENERATE trên Google Cloud Console. Để fix: vào Google Cloud Console → APIs & Services → Credentials → tìm OAuth Client cũ (Client ID bắt đầu bằng số trong config) → UPDATE SECRET nếu muốn giữ client cũ, HOẶC xóa HyperClip project này và thêm lại với Client ID + Secret mới.'
-    } else if (errMsg.toLowerCase().includes('invalid_grant') || errMsg.toLowerCase().includes('token')) {
-      errorType = 'refresh_token_revoked'
-      userHint = 'Refresh token đã bị revoke. Cần re-authorize qua trình duyệt.'
-    }
-
-    return {
-      success: false,
-      error: errMsg,
-      errorType,
-      userHint,
-    }
-  })
-
-  /**
-   * Repair a project: reset quota + error state, then re-authorize via OAuth.
-   * Combines reset-quota + reauthorize in one call so the user doesn't have to
-   * click two buttons when a project's token or key is broken.
-   */
-  ipcMain.handle(IPC_CHANNELS.PROJECT_REPAIR, async (_, projectId: string) => {
-    const tm = getTokenManager()
-    const km = getKeyManager()
-
-    // Step 1: Clear all error state — reset quota, clear unauthorized flags
-    const keys = km.getAllKeys().filter(k => k.projectId === projectId)
-    for (const k of keys) {
-      km.resetKey(k.key)
-    }
-    tm.resetTokenStats(projectId)
-    devLog(`[Project] Repair(${projectId}): reset quota + cleared error state`)
-
-    // Step 2: Try re-authorize (refresh token → if fails, OAuth flow)
-    const fs = await import('fs')
-    const pathMod = await import('path')
-    const configFile = pathMod.join(getAppStoreDir(), 'oauth_config.json')
-
-    let clientId = ''
-    let clientSecret = ''
-
-    try {
-      if (fs.existsSync(configFile)) {
-        const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
-        const proj = config[projectId]
-        if (proj?.clientId && proj?.clientSecret) {
-          clientId = proj.clientId
-          clientSecret = proj.clientSecret
-        } else if (config.client_id && config.client_secret) {
-          clientId = config.client_id
-          clientSecret = config.client_secret
-        }
-      }
-    } catch {}
-
-    if (!clientId || !clientSecret) {
-      return {
-        success: false,
-        error: `Không tìm thấy OAuth credentials cho "${projectId}" trong config.`,
-        needsCredentials: true,
-      }
-    }
-
-    // Try token refresh first
-    const existingToken = tm.getToken(projectId)
-    if (existingToken?.refresh_token) {
-      const refreshed = await tm.refreshToken(projectId)
-      if (refreshed) {
-        tm.addToken(projectId, clientId, clientSecret, refreshed)
-        tm.markAuthorized(projectId)
-        devLog(`[Project] Repair(${projectId}): token refresh OK — project repaired without browser`)
-        return { success: true, repaired: true, refreshed: true }
-      }
-    }
-
-    // Refresh failed or no token — need OAuth flow
-    devLog(`[Project] Repair(${projectId}): need OAuth flow to get new token`)
-    const { startOAuthFlow } = await import('./services/youtube_auth.js')
-    const result = await startOAuthFlow(clientId.trim(), clientSecret.trim(), projectId)
-
-    if (result.success && result.tokens) {
-      tm.addToken(projectId, clientId.trim(), clientSecret.trim(), result.tokens)
-      tm.markAuthorized(projectId)
-      devLog(`[Project] Repair(${projectId}): OAuth flow OK — project repaired`)
-      return { success: true, repaired: true }
-    }
-
-    return {
-      success: false,
-      error: result.error || 'Repair failed',
-      errorType: 'oauth_failed',
-      needsOAuthFlow: true,
-    }
-  })
-
-  /**
-   * Test all projects in parallel — returns status for each projectId.
-   */
-  ipcMain.handle(IPC_CHANNELS.PROJECT_TEST_ALL, async () => {
-    const tm = getTokenManager()
-    const km = getKeyManager()
-    const tokenStatuses = tm.getAllStatuses()
-    const keys = km.getAllKeys()
-
-    const projects = tokenStatuses.map(ts => ({
-      projectId: ts.projectId,
-      clientId: ts.clientId,
-      hasToken: ts.hasToken,
-      tokenExpiry: ts.tokenExpiry,
-      tokenStatus: ts.status,
-      tokenErrors: ts.errors,
-      tokenUsedToday: ts.usedToday,
-      apiKey: keys.find(k => k.projectId === ts.projectId)?.key || null,
-      apiKeyName: keys.find(k => k.projectId === ts.projectId)?.name || null,
-      apiKeyStatus: keys.find(k => k.projectId === ts.projectId)?.status || 'unauthorized',
-      apiKeyUsed: keys.find(k => k.projectId === ts.projectId)?.usedToday || 0,
-    }))
-
-    // Also include projects with API keys but no token
-    const tokenProjectIds = new Set(tokenStatuses.map(t => t.projectId))
-    for (const k of keys) {
-      if (!tokenProjectIds.has(k.projectId)) {
-        projects.push({
-          projectId: k.projectId,
-          clientId: '',
-          hasToken: false,
-          tokenExpiry: null,
-          tokenStatus: 'no_oauth' as const,
-          tokenErrors: 0,
-          tokenUsedToday: 0,
-          apiKey: k.key,
-          apiKeyName: k.name,
-          apiKeyStatus: k.status,
-          apiKeyUsed: k.usedToday,
-        })
-      }
-    }
-
-    return { projects, checkedAt: Date.now() }
-  })
-
-  /**
-   * Batch repair: repair multiple projects in sequence.
-   * Returns per-project results for the UI to display.
-   */
-  ipcMain.handle(IPC_CHANNELS.PROJECT_BATCH_REPAIR, async (_, projectIds: string[]) => {
-    const results: Record<string, { success: boolean; error?: string; repaired?: boolean }> = {}
-    for (const projectId of projectIds) {
-      const repairResult = await (async () => {
-        const tm = getTokenManager()
-        const km = getKeyManager()
-
-        const keys = km.getAllKeys().filter(k => k.projectId === projectId)
-        for (const k of keys) {
-          km.resetKey(k.key)
-        }
-        tm.resetTokenStats(projectId)
-
-        const fs = await import('fs')
-        const pathMod = await import('path')
-        const configFile = pathMod.join(getAppStoreDir(), 'oauth_config.json')
-
-        let clientId = ''
-        let clientSecret = ''
-
-        try {
-          if (fs.existsSync(configFile)) {
-            const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'))
-            const proj = config[projectId]
-            if (proj?.clientId && proj?.clientSecret) {
-              clientId = proj.clientId
-              clientSecret = proj.clientSecret
-            } else if (config.client_id && config.client_secret) {
-              clientId = config.client_id
-              clientSecret = config.client_secret
-            }
-          }
-        } catch {}
-
-        if (!clientId || !clientSecret) {
-          return { success: false, error: 'Thiếu credentials', needsCredentials: true }
-        }
-
-        const existingToken = tm.getToken(projectId)
-        if (existingToken?.refresh_token) {
-          const refreshed = await tm.refreshToken(projectId)
-          if (refreshed) {
-            tm.addToken(projectId, clientId, clientSecret, refreshed)
-            tm.markAuthorized(projectId)
-            return { success: true, repaired: true, refreshed: true }
-          }
-        }
-
-        const { startOAuthFlow } = await import('./services/youtube_auth.js')
-        const result = await startOAuthFlow(clientId.trim(), clientSecret.trim(), projectId)
-        if (result.success && result.tokens) {
-          tm.addToken(projectId, clientId.trim(), clientSecret.trim(), result.tokens)
-          tm.markAuthorized(projectId)
-          return { success: true, repaired: true }
-        }
-        return { success: false, error: result.error || 'OAuth failed', needsOAuthFlow: true }
-      })()
-
-      results[projectId] = repairResult
-    }
-    return results
-  })
-
-  // ─── Project Auto-Assign ───────────────────────────────────────────────────
-
-  ipcMain.handle(IPC_CHANNELS.PROJECT_AUTO_ASSIGN, async () => {
-    try {
-      const pm = getProjectManager()
-      const channels = getChannels()
-      const channelIds = channels.map(ch => ch.channelId || ch.id)
-      pm.autoAssignChannels(channelIds)
-      const status = pm.getStatus()
-      return { success: true, assigned: channelIds.length }
-    } catch (e: any) {
-      console.error('[IPC] PROJECT_AUTO_ASSIGN error:', e)
-      return { success: false, assigned: 0, error: e.message }
-    }
-  })
-
-  // ─── Chrome Session Management ───────────────────────────────────────────────
-
-  ipcMain.handle(IPC_CHANNELS.SESSION_LIST, async () => {
-    const sm = getSessionManager()
-    await sm.ensureInit()
-    return sm.getStatus()
-  })
-
-  ipcMain.handle(IPC_CHANNELS.SESSION_REFRESH_ALL, async () => {
-    const sm = getSessionManager()
-    const count = await sm.refreshAll()
-    return { success: true, refreshedCount: count }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.SESSION_OPEN_LOGIN, async (_, profileId: string) => {
-    const sm = getSessionManager()
-    const cookiesExtracted = await sm.openLoginWindow(profileId)
-    return { success: true, cookiesExtracted }
-  })
-
-  ipcMain.handle(IPC_CHANNELS.SESSION_CLONE_ONE, async () => {
-    const sm = getSessionManager()
-    return sm.cloneSessionOne()
-  })
-
-  // ─── Log Export (P1) ─────────────────────────────────────────────────────────
-  ipcMain.handle('logs:read', async () => {
-    const logDir = getLogDir()
-    const files: { name: string; size: number; mtime: number; content?: string }[] = []
-    const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5 MB per file
-    const MAX_LINES = 5000 // last 5000 lines
-    try {
-      for (const fname of fs.readdirSync(logDir)) {
-        if (!fname.startsWith('hyperclip')) continue
-        const fp = path.join(logDir, fname)
-        const stat = fs.statSync(fp)
-        // Skip files larger than 5 MB — just show metadata
-        if (stat.size > MAX_FILE_SIZE) {
-          files.push({ name: fname, size: stat.size, mtime: stat.mtimeMs, content: undefined })
-          continue
-        }
-        // Read last MAX_LINES lines to avoid OOM on large files
-        const raw = fs.readFileSync(fp, 'utf-8')
-        const allLines = raw.split('\n')
-        const tail = allLines.length > MAX_LINES
-          ? allLines.slice(-MAX_LINES)
-          : allLines
-        files.push({ name: fname, size: stat.size, mtime: stat.mtimeMs, content: tail.join('\n') })
-      }
-    } catch {}
-    return { files, logDir }
-  })
-
-  ipcMain.handle('logs:export', async () => {
-    const logDir = getLogDir()
-    const tmpDir = path.join(os.tmpdir(), 'hyperclip-logs-' + Date.now())
-    fs.mkdirSync(tmpDir, { recursive: true })
-
-    // 1. System snapshot
-    fs.writeFileSync(path.join(tmpDir, 'system_info.txt'), getSystemSnapshot())
-
-    // 2. Log files
-    try {
-      for (const fname of fs.readdirSync(logDir)) {
-        if (!fname.startsWith('hyperclip')) continue
-        fs.copyFileSync(path.join(logDir, fname), path.join(tmpDir, fname))
-      }
-    } catch {}
-
-    // 3. Crash dumps (minidumps)
-    const crashDir = path.join(app.getPath('crashDumps'))
-    if (fs.existsSync(crashDir)) {
-      try {
-        fs.mkdirSync(path.join(tmpDir, 'crash_dumps'), { recursive: true })
-        for (const fname of fs.readdirSync(crashDir)) {
-          if (fname.endsWith('.dmp') || fname.endsWith('.mdmp')) {
-            fs.copyFileSync(path.join(crashDir, fname), path.join(tmpDir, 'crash_dumps', fname))
-          }
-        }
-      } catch {}
-    }
-
-    // 4. Diagnostic output (current state)
-    try {
-      const diag = await runDiagnostics()
-      fs.writeFileSync(path.join(tmpDir, 'diagnostics.json'), JSON.stringify(diag, null, 2))
-    } catch {}
-
-    // 5. Settings
-    try {
-      const settings = loadSettings()
-      fs.writeFileSync(path.join(tmpDir, 'settings.json'), JSON.stringify(settings, null, 2))
-    } catch {}
-
-    // Save as zip
-    const { execSync } = await import('child_process')
-    const zipPath = path.join(os.tmpdir(), `hyperclip-logs-${new Date().toISOString().slice(0, 10)}.zip`)
-    const { dialog } = await import('electron')
-    const saveResult = await dialog.showSaveDialog(mainWindow!, {
-      title: 'Lưu file log',
-      defaultPath: zipPath,
-      filters: [{ name: 'ZIP', extensions: ['zip'] }],
-    })
-    if (saveResult.canceled || !saveResult.filePath) return { success: false }
-
-    try {
-      execSync(`powershell -Command "Compress-Archive -Path '${tmpDir}\\*' -DestinationPath '${saveResult.filePath}' -Force"`, { stdio: 'ignore' })
-      // Cleanup tmp
-      fs.rmSync(tmpDir, { recursive: true, force: true })
-      shell.showItemInFolder(saveResult.filePath)
-      return { success: true, path: saveResult.filePath }
-    } catch (e) {
-      return { success: false, error: String(e) }
-    }
-  })
-
-}
+    if (cleaned > 0) devLog(`[AutoCleanup] Removed ${cleaned} old video files`)
+  } catch {}
+})()
 
 // Relay auth status changes to renderer (registered at module load — catches early OAuth events)
 authEvents.on('authUpdated', (status) => {
@@ -3550,13 +1545,26 @@ async function quitAll() {
   if (nextServerOwned && nextServer) nextServer.kill()
   getTokenManager().dispose()
   mainWindow?.destroy()
+
+  // Wait for child processes to actually terminate before quitting.
+  // On Windows, SIGTERM from proc.kill() is asynchronous — app.quit()
+  // would exit before FFmpeg/Chrome are fully terminated.
+  await new Promise(resolve => setTimeout(resolve, 500))
+
   app.quit()
 }
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 ensureStorageDirs()
 
-app.whenReady().then(async () => {
+// Auto-cleanup old logs (>7 days) on startup
+const cleanup = cleanupOldLogs()
+if (cleanup.deletedCount > 0) {
+  const freedMB = (cleanup.freedBytes / 1024 / 1024).toFixed(1)
+  devLog(`[LogCleanup] Removed ${cleanup.deletedCount} old log file(s), freed ${freedMB} MB`)
+}
+
+void app.whenReady().then(async () => {
   devLog('[HyperClip] Starting...')
 
   // Auto-migrate: if legacy AppData\Roaming\HyperClip exists, move it to the new base dir.
@@ -3747,9 +1755,10 @@ app.whenReady().then(async () => {
     callback({ path: decodeURIComponent(filePath) })
   })
 
-  createWindow()
-  createTray()
-  await registerIPCHandlers()
+  void createWindow()
+  setIPCState({ mainWindow })
+  void createTray()
+  registerAllHandlers(ipcMain, () => mainWindow)
 
   // ─── Health Alert Checker (every 60s) ───────────────────────────────────────
   // Runs periodic health checks and sends notifications to the renderer.
@@ -3773,7 +1782,7 @@ app.whenReady().then(async () => {
   }, 30_000)
 
   // Resolve missing channelIds for demo channels at startup
-  resolveChannelIdsForPoll()
+  void resolveChannelIdsForPoll()
 
   // ─── Startup recovery: reset stale 'rendering' workspaces ───────────────────
   // If app was killed mid-render, workspaces are stuck at 'rendering' with 0% progress.
@@ -3837,15 +1846,28 @@ app.whenReady().then(async () => {
       devLog(`[HyperClip] Innertube pool: ${poolStatus.readyCount}/${poolStatus.totalSessions} sessions ready`)
 
       startYouTubePoller(5_000, (videos) => {
+        // Deduplicate within the same poll: OAuth can return the same videoId from
+        // multiple channels (same video appears in multiple channel feeds).
+        // Dedupe by videoId — keep first occurrence.
+        const seen = new Set<string>()
+        const uniqueVideos = videos.filter(v => {
+          if (seen.has(v.videoId)) {
+            devLog(`[AutoIngest] dedup: skipping duplicate ${v.videoId} from channel ${v.channelName} (already processed in this poll)`)
+            return false
+          }
+          seen.add(v.videoId)
+          return true
+        })
+
         // Non-blocking: enqueue all detected videos for background download.
         // Each enqueueBgDownload() immediately creates a 'waiting' workspace → UI shows video right away.
         // Downloads run in parallel (max 2-3 concurrent) without blocking the poller.
-        if (videos.length > 0) {
-          opLog.success('scan', `Found ${videos.length} new video(s)`, videos.map(v => v.title).join(', '))
+        if (uniqueVideos.length > 0) {
+          opLog.success('scan', `${uniqueVideos.length} video mới sẵn sàng tải về`, uniqueVideos.map(v => v.title).join(', '))
         }
-        for (const v of videos) {
+        for (const v of uniqueVideos) {
           devLog(`[AutoIngest] new video detected: ${v.title} (${v.channelName}), enqueueing...`)
-          opLog.info('download', `Auto-download triggered: ${v.title}`, v.channelName)
+          opLog.info('download', `Đang tải: ${v.title}`, v.channelName)
 
           // Check for existing 'error' workspace with expired backoff — retry it directly
           const existingWorkspaces = getWorkspaces()
@@ -3856,7 +1878,7 @@ app.whenReady().then(async () => {
           )
           if (errorWs && !inProgressAutoRetries.has(errorWs.id)) {
             devLog(`[AutoIngest] retrying errored workspace ${errorWs.id}: ${v.title}`)
-            retryAutoDownload(errorWs)
+            void retryAutoDownload(errorWs)
             continue
           }
 
@@ -3885,7 +1907,8 @@ app.whenReady().then(async () => {
           const cutoff = Date.now() - cleanupDays * 24 * 60 * 60 * 1000
           const workspaces = getWorkspaces()
           const activeIds = new Set(workspaces.map(w => w.id))
-          if (_activeWorkspaceId) activeIds.add(_activeWorkspaceId)
+          const activeWsId = getActiveWorkspaceId()
+          if (activeWsId) activeIds.add(activeWsId)
           let cleaned = 0
           for (const entry of fs.readdirSync(storagePath)) {
             if (entry.startsWith('blur_')) continue
@@ -3925,10 +1948,18 @@ app.whenReady().then(async () => {
   }
 })
 
+// ─── Graceful shutdown — triggered by NSIS installer, system shutdown, or user quit ──
+// before-quit fires before the app actually exits — ensures quitAll() runs first.
+app.on('before-quit', (e) => {
+  e.preventDefault()           // Prevent immediate exit
+  void quitAll()               // Run full cleanup (cancel FFmpeg, stop poller, etc.)
+  // app.quit() called inside quitAll() after cleanup
+})
+
 app.on('window-all-closed', quitAll)
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  if (BrowserWindow.getAllWindows().length === 0) void createWindow()
 })
 
 process.on('uncaughtException', (err) => {
@@ -3956,7 +1987,7 @@ log.info(`HyperClip starting — v${app.getVersion()} | Electron ${process.versi
 // Starts an HTTP server on port 9312 when HYPERCLIP_TEST=1.
 // The test client (scripts/test-e2e.mjs) connects to this server to run E2E tests.
 if (process.env.HYPERCLIP_TEST === '1') {
-  app.whenReady().then(() => {
+  void app.whenReady().then(() => {
     startE2EServer()
     app.on('quit', stopE2EServer)
   })

@@ -6,7 +6,7 @@ import https from 'https'
 import { app } from 'electron'
 import { getFfmpegPath, getFfprobePath } from './ffmpeg-paths.js'
 import { buildArgs, runSimpleFfmpeg, quotePath } from './ffmpeg.js'
-import { devLog } from './dev_log.js'
+import { devLog } from './unified_log.js'
 
 // ─── HTTP helpers ───────────────────────────────────────────────────────────────
 function httpGet(url: string, timeout = 10000): Promise<string> {
@@ -109,7 +109,7 @@ export async function getChannelMetadataFromHttp(url: string): Promise<YtdlpChan
         // If we can't find the ID, return early to trigger yt-dlp fallback
         return { channelName: 'Unknown', channelId: '', avatarUrl: '', handle: url }
       }
-    } catch (e: any) {
+    } catch {
       return { channelName: 'Unknown', channelId: '', avatarUrl: '', handle: url }
     }
   }
@@ -282,7 +282,7 @@ function stopSimulation(workspaceId: string) {
   }
 }
 
-function simulateDownloadProgress(
+function _simulateDownloadProgress(
   workspaceId: string,
   onProgress: ((progress: DownloadProgress) => void) | undefined,
   durationSec: number,
@@ -299,15 +299,12 @@ function simulateDownloadProgress(
   const totalTicks = Math.floor(estimatedSec * 4) // update every ~250ms
   const tickMs = Math.max(150, Math.min(400, (estimatedSec * 1000) / totalTicks))
 
-  let tick = 0
   let currentPct = 0
   let stuckAt = 0 // if > 0, simulation is "stuck" waiting for real download
 
   const ticker = setInterval(() => {
     // Stop automatically when real progress has taken over (progressEmitted tracked by caller)
     if (!_simTicker.has(workspaceId)) { clearInterval(ticker); return }
-
-    tick++
     if (stuckAt > 0) {
       // Stuck phase: advance very slowly (0.1-0.5%)
       const inc = 0.1 + Math.random() * 0.4
@@ -400,10 +397,8 @@ export async function getChannelId(videoUrl: string): Promise<string | null> {
     })
 
     let stdout = ''
-    let stderr = ''
 
     proc.stdout?.on('data', (d) => { stdout += d.toString() })
-    proc.stderr?.on('data', (d) => { stderr += d.toString() })
 
     proc.on('close', (code) => {
       if (code === 0 && stdout.trim()) {
@@ -629,7 +624,7 @@ function makeSectionArg(startSec: number, endSec: number): string {
   return `*${fmt(startSec)}-${fmt(endSec)}`
 }
 
-async function multiInstanceDownload(opts: MultiInstanceOpts): Promise<DownloadResult | null> {
+async function _multiInstanceDownload(opts: MultiInstanceOpts): Promise<DownloadResult | null> {
   const { workspaceId, videoUrl, outputDir, formatSelector, trimLimit, instanceCount, onProgress, ytdlp, preFetchedDuration, retryStrategy = 'immediate', poToken, ytCookiesFile } = opts
 
   // OPTIMIZATION #1: Skip sequential duration probe if caller already has it.
@@ -1073,10 +1068,8 @@ export async function probeAvailableFormats(
       })
 
       let stdout = ''
-      let stderr = ''
 
       proc.stdout?.on('data', (d) => { stdout += d.toString() })
-      proc.stderr?.on('data', (d) => { stderr += d.toString() })
 
       const killTimer = setTimeout(() => { if (!proc.killed) proc.kill(); resolve(null) }, 15000)
 
@@ -1163,11 +1156,7 @@ interface DownloadStrategyResult {
 export async function downloadVideoStrategy(
   opts: DownloadStrategyOpts,
 ): Promise<DownloadStrategyResult> {
-  const {
-    workspaceId, videoUrl, outputDir, trimLimit,
-    quality = '720', maxInstances = 'auto',
-    onProgress, ytCookiesFile, preChecked,
-  } = opts
+  const { workspaceId } = opts
 
   // tv_embedded first: returns H.264 720p/1080p (avc1.64001f/avc1.64002a)
   // even when 'web' client is limited to 360p by EJS challenge with Chrome session cookies.
@@ -1326,14 +1315,12 @@ async function downloadWithClient(opts: DownloadWithClientOpts): Promise<Downloa
     devLog(`[Download] Section failed: ${result.error?.slice(0, 80)} — falling back to full`)
   }
 
-  // ── Full download ────────────────────────────────────────────────────────────
-  if (sectionArg) {
-    devLog(`[Download] Attempting full download (skipping section)`)
-  }
-
+  // ── Full download (with section if trimLimit was set) ─────────────────────
+  // ALWAYS pass sectionArg to yt-dlp if trimLimit was configured — this makes yt-dlp
+  // skip HLS segments beyond the trim window (significant bandwidth savings).
   const result = await spawnDownload({
     workspaceId, videoUrl, outputDir, formatSelector, client, ytCookiesFile,
-    extraArgs: [],
+    extraArgs: sectionArg ? ['--download-sections', sectionArg] : [],
     instanceCount: 1, sectionArg: null, maxInstances: 1, quality, onProgress,
   })
 
@@ -1387,6 +1374,8 @@ async function spawnDownload(opts: SpawnDownloadOpts): Promise<DownloadStrategyR
     '--extractor-args', `youtube:player_client=${client}`,
     ...(ytCookiesFile ? ['--cookies', ytCookiesFile] : []),
     '-f', formatSelector,
+    '--merge-output-format', 'mp4',
+    '--remux-video', 'mp4',
     '--output', outputTemplate,
     '--no-playlist',
     '--newline',

@@ -10,16 +10,18 @@ export function ActivationScreen() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [machineId, setMachineId] = useState('Đang lấy...')
+  const [version, setVersion] = useState('...')
   const setLicense = useAppStore(s => s.setLicense)
 
   useEffect(() => {
-    // Get license status to show machine ID
+    // Get license status to show machine ID + version
     ipc.getLicenseStatus().then((status: any) => {
       const m = status?.record?.machineId
       if (m) {
         setMachineId(`${m.slice(0, 8).toUpperCase()}...${m.slice(-4).toUpperCase()}`)
       }
     })
+    ipc.getAppVersion().then(v => setVersion(v))
   }, [])
 
   async function handleActivate() {
@@ -171,7 +173,7 @@ export function ActivationScreen() {
 
         {/* Version */}
         <p style={{ fontSize: 11, color: '#444', margin: '16px 0 0' }}>
-          HyperClip v0.0.1
+          HyperClip v{version}
         </p>
       </div>
     </div>

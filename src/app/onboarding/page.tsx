@@ -106,7 +106,6 @@ export default function OnboardingPage() {
           borderTopColor: '#00B4FF',
           animation: 'spin 1s linear infinite',
         }} />
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     )
   }
@@ -116,9 +115,6 @@ export default function OnboardingPage() {
   return (
     <>
       <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width: 3px; }
         ::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }

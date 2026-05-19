@@ -16,7 +16,7 @@ import http from 'http'
 import fs from 'fs'
 import path from 'path'
 import { getChromeExe, getHyperClipProfileDir, getDefaultChromeProfileDir, YouTubeCookies } from './chrome_cookies.js'
-import { devLog } from './dev_log.js'
+import { devLog } from './unified_log.js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 

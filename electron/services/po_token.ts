@@ -18,7 +18,7 @@ import WebSocket from 'ws'
 import http from 'http'
 import fs from 'fs'
 import path from 'path'
-import { devLog } from './dev_log.js'
+import { devLog } from './unified_log.js'
 import { ensurePersistentChrome } from './cdp.js'
 import { getAppStoreDir } from './paths.js'
 
@@ -92,7 +92,10 @@ class CDPClient {
         try { msg = JSON.parse(raw) } catch { return }
         if (msg.id !== undefined) {
           const p = this._pending.get(msg.id)
-          if (p) { this._pending.delete(msg.id); msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result) }
+          if (p) {
+            this._pending.delete(msg.id)
+            if (msg.error) { p.reject(new Error(msg.error.message)) } else { void p.resolve(msg.result) }
+          }
         }
       })
     })

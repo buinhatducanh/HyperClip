@@ -22,9 +22,9 @@ import { getProjectManager } from './project_manager.js'
 import { renderChunked, type RenderMetadata } from './ffmpeg.js'
 import { getPoolStatus } from './worker-pool.js'
 import { getAppStoreDir } from './paths.js'
-import { getLogDir } from './logger.js'
+import { getLogDir } from './unified_log.js'
 import { getOutputPath } from './ramdisk.js'
-import { devLog } from './dev_log.js'
+import { devLog } from './unified_log.js'
 import path from 'path'
 import fs from 'fs'
 
@@ -149,7 +149,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
       const poller = getYouTubePoller()
       if (!poller) { fail(res, 400, 'Poller not initialized'); return }
       // Trigger one poll cycle via the private _pollOnce method
-      ;(poller as unknown as { _pollOnce: () => Promise<void> })._pollOnce()
+      void (poller as unknown as { _pollOnce: () => Promise<void> })._pollOnce()
       ok(res, { polled: true })
       return
     }

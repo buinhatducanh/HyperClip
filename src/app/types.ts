@@ -82,6 +82,7 @@ export interface EditorState {
   // Export
   exportQuality: 1080 | 720 | 360;
   exportCodec: 'h264';
+  exportFPS: 30 | 60;
   exportPreset: 'p1' | 'p2' | 'p3';
   exportTune: 'hq' | 'll' | 'film';
   enableChunked: boolean;

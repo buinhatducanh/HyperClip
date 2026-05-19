@@ -85,7 +85,7 @@ export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowT
         const freedMB = (result.bytesFreed / 1024 / 1024).toFixed(1)
         onShowToast(`Deleted (${freedMB} MB freed)`)
       } else {
-        onShowToast('Removed from list')
+        onShowToast('Đã xóa khỏi danh sách (file vẫn giữ lại)')
       }
     } else {
       onShowToast('Failed to remove')
@@ -114,8 +114,8 @@ export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowT
           </svg>
         </div>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 11, color: '#444', marginBottom: 4 }}>No rendered videos yet</div>
-          <div style={{ fontSize: 9, color: '#2A2A2A' }}>Videos will appear here after rendering</div>
+          <div style={{ fontSize: 11, color: '#444', marginBottom: 4 }}>Chưa có video đã render</div>
+          <div style={{ fontSize: 9, color: '#2A2A2A' }}>Video sẽ xuất hiện ở đây sau khi render xong</div>
         </div>
       </div>
     )
@@ -268,7 +268,7 @@ export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowT
               </button>
               <button
                 onClick={() => handleRemove(video.id)}
-                title="Remove from list"
+                title="Xóa khỏi danh sách (file vẫn giữ lại trên ổ cứng)"
                 style={{
                   width: 24, height: 24,
                   background: 'transparent',

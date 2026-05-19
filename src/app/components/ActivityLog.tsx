@@ -1,5 +1,7 @@
 'use client'
 
+import { useState, useEffect } from 'react'
+
 export type ActivityType = 'detected' | 'downloading' | 'downloaded' | 'rendering' | 'done' | 'error'
 
 export interface ActivityEntry {
@@ -17,9 +19,12 @@ interface Props {
   entries: ActivityEntry[]
   /** Stable ETA countdown strings keyed by workspaceId. */
   etaDisplay?: Map<string, string>
+  /** Called when an entry should be removed (terminal entries older than 1 hour) */
+  onRemoveEntry?: (id: string) => void
 }
 
-const MAX_ENTRIES = 8
+const MAX_ENTRIES = 20
+const TERMINAL_CLEANUP_MS = 60 * 60 * 1000 // 1 hour
 
 // ─── Icon + color map ───────────────────────────────────────────────────────────
 
@@ -32,10 +37,40 @@ const TYPE_CONFIG: Record<ActivityType, { icon: string; color: string; bgColor: 
   error:       { icon: '✕', color: '#FF4444', bgColor: '#FF444415' },
 }
 
+// ─── Timestamp formatter ────────────────────────────────────────────────────────
+
+function formatTime(ts: number): string {
+  const d = new Date(ts)
+  const h = d.getHours().toString().padStart(2, '0')
+  const m = d.getMinutes().toString().padStart(2, '0')
+  const s = d.getSeconds().toString().padStart(2, '0')
+  return `${h}:${m}:${s}`
+}
+
 // ─── Main component ─────────────────────────────────────────────────────────────
 
-export function ActivityLog({ entries, etaDisplay }: Props) {
-  const visible = entries.slice(0, MAX_ENTRIES)
+export function ActivityLog({ entries, etaDisplay, onRemoveEntry }: Props) {
+  const [now, setNow] = useState(Date.now())
+
+  // Update "now" every 30s for relative display
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Auto-cleanup: remove terminal (done/error) entries older than 1 hour
+  useEffect(() => {
+    const oldTerminal = entries.filter(
+      e => (e.type === 'done' || e.type === 'error') && (now - e.timestamp) > TERMINAL_CLEANUP_MS
+    )
+    oldTerminal.forEach(e => onRemoveEntry?.(e.id))
+  }, [entries, now, onRemoveEntry])
+
+  // Filter terminal entries that are too old (don't show them)
+  const isStale = (e: ActivityEntry) =>
+    (e.type === 'done' || e.type === 'error') && (now - e.timestamp) > TERMINAL_CLEANUP_MS
+
+  const visible = entries.filter(e => !isStale(e)).slice(0, MAX_ENTRIES)
 
   return (
     <div style={{ borderTop: '1px solid #1A1A1A', flexShrink: 0 }}>
@@ -60,6 +95,12 @@ export function ActivityLog({ entries, etaDisplay }: Props) {
           </div>
         ) : visible.map((entry) => {
           const cfg = TYPE_CONFIG[entry.type]
+          const ageMs = now - entry.timestamp
+          const ageLabel = ageMs < 60000
+            ? 'vừa xong'
+            : ageMs < 3600000
+              ? `${Math.floor(ageMs / 60000)}p trước`
+              : `${Math.floor(ageMs / 3600000)}h trước`
 
           return (
             <div
@@ -87,10 +128,14 @@ export function ActivityLog({ entries, etaDisplay }: Props) {
               {/* Message — one natural Vietnamese sentence */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{
+                  display: 'flex', alignItems: 'baseline', gap: 5,
                   fontSize: 11, color: cfg.color, lineHeight: 1.4,
                   wordBreak: 'break-word',
                 }}>
-                  {entry.message}
+                  <span style={{ fontSize: 9, color: '#333', fontFamily: 'monospace', flexShrink: 0 }}>
+                    {formatTime(entry.timestamp)}
+                  </span>
+                  <span>{entry.message}</span>
                 </div>
                 {entry.detail && (
                   <div style={{
@@ -108,6 +153,9 @@ export function ActivityLog({ entries, etaDisplay }: Props) {
                     {etaDisplay.get(entry.workspaceId ?? '')}
                   </div>
                 )}
+                <div style={{ fontSize: 8, color: '#2A2A2A', marginTop: 1 }}>
+                  {ageLabel}
+                </div>
               </div>
             </div>
           )

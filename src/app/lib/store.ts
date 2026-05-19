@@ -90,6 +90,7 @@ export interface AppSettings {
   videoMinDurationSec: number
   videoMaxDurationSec: number
   onboardingComplete?: boolean
+  quitOnClose: boolean
 }
 
 export interface AppStore {
@@ -121,6 +122,8 @@ export interface AppStore {
 
   // Editor state
   editorState: EditorState
+  editorHistory: EditorState[]
+  editorHistoryIndex: number
 
   // Actions — Workspace
   initWorkspaces: () => Promise<void>
@@ -155,6 +158,8 @@ export interface AppStore {
 
   // Actions — Editor
   updateEditorState: (patch: Partial<EditorState>) => void
+  undoEditor: () => void
+  redoEditor: () => void
   resetEditorState: () => void
 }
 
@@ -186,6 +191,7 @@ const INIT_EDITOR: EditorState = {
   speedMultiplier: 1.0,
   exportQuality: 1080,
   exportCodec: 'h264',
+  exportFPS: 30,
   exportPreset: 'p1',
   exportTune: 'hq',
   enableChunked: false,
@@ -231,11 +237,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
     maxConcurrentDownloads: 3,
     videoMinDurationSec: 0,
     videoMaxDurationSec: 0,
+    quitOnClose: true,
   },
   renderQueueExpanded: false,
   toast: '',
   notifications: [],
   editorState: INIT_EDITOR,
+  editorHistory: [],
+  editorHistoryIndex: -1,
   isInitialLoading: true,
 
   // License — starts as "checking"
@@ -446,9 +455,33 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   // Actions — Editor
   updateEditorState: (patch) =>
-    set((s) => ({ editorState: { ...s.editorState, ...patch } })),
+    set((s) => {
+      const MAX_HISTORY = 20
+      const prev = s.editorState
+      // Push current state to history (truncate any redo states)
+      const newHistory = s.editorHistory.slice(0, s.editorHistoryIndex + 1)
+      newHistory.push(prev)
+      if (newHistory.length > MAX_HISTORY) newHistory.shift()
+      return {
+        editorState: { ...s.editorState, ...patch },
+        editorHistory: newHistory,
+        editorHistoryIndex: newHistory.length - 1,
+      }
+    }),
 
-  resetEditorState: () => set({ editorState: INIT_EDITOR }),
+  undoEditor: () => set((s) => {
+    if (s.editorHistoryIndex <= 0) return {}
+    const newIndex = s.editorHistoryIndex - 1
+    return { editorState: s.editorHistory[newIndex], editorHistoryIndex: newIndex }
+  }),
+
+  redoEditor: () => set((s) => {
+    if (s.editorHistoryIndex >= s.editorHistory.length - 1) return {}
+    const newIndex = s.editorHistoryIndex + 1
+    return { editorState: s.editorHistory[newIndex], editorHistoryIndex: newIndex }
+  }),
+
+  resetEditorState: () => set({ editorState: INIT_EDITOR, editorHistory: [], editorHistoryIndex: -1 }),
 }))
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────────

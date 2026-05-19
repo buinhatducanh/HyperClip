@@ -53,3 +53,36 @@ export const CHANNEL_COLORS = [
   '#FF0080',
   '#FFB800',
 ]
+
+// ─── Settings / Quota constants ────────────────────────────────────────────────
+// Mirrors electron/services/constants.ts — these are frontend-visible values.
+
+/** Daily quota limit per GCP project (YouTube API v3) */
+export const MAX_UNITS_PER_PROJECT = 9500
+
+/** % of quota to trigger warning status */
+export const QUOTA_WARNING_PCT = 80
+
+/** Total remaining units across ALL projects to trigger critical warning */
+export const QUOTA_CRITICAL_THRESHOLD = 1000
+
+/** Total remaining units across ALL projects to trigger warning */
+export const QUOTA_WARNING_THRESHOLD = 5000
+
+/** % of quota to show amber warning bar (visual threshold in charts) */
+export const QUOTA_BAR_WARN_PCT = 75
+
+/** % of quota to show red exhausted bar (visual threshold in charts) */
+export const QUOTA_BAR_EXHAUSTED_PCT = 90
+
+/** Days before session cookies are flagged stale */
+export const STALE_SESSION_DAYS = 7
+
+/** Max timestamp events per key in UsageTimeline */
+export const HOURLY_EVENTS_MAX = 24
+
+/** Milliseconds to show "just reset" animation */
+export const RESET_ANIMATION_MS = 5000
+
+/** CPU usage % threshold for warning color */
+export const CPU_WARN_PCT = 80

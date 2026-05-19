@@ -18,7 +18,7 @@ import http from 'http'
 import { app } from 'electron'
 import { getMachineId } from './hwid.js'
 import { encrypt, decrypt, blobToYAMLString, parseYAMLBlob, sha256 } from './crypto.js'
-import { log } from './logger.js'
+import { log } from './unified_log.js'
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const LICENSE_SERVER_URL = process.env.LICENSE_SERVER_URL || 'http://localhost:3001'

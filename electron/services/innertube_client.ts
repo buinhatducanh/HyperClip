@@ -33,7 +33,7 @@ import Innertube from 'youtubei.js'
 import { getSessionManager } from './chrome_cookies.js'
 import type { YouTubeCookies } from './chrome_cookies.js'
 import { getPoTokenForProfile, refreshPoToken } from './po_token.js'
-import { devLog } from './dev_log.js'
+import { devLog } from './unified_log.js'
 
 export interface InnertubePoolStatus {
   totalSessions: number
@@ -55,6 +55,18 @@ export interface LatestVideo {
   thumbnail: string
   publishedAt: number // Unix timestamp ms
   publishedText?: string
+}
+
+// ─── Thumbnail helper ─────────────────────────────────────────────────────────
+// YouTube thumbnails array is ordered smallest → largest.
+// Return the highest-resolution URL (last item) or undefined.
+function getHighResThumbnail(thumbnails?: Array<{ url?: string; width?: number; height?: number }>): string | undefined {
+  if (!thumbnails || thumbnails.length === 0) return undefined
+  // Try last item first (highest res), then prefer maxresdefault.jpg
+  const last = thumbnails[thumbnails.length - 1]
+  if (last?.url) return last.url
+  // Fallback: prefer maxresdefault over others
+  return thumbnails.find(t => t.url?.includes('maxresdefault'))?.url
 }
 
 // ─── Relative date parsing ──────────────────────────────────────────────────────
@@ -711,20 +723,14 @@ class InnertubeClientPool {
         return null
       }
 
-      // ── Compact top-5 debug log: only log when useful ──────────────────────
-      // Reduces log spam: skip when everything is fine (no videos found, no errors).
-      // Log when: (a) all videos have unparseable age (useful for detecting missing metadata),
-      // (b) videos found, or (c) on first poll (every 5th poll ≈ every 25s).
+      // ── Always log top-5 extraction result for new video detection debugging ──────
       const parseableCount = videoItems.slice(0, 5).filter((vi: any) => extractLockupVideoField(vi, 'published')).length
-      const _pollTick = Math.floor(Date.now() / 5000) // one value per 5s
-      if (parseableCount === 0 || _pollTick % 5 === 0) {
-        const top5 = videoItems.slice(0, Math.min(5, videoItems.length)).map((vi: any) => ({
-          id: extractLockupVideoField(vi, 'videoId'),
-          title: extractLockupVideoField(vi, 'title').slice(0, 40),
-          published: extractLockupVideoField(vi, 'published') || '(empty)',
-        }))
-        devLog(`[InnertubePool] ${channelId} top-5: parseable=${parseableCount}/5 → ${JSON.stringify(top5)}`)
-      }
+      const top5 = videoItems.slice(0, Math.min(5, videoItems.length)).map((vi: any) => ({
+        id: extractLockupVideoField(vi, 'videoId'),
+        title: extractLockupVideoField(vi, 'title').slice(0, 40),
+        published: extractLockupVideoField(vi, 'published') || '(empty)',
+      }))
+      devLog(`[InnertubePool] ${channelId} top-5: parseable=${parseableCount}/5 → ${JSON.stringify(top5)}`)
 
       // Try top-1..top-5 — skip deleted/private and seen videos
       const maxCheck = Math.min(5, videoItems.length)
@@ -813,8 +819,8 @@ class InnertubeClientPool {
         const channelName = extractedChannelName ?? 'Unknown Channel'
 
         const thumbnail =
-          videoItem.thumbnail?.thumbnails?.[0]?.url
-          || videoItem.content_image?.thumbnails?.[0]?.url
+          getHighResThumbnail(videoItem.thumbnail?.thumbnails)
+          || getHighResThumbnail(videoItem.content_image?.thumbnails)
           || videoItem.metadata?.image?.sources?.[0]?.url
           || ''
 
@@ -954,8 +960,8 @@ class InnertubeClientPool {
         const channelName = extractedChannelNameV2 ?? 'Unknown Channel'
 
         const thumbnail =
-          videoItem.thumbnail?.thumbnails?.[0]?.url
-          || videoItem.content_image?.thumbnails?.[0]?.url
+          getHighResThumbnail(videoItem.thumbnail?.thumbnails)
+          || getHighResThumbnail(videoItem.content_image?.thumbnails)
           || videoItem.metadata?.image?.sources?.[0]?.url
           || ''
 

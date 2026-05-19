@@ -145,13 +145,11 @@ export async function runDiagnostics(): Promise<DiagnosticResult> {
 
   // ── yt-dlp ────────────────────────────────────────────────────────────────
   let ytdlpOk = false
-  let ytdlpPath = ''
   let ytdlpVersion = ''
-  let ytdlpError = ''
 
   const ytdlpStatus = getYtdlpStatus()
-  ytdlpPath = ytdlpStatus.path
-  ytdlpError = ytdlpStatus.error || ''
+  const ytdlpPath = ytdlpStatus.path
+  const ytdlpError = ytdlpStatus.error || ''
   if (ytdlpStatus.ok) {
     ytdlpVersion = await getYtdlpVersion(ytdlpPath)
     ytdlpOk = true

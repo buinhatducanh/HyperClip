@@ -6,7 +6,7 @@ import os from 'os'
 import { getFfmpegPath, getFfprobePath, getFfmpegVersion } from './ffmpeg-paths.js'
 import { runFfmpeg, cancelFfmpeg } from './worker-pool.js'
 import { getGPUCapabilities, getEffectiveWorkers, type GPUTier } from './system.js'
-import { devLog } from './dev_log.js'
+import { devLog } from './unified_log.js'
 
 export { getFfmpegPath, getFfprobePath }
 
@@ -493,6 +493,7 @@ function buildFilterComplex(opts: {
     // After scaling source to canvasW: scaledH = canvasW * 9/16 (landscape)
     // cropY = (scaledH - videoH) / 2 = (canvasW * 9/16 - videoH) / 2
     // cropY >= 0: crop from both top/bottom. cropY < 0: source taller → use cropX branch.
+    // eslint-disable-next-line no-useless-assignment
     let videoChain2 = ''
     const cropXNum = Math.round((videoH * 16 / 9 - canvasW) / 2)
 
@@ -934,6 +935,7 @@ export async function preRenderOverlays(
   fs.writeFileSync(bbPs1File, bbPs1)
 
   // ── LANDSCAPE mode: title overlay PNG (transparent bg, border+text) ──
+  // eslint-disable-next-line no-useless-assignment
   let titleOverlayPath: string | null = null
   const titleBarH = landscapeTitleH
   const borderPx = Math.max(5, Math.floor(titleBarH * 0.02))
@@ -1268,19 +1270,34 @@ const mergeProcess = new Map<string, ReturnType<typeof spawn>>()
 export function cancelChunked(workspaceId: string): void {
   const chunks = chunkedProcesses.get(workspaceId)
   if (chunks) {
-    for (const { proc } of chunks) { try { proc.kill() } catch {} }
+    for (const { proc } of chunks) {
+      try {
+        proc.once('close', () => {})
+        proc.kill()
+      } catch {}
+    }
     chunkedProcesses.delete(workspaceId)
   }
   const merge = mergeProcess.get(workspaceId)
-  if (merge) { try { merge.kill() } catch {}; mergeProcess.delete(workspaceId) }
+  if (merge) {
+    try {
+      merge.once('close', () => mergeProcess.delete(workspaceId))
+      merge.kill()
+      setTimeout(() => mergeProcess.delete(workspaceId), 500)
+    } catch {}
+  }
 }
 
 export function cancelAllChunked(): void {
   for (const [id] of chunkedProcesses) cancelChunked(id)
   for (const [id] of mergeProcess) {
     const p = mergeProcess.get(id)!
-    try { p.kill() } catch {}
-    mergeProcess.delete(id)
+    try {
+      p.once('close', () => mergeProcess.delete(id))
+      p.kill()
+      // Safety fallback: delete after 500ms even if close event missed.
+      setTimeout(() => mergeProcess.delete(id), 500)
+    } catch {}
   }
 }
 

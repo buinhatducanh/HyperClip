@@ -3,7 +3,7 @@ import path from 'path'
 import fs from 'fs'
 import { getFfmpegPath, validateFfmpeg } from './ffmpeg-paths.js'
 import { getGPUCapabilities, getEffectiveWorkers } from './system.js'
-import { devLog } from './dev_log.js'
+import { devLog } from './unified_log.js'
 
 // Cache validation result — check once at startup
 let _ffmpegValidated = false
@@ -19,7 +19,7 @@ interface PoolJob {
   resolve: (r: PoolResult) => void
 }
 
-interface PoolResult {
+export interface PoolResult {
   success: boolean
   outputFile?: string
   fileSize?: number
@@ -78,7 +78,16 @@ export class WorkerPool {
   }
 
   cancelAll(): void {
-    for (const proc of this.active.values()) proc.kill()
+    const killPromises: Promise<void>[] = []
+    for (const proc of this.active.values()) {
+      // On Windows, kill() is asynchronous — wait for exit to ensure FFmpeg is really dead.
+      killPromises.push(new Promise(resolve => {
+        proc.once('close', resolve)
+        proc.kill()
+        // Safety fallback: resolve after 500ms even if close event missed.
+        setTimeout(resolve, 500)
+      }))
+    }
     this.active.clear()
     for (const job of this.queue) job.resolve({ success: false, error: 'Pool shutdown' })
     this.queue = []
@@ -100,12 +109,12 @@ export class WorkerPool {
   private _drain(): void {
     while (this.queue.length > 0 && this.active.size < this._maxWorkers) {
       const job = this.queue.shift()!
-      this._run(job.jobId, job.fn).then(job.resolve)
+      void this._run(job.jobId, job.fn).then(job.resolve)
     }
   }
 
   // Acquire a slot — returns true if slot available, false if queued
-  acquire(jobId: string): boolean {
+  acquire(_jobId: string): boolean {
     if (this.active.size < this._maxWorkers) {
       return true // caller responsible for releasing
     }

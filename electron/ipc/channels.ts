@@ -93,6 +93,7 @@ export const IPC_CHANNELS = {
 
   // Dynamic project management (OAuth + API key per project)
   PROJECT_LIST: 'project:list',
+  PROJECT_TOKEN_STATUSES: 'project:token-statuses',
   PROJECT_ADD: 'project:add',
   PROJECT_REMOVE: 'project:remove',
   PROJECT_RESET_QUOTA: 'project:reset-quota',
@@ -145,6 +146,7 @@ export const IPC_CHANNELS = {
   // MMO Operation Center
   OPERATION_LOGS_READ: 'operation:logs-read',
   OPERATION_LOGS_CLEAR: 'operation:logs-clear',
+  LOG_STREAM: 'log:stream',
   POLLER_PAUSE: 'poller:pause',
   CHANNEL_BULK_ADD: 'channel:bulk-add',
 

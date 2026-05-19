@@ -35,7 +35,7 @@ function getWindowsMachineId(): string {
   try {
     // CSProduct UUID — unique per Windows installation
     const uuid = wmicQuery('csproduct get uuid')
-    const uuidMatch = uuid.match(/GUID\s*[:\-]?\s*([a-f0-9-]+)/i)
+    const uuidMatch = uuid.match(/GUID\s*[:-]?\s*([a-f0-9-]+)/i)
     if (uuidMatch) return uuidMatch[1].toLowerCase()
   } catch {}
   return ''
@@ -44,7 +44,7 @@ function getWindowsMachineId(): string {
 function getWindowsCPUId(): string {
   try {
     const cpu = wmicQuery('cpu get processorid')
-    const match = cpu.match(/ProcessorId\s*[:\-]?\s*([a-f0-9]+)/i)
+    const match = cpu.match(/ProcessorId\s*[:-]?\s*([a-f0-9]+)/i)
     if (match) return match[1].toUpperCase()
   } catch {}
   return ''
@@ -53,7 +53,7 @@ function getWindowsCPUId(): string {
 function getWindowsMotherboardSerial(): string {
   try {
     const baseboard = wmicQuery('baseboard get serialnumber')
-    const match = baseboard.match(/SerialNumber\s*[:\-]?\s*([a-z0-9*\-]+)/i)
+    const match = baseboard.match(/SerialNumber\s*[:-]?\s*([a-z0-9*-]+)/i)
     if (match) return match[1].replace(/\*/g, 'X').trim()
   } catch {}
   return ''
@@ -62,7 +62,7 @@ function getWindowsMotherboardSerial(): string {
 function getWindowsDiskSerial(): string {
   try {
     const disk = wmicQuery('diskdrive get serialnumber')
-    const match = disk.match(/SerialNumber\s*[:\-]?\s*([a-f0-9]+)/i)
+    const match = disk.match(/SerialNumber\s*[:-]?\s*([a-f0-9]+)/i)
     if (match) return match[1].toUpperCase()
   } catch {}
   return ''

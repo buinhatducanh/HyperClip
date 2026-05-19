@@ -7,6 +7,7 @@ import { useAppStore } from '../lib/store'
 import { SkeletonChannelItem } from './Skeleton'
 import { DetectionStatusBar } from './DetectionStatusBar'
 import { ActivityLog, type ActivityEntry } from './ActivityLog'
+import { ConfirmationDialog } from './ConfirmationDialog'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -92,22 +93,22 @@ function StorageRow({ label, path, onOpen, onChange }: { label: string; path: st
         <span style={{ fontSize: 7, color: '#00B4FF55', fontWeight: 800, letterSpacing: '0.06em', flexShrink: 0, width: 20 }}>{label}</span>
         <span
           title={path}
-          style={{ flex: 1, fontSize: 8, color: '#555', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          style={{ flex: 1, fontSize: 8, color: '#555', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'default' }}
         >
           {short}
         </span>
       </div>
-      <div style={{ display: 'flex', gap: 3, marginTop: 2 }}>
+      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
         <button
           onClick={onOpen}
-          title="Open in Explorer"
-          style={{ height: 16, paddingLeft: 5, paddingRight: 5, background: '#1A1A1A', border: '1px solid #222', borderRadius: 2, fontSize: 7, fontWeight: 600, color: '#555', cursor: 'pointer', flex: 1 }}
-        >OPEN</button>
+          title="Mở thư mục"
+          style={{ height: 28, paddingLeft: 8, paddingRight: 8, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, fontSize: 9, fontWeight: 600, color: '#666', cursor: 'pointer', flex: 1 }}
+        >Mở</button>
         <button
           onClick={onChange}
-          title="Change path"
-          style={{ height: 16, paddingLeft: 5, paddingRight: 5, background: '#1A1A1A', border: '1px solid #00B4FF33', borderRadius: 2, fontSize: 7, fontWeight: 700, color: '#00B4FF', cursor: 'pointer', flex: 1 }}
-        >CHANGE</button>
+          title="Đổi đường dẫn"
+          style={{ height: 28, paddingLeft: 8, paddingRight: 8, background: '#1A1A1A', border: '1px solid #00B4FF33', borderRadius: 3, fontSize: 9, fontWeight: 700, color: '#00B4FF', cursor: 'pointer', flex: 1 }}
+        >Đổi</button>
       </div>
     </div>
   )
@@ -142,6 +143,9 @@ export function Sidebar({
   const [channelInput, setChannelInput] = useState('')
   const [addingChannel, setAddingChannel] = useState(false)
   const [channelError, setChannelError] = useState('')
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string; message: string; confirmLabel?: string; confirmDanger?: boolean; onConfirm: () => void
+  } | null>(null)
   const showToast = useAppStore((s) => s.showToast)
 
   const ramPct = Math.round((systemStats.ramUsed / systemStats.ramTotal) * 100)
@@ -314,7 +318,7 @@ export function Sidebar({
               return (
                 <div key={ch.id}>
                   <div
-                    onClick={() => onChannelSelect(ch.id)}
+                    onClick={() => onChannelSelect(ch.channelId || ch.id)}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 8,
                       padding: '7px 12px',
@@ -362,10 +366,18 @@ export function Sidebar({
                     <button
                       onClick={async (e) => {
                         e.stopPropagation()
-                        if (!confirm(`Remove "${ch.name}" from tracking?`)) return
-                        await ipc.removeChannel(ch.id)
-                        showToast(`Đã xóa: ${ch.name}`)
-                        if ((window as any).__reloadChannels) (window as any).__reloadChannels()
+                        setConfirmDialog({
+                          title: 'Xóa kênh',
+                          message: `Bạn có chắc muốn xóa "${ch.name}" khỏi danh sách theo dõi? Các video đã tải vẫn được giữ lại.`,
+                          confirmLabel: 'Xóa',
+                          confirmDanger: true,
+                          onConfirm: async () => {
+                            setConfirmDialog(null)
+                            await ipc.removeChannel(ch.id)
+                            showToast(`Đã xóa: ${ch.name}`)
+                            if ((window as any).__reloadChannels) (window as any).__reloadChannels()
+                          },
+                        })
                       }}
                       title={`Remove ${ch.name}`}
                       style={{
@@ -477,15 +489,15 @@ export function Sidebar({
                 }}
                 disabled={clearingDl || !storageStats || storageStats.downloads === 0}
                 style={{
-                  flex: 1, height: 20, fontSize: 8, fontWeight: 700,
+                  flex: 1, height: 28, fontSize: 9, fontWeight: 700,
                   background: 'transparent',
                   border: '1px solid #222',
                   borderRadius: 3, cursor: 'pointer',
-                  color: '#444', letterSpacing: '0.04em',
+                  color: '#555', letterSpacing: '0.04em',
                   opacity: (clearingDl || !storageStats || storageStats.downloads === 0) ? 0.4 : 1,
                 }}
               >
-                {clearingDl ? '…' : 'CLEAR DL'}
+                {clearingDl ? '…' : 'Xóa DL'}
               </button>
               <button
                 onClick={async () => {
@@ -496,21 +508,21 @@ export function Sidebar({
                 }}
                 disabled={clearingBlr || !storageStats || storageStats.blur === 0}
                 style={{
-                  flex: 1, height: 20, fontSize: 8, fontWeight: 700,
+                  flex: 1, height: 28, fontSize: 9, fontWeight: 700,
                   background: 'transparent',
                   border: '1px solid #222',
                   borderRadius: 3, cursor: 'pointer',
-                  color: '#444', letterSpacing: '0.04em',
+                  color: '#555', letterSpacing: '0.04em',
                   opacity: (clearingBlr || !storageStats || storageStats.blur === 0) ? 0.4 : 1,
                 }}
               >
-                {clearingBlr ? '…' : 'CLEAR BLR'}
+                {clearingBlr ? '…' : 'Xóa BLR'}
               </button>
               <button
                 onClick={() => window.location.href = '/settings'}
-                title="More storage options"
+                title="Cài đặt"
                 style={{
-                  height: 20, paddingLeft: 6, paddingRight: 6,
+                  height: 28, paddingLeft: 6, paddingRight: 6,
                   background: 'transparent',
                   border: '1px solid #222',
                   borderRadius: 3, cursor: 'pointer',
@@ -715,6 +727,17 @@ export function Sidebar({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Confirmation dialog for destructive actions */}
+      <ConfirmationDialog
+        open={confirmDialog !== null}
+        title={confirmDialog?.title ?? ''}
+        message={confirmDialog?.message ?? ''}
+        confirmLabel={confirmDialog?.confirmLabel}
+        confirmDanger={confirmDialog?.confirmDanger}
+        onConfirm={confirmDialog?.onConfirm ?? (() => {})}
+        onCancel={() => setConfirmDialog(null)}
+      />
     </div>
   )
 }

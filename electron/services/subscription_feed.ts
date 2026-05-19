@@ -22,7 +22,7 @@ import { getChannels } from './store.js'
 import { getInnertubePool } from './innertube_client.js'
 import { getLatestVideosFromRss } from './youtube.js'
 import { getChannelsDir } from './paths.js'
-import { devLog } from './dev_log.js'
+import { devLog } from './unified_log.js'
 import { loadSettings } from './ramdisk.js'
 // NOTE: opLog uses dynamic import inside functions to avoid circular dependency
 // (operation_log.ts imports BrowserWindow from Electron, which isn't available at module load)
@@ -318,35 +318,75 @@ async function fetchChannelWithInnertube(
   const channelId = ch.channelId || ch.id
   if (!channelId) return null
 
-  const latest = await getInnertubePool().then(p => p.getLatestVideo(channelId, seenVideoIds))
-  if (!latest) return null
+  // Use getLatestVideos (plural) for full control over filtering logic.
+  // getLatestVideo (singular) has internal skip logic that can silently reject
+  // valid videos due to inconsistent session responses between concurrent calls.
+  const pool = await getInnertubePool()
+  const allVideos = await pool.getLatestVideos(channelId, 5)
 
-  if (latest.publishedAt === 0) {
-    devLog(`[SubFeed] Innertube publishedAt=0 for ${channelId}:${latest.videoId} — verifying via OAuth...`)
-    const oauth = await verifyVideoAgeByOAuth(latest.videoId)
-    if (oauth) {
-      return {
-        videoId: latest.videoId,
-        title: oauth.title,
-        channelId,
-        channelName: (ch.name && ch.name !== 'N/A') ? ch.name : (oauth.channelTitle !== 'Unknown' ? oauth.channelTitle : latest.channelName),
-        thumbnail: latest.thumbnail,
-        publishedAt: oauth.publishedAt,
-        duration: '',
-      }
-    }
+  if (allVideos.length === 0) {
+    devLog(`[SubFeed] getLatestVideos(${channelId}): 0 videos extracted`)
     return null
   }
 
-  return {
-    videoId: latest.videoId,
-    title: latest.title,
-    channelId,
-    channelName: (ch.name && ch.name !== 'N/A') ? ch.name : latest.channelName,
-    thumbnail: latest.thumbnail,
-    publishedAt: latest.publishedAt,
-    duration: '',
+  devLog(`[SubFeed] getLatestVideos(${channelId}): ${allVideos.length} videos, top=${allVideos[0].videoId} (${allVideos[0].publishedAt > 0 ? Math.round((Date.now() - allVideos[0].publishedAt) / 1000) + 's ago' : 'ZERO'})`)
+
+  // Take the first (newest) video that passes age + dedup checks
+  for (const v of allVideos) {
+    // Skip deleted/private
+    if (v.title.includes('[deleted]') || v.title.includes('[private]')) continue
+
+    // Skip already-seen (handled by getLatestVideos already, but double-check)
+    if (seenVideoIds?.has(v.videoId)) {
+      devLog(`[SubFeed] Innertube: ${v.videoId} already seen — skipping`)
+      continue
+    }
+
+    if (v.publishedAt === 0) {
+      devLog(`[SubFeed] Innertube: ${v.videoId} publishedAt=0 — trying RSS...`)
+      const rss = await fetchChannelWithRss(ch, seenVideoIds)
+      if (rss) {
+        devLog(`[SubFeed] RSS ✓: ${rss.videoId} — using RSS`)
+        return rss
+      }
+      devLog(`[SubFeed] RSS empty/old — trying OAuth...`)
+      const oauth = await verifyVideoAgeByOAuth(v.videoId)
+      if (oauth) {
+        devLog(`[SubFeed] OAuth ✓: ${v.videoId} — verified ${Math.round((Date.now() - oauth.publishedAt) / 1000)}s ago`)
+        return {
+          videoId: v.videoId,
+          title: oauth.title,
+          channelId,
+          channelName: (ch.name && ch.name !== 'N/A') ? ch.name : (oauth.channelTitle !== 'Unknown' ? oauth.channelTitle : v.channelName),
+          thumbnail: v.thumbnail,
+          publishedAt: oauth.publishedAt,
+          duration: '',
+        }
+      }
+      // publishedAt=0 and all fallbacks failed — skip to next video
+      continue
+    }
+
+    const ageMin = (Date.now() - v.publishedAt) / 60000
+    if (ageMin > 10) {
+      devLog(`[SubFeed] Innertube: ${v.videoId} is ${ageMin.toFixed(1)}m old (>10m) — skipping`)
+      continue
+    }
+
+    devLog(`[SubFeed] Innertube ✓: ${v.videoId} (${Math.round(ageMin * 60)}s ago) — accepting`)
+    return {
+      videoId: v.videoId,
+      title: v.title,
+      channelId,
+      channelName: (ch.name && ch.name !== 'N/A') ? ch.name : v.channelName,
+      thumbnail: v.thumbnail,
+      publishedAt: v.publishedAt,
+      duration: '',
+    }
   }
+
+  devLog(`[SubFeed] Innertube: all videos for ${channelId} filtered out (too old / seen / unpublished)`)
+  return null
 }
 
 // ─── Main Export ─────────────────────────────────────────────────────────────
@@ -361,10 +401,11 @@ export async function fetchSubscriptionFeed(
   if (channels.length === 0) return { videos: [], source: 'none' }
 
   const results: SubscriptionVideo[] = []
+  // eslint-disable-next-line no-useless-assignment -- used for observability logging
   let innertubeAvailable = false
 
   // Lazy load opLog to avoid circular import at module initialization
-  const { opLog } = await import('./operation_log.js')
+  const { opLog } = await import('./unified_log.js')
 
   // Step 1: Innertube PRIMARY (0 quota, ~200ms/call)
   try {
@@ -374,7 +415,7 @@ export async function fetchSubscriptionFeed(
 
     if (pool.isReady() && readyCount > 0) {
       innertubeAvailable = true
-      opLog.info('scan', `Innertube scanning ${channels.length} channels (${readyCount}/${totalSessions} sessions ready)`)
+      opLog.info('scan', `Quét ${channels.length} kênh (${readyCount}/${totalSessions} sessions)`)
 
       for (let i = 0; i < channels.length; i += MAX_CONCURRENT) {
         const batch = channels.slice(i, i + MAX_CONCURRENT)
@@ -388,21 +429,28 @@ export async function fetchSubscriptionFeed(
             seenVideoIds?.add(video.videoId)
             if (results.length >= targetStop) {
               devLog(`[SubFeed] Innertube: ${results.length} videos found — returning`)
-              opLog.success('scan', `Innertube found ${results.length} video(s)`, 'early stop')
+              opLog.success('scan', `Tìm thấy ${results.length} video mới — dừng sớm`)
               return { videos: results, source: 'innertube' }
             }
           }
         }
       }
 
-      devLog(`[SubFeed] Innertube: 0 videos across ${channels.length} channels (no new content)`)
+      // Only devLog when zero videos — every 30th poll (~2.5 min) to reduce spam
+      const _pollTick = Math.floor(Date.now() / 5000)
+      if (_pollTick % 30 === 0) {
+        devLog(`[SubFeed] Innertube: 0 videos across ${channels.length} channels (no new content)`)
+      }
 
       if (results.length === 0) {
         _consecutiveZeroInnertubePolls++
-        opLog.warn('scan', `Innertube: 0 new videos across ${channels.length} channels`)
+        // Only warn after 3 consecutive empty polls to avoid log spam
+        if (_consecutiveZeroInnertubePolls >= 3) {
+          opLog.warn('scan', `Không có video mới sau ${_consecutiveZeroInnertubePolls} lần quét liên tiếp`)
+        }
       } else {
         _consecutiveZeroInnertubePolls = 0
-        opLog.success('scan', `Innertube found ${results.length} new video(s)`)
+        opLog.success('scan', `Tìm thấy ${results.length} video mới từ ${results.filter((v: any) => v.channelName).length} kênh`)
       }
 
       // Step 2: OAuth DISTRIBUTED (continuous coverage)

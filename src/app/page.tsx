@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Sidebar } from './components/Sidebar'
 import { WorkspaceQueue } from './components/workspace/WorkspaceQueue'
@@ -9,6 +9,7 @@ import { RenderQueueBar } from './components/workspace/RenderQueueBar'
 import { DetailEditor } from './components/DetailEditor'
 import { RenderedVideoDetail } from './components/RenderedVideoDetail'
 import { LoginScreen } from './components/LoginScreen'
+import { ConfirmationDialog } from './components/ConfirmationDialog'
 import type { Channel, Video, SystemStats, EditorState } from './types'
 import { useAppStore, type Workspace } from './lib/store'
 import { ipc } from './lib/ipc'
@@ -95,6 +96,14 @@ function fmtEta(secs: number | string | undefined | null): string {
 // ─── App ────────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-screen bg-[#121212]"><div className="text-[#00B4FF] text-sm">Loading...</div></div>}>
+      <DashboardContent />
+    </Suspense>
+  )
+}
+
+function DashboardContent() {
   const {
     workspaces,
     renderedVideos,
@@ -116,6 +125,8 @@ export default function DashboardPage() {
     addNotification,
     updateEditorState,
     resetEditorState,
+    undoEditor,
+    redoEditor,
     addRenderedVideo,
     settings,
     setSettings,
@@ -132,6 +143,32 @@ export default function DashboardPage() {
   const quotaToastShown = useRef(false)
   const lastRenderCodec = useRef<string>('h264')
   const router = useRouter()
+  const searchParams = useSearchParams()
+  // Sync channel selection to/from URL query param
+  const syncChannelToUrl = useCallback((id: string | null) => {
+    const url = new URL(window.location.href)
+    if (id) url.searchParams.set('channel', id)
+    else url.searchParams.delete('channel')
+    window.history.replaceState(null, '', url.pathname + url.search)
+  }, [])
+  // Read channel from URL on mount
+  useEffect(() => {
+    const ch = searchParams.get('channel')
+    if (ch) setActiveChannelId(ch)
+  }, [searchParams])
+
+  // Keyboard shortcuts for editor undo/redo
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
+        if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undoEditor() }
+        if (e.key === 'y' || e.key === 'Y') { e.preventDefault(); redoEditor() }
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [undoEditor, redoEditor])
+
   const [renderQueueExpanded, setRenderQueueExpanded] = useState(false)
   const [keyHealth, setKeyHealth] = useState<{ exhausted: number; unauthorized: number }>({ exhausted: 0, unauthorized: 0 })
   const [selectedRenderedVideoId, setSelectedRenderedVideoId] = useState<string | null>(null)
@@ -141,6 +178,10 @@ export default function DashboardPage() {
   const [onboardingDone, setOnboardingDone] = useState(false)
   /** Activity log entries — deduped by workspaceId. Only one entry per video. */
   const [activityMap, setActivityMap] = useState<Map<string, ActivityEntry>>(new Map())
+  /** Confirmation dialog state for destructive actions */
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string; message: string; confirmLabel?: string; confirmDanger?: boolean; onConfirm: () => void
+  } | null>(null)
 
   // ─── Activity: stable local ETA countdown ─────────────────────────────────────
   /** Raw seconds remaining per workspace — decremented every second by interval. */
@@ -353,6 +394,26 @@ export default function DashboardPage() {
       })
     })
     return cleanup
+  }, [])
+
+  // Auto-cleanup: remove terminal (done/error) entries older than 1 hour
+  useEffect(() => {
+    const CLEANUP_MS = 60 * 60 * 1000
+    const interval = setInterval(() => {
+      const now = Date.now()
+      setActivityMap(prev => {
+        const next = new Map(prev)
+        let changed = false
+        for (const [key, entry] of next) {
+          if ((entry.type === 'done' || entry.type === 'error') && (now - entry.timestamp) > CLEANUP_MS) {
+            next.delete(key)
+            changed = true
+          }
+        }
+        return changed ? next : prev
+      })
+    }, 30_000) // check every 30s
+    return () => clearInterval(interval)
   }, [])
 
   // Load initial data
@@ -644,7 +705,9 @@ export default function DashboardPage() {
 
   // Handlers
   const handleChannelSelect = (id: string) => {
-    setActiveChannelId(id || null)
+    const newId = id || null
+    setActiveChannelId(newId)
+    syncChannelToUrl(newId)
     selectWorkspace(null)
     resetEditorState()
   }
@@ -674,14 +737,24 @@ export default function DashboardPage() {
 
   const handleQuickAction = (action: 'open' | 'delete', id: string) => {
     if (action === 'delete') {
-      removeWorkspace(id)
-      ipc.deleteWorkspace(id).then((result) => {
-        const r = result as { bytesFreed?: number; filesDeleted?: number } | null
-        if (r && r.bytesFreed && r.bytesFreed > 0) {
-          const freedMB = (r.bytesFreed / 1024 / 1024).toFixed(1)
-          showToast(`Deleted (${r.filesDeleted} files, ${freedMB} MB freed)`)
-        }
-      }).catch(() => {})
+      const ws = workspaces.find(w => w.id === id)
+      setConfirmDialog({
+        title: 'Xóa video',
+        message: `Bạn có chắc muốn xóa "${ws?.videoTitle ?? 'video này'}"? File sẽ bị xóa vĩnh viễn khỏi ổ cứng.`,
+        confirmLabel: 'Xóa',
+        confirmDanger: true,
+        onConfirm: () => {
+          setConfirmDialog(null)
+          removeWorkspace(id)
+          ipc.deleteWorkspace(id).then((result) => {
+            const r = result as { bytesFreed?: number; filesDeleted?: number } | null
+            if (r && r.bytesFreed && r.bytesFreed > 0) {
+              const freedMB = (r.bytesFreed / 1024 / 1024).toFixed(1)
+              showToast(`Đã xóa (${r.filesDeleted} files, ${freedMB} MB freed)`)
+            }
+          }).catch(() => {})
+        },
+      })
     } else {
       selectWorkspace(id)
     }
@@ -754,7 +827,7 @@ export default function DashboardPage() {
     const metadata = {
       workspace_id: ws.id, source_video: ws.downloadedPath,
       export_resolution: exportRes,
-      video_speed: editorState.speedMultiplier, fps_target: 30, overlays,
+      video_speed: editorState.speedMultiplier, fps_target: editorState.exportFPS, overlays,
       trim: { start: trimStartSec, end: trimEndSec },
       codec: editorState.exportCodec, preset: editorState.exportPreset, tune: editorState.exportTune,
       backgroundType: editorState.backgroundType, backgroundColor: editorState.backgroundColor,
@@ -843,7 +916,7 @@ export default function DashboardPage() {
     const metadata = {
       workspace_id: ws.id, source_video: ws.downloadedPath,
       export_resolution: exportRes,
-      video_speed: editorState.speedMultiplier, fps_target: 30, overlays,
+      video_speed: editorState.speedMultiplier, fps_target: editorState.exportFPS, overlays,
       trim: { start: trimStartSec, end: trimEndSec },
       codec: editorState.exportCodec, preset: editorState.exportPreset, tune: editorState.exportTune,
       backgroundType: editorState.backgroundType, backgroundColor: editorState.backgroundColor,
@@ -966,6 +1039,7 @@ export default function DashboardPage() {
             <WorkspaceQueue
             workspaces={filteredWorkspaces}
             renderedVideos={renderedVideos}
+            channels={channels}
             selectedId={selectedWorkspaceId}
             selectedRenderedId={selectedRenderedVideoId}
             onSelect={(id) => handleVideoSelect(id)}
@@ -1005,6 +1079,8 @@ export default function DashboardPage() {
               settings={settings}
               downloadQuality={selectedVideo?.downloadQuality}
               availableFormats={selectedVideo?.availableFormats}
+              onUndo={undoEditor}
+              onRedo={redoEditor}
             />
           )}
         </div>
@@ -1035,8 +1111,19 @@ export default function DashboardPage() {
       />
 
       <SkeletonStyles />
+
+      {/* Confirmation dialog for destructive actions */}
+      <ConfirmationDialog
+        open={confirmDialog !== null}
+        title={confirmDialog?.title ?? ''}
+        message={confirmDialog?.message ?? ''}
+        confirmLabel={confirmDialog?.confirmLabel}
+        confirmDanger={confirmDialog?.confirmDanger}
+        onConfirm={confirmDialog?.onConfirm ?? (() => {})}
+        onCancel={() => setConfirmDialog(null)}
+      />
+
       <style>{`
-        @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width: 3px; height: 3px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -1045,7 +1132,6 @@ export default function DashboardPage() {
         input[type=range] { -webkit-appearance: none; appearance: none; background: transparent; }
         input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; }
         textarea { box-sizing: border-box; }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
     </div>
   )

@@ -25,7 +25,7 @@
 
 import fs from 'fs'
 import path from 'path'
-import { devLog } from './dev_log.js'
+import { devLog } from './unified_log.js'
 import {
   getProjectsDir,
   getProjectDir,

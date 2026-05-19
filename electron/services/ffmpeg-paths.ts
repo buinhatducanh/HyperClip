@@ -3,7 +3,7 @@ import fs from 'fs'
 import { execSync } from 'child_process'
 import os from 'os'
 import { app } from 'electron'
-import { devLog } from './dev_log.js'
+import { devLog } from './unified_log.js'
 
 // Shared FFmpeg/FFprobe path resolution.
 // On Windows with Bash/Git environments, process.cwd() returns Unix-style paths

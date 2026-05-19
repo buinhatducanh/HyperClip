@@ -17,11 +17,11 @@
  */
 // @ts-nocheck
 import { app } from 'electron'
-import { log } from './logger.js'
+import { log } from './unified_log.js'
 
 // electron-updater is a production dependency — install via: pnpm add electron-updater
 // Uses dynamic import with type suppression since module lives in .pnpm/ virtual store
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 // @ts-ignore
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000  // 6 hours
 let _autoUpdater: any = null

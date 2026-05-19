@@ -9,7 +9,7 @@
 import { fetchSubscriptionFeed } from './subscription_feed.js'
 import fs from 'fs'
 import path from 'path'
-import { devLog } from './dev_log.js'
+import { devLog } from './unified_log.js'
 import { getChannelsDir } from './paths.js'
 // NOTE: opLog uses dynamic import inside class methods to avoid circular dependency
 
@@ -148,9 +148,9 @@ class YouTubePoller {
     }
     this._active = false
     devLog('[YouTubePoller] Polling paused by user')
-    ;(async () => {
-      const { opLog } = await import('./operation_log.js')
-      opLog.warn('system', 'Polling paused by user')
+    void (async () => {
+      const { opLog } = await import('./unified_log.js')
+      opLog.info('system', 'Đã tạm dừng quét kênh')
     })()
   }
 
@@ -326,10 +326,6 @@ class YouTubePoller {
     if (newVideos.length > 0) {
       this._lastNewVideosAt = Date.now()
       devLog(`[YouTubePoller] ${newVideos.length} video moi (${subResult.source}): ${newVideos.map(v => v.title.slice(0, 40) + ' (' + v.channelName + ')').join(', ')}`)
-      ;(async () => {
-        const { opLog } = await import('./operation_log.js')
-        opLog.info('scan', `Poll complete: ${newVideos.length} new video(s) via ${subResult.source}`, newVideos.map(v => v.title).join(', '))
-      })()
       this._onNewVideos?.(newVideos)
     }
   }
@@ -350,7 +346,7 @@ class YouTubePoller {
     if (this._active) return
     this._active = true
     devLog(`[YouTubePoller] Starting (interval: ${this._pollIntervalMs / 1000}s ± 20%% jitter, seen IDs: ${this._seenVideoIds.size})`)
-    this._pollOnce()
+    void this._pollOnce()
     this._scheduleNextPoll()
   }
 

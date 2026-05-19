@@ -24,7 +24,7 @@ import fs from 'fs'
 import path from 'path'
 import { getMachineId } from './hwid.js'
 import { encrypt, decrypt, blobToYAMLString, parseYAMLBlob } from './crypto.js'
-import { log } from './logger.js'
+import { log } from './unified_log.js'
 
 // ─── YAML format header ─────────────────────────────────────────────────────────
 interface EncryptedFileHeader {

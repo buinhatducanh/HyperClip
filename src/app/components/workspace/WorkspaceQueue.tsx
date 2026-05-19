@@ -1,14 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import type { Workspace } from '../../lib/store'
 import type { RenderedVideo } from '../../types'
+import type { Channel } from '../../types'
 import { WorkspaceCard } from './WorkspaceCard'
 import { RenderedVideos } from '../RenderedVideos'
 
 interface Props {
   workspaces: Workspace[]
   renderedVideos?: RenderedVideo[]
+  channels?: Channel[]
   selectedId: string | null
   selectedRenderedId?: string | null
   onSelect: (id: string) => void
@@ -50,12 +52,35 @@ function groupByStatus(workspaces: Workspace[]): Map<GroupStatus, Workspace[]> {
 }
 
 export function WorkspaceQueue({
-  workspaces, renderedVideos = [], selectedId, selectedRenderedId,
+  workspaces, renderedVideos = [], channels = [], selectedId, selectedRenderedId,
   onSelect, onSelectRendered, onQuickAction, onRetry, onRemoveRendered, onShowToast, onSplit, trimLimitMinutes = 10,
 }: Props) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<GroupStatus>>(new Set<GroupStatus>(['done']))
   const [activeTab, setActiveTab] = useState<ActiveTab>('pipeline')
-  const groups = groupByStatus(workspaces)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filterStatus, setFilterStatus] = useState<GroupStatus | 'all'>('all')
+  const [filterChannel, setFilterChannel] = useState<string>('all')
+
+  // Apply filters
+  const filteredWorkspaces = useMemo(() => {
+    let result = workspaces
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter(w =>
+        w.videoTitle?.toLowerCase().includes(q) ||
+        w.channelName?.toLowerCase().includes(q)
+      )
+    }
+    if (filterStatus !== 'all') {
+      result = result.filter(w => w.status === filterStatus)
+    }
+    if (filterChannel !== 'all') {
+      result = result.filter(w => w.channelId === filterChannel)
+    }
+    return result
+  }, [workspaces, searchQuery, filterStatus, filterChannel])
+
+  const groups = groupByStatus(filteredWorkspaces)
 
   const toggleGroup = (status: GroupStatus) => {
     setCollapsedGroups(prev => {
@@ -66,11 +91,11 @@ export function WorkspaceQueue({
     })
   }
 
-  // Count totals
-  const totalActive = workspaces.filter(w =>
+  // Count totals (from filtered list)
+  const totalActive = filteredWorkspaces.filter(w =>
     ['ready', 'rendering', 'downloading', 'waiting', 'editing'].includes(w.status)
   ).length
-  const totalDone = workspaces.filter(w => w.status === 'done').length
+  const totalDone = filteredWorkspaces.filter(w => w.status === 'done').length
 
   return (
     <div className="flex flex-col h-full" style={{ background: '#121212' }}>
@@ -165,6 +190,89 @@ export function WorkspaceQueue({
         </button>
       </div>
 
+      {/* Filter bar — pipeline only */}
+      {activeTab === 'pipeline' && workspaces.length > 0 && (
+        <div style={{
+          display: 'flex', gap: 6, padding: '6px 10px',
+          background: '#0D0D0D',
+          borderBottom: '1px solid #161616',
+          flexShrink: 0,
+        }}>
+          {/* Search */}
+          <div style={{ flex: 1, position: 'relative' }}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#444" strokeWidth="2"
+              style={{ position: 'absolute', left: 7, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Tìm video..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              style={{
+                width: '100%', height: 24, paddingLeft: 24, paddingRight: 6,
+                background: '#1A1A1A', border: '1px solid #222',
+                borderRadius: 3, fontSize: 10, color: '#888',
+                outline: 'none', fontFamily: 'inherit',
+              }}
+              onFocus={e => { e.target.style.borderColor = '#00B4FF44'; e.target.style.color = '#fff' }}
+              onBlur={e => { e.target.style.borderColor = '#222'; e.target.style.color = '#888' }}
+            />
+          </div>
+
+          {/* Status filter */}
+          <select
+            value={filterStatus}
+            onChange={e => setFilterStatus(e.target.value as GroupStatus | 'all')}
+            style={{
+              height: 24, padding: '0 4px',
+              background: '#1A1A1A', border: '1px solid #222',
+              borderRadius: 3, fontSize: 9, color: '#888',
+              outline: 'none', cursor: 'pointer', fontFamily: 'inherit',
+            }}
+          >
+            <option value="all">Tất cả</option>
+            {STATUS_ORDER.map(s => (
+              <option key={s} value={s}>{GROUP_CONFIG[s].label}</option>
+            ))}
+          </select>
+
+          {/* Channel filter */}
+          <select
+            value={filterChannel}
+            onChange={e => setFilterChannel(e.target.value)}
+            style={{
+              height: 24, padding: '0 4px',
+              background: '#1A1A1A', border: '1px solid #222',
+              borderRadius: 3, fontSize: 9, color: '#888',
+              outline: 'none', cursor: 'pointer', fontFamily: 'inherit',
+            }}
+          >
+            <option value="all">Tất cả kênh</option>
+            {channels.map(ch => (
+              <option key={ch.id} value={ch.id}>{ch.name}</option>
+            ))}
+          </select>
+
+          {/* Clear filters */}
+          {(searchQuery || filterStatus !== 'all' || filterChannel !== 'all') && (
+            <button
+              onClick={() => { setSearchQuery(''); setFilterStatus('all'); setFilterChannel('all') }}
+              title="Xóa bộ lọc"
+              style={{
+                height: 24, padding: '0 6px',
+                background: 'transparent', border: '1px solid #222',
+                borderRadius: 3, fontSize: 9, color: '#555',
+                cursor: 'pointer', flexShrink: 0,
+              }}
+            >
+              ×
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
         {activeTab === 'pipeline' ? (
@@ -180,8 +288,22 @@ export function WorkspaceQueue({
                   <rect x="3" y="6" width="12" height="12" rx="2" ry="2" />
                 </svg>
                 <span style={{ fontSize: 11, color: '#333', textAlign: 'center', lineHeight: 1.5 }}>
-                  No videos yet<br />
-                  <span style={{ color: '#2A2A2A', fontSize: 10 }}>Add a channel in Settings →</span>
+                  Chưa có video nào<br />
+                  <span style={{ color: '#2A2A2A', fontSize: 10 }}>Thêm kênh trong Settings →</span>
+                </span>
+              </div>
+            ) : filteredWorkspaces.length === 0 ? (
+              <div
+                className="flex flex-col items-center justify-center"
+                style={{ height: '100%', gap: 8 }}
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#222" strokeWidth="1.5">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <span style={{ fontSize: 11, color: '#333', textAlign: 'center', lineHeight: 1.5 }}>
+                  Không có kết quả<br />
+                  <span style={{ color: '#2A2A2A', fontSize: 10 }}>Thử đổi từ khóa hoặc bộ lọc</span>
                 </span>
               </div>
             ) : (

@@ -5,7 +5,7 @@ import { execSync } from 'child_process'
 import { getRamDiskInfo, getAutoRamDiskSize } from './ramdisk.js'
 import { getPoolStatus } from './worker-pool.js'
 import { getFfmpegPath } from './ffmpeg-paths.js'
-import { devLog } from './dev_log.js'
+import { devLog } from './unified_log.js'
 
 // Re-export for internal use
 const getFfmpegBin = getFfmpegPath

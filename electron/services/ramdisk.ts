@@ -4,7 +4,8 @@ import os from 'os'
 import { execSync } from 'child_process'
 import { shell, app } from 'electron'
 import { getAppStoreDir, getRamDiskPath, getDownloadsDir, getBlurDir, getOutputDir, getArchivedDir } from './paths.js'
-import { devLog } from './dev_log.js'
+export { getAppStoreDir }
+import { devLog } from './unified_log.js'
 
 // RAM Disk Manager
 // Manages the virtual RAM disk for fast video temp storage
@@ -56,6 +57,8 @@ interface AppSettingsStore {
   videoMaxDurationSec?: number
   /** Whether the onboarding wizard has been completed. Defaults to false. */
   onboardingComplete?: boolean
+  /** When true, closing the main window quits the app. When false, minimizes to tray (default). */
+  quitOnClose?: boolean
 }
 
 let _settings: AppSettingsStore | null = null
@@ -81,6 +84,7 @@ export function loadSettings(): AppSettingsStore {
   if (_settings.maxConcurrentDownloads === undefined) _settings.maxConcurrentDownloads = 3
   if (_settings.videoMinDurationSec === undefined) _settings.videoMinDurationSec = 0
   if (_settings.videoMaxDurationSec === undefined) _settings.videoMaxDurationSec = 0
+  if (_settings.quitOnClose === undefined) _settings.quitOnClose = true
 
   return _settings
 }
@@ -416,6 +420,7 @@ export function getConfiguredArchivePath(): string | undefined {
 
 // Sanitize filename: remove characters invalid on Windows filenames
 function sanitizeFilename(name: string): string {
+  // eslint-disable-next-line no-control-regex -- intentional: strip ASCII control chars
   return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim().slice(0, 120)
 }
 
@@ -486,7 +491,7 @@ export async function archiveRenderedFile(
 
 // Open archive folder in file explorer
 export function openArchiveFolder(): void {
-  shell.openPath(getArchivePath())
+  void shell.openPath(getArchivePath())
 }
 
 // Open a specific rendered file's containing folder

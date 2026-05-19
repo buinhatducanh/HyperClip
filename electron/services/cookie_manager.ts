@@ -16,7 +16,7 @@ import fs from 'fs'
 import os from 'os'
 import { EventEmitter } from 'events'
 import { getChannels, addChannel, removeChannel } from './store.js'
-import { devLog } from './dev_log.js'
+import { devLog } from './unified_log.js'
 import { getAppStoreDir } from './paths.js'
 
 // ─── Auth Event Bus ─────────────────────────────────────────────────────────────
@@ -179,9 +179,9 @@ class ElectronCookieManager implements CookieManager {
 
   startAutoRefresh(onRefresh?: (result: CookieRefreshResult) => void): void {
     if (this._refreshTimer) return
-    this._doRefresh(onRefresh)
+    void this._doRefresh(onRefresh)
     // Check OAuth tokens every 5 minutes
-    this._refreshTimer = setInterval(() => { this._doRefresh(onRefresh) }, 5 * 60 * 1000)
+    this._refreshTimer = setInterval(() => { void this._doRefresh(onRefresh) }, 5 * 60 * 1000)
     // NOTE: Subscription sync is MANUAL ONLY (Settings → "Refresh kênh").
     // Auto-sync would overwrite user-added channels and import channels from whatever
     // account the OAuth token belongs to — which is NOT the intended behavior.

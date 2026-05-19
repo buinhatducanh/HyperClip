@@ -86,8 +86,16 @@ function SectionHeader({ icon, title, color }: {
 
 export function RenderedVideoDetail({ video, onShowToast }: Props) {
   const [localThumb, setLocalThumb] = useState<string>('')
+  const [videoUrl, setVideoUrl] = useState<string>('')
+  const [videoError, setVideoError] = useState(false)
 
   useEffect(() => {
+    // Reset when video changes
+    setVideoUrl('')
+    setVideoError(false)
+    setLocalThumb('')
+
+    // Thumbnail for display
     if (video.thumbnail.startsWith('local-video://') && !video.thumbnailData) {
       ipc.getVideoBlob(video.workspaceId).then(async (blob) => {
         if (blob) {
@@ -98,6 +106,11 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
         }
       }).catch(() => {})
     }
+
+    // Fetch rendered video file for preview
+    ipc.getRenderedVideoFile(video.id).then(result => {
+      if (result) setVideoUrl(result.url)
+    }).catch(() => {})
   }, [video])
 
   const thumbSrc = video.thumbnailData || localThumb || (
@@ -167,34 +180,84 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#00FF88" strokeWidth="2">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#00FF88' }}>Open Folder</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: '#00FF88' }}>Mở thư mục</span>
         </button>
       </div>
 
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 20px' }}>
-        {/* Thumbnail preview */}
-        {thumbSrc && (
-          <div style={{
-            margin: '16px 0',
-            borderRadius: 8,
-            overflow: 'hidden',
-            border: '1px solid #222',
-            maxHeight: 200,
-          }}>
+        {/* Video preview — HTML5 player when available, fallback to thumbnail */}
+        <div style={{
+          margin: '16px 0',
+          borderRadius: 8,
+          overflow: 'hidden',
+          border: '1px solid #222',
+          background: '#0a0a0a',
+          position: 'relative',
+        }}>
+          {videoUrl ? (
+            <>
+              <video
+                key={video.id}
+                src={videoUrl}
+                controls
+                style={{ width: '100%', maxHeight: 220, display: 'block', background: '#000' }}
+                onError={() => setVideoError(true)}
+              />
+              {/* Always show thumbnail below video as poster fallback */}
+              {thumbSrc && (
+                <img
+                  src={thumbSrc}
+                  alt=""
+                  style={{
+                    width: '100%', maxHeight: 60, objectFit: 'cover',
+                    display: 'block', opacity: 0.6,
+                  }}
+                />
+              )}
+            </>
+          ) : videoError || !thumbSrc ? (
+            <div style={{
+              height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexDirection: 'column', gap: 8,
+            }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="1.5">
+                <polygon points="5 3 19 12 5 21 5 3" />
+              </svg>
+              <span style={{ fontSize: 9, color: '#333' }}>Video preview unavailable</span>
+            </div>
+          ) : (
             <img
               src={thumbSrc}
               alt=""
-              style={{
-                width: '100%',
-                maxHeight: 200,
-                objectFit: 'cover',
-                display: 'block',
-              }}
+              style={{ width: '100%', maxHeight: 200, objectFit: 'cover', display: 'block' }}
               onError={(e) => { (e.target as HTMLElement).style.display = 'none' }}
             />
-          </div>
-        )}
+          )}
+          {/* Play overlay when no video URL but has thumbnail */}
+          {!videoUrl && !videoError && thumbSrc && (
+            <div style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'rgba(0,0,0,0.4)',
+              cursor: 'pointer',
+            }}
+              onClick={handleOpenFolder}
+              title="Click to open in player"
+            >
+              <div style={{
+                width: 44, height: 44, borderRadius: '50%',
+                background: 'rgba(0,255,136,0.15)',
+                border: '2px solid #00FF88',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="#00FF88">
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Render performance card */}
         {video.renderDurationMs != null && video.renderDurationMs > 0 && (
@@ -424,7 +487,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00FF88" strokeWidth="2">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#00FF88' }}>Open Containing Folder</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#00FF88' }}>Mở thư mục chứa file</span>
         </button>
       </div>
     </div>

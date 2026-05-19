@@ -206,16 +206,5 @@ export function SkeletonEditor() {
 // ─── Skeleton Styles (add to globals.css) ──────────────────────────────────────
 // This component injects the skeleton pulse keyframes via a style tag.
 export function SkeletonStyles() {
-  return (
-    <style>{`
-      @keyframes skeletonPulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.45; }
-      }
-      @keyframes spin {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-      }
-    `}</style>
-  )
+  return null // keyframes are now in globals.css
 }

@@ -19,6 +19,8 @@ interface Props {
   downloadQuality?: string
   /** YouTube available video heights (e.g. [360, 720, 1080]) — for quality validation UI */
   availableFormats?: number[]
+  onUndo?: () => void
+  onRedo?: () => void
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────────
@@ -585,7 +587,7 @@ function SplitSection({ videoDuration, trimLimitMinutes, speedMultiplier = 1.0, 
 
 
 
-function HeaderSection({ headerImageUrl, headerImageOffsetY, onChange }: { headerImageUrl: string | null; headerImageOffsetY: number; onChange: (p: Partial<EditorState>) => void }) {
+function HeaderSection({ headerImageUrl, headerImageOffsetY, onChange, blobRef }: { headerImageUrl: string | null; headerImageOffsetY: number; onChange: (p: Partial<EditorState>) => void; blobRef: React.MutableRefObject<Set<string>> }) {
   const headerFileRef = useRef<HTMLInputElement>(null)
 
   return (
@@ -887,7 +889,7 @@ function SpeedSection({ speedMultiplier, onChange, videoDuration, trimStart, tri
 
 // ─── Background Section ─────────────────────────────────────────────────────────
 
-function BackgroundSection({ backgroundType, backgroundColor, backgroundImageUrl, editorIsShort, onChange, vidHeightPct, videoId, onShowToast }: {
+function BackgroundSection({ backgroundType, backgroundColor, backgroundImageUrl, editorIsShort, onChange, vidHeightPct, videoId, onShowToast, blobRef }: {
   backgroundType: 'blur' | 'solid' | 'image'; backgroundColor: string
   backgroundImageUrl: string | null
   editorIsShort: boolean
@@ -895,6 +897,7 @@ function BackgroundSection({ backgroundType, backgroundColor, backgroundImageUrl
   vidHeightPct: number
   videoId?: string
   onShowToast?: (msg: string) => void
+  blobRef: React.MutableRefObject<Set<string>>
 }) {
   const bgImageFileRef = useRef<HTMLInputElement>(null)
   const thumbImageFileRef = useRef<HTMLInputElement>(null)
@@ -1009,10 +1012,18 @@ function BackgroundSection({ backgroundType, backgroundColor, backgroundImageUrl
               <span style={{ fontSize: 10, color: '#444', fontWeight: 700 }}>VIDEO</span>
               <span style={{ fontSize: 10, color: '#555', fontFamily: 'monospace' }}>{vidHeightPct}%</span>
             </div>
-            <input type="range" min={30} max={85} value={vidHeightPct}
-              onChange={(e) => onChange({ vidHeightPct: +e.target.value })}
-              style={{ width: '100%', height: 3 }}
-            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 8, color: '#2A2A2A', flexShrink: 0 }}>30</span>
+              <input type="range" min={30} max={85} value={vidHeightPct}
+                onChange={(e) => onChange({ vidHeightPct: +e.target.value })}
+                style={{ flex: 1, height: 3 }}
+              />
+              <span style={{ fontSize: 8, color: '#2A2A2A', flexShrink: 0 }}>85</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
+              <span style={{ fontSize: 8, color: '#2A2A2A' }}>video nhỏ</span>
+              <span style={{ fontSize: 8, color: '#2A2A2A' }}>video lớn</span>
+            </div>
           </div>
         </>
       )}
@@ -1402,25 +1413,15 @@ function CanvasArea({ video, editorState, onChange, onTimeUpdate }: {
               </div>
 
               {isShort && editorState.bottomBarEnabled ? (
-                // Bottom bar preview: background blur image + accent color overlay + white text
-                // Matches FFmpeg: background shows through bar gap, solid bar on top, text on bar
+                // Bottom bar preview: solid accent color bar + white text
+                // Matches FFmpeg BOTTOM_ZONE: fully opaque accent, no thumbnail, text on top
                 <div style={{
                   width: '100%', height: '100%',
-                  position: 'relative',
-                  background: `url(${localThumbSrc || video.thumbnail}) center/cover`,
+                  background: editorState.bottomBarColor || '#00B4FF',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
-                  {/* Accent color overlay + bottom bar solid bar */}
-                  <div style={{
-                    position: 'absolute', inset: 0,
-                    background: `linear-gradient(transparent 20%, ${editorState.bottomBarColor || '#00B4FF'} 55%)`,
-                    opacity: 0.92,
-                  }} />
-                  {/* Bar top edge line */}
-                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1, background: 'rgba(255,255,255,0.2)' }} />
                   {/* Text */}
                   <span style={{
-                    position: 'relative', zIndex: 1,
                     fontSize: Math.round(bottomBarH * 0.35),
                     fontWeight: 700, color: '#FFF', textAlign: 'center', lineHeight: 1.2,
                     textShadow: '0 1px 3px rgba(0,0,0,0.6)',
@@ -1537,13 +1538,32 @@ function CanvasArea({ video, editorState, onChange, onTimeUpdate }: {
           {canvasW}×{canvasH}
         </span>
       </div>
+
+      {/* Keyboard shortcut hints */}
+      <div style={{
+        position: 'absolute', bottom: 6, left: 0, right: 0,
+        display: 'flex', gap: 12, justifyContent: 'center',
+        pointerEvents: 'none',
+      }}>
+        {[
+          ['Space', 'play/pause'],
+          ['← →', 'seek ±5s'],
+          ['Shift+←→', '±1s'],
+          ['M', 'mute'],
+        ].map(([key, desc]) => (
+          <span key={key as string} style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+            <kbd style={{ fontSize: 7, fontFamily: 'monospace', color: '#2A2A2A', background: '#1A1A1A', padding: '0 3px', borderRadius: 2, border: '1px solid #222' }}>{key}</kbd>
+            <span style={{ fontSize: 7, color: '#2A2A2A' }}>{desc}</span>
+          </span>
+        ))}
+      </div>
     </div>
   )
 }
 
 // ─── Controls Panel ─────────────────────────────────────────────────────────────
 
-function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRendering, systemStats, editorIsShort, videoDuration, currentTime, videoId, onShowToast, renderProgress, workspaceId, isReady, trimLimitMinutes, onSplit, sourceResolution, downloadQuality, availableFormats }: {
+function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRendering, systemStats, editorIsShort, videoDuration, currentTime, videoId, onShowToast, renderProgress, workspaceId, isReady, trimLimitMinutes, onSplit, sourceResolution, downloadQuality, availableFormats, onUndo, onRedo }: {
   editorState: EditorState
   onChange: (p: Partial<EditorState>) => void
   onRender: () => void
@@ -1565,6 +1585,8 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
   downloadQuality?: string
   /** YouTube available video heights (e.g. [360, 720, 1080]) — for quality validation UI */
   availableFormats?: number[]
+  onUndo?: () => void
+  onRedo?: () => void
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['trim']))
   // Track blob URLs for cleanup — revoke on unmount to prevent memory leaks
@@ -1584,11 +1606,23 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
   const is = (id: string) => expanded.has(id)
 
   const sourceHeight = sourceResolution ? parseInt(sourceResolution.split('x')[1]) : 0
-  // Max export quality: download config if set, else source resolution
+  // Max export quality: YouTube probe (truth) > source height > download cap
   // availableFormats from YouTube probe takes priority — reflects actual available heights
   const maxAllowedHeight = availableFormats && availableFormats.length > 0
     ? Math.max(...availableFormats) // YouTube-probed max
-    : downloadQuality ? parseInt(downloadQuality) : (sourceHeight || 1080)
+    : downloadQuality
+      ? Math.min(parseInt(downloadQuality), sourceHeight || 1080) // cap download cap by actual source
+      : (sourceHeight || 1080)
+
+  // BUG FIX 1: Auto-downgrade exportQuality when probe reveals lower max.
+  // Fires once when availableFormats transitions from undefined → known value.
+  useEffect(() => {
+    if (availableFormats === undefined || availableFormats.length === 0) return
+    const probeMax = Math.max(...availableFormats)
+    if (editorState.exportQuality > probeMax) {
+      onChange({ exportQuality: probeMax as 1080 | 720 | 360 })
+    }
+  }, [availableFormats])
   return (
     <div style={{ width: 280, borderLeft: '1px solid #1A1A1A', display: 'flex', flexDirection: 'column', background: '#111' }}>
       {/* Scrollable content */}
@@ -1631,6 +1665,7 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
                 headerImageUrl={editorState.headerImageUrl}
                 headerImageOffsetY={editorState.headerImageOffsetY}
                 onChange={onChange}
+                blobRef={blobRef}
               />
             )}
           </>
@@ -1684,6 +1719,7 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
             vidHeightPct={editorState.vidHeightPct}
             videoId={videoId}
             onShowToast={onShowToast}
+            blobRef={blobRef}
           />
         )}
 
@@ -1713,9 +1749,24 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
       {/* Sticky export section */}
       <div style={{ padding: '12px', borderTop: '1px solid #1A1A1A', background: '#111', flexShrink: 0 }}>
         {/* Row 1: QUALITY + GPU MAX */}
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 4 }}>
           {/* Quality */}
-          <div style={{ display: 'flex', gap: 3 }}>
+          <div style={{ display: 'flex', gap: 3, position: 'relative' }}>
+            {/* Loading state while YouTube probe is running */}
+            {availableFormats === undefined && (
+              <div style={{
+                position: 'absolute', inset: 0, display: 'flex',
+                alignItems: 'center', justifyContent: 'center',
+                background: '#111', zIndex: 1,
+              }}>
+                <div style={{
+                  width: 8, height: 8, borderRadius: '50%',
+                  border: '1.5px solid #333',
+                  borderTopColor: '#00B4FF',
+                  animation: 'spin 0.8s linear infinite',
+                }} />
+              </div>
+            )}
             {([1080, 720, 360] as const).map(q => {
               const active = editorState.exportQuality === q
               // Disable if: YouTube doesn't have this height (availableFormats probe)
@@ -1727,42 +1778,88 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
                 <button
                   key={q}
                   onClick={() => !disabled && onChange({ exportQuality: q as 1080 | 720 | 360 })}
-                  title={ytUnavailable ? `YouTube: no ${q}p` : overMax ? `Max ${maxAllowedHeight}p` : `${q}p`}
+                  title={ytUnavailable ? `YouTube: no ${q}p available` : overMax ? `Max ${maxAllowedHeight}p (source/download cap)` : `${q}p — click to select`}
                   style={{
                     height: 22, padding: '0 8px',
                     background: active ? '#00B4FF' : disabled ? '#0d0d0d' : '#1A1A1A',
-                    border: `1px solid ${active ? '#00B4FF' : disabled ? '#1a1a1a' : '#222'}`,
+                    border: `1px solid ${active ? '#00B4FF' : disabled ? '#222' : '#222'}`,
                     borderRadius: 2, fontSize: 10, fontWeight: 700,
                     color: active ? '#000' : disabled ? '#2a2a2a' : '#444',
                     cursor: disabled ? 'not-allowed' : 'pointer',
                     fontFamily: 'monospace',
-                    opacity: disabled ? 0.6 : 1,
                     position: 'relative',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                  {q}p
+                  <span style={{
+                    textDecoration: disabled ? 'line-through' : 'none',
+                    opacity: disabled ? 0.5 : 1,
+                  }}>
+                    {q}p
+                  </span>
                 </button>
               )
             })}
           </div>
+          {/* Source quality indicator */}
+          {downloadQuality && (
+            <span style={{ fontSize: 8, color: '#333', fontFamily: 'monospace', marginLeft: 4 }}>
+              DL: {downloadQuality}p
+            </span>
+          )}
+        </div>
 
-          {/* GPU MAX toggle */}
-          {onExportChunked && (
+        {/* Upscaling warning */}
+        {editorState.exportQuality > maxAllowedHeight && (
+          <div style={{
+            fontSize: 9, color: '#FFB800',
+            display: 'flex', alignItems: 'center', gap: 4,
+            marginBottom: 8,
+          }}>
+            <span>⚠</span>
+            <span>Upscale: source was {maxAllowedHeight}p — quality may decrease</span>
+          </div>
+        )}
+
+        {/* GPU MAX toggle */}
+        {onExportChunked && (
+          <button
+            onClick={() => !isRendering && onChange({ enableChunked: !editorState.enableChunked })}
+            disabled={isRendering}
+            style={{
+              marginLeft: 'auto', height: 22, padding: '0 10px',
+              background: editorState.enableChunked ? '#00FF8820' : '#1A1A1A',
+              border: `1px solid ${editorState.enableChunked ? '#00FF88' : '#222'}`,
+              borderRadius: 2, fontSize: 9, fontWeight: 700,
+              color: editorState.enableChunked ? '#00FF88' : '#444',
+              cursor: isRendering ? 'not-allowed' : 'pointer',
+              fontFamily: 'monospace', letterSpacing: '0.04em',
+            }}
+          >
+            {editorState.enableChunked ? `${systemStats?.maxChunkWorkers || 8}x GPU MAX` : 'GPU MAX'}
+          </button>
+        )}
+
+        {/* FPS selector */}
+        <div style={{ display: 'flex', gap: 3, marginTop: 4 }}>
+          <span style={{ fontSize: 8, color: '#444', alignSelf: 'center', marginRight: 2 }}>FPS</span>
+          {([30, 60] as const).map(fps => (
             <button
-              onClick={() => !isRendering && onChange({ enableChunked: !editorState.enableChunked })}
-              disabled={isRendering}
+              key={fps}
+              onClick={() => !isRendering && onChange({ exportFPS: fps })}
+              title={`${fps} fps`}
               style={{
-                marginLeft: 'auto', height: 22, padding: '0 10px',
-                background: editorState.enableChunked ? '#00FF8820' : '#1A1A1A',
-                border: `1px solid ${editorState.enableChunked ? '#00FF88' : '#222'}`,
+                height: 20, padding: '0 8px',
+                background: editorState.exportFPS === fps ? '#00FF8820' : '#1A1A1A',
+                border: `1px solid ${editorState.exportFPS === fps ? '#00FF8844' : '#222'}`,
                 borderRadius: 2, fontSize: 9, fontWeight: 700,
-                color: editorState.enableChunked ? '#00FF88' : '#444',
+                color: editorState.exportFPS === fps ? '#00FF88' : '#444',
                 cursor: isRendering ? 'not-allowed' : 'pointer',
-                fontFamily: 'monospace', letterSpacing: '0.04em',
+                fontFamily: 'monospace',
               }}
             >
-              {editorState.enableChunked ? `${systemStats?.maxChunkWorkers || 8}x GPU MAX` : 'GPU MAX'}
+              {fps}
             </button>
-          )}
+          ))}
         </div>
 
         {/* Row 2: Render button */}
@@ -1794,7 +1891,7 @@ function ControlsPanel({ editorState, onChange, onRender, onExportChunked, isRen
             <>
               {editorState.enableChunked ? 'GPU MAX' : 'RENDER'}
               <span style={{ fontSize: 9, fontWeight: 500, opacity: 0.7 }}>
-                · {editorState.exportQuality}p · H.264
+                · {editorState.exportQuality}p · {editorState.exportFPS}fps · H.264
               </span>
             </>
           )}
@@ -1835,7 +1932,7 @@ function SectionHeader({ icon, label, isExpanded, onToggle }: { icon: React.Reac
 
 // ─── Main DetailEditor ──────────────────────────────────────────────────────────
 
-export function DetailEditor({ video, editorState, onChange, onRender, onExportChunked, systemStats, onShowToast, onSplit, settings, downloadQuality, availableFormats }: Props) {
+export function DetailEditor({ video, editorState, onChange, onRender, onExportChunked, systemStats, onShowToast, onSplit, settings, downloadQuality, availableFormats, onUndo, onRedo }: Props) {
   const [currentTime, setCurrentTime] = useState(0)
   // Track blob URLs for cleanup — revoke on unmount to prevent memory leaks
   const blobRef = useRef<Set<string>>(new Set())
@@ -1913,6 +2010,40 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
               </span>
             </>
           )}
+
+          {/* Undo/Redo buttons */}
+          <div style={{ display: 'flex', gap: 2, marginLeft: 8 }}>
+            <button
+              onClick={onUndo}
+              title="Hoàn tác (Ctrl+Z)"
+              style={{
+                width: 22, height: 22, background: '#1A1A1A',
+                border: '1px solid #222', borderRadius: 3,
+                color: '#666', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 11, fontFamily: 'monospace', fontWeight: 700,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = '#444' }}
+              onMouseLeave={e => { e.currentTarget.style.color = '#666'; e.currentTarget.style.borderColor = '#222' }}
+            >
+              ↩
+            </button>
+            <button
+              onClick={onRedo}
+              title="Làm lại (Ctrl+Y)"
+              style={{
+                width: 22, height: 22, background: '#1A1A1A',
+                border: '1px solid #222', borderRadius: 3,
+                color: '#666', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 11, fontFamily: 'monospace', fontWeight: 700,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = '#444' }}
+              onMouseLeave={e => { e.currentTarget.style.color = '#666'; e.currentTarget.style.borderColor = '#222' }}
+            >
+              ↪
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1939,11 +2070,12 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
           sourceResolution={video?.videoResolution}
           downloadQuality={downloadQuality}
           availableFormats={availableFormats}
+          onUndo={onUndo}
+          onRedo={onRedo}
         />
       </div>
 
       <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .scrollbar::-webkit-scrollbar { width: 3px; }
         .scrollbar::-webkit-scrollbar-track { background: transparent; }
         .scrollbar::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }

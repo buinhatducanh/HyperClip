@@ -57,8 +57,8 @@ export interface ElectronAPI {
   onInnertubeDegraded: (callback: (data: { degraded: boolean }) => void) => () => void
   onAuthUpdate: (callback: (status: unknown) => void) => () => void
   onChannelSynced: (callback: () => void) => () => void
-  getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number }>
-  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; pollIntervalMs?: number; maxConcurrentRenders?: number }) => Promise<void>
+  getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number; quitOnClose?: boolean }>
+  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; pollIntervalMs?: number; maxConcurrentRenders?: number; quitOnClose?: boolean }) => Promise<void>
   getAuthStatus: () => Promise<{
     isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean
     cookieCritical?: boolean; cookieError?: string
@@ -67,7 +67,7 @@ export interface ElectronAPI {
   logout: () => Promise<{ success: boolean }>
   startOAuthFlow: () => Promise<{ isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean }>
   setOAuthCredentials: (clientId: string, clientSecret: string) => Promise<{ success: boolean }>
-  getOAuthCredentials: () => Promise<{ clientId: string; clientSecret: string }>
+  getOAuthCredentials: () => Promise<{ clientId: string }>
   getKeys: () => Promise<unknown[]>
   addKey: (key: string, projectId: string, name: string) => Promise<{ success: boolean; keys: unknown[] }>
   removeKey: (key: string) => Promise<{ success: boolean; keys: unknown[] }>
@@ -105,6 +105,7 @@ export interface ElectronAPI {
   removeRenderedVideo: (id: string) => Promise<{ success: boolean }>
   openRenderedFolder: (id?: string) => Promise<{ success: boolean }>
   setRenderedArchivePath: (path: string) => Promise<{ success: boolean }>
+  getRenderedVideoFile: (id: string) => Promise<{ path: string; url: string } | null>
   // Storage management
   getStorageSize: () => Promise<{ downloads: number; blur: number; total: number; downloadPath: string; outputPath: string; freeBytes?: number }>
   clearDownloads: () => Promise<{ success: boolean; freedMB: number }>
@@ -122,8 +123,10 @@ export interface ElectronAPI {
   exportData: () => Promise<{ success: boolean; path?: string; error?: string }>
   importData: () => Promise<{ success: boolean; channelsImported?: number; seenImported?: number; error?: string }>
   // Log export
-  readLogs: () => Promise<{ files: { name: string; size: number; mtime: number; content?: string }[]; logDir: string }>
+  readLogs: () => Promise<{ files: { name: string; size: number; mtime: number; content?: string }[]; logDir: string; entries: unknown[] }>
   exportLogs: () => Promise<{ success: boolean; path?: string; error?: string }>
+  getLogDiskUsage: () => Promise<{ totalBytes: number; fileCount: number; oldestAge: number }>
+  cleanupLogs: () => Promise<{ deletedCount: number; freedBytes: number }>
   // MMO Operation Center
   getOpLogs: () => Promise<Array<{ id: string; timestamp: number; level: string; category: string; message: string; detail?: string }>>
   clearOpLogs: () => Promise<{ success: boolean }>
@@ -153,6 +156,8 @@ export interface ElectronAPI {
   installUpdate: () => Promise<{ success: boolean }>
   getUpdateStatus: () => Promise<{ available: boolean; version?: string; progress: number }>
   onUpdateEvent: (callback: (event: { type: string; version?: string; percent?: number }) => void) => () => void
+  // App info
+  getAppVersion: () => Promise<string>
 }
 
 declare global {

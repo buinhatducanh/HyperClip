@@ -44,12 +44,12 @@ type ElectronAPI = {
   onCookieCritical: (callback: (errorMsg: string) => void) => () => void
   onChannelSynced: (callback: () => void) => () => void
   getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number }>
-  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number }) => Promise<void>
+  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number; quitOnClose?: boolean }) => Promise<void>
   getAuthStatus: () => Promise<{ isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean; cookieCritical?: boolean; cookieError?: string }>
   logout: () => Promise<{ success: boolean }>
   startOAuthFlow: () => Promise<{ isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean }>
   setOAuthCredentials: (clientId: string, clientSecret: string) => Promise<{ success: boolean }>
-  getOAuthCredentials: () => Promise<{ clientId: string; clientSecret: string }>
+  getOAuthCredentials: () => Promise<{ clientId: string }>
   getKeys: () => Promise<unknown[]>
   addKey: (key: string, projectId: string, name: string) => Promise<{ success: boolean; keys: unknown[] }>
   removeKey: (key: string) => Promise<{ success: boolean; keys: unknown[] }>
@@ -59,6 +59,7 @@ type ElectronAPI = {
   getPollerStatus: () => Promise<{ active: boolean; lastPollAt: number | null; newVideoCount: number; lastError: string | null; exhaustedUntil: number | null; innertubeDegraded?: boolean } | null>
   resumePoller: () => Promise<{ success: boolean }>
   getProjects: () => Promise<unknown[]>
+  getProjectTokenStatuses: () => Promise<unknown[]>
   addProject: (data: { projectId: string; clientId: string; clientSecret: string; apiKey: string; apiKeyName?: string }) => Promise<{ success: boolean; projectId: string; error?: string }>
   removeProject: (projectId: string) => Promise<{ success: boolean }>
   resetProjectQuota: (projectId: string) => Promise<{ success: boolean }>
@@ -83,8 +84,10 @@ type ElectronAPI = {
   runDiagnostics: () => Promise<unknown>
   exportData: () => Promise<{ success: boolean; path?: string; error?: string }>
   importData: () => Promise<{ success: boolean; channelsImported?: number; seenImported?: number; error?: string }>
-  readLogs: () => Promise<{ files: { name: string; size: number; mtime: number; content?: string }[]; logDir: string }>
+  readLogs: () => Promise<{ files: { name: string; size: number; mtime: number; content?: string }[]; logDir: string; entries: unknown[] }>
   exportLogs: () => Promise<{ success: boolean; path?: string; error?: string }>
+  getLogDiskUsage: () => Promise<{ totalBytes: number; fileCount: number; oldestAge: number }>
+  cleanupLogs: () => Promise<{ deletedCount: number; freedBytes: number }>
   /** Probe YouTube for available video heights (360, 720, 1080) — for quality validation UI */
   getAvailableFormats: (videoId: string, videoUrl: string) => Promise<{ videoId: string; heights: number[] } | null>
 
@@ -232,7 +235,7 @@ export const ipc = {
   async getSettings() {
     return window.electronAPI?.getSettings() ?? { videoStoragePath: undefined, outputPath: undefined, defaultTrimLimit: undefined, defaultQuality: undefined, autoDownloadQuality: undefined, autoDownloadEnabled: undefined, autoRender: undefined, autoRenderResolution: undefined, autoRenderFPS: undefined, downloadsCleanupDays: undefined, renderedOutputPath: undefined, pollIntervalMs: undefined, maxConcurrentRenders: undefined, proxyEnabled: undefined, proxyHost: undefined, proxyPort: undefined, proxyUsername: undefined, proxyPassword: undefined, maxConcurrentDownloads: undefined, videoMinDurationSec: undefined, videoMaxDurationSec: undefined }
   },
-  async updateSettings(patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number; proxyEnabled?: boolean; proxyHost?: string; proxyPort?: number; proxyUsername?: string; proxyPassword?: string; maxConcurrentDownloads?: number; videoMinDurationSec?: number; videoMaxDurationSec?: number }) {
+  async updateSettings(patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number; proxyEnabled?: boolean; proxyHost?: string; proxyPort?: number; proxyUsername?: string; proxyPassword?: string; maxConcurrentDownloads?: number; videoMinDurationSec?: number; videoMaxDurationSec?: number; quitOnClose?: boolean }) {
     return window.electronAPI?.updateSettings(patch)
   },
   async getAuthStatus() {
@@ -248,7 +251,7 @@ export const ipc = {
     return window.electronAPI?.setOAuthCredentials(clientId, clientSecret) ?? { success: false }
   },
   async getOAuthCredentials() {
-    return window.electronAPI?.getOAuthCredentials() ?? { clientId: '', clientSecret: '' }
+    return window.electronAPI?.getOAuthCredentials() ?? { clientId: '' }
   },
   async getKeys(): Promise<KeyStatus[]> {
     const result = await window.electronAPI?.getKeys()
@@ -280,6 +283,10 @@ export const ipc = {
 
   async getProjects() {
     return window.electronAPI?.getProjects() ?? []
+  },
+
+  async getProjectTokenStatuses() {
+    return window.electronAPI?.getProjectTokenStatuses() ?? []
   },
 
   async addProject(data: { projectId: string; clientId: string; clientSecret: string; apiKey: string; apiKeyName?: string }) {
@@ -355,6 +362,10 @@ export const ipc = {
     return window.electronAPI?.setRenderedArchivePath(path) ?? { success: false }
   },
 
+  async getRenderedVideoFile(id: string): Promise<{ path: string; url: string } | null> {
+    return window.electronAPI?.getRenderedVideoFile(id) ?? null
+  },
+
   // ─── Storage Management ───────────────────────────────────────────────────────
 
   async getStorageSize(): Promise<{ downloads: number; blur: number; total: number; downloadPath: string; outputPath: string }> {
@@ -374,12 +385,20 @@ export const ipc = {
   },
 
   // ─── Log Export ──────────────────────────────────────────────────────────────
-  async readLogs(): Promise<{ files: { name: string; size: number; mtime: number; content?: string }[]; logDir: string }> {
-    return window.electronAPI?.readLogs() ?? { files: [], logDir: '' }
+  async readLogs(): Promise<{ files: { name: string; size: number; mtime: number; content?: string }[]; logDir: string; entries: unknown[] }> {
+    return window.electronAPI?.readLogs() ?? { files: [], logDir: '', entries: [] }
   },
 
   async exportLogs(): Promise<{ success: boolean; path?: string; error?: string }> {
     return window.electronAPI?.exportLogs() ?? { success: false, error: 'electronAPI not available' }
+  },
+
+  async getLogDiskUsage(): Promise<{ totalBytes: number; fileCount: number; oldestAge: number }> {
+    return window.electronAPI?.getLogDiskUsage() ?? { totalBytes: 0, fileCount: 0, oldestAge: 0 }
+  },
+
+  async cleanupLogs(): Promise<{ deletedCount: number; freedBytes: number }> {
+    return window.electronAPI?.cleanupLogs() ?? { deletedCount: 0, freedBytes: 0 }
   },
 
   // ─── MMO Operation Center ─────────────────────────────────────────────────────
@@ -440,5 +459,10 @@ export const ipc = {
   },
   onUpdateEvent(callback: (event: { type: string; version?: string; percent?: number }) => void) {
     return window.electronAPI?.onUpdateEvent(callback as any) ?? (() => {})
+  },
+
+  // ─── App Info ──────────────────────────────────────────────────────────────────
+  async getAppVersion(): Promise<string> {
+    return window.electronAPI?.getAppVersion() ?? '0.0.0'
   },
 }

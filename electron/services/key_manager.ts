@@ -14,7 +14,7 @@
 import path from 'path'
 import fs from 'fs'
 import https from 'https'
-import { devLog } from './dev_log.js'
+import { devLog } from './unified_log.js'
 import { getAppStoreDir } from './paths.js'
 import { getProjectManager, type GCPProject } from './project_manager.js'
 

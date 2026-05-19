@@ -15,7 +15,7 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { shell } from 'electron'
-import { devLog } from './dev_log.js'
+import { devLog } from './unified_log.js'
 import { getAppStoreDir } from './paths.js'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -60,9 +60,7 @@ const DEFAULT_CLIENT_ID = process.env.HYPERCLIP_OAUTH_CLIENT_ID || ''
 
 export function getOAuthClientId(): string {
   // ── Single-source: read from oauth_tokens.json (authoritative for credentials + tokens)
-  // ── Fall back to oauth_config.json in app data dir for legacy compat
   const tokenFile = getTokenFile()
-  const configFile = path.join(getAppStoreDir(), 'oauth_config.json')
 
   // 1. Check oauth_tokens.json — use the first token that has credentials
   try {
@@ -95,7 +93,6 @@ export function getOAuthClientId(): string {
 
 export function getOAuthClientSecret(): string {
   const tokenFile = getTokenFile()
-  const configFile = path.join(getAppStoreDir(), 'oauth_config.json')
 
   // 1. Check oauth_tokens.json first
   try {
@@ -303,7 +300,7 @@ function exchangeCodeForTokens(clientId: string, clientSecret: string, code: str
             expires_at: Date.now() + (json.expires_in || 3600) * 1000,
             token_type: json.token_type || 'Bearer',
           })
-        } catch (e) {
+        } catch {
           console.error('[OAuth] Token exchange: failed to parse response:', data.slice(0, 500))
           reject(new Error('Failed to parse token response'))
         }
@@ -353,7 +350,7 @@ export function refreshAccessToken(clientId: string, clientSecret: string, refre
             expires_at: Date.now() + (json.expires_in || 3600) * 1000,
             token_type: json.token_type,
           })
-        } catch (e) {
+        } catch {
           reject(new Error('Failed to parse refresh response'))
         }
       })
@@ -440,7 +437,6 @@ export async function startOAuthFlow(clientId: string, clientSecret?: string, pr
   return new Promise((resolve) => {
     let server: http.Server | null = null
     let resolved = false
-    let timeout: NodeJS.Timeout | undefined
 
     const cleanup = () => {
       if (server) {
@@ -491,8 +487,6 @@ export async function startOAuthFlow(clientId: string, clientSecret?: string, pr
         }
 
         // Got the code — exchange for tokens (don't send HTML until we know result)
-        clearTimeout(timeout!)
-
         exchangeCodeForTokens(clientId, effectiveSecret, code)
           .then((tokens) => {
             devLog('[OAuth] Token exchanged — expires in', Math.round((tokens.expires_at - Date.now()) / 60000), 'minutes', projectId ? ` (project: ${projectId})` : '')
@@ -535,8 +529,9 @@ export async function startOAuthFlow(clientId: string, clientSecret?: string, pr
       })
     }
 
-    closeExisting().then(() => {
+    void closeExisting().then(() => {
       // Timeout after 5 minutes
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- timer is intentionally unused (cleanup happens via finish())
       const timeout = setTimeout(() => {
         finish({ success: false, error: 'OAuth timeout (5 minutes)' })
       }, 5 * 60 * 1000)

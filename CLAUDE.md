@@ -53,7 +53,15 @@ autoDownload (yt-dlp --download-sections, multi-instance, 16 fragments, tv_embed
 electron/
   main.ts                   — Bootstrap, window, tray, IPC handlers
   preload.ts                — window.electronAPI bridge
-  ipc/channels.ts           — IPC channel constants
+  ipc/
+    channels.ts              — IPC channel constants
+    handlers/                — IPC handler groups (extracted from main.ts)
+      index.ts               — registers all handlers
+      system.ts              — SYSTEM_STATS, SYSTEM_OPEN_*
+      auth.ts               — AUTH_*, TOKEN_*, KEY_*
+      project.ts             — PROJECT_*, PROJECT_REPAIR, PROJECT_BATCH_REPAIR
+      session.ts             — SESSION_*, logs:read, logs:export
+  services/__tests__/        — Unit tests (Vitest)
   services/
     youtube_auth.ts         — OAuth 2.0 flow, token management
     key_manager.ts          — 30 API keys pool (quota tracking, dự phòng tương lai)
@@ -138,6 +146,11 @@ HYPERCLIP_RULES.md         — Source of truth cho nghiệp vụ + kỹ thuật
 npm run dev           # Next.js dev (localhost:3000)
 npm run electron:dev  # Dev: Next.js + Electron
 npm run electron:build # Production .exe
+npm run lint          # ESLint (electron/)
+npm run lint:fix     # ESLint with --fix
+npm run test          # Unit tests (Vitest)
+npm run test:watch   # Watch mode
+npm run test:coverage # Coverage report
 ```
 
 ---

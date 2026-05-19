@@ -21,7 +21,7 @@ import { getAppStoreDir } from './paths.js'
 // electron-log is CommonJS — use createRequire for ESM compatibility
 const require = createRequire(import.meta.url)
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+ 
 const el: any = require('electron-log')
 const _log = el.default ?? el
 

@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- preload scripts must use CommonJS
 const { contextBridge, ipcRenderer } = require('electron')
 
 // IPC channels from main process
@@ -73,6 +74,7 @@ const IPC = {
 
   // Dynamic projects
   PROJECT_LIST: 'project:list',
+  PROJECT_TOKEN_STATUSES: 'project:token-statuses',
   PROJECT_ADD: 'project:add',
   PROJECT_REMOVE: 'project:remove',
   PROJECT_RESET_QUOTA: 'project:reset-quota',
@@ -262,7 +264,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Settings
   getSettings: () => ipcRenderer.invoke(IPC.SETTINGS_GET),
-  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; maxConcurrentRenders?: number }) =>
+  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; maxConcurrentRenders?: number; quitOnClose?: boolean }) =>
     ipcRenderer.invoke(IPC.SETTINGS_UPDATE, patch),
 
   // WebSub diagnostics
@@ -302,7 +304,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   }>,
   setOAuthCredentials: (clientId: string, clientSecret: string) =>
     ipcRenderer.invoke(IPC.AUTH_OAUTH_SET_CREDS, clientId, clientSecret) as Promise<{ success: boolean }>,
-  getOAuthCredentials: () => ipcRenderer.invoke(IPC.AUTH_OAUTH_GET_CREDS) as Promise<{ clientId: string; clientSecret: string }>,
+  getOAuthCredentials: () => ipcRenderer.invoke(IPC.AUTH_OAUTH_GET_CREDS) as Promise<{ clientId: string }>,
 
   // Per-project OAuth tokens
   startOAuthFlowPerProject: (clientId: string, clientSecret: string, projectId: string) =>
@@ -313,7 +315,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeToken: (projectId: string) =>
     ipcRenderer.invoke(IPC.TOKEN_REMOVE, projectId) as Promise<{ success: boolean }>,
   getDefaultOAuthCredentials: () =>
-    ipcRenderer.invoke(IPC.TOKEN_GET_DEFAULT_CREDS) as Promise<Record<string, { clientId: string; clientSecret: string }>>,
+    ipcRenderer.invoke(IPC.TOKEN_GET_DEFAULT_CREDS) as Promise<Record<string, { clientId: string }>>,
 
   // Auth events
   onAuthUpdate: (callback: (status: unknown) => void) => {
@@ -351,6 +353,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Dynamic projects
   getProjects: () =>
     ipcRenderer.invoke(IPC.PROJECT_LIST) as Promise<unknown[]>,
+  getProjectTokenStatuses: () =>
+    ipcRenderer.invoke(IPC.PROJECT_TOKEN_STATUSES) as Promise<unknown[]>,
   addProject: (data: { projectId: string; clientId: string; clientSecret: string; apiKey: string; apiKeyName?: string }) =>
     ipcRenderer.invoke(IPC.PROJECT_ADD, data) as Promise<{ success: boolean; projectId: string; error?: string }>,
   removeProject: (projectId: string) =>
@@ -424,9 +428,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Log export
   readLogs: () =>
-    ipcRenderer.invoke('logs:read') as Promise<{ files: { name: string; size: number; mtime: number; content?: string }[]; logDir: string }>,
+    ipcRenderer.invoke('logs:read') as Promise<{ files: { name: string; size: number; mtime: number; content?: string }[]; logDir: string; entries: unknown[] }>,
   exportLogs: () =>
-    ipcRenderer.invoke('logs:export') as Promise<{ success: boolean; path?: string; error?: string }>,
+    ipcRenderer.invoke('logs:export') as Promise<{ success: boolean; path?: string; error: string }>,
+  getLogDiskUsage: () =>
+    ipcRenderer.invoke('logs:disk-usage') as Promise<{ totalBytes: number; fileCount: number; oldestAge: number }>,
+  cleanupLogs: () =>
+    ipcRenderer.invoke('logs:cleanup') as Promise<{ deletedCount: number; freedBytes: number }>,
 
   // MMO Operation Center
   getOpLogs: () =>
@@ -439,8 +447,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('channel:bulk-add', urls) as Promise<Array<{ url: string; success: boolean; error?: string }>>,
   onOpLogs: (callback: (entries: Array<{ id: string; timestamp: number; level: string; category: string; message: string; detail?: string }>) => void) => {
     const handler = (_: any, entries: any[]) => callback(entries)
-    ipcRenderer.on('operation:logs-event', handler)
-    return () => ipcRenderer.removeListener('operation:logs-event', handler)
+    ipcRenderer.on('log:stream', handler)
+    return () => ipcRenderer.removeListener('log:stream', handler)
   },
   onActivityEvent: (callback: (entry: { id: string; timestamp: number; type: string; title: string; subtitle?: string; workspaceId?: string; eta?: string }) => void) => {
     const handler = (_: any, entry: any) => callback(entry)
