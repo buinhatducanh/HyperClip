@@ -41,6 +41,7 @@ import { initLicense } from './services/license.js';
 import { killPersistentChrome } from './services/cdp.js';
 import { log, devLog, opLog, setLogWindow, cleanupOldLogs } from './services/unified_log.js';
 import { checkHealthAlerts, sendHealthAlerts, recordVideoDetected, recordDownloadFail, recordDownloadSuccess } from './services/health_alerts.js';
+import { checkResourceAlert } from './services/system.js';
 import { startE2EServer, stopE2EServer } from './services/e2e_server.js';
 import { setIPCState, broadcast as _broadcast, sendNotification as _sendNotification, getActiveWorkspaceId } from './ipc/ipc-state.js';
 import { registerAllHandlers } from './ipc/handlers/index.js';
@@ -1132,16 +1133,26 @@ function startNextServer() {
     let startupResolve = null;
     return new Promise((resolve) => {
         startupResolve = resolve;
-        // Find node executable — use system PATH or search common locations
+        // Find node executable — priority: bundled > system PATH
+        // Bundled: resources/node/node.exe (shipped in installer)
+        // System: fallback to whatever "node" resolves to in PATH
         let nodeExe = 'node';
-        try {
-            const { execSync } = require('child_process');
-            const result = execSync('where node', { timeout: 5000, encoding: 'utf-8' });
-            const firstPath = result.trim().split('\n')[0];
-            if (firstPath && fs.existsSync(firstPath))
-                nodeExe = firstPath;
+        const bundledNode = app.isPackaged && process.resourcesPath
+            ? path.join(process.resourcesPath, 'node', 'node.exe')
+            : '';
+        if (bundledNode && fs.existsSync(bundledNode)) {
+            nodeExe = bundledNode;
         }
-        catch { }
+        else {
+            try {
+                const { execSync } = require('child_process');
+                const result = execSync('where node', { timeout: 5000, encoding: 'utf-8' });
+                const firstPath = result.trim().split('\n')[0];
+                if (firstPath && fs.existsSync(firstPath))
+                    nodeExe = firstPath;
+            }
+            catch { }
+        }
         devLog(`[HyperClip] node executable: ${nodeExe}`);
         nextServer = spawn(nodeExe, [nextBin, '-p', String(NEXT_PORT)], {
             cwd: appUnpacked,
@@ -1471,6 +1482,12 @@ function startSystemMonitor() {
             return;
         const stats = collectSystemStats();
         mainWindow.webContents.send(IPC_CHANNELS.SYSTEM_STATS_EVENT, stats);
+        // Resource watchdog: notify on high RAM/GPU
+        const alert = checkResourceAlert();
+        if (alert.level !== 'normal') {
+            const notifType = alert.level === 'critical' ? 'error' : 'warning';
+            sendNotification(notifType, `[Resource] ${alert.reason}`);
+        }
     }, 5000);
 }
 // ─── Shutdown ─────────────────────────────────────────────────────────────────
@@ -1884,6 +1901,21 @@ void app.whenReady().then(async () => {
 });
 // ─── Graceful shutdown — triggered by NSIS installer, system shutdown, or user quit ──
 // before-quit fires before the app actually exits — ensures quitAll() runs first.
+// ─── Single instance lock ─────────────────────────────────────────────────────
+// Only allow one instance. Second-instance launches focus the existing window.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+    app.quit();
+}
+else {
+    app.on('second-instance', () => {
+        if (mainWindow) {
+            if (mainWindow.isMinimized())
+                mainWindow.restore();
+            mainWindow.focus();
+        }
+    });
+}
 app.on('before-quit', (e) => {
     e.preventDefault(); // Prevent immediate exit
     void quitAll(); // Run full cleanup (cancel FFmpeg, stop poller, etc.)

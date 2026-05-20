@@ -23,6 +23,7 @@ export const IPC_CHANNELS = {
     SYSTEM_STATS_EVENT: 'system:stats-update',
     SYSTEM_OPEN_FOLDER: 'system:openFolder',
     SYSTEM_OPEN_URL: 'system:openUrl',
+    SYSTEM_RESOURCE_ALERT: 'system:resource-alert',
     // Notification
     NOTIFICATION_EVENT: 'notification',
     // Auto-download

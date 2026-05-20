@@ -275,9 +275,18 @@ export function detectSystemProfile() {
     if (_cachedSessionCount !== null) {
         return { isLaptop: _cachedSessionCount === 15, sessionCount: _cachedSessionCount };
     }
+    // Env override: explicit control for deployment
+    const envCount = parseInt(process.env.HYPERCLIP_SESSION_COUNT || '', 10);
+    if (!isNaN(envCount) && envCount > 0) {
+        _cachedSessionCount = envCount;
+        devLog(`[SystemProfile] Using HYPERCLIP_SESSION_COUNT=${envCount}`);
+        return { isLaptop: false, sessionCount: envCount };
+    }
     const ramGB = Math.round(os.totalmem() / (1024 ** 3));
     const isLaptop = ramGB <= 32;
-    _cachedSessionCount = isLaptop ? 15 : 30;
+    // Conservative defaults: 8 sessions đủ cho 100 kênh detection pipeline (5s poll)
+    // Mỗi session ~150MB RAM. 8 × 150MB = 1.2GB — nhẹ hơn đáng kể so với 30 sessions.
+    _cachedSessionCount = isLaptop ? 5 : 8;
     devLog(`[SystemProfile] RAM=${ramGB}GB → ${_cachedSessionCount} sessions (${isLaptop ? 'laptop' : 'desktop'})`);
     return { isLaptop, sessionCount: _cachedSessionCount };
 }
@@ -433,4 +442,71 @@ export function collectSystemStats() {
         isOnline: true,
         activeWorkers: getPoolStatus().active,
     };
+}
+// Common game process names (Windows)
+const GAME_PROCESSES = [
+    'Valorant.exe', 'VALORANT.exe',
+    'League of Legends.exe', 'LeagueClient.exe',
+    'csgo.exe', 'cs2.exe',
+    'FortniteClient-Game', 'FortniteLauncher.exe',
+    'GenshinImpact.exe', 'YuanShen.exe',
+    'PUBG.exe', 'TslGame.exe',
+    'RogueGame.exe', 'Apex Legends.exe',
+    'Overwatch.exe', 'Overwatch2.exe',
+    'Riot Vanguard\\vgk.sys',
+    'Dota2.exe',
+    'Heroes of the Storm.exe', 'Storm.dll',
+];
+let _lastAlert = { level: 'normal', reason: '' };
+let _lastAlertTime = 0;
+const ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+export function checkResourceAlert() {
+    const now = Date.now();
+    if (now - _lastAlertTime < ALERT_COOLDOWN_MS)
+        return _lastAlert;
+    const stats = collectSystemStats();
+    const ramPct = Math.round((1 - stats.ramFree / stats.ramTotal) * 100);
+    const gpuPct = stats.gpuUsage ?? 0;
+    // Detect game processes
+    let gameDetected = false;
+    try {
+        const out = execSync('tasklist /FI "IMAGENAME eq *.exe" /NH 2>nul', { encoding: 'utf-8', timeout: 5000, windowsHide: true });
+        for (const game of GAME_PROCESSES) {
+            if (out.toLowerCase().includes(game.toLowerCase())) {
+                gameDetected = true;
+                break;
+            }
+        }
+    }
+    catch { }
+    let level = 'normal';
+    let reason = '';
+    if (gameDetected && (ramPct >= 60 || gpuPct >= 60)) {
+        level = 'warning';
+        reason = `Game detected — RAM ${ramPct}%, GPU ${gpuPct}%`;
+    }
+    else if (ramPct >= 90) {
+        level = 'critical';
+        reason = `RAM critical: ${ramPct}% used`;
+    }
+    else if (ramPct >= 80) {
+        level = 'warning';
+        reason = `RAM high: ${ramPct}% used`;
+    }
+    else if (gpuPct >= 95) {
+        level = 'critical';
+        reason = `GPU usage critical: ${gpuPct}%`;
+    }
+    else if (gpuPct >= 85) {
+        level = 'warning';
+        reason = `GPU usage high: ${gpuPct}%`;
+    }
+    if (level !== 'normal') {
+        _lastAlert = { level, reason, usedRAM: ramPct, usedGPU: gpuPct, gameDetected };
+        _lastAlertTime = now;
+    }
+    return { level, reason, usedRAM: ramPct, usedGPU: gpuPct, gameDetected };
+}
+export function getLastResourceAlert() {
+    return _lastAlert;
 }

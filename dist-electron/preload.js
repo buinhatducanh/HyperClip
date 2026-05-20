@@ -37,6 +37,7 @@ const IPC = {
     SYSTEM_STATS_EVENT: 'system:stats-update',
     SYSTEM_OPEN_FOLDER: 'system:openFolder',
     SYSTEM_OPEN_URL: 'system:openUrl',
+    SYSTEM_RESOURCE_ALERT: 'system:resource-alert',
     // Notification
     NOTIFICATION_EVENT: 'notification',
     // Auto-download
@@ -166,6 +167,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     startChunked: (workspaceId, metadata, config) => ipcRenderer.invoke(IPC.RENDER_CHUNKED, workspaceId, metadata, config),
     // System
     getSystemStats: () => ipcRenderer.invoke(IPC.SYSTEM_STATS),
+    getResourceAlert: () => ipcRenderer.invoke(IPC.SYSTEM_RESOURCE_ALERT),
     openFolder: (folderPath) => ipcRenderer.invoke(IPC.SYSTEM_OPEN_FOLDER, folderPath),
     openUrl: (url) => ipcRenderer.invoke(IPC.SYSTEM_OPEN_URL, url),
     // Events (renderer listens — return cleanup functions)

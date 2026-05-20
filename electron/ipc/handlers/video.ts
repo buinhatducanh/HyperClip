@@ -7,9 +7,10 @@ import type { IpcMain } from 'electron'
 import fs from 'fs'
 import path from 'path'
 import { IPC_CHANNELS } from '../channels.js'
-import { getWorkspace } from '../../services/store.js'
+import { getWorkspace, updateWorkspace } from '../../services/store.js'
 import { getVideoStoragePath } from '../../services/ramdisk.js'
 import { getAppStoreDir } from '../../services/paths.js'
+import { broadcast } from '../ipc-state.js'
 
 // Scan known storage directories for a downloaded video file by workspaceId.
 function findDownloadedFileAbs(workspaceId: string): string | null {
@@ -50,7 +51,12 @@ export function registerVideoHandlers(ipcMain: IpcMain): void {
       if (found) {
         absPath = found
       } else {
+        // File gone (deleted by cleanup or manually) — mark workspace as error so UI shows retry
         console.warn(`[VIDEO_FILE] file not found: ${ws.downloadedPath}`)
+        if (ws.status === 'ready') {
+          updateWorkspace(workspaceId, { status: 'error' })
+          broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(workspaceId))
+        }
         return null
       }
     }

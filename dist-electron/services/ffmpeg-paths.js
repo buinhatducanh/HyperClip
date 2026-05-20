@@ -101,9 +101,10 @@ function resolveBinary(name) {
     }
     const candidates = [];
     // 0. Bundled FFmpeg (shipped in resources/ffmpeg/bin/) — highest priority
-    const appPath = app.isReady() ? app.getAppPath() : '';
-    if (appPath) {
-        const bundledPath = path.join(appPath, 'resources', 'ffmpeg', 'bin', `${name}.exe`);
+    // In packaged app: process.resourcesPath = "path/to/HyperClip/resources"
+    // FFmpeg is at resources/ffmpeg/bin/, NOT resources/app/resources/ffmpeg/bin/
+    if (app.isPackaged && process.resourcesPath) {
+        const bundledPath = path.join(process.resourcesPath, 'ffmpeg', 'bin', `${name}.exe`);
         if (exists(bundledPath))
             candidates.push(bundledPath);
     }

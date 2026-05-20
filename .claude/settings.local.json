@@ -23,7 +23,13 @@
       "Bash(curl -sv https://hyper-clip.vercel.app/)",
       "Bash(curl -sv https://hyper-clip.vercel.app/onboarding)",
       "Bash(curl -sI \"https://hyper-clip-git-main-buinhatducanh.vercel.app/\")",
-      "Bash(vercel --version)"
+      "Bash(vercel --version)",
+      "Bash(curl -s \"https://hyper-clip.vercel.app/api/license/validate?keyId=TEST&machineId=TEST12345678\")",
+      "Bash(curl -s -I \"https://hyper-clip.vercel.app/\")",
+      "Bash(curl -s \"https://api.vercel.com/v13/deployments?teamId=&limit=5\" -H \"Authorization: Bearer \")",
+      "Bash(ls -la vercel.json vercel.config.*)",
+      "Bash(curl -sI \"https://hyper-clip.vercel.app/\")",
+      "Bash(curl -s \"https://hyper-clip.vercel.app/api/license/activate\" -X POST -H \"Content-Type: application/json\" -d '{\"\"key\"\":\"\"DEMO-30-TEST1\"\",\"\"machineId\"\":\"\"testmachine12345678\"\"}')"
     ]
   },
   "enabledMcpjsonServers": [
