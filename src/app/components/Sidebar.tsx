@@ -211,28 +211,38 @@ export function Sidebar({
     >
       {/* Brand bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px', height: 48, borderBottom: '1px solid #1E1E1E', flexShrink: 0 }}>
-        {/* HyperClip logo: stylized H with play accent */}
+        {/* HyperClip logo: 3D play button */}
         <svg width="22" height="22" viewBox="0 0 512 512" style={{ flexShrink: 0 }}>
           <defs>
-            <linearGradient id="sbg" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#12121a"/>
-              <stop offset="100%" stopColor="#08080e"/>
+            <linearGradient id="sbgg" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#111118"/>
+              <stop offset="100%" stopColor="#060610"/>
             </linearGradient>
-            <linearGradient id="sblue" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#33C8FF"/>
-              <stop offset="100%" stopColor="#0088CC"/>
+            <radialGradient id="sglass" cx="38%" cy="32%" r="68%">
+              <stop offset="0%" stopColor="#1e4060"/>
+              <stop offset="100%" stopColor="#061224"/>
+            </radialGradient>
+            <linearGradient id="srim" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#44CCFF"/>
+              <stop offset="100%" stopColor="#0066AA"/>
             </linearGradient>
+            <filter id="ssg">
+              <feGaussianBlur stdDeviation="3" result="blur"/>
+              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
           </defs>
-          <rect width="512" height="512" rx="92" fill="url(#sbg)"/>
-          <rect x="92" y="102" width="67" height="308" rx="26" fill="url(#sblue)"/>
-          <rect x="353" y="102" width="67" height="308" rx="26" fill="url(#sblue)"/>
-          <rect x="159" y="102" width="194" height="87" rx="20" fill="url(#sblue)"/>
-          <rect x="159" y="323" width="194" height="87" rx="20" fill="url(#sblue)"/>
-          <rect x="92" y="102" width="67" height="20" rx="10" fill="#00FF88" opacity="0.9"/>
-          <rect x="92" y="390" width="67" height="20" rx="10" fill="#00FF88" opacity="0.9"/>
-          <rect x="353" y="102" width="67" height="20" rx="10" fill="#00FF88" opacity="0.9"/>
-          <rect x="353" y="390" width="67" height="20" rx="10" fill="#00FF88" opacity="0.9"/>
-          <polygon points="256,174 348,256 256,338" fill="#00FF88"/>
+          {/* Background */}
+          <rect width="512" height="512" rx="92" fill="url(#sbgg)"/>
+          {/* Button shadow */}
+          <circle cx="256" cy="251" r="184" fill="#000000" opacity="0.5"/>
+          {/* Button body */}
+          <circle cx="256" cy="246" r="184" fill="url(#sglass)"/>
+          {/* Button rim */}
+          <circle cx="256" cy="246" r="184" fill="none" stroke="url(#srim)" stroke-width="13" filter="url(#ssg)"/>
+          {/* Play triangle */}
+          <polygon points="220,174 342,246 220,318" fill="#00FF88"/>
+          {/* HC */}
+          <text x="256" y="471" text-anchor="middle" font-family="Arial,sans-serif" font-size="38" font-weight="800" fill="#00B4FF" opacity="0.65" letter-spacing="8">HC</text>
         </svg>
         <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.06em', flex: 1 }}>HyperClip</span>
         {/* Key health badge */}

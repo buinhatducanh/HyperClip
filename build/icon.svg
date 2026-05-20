@@ -1,46 +1,109 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
     <defs>
+      <!-- Background gradient: dark to darker -->
       <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#12121a"/>
-        <stop offset="100%" stop-color="#08080e"/>
+        <stop offset="0%" stop-color="#111118"/>
+        <stop offset="100%" stop-color="#060610"/>
       </linearGradient>
-      <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#33C8FF"/>
-        <stop offset="100%" stop-color="#0088CC"/>
+
+      <!-- Radial glass effect on button body -->
+      <radialGradient id="glass" cx="38%" cy="32%" r="68%">
+        <stop offset="0%" stop-color="#1e4060"/>
+        <stop offset="50%" stop-color="#0c1e36"/>
+        <stop offset="100%" stop-color="#061224"/>
+      </radialGradient>
+
+      <!-- Blue rim gradient -->
+      <linearGradient id="rim" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#44CCFF"/>
+        <stop offset="50%" stop-color="#00B4FF"/>
+        <stop offset="100%" stop-color="#0066AA"/>
       </linearGradient>
-      <filter id="glow">
-        <feGaussianBlur stdDeviation="12.8" result="blur"/>
+
+      <!-- Play triangle gradient -->
+      <linearGradient id="playGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#88FFBB"/>
+        <stop offset="100%" stop-color="#00FF88"/>
+      </linearGradient>
+
+      <!-- Glow filter -->
+      <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="38.4" result="blur"/>
         <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
       </filter>
-      <filter id="greenGlow">
-        <feGaussianBlur stdDeviation="7.68" result="blur"/>
+
+      <!-- Soft glow for bg -->
+      <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+        <feGaussianBlur stdDeviation="15.36" result="blur"/>
         <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
       </filter>
+
+      <!-- Inner shadow / bevel for button -->
+      <filter id="bevel">
+        <feGaussianBlur in="SourceAlpha" stdDeviation="7.68" result="blur"/>
+        <feOffset dx="-5.12" dy="-5.12" result="offset"/>
+        <feComposite in="SourceGraphic" in2="offset" operator="over"/>
+      </filter>
+
+      <!-- Background film grid lines -->
+      <pattern id="grid" width="40.96" height="40.96" patternUnits="userSpaceOnUse">
+        <line x1="0" y1="0" x2="0" y2="40.96" stroke="#ffffff" stroke-width="1.536" opacity="0.03"/>
+        <line x1="0" y1="0" x2="40.96" y2="0" stroke="#ffffff" stroke-width="1.536" opacity="0.03"/>
+      </pattern>
+
+      <!-- Clip path for grid -->
+      <clipPath id="bgClip">
+        <rect width="512" height="512" rx="92"/>
+      </clipPath>
     </defs>
 
     <!-- Background -->
     <rect width="512" height="512" rx="92" fill="url(#bg)"/>
+    <!-- Subtle grid overlay -->
+    <rect width="512" height="512" rx="92" fill="url(#grid)" clip-path="url(#bgClip)"/>
 
-    <!-- Outer ring glow -->
-    <circle cx="256" cy="256" r="235.52" fill="none" stroke="#0070A0" stroke-width="15.36" opacity="0.6"/>
+    <!-- Decorative: thin top-left highlight -->
+    <rect width="512" height="512" rx="92" fill="none"
+      stroke="#ffffff" stroke-width="2.56" opacity="0.06"
+      stroke-dasharray="128 256" stroke-dashoffset="51.2"/>
 
-    <!-- Vertical bars of H (clip/bracket motif) -->
-    <rect x="92.16" y="102.4" width="66.56" height="307.2" rx="25.6" fill="url(#blueGrad)" filter="url(#glow)"/>
-    <rect x="353.28" y="102.4" width="66.56" height="307.2" rx="25.6" fill="url(#blueGrad)" filter="url(#glow)"/>
+    <!-- Outer glow halo -->
+    <circle cx="256" cy="245.76" r="215.04"
+      fill="none" stroke="#00B4FF" stroke-width="23.04" opacity="0.2" filter="url(#softGlow)"/>
 
-    <!-- Crossbar of H -->
-    <rect x="158.72" y="102.4" width="194.56" height="87.04" rx="20.48" fill="url(#blueGrad)" filter="url(#glow)"/>
-    <rect x="158.72" y="322.56" width="194.56" height="87.04" rx="20.48" fill="url(#blueGrad)" filter="url(#glow)"/>
+    <!-- Button shadow (below) -->
+    <circle cx="256" cy="250.88" r="184.32"
+      fill="#000000" opacity="0.4" filter="url(#softGlow)"/>
 
-    <!-- Clip notch marks (accent detail) -->
-    <rect x="92.16" y="102.4" width="66.56" height="20.48" rx="10.24" fill="#00FF88" opacity="0.9"/>
-    <rect x="92.16" y="389.12" width="66.56" height="20.48" rx="10.24" fill="#00FF88" opacity="0.9"/>
-    <rect x="353.28" y="102.4" width="66.56" height="20.48" rx="10.24" fill="#00FF88" opacity="0.9"/>
-    <rect x="353.28" y="389.12" width="66.56" height="20.48" rx="10.24" fill="#00FF88" opacity="0.9"/>
+    <!-- Button body (glass circle) -->
+    <circle cx="256" cy="245.76" r="184.32" fill="url(#glass)"/>
 
-    <!-- Play triangle (centered in H crossbar area) -->
-    <polygon points="256,174.08 348.16,256 256,337.92" fill="#00FF88" filter="url(#greenGlow)"/>
+    <!-- Button rim (gradient border) -->
+    <circle cx="256" cy="245.76" r="184.32"
+      fill="none" stroke="url(#rim)" stroke-width="12.8" filter="url(#glow)"/>
 
-    <!-- Small "HC" micro-text below play button -->
-    <text x="256" y="440.32" text-anchor="middle" font-family="Arial,sans-serif" font-size="35.84" font-weight="700" fill="#00B4FF" opacity="0.7" letter-spacing="15.36">HC</text>
+    <!-- Inner highlight arc (top of circle — glass reflection) -->
+    <ellipse cx="220.16" cy="168.96" rx="92.16" ry="40.96"
+      fill="#ffffff" opacity="0.07"/>
+
+    <!-- Play triangle: outer glow -->
+    <polygon
+      points="220.16,168.96 343.04,245.76 220.16,322.56"
+      fill="#00FF88" opacity="0.25" filter="url(#softGlow)"
+      transform="translate(6.144, 4.096)"/>
+
+    <!-- Play triangle: main shape -->
+    <polygon
+      points="220.16,174.08 337.92,245.76 220.16,317.44"
+      fill="url(#playGrad)"/>
+
+    <!-- Play triangle: highlight edge -->
+    <polygon
+      points="220.16,174.08 266.24,215.04 220.16,256"
+      fill="#ccffee" opacity="0.25"/>
+
+    <!-- HC text -->
+    <text x="256" y="471.04" text-anchor="middle"
+      font-family="Arial,sans-serif" font-size="38.4" font-weight="800"
+      fill="#00B4FF" opacity="0.65" letter-spacing="7.68">HC</text>
   </svg>

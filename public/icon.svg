@@ -1,39 +1,59 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#12121a"/>
-      <stop offset="100%" stop-color="#08080e"/>
+      <stop offset="0%" stop-color="#111118"/>
+      <stop offset="100%" stop-color="#060610"/>
     </linearGradient>
-    <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#33C8FF"/>
-      <stop offset="100%" stop-color="#0088CC"/>
+    <radialGradient id="glass" cx="38%" cy="32%" r="68%">
+      <stop offset="0%" stop-color="#1e4060"/>
+      <stop offset="50%" stop-color="#0c1e36"/>
+      <stop offset="100%" stop-color="#061224"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#44CCFF"/>
+      <stop offset="50%" stop-color="#00B4FF"/>
+      <stop offset="100%" stop-color="#0066AA"/>
     </linearGradient>
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="13" result="blur"/>
+    <linearGradient id="playGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#88FFBB"/>
+      <stop offset="100%" stop-color="#00FF88"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="7.5" result="blur"/>
       <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <filter id="greenGlow">
-      <feGaussianBlur stdDeviation="8" result="blur"/>
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
       <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
+    <pattern id="grid" width="41" height="41" patternUnits="userSpaceOnUse">
+      <line x1="0" y1="0" x2="0" y2="41" stroke="#ffffff" stroke-width="1.5" opacity="0.03"/>
+      <line x1="0" y1="0" x2="41" y2="0" stroke="#ffffff" stroke-width="1.5" opacity="0.03"/>
+    </pattern>
+    <clipPath id="bgClip">
+      <rect width="512" height="512" rx="92"/>
+    </clipPath>
   </defs>
   <!-- Background -->
   <rect width="512" height="512" rx="92" fill="url(#bg)"/>
-  <!-- Outer ring -->
-  <circle cx="256" cy="256" r="236" fill="none" stroke="#0070A0" stroke-width="15" opacity="0.6"/>
-  <!-- H vertical bars -->
-  <rect x="92" y="102" width="67" height="308" rx="26" fill="url(#blueGrad)" filter="url(#glow)"/>
-  <rect x="353" y="102" width="67" height="308" rx="26" fill="url(#blueGrad)" filter="url(#glow)"/>
-  <!-- H crossbars -->
-  <rect x="159" y="102" width="194" height="87" rx="20" fill="url(#blueGrad)" filter="url(#glow)"/>
-  <rect x="159" y="323" width="194" height="87" rx="20" fill="url(#blueGrad)" filter="url(#glow)"/>
-  <!-- Green accent marks -->
-  <rect x="92" y="102" width="67" height="20" rx="10" fill="#00FF88" opacity="0.9"/>
-  <rect x="92" y="390" width="67" height="20" rx="10" fill="#00FF88" opacity="0.9"/>
-  <rect x="353" y="102" width="67" height="20" rx="10" fill="#00FF88" opacity="0.9"/>
-  <rect x="353" y="390" width="67" height="20" rx="10" fill="#00FF88" opacity="0.9"/>
-  <!-- Play triangle -->
-  <polygon points="256,174 348,256 256,338" fill="#00FF88" filter="url(#greenGlow)"/>
-  <!-- HC micro text -->
-  <text x="256" y="440" text-anchor="middle" font-family="Arial,sans-serif" font-size="36" font-weight="700" fill="#00B4FF" opacity="0.7" letter-spacing="15">HC</text>
+  <!-- Subtle grid overlay -->
+  <rect width="512" height="512" rx="92" fill="url(#grid)" clip-path="url(#bgClip)"/>
+  <!-- Outer glow halo -->
+  <circle cx="256" cy="246" r="215" fill="none" stroke="#00B4FF" stroke-width="4.5" opacity="0.2" filter="url(#softGlow)"/>
+  <!-- Button shadow -->
+  <circle cx="256" cy="251" r="184" fill="#000000" opacity="0.4" filter="url(#softGlow)"/>
+  <!-- Button body -->
+  <circle cx="256" cy="246" r="184" fill="url(#glass)"/>
+  <!-- Button rim -->
+  <circle cx="256" cy="246" r="184" fill="none" stroke="url(#rim)" stroke-width="13" filter="url(#glow)"/>
+  <!-- Inner highlight -->
+  <ellipse cx="220" cy="169" rx="92" ry="41" fill="#ffffff" opacity="0.07"/>
+  <!-- Play triangle glow -->
+  <polygon points="220,174 342,246 220,318" fill="#00FF88" opacity="0.25" filter="url(#softGlow)" transform="translate(6,4)"/>
+  <!-- Play triangle main -->
+  <polygon points="220,174 342,246 220,318" fill="url(#playGrad)"/>
+  <!-- Play triangle highlight -->
+  <polygon points="220,174 266,215 220,244" fill="#ccffee" opacity="0.25"/>
+  <!-- HC text -->
+  <text x="256" y="471" text-anchor="middle" font-family="Arial,sans-serif" font-size="38" font-weight="800" fill="#00B4FF" opacity="0.65" letter-spacing="8">HC</text>
 </svg>
