@@ -23,7 +23,7 @@ import { log } from './unified_log.js'
 // ─── Config ───────────────────────────────────────────────────────────────────
 // Vercel deployment URL — set LICENSE_SERVER_URL env var in Vercel dashboard
 // Default points to local dev server; update to your Vercel deployment URL after deploy.
-const LICENSE_SERVER_URL = process.env.LICENSE_SERVER_URL || 'http://localhost:3001'
+const LICENSE_SERVER_URL = process.env.LICENSE_SERVER_URL || 'https://hyper-clip.vercel.app'
 const LICENSE_ACTIVATE_PATH = '/api/license/activate'
 const LICENSE_VALIDATE_PATH = '/api/license/validate'
 const LICENSE_FILE = 'license.enc.yaml'
