@@ -166,6 +166,9 @@ export function StorageWidget() {
 
     // Sync app behavior
     setQuitOnClose((st as { quitOnClose?: boolean }).quitOnClose !== false)
+
+    // Sync auto-render
+    setAutoRenderEnabled((st as { autoRender?: boolean }).autoRender ?? false)
   }
 
   useEffect(() => { load() }, [])
@@ -262,6 +265,13 @@ export function StorageWidget() {
     await ipc.updateSettings({ quitOnClose: val })
     setSettings({ quitOnClose: val })
     showToast(val ? 'Đóng app sẽ tắt hẳn' : 'Đóng app sẽ ẩn xuống tray')
+  }
+
+  const handleAutoRenderToggle = async (val: boolean) => {
+    setAutoRenderEnabled(val)
+    await ipc.updateSettings({ autoRender: val })
+    setSettings({ autoRender: val })
+    showToast(val ? 'Auto-render ON — video sẽ tự render sau khi download' : 'Auto-render OFF — chỉ download, không render tự động')
   }
 
   const handleCleanupToggle = async (val: boolean) => {
@@ -531,6 +541,15 @@ export function StorageWidget() {
           <div style={{ fontSize: 9, color: '#444' }}>GPU memory limit</div>
         </div>
         <QualityPicker value={String(maxConcurrentRenders)} options={['1', '2']} onChange={v => handleMaxConcurrentChange(Number(v))} />
+      </div>
+
+      {/* Auto-render toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', borderBottom: '1px solid #181818' }}>
+        <div>
+          <div style={{ fontSize: 11, color: '#888' }}>Auto-render</div>
+          <div style={{ fontSize: 9, color: '#444' }}>Tự động render sau khi download</div>
+        </div>
+        <ToggleSwitch value={autoRenderEnabled} onChange={handleAutoRenderToggle} />
       </div>
 
       {/* ── CLEANUP ──────────────────────────────────────── */}

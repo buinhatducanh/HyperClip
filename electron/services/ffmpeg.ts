@@ -44,6 +44,8 @@ export interface RenderMetadata {
   bottomBarEnabled?: boolean
   /** Watermark text to draw at bottom-right of rendered output. Set automatically from license. */
   watermarkText?: string
+  /** Upscale to 720p for TikTok compliance when source is below 720p */
+  upscaleToTikTok?: boolean
 }
 
 export interface Overlay {

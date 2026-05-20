@@ -22,6 +22,7 @@ import { registerSettingsHandlers } from './settings.js'
 import { registerPollerHandlers } from './poller.js'
 import { registerOpLogHandlers } from './op-logs.js'
 import { registerProjectHandlers } from './project.js'
+import { registerLicenseHandlers } from './license.js'
 
 export function registerAllHandlers(
   ipcMain: IpcMain,
@@ -43,6 +44,7 @@ export function registerAllHandlers(
   registerSettingsHandlers(ipcMain)
   registerPollerHandlers(ipcMain)
   registerOpLogHandlers(ipcMain)
+  registerLicenseHandlers(ipcMain)
 
   devLog('[IPC] All handlers registered')
 }

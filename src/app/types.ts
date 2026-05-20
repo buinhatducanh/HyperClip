@@ -86,6 +86,8 @@ export interface EditorState {
   exportPreset: 'p1' | 'p2' | 'p3';
   exportTune: 'hq' | 'll' | 'film';
   enableChunked: boolean;
+  /** Upscale to 720p minimum for TikTok compliance when source is below 720p */
+  upscaleToTikTok: boolean;
   // Background
   backgroundType: 'blur' | 'solid' | 'image';
   /** Uploaded background image URL (blob URL — for preview only) */

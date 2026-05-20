@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, memo } from 'react'
 import type { Workspace } from '../../lib/store'
 import { ipc } from '../../lib/ipc'
 
@@ -79,7 +79,7 @@ function parseRes(res?: string): number {
   return Math.min(w, h) || Math.max(w, h)
 }
 
-export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, onRetry, onSplit, trimLimitMinutes = 10 }: Props) {
+export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, onRetry, onSplit, trimLimitMinutes = 10 }: Props) {
   const isShort = workspace.isShort === true
   const status = workspace.status as WorkspaceStatus
   const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.ready
@@ -554,4 +554,4 @@ export function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, o
       </div>
     </div>
   )
-}
+})

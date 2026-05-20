@@ -202,6 +202,7 @@ const INIT_EDITOR: EditorState = {
   vidHeightPct: 50,
   bottomBarEnabled: true,
   bottomBarColor: '#000000',
+  upscaleToTikTok: false,
 }
 
 // ─── Store ─────────────────────────────────────────────────────────────────────

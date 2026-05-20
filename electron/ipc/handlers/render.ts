@@ -11,6 +11,7 @@ import fs from 'fs'
 import { IPC_CHANNELS } from '../channels.js'
 import { broadcast, sendNotification } from '../ipc-state.js'
 import { getWorkspace, updateWorkspace, getRenderedVideos, addRenderedVideo, removeRenderedVideo, type RenderedVideoRecord, type RenderConfigRecord, type SourceInfoRecord } from '../../services/store.js'
+import { getLicenseStatus } from '../../services/license.js'
 import { loadSettings, saveSettings, getVideoStoragePath, getOutputPath, archiveRenderedFile, openArchiveFolder, showInFolder, getAppStoreDir, formatBytes } from '../../services/ramdisk.js'
 import { renderVideo, renderChunked, cancelChunked, type RenderMetadata, type RenderProgress, type ChunkConfig } from '../../services/ffmpeg.js'
 import { cancelFfmpeg, getPoolStatus } from '../../services/worker-pool.js'
@@ -98,6 +99,8 @@ function executeRenderJob(job: RenderJob): void {
     overlays: resolvedOverlays,
     blur_background: metadata.blur_background || wsBlurBg,
     backgroundImage: !metadata.backgroundImage && !wsBlurBg && fs.existsSync(wsThumbPath) ? wsThumbPath : metadata.backgroundImage,
+    // Inject DEMO watermark for demo mode — appears at bottom-right of every rendered frame
+    watermarkText: getLicenseStatus().reason === 'Demo mode' ? 'DEMO' : (metadata.watermarkText || ''),
   }
 
   const gpuTier = getGPUCapabilities().tier
@@ -289,6 +292,7 @@ export function registerRenderHandlers(ipcMain: IpcMain): void {
       source_video: videoPath,
       blur_background: metadata.blur_background || wsBlurBg,
       backgroundImage: (!metadata.backgroundImage || !fs.existsSync(metadata.backgroundImage)) && !wsBlurBg && fs.existsSync(wsThumbPath) ? wsThumbPath : metadata.backgroundImage,
+      watermarkText: getLicenseStatus().reason === 'Demo mode' ? 'DEMO' : (metadata.watermarkText || ''),
     }
 
     const result = await renderChunked(

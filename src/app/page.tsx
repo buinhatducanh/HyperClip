@@ -12,6 +12,7 @@ import { RenderQueueBar } from './components/workspace/RenderQueueBar'
 import { DetailEditor } from './components/DetailEditor'
 import { RenderedVideoDetail } from './components/RenderedVideoDetail'
 import { LoginScreen } from './components/LoginScreen'
+import { LicenseScreen } from './components/LicenseScreen'
 import { ConfirmationDialog } from './components/ConfirmationDialog'
 import type { Channel, Video, SystemStats, EditorState } from './types'
 import { useAppStore, type Workspace } from './lib/store'
@@ -136,6 +137,8 @@ function DashboardContent() {
   } = useAppStore()
 
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
+  /** License check: null = loading, true = valid, false = invalid */
+  const [licenseValid, setLicenseValid] = useState<boolean | null>(null)
   const [authStatus, setAuthStatus] = useState<{
     isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string
     oauthReady: boolean; quotaExceeded?: boolean
@@ -278,6 +281,18 @@ function DashboardContent() {
       } catch {}
     }
     fetchDiag()
+  }, [])
+
+  // Check license status on mount — blocks app if license is invalid/expired
+  useEffect(() => {
+    ipc.getLicenseStatus().then((s: any) => {
+      // DEMO_MODE env var auto-sets valid=true, reason='Demo mode' — proceed normally
+      // Real license: valid=true → proceed; valid=false → show LicenseScreen overlay
+      setLicenseValid(s.valid)
+    }).catch(() => {
+      // Network error — allow app to proceed (offline mode trust)
+      setLicenseValid(true)
+    })
   }, [])
 
   // Poll key health every 30s
@@ -434,26 +449,51 @@ function DashboardContent() {
     return () => { delete (window as any).__reloadChannels }
   }, [initChannels])
 
-  // Render + download progress — SINGLE global listener (no per-card listeners needed)
+  // Separate Maps for render vs download progress — avoids status race conditions.
+  // Status check at FLUSH time (not event time) ensures correct routing.
+  const _pendingRender = useRef<Map<string, { percent: number; eta?: number | string }>>(new Map())
+  const _pendingDownload = useRef<Map<string, { percent: number; eta?: number | string; speed?: string }>>(new Map())
+  const _lastFlushMs = useRef<number>(0)
+
   useEffect(() => {
+    // Flush pending progress updates every 500ms (max 2 Zustand updates/sec)
+    const flushInterval = setInterval(() => {
+      const now = Date.now()
+      if (now - _lastFlushMs.current < 450) return
+      _lastFlushMs.current = now
+
+      // Route render progress
+      _pendingRender.current.forEach((data, wsId) => {
+        updateWorkspace(wsId, {
+          renderProgress: data.percent,
+          renderEta: data.eta ? fmtEta(data.eta) : undefined,
+        } as Partial<Workspace>)
+      })
+      _pendingRender.current.clear()
+
+      // Route download progress — check status at flush time (not event time) to avoid race
+      _pendingDownload.current.forEach((data, wsId) => {
+        const ws = useAppStore.getState().workspaces.find(w => w.id === wsId)
+        if (ws?.status === 'downloading') {
+          updateWorkspace(wsId, {
+            downloadProgress: data.percent,
+            downloadSpeed: data.speed && data.speed !== '...' ? data.speed : undefined,
+            downloadEta: data.eta ? fmtEta(data.eta) : undefined,
+          } as Partial<Workspace>)
+        }
+      })
+      _pendingDownload.current.clear()
+    }, 500)
+
     const cleanup = window.electronAPI?.onRenderProgress((progress) => {
       const p = progress as { workspaceId: string; percent: number; eta?: number | string; speed?: string }
       if (!p.workspaceId || p.percent === undefined) return
-      // Read CURRENT workspace status from store (not stale closure variable)
       const current = useAppStore.getState().workspaces.find(w => w.id === p.workspaceId)
       if (!current) return
       if (current.status === 'rendering') {
-        updateWorkspace(p.workspaceId, {
-          renderProgress: p.percent,
-          renderEta: p.eta ? fmtEta(p.eta) : undefined,
-        })
+        _pendingRender.current.set(p.workspaceId, { percent: p.percent, eta: p.eta })
       } else if (current.status === 'downloading') {
-        // Throttle ETA: only update if new value differs by >3s from last shown.
-        // Prevents flickering when simulation/reality values oscillate between close seconds.
-        const newEta = p.eta ? fmtEta(p.eta) : undefined
-        let finalEta: string | undefined = undefined
         if (p.speed === 'processing') {
-          // Post-processing phase — freeze bar at 99%, show "processing" status
           updateWorkspace(p.workspaceId, {
             downloadProgress: 99,
             downloadSpeed: 'processing',
@@ -461,37 +501,10 @@ function DashboardContent() {
           })
           return
         }
-        if (newEta && newEta !== '') {
-          const lastEta = _lastDownloadEta.current.get(p.workspaceId)
-          if (!lastEta) {
-            finalEta = newEta
-          } else {
-            // Parse seconds from "~1m 23s" or "~73s" to compare
-            const parseSec = (s: string): number => {
-              const m = s.match(/~(\d+)m\s*(\d+)s/)
-              if (m) return parseInt(m[1]) * 60 + parseInt(m[2])
-              const sMatch = s.match(/~(\d+)s/)
-              if (sMatch) return parseInt(sMatch[1])
-              return -1
-            }
-            const lastSec = parseSec(lastEta)
-            const newSec = parseSec(newEta)
-            if (lastSec < 0 || newSec < 0 || Math.abs(newSec - lastSec) > 3) {
-              finalEta = newEta
-            } else {
-              finalEta = lastEta // keep last shown value — prevents flicker
-            }
-          }
-          if (finalEta !== undefined) _lastDownloadEta.current.set(p.workspaceId, finalEta)
-        }
-        updateWorkspace(p.workspaceId, {
-          downloadProgress: p.percent,
-          downloadSpeed: p.speed && p.speed !== '...' ? p.speed : current.downloadSpeed,
-          downloadEta: finalEta,
-        })
+        _pendingDownload.current.set(p.workspaceId, { percent: p.percent, eta: p.eta, speed: p.speed })
       }
     })
-    return cleanup
+    return () => { clearInterval(flushInterval); cleanup?.() }
   }, [updateWorkspace])
 
   // Quick-add from tray
@@ -729,12 +742,8 @@ function DashboardContent() {
         let settled = false // prevents fallback → probe race overwriting a valid result
         const probeTimeout = setTimeout(() => {
           settled = true // don't let slow probe overwrite fallback
-          if (ws.downloadQuality) {
-            const fallback = [360, 720, 1080].filter(h => h <= parseInt(ws.downloadQuality))
-            if (fallback.length > 0) {
-              updateWorkspace(id, { availableFormats: fallback })
-            }
-          }
+          // Slow probe (>3s) — show all options as fallback
+          updateWorkspace(id, { availableFormats: [360, 720, 1080] })
         }, 3000)
         ipc.getAvailableFormats(ws.videoId, ws.videoUrl).then(result => {
           clearTimeout(probeTimeout)
@@ -743,13 +752,10 @@ function DashboardContent() {
           }
         }).catch(() => {
           clearTimeout(probeTimeout)
-          // Probe failed — use conservative fallback so buttons still render
-          if (ws.downloadQuality) {
-            const fallback = [360, 720, 1080].filter(h => h <= parseInt(ws.downloadQuality))
-            if (fallback.length > 0) {
-              updateWorkspace(id, { availableFormats: fallback })
-            }
-          }
+          // Probe failed — show all options as fallback so buttons always render.
+          // maxAllowedHeight in ControlsPanel caps by sourceHeight when known;
+          // without YouTube data we trust the user's downloadQuality setting to guide the cap.
+          updateWorkspace(id, { availableFormats: [360, 720, 1080] })
         })
       }
     }
@@ -793,6 +799,15 @@ function DashboardContent() {
   }
 
   const handleEditorChange = (patch: Partial<EditorState>) => {
+    // Auto-upgrade to 720p when TikTok mode is toggled ON (false → true) and source is below 720p
+    if (patch.upscaleToTikTok === true && editorState.upscaleToTikTok === false) {
+      const ws = workspaces.find(w => w.id === selectedWorkspaceId)
+      const sourceHeight = ws?.videoResolution ? parseInt(ws.videoResolution.split('x')[1]) : (ws?.downloadQuality ? parseInt(ws.downloadQuality) : 0)
+      if (sourceHeight > 0 && sourceHeight < 720 && editorState.exportQuality < 720) {
+        patch = { ...patch, exportQuality: 720 as 1080 | 720 | 360 }
+        showToast(`Upscale: 360p → 720p for TikTok`)
+      }
+    }
     updateEditorState(patch)
     if (patch.exportQuality !== undefined && selectedWorkspaceId) {
       updateWorkspace(selectedWorkspaceId, { quality: patch.exportQuality as 1080 | 720 | 360 })
@@ -863,6 +878,7 @@ function DashboardContent() {
       bottomBarH,
       bottomBarColor: editorState.bottomBarColor,
       bottomBarEnabled: editorState.bottomBarEnabled,
+      upscaleToTikTok: editorState.upscaleToTikTok,
     }
 
     updateWorkspace(ws.id, { status: 'rendering', renderProgress: 0 })
@@ -952,6 +968,7 @@ function DashboardContent() {
       bottomBarH,
       bottomBarColor: editorState.bottomBarColor,
       bottomBarEnabled: editorState.bottomBarEnabled,
+      upscaleToTikTok: editorState.upscaleToTikTok,
     }
 
     updateWorkspace(ws.id, { status: 'rendering', renderProgress: 0 })
@@ -997,6 +1014,9 @@ function DashboardContent() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: '#0E0E0E', fontFamily: 'Inter, sans-serif', color: '#fff', overflow: 'hidden' }}>
+      {/* License activation — blocks entire app until valid license activated */}
+      {licenseValid === false && <LicenseScreen />}
+
       {/* Login screen */}
       {!authStatus.isReady && (
         <LoginScreen accountName={authStatus.accountName} oauthReady={authStatus.oauthReady} onLogout={handleLogout} />
@@ -1104,8 +1124,6 @@ function DashboardContent() {
               settings={settings}
               downloadQuality={selectedVideo?.downloadQuality}
               availableFormats={selectedVideo?.availableFormats}
-              onUndo={undoEditor}
-              onRedo={redoEditor}
             />
           )}
         </div>
@@ -1133,6 +1151,12 @@ function DashboardContent() {
         isExpanded={renderQueueExpanded}
         onToggle={() => setRenderQueueExpanded(v => !v)}
         onCancel={handleCancelRender}
+        autoRenderEnabled={settings.autoRender}
+        onAutoRenderToggle={(enabled) => {
+          setSettings({ autoRender: enabled })
+          ipc.updateSettings({ autoRender: enabled })
+          showToast(enabled ? 'Auto-render ON — video sẽ tự render sau khi download' : 'Auto-render OFF')
+        }}
       />
 
       <SkeletonStyles />

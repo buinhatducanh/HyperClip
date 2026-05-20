@@ -8,9 +8,11 @@ interface Props {
   isExpanded: boolean
   onToggle: () => void
   onCancel?: (id: string) => void
+  autoRenderEnabled?: boolean
+  onAutoRenderToggle?: (enabled: boolean) => void
 }
 
-export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel }: Props) {
+export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, autoRenderEnabled, onAutoRenderToggle }: Props) {
   const rendering = workspaces.filter(w => w.status === 'rendering')
   const queued = workspaces.filter(w => ['waiting', 'downloading'].includes(w.status))
 
@@ -72,6 +74,31 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel }: P
         >
           RENDER QUEUE
         </span>
+
+        {/* Auto-render quick toggle */}
+        {onAutoRenderToggle !== undefined && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onAutoRenderToggle(!autoRenderEnabled) }}
+            title={autoRenderEnabled ? 'Auto-render: ON — click to disable' : 'Auto-render: OFF — click to enable'}
+            style={{
+              fontSize: 8,
+              fontWeight: 800,
+              letterSpacing: '0.1em',
+              padding: '2px 7px',
+              borderRadius: 3,
+              border: 'none',
+              cursor: 'pointer',
+              background: autoRenderEnabled ? '#00FF8822' : '#1A1A1A',
+              color: autoRenderEnabled ? '#00FF88' : '#333',
+              borderWidth: 1,
+              borderStyle: 'solid',
+              borderColor: autoRenderEnabled ? '#00FF8844' : '#222',
+              transition: 'all 0.15s',
+            }}
+          >
+            AUTO
+          </button>
+        )}
 
         {/* Worker badges */}
         {rendering.map((ws, i) => (

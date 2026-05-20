@@ -45,6 +45,7 @@ import { initCookieManager, getCookieManager, authEvents, channelEvents } from '
 import { getKeyManager } from './services/key_manager.js'
 import { getProjectManager } from './services/project_manager.js'
 import { getTokenManager } from './services/token_manager.js'
+import { initLicense } from './services/license.js'
 import { killPersistentChrome } from './services/cdp.js'
 import { getSessionManager } from './services/chrome_cookies.js'
 import { getInnertubePoolSync } from './services/innertube_client.js'
@@ -1782,6 +1783,9 @@ void app.whenReady().then(async () => {
   setIPCState({ mainWindow })
   void createTray()
   registerAllHandlers(ipcMain, () => mainWindow)
+
+  // Init license (validates cached license, starts heartbeat if valid)
+  void initLicense()
 
   // ─── Health Alert Checker (every 60s) ───────────────────────────────────────
   // Runs periodic health checks and sends notifications to the renderer.

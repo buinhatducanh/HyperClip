@@ -21,7 +21,11 @@ import { encrypt, decrypt, blobToYAMLString, parseYAMLBlob, sha256 } from './cry
 import { log } from './unified_log.js'
 
 // ─── Config ───────────────────────────────────────────────────────────────────
+// Vercel deployment URL — set LICENSE_SERVER_URL env var in Vercel dashboard
+// Default points to local dev server; update to your Vercel deployment URL after deploy.
 const LICENSE_SERVER_URL = process.env.LICENSE_SERVER_URL || 'http://localhost:3001'
+const LICENSE_ACTIVATE_PATH = '/api/license/activate'
+const LICENSE_VALIDATE_PATH = '/api/license/validate'
 const LICENSE_FILE = 'license.enc.yaml'
 const VALIDATE_INTERVAL_MS = 24 * 60 * 60 * 1000  // 24 hours
 const LICENSE_DIR = app?.isPackaged
@@ -132,7 +136,7 @@ export async function activateLicense(key: string): Promise<ActivateResult> {
     protocol: LICENSE_SERVER_URL.startsWith('https') ? 'https:' : 'http:',
     hostname: new URL(LICENSE_SERVER_URL).hostname,
     port: new URL(LICENSE_SERVER_URL).port || (LICENSE_SERVER_URL.startsWith('https') ? 443 : 80),
-    path: '/activate',
+    path: LICENSE_ACTIVATE_PATH,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -201,7 +205,7 @@ export async function validateLicense(): Promise<LicenseStatus> {
     protocol: url.protocol,
     hostname: url.hostname,
     port: url.port || (url.protocol === 'https:' ? 443 : 80),
-    path: `/validate?${params}`,
+    path: `${LICENSE_VALIDATE_PATH}?${params}`,
     method: 'GET',
     headers: { 'User-Agent': 'HyperClip/1.0' },
   }
@@ -248,6 +252,13 @@ export function stopLicenseHeartbeat(): void {
 
 // ─── Status ────────────────────────────────────────────────────────────────────
 export function getLicenseStatus(): LicenseStatus {
+  // Check local expiration even if server is unreachable (demo mode)
+  if (_status.record?.expiresAt) {
+    const expiry = new Date(_status.record.expiresAt)
+    if (expiry <= new Date()) {
+      return { ..._status, valid: false, reason: 'License đã hết hạn (Demo hết hạn lúc 00:00).' }
+    }
+  }
   return { ..._status }
 }
 
@@ -294,4 +305,34 @@ if (DEV_LICENSE_BYPASS) {
       serverUrl: 'dev',
     },
   }
+}
+
+// ─── Demo mode ─────────────────────────────────────────────────────────────────
+// DEMO_MODE=true env var: auto-activates a hardware-locked, time-limited demo license.
+// Expires at midnight tomorrow (2026-05-21 00:00:00 local time).
+// Hardware-locked to THIS machine — won't work if customer copies .exe elsewhere.
+const DEMO_MODE = process.env.DEMO_MODE === 'true'
+const DEMO_EXPIRY = new Date()
+DEMO_EXPIRY.setHours(24, 0, 0, 0) // midnight tonight (00:00 tomorrow)
+
+if (DEMO_MODE) {
+  const machineId = getMachineId()
+  const demoRecord: LicenseRecord = {
+    keyId: 'DEMO-20260520',
+    key: 'DEMO-MODE-ENABLED',
+    machineId,
+    features: ['pro', 'auto_render', 'multi_channel'],
+    expiresAt: DEMO_EXPIRY.toISOString(),
+    issuedAt: new Date().toISOString(),
+    activatedAt: new Date().toISOString(),
+    serverUrl: 'demo',
+  }
+  // Verify this machine is authorized
+  _status = {
+    activated: true,
+    valid: true,
+    reason: 'Demo mode',
+    record: demoRecord,
+  }
+  log.warn(`[License] DEMO MODE — expires ${DEMO_EXPIRY.toLocaleString()} | Machine: ${machineId.slice(0, 8)}...`)
 }
