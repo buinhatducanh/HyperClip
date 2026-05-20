@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#12121a"/>
+      <stop offset="100%" stop-color="#08080e"/>
+    </linearGradient>
+    <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#33C8FF"/>
+      <stop offset="100%" stop-color="#0088CC"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="13" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="greenGlow">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <!-- Background -->
+  <rect width="512" height="512" rx="92" fill="url(#bg)"/>
+  <!-- Outer ring -->
+  <circle cx="256" cy="256" r="236" fill="none" stroke="#0070A0" stroke-width="15" opacity="0.6"/>
+  <!-- H vertical bars -->
+  <rect x="92" y="102" width="67" height="308" rx="26" fill="url(#blueGrad)" filter="url(#glow)"/>
+  <rect x="353" y="102" width="67" height="308" rx="26" fill="url(#blueGrad)" filter="url(#glow)"/>
+  <!-- H crossbars -->
+  <rect x="159" y="102" width="194" height="87" rx="20" fill="url(#blueGrad)" filter="url(#glow)"/>
+  <rect x="159" y="323" width="194" height="87" rx="20" fill="url(#blueGrad)" filter="url(#glow)"/>
+  <!-- Green accent marks -->
+  <rect x="92" y="102" width="67" height="20" rx="10" fill="#00FF88" opacity="0.9"/>
+  <rect x="92" y="390" width="67" height="20" rx="10" fill="#00FF88" opacity="0.9"/>
+  <rect x="353" y="102" width="67" height="20" rx="10" fill="#00FF88" opacity="0.9"/>
+  <rect x="353" y="390" width="67" height="20" rx="10" fill="#00FF88" opacity="0.9"/>
+  <!-- Play triangle -->
+  <polygon points="256,174 348,256 256,338" fill="#00FF88" filter="url(#greenGlow)"/>
+  <!-- HC micro text -->
+  <text x="256" y="440" text-anchor="middle" font-family="Arial,sans-serif" font-size="36" font-weight="700" fill="#00B4FF" opacity="0.7" letter-spacing="15">HC</text>
+</svg>

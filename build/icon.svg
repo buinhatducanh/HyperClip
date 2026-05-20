@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+    <defs>
+      <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#12121a"/>
+        <stop offset="100%" stop-color="#08080e"/>
+      </linearGradient>
+      <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#33C8FF"/>
+        <stop offset="100%" stop-color="#0088CC"/>
+      </linearGradient>
+      <filter id="glow">
+        <feGaussianBlur stdDeviation="12.8" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="greenGlow">
+        <feGaussianBlur stdDeviation="7.68" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+
+    <!-- Background -->
+    <rect width="512" height="512" rx="92" fill="url(#bg)"/>
+
+    <!-- Outer ring glow -->
+    <circle cx="256" cy="256" r="235.52" fill="none" stroke="#0070A0" stroke-width="15.36" opacity="0.6"/>
+
+    <!-- Vertical bars of H (clip/bracket motif) -->
+    <rect x="92.16" y="102.4" width="66.56" height="307.2" rx="25.6" fill="url(#blueGrad)" filter="url(#glow)"/>
+    <rect x="353.28" y="102.4" width="66.56" height="307.2" rx="25.6" fill="url(#blueGrad)" filter="url(#glow)"/>
+
+    <!-- Crossbar of H -->
+    <rect x="158.72" y="102.4" width="194.56" height="87.04" rx="20.48" fill="url(#blueGrad)" filter="url(#glow)"/>
+    <rect x="158.72" y="322.56" width="194.56" height="87.04" rx="20.48" fill="url(#blueGrad)" filter="url(#glow)"/>
+
+    <!-- Clip notch marks (accent detail) -->
+    <rect x="92.16" y="102.4" width="66.56" height="20.48" rx="10.24" fill="#00FF88" opacity="0.9"/>
+    <rect x="92.16" y="389.12" width="66.56" height="20.48" rx="10.24" fill="#00FF88" opacity="0.9"/>
+    <rect x="353.28" y="102.4" width="66.56" height="20.48" rx="10.24" fill="#00FF88" opacity="0.9"/>
+    <rect x="353.28" y="389.12" width="66.56" height="20.48" rx="10.24" fill="#00FF88" opacity="0.9"/>
+
+    <!-- Play triangle (centered in H crossbar area) -->
+    <polygon points="256,174.08 348.16,256 256,337.92" fill="#00FF88" filter="url(#greenGlow)"/>
+
+    <!-- Small "HC" micro-text below play button -->
+    <text x="256" y="440.32" text-anchor="middle" font-family="Arial,sans-serif" font-size="35.84" font-weight="700" fill="#00B4FF" opacity="0.7" letter-spacing="15.36">HC</text>
+  </svg>
