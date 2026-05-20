@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push:*)",
+      "Bash(GIT_HTTP_VERSION=HTTP/1.1 git push origin main:main)",
+      "Bash(git bundle:*)",
+      "Bash(git count-objects:*)",
+      "Bash(xargs -I{} du -s {})",
+      "Bash(git rm:*)",
+      "Bash(git commit:*)",
+      "Bash(git reflog:*)",
+      "Bash(git gc:*)",
+      "Bash(git remote:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(git stash:*)",
+      "Bash(git add:*)",
+      "Bash(rm -rf .git/refs/original/)",
+      "Bash(rm -rf .git/info/)",
+      "Bash(rm -f .git/logs/refs/original/*)",
+      "Bash(rm -f .git/refs/remotes/origin/main)",
+      "Bash(rmdir .git/refs/remotes/origin .git/refs/remotes)",
+      "Bash(find .git/refs/remotes -type f -exec rm -f {})",
+      "Bash(2)",
+      "Bash(rmdir .git/refs/remotes .git/refs)",
+      "Bash(git ls-tree:*)"
+    ]
+  }
+}
