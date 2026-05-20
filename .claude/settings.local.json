@@ -15,7 +15,15 @@
       "WebFetch(domain:docs.cloud.google.com)",
       "Bash(git checkout:*)",
       "Bash(git merge:*)",
-      "Bash(pnpm install:*)"
+      "Bash(pnpm install:*)",
+      "Bash(curl -s -X POST https://hyper-clip.vercel.app/api/license/activate -H \"Content-Type: application/json\" -d '{\"\"\"\"key\"\"\"\":\"\"\"\"DEMO-30-TEST1\"\"\"\",\"\"\"\"machineId\"\"\"\":\"\"\"\"test-machine-id-12345678\"\"\"\"}')",
+      "Bash(curl -sv https://hyper-clip.vercel.app/api/license/activate -X POST -H \"Content-Type: application/json\" -d '{\"\"\"\"key\"\"\"\":\"\"\"\"DEMO-30-TEST1\"\"\"\",\"\"\"\"machineId\"\"\"\":\"\"\"\"test-machine-id-12345678\"\"\"\"}')",
+      "Bash(curl -sv \"https://hyper-clip.vercel.app/api/license/validate?keyId=TEST&machineId=TEST12345678\")",
+      "Bash(cat next.config.*)",
+      "Bash(curl -sv https://hyper-clip.vercel.app/)",
+      "Bash(curl -sv https://hyper-clip.vercel.app/onboarding)",
+      "Bash(curl -sI \"https://hyper-clip-git-main-buinhatducanh.vercel.app/\")",
+      "Bash(vercel --version)"
     ]
   },
   "enabledMcpjsonServers": [
