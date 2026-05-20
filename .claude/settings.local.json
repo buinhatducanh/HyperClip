@@ -12,7 +12,9 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:webcache.googleusercontent.com)",
-      "WebFetch(domain:docs.cloud.google.com)"
+      "WebFetch(domain:docs.cloud.google.com)",
+      "Bash(git checkout:*)",
+      "Bash(git merge:*)"
     ]
   },
   "enabledMcpjsonServers": [
