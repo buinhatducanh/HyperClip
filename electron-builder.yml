@@ -12,6 +12,10 @@ extraResources:
     to: ffmpeg/bin/
   - from: resources/yt-dlp/
     to: yt-dlp/
+  - from: resources/node/
+    to: node/
+    filter:
+      - "**/*"
 asarUnpack: []
 
 # Auto-update configuration (disabled — manual update only)

@@ -1215,14 +1215,23 @@ function startNextServer(): Promise<void> {
   return new Promise<void>((resolve) => {
     startupResolve = resolve
 
-    // Find node executable — use system PATH or search common locations
+    // Find node executable — priority: bundled > system PATH
+    // Bundled: resources/node/node.exe (shipped in installer)
+    // System: fallback to whatever "node" resolves to in PATH
     let nodeExe = 'node'
-    try {
-      const { execSync } = require('child_process')
-      const result = execSync('where node', { timeout: 5000, encoding: 'utf-8' })
-      const firstPath = result.trim().split('\n')[0]
-      if (firstPath && fs.existsSync(firstPath)) nodeExe = firstPath
-    } catch {}
+    const bundledNode = app.isPackaged && process.resourcesPath
+      ? path.join(process.resourcesPath, 'node', 'node.exe')
+      : ''
+    if (bundledNode && fs.existsSync(bundledNode)) {
+      nodeExe = bundledNode
+    } else {
+      try {
+        const { execSync } = require('child_process')
+        const result = execSync('where node', { timeout: 5000, encoding: 'utf-8' })
+        const firstPath = result.trim().split('\n')[0]
+        if (firstPath && fs.existsSync(firstPath)) nodeExe = firstPath
+      } catch {}
+    }
 
     devLog(`[HyperClip] node executable: ${nodeExe}`)
 
