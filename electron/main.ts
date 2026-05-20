@@ -53,6 +53,7 @@ import type { SessionStatus } from './services/chrome_cookies.js'
 import { log, devLog, opLog, setLogWindow, cleanupOldLogs } from './services/unified_log.js'
 import { getLogDir, getSystemSnapshot } from './services/unified_log.js'
 import { checkHealthAlerts, sendHealthAlerts, recordVideoDetected, recordDownloadFail, recordDownloadSuccess } from './services/health_alerts.js'
+import { checkResourceAlert, getLastResourceAlert } from './services/system.js'
 import { startE2EServer, stopE2EServer } from './services/e2e_server.js'
 import { registerSettingsHandlers } from './ipc/handlers/settings.js'
 import { registerStorageHandlers } from './ipc/handlers/storage.js'
@@ -1564,6 +1565,13 @@ function startSystemMonitor() {
     if (!mainWindow || mainWindow.isDestroyed()) return
     const stats = collectSystemStats()
     mainWindow.webContents.send(IPC_CHANNELS.SYSTEM_STATS_EVENT, stats)
+
+    // Resource watchdog: notify on high RAM/GPU
+    const alert = checkResourceAlert()
+    if (alert.level !== 'normal') {
+      const notifType = alert.level === 'critical' ? 'error' : 'warning'
+      sendNotification(notifType, `[Resource] ${alert.reason}`)
+    }
   }, 5000)
 }
 

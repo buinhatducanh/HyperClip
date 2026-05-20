@@ -31,6 +31,7 @@ type ElectronAPI = {
   startChunked: (workspaceId: string, metadata: object, config?: object) => Promise<unknown>
   cancelRender: (workspaceId: string) => Promise<unknown>
   getSystemStats: () => Promise<unknown>
+  getResourceAlert: () => Promise<unknown>
   openFolder: (folderPath: string) => Promise<unknown>
   openUrl: (url: string) => Promise<unknown>
   onSystemStats: (callback: (stats: object) => void) => () => void
@@ -198,6 +199,9 @@ export const ipc = {
   },
   async getSystemStats() {
     return window.electronAPI?.getSystemStats()
+  },
+  async getResourceAlert() {
+    return window.electronAPI?.getResourceAlert()
   },
   async openFolder(folderPath: string) {
     return window.electronAPI?.openFolder(folderPath)

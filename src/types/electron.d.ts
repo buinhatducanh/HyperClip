@@ -46,6 +46,7 @@ export interface ElectronAPI {
   startChunked: (workspaceId: string, metadata: object, config?: object) => Promise<ChunkedResult | null>
   cancelRender: (workspaceId: string) => Promise<unknown>
   getSystemStats: () => Promise<unknown>
+  getResourceAlert: () => Promise<unknown>
   openFolder: (folderPath: string) => Promise<unknown>
   openUrl: (url: string) => Promise<unknown>
   onSystemStats: (callback: (stats: object) => void) => () => void

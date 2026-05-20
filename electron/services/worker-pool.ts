@@ -143,15 +143,12 @@ let _renderPoolWorkers = 0
 function getRenderPool(): WorkerPool {
   if (!_renderPool) {
     const caps = getGPUCapabilities()
-    // Single-pass: ~50% of chunked workers since each process is heavier
-    // (full filter chain vs per-chunk filter chain)
-    // RTX 5080: 16 → 8 single-pass, RTX 4090: 16 → 8
-    // RTX 4080: 14 → 7, RTX 3090: 14 → 7
-    // Low-tier: 2 → 2
-    const singleWorkers = Math.max(2, Math.ceil(caps.maxChunkWorkers * 0.5))
-    _renderPool = new WorkerPool(singleWorkers)
-    _renderPoolWorkers = singleWorkers
-    devLog(`[WorkerPool] Render pool initialized: ${singleWorkers} workers (GPU: ${caps.gpuName}, encoder: ${caps.encoder})`)
+    // Env override: explicit control
+    const envMax = parseInt(process.env.HYPERCLIP_MAX_WORKERS || '', 10)
+    const maxWorkers = !isNaN(envMax) && envMax > 0 ? envMax : 2
+    _renderPool = new WorkerPool(maxWorkers)
+    _renderPoolWorkers = maxWorkers
+    devLog(`[WorkerPool] Render pool initialized: ${maxWorkers} workers (GPU: ${caps.gpuName}, encoder: ${caps.encoder})`)
   }
   return _renderPool
 }
@@ -177,8 +174,10 @@ let _chunkPool: WorkerPool | null = null
 function getChunkPool(): WorkerPool {
   if (!_chunkPool) {
     const caps = getGPUCapabilities()
-    // Use VRAM-aware effective workers
-    const effective = getEffectiveWorkers()
+    // Env override: explicit control
+    const envMax = parseInt(process.env.HYPERCLIP_MAX_CHUNK_WORKERS || '', 10)
+    const envOverride = !isNaN(envMax) && envMax > 0
+    const effective = envOverride ? envMax : Math.min(getEffectiveWorkers(), 4) // cap at 4 max
     _chunkPool = new WorkerPool(effective)
     devLog(`[WorkerPool] Chunk pool initialized: ${effective} workers (GPU: ${caps.gpuName}, encoder: ${caps.encoder}, base=${caps.maxChunkWorkers})`)
   }
