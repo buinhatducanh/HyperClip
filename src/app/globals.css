@@ -1,0 +1,160 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ====================== */
+/* Base Layer               */
+/* ====================== */
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: #121212;
+    color: #ffffff;
+  }
+
+  html {
+    font-size: 16px;
+  }
+}
+
+/* ====================== */
+/* Custom Properties        */
+/* ====================== */
+
+:root {
+  --background: #ffffff;
+  --foreground: #000000;
+  --border: rgba(0, 0, 0, 0.1);
+  --ring: #cbd5e1;
+}
+
+.dark {
+  --background: #121212;
+  --foreground: #ffffff;
+  --border: #1e1e1e;
+  --ring: #404040;
+}
+
+/* ====================== */
+/* Custom Scrollbar         */
+/* ====================== */
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #222;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #333;
+}
+
+/* ====================== */
+/* Form Elements            */
+/* ====================== */
+
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+}
+
+textarea {
+  box-sizing: border-box;
+}
+
+input[type='color'] {
+  -webkit-appearance: none;
+  border: none;
+}
+input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+input[type='color']::-webkit-color-swatch {
+  border: none;
+}
+
+/* ====================== */
+/* Focus Visible           */
+/* ====================== */
+
+:focus-visible {
+  outline: 2px solid #00B4FF;
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+[role='button']:focus-visible {
+  outline: 2px solid #00B4FF;
+  outline-offset: 2px;
+}
+
+/* ====================== */
+/* Animations              */
+/* ====================== */
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInSimple {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
