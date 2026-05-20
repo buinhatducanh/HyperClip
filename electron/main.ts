@@ -1977,6 +1977,20 @@ void app.whenReady().then(async () => {
 
 // ─── Graceful shutdown — triggered by NSIS installer, system shutdown, or user quit ──
 // before-quit fires before the app actually exits — ensures quitAll() runs first.
+// ─── Single instance lock ─────────────────────────────────────────────────────
+// Only allow one instance. Second-instance launches focus the existing window.
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+}
+
 app.on('before-quit', (e) => {
   e.preventDefault()           // Prevent immediate exit
   void quitAll()               // Run full cleanup (cancel FFmpeg, stop poller, etc.)
