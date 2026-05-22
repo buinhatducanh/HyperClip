@@ -29,7 +29,18 @@
       "Bash(curl -s \"https://api.vercel.com/v13/deployments?teamId=&limit=5\" -H \"Authorization: Bearer \")",
       "Bash(ls -la vercel.json vercel.config.*)",
       "Bash(curl -sI \"https://hyper-clip.vercel.app/\")",
-      "Bash(curl -s \"https://hyper-clip.vercel.app/api/license/activate\" -X POST -H \"Content-Type: application/json\" -d '{\"\"key\"\":\"\"DEMO-30-TEST1\"\",\"\"machineId\"\":\"\"testmachine12345678\"\"}')"
+      "Bash(curl -s \"https://hyper-clip.vercel.app/api/license/activate\" -X POST -H \"Content-Type: application/json\" -d '{\"\"key\"\":\"\"DEMO-30-TEST1\"\",\"\"machineId\"\":\"\"testmachine12345678\"\"}')",
+      "Bash(rm -f \"D:/hyperclip_debug.txt\")",
+      "Bash(\"D:/New folder/HyperClip.exe\")",
+      "Read(//d//**)",
+      "WebFetch(domain:www.electronjs.org)",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:registry.npmjs.org)",
+      "WebFetch(domain:unpkg.com)",
+      "Bash(rm -f ~/AppData/Local/electron/Cache/electron-v41.5.0-win32-x64.zip)",
+      "Bash(rm -f ~/AppData/Local/electron/Cache/0bb2a552b63feacad81a0c34a460be1e22038a1fa7d013aeb54e89ffa2280cd8/*)",
+      "Skill(update-config)",
+      "Skill(update-config:*)"
     ]
   },
   "enabledMcpjsonServers": [

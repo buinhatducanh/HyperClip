@@ -370,7 +370,7 @@ const SplitSection = React.memo(function SplitSection({ videoDuration, trimLimit
     setIsSplitting(false)
   }
 
-  const maxParts = Math.min(10, Math.floor(videoDuration / 30)) || 2
+  const maxParts = Math.min(4, Math.floor(videoDuration / 30)) || 2
 
   return (
     <div style={{ padding: '10px 0 8px' }}>

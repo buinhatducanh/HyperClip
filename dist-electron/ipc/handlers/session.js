@@ -1,72 +1,111 @@
+"use strict";
 /**
  * Session + Logs IPC handlers.
  * Channels: SESSION_LIST, SESSION_REFRESH_ALL, SESSION_OPEN_LOGIN, SESSION_CLONE_ONE,
  *   logs:read, logs:export
  */
-import { shell, dialog } from 'electron';
-import path from 'path';
-import os from 'os';
-import fs from 'fs';
-import { execSync } from 'child_process';
-import { IPC_CHANNELS } from '../channels.js';
-import { getSessionManager } from '../../services/chrome_cookies.js';
-import { runDiagnostics } from '../../services/diagnostics.js';
-import { loadSettings } from '../../services/ramdisk.js';
-import { getLogDir, getSystemSnapshot, readFileLogs, getLogDiskUsage, cleanupOldLogs } from '../../services/unified_log.js';
-export function registerSessionHandlers(ipcMain, getMainWindow) {
-    ipcMain.handle(IPC_CHANNELS.SESSION_LIST, async () => {
-        const sm = getSessionManager();
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.registerSessionHandlers = registerSessionHandlers;
+const electron_1 = require("electron");
+const path_1 = __importDefault(require("path"));
+const os_1 = __importDefault(require("os"));
+const fs_1 = __importDefault(require("fs"));
+const child_process_1 = require("child_process");
+const channels_js_1 = require("../channels.js");
+const chrome_cookies_js_1 = require("../../services/chrome_cookies.js");
+const diagnostics_js_1 = require("../../services/diagnostics.js");
+const ramdisk_js_1 = require("../../services/ramdisk.js");
+const unified_log_js_1 = require("../../services/unified_log.js");
+function registerSessionHandlers(ipcMain, getMainWindow) {
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.SESSION_LIST, async () => {
+        const sm = (0, chrome_cookies_js_1.getSessionManager)();
         await sm.ensureInit();
         return sm.getStatus();
     });
-    ipcMain.handle(IPC_CHANNELS.SESSION_REFRESH_ALL, async () => {
-        const sm = getSessionManager();
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.SESSION_REFRESH_ALL, async () => {
+        const sm = (0, chrome_cookies_js_1.getSessionManager)();
         const count = await sm.refreshAll();
         return { success: true, refreshedCount: count };
     });
-    ipcMain.handle(IPC_CHANNELS.SESSION_OPEN_LOGIN, async (_, profileId) => {
-        const sm = getSessionManager();
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.SESSION_OPEN_LOGIN, async (_, profileId) => {
+        const sm = (0, chrome_cookies_js_1.getSessionManager)();
         const cookiesExtracted = await sm.openLoginWindow(profileId);
         return { success: true, cookiesExtracted };
     });
-    ipcMain.handle(IPC_CHANNELS.SESSION_CLONE_ONE, async () => {
-        const sm = getSessionManager();
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.SESSION_CLONE_ONE, async () => {
+        const sm = (0, chrome_cookies_js_1.getSessionManager)();
         return sm.cloneSessionOne();
     });
     // ─── Log Export ─────────────────────────────────────────────────────────────
     ipcMain.handle('logs:read', async () => {
-        return readFileLogs();
+        return (0, unified_log_js_1.readFileLogs)();
     });
     ipcMain.handle('logs:disk-usage', async () => {
-        return getLogDiskUsage();
+        return (0, unified_log_js_1.getLogDiskUsage)();
     });
     ipcMain.handle('logs:cleanup', async () => {
-        return cleanupOldLogs();
+        return (0, unified_log_js_1.cleanupOldLogs)();
     });
     ipcMain.handle('logs:export', async () => {
-        const logDir = getLogDir();
-        const tmpDir = path.join(os.tmpdir(), 'hyperclip-logs-' + Date.now());
-        fs.mkdirSync(tmpDir, { recursive: true });
+        const logDir = (0, unified_log_js_1.getLogDir)();
+        const tmpDir = path_1.default.join(os_1.default.tmpdir(), 'hyperclip-logs-' + Date.now());
+        fs_1.default.mkdirSync(tmpDir, { recursive: true });
         // System snapshot
-        fs.writeFileSync(path.join(tmpDir, 'system_info.txt'), getSystemSnapshot());
+        fs_1.default.writeFileSync(path_1.default.join(tmpDir, 'system_info.txt'), (0, unified_log_js_1.getSystemSnapshot)());
         // Log files
         try {
-            for (const fname of fs.readdirSync(logDir)) {
+            for (const fname of fs_1.default.readdirSync(logDir)) {
                 if (!fname.startsWith('hyperclip'))
                     continue;
-                fs.copyFileSync(path.join(logDir, fname), path.join(tmpDir, fname));
+                fs_1.default.copyFileSync(path_1.default.join(logDir, fname), path_1.default.join(tmpDir, fname));
             }
         }
         catch { }
         // Crash dumps
-        const { app: electronApp } = await import('electron');
-        const crashDir = path.join(electronApp.getPath('crashDumps'));
-        if (fs.existsSync(crashDir)) {
+        const { app: electronApp } = await Promise.resolve().then(() => __importStar(require('electron')));
+        const crashDir = path_1.default.join(electronApp.getPath('crashDumps'));
+        if (fs_1.default.existsSync(crashDir)) {
             try {
-                fs.mkdirSync(path.join(tmpDir, 'crash_dumps'), { recursive: true });
-                for (const fname of fs.readdirSync(crashDir)) {
+                fs_1.default.mkdirSync(path_1.default.join(tmpDir, 'crash_dumps'), { recursive: true });
+                for (const fname of fs_1.default.readdirSync(crashDir)) {
                     if (fname.endsWith('.dmp') || fname.endsWith('.mdmp')) {
-                        fs.copyFileSync(path.join(crashDir, fname), path.join(tmpDir, 'crash_dumps', fname));
+                        fs_1.default.copyFileSync(path_1.default.join(crashDir, fname), path_1.default.join(tmpDir, 'crash_dumps', fname));
                     }
                 }
             }
@@ -74,20 +113,20 @@ export function registerSessionHandlers(ipcMain, getMainWindow) {
         }
         // Diagnostics
         try {
-            const diag = await runDiagnostics();
-            fs.writeFileSync(path.join(tmpDir, 'diagnostics.json'), JSON.stringify(diag, null, 2));
+            const diag = await (0, diagnostics_js_1.runDiagnostics)();
+            fs_1.default.writeFileSync(path_1.default.join(tmpDir, 'diagnostics.json'), JSON.stringify(diag, null, 2));
         }
         catch { }
         // Settings
         try {
-            const settings = loadSettings();
-            fs.writeFileSync(path.join(tmpDir, 'settings.json'), JSON.stringify(settings, null, 2));
+            const settings = (0, ramdisk_js_1.loadSettings)();
+            fs_1.default.writeFileSync(path_1.default.join(tmpDir, 'settings.json'), JSON.stringify(settings, null, 2));
         }
         catch { }
         // Save as zip
-        const zipPath = path.join(os.tmpdir(), `hyperclip-logs-${new Date().toISOString().slice(0, 10)}.zip`);
+        const zipPath = path_1.default.join(os_1.default.tmpdir(), `hyperclip-logs-${new Date().toISOString().slice(0, 10)}.zip`);
         const mainWindow = getMainWindow();
-        const saveResult = await dialog.showSaveDialog(mainWindow, {
+        const saveResult = await electron_1.dialog.showSaveDialog(mainWindow, {
             title: 'Lưu file log',
             defaultPath: zipPath,
             filters: [{ name: 'ZIP', extensions: ['zip'] }],
@@ -95,9 +134,9 @@ export function registerSessionHandlers(ipcMain, getMainWindow) {
         if (saveResult.canceled || !saveResult.filePath)
             return { success: false };
         try {
-            execSync(`powershell -Command "Compress-Archive -Path '${tmpDir}\\*' -DestinationPath '${saveResult.filePath}' -Force"`, { stdio: 'ignore' });
-            fs.rmSync(tmpDir, { recursive: true, force: true });
-            shell.showItemInFolder(saveResult.filePath);
+            (0, child_process_1.execSync)(`powershell -Command "Compress-Archive -Path '${tmpDir}\\*' -DestinationPath '${saveResult.filePath}' -Force"`, { stdio: 'ignore' });
+            fs_1.default.rmSync(tmpDir, { recursive: true, force: true });
+            electron_1.shell.showItemInFolder(saveResult.filePath);
             return { success: true, path: saveResult.filePath };
         }
         catch (e) {

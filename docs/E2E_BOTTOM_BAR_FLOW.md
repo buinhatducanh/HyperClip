@@ -127,4 +127,3 @@ For SHORT mode, zone heights are ALWAYS 20/70/10% regardless of `bottomBarEnable
 ## Related Docs
 
 - `docs/BOTTOM_BAR_LAYOUT.md` — Zone system, filter chain, constants
-- `docs/BUG_LAGGY_RENDER.md` — Prior render pipeline fixes

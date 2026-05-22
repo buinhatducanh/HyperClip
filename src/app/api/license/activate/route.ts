@@ -3,15 +3,16 @@
  * Body: { key: string; machineId: string }
  * Returns: { success: boolean; keyId?: string; expiresAt?: string; features?: string[]; error?: string; code?: string }
  *
- * Demo key format: DEMO-{DAYS}-{RANDOM}
- * Example: DEMO-7-ABC123 → valid for 7 days from activation
+ * Demo key format: DEMO-{DAYS}-{SUFFIX}
+ * Example: DEMO-2-ABC123 → valid for 2 days from activation
  *
- * Storage: env var LICENSE_STORE = JSON string (persists across Lambda invocations in Vercel)
+ * On Vercel: uses env var LICENSE_STORE (not persistent across Lambda invocations)
+ * For production: use the bundled local license server instead
  */
 import { NextResponse } from 'next/server'
 
 const STORE_ENV = 'LICENSE_STORE'
-const MAX_DAYS = 30
+const MAX_DAYS = 2
 
 interface StoredLicense {
   key: string
@@ -57,9 +58,9 @@ export async function POST(req: Request) {
 
     // ── Demo key activation ────────────────────────────────────────────────────
     if (keyUpper.startsWith('DEMO-')) {
-      const match = keyUpper.match(/^DEMO-(\d{1,2})-([A-Z0-9]{3,6})$/)
+      const match = keyUpper.match(/^DEMO-(\d{1,2})-([A-Z0-9]{3,8})$/)
       if (!match) {
-        return NextResponse.json({ success: false, error: 'Invalid demo key format. Use: DEMO-7-XXXXXX', code: 'INVALID_KEY' }, { status: 400 })
+        return NextResponse.json({ success: false, error: 'Invalid demo key format. Use: DEMO-2-SUFFIX', code: 'INVALID_KEY' }, { status: 400 })
       }
 
       const days = parseInt(match[1], 10)
@@ -71,7 +72,6 @@ export async function POST(req: Request) {
       const store = getStore()
       for (const entry of Object.values(store)) {
         if (entry.key === keyUpper && entry.machineId === machineId) {
-          // Re-activation — return same keyId
           return NextResponse.json({
             success: true,
             keyId: entry.keyId,

@@ -1,42 +1,45 @@
+"use strict";
 /**
  * IPC Handlers index — registers domain-specific handler groups.
  *
  * Each handler file exports a `register*` function.
  * main.ts imports this module and calls registerAllHandlers().
  */
-import { devLog } from '../../services/unified_log.js';
-import { sendNotification } from '../ipc-state.js';
-import { registerSystemHandlers } from './system.js';
-import { registerAuthHandlers } from './auth.js';
-import { registerSessionHandlers } from './session.js';
-import { registerWorkspaceHandlers } from './workspace.js';
-import { registerWorkspaceSplitHandler } from './workspace-split.js';
-import { registerChannelHandlers } from './channel.js';
-import { registerTrackerHandlers } from './tracker.js';
-import { registerVideoHandlers } from './video.js';
-import { registerRenderHandlers } from './render.js';
-import { registerStorageHandlers } from './storage.js';
-import { registerSettingsHandlers } from './settings.js';
-import { registerPollerHandlers } from './poller.js';
-import { registerOpLogHandlers } from './op-logs.js';
-import { registerProjectHandlers } from './project.js';
-import { registerLicenseHandlers } from './license.js';
-export function registerAllHandlers(ipcMain, _getMainWindow) {
-    devLog('[IPC] Registering handlers...');
-    registerSystemHandlers(ipcMain);
-    registerAuthHandlers(ipcMain);
-    registerProjectHandlers(ipcMain);
-    registerSessionHandlers(ipcMain, _getMainWindow);
-    registerWorkspaceHandlers(ipcMain);
-    registerWorkspaceSplitHandler(ipcMain);
-    registerChannelHandlers(ipcMain);
-    registerTrackerHandlers(ipcMain);
-    registerVideoHandlers(ipcMain);
-    registerRenderHandlers(ipcMain);
-    registerStorageHandlers(ipcMain, sendNotification);
-    registerSettingsHandlers(ipcMain);
-    registerPollerHandlers(ipcMain);
-    registerOpLogHandlers(ipcMain);
-    registerLicenseHandlers(ipcMain);
-    devLog('[IPC] All handlers registered');
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.registerAllHandlers = registerAllHandlers;
+const unified_log_js_1 = require("../../services/unified_log.js");
+const ipc_state_js_1 = require("../ipc-state.js");
+const system_js_1 = require("./system.js");
+const auth_js_1 = require("./auth.js");
+const session_js_1 = require("./session.js");
+const workspace_js_1 = require("./workspace.js");
+const workspace_split_js_1 = require("./workspace-split.js");
+const channel_js_1 = require("./channel.js");
+const tracker_js_1 = require("./tracker.js");
+const video_js_1 = require("./video.js");
+const render_js_1 = require("./render.js");
+const storage_js_1 = require("./storage.js");
+const settings_js_1 = require("./settings.js");
+const poller_js_1 = require("./poller.js");
+const op_logs_js_1 = require("./op-logs.js");
+const project_js_1 = require("./project.js");
+const license_js_1 = require("./license.js");
+function registerAllHandlers(ipcMain, _getMainWindow) {
+    (0, unified_log_js_1.devLog)('[IPC] Registering handlers...');
+    (0, system_js_1.registerSystemHandlers)(ipcMain);
+    (0, auth_js_1.registerAuthHandlers)(ipcMain);
+    (0, project_js_1.registerProjectHandlers)(ipcMain);
+    (0, session_js_1.registerSessionHandlers)(ipcMain, _getMainWindow);
+    (0, workspace_js_1.registerWorkspaceHandlers)(ipcMain);
+    (0, workspace_split_js_1.registerWorkspaceSplitHandler)(ipcMain);
+    (0, channel_js_1.registerChannelHandlers)(ipcMain);
+    (0, tracker_js_1.registerTrackerHandlers)(ipcMain);
+    (0, video_js_1.registerVideoHandlers)(ipcMain);
+    (0, render_js_1.registerRenderHandlers)(ipcMain);
+    (0, storage_js_1.registerStorageHandlers)(ipcMain, ipc_state_js_1.sendNotification);
+    (0, settings_js_1.registerSettingsHandlers)(ipcMain);
+    (0, poller_js_1.registerPollerHandlers)(ipcMain);
+    (0, op_logs_js_1.registerOpLogHandlers)(ipcMain);
+    (0, license_js_1.registerLicenseHandlers)(ipcMain);
+    (0, unified_log_js_1.devLog)('[IPC] All handlers registered');
 }

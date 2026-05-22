@@ -15,13 +15,9 @@ import path from 'path'
 import fs from 'fs'
 import os from 'os'
 import { app } from 'electron'
-import { createRequire } from 'module'
 import { getAppStoreDir } from './paths.js'
 
-// electron-log is CommonJS — use createRequire for ESM compatibility
-const require = createRequire(import.meta.url)
-
- 
+// electron-log is CommonJS
 const el: any = require('electron-log')
 const _log = el.default ?? el
 

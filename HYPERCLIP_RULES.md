@@ -27,7 +27,7 @@
 | # | Tầng | Công nghệ | Target |
 |---|-------|-----------|--------|
 | 1 | **Trigger** | Innertube (youtubei.js) + OAuth fallback (TokenManager) | < 5s |
-| 2 | **Download** | yt-dlp + `--download-sections` (chỉ tải N phút) + Direct IP Binding | < 30s |
+| 2 | **Download** | yt-dlp + `--download-sections` (chỉ tải N phút) + 4×32-fragment multi-instance (RAM ≥ 16GB) | < 40s |
 | 3 | **Pre-process** | Static blur (1 frame, cache vĩnh viễn) | < 3s |
 | 4 | **Edit** | React-Konva Canvas 2D (60fps) | < 16ms/frame |
 | 5 | **Render** | FFmpeg + NVENC (GPU) | < 2 phút |
@@ -285,6 +285,8 @@ Settings page → Chrome Sessions section:
 1. **RAM Disk cho video temp** — ~10GB/s I/O, video source không bao giờ đụng HDD
 2. **Static Blur** — gen 1 frame blur, cache vĩnh viễn, render chỉ composite (0 GPU cost/render frame)
 3. **Direct IP Binding** — yt-dlp bypass VPN để max bandwidth
+3b. **Multi-instance download (2026-05-21)** — 4 instances × 32 concurrent fragments khi RAM ≥ 16GB + 1080p. YouTube CDN per-IP cap ~100-200 Mbps → instances tối đa hữu ích = 4. Capped at 4 instances để tránh YouTube rate-limit.
+4. **NVENC hardware encode** — KHÔNG x264 software. Dùng `hevc_nvenc`/`h264_nvenc`
 4. **NVENC hardware encode** — KHÔNG x264 software. Dùng `hevc_nvenc`/`h264_nvenc`
 5. **NVDEC GPU decode** — Dùng `hevc_cuvid`/`h264_cuvid` thay `-hwaccel cuda` để full hardware decode
 6. **CUDA filter pipeline** — `-filter_hw_device cuda` để scale/pad/overlay chạy trên GPU

@@ -15,13 +15,19 @@ type ElectronAPI = {
   addChannel: (url: string) => Promise<unknown>
   updateChannel: (id: string, patch: object) => Promise<unknown>
   removeChannel: (id: string) => Promise<unknown>
+  pauseChannel: (id: string) => Promise<boolean>
+  resumeChannel: (id: string) => Promise<boolean>
+  bulkPauseChannels: (ids: string[]) => Promise<number>
+  bulkResumeChannels: (ids: string[]) => Promise<number>
+  bulkRemoveChannels: (ids: string[]) => Promise<number>
   getWorkspaces: () => Promise<unknown[]>
   updateWorkspace: (id: string, patch: object) => Promise<unknown>
   deleteWorkspace: (id: string) => Promise<{ success: boolean; bytesFreed: number; filesDeleted: number }>
   retryWorkspace: (id: string) => Promise<unknown>
   redownloadHd: (id: string) => Promise<{ success: boolean; error?: string }>
   regenerateWorkspaceBlur: (id: string) => Promise<{ success: boolean; blurPath?: string; error?: string }>
-  splitWorkspace: (id: string, partMinutes?: number) => Promise<{ success: boolean; newWorkspaces?: unknown[]; error?: string }>
+  splitWorkspace: (id: string, opts?: { intervals?: number[]; partMinutes?: number; autoSplit?: boolean; autoRender?: boolean } | number) => Promise<{ success: boolean; newWorkspaces?: unknown[]; error?: string }>
+  splitWorkspacePreview: (id: string, intervals?: number[], partMinutes?: number) => Promise<{ parts: Array<{ index: number; start: number; end: number; duration: number }>; numParts: number; totalSec: number } | null>
   setActiveWorkspace: (workspaceId: string | null) => Promise<{ success: boolean }>
   getVideoFile: (workspaceId: string) => Promise<{ path: string; url: string } | null>
   getVideoBlob: (workspaceId: string) => Promise<Uint8Array | null>
@@ -151,6 +157,21 @@ export const ipc = {
   async unsubscribeChannel(id: string) {
     return window.electronAPI?.unsubscribeChannel(id)
   },
+  async pauseChannel(id: string): Promise<boolean> {
+    return window.electronAPI?.pauseChannel(id) ?? false
+  },
+  async resumeChannel(id: string): Promise<boolean> {
+    return window.electronAPI?.resumeChannel(id) ?? false
+  },
+  async bulkPauseChannels(ids: string[]): Promise<number> {
+    return window.electronAPI?.bulkPauseChannels(ids) ?? 0
+  },
+  async bulkResumeChannels(ids: string[]): Promise<number> {
+    return window.electronAPI?.bulkResumeChannels(ids) ?? 0
+  },
+  async bulkRemoveChannels(ids: string[]): Promise<number> {
+    return window.electronAPI?.bulkRemoveChannels(ids) ?? 0
+  },
   async getWorkspaces() {
     return window.electronAPI?.getWorkspaces()
   },
@@ -169,8 +190,11 @@ export const ipc = {
   async regenerateWorkspaceBlur(id: string) {
     return window.electronAPI?.regenerateWorkspaceBlur(id)
   },
-  async splitWorkspace(id: string, partMinutes = 10) {
-    return window.electronAPI?.splitWorkspace(id, partMinutes)
+  async splitWorkspace(id: string, opts?: { intervals?: number[]; partMinutes?: number; autoSplit?: boolean; autoRender?: boolean }) {
+    return window.electronAPI?.splitWorkspace(id, opts)
+  },
+  async splitWorkspacePreview(id: string, intervals?: number[], partMinutes?: number) {
+    return window.electronAPI?.splitWorkspacePreview(id, intervals, partMinutes)
   },
   async setActiveWorkspace(workspaceId: string | null) {
     return window.electronAPI?.setActiveWorkspace(workspaceId)

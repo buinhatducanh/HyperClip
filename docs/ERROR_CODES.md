@@ -37,7 +37,7 @@
 2. In HyperClip Settings → Chrome Sessions → click **"Refresh all sessions"**
 3. If still failing: re-extract cookies: `node scripts/extract-cookies.js`
 
-**Log location:** `app.log` — search for `InnertubeClientPool._init`
+**Log location:** `app.log` — search for `[InnertubePool]`
 
 ---
 
@@ -966,6 +966,23 @@
 
 ---
 
+### HC-706-NETWORK
+
+**Symptom:** "Network: connection to Claude.ai or Riot Games times out (Timeout)"
+
+**Root Cause:** Local ISP routing/blocking issues to international Cloudflare CDN or Anthropic endpoints (especially common with Viettel/FPT/VNPT in Vietnam). Or Cloudflare WARP is running with the MASQUE protocol, which is blocked by the ISP.
+
+**Fix:**
+1. **Enable Cloudflare WARP** (or a reliable VPN) to bypass the ISP's routing blocks.
+2. If WARP is stuck in "Connecting" state permanently (due to the ISP blocking the default MASQUE/HTTP-3 UDP protocol), switch the WARP tunnel protocol to WireGuard:
+   ```powershell
+   warp-cli tunnel protocol set WireGuard
+   warp-cli connect
+   ```
+3. Verify connection status using `warp-cli status` (should show `Connected` and `Network: healthy`).
+
+---
+
 ## 8. Health Alerts (HC-800)
 
 These are informational alerts, not errors. HyperClip monitors these conditions and notifies you.
@@ -1193,6 +1210,7 @@ Write-Host "Logs saved to: $out"
 | HC-703 | NETWORK | Warning | SSL error |
 | HC-704 | NETWORK | Warning | Proxy auth |
 | HC-705 | NETWORK | Warning | VPN blocked |
+| HC-706 | NETWORK | Error | Claude/Riot Timeout |
 | HC-801 | ALERT | Critical | Innertube dead |
 | HC-802 | ALERT | Warning | Quota low |
 | HC-803 | ALERT | Critical | Quota exhausted |

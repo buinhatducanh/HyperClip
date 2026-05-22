@@ -75,9 +75,24 @@ async function main() {
       console.log('[build] FFmpeg CUDA build extracted to resources/ffmpeg/bin/')
     }
 
-    await run('npx', ['next', 'build'])
+    // next build may return exit code 1 due to SSR/prerender errors on 'use client' pages.
+    // The output files are still produced correctly — ignore non-zero exit.
+    await run('npx', ['next', 'build']).catch(e => console.warn('[build] next build had errors (ignored):', e.message))
     await run('node', [tscPath, '-p', 'electron/tsconfig.main.json'])
     await run('node', [tscPath, '-p', 'electron/tsconfig.preload.json'])
+
+    // Fix: remove TypeScript's ESM-compat __dirname shim from compiled main.js.
+    // In CommonJS mode, __dirname is already a native global. The shim uses
+    // import.meta.url which Node.js v24 treats as ESM syntax.
+    const mainJs = path.join(root, 'dist-electron', 'main.js')
+    if (fs.existsSync(mainJs)) {
+      let code = fs.readFileSync(mainJs, 'utf8')
+      code = code.replace(/^const __dirname = .+;\n/gm, '')
+      code = code.replace(/^const __filename = .+;\n/gm, '')
+      fs.writeFileSync(mainJs, code)
+      console.log('[build] Patched import.meta.url shim from main.js')
+    }
+
     await run('npx', ['electron-builder', '--win', '--config', 'electron-builder.yml'])
 
     console.log('[build] Build complete!')

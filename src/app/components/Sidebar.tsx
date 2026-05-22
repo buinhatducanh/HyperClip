@@ -238,11 +238,11 @@ export function Sidebar({
           {/* Button body */}
           <circle cx="256" cy="246" r="184" fill="url(#sglass)"/>
           {/* Button rim */}
-          <circle cx="256" cy="246" r="184" fill="none" stroke="url(#srim)" stroke-width="13" filter="url(#ssg)"/>
+          <circle cx="256" cy="246" r="184" fill="none" stroke="url(#srim)" strokeWidth="13" filter="url(#ssg)"/>
           {/* Play triangle */}
           <polygon points="220,174 342,246 220,318" fill="#00FF88"/>
           {/* HC */}
-          <text x="256" y="471" text-anchor="middle" font-family="Arial,sans-serif" font-size="38" font-weight="800" fill="#00B4FF" opacity="0.65" letter-spacing="8">HC</text>
+          <text x="256" y="471" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="38" fontWeight="800" fill="#00B4FF" opacity="0.65" letterSpacing="8">HC</text>
         </svg>
         <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.06em', flex: 1 }}>HyperClip</span>
         {/* Key health badge */}
@@ -376,10 +376,24 @@ export function Sidebar({
 
                     {/* Name */}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 11, color: isActiveCh ? '#fff' : '#888', fontWeight: isActiveCh ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ fontSize: 11, color: ch.paused ? '#555' : isActiveCh ? '#fff' : '#888', fontWeight: isActiveCh ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {ch.name}
                       </div>
+                      {ch.paused && (
+                        <div style={{ fontSize: 8, color: '#FFB800', fontWeight: 700, letterSpacing: '0.05em' }}>
+                          TẠM DỪNG
+                        </div>
+                      )}
                     </div>
+
+                    {/* Paused indicator */}
+                    {ch.paused && (
+                      <div style={{
+                        width: 6, height: 6, borderRadius: '50%',
+                        background: '#FFB800', flexShrink: 0,
+                        boxShadow: '0 0 4px #FFB80066',
+                      }} title="Kênh đang tạm dừng" />
+                    )}
 
                     {/* New count badge */}
                     {count > 0 && (
@@ -391,6 +405,33 @@ export function Sidebar({
                         {count}
                       </div>
                     )}
+
+                    {/* Pause / Resume button */}
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        if (ch.paused) {
+                          await ipc.resumeChannel(ch.id)
+                          showToast(`Đã tiếp tục: ${ch.name}`)
+                        } else {
+                          await ipc.pauseChannel(ch.id)
+                          showToast(`Đã tạm dừng: ${ch.name}`)
+                        }
+                        if ((window as any).__reloadChannels) (window as any).__reloadChannels()
+                      }}
+                      title={ch.paused ? `Tiếp tục ${ch.name}` : `Tạm dừng ${ch.name}`}
+                      style={{
+                        width: 18, height: 18, flexShrink: 0, opacity: 0,
+                        background: 'transparent', border: 'none', borderRadius: 3,
+                        color: '#555', cursor: 'pointer', fontSize: 10,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: 'opacity 0.15s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = '#FFB800' }}
+                      onMouseLeave={e => { e.currentTarget.style.opacity = '0'; e.currentTarget.style.color = '#555' }}
+                    >
+                      {ch.paused ? '▶' : '⏸'}
+                    </button>
 
                     {/* Unsubscribe from YouTube button */}
                     <button

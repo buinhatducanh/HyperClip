@@ -1,8 +1,0 @@
-{
-  "keys": [
-    { "key": "YOUR_API_KEY_01", "projectId": "hyperclip-key-01", "name": "Key 01" },
-    { "key": "YOUR_API_KEY_02", "projectId": "hyperclip-key-02", "name": "Key 02" },
-    { "key": "YOUR_API_KEY_03", "projectId": "hyperclip-key-03", "name": "Key 03" },
-    { "key": "YOUR_API_KEY_04", "projectId": "hyperclip-key-04", "name": "Key 04" }
-  ]
-}

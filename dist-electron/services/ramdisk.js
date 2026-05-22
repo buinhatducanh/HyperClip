@@ -1,23 +1,49 @@
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
-import { execSync } from 'child_process';
-import { shell } from 'electron';
-import { getAppStoreDir, getRamDiskPath, getDownloadsDir, getBlurDir, getOutputDir, getArchivedDir } from './paths.js';
-export { getAppStoreDir };
-import { devLog } from './unified_log.js';
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getAppStoreDir = void 0;
+exports.loadSettings = loadSettings;
+exports.saveSettings = saveSettings;
+exports.getConfiguredVideoStoragePath = getConfiguredVideoStoragePath;
+exports.getConfiguredOutputPath = getConfiguredOutputPath;
+exports.getAutoRamDiskSize = getAutoRamDiskSize;
+exports.isRamDiskAvailable = isRamDiskAvailable;
+exports.getRamDiskInfo = getRamDiskInfo;
+exports.getVideoStoragePath = getVideoStoragePath;
+exports.getOutputPath = getOutputPath;
+exports.ensureStorageDirs = ensureStorageDirs;
+exports.generateWorkspacePaths = generateWorkspacePaths;
+exports.getFreeDiskSpace = getFreeDiskSpace;
+exports.cleanupWorkspace = cleanupWorkspace;
+exports.formatBytes = formatBytes;
+exports.getWorkspaceStorageSize = getWorkspaceStorageSize;
+exports.getArchivePath = getArchivePath;
+exports.getConfiguredArchivePath = getConfiguredArchivePath;
+exports.archiveRenderedFile = archiveRenderedFile;
+exports.openArchiveFolder = openArchiveFolder;
+exports.showInFolder = showInFolder;
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
+const os_1 = __importDefault(require("os"));
+const child_process_1 = require("child_process");
+const electron_1 = require("electron");
+const paths_js_1 = require("./paths.js");
+Object.defineProperty(exports, "getAppStoreDir", { enumerable: true, get: function () { return paths_js_1.getAppStoreDir; } });
+const unified_log_js_1 = require("./unified_log.js");
 // RAM Disk Manager
 // Manages the virtual RAM disk for fast video temp storage
 // ─── User-configurable storage paths ─────────────────────────────────────────────
-const STORE_DIR = getAppStoreDir();
-const SETTINGS_FILE = path.join(STORE_DIR, 'settings.json');
+const STORE_DIR = (0, paths_js_1.getAppStoreDir)();
+const SETTINGS_FILE = path_1.default.join(STORE_DIR, 'settings.json');
 let _settings = null;
-export function loadSettings() {
+function loadSettings() {
     if (_settings !== null)
         return _settings;
     try {
-        if (fs.existsSync(SETTINGS_FILE)) {
-            _settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
+        if (fs_1.default.existsSync(SETTINGS_FILE)) {
+            _settings = JSON.parse(fs_1.default.readFileSync(SETTINGS_FILE, 'utf-8'));
         }
     }
     catch { }
@@ -49,16 +75,16 @@ export function loadSettings() {
         _settings.quitOnClose = true;
     return _settings;
 }
-export function saveSettings(settings) {
+function saveSettings(settings) {
     _settings = settings;
-    if (!fs.existsSync(STORE_DIR))
-        fs.mkdirSync(STORE_DIR, { recursive: true });
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
+    if (!fs_1.default.existsSync(STORE_DIR))
+        fs_1.default.mkdirSync(STORE_DIR, { recursive: true });
+    fs_1.default.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
 }
-export function getConfiguredVideoStoragePath() {
+function getConfiguredVideoStoragePath() {
     return loadSettings().videoStoragePath;
 }
-export function getConfiguredOutputPath() {
+function getConfiguredOutputPath() {
     return loadSettings().outputPath;
 }
 // On Windows: Use ImDisk or similar to create RAM disk
@@ -75,8 +101,8 @@ export function getConfiguredOutputPath() {
 //   Total peak: ~2.1GB → cap at 4GB (64GB machine) = 2× headroom
 // For 32GB machine (7 workers): ~1.2GB peak → 3GB cap
 // For 16GB machine (4 workers): ~700MB peak → 2GB cap
-export function getAutoRamDiskSize() {
-    const totalGB = os.totalmem() / (1024 ** 3);
+function getAutoRamDiskSize() {
+    const totalGB = os_1.default.totalmem() / (1024 ** 3);
     if (totalGB >= 48)
         return 4; // 64GB: 2× peak headroom
     if (totalGB >= 32)
@@ -88,24 +114,24 @@ export function getAutoRamDiskSize() {
     return 0; // <8GB: disable RAMDISK — too risky
 }
 const RAM_DISK_SIZE_GB = getAutoRamDiskSize();
-const RAM_DISK_PATH = getRamDiskPath();
-const OUTPUT_PATH = path.join(RAM_DISK_PATH, 'output');
+const RAM_DISK_PATH = (0, paths_js_1.getRamDiskPath)();
+const OUTPUT_PATH = path_1.default.join(RAM_DISK_PATH, 'output');
 const RAM_DISK_TOTAL = RAM_DISK_SIZE_GB * 1024 * 1024 * 1024; // bytes
 // Check if RAM disk is available
-export function isRamDiskAvailable() {
+function isRamDiskAvailable() {
     try {
-        return fs.existsSync(RAM_DISK_PATH);
+        return fs_1.default.existsSync(RAM_DISK_PATH);
     }
     catch {
         return false;
     }
 }
 // Get RAM disk info
-export function getRamDiskInfo() {
+function getRamDiskInfo() {
     const available = isRamDiskAvailable();
     if (!available) {
         // Fallback: use temp directory with disk space info
-        const tempDir = os.tmpdir();
+        const tempDir = os_1.default.tmpdir();
         try {
             // Estimate based on free temp space
             const freeSpace = getFreeDiskSpace(tempDir);
@@ -145,71 +171,71 @@ export function getRamDiskInfo() {
     };
 }
 // Get video storage path (user-configured > RAM disk > persistent downloads/)
-export function getVideoStoragePath() {
+function getVideoStoragePath() {
     const configured = getConfiguredVideoStoragePath();
-    if (configured && fs.existsSync(configured))
+    if (configured && fs_1.default.existsSync(configured))
         return configured;
     if (isRamDiskAvailable())
         return RAM_DISK_PATH;
     // Fallback: persistent folder under HyperClip-Data/downloads/
-    return getDownloadsDir();
+    return (0, paths_js_1.getDownloadsDir)();
 }
 // Get output path (user-configured > RAM disk > persistent output/)
-export function getOutputPath() {
+function getOutputPath() {
     const configured = getConfiguredOutputPath();
-    if (configured && fs.existsSync(configured))
+    if (configured && fs_1.default.existsSync(configured))
         return configured;
     if (isRamDiskAvailable())
         return OUTPUT_PATH;
     // Fallback: persistent folder under HyperClip-Data/output/
-    return getOutputDir();
+    return (0, paths_js_1.getOutputDir)();
 }
 // Ensure directories exist
-export function ensureStorageDirs() {
+function ensureStorageDirs() {
     const storagePath = getVideoStoragePath();
     const outputPath = getOutputPath();
-    const blurDir = getBlurDir();
+    const blurDir = (0, paths_js_1.getBlurDir)();
     const archiveDir = getArchivePath();
-    if (!fs.existsSync(storagePath)) {
-        fs.mkdirSync(storagePath, { recursive: true });
+    if (!fs_1.default.existsSync(storagePath)) {
+        fs_1.default.mkdirSync(storagePath, { recursive: true });
     }
-    if (!fs.existsSync(outputPath)) {
-        fs.mkdirSync(outputPath, { recursive: true });
+    if (!fs_1.default.existsSync(outputPath)) {
+        fs_1.default.mkdirSync(outputPath, { recursive: true });
     }
-    if (!fs.existsSync(blurDir)) {
-        fs.mkdirSync(blurDir, { recursive: true });
+    if (!fs_1.default.existsSync(blurDir)) {
+        fs_1.default.mkdirSync(blurDir, { recursive: true });
     }
-    if (!fs.existsSync(archiveDir)) {
-        fs.mkdirSync(archiveDir, { recursive: true });
+    if (!fs_1.default.existsSync(archiveDir)) {
+        fs_1.default.mkdirSync(archiveDir, { recursive: true });
     }
 }
 // Generate workspace file paths
 // yt-dlp outputs: {workspaceId}_{videoId}.mp4 — pass videoId to match the actual file
-export function generateWorkspacePaths(workspaceId, videoId) {
+function generateWorkspacePaths(workspaceId, videoId) {
     const storagePath = getVideoStoragePath();
     const outputDir = getOutputPath();
     return {
         // yt-dlp output template: {workspaceId}_%(id)s.mp4 — videoId required to match
         videoPath: videoId
-            ? path.join(storagePath, `${workspaceId}_${videoId}.mp4`)
-            : path.join(storagePath, `${workspaceId}.mp4`),
-        blurPath: path.join(storagePath, `blur_${workspaceId}.jpg`),
-        metadataPath: path.join(storagePath, `meta_${workspaceId}.json`),
-        outputPath: path.join(outputDir, `${workspaceId}_output.mp4`),
+            ? path_1.default.join(storagePath, `${workspaceId}_${videoId}.mp4`)
+            : path_1.default.join(storagePath, `${workspaceId}.mp4`),
+        blurPath: path_1.default.join(storagePath, `blur_${workspaceId}.jpg`),
+        metadataPath: path_1.default.join(storagePath, `meta_${workspaceId}.json`),
+        outputPath: path_1.default.join(outputDir, `${workspaceId}_output.mp4`),
     };
 }
 // Calculate directory size recursively
 function calculateDirSize(dirPath) {
     let size = 0;
     try {
-        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        const entries = fs_1.default.readdirSync(dirPath, { withFileTypes: true });
         for (const entry of entries) {
-            const fullPath = path.join(dirPath, entry.name);
+            const fullPath = path_1.default.join(dirPath, entry.name);
             if (entry.isDirectory()) {
                 size += calculateDirSize(fullPath);
             }
             else {
-                const stat = fs.statSync(fullPath);
+                const stat = fs_1.default.statSync(fullPath);
                 size += stat.size;
             }
         }
@@ -218,12 +244,12 @@ function calculateDirSize(dirPath) {
     return size;
 }
 // Get free disk space for a path (cross-platform)
-export function getFreeDiskSpace(dirPath) {
+function getFreeDiskSpace(dirPath) {
     // On Windows, use wmic command
     if (process.platform === 'win32') {
         try {
-            const drive = path.parse(dirPath).root || 'C:';
-            const out = execSync(`wmic logicaldisk where "DeviceID='${drive.replace('\\', '')}'" get FreeSpace /format:value`, {
+            const drive = path_1.default.parse(dirPath).root || 'C:';
+            const out = (0, child_process_1.execSync)(`wmic logicaldisk where "DeviceID='${drive.replace('\\', '')}'" get FreeSpace /format:value`, {
                 encoding: 'utf-8',
                 timeout: 5000,
             });
@@ -236,7 +262,7 @@ export function getFreeDiskSpace(dirPath) {
     }
     // On Linux/macOS, use df
     try {
-        const out = execSync(`df -k "${dirPath}"`, { encoding: 'utf-8', timeout: 5000 });
+        const out = (0, child_process_1.execSync)(`df -k "${dirPath}"`, { encoding: 'utf-8', timeout: 5000 });
         const lines = out.trim().split('\n');
         const dataLine = lines[lines.length - 1];
         const parts = dataLine.trim().split(/\s+/);
@@ -249,7 +275,7 @@ export function getFreeDiskSpace(dirPath) {
 }
 // Clean up old workspace files
 // Returns bytes freed and files deleted count
-export function cleanupWorkspace(workspaceId, downloadedPath) {
+function cleanupWorkspace(workspaceId, downloadedPath) {
     const storagePath = getVideoStoragePath();
     let bytesFreed = 0;
     let filesDeleted = 0;
@@ -259,15 +285,15 @@ export function cleanupWorkspace(workspaceId, downloadedPath) {
             return '';
         if (p.startsWith('/') || /^[A-Z]:/i.test(p))
             return p;
-        return path.join(storagePath, p);
+        return path_1.default.join(storagePath, p);
     };
     // Also scan for any leftover files matching {workspaceId}_*.{ext} pattern
     let patternFiles = [];
     try {
-        const entries = fs.readdirSync(storagePath);
+        const entries = fs_1.default.readdirSync(storagePath);
         patternFiles = entries
             .filter(f => f.startsWith(`${workspaceId}_`))
-            .map(f => path.join(storagePath, f));
+            .map(f => path_1.default.join(storagePath, f));
     }
     catch { }
     const { videoPath, blurPath, metadataPath, outputPath } = generateWorkspacePaths(workspaceId);
@@ -279,7 +305,7 @@ export function cleanupWorkspace(workspaceId, downloadedPath) {
     filesToClean.add(resolvePath(metadataPath));
     // output file
     try {
-        if (fs.existsSync(outputPath)) {
+        if (fs_1.default.existsSync(outputPath)) {
             filesToClean.add(outputPath);
         }
     }
@@ -289,12 +315,12 @@ export function cleanupWorkspace(workspaceId, downloadedPath) {
         filesToClean.add(f);
     for (const filePath of filesToClean) {
         try {
-            if (filePath && fs.existsSync(filePath)) {
-                const stat = fs.statSync(filePath);
+            if (filePath && fs_1.default.existsSync(filePath)) {
+                const stat = fs_1.default.statSync(filePath);
                 bytesFreed += stat.size;
-                fs.unlinkSync(filePath);
+                fs_1.default.unlinkSync(filePath);
                 filesDeleted++;
-                devLog(`[RAMDisk] Cleaned (${formatBytes(stat.size)}): ${filePath}`);
+                (0, unified_log_js_1.devLog)(`[RAMDisk] Cleaned (${formatBytes(stat.size)}): ${filePath}`);
             }
         }
         catch (err) {
@@ -304,7 +330,7 @@ export function cleanupWorkspace(workspaceId, downloadedPath) {
     return { bytesFreed, filesDeleted };
 }
 // Format bytes to human readable
-export function formatBytes(bytes) {
+function formatBytes(bytes) {
     if (bytes === 0)
         return '0 B';
     const k = 1024;
@@ -313,22 +339,22 @@ export function formatBytes(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 // Get storage stats for a workspace
-export function getWorkspaceStorageSize(workspaceId) {
+function getWorkspaceStorageSize(workspaceId) {
     const storagePath = getVideoStoragePath();
     let videoSize = 0;
     let blurSize = 0;
     // yt-dlp outputs: workspaceId_{videoId}.mp4 — scan for matching files
     try {
-        const files = fs.readdirSync(storagePath).filter(f => f.startsWith(workspaceId + '_') && f.endsWith('.mp4'));
+        const files = fs_1.default.readdirSync(storagePath).filter(f => f.startsWith(workspaceId + '_') && f.endsWith('.mp4'));
         for (const f of files) {
-            videoSize += fs.statSync(path.join(storagePath, f)).size;
+            videoSize += fs_1.default.statSync(path_1.default.join(storagePath, f)).size;
         }
     }
     catch { }
     try {
-        const blurPath = path.join(storagePath, `blur_${workspaceId}.jpg`);
-        if (fs.existsSync(blurPath)) {
-            blurSize = fs.statSync(blurPath).size;
+        const blurPath = path_1.default.join(storagePath, `blur_${workspaceId}.jpg`);
+        if (fs_1.default.existsSync(blurPath)) {
+            blurSize = fs_1.default.statSync(blurPath).size;
         }
     }
     catch { }
@@ -339,14 +365,14 @@ export function getWorkspaceStorageSize(workspaceId) {
     };
 }
 // ─── Archive / Rendered files ──────────────────────────────────────────────────────
-export function getArchivePath() {
+function getArchivePath() {
     const settings = loadSettings();
     if (settings.renderedOutputPath)
         return settings.renderedOutputPath;
     // Default: HyperClip-Data/archived/ — keeps everything under one root folder
-    return getArchivedDir();
+    return (0, paths_js_1.getArchivedDir)();
 }
-export function getConfiguredArchivePath() {
+function getConfiguredArchivePath() {
     return loadSettings().renderedOutputPath;
 }
 // Sanitize filename: remove characters invalid on Windows filenames
@@ -356,47 +382,47 @@ function sanitizeFilename(name) {
 }
 // Copy rendered output file to archive directory with descriptive filename.
 // Returns the archived absolute path, or null if copy failed.
-export async function archiveRenderedFile(sourcePath, channelName, videoTitle, quality, codec, fileSize, duration) {
+async function archiveRenderedFile(sourcePath, channelName, videoTitle, quality, codec, fileSize, duration) {
     const archiveDir = getArchivePath();
     // Ensure archive directory exists
     try {
-        if (!fs.existsSync(archiveDir)) {
-            fs.mkdirSync(archiveDir, { recursive: true });
+        if (!fs_1.default.existsSync(archiveDir)) {
+            fs_1.default.mkdirSync(archiveDir, { recursive: true });
         }
     }
     catch (e) {
         return { success: false, error: `Cannot create archive directory: ${e}` };
     }
     // Check source exists
-    if (!fs.existsSync(sourcePath)) {
+    if (!fs_1.default.existsSync(sourcePath)) {
         return { success: false, error: `Source file not found: ${sourcePath}` };
     }
     // Get source file size for integrity check
-    const sourceSize = fs.statSync(sourcePath).size;
+    const sourceSize = fs_1.default.statSync(sourcePath).size;
     // Build descriptive filename: {channel}_{title}_{quality}p_{codec}_{timestamp}.mp4
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const ext = path.extname(sourcePath) || '.mp4';
+    const ext = path_1.default.extname(sourcePath) || '.mp4';
     const safeChannel = sanitizeFilename(channelName) || 'Unknown';
     const safeTitle = sanitizeFilename(videoTitle) || 'Video';
     const baseName = `${safeChannel}_${safeTitle}_${quality}p_${codec}_${timestamp}${ext}`;
-    const destPath = path.join(archiveDir, baseName);
+    const destPath = path_1.default.join(archiveDir, baseName);
     // Copy file (async via execSync cp)
     try {
         // Use Windows copy command for reliability
-        execSync(`copy /Y "${sourcePath}" "${destPath}"`, { stdio: 'ignore' });
+        (0, child_process_1.execSync)(`copy /Y "${sourcePath}" "${destPath}"`, { stdio: 'ignore' });
     }
     catch {
         return { success: false, error: 'Failed to copy file to archive' };
     }
     // Verify copy succeeded: check file exists AND size matches
-    if (!fs.existsSync(destPath)) {
+    if (!fs_1.default.existsSync(destPath)) {
         return { success: false, error: 'Copy verification failed: destination not found' };
     }
-    const destStat = fs.statSync(destPath);
+    const destStat = fs_1.default.statSync(destPath);
     if (destStat.size !== sourceSize) {
         // Cleanup failed copy and return error
         try {
-            fs.unlinkSync(destPath);
+            fs_1.default.unlinkSync(destPath);
         }
         catch { }
         return { success: false, error: `Copy verification failed: size mismatch (expected ${sourceSize}, got ${destStat.size})` };
@@ -404,16 +430,16 @@ export async function archiveRenderedFile(sourcePath, channelName, videoTitle, q
     // Delete original after successful copy
     try {
         if (sourcePath !== destPath)
-            fs.unlinkSync(sourcePath);
+            fs_1.default.unlinkSync(sourcePath);
     }
     catch { }
     return { success: true, archivedPath: destPath };
 }
 // Open archive folder in file explorer
-export function openArchiveFolder() {
-    void shell.openPath(getArchivePath());
+function openArchiveFolder() {
+    void electron_1.shell.openPath(getArchivePath());
 }
 // Open a specific rendered file's containing folder
-export function showInFolder(filePath) {
-    shell.showItemInFolder(filePath);
+function showInFolder(filePath) {
+    electron_1.shell.showItemInFolder(filePath);
 }

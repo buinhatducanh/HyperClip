@@ -1,28 +1,34 @@
+"use strict";
 /**
  * Storage IPC handlers.
  * Channels: STORAGE_GET_SIZE, STORAGE_CLEAR_DOWNLOADS, STORAGE_CLEAR_BLUR,
  *           STORAGE_PICK_FOLDER, DIAGNOSTICS_RUN, DATA_EXPORT, DATA_IMPORT
  */
-import { BrowserWindow, dialog } from 'electron';
-import path from 'path';
-import fs from 'fs';
-import { IPC_CHANNELS } from '../channels.js';
-import { getVideoStoragePath, getOutputPath, getFreeDiskSpace } from '../../services/ramdisk.js';
-import { runDiagnostics } from '../../services/diagnostics.js';
-import { devLog } from '../../services/unified_log.js';
-export function registerStorageHandlers(ipcMain, sendNotification) {
-    ipcMain.handle(IPC_CHANNELS.STORAGE_GET_SIZE, async () => {
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.registerStorageHandlers = registerStorageHandlers;
+const electron_1 = require("electron");
+const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
+const channels_js_1 = require("../channels.js");
+const ramdisk_js_1 = require("../../services/ramdisk.js");
+const diagnostics_js_1 = require("../../services/diagnostics.js");
+const unified_log_js_1 = require("../../services/unified_log.js");
+function registerStorageHandlers(ipcMain, sendNotification) {
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.STORAGE_GET_SIZE, async () => {
         try {
-            const storagePath = getVideoStoragePath();
-            const outputDir = getOutputPath();
+            const storagePath = (0, ramdisk_js_1.getVideoStoragePath)();
+            const outputDir = (0, ramdisk_js_1.getOutputPath)();
             let downloadSize = 0;
             let blurSize = 0;
             try {
-                const entries = fs.readdirSync(storagePath);
+                const entries = fs_1.default.readdirSync(storagePath);
                 for (const entry of entries) {
-                    const fullPath = path.join(storagePath, entry);
+                    const fullPath = path_1.default.join(storagePath, entry);
                     try {
-                        const stat = fs.statSync(fullPath);
+                        const stat = fs_1.default.statSync(fullPath);
                         if (entry.startsWith('blur_')) {
                             blurSize += stat.size;
                         }
@@ -40,30 +46,30 @@ export function registerStorageHandlers(ipcMain, sendNotification) {
                 total: parseFloat(((downloadSize + blurSize) / (1024 ** 2)).toFixed(1)),
                 downloadPath: storagePath,
                 outputPath: outputDir,
-                freeBytes: getFreeDiskSpace(storagePath),
+                freeBytes: (0, ramdisk_js_1.getFreeDiskSpace)(storagePath),
             };
         }
         catch {
             return { downloads: 0, blur: 0, total: 0, downloadPath: '', outputPath: '', freeBytes: 0 };
         }
     });
-    ipcMain.handle(IPC_CHANNELS.STORAGE_CLEAR_DOWNLOADS, async () => {
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.STORAGE_CLEAR_DOWNLOADS, async () => {
         try {
-            const storagePath = getVideoStoragePath();
+            const storagePath = (0, ramdisk_js_1.getVideoStoragePath)();
             let freedBytes = 0;
-            const entries = fs.readdirSync(storagePath);
+            const entries = fs_1.default.readdirSync(storagePath);
             for (const entry of entries) {
                 if (entry.startsWith('blur_'))
                     continue;
-                const ext = path.extname(entry).toLowerCase();
+                const ext = path_1.default.extname(entry).toLowerCase();
                 if (!['.mp4', '.mkv', '.webm', '.avi', '.mov'].includes(ext))
                     continue;
-                const fullPath = path.join(storagePath, entry);
+                const fullPath = path_1.default.join(storagePath, entry);
                 try {
-                    const stat = fs.statSync(fullPath);
-                    fs.unlinkSync(fullPath);
+                    const stat = fs_1.default.statSync(fullPath);
+                    fs_1.default.unlinkSync(fullPath);
                     freedBytes += stat.size;
-                    devLog(`[Storage] Deleted: ${entry} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`);
+                    (0, unified_log_js_1.devLog)(`[Storage] Deleted: ${entry} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`);
                 }
                 catch { }
             }
@@ -75,20 +81,20 @@ export function registerStorageHandlers(ipcMain, sendNotification) {
             return { success: false, freedMB: 0 };
         }
     });
-    ipcMain.handle(IPC_CHANNELS.STORAGE_CLEAR_BLUR, async () => {
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.STORAGE_CLEAR_BLUR, async () => {
         try {
-            const storagePath = getVideoStoragePath();
+            const storagePath = (0, ramdisk_js_1.getVideoStoragePath)();
             let freedBytes = 0;
-            const entries = fs.readdirSync(storagePath);
+            const entries = fs_1.default.readdirSync(storagePath);
             for (const entry of entries) {
                 if (!entry.startsWith('blur_'))
                     continue;
-                const fullPath = path.join(storagePath, entry);
+                const fullPath = path_1.default.join(storagePath, entry);
                 try {
-                    const stat = fs.statSync(fullPath);
-                    fs.unlinkSync(fullPath);
+                    const stat = fs_1.default.statSync(fullPath);
+                    fs_1.default.unlinkSync(fullPath);
                     freedBytes += stat.size;
-                    devLog(`[Storage] Deleted: ${entry} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`);
+                    (0, unified_log_js_1.devLog)(`[Storage] Deleted: ${entry} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`);
                 }
                 catch { }
             }
@@ -100,11 +106,11 @@ export function registerStorageHandlers(ipcMain, sendNotification) {
             return { success: false, freedMB: 0 };
         }
     });
-    ipcMain.handle(IPC_CHANNELS.STORAGE_PICK_FOLDER, async (_, currentPath) => {
-        const win = BrowserWindow.getFocusedWindow();
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.STORAGE_PICK_FOLDER, async (_, currentPath) => {
+        const win = electron_1.BrowserWindow.getFocusedWindow();
         if (!win)
             return null;
-        const result = await dialog.showOpenDialog(win, {
+        const result = await electron_1.dialog.showOpenDialog(win, {
             properties: ['openDirectory', 'createDirectory'],
             defaultPath: currentPath || undefined,
             title: 'Chọn thư mục',
@@ -113,7 +119,7 @@ export function registerStorageHandlers(ipcMain, sendNotification) {
             return null;
         return { path: result.filePaths[0] };
     });
-    ipcMain.handle(IPC_CHANNELS.DIAGNOSTICS_RUN, async () => {
-        return runDiagnostics();
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.DIAGNOSTICS_RUN, async () => {
+        return (0, diagnostics_js_1.runDiagnostics)();
     });
 }

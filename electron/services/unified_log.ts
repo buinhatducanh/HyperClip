@@ -25,10 +25,8 @@ import path from 'path'
 import fs from 'fs'
 import os from 'os'
 import { app, BrowserWindow } from 'electron'
-import { createRequire } from 'module'
 
-// electron-log is CommonJS
-const require = createRequire(import.meta.url)
+// electron-log is CommonJS — use standard require in CJS context
 const el: any = require('electron-log')
 const _fileLog = el.default ?? el
 

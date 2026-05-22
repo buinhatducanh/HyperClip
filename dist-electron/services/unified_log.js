@@ -1,3 +1,4 @@
+"use strict";
 /**
  * HyperClip Unified Log Service
  *
@@ -20,13 +21,24 @@
  *   - export const devLog = (...)                     ← replaces dev_log.ts
  *   - export const opLog = { info, warn, error, success }  ← replaces operation_log.ts
  */
-import path from 'path';
-import fs from 'fs';
-import os from 'os';
-import { app } from 'electron';
-import { createRequire } from 'module';
-// electron-log is CommonJS
-const require = createRequire(import.meta.url);
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.opLog = exports.devLog = exports.log = exports.unifiedLog = void 0;
+exports.cleanupOldLogs = cleanupOldLogs;
+exports.getLogDiskUsage = getLogDiskUsage;
+exports.setLogWindow = setLogWindow;
+exports.getLogEntries = getLogEntries;
+exports.clearLogEntries = clearLogEntries;
+exports.getLogDir = getLogDir;
+exports.readFileLogs = readFileLogs;
+exports.getSystemSnapshot = getSystemSnapshot;
+const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
+const os_1 = __importDefault(require("os"));
+const electron_1 = require("electron");
+// electron-log is CommonJS — use standard require in CJS context
 const el = require('electron-log');
 const _fileLog = el.default ?? el;
 // ─── Path setup ─────────────────────────────────────────────────────────────────
@@ -39,35 +51,35 @@ function getLogBaseDir() {
         // Try known locations
         for (const drive of ['D', 'E', 'F', 'C']) {
             const base = `${drive}:\\HyperClip-Data`;
-            if (fs.existsSync(path.join(base, 'app')))
+            if (fs_1.default.existsSync(path_1.default.join(base, 'app')))
                 return base;
         }
         // Fallback: AppData
-        const APPDATA = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-        return path.join(APPDATA, 'HyperClip');
+        const APPDATA = process.env.APPDATA || path_1.default.join(os_1.default.homedir(), 'AppData', 'Roaming');
+        return path_1.default.join(APPDATA, 'HyperClip');
     })();
-    return path.join(HYPERCLIP_BASE, 'logs');
+    return path_1.default.join(HYPERCLIP_BASE, 'logs');
 }
 const LOG_DIR = getLogBaseDir();
-if (!fs.existsSync(LOG_DIR))
-    fs.mkdirSync(LOG_DIR, { recursive: true });
+if (!fs_1.default.existsSync(LOG_DIR))
+    fs_1.default.mkdirSync(LOG_DIR, { recursive: true });
 // ─── Auto-cleanup: delete logs older than N days ────────────────────────────────
 const LOG_RETENTION_DAYS = 7;
-export function cleanupOldLogs() {
+function cleanupOldLogs() {
     let deletedCount = 0;
     let freedBytes = 0;
     const cutoff = Date.now() - LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
     try {
-        if (!fs.existsSync(LOG_DIR))
+        if (!fs_1.default.existsSync(LOG_DIR))
             return { deletedCount, freedBytes };
-        for (const fname of fs.readdirSync(LOG_DIR)) {
+        for (const fname of fs_1.default.readdirSync(LOG_DIR)) {
             if (!fname.startsWith('hyperclip'))
                 continue;
-            const fp = path.join(LOG_DIR, fname);
-            const stat = fs.statSync(fp);
+            const fp = path_1.default.join(LOG_DIR, fname);
+            const stat = fs_1.default.statSync(fp);
             if (stat.mtimeMs < cutoff) {
                 freedBytes += stat.size;
-                fs.unlinkSync(fp);
+                fs_1.default.unlinkSync(fp);
                 deletedCount++;
             }
         }
@@ -75,18 +87,18 @@ export function cleanupOldLogs() {
     catch { }
     return { deletedCount, freedBytes };
 }
-export function getLogDiskUsage() {
+function getLogDiskUsage() {
     let totalBytes = 0;
     let fileCount = 0;
     let oldestMtime = Date.now();
     try {
-        if (!fs.existsSync(LOG_DIR))
+        if (!fs_1.default.existsSync(LOG_DIR))
             return { totalBytes: 0, fileCount: 0, oldestAge: 0 };
-        for (const fname of fs.readdirSync(LOG_DIR)) {
+        for (const fname of fs_1.default.readdirSync(LOG_DIR)) {
             if (!fname.startsWith('hyperclip'))
                 continue;
-            const fp = path.join(LOG_DIR, fname);
-            const stat = fs.statSync(fp);
+            const fp = path_1.default.join(LOG_DIR, fname);
+            const stat = fs_1.default.statSync(fp);
             totalBytes += stat.size;
             fileCount++;
             if (stat.mtimeMs < oldestMtime)
@@ -101,7 +113,7 @@ export function getLogDiskUsage() {
     };
 }
 // ─── File logger setup (electron-log) ───────────────────────────────────────────
-_fileLog.transports.file.resolvePathFn = () => path.join(LOG_DIR, 'hyperclip.log');
+_fileLog.transports.file.resolvePathFn = () => path_1.default.join(LOG_DIR, 'hyperclip.log');
 _fileLog.transports.file.maxSize = 2 * 1024 * 1024; // 2MB per file
 _fileLog.transports.file.archiveLogFn = (n) => `hyperclip.${n}.log`;
 // Format: [2026-05-19 10:23:01] [INFO] [scan    ] message
@@ -121,7 +133,7 @@ function makeId() {
 const _windows = new Set();
 let _streamTimer = null;
 const STREAM_DEBOUNCE_MS = 500;
-export function setLogWindow(win) {
+function setLogWindow(win) {
     if (win === null) {
         _windows.clear();
     }
@@ -188,7 +200,7 @@ function _add(level, category, message, detail) {
     return entry;
 }
 // ─── Public API ────────────────────────────────────────────────────────────────
-export const unifiedLog = {
+exports.unifiedLog = {
     debug: (category, message, detail) => _add('debug', category, message, detail),
     info: (category, message, detail) => _add('info', category, message, detail),
     warn: (category, message, detail) => _add('warn', category, message, detail),
@@ -197,7 +209,7 @@ export const unifiedLog = {
 };
 // ─── Backward compatibility wrappers ────────────────────────────────────────────
 /** Replaces logger.ts — file-based log + console in dev */
-export const log = {
+exports.log = {
     info: (msg, ...args) => _fileLog.info(msg, ...args),
     warn: (msg, ...args) => _fileLog.warn(msg, ...args),
     error: (msg, ...args) => _fileLog.error(msg, ...args),
@@ -211,27 +223,28 @@ export const log = {
 };
 /** Replaces dev_log.ts — silent unless DEV_LOG=1 */
 const _devSilent = process.env.DEV_LOG !== '1';
-export const devLog = (...a) => {
+const devLog = (...a) => {
     if (!_devSilent)
         console.log('[DEV]', ...a);
 };
+exports.devLog = devLog;
 /** Replaces operation_log.ts */
-export const opLog = {
+exports.opLog = {
     info: (category, message, detail) => _add('info', category, message, detail),
     warn: (category, message, detail) => _add('warn', category, message, detail),
     error: (category, message, detail) => _add('error', category, message, detail),
     success: (category, message, detail) => _add('success', category, message, detail),
 };
 /** Get all in-memory entries */
-export function getLogEntries() {
+function getLogEntries() {
     return _buffer.slice();
 }
 /** Clear in-memory buffer */
-export function clearLogEntries() {
+function clearLogEntries() {
     _buffer.length = 0;
 }
 /** Get log directory path */
-export function getLogDir() {
+function getLogDir() {
     return LOG_DIR;
 }
 /** Parse a single log line back into LogEntry format */
@@ -257,7 +270,7 @@ function parseLogLine(line, idPrefix) {
     };
 }
 /** Read file logs from disk (for logs:read IPC) */
-export function readFileLogs() {
+function readFileLogs() {
     const MAX_FILE_SIZE = 5 * 1024 * 1024;
     // At 100 channels × 5s × 1 entry/poll ≈ 200 bytes → 2MB holds ~10k entries ≈ 14h
     // Parse last 10000 lines = ~5.5h at 100 channels
@@ -265,18 +278,18 @@ export function readFileLogs() {
     const files = [];
     const allEntries = [];
     try {
-        if (fs.existsSync(LOG_DIR)) {
+        if (fs_1.default.existsSync(LOG_DIR)) {
             // Read files newest-first so we can merge and dedupe
             const entries = [];
-            for (const fname of fs.readdirSync(LOG_DIR).sort().reverse()) {
+            for (const fname of fs_1.default.readdirSync(LOG_DIR).sort().reverse()) {
                 if (!fname.startsWith('hyperclip'))
                     continue;
-                const fp = path.join(LOG_DIR, fname);
-                const stat = fs.statSync(fp);
+                const fp = path_1.default.join(LOG_DIR, fname);
+                const stat = fs_1.default.statSync(fp);
                 files.push({ name: fname, size: stat.size, mtime: stat.mtimeMs });
                 if (stat.size > MAX_FILE_SIZE)
                     continue;
-                const raw = fs.readFileSync(fp, 'utf-8');
+                const raw = fs_1.default.readFileSync(fp, 'utf-8');
                 const lines = raw.split('\n');
                 // Prepend to collect newest first
                 entries.unshift(...lines);
@@ -299,18 +312,18 @@ export function readFileLogs() {
     };
 }
 /** System snapshot for bug reports */
-export function getSystemSnapshot() {
+function getSystemSnapshot() {
     return [
         `HyperClip Log Snapshot`,
         `Generated: ${new Date().toISOString()}`,
-        `Platform: ${process.platform} ${os.arch()}`,
+        `Platform: ${process.platform} ${os_1.default.arch()}`,
         `Node: ${process.version}`,
         `Electron: ${process.versions.electron}`,
-        `App: ${app.getName()} v${app.getVersion()}`,
-        `User: ${os.homedir()}`,
-        `CPU: ${os.cpus()[0]?.model ?? 'unknown'}`,
-        `CPU cores: ${os.cpus().length}`,
-        `RAM total: ${Math.round(os.totalmem() / 1024 / 1024 / 1024)} GB`,
+        `App: ${electron_1.app.getName()} v${electron_1.app.getVersion()}`,
+        `User: ${os_1.default.homedir()}`,
+        `CPU: ${os_1.default.cpus()[0]?.model ?? 'unknown'}`,
+        `CPU cores: ${os_1.default.cpus().length}`,
+        `RAM total: ${Math.round(os_1.default.totalmem() / 1024 / 1024 / 1024)} GB`,
         `Uptime: ${Math.round(process.uptime() / 60)} min`,
         `PID: ${process.pid}`,
         `Log dir: ${LOG_DIR}`,

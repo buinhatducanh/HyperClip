@@ -1,26 +1,29 @@
+"use strict";
 /**
  * Settings IPC handlers.
  * Channels: SETTINGS_GET, SETTINGS_UPDATE
  */
-import { IPC_CHANNELS } from '../channels.js';
-import { loadSettings, saveSettings } from '../../services/ramdisk.js';
-import { getYouTubePoller } from '../../services/youtube_poller.js';
-export function registerSettingsHandlers(ipcMain) {
-    ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, () => {
-        const settings = loadSettings();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.registerSettingsHandlers = registerSettingsHandlers;
+const channels_js_1 = require("../channels.js");
+const ramdisk_js_1 = require("../../services/ramdisk.js");
+const youtube_poller_js_1 = require("../../services/youtube_poller.js");
+function registerSettingsHandlers(ipcMain) {
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.SETTINGS_GET, () => {
+        const settings = (0, ramdisk_js_1.loadSettings)();
         // SECURITY: strip sensitive fields
         const { proxyPassword, ...publicSettings } = settings;
         return publicSettings;
     });
-    ipcMain.handle(IPC_CHANNELS.SETTINGS_UPDATE, (_, patch) => {
-        const settings = loadSettings();
-        saveSettings({ ...settings, ...patch });
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.SETTINGS_UPDATE, (_, patch) => {
+        const settings = (0, ramdisk_js_1.loadSettings)();
+        (0, ramdisk_js_1.saveSettings)({ ...settings, ...patch });
         // Apply poller interval change immediately if poller is running
         if (patch.pollIntervalMs !== undefined) {
-            const poller = getYouTubePoller();
+            const poller = (0, youtube_poller_js_1.getYouTubePoller)();
             if (poller)
                 poller.restart(patch.pollIntervalMs);
         }
-        return loadSettings();
+        return (0, ramdisk_js_1.loadSettings)();
     });
 }

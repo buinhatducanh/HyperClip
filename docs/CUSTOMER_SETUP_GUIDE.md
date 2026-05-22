@@ -372,6 +372,19 @@ For videos > 5 minutes, HyperClip splits rendering into **120-second chunks** pr
 2. If persistent, restart HyperClip
 3. Report to operator if > 30 minutes
 
+### "Claude or Riot Games Connection Timeout"
+
+**Cause:** Local ISP (like Viettel, FPT, VNPT in Vietnam) routing issues or blocking international Cloudflare CDN/Anthropic IP ranges. Alternatively, Cloudflare WARP is running but using the MASQUE (HTTP/3) protocol, which is blocked by the ISP.
+
+**Fix:**
+1. **Enable Cloudflare WARP** or a reliable VPN.
+2. If WARP is stuck in `Connecting` status forever, open Command Prompt or PowerShell and switch the WARP tunnel protocol to WireGuard:
+   ```powershell
+   warp-cli tunnel protocol set WireGuard
+   warp-cli connect
+   ```
+3. Run `warp-cli status` to verify it shows `Connected` and `Network: healthy`.
+
 ### HyperClip won't start
 
 **Fix:**

@@ -3,7 +3,6 @@ import path from 'path'
 import os from 'os'
 import fs from 'fs'
 import crypto from 'crypto'
-import { fileURLToPath } from 'url'
 import { spawn } from 'child_process'
 import http from 'http'
 import zlib from 'zlib'
@@ -67,7 +66,6 @@ if (process.platform === 'win32') {
   }).catch(() => {})
 }
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const isDev = process.env.NODE_ENV !== 'production'
 const NEXT_PORT = parseInt(process.env.HYPERCLIP_PORT || '3000', 10)
 
@@ -1297,6 +1295,12 @@ function getPreloadPath() {
 }
 
 async function createWindow() {
+  // Icon path: packaged → resources/build/icon.ico, dev → build/icon.ico
+  const iconBase = app.isPackaged
+    ? process.resourcesPath!
+    : path.join(__dirname, '..')
+  const iconPath = path.join(iconBase, 'build', 'icon.ico')
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -1304,6 +1308,7 @@ async function createWindow() {
     minHeight: 700,
     backgroundColor: '#121212',
     title: 'HyperClip',
+    icon: iconPath,
     webPreferences: {
       preload: getPreloadPath(),
       contextIsolation: true,

@@ -1,16 +1,25 @@
-import path from 'path';
-import fs from 'fs';
-import { execSync } from 'child_process';
-import os from 'os';
-import { app } from 'electron';
-import { devLog } from './unified_log.js';
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getFfprobePath = getFfprobePath;
+exports.getFfmpegPath = getFfmpegPath;
+exports.getFfmpegVersion = getFfmpegVersion;
+exports.validateFfmpeg = validateFfmpeg;
+const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
+const child_process_1 = require("child_process");
+const os_1 = __importDefault(require("os"));
+const electron_1 = require("electron");
+const unified_log_js_1 = require("./unified_log.js");
 // Shared FFmpeg/FFprobe path resolution.
 // On Windows with Bash/Git environments, process.cwd() returns Unix-style paths
 // (/d/...). Node's fs.existsSync accepts both forward-slash and backslash paths,
 // but mixed/backslash paths may fail. We always normalize to forward slashes.
 function resolveBinary(name) {
     const exists = (fp) => { try {
-        return fs.existsSync(fp);
+        return fs_1.default.existsSync(fp);
     }
     catch {
         return false;
@@ -19,7 +28,7 @@ function resolveBinary(name) {
     // Higher score = more suitable for GPU-accelerated rendering.
     function probeAndScore(fp) {
         try {
-            const out = execSync(`"${fp}" -version 2>&1`, { encoding: 'utf-8', timeout: 5000 });
+            const out = (0, child_process_1.execSync)(`"${fp}" -version 2>&1`, { encoding: 'utf-8', timeout: 5000 });
             if (!out.includes(name))
                 return { ok: false, score: 0, version: '' };
             // Check if this binary claims NVENC support
@@ -28,30 +37,30 @@ function resolveBinary(name) {
             let nvencWorks = false;
             if (name === 'ffmpeg') {
                 try {
-                    const encOut = execSync(`"${fp}" -hide_banner -encoders 2>&1`, { encoding: 'utf-8', timeout: 5000 });
+                    const encOut = (0, child_process_1.execSync)(`"${fp}" -hide_banner -encoders 2>&1`, { encoding: 'utf-8', timeout: 5000 });
                     hasNvEncoders = encOut.includes('h264_nvenc') || encOut.includes('hevc_nvenc');
                     // Quick hardware test: try encoding 1 frame. Some builds list NVENC but driver doesn't support it.
                     // gyan.dev FFmpeg 8.1 on RTX 4050 Laptop (driver 566.14): NVENC listed but fails at runtime.
                     if (hasNvEncoders) {
                         hasTestedNvEnc = true;
-                        const testFile = path.join(os.tmpdir(), `hc_nvenc_probe_${Date.now()}.mp4`);
+                        const testFile = path_1.default.join(os_1.default.tmpdir(), `hc_nvenc_probe_${Date.now()}.mp4`);
                         // Try hevc_nvenc first (more reliable on RTX 4050 laptop), fall back to h264_nvenc
                         const testCodec = encOut.includes('hevc_nvenc') ? 'hevc_nvenc' : 'h264_nvenc';
                         try {
                             // Pipe stderr to detect actual error message
-                            const result = execSync(`"${fp}" -f lavfi -i color=c=blue:s=1920x1080:d=0.1 -c:v ${testCodec} -frames:v 1 -y "${testFile}"`, { timeout: 15000, stdio: ['ignore', 'pipe', 'pipe'] });
-                            const sz = fs.statSync(testFile).size;
+                            const result = (0, child_process_1.execSync)(`"${fp}" -f lavfi -i color=c=blue:s=1920x1080:d=0.1 -c:v ${testCodec} -frames:v 1 -y "${testFile}"`, { timeout: 15000, stdio: ['ignore', 'pipe', 'pipe'] });
+                            const sz = fs_1.default.statSync(testFile).size;
                             nvencWorks = sz > 100;
                             if (!nvencWorks)
-                                devLog(`[FFmpeg probe] ${path.basename(fp)} NVENC test: 0 bytes — driver incompatible`);
+                                (0, unified_log_js_1.devLog)(`[FFmpeg probe] ${path_1.default.basename(fp)} NVENC test: 0 bytes — driver incompatible`);
                         }
                         catch (e) {
                             // NVENC not usable at runtime — either driver issue or build mismatch
-                            devLog(`[FFmpeg probe] ${path.basename(fp)} NVENC test: FAILED (${e.status ?? 'signal'})`);
+                            (0, unified_log_js_1.devLog)(`[FFmpeg probe] ${path_1.default.basename(fp)} NVENC test: FAILED (${e.status ?? 'signal'})`);
                         }
                         finally {
                             try {
-                                fs.unlinkSync(testFile);
+                                fs_1.default.unlinkSync(testFile);
                             }
                             catch { }
                         }
@@ -103,17 +112,17 @@ function resolveBinary(name) {
     // 0. Bundled FFmpeg (shipped in resources/ffmpeg/bin/) — highest priority
     // In packaged app: process.resourcesPath = "path/to/HyperClip/resources"
     // FFmpeg is at resources/ffmpeg/bin/, NOT resources/app/resources/ffmpeg/bin/
-    if (app.isPackaged && process.resourcesPath) {
-        const bundledPath = path.join(process.resourcesPath, 'ffmpeg', 'bin', `${name}.exe`);
+    if (electron_1.app.isPackaged && process.resourcesPath) {
+        const bundledPath = path_1.default.join(process.resourcesPath, 'ffmpeg', 'bin', `${name}.exe`);
         if (exists(bundledPath))
             candidates.push(bundledPath);
     }
     // 1. Check PATH environment variable first — most reliable for installed ffmpeg
     const pathEnv = process.env.PATH || process.env.Path || '';
-    for (const dir of pathEnv.split(path.delimiter)) {
+    for (const dir of pathEnv.split(path_1.default.delimiter)) {
         if (!dir)
             continue;
-        const fp = path.join(dir.trim(), `${name}.exe`);
+        const fp = path_1.default.join(dir.trim(), `${name}.exe`);
         if (exists(fp))
             candidates.push(fp);
     }
@@ -125,23 +134,23 @@ function resolveBinary(name) {
     if (MSI_LOCALAPPDATA) {
         const capcutVersions = ['8.1.1.3417', '8.0.1.3366', '8.0.0.3346', '7.9.0.3200'];
         for (const ver of capcutVersions) {
-            candidates.push(path.join(MSI_LOCALAPPDATA, 'CapCut', 'Apps', ver, name + '.exe'));
+            candidates.push(path_1.default.join(MSI_LOCALAPPDATA, 'CapCut', 'Apps', ver, name + '.exe'));
         }
     }
     // 3. Standalone FFmpeg builds — use env-based paths instead of hardcoded C:\
-    candidates.push(path.join(APPDATA, 'ffmpeg', 'bin', name + '.exe'), path.join(PROGDATA, 'ffmpeg', 'bin', name + '.exe'), 'C:/ffmpeg/ffmpeg-full/bin/' + name + '.exe', 'C:/ffmpeg/ffmpeg-git-full/bin/' + name + '.exe', 'C:/Program Files/ffmpeg/bin/' + name + '.exe', 'C:/Program Files (x86)/ffmpeg/bin/' + name + '.exe', 'C:/msys64/mingw64/bin/' + name + '.exe');
+    candidates.push(path_1.default.join(APPDATA, 'ffmpeg', 'bin', name + '.exe'), path_1.default.join(PROGDATA, 'ffmpeg', 'bin', name + '.exe'), 'C:/ffmpeg/ffmpeg-full/bin/' + name + '.exe', 'C:/ffmpeg/ffmpeg-git-full/bin/' + name + '.exe', 'C:/Program Files/ffmpeg/bin/' + name + '.exe', 'C:/Program Files (x86)/ffmpeg/bin/' + name + '.exe', 'C:/msys64/mingw64/bin/' + name + '.exe');
     // 4. Local node_modules .bin (for development)
-    candidates.push(path.join(process.cwd(), 'node_modules', '.bin', name));
+    candidates.push(path_1.default.join(process.cwd(), 'node_modules', '.bin', name));
     // 5. User-local AppData Roaming ffmpeg
     if (APPDATA) {
-        candidates.push(path.join(APPDATA, 'ffmpeg', 'bin', name + '.exe'));
-        candidates.push(path.join(APPDATA, name, 'bin', name + '.exe'));
+        candidates.push(path_1.default.join(APPDATA, 'ffmpeg', 'bin', name + '.exe'));
+        candidates.push(path_1.default.join(APPDATA, name, 'bin', name + '.exe'));
     }
     // 6. Package managers — use env-based paths
-    candidates.push(path.join(PROGDATA, 'chocolatey', 'bin', name + '.exe'));
-    const scoopShims = process.env.SCOOP || (MSI_USER ? path.join('C:/Users', MSI_USER, 'scoop', 'shims') : '');
+    candidates.push(path_1.default.join(PROGDATA, 'chocolatey', 'bin', name + '.exe'));
+    const scoopShims = process.env.SCOOP || (MSI_USER ? path_1.default.join('C:/Users', MSI_USER, 'scoop', 'shims') : '');
     if (scoopShims)
-        candidates.push(path.join(scoopShims, name + '.exe'));
+        candidates.push(path_1.default.join(scoopShims, name + '.exe'));
     // Find best candidate by CUDA capability score
     let bestFp = '';
     let bestScore = -1;
@@ -155,17 +164,17 @@ function resolveBinary(name) {
         }
     }
     if (bestFp) {
-        devLog(`[FFmpeg] Resolved ${name}: ${bestFp}`);
-        devLog(`[FFmpeg] Binary: ${bestVersion} (CUDA score: ${bestScore})`);
+        (0, unified_log_js_1.devLog)(`[FFmpeg] Resolved ${name}: ${bestFp}`);
+        (0, unified_log_js_1.devLog)(`[FFmpeg] Binary: ${bestVersion} (CUDA score: ${bestScore})`);
         return bestFp;
     }
     console.warn(`[FFmpeg] Could not find ${name}.exe in any candidate path`);
     return name; // fallback to PATH lookup
 }
-export function getFfprobePath() {
+function getFfprobePath() {
     return resolveBinary('ffprobe');
 }
-export function getFfmpegPath() {
+function getFfmpegPath() {
     return resolveBinary('ffmpeg');
 }
 let _cachedVersion = null;
@@ -175,7 +184,7 @@ function parseVersion(versionStr) {
         return parseInt(match[1]);
     return 0;
 }
-export function getFfmpegVersion(ffmpegPath) {
+function getFfmpegVersion(ffmpegPath) {
     if (_cachedVersion)
         return _cachedVersion;
     const result = {
@@ -192,12 +201,12 @@ export function getFfmpegVersion(ffmpegPath) {
         hasH264Nvenc: false,
     };
     try {
-        const versionOut = execSync(`"${ffmpegPath}" -version 2>&1`, {
+        const versionOut = (0, child_process_1.execSync)(`"${ffmpegPath}" -version 2>&1`, {
             encoding: 'utf-8', timeout: 5000,
         });
         result.version = versionOut.split('\n')[0];
         result.majorVersion = parseVersion(result.version);
-        devLog(`[FFmpeg] ${result.version} (major=${result.majorVersion})`);
+        (0, unified_log_js_1.devLog)(`[FFmpeg] ${result.version} (major=${result.majorVersion})`);
     }
     catch (e) {
         console.warn('[FFmpeg] Could not get version:', e);
@@ -205,7 +214,7 @@ export function getFfmpegVersion(ffmpegPath) {
         return result;
     }
     try {
-        const encodersOut = execSync(`"${ffmpegPath}" -hide_banner -encoders 2>&1`, {
+        const encodersOut = (0, child_process_1.execSync)(`"${ffmpegPath}" -hide_banner -encoders 2>&1`, {
             encoding: 'utf-8', timeout: 8000,
         }).toString();
         result.hasH264Nvenc = encodersOut.includes('h264_nvenc');
@@ -214,15 +223,15 @@ export function getFfmpegVersion(ffmpegPath) {
         result.hasQsv = encodersOut.includes('hevc_qsv') || encodersOut.includes('h264_qsv');
         result.hasVaapi = encodersOut.includes('hevc_vaapi') || encodersOut.includes('h264_vaapi');
         result.hasNvencLookahead = encodersOut.includes('nvenc_lookahead');
-        devLog(`[FFmpeg] NVENC: ${result.hasNvenc ? '✓' : '✗'} | NVDEC: ${result.hasNvdec ? '✓' : '✗'} | CUVID: ${result.hasCuvid ? '✓' : '✗'} | QSV: ${result.hasQsv ? '✓' : '✗'} | VAAPI: ${result.hasVaapi ? '✓' : '✗'}`);
-        devLog(`[FFmpeg] CUDA filters: ${result.hasCudaFilters ? '✓' : '✗'} | NVENC lookahead: ${result.hasNvencLookahead ? '✓' : '✗'}`);
+        (0, unified_log_js_1.devLog)(`[FFmpeg] NVENC: ${result.hasNvenc ? '✓' : '✗'} | NVDEC: ${result.hasNvdec ? '✓' : '✗'} | CUVID: ${result.hasCuvid ? '✓' : '✗'} | QSV: ${result.hasQsv ? '✓' : '✗'} | VAAPI: ${result.hasVaapi ? '✓' : '✗'}`);
+        (0, unified_log_js_1.devLog)(`[FFmpeg] CUDA filters: ${result.hasCudaFilters ? '✓' : '✗'} | NVENC lookahead: ${result.hasNvencLookahead ? '✓' : '✗'}`);
     }
     catch (e) {
         console.warn('[FFmpeg] Could not enumerate encoders:', e);
     }
     // Check decoders for NVDEC/CUVID (these are decoder entries, not encoder entries)
     try {
-        const decodersOut = execSync(`"${ffmpegPath}" -hide_banner -decoders 2>&1`, {
+        const decodersOut = (0, child_process_1.execSync)(`"${ffmpegPath}" -hide_banner -decoders 2>&1`, {
             encoding: 'utf-8', timeout: 8000,
         }).toString();
         result.hasNvdec = decodersOut.includes('hevc_nvdec') || decodersOut.includes('h264_nvdec');
@@ -234,17 +243,17 @@ export function getFfmpegVersion(ffmpegPath) {
     // Only mark CUDA filters as available if NVDEC is present.
     const hasNvDec = result.hasNvdec;
     try {
-        const filtersOut = execSync(`"${ffmpegPath}" -hide_banner -filters 2>&1`, {
+        const filtersOut = (0, child_process_1.execSync)(`"${ffmpegPath}" -hide_banner -filters 2>&1`, {
             encoding: 'utf-8', timeout: 5000,
         }).toString();
         const hasCudaFiltersListed = filtersOut.includes('scale_cuda') || filtersOut.includes('overlay_cuda');
         // Only enable CUDA filters if NVDEC is available (meaning the GPU pipeline is complete)
         result.hasCudaFilters = hasCudaFiltersListed && result.hasNvdec;
         if (result.hasCudaFilters) {
-            devLog(`[FFmpeg] CUDA-accelerated filters detected (scale_cuda, overlay_cuda) — GPU filter pipeline enabled`);
+            (0, unified_log_js_1.devLog)(`[FFmpeg] CUDA-accelerated filters detected (scale_cuda, overlay_cuda) — GPU filter pipeline enabled`);
         }
         else if (hasCudaFiltersListed && !hasNvDec) {
-            devLog(`[FFmpeg] CUDA filters listed but NVDEC unavailable — using CPU filter pipeline`);
+            (0, unified_log_js_1.devLog)(`[FFmpeg] CUDA filters listed but NVDEC unavailable — using CPU filter pipeline`);
         }
     }
     catch { }
@@ -253,7 +262,7 @@ export function getFfmpegVersion(ffmpegPath) {
 }
 // Validate FFmpeg binary: verify it can be executed and has hardware encoders.
 // Call once at startup or before first render.
-export async function validateFfmpeg(ffmpegPath) {
+async function validateFfmpeg(ffmpegPath) {
     return new Promise((resolve, reject) => {
         try {
             const ver = getFfmpegVersion(ffmpegPath);

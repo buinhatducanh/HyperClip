@@ -1,13 +1,25 @@
-import os from 'os';
-import path from 'path';
-import fs from 'fs';
-import { execSync } from 'child_process';
-import { getRamDiskInfo, getAutoRamDiskSize } from './ramdisk.js';
-import { getPoolStatus } from './worker-pool.js';
-import { getFfmpegPath } from './ffmpeg-paths.js';
-import { devLog } from './unified_log.js';
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getGPUCapabilities = getGPUCapabilities;
+exports.detectSystemProfile = detectSystemProfile;
+exports.getSessionCount = getSessionCount;
+exports.getEffectiveWorkers = getEffectiveWorkers;
+exports.collectSystemStats = collectSystemStats;
+exports.checkResourceAlert = checkResourceAlert;
+exports.getLastResourceAlert = getLastResourceAlert;
+const os_1 = __importDefault(require("os"));
+const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
+const child_process_1 = require("child_process");
+const ramdisk_js_1 = require("./ramdisk.js");
+const worker_pool_js_1 = require("./worker-pool.js");
+const ffmpeg_paths_js_1 = require("./ffmpeg-paths.js");
+const unified_log_js_1 = require("./unified_log.js");
 // Re-export for internal use
-const getFfmpegBin = getFfmpegPath;
+const getFfmpegBin = ffmpeg_paths_js_1.getFfmpegPath;
 const NVENC_ARCH = {
     // ── RTX 50 series (Blackwell / GB203) ────────────────────────────────────
     // RTX 5080: 2 NVENC engines, 14 concurrent sessions, 16GB GDDR7
@@ -89,7 +101,7 @@ function detectGPUOnce() {
     let nvencSurfaceCount = 8;
     // ── Step 1: Try NVIDIA GPU via nvidia-smi ────────────────────────────────────
     try {
-        const nvOutput = execSync('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits', {
+        const nvOutput = (0, child_process_1.execSync)('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits', {
             encoding: 'utf-8', timeout: 5000,
         }).trim();
         if (nvOutput) {
@@ -97,7 +109,7 @@ function detectGPUOnce() {
             const parts = nvOutput.split('\n')[0].split(',').map((s) => s.trim());
             gpuName = parts[0] || 'NVIDIA GPU';
             memory = parseInt(parts[1]) || 0;
-            devLog(`[GPU] Found: ${gpuName} (${memory}MB VRAM)`);
+            (0, unified_log_js_1.devLog)(`[GPU] Found: ${gpuName} (${memory}MB VRAM)`);
         }
     }
     catch (e) {
@@ -107,7 +119,7 @@ function detectGPUOnce() {
     if (!hasGPU) {
         try {
             // Use WMIC to get GPU names (works on Windows without additional tools)
-            const wmiOutput = execSync('wmic path win32_VideoController get name,adapterram /format:csv', { encoding: 'utf-8', timeout: 8000 }).trim();
+            const wmiOutput = (0, child_process_1.execSync)('wmic path win32_VideoController get name,adapterram /format:csv', { encoding: 'utf-8', timeout: 8000 }).trim();
             const lines = wmiOutput.split('\n').filter(l => l.trim());
             for (const line of lines.slice(1)) { // skip header
                 const cols = line.split(',');
@@ -121,21 +133,21 @@ function detectGPUOnce() {
                         hasGPU = true;
                         gpuName = name;
                         memory = ramMB;
-                        devLog(`[GPU] Found Intel GPU: ${gpuName} (${memory}MB)`);
+                        (0, unified_log_js_1.devLog)(`[GPU] Found Intel GPU: ${gpuName} (${memory}MB)`);
                         break;
                     }
                 }
             }
         }
         catch (e) {
-            devLog('[GPU] WMI GPU query failed:', e);
+            (0, unified_log_js_1.devLog)('[GPU] WMI GPU query failed:', e);
         }
     }
     // ── Step 3: NVENC check (NVIDIA only) ───────────────────────────────────────
     if (hasGPU) {
         const ffmpeg = getFfmpegBin();
         try {
-            const encodersOut = execSync(`"${ffmpeg}" -hide_banner -encoders 2>&1`, {
+            const encodersOut = (0, child_process_1.execSync)(`"${ffmpeg}" -hide_banner -encoders 2>&1`, {
                 encoding: 'utf-8', timeout: 5000,
             }).toString();
             const hasH264Nvenc = encodersOut.includes('h264_nvenc');
@@ -145,12 +157,12 @@ function detectGPUOnce() {
                 // gyan.dev FFmpeg 8.1 on RTX 4050 Laptop (driver 566.14): lists h264_nvenc but fails at runtime.
                 // Use 1920x1080 — minimum required by some builds like CapCut FFmpeg 20.5.0.
                 const testCodec = hasH264Nvenc ? 'h264_nvenc' : 'hevc_nvenc';
-                const testFile = path.join(os.tmpdir(), `hc_nvenc_test_${Date.now()}.mp4`);
+                const testFile = path_1.default.join(os_1.default.tmpdir(), `hc_nvenc_test_${Date.now()}.mp4`);
                 try {
-                    execSync(`"${ffmpeg}" -f lavfi -i color=c=blue:s=1920x1080:d=0.1 -c:v ${testCodec} -frames:v 1 -y "${testFile}"`, { timeout: 15000, stdio: 'ignore' });
-                    if (!fs.existsSync(testFile) || fs.statSync(testFile).size < 100)
+                    (0, child_process_1.execSync)(`"${ffmpeg}" -f lavfi -i color=c=blue:s=1920x1080:d=0.1 -c:v ${testCodec} -frames:v 1 -y "${testFile}"`, { timeout: 15000, stdio: 'ignore' });
+                    if (!fs_1.default.existsSync(testFile) || fs_1.default.statSync(testFile).size < 100)
                         throw new Error('NVENC test produced no output');
-                    devLog(`[GPU] NVENC hardware test passed (${testCodec})`);
+                    (0, unified_log_js_1.devLog)(`[GPU] NVENC hardware test passed (${testCodec})`);
                     encoder = 'nvenc';
                 }
                 catch {
@@ -159,7 +171,7 @@ function detectGPUOnce() {
                 }
                 finally {
                     try {
-                        fs.unlinkSync(testFile);
+                        fs_1.default.unlinkSync(testFile);
                     }
                     catch { }
                 }
@@ -170,11 +182,11 @@ function detectGPUOnce() {
                     maxChunkWorkers = archConfig.recommendedWorkers;
                     preset = 'fast';
                     tier = 'high';
-                    devLog(`[GPU] NVENC — ${archConfig.label} — sessions=${nvencSessions} workers=${maxChunkWorkers} surfaces=${nvencSurfaceCount}`);
+                    (0, unified_log_js_1.devLog)(`[GPU] NVENC — ${archConfig.label} — sessions=${nvencSessions} workers=${maxChunkWorkers} surfaces=${nvencSurfaceCount}`);
                 }
             }
             else {
-                devLog(`[GPU] No NVENC in FFmpeg build`);
+                (0, unified_log_js_1.devLog)(`[GPU] No NVENC in FFmpeg build`);
                 encoder = 'software';
             }
         }
@@ -186,7 +198,7 @@ function detectGPUOnce() {
     if (encoder === 'software' && hasGPU) {
         const ffmpeg = getFfmpegBin();
         try {
-            const encodersOut = execSync(`"${ffmpeg}" -hide_banner -encoders 2>&1`, {
+            const encodersOut = (0, child_process_1.execSync)(`"${ffmpeg}" -hide_banner -encoders 2>&1`, {
                 encoding: 'utf-8', timeout: 5000,
             }).toString();
             if (encodersOut.includes('hevc_qsv') || encodersOut.includes('h264_qsv')) {
@@ -198,14 +210,14 @@ function detectGPUOnce() {
                     maxChunkWorkers = 6;
                     nvencSessions = 6;
                     nvencSurfaceCount = 16;
-                    devLog(`[GPU] QSV encoder (Intel Arc) — tier=mid, workers=${maxChunkWorkers}`);
+                    (0, unified_log_js_1.devLog)(`[GPU] QSV encoder (Intel Arc) — tier=mid, workers=${maxChunkWorkers}`);
                 }
                 else {
                     tier = 'low';
                     maxChunkWorkers = 2;
                     nvencSessions = 2;
                     nvencSurfaceCount = 8;
-                    devLog(`[GPU] QSV encoder — tier=low, workers=${maxChunkWorkers}`);
+                    (0, unified_log_js_1.devLog)(`[GPU] QSV encoder — tier=low, workers=${maxChunkWorkers}`);
                 }
             }
             else if (encodersOut.includes('hevc_vaapi') || encodersOut.includes('h264_vaapi')) {
@@ -215,7 +227,7 @@ function detectGPUOnce() {
                 maxChunkWorkers = 2;
                 nvencSessions = 2;
                 nvencSurfaceCount = 8;
-                devLog('[GPU] VAAPI encoder — tier=low, workers=2');
+                (0, unified_log_js_1.devLog)('[GPU] VAAPI encoder — tier=low, workers=2');
             }
         }
         catch (e) {
@@ -227,7 +239,7 @@ function detectGPUOnce() {
         const ffmpeg = getFfmpegBin();
         // Check for VAAPI on Linux/WSL
         try {
-            const vaapiDevices = execSync(`"${ffmpeg}" -hide_banner -devices 2>&1`, {
+            const vaapiDevices = (0, child_process_1.execSync)(`"${ffmpeg}" -hide_banner -devices 2>&1`, {
                 encoding: 'utf-8', timeout: 5000,
             }).toString();
             if (vaapiDevices.includes('vaapi')) {
@@ -239,19 +251,19 @@ function detectGPUOnce() {
                 nvencSurfaceCount = 8;
                 gpuName = 'VAAPI';
                 hasGPU = true;
-                devLog('[GPU] VAAPI available on Linux/WSL — tier=low, workers=2');
+                (0, unified_log_js_1.devLog)('[GPU] VAAPI available on Linux/WSL — tier=low, workers=2');
             }
         }
         catch { }
     }
     if (!hasGPU) {
-        devLog('[GPU] No hardware encoder found — using CPU (software tier)');
+        (0, unified_log_js_1.devLog)('[GPU] No hardware encoder found — using CPU (software tier)');
     }
-    devLog(`[GPU] Detection result: ${gpuName} [${encoder}] tier=${tier} workers=${maxChunkWorkers} sessions=${nvencSessions} surfaces=${nvencSurfaceCount}`);
+    (0, unified_log_js_1.devLog)(`[GPU] Detection result: ${gpuName} [${encoder}] tier=${tier} workers=${maxChunkWorkers} sessions=${nvencSessions} surfaces=${nvencSurfaceCount}`);
     _cachedGPU = { encoder, preset, gpuName, memory, tier, maxChunkWorkers, hasGPU, nvencSessions, nvencSurfaceCount };
     return _cachedGPU;
 }
-export function getGPUCapabilities() {
+function getGPUCapabilities() {
     const g = detectGPUOnce();
     return {
         tier: g.tier,
@@ -271,7 +283,7 @@ let _cachedSessionCount = null;
  * - Laptop (RAM ≤ 32GB): 15 sessions — fewer Chrome processes, more RAM for FFmpeg workers
  * - Desktop (RAM > 32GB): 30 sessions — full parallelism for RTX 5080 detection pipeline
  */
-export function detectSystemProfile() {
+function detectSystemProfile() {
     if (_cachedSessionCount !== null) {
         return { isLaptop: _cachedSessionCount === 15, sessionCount: _cachedSessionCount };
     }
@@ -279,18 +291,18 @@ export function detectSystemProfile() {
     const envCount = parseInt(process.env.HYPERCLIP_SESSION_COUNT || '', 10);
     if (!isNaN(envCount) && envCount > 0) {
         _cachedSessionCount = envCount;
-        devLog(`[SystemProfile] Using HYPERCLIP_SESSION_COUNT=${envCount}`);
+        (0, unified_log_js_1.devLog)(`[SystemProfile] Using HYPERCLIP_SESSION_COUNT=${envCount}`);
         return { isLaptop: false, sessionCount: envCount };
     }
-    const ramGB = Math.round(os.totalmem() / (1024 ** 3));
+    const ramGB = Math.round(os_1.default.totalmem() / (1024 ** 3));
     const isLaptop = ramGB <= 32;
     // Conservative defaults: 8 sessions đủ cho 100 kênh detection pipeline (5s poll)
     // Mỗi session ~150MB RAM. 8 × 150MB = 1.2GB — nhẹ hơn đáng kể so với 30 sessions.
     _cachedSessionCount = isLaptop ? 5 : 8;
-    devLog(`[SystemProfile] RAM=${ramGB}GB → ${_cachedSessionCount} sessions (${isLaptop ? 'laptop' : 'desktop'})`);
+    (0, unified_log_js_1.devLog)(`[SystemProfile] RAM=${ramGB}GB → ${_cachedSessionCount} sessions (${isLaptop ? 'laptop' : 'desktop'})`);
     return { isLaptop, sessionCount: _cachedSessionCount };
 }
-export function getSessionCount() {
+function getSessionCount() {
     return detectSystemProfile().sessionCount;
 }
 let _cachedVRAM = { total: 0, free: 0, used: 0 };
@@ -315,7 +327,7 @@ function getVramInfo() {
     // Always fresh query — nvidia-smi is fast enough for 2s interval
     // Cache only on failure so we don't spam nvidia-smi if it errors
     try {
-        const out = execSync('nvidia-smi --query-gpu=memory.total,memory.free,memory.used --format=csv,noheader,nounits', { encoding: 'utf-8', timeout: 3000 }).trim();
+        const out = (0, child_process_1.execSync)('nvidia-smi --query-gpu=memory.total,memory.free,memory.used --format=csv,noheader,nounits', { encoding: 'utf-8', timeout: 3000 }).trim();
         const parts = out.split(',').map((s) => parseInt(s.trim()) || 0);
         _cachedVRAM = { total: parts[0] || 0, free: parts[1] || 0, used: parts[2] || 0 };
     }
@@ -331,7 +343,7 @@ function getVramInfo() {
 //   - NVENC encode (VBR + spatial-AQ): ~250MB
 //   - Total: ~600MB per worker (conservative)
 // Safety reserve: 2GB for OS + driver + UI (up from 4GB — RTX 5080 has 16GB)
-export function getEffectiveWorkers(perWorkerMB = 600) {
+function getEffectiveWorkers(perWorkerMB = 600) {
     const gpu = detectGPUOnce();
     const baseWorkers = gpu.maxChunkWorkers;
     const vram = getVramInfo();
@@ -351,7 +363,7 @@ let _cpuLastTotal = 0;
 let _cpuLastIdle = 0;
 let _cpuFirstDone = false;
 function getCpuUsage() {
-    const cpus = os.cpus();
+    const cpus = os_1.default.cpus();
     const cores = cpus.length;
     const model = cpus[0]?.model || 'Unknown CPU';
     let totalIdle = 0, totalTick = 0;
@@ -380,7 +392,7 @@ let _cachedIp = null;
 function getNetworkIp() {
     if (_cachedIp)
         return _cachedIp;
-    const nets = os.networkInterfaces();
+    const nets = os_1.default.networkInterfaces();
     for (const name of Object.keys(nets)) {
         for (const iface of nets[name] ?? []) {
             if (iface.family === 'IPv4' && !iface.internal) {
@@ -392,7 +404,7 @@ function getNetworkIp() {
     return '127.0.0.1';
 }
 // ─── Main collector (called every 2s from main.ts) ────────────────────────────
-export function collectSystemStats() {
+function collectSystemStats() {
     const gpu = detectGPUOnce();
     const cpuInfo = getCpuUsage();
     // GPU real-time: only query nvidia-smi when NVIDIA GPU is present
@@ -405,7 +417,7 @@ export function collectSystemStats() {
             const vram = getVramInfo();
             gpuMemFree = vram.free;
             // Query usage/temp separately (different query, needed for UI display)
-            const output = execSync('nvidia-smi --query-gpu=utilization.gpu,temperature.gpu --format=csv,noheader,nounits', {
+            const output = (0, child_process_1.execSync)('nvidia-smi --query-gpu=utilization.gpu,temperature.gpu --format=csv,noheader,nounits', {
                 encoding: 'utf-8', timeout: 3000,
             });
             const parts = output.trim().split(',').map((s) => s.trim());
@@ -414,11 +426,11 @@ export function collectSystemStats() {
         }
         catch { }
     }
-    const totalMem = os.totalmem();
-    const freeMem = os.freemem();
+    const totalMem = os_1.default.totalmem();
+    const freeMem = os_1.default.freemem();
     const usedMem = totalMem - freeMem;
-    const ramDiskInfo = getRamDiskInfo();
-    const ramDiskSizeGB = getAutoRamDiskSize();
+    const ramDiskInfo = (0, ramdisk_js_1.getRamDiskInfo)();
+    const ramDiskSizeGB = (0, ramdisk_js_1.getAutoRamDiskSize)();
     return {
         ramUsed: +(usedMem / (1024 ** 3)).toFixed(1),
         ramTotal: +(totalMem / (1024 ** 3)).toFixed(1),
@@ -440,7 +452,7 @@ export function collectSystemStats() {
         maxChunkWorkers: gpu.maxChunkWorkers,
         networkIp: getNetworkIp(),
         isOnline: true,
-        activeWorkers: getPoolStatus().active,
+        activeWorkers: (0, worker_pool_js_1.getPoolStatus)().active,
     };
 }
 // Common game process names (Windows)
@@ -460,7 +472,7 @@ const GAME_PROCESSES = [
 let _lastAlert = { level: 'normal', reason: '' };
 let _lastAlertTime = 0;
 const ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
-export function checkResourceAlert() {
+function checkResourceAlert() {
     const now = Date.now();
     if (now - _lastAlertTime < ALERT_COOLDOWN_MS)
         return _lastAlert;
@@ -470,7 +482,7 @@ export function checkResourceAlert() {
     // Detect game processes
     let gameDetected = false;
     try {
-        const out = execSync('tasklist /FI "IMAGENAME eq *.exe" /NH 2>nul', { encoding: 'utf-8', timeout: 5000, windowsHide: true });
+        const out = (0, child_process_1.execSync)('tasklist /FI "IMAGENAME eq *.exe" /NH 2>nul', { encoding: 'utf-8', timeout: 5000, windowsHide: true });
         for (const game of GAME_PROCESSES) {
             if (out.toLowerCase().includes(game.toLowerCase())) {
                 gameDetected = true;
@@ -507,6 +519,6 @@ export function checkResourceAlert() {
     }
     return { level, reason, usedRAM: ramPct, usedGPU: gpuPct, gameDetected };
 }
-export function getLastResourceAlert() {
+function getLastResourceAlert() {
     return _lastAlert;
 }

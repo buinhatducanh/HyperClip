@@ -1,31 +1,37 @@
+"use strict";
 /**
  * Video file serving IPC handlers.
  * Channels: VIDEO_FILE, VIDEO_BLOB, IMAGE_FILE, BLOB_SAVE
  */
-import fs from 'fs';
-import path from 'path';
-import { IPC_CHANNELS } from '../channels.js';
-import { getWorkspace, updateWorkspace } from '../../services/store.js';
-import { getVideoStoragePath } from '../../services/ramdisk.js';
-import { getAppStoreDir } from '../../services/paths.js';
-import { broadcast } from '../ipc-state.js';
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.registerVideoHandlers = registerVideoHandlers;
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
+const channels_js_1 = require("../channels.js");
+const store_js_1 = require("../../services/store.js");
+const ramdisk_js_1 = require("../../services/ramdisk.js");
+const paths_js_1 = require("../../services/paths.js");
+const ipc_state_js_1 = require("../ipc-state.js");
 // Scan known storage directories for a downloaded video file by workspaceId.
 function findDownloadedFileAbs(workspaceId) {
     const dirs = [
-        getVideoStoragePath(),
-        path.join(getAppStoreDir(), 'downloads'),
-        path.join(getAppStoreDir(), 'videos'),
+        (0, ramdisk_js_1.getVideoStoragePath)(),
+        path_1.default.join((0, paths_js_1.getAppStoreDir)(), 'downloads'),
+        path_1.default.join((0, paths_js_1.getAppStoreDir)(), 'videos'),
     ];
     for (const dir of dirs) {
         try {
-            const entries = fs.readdirSync(dir);
+            const entries = fs_1.default.readdirSync(dir);
             const found = entries.find((f) => {
-                const base = path.basename(f, path.extname(f));
+                const base = path_1.default.basename(f, path_1.default.extname(f));
                 return base === workspaceId || base.startsWith(workspaceId + '_') || base.startsWith(workspaceId + '.');
             });
             if (found) {
-                const abs = path.join(dir, found);
-                if (fs.existsSync(abs))
+                const abs = path_1.default.join(dir, found);
+                if (fs_1.default.existsSync(abs))
                     return abs;
             }
         }
@@ -33,18 +39,18 @@ function findDownloadedFileAbs(workspaceId) {
     }
     return null;
 }
-export function registerVideoHandlers(ipcMain) {
+function registerVideoHandlers(ipcMain) {
     // Serve video file path for HTML5 preview player
-    ipcMain.handle(IPC_CHANNELS.VIDEO_FILE, async (_, workspaceId) => {
-        const ws = getWorkspace(workspaceId);
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.VIDEO_FILE, async (_, workspaceId) => {
+        const ws = (0, store_js_1.getWorkspace)(workspaceId);
         if (!ws || !ws.downloadedPath)
             return null;
         const stored = ws.downloadedPath;
         const abs = stored.startsWith('/') || stored.match(/^[A-Z]:/i)
             ? stored
-            : path.join(getVideoStoragePath(), stored);
+            : path_1.default.join((0, ramdisk_js_1.getVideoStoragePath)(), stored);
         let absPath = abs;
-        if (!fs.existsSync(absPath)) {
+        if (!fs_1.default.existsSync(absPath)) {
             const found = findDownloadedFileAbs(workspaceId);
             if (found) {
                 absPath = found;
@@ -53,8 +59,8 @@ export function registerVideoHandlers(ipcMain) {
                 // File gone (deleted by cleanup or manually) — mark workspace as error so UI shows retry
                 console.warn(`[VIDEO_FILE] file not found: ${ws.downloadedPath}`);
                 if (ws.status === 'ready') {
-                    updateWorkspace(workspaceId, { status: 'error' });
-                    broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(workspaceId));
+                    (0, store_js_1.updateWorkspace)(workspaceId, { status: 'error' });
+                    (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(workspaceId));
                 }
                 return null;
             }
@@ -65,16 +71,16 @@ export function registerVideoHandlers(ipcMain) {
         return { path: absPath, url: videoUrl };
     });
     // Serve full video file as ArrayBuffer (for blob URL playback)
-    ipcMain.handle(IPC_CHANNELS.VIDEO_BLOB, async (_, workspaceId) => {
-        const ws = getWorkspace(workspaceId);
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.VIDEO_BLOB, async (_, workspaceId) => {
+        const ws = (0, store_js_1.getWorkspace)(workspaceId);
         if (!ws || !ws.downloadedPath)
             return null;
         const stored = ws.downloadedPath;
         const abs = stored.startsWith('/') || stored.match(/^[A-Z]:/i)
             ? stored
-            : path.join(getVideoStoragePath(), stored);
+            : path_1.default.join((0, ramdisk_js_1.getVideoStoragePath)(), stored);
         let absPath = abs;
-        if (!fs.existsSync(absPath)) {
+        if (!fs_1.default.existsSync(absPath)) {
             const found = findDownloadedFileAbs(workspaceId);
             if (found)
                 absPath = found;
@@ -84,7 +90,7 @@ export function registerVideoHandlers(ipcMain) {
             }
         }
         try {
-            const data = fs.readFileSync(absPath);
+            const data = fs_1.default.readFileSync(absPath);
             return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
         }
         catch (err) {
@@ -93,13 +99,13 @@ export function registerVideoHandlers(ipcMain) {
         }
     });
     // Serve image file as base64 data URI
-    ipcMain.handle(IPC_CHANNELS.IMAGE_FILE, async (_, workspaceId) => {
-        const storagePath = getVideoStoragePath();
-        const thumbPath = path.join(storagePath, `thumb_${workspaceId}.jpg`);
-        if (!fs.existsSync(thumbPath))
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.IMAGE_FILE, async (_, workspaceId) => {
+        const storagePath = (0, ramdisk_js_1.getVideoStoragePath)();
+        const thumbPath = path_1.default.join(storagePath, `thumb_${workspaceId}.jpg`);
+        if (!fs_1.default.existsSync(thumbPath))
             return null;
         try {
-            const data = fs.readFileSync(thumbPath);
+            const data = fs_1.default.readFileSync(thumbPath);
             return { path: thumbPath, dataUrl: `data:image/jpeg;base64,${data.toString('base64')}` };
         }
         catch {
@@ -107,13 +113,13 @@ export function registerVideoHandlers(ipcMain) {
         }
     });
     // Save binary data from renderer to disk (for header/background images)
-    ipcMain.handle(IPC_CHANNELS.BLOB_SAVE, async (_, arrayBuffer, filename) => {
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.BLOB_SAVE, async (_, arrayBuffer, filename) => {
         try {
-            const dir = path.join(getAppStoreDir(), 'temp_assets');
-            if (!fs.existsSync(dir))
-                fs.mkdirSync(dir, { recursive: true });
-            const filePath = path.join(dir, filename);
-            fs.writeFileSync(filePath, Buffer.from(arrayBuffer));
+            const dir = path_1.default.join((0, paths_js_1.getAppStoreDir)(), 'temp_assets');
+            if (!fs_1.default.existsSync(dir))
+                fs_1.default.mkdirSync(dir, { recursive: true });
+            const filePath = path_1.default.join(dir, filename);
+            fs_1.default.writeFileSync(filePath, Buffer.from(arrayBuffer));
             return { diskPath: filePath };
         }
         catch (err) {

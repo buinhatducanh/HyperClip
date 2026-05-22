@@ -205,5 +205,4 @@ Landscape does NOT use the bottom bar system. It uses the traditional title over
 ## Related Docs
 
 - `docs/E2E_BOTTOM_BAR_FLOW.md` — Full E2E trace: EditorState → IPC → renderVideo → FFmpeg → output
-- `docs/BUG_LAGGY_RENDER.md` — Render pipeline bug fixes (2026-05-15)
-- `YOUTUBE_DOWNLOAD_2026.md` — Download strategy (2026-05-15)
+`YOUTUBE_DOWNLOAD_2026.md` — Download strategy (2026-05-15)

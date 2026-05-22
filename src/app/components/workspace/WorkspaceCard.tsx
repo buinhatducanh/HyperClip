@@ -19,6 +19,7 @@ interface Props {
   onRetry?: (id: string) => void
   onSplit?: (id: string, partMinutes: number) => void
   trimLimitMinutes?: number
+  onPriorityChange?: (id: string, direction: 'up' | 'down', type: 'download' | 'render') => void
 }
 
 const STATUS_CONFIG: Record<WorkspaceStatus, { label: string; color: string; dotColor: string }> = {
@@ -79,7 +80,7 @@ function parseRes(res?: string): number {
   return Math.min(w, h) || Math.max(w, h)
 }
 
-export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, onRetry, onSplit, trimLimitMinutes = 10 }: Props) {
+export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected, onClick, onQuickAction, onRetry, onSplit, trimLimitMinutes = 10, onPriorityChange }: Props) {
   const isShort = workspace.isShort === true
   const status = workspace.status as WorkspaceStatus
   const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.ready
@@ -454,6 +455,12 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
                 {workspace.fileSize}
               </span>
             )}
+            {/* Priority indicator for queueable workspaces */}
+            {['waiting', 'downloading', 'ready', 'rendering'].includes(status) && (
+              <span style={{ fontSize: 8, color: '#444', fontFamily: 'monospace', flexShrink: 0 }}>
+                #{workspace.downloadPriority ?? 0}
+              </span>
+            )}
           </div>
 
           {/* Download speed/ETA */}
@@ -540,6 +547,32 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
           >
             THỬ LẠI
           </button>
+        )}
+        {/* Priority controls for waiting/downloading/ready workspaces */}
+        {onPriorityChange && ['waiting', 'downloading', 'ready', 'rendering'].includes(status) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginLeft: 'auto' }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); onPriorityChange(workspace.id, 'up', status === 'ready' || status === 'rendering' ? 'render' : 'download') }}
+              title="Tăng ưu tiên"
+              style={{ fontSize: 11, color: '#444', background: 'transparent', border: 'none', cursor: 'pointer', padding: '0 2px', lineHeight: 1 }}
+              onMouseEnter={e => (e.currentTarget.style.color = '#FFB800')}
+              onMouseLeave={e => (e.currentTarget.style.color = '#444')}
+            >
+              ↑
+            </button>
+            <span style={{ fontSize: 8, color: '#444', fontFamily: 'monospace', minWidth: 14, textAlign: 'center' }}>
+              {workspace.downloadPriority ?? 0}
+            </span>
+            <button
+              onClick={(e) => { e.stopPropagation(); onPriorityChange(workspace.id, 'down', status === 'ready' || status === 'rendering' ? 'render' : 'download') }}
+              title="Giảm ưu tiên"
+              style={{ fontSize: 11, color: '#444', background: 'transparent', border: 'none', cursor: 'pointer', padding: '0 2px', lineHeight: 1 }}
+              onMouseEnter={e => (e.currentTarget.style.color = '#FFB800')}
+              onMouseLeave={e => (e.currentTarget.style.color = '#444')}
+            >
+              ↓
+            </button>
+          </div>
         )}
         {showSplit && (
           <button

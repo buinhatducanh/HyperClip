@@ -63,6 +63,16 @@ export interface Workspace {
   isShort?: boolean
   /** YouTube available video heights (e.g. [360, 720, 1080]) — for quality validation UI */
   availableFormats?: number[]
+  /** ID of workspace this was split from */
+  parentId?: string
+  /** 1-based part index within split */
+  partIndex?: number
+  /** Total parts this video was split into */
+  totalParts?: number
+  /** Download queue position — lower = higher priority (0 = next to download). Updated by user dragging. */
+  downloadPriority?: number
+  /** Render queue position — lower = higher priority. Updated by user dragging. */
+  renderPriority?: number
 }
 
 export interface AppSettings {
@@ -75,6 +85,7 @@ export interface AppSettings {
   autoRender: boolean
   autoRenderResolution: string  // '480x480'|'720x720'|'1080x1080'
   autoRenderFPS: number         // 30|60
+  autoRenderTitleTemplate: string  // title template for auto-rendered videos
   minimizeToTray: boolean
   autoDownloadQuality: string  // '360'|'480'|'720'|'1080'
   pollIntervalMs: number       // detection poll interval in ms (default: 5000)
@@ -131,6 +142,7 @@ export interface AppStore {
   updateWorkspace: (id: string, patch: Partial<Workspace>) => void
   removeWorkspace: (id: string) => void
   selectWorkspace: (id: string | null) => void
+  setWorkspacePriority: (id: string, priority: number, type: 'download' | 'render') => void
 
   // Actions — Rendered Videos
   initRenderedVideos: () => Promise<void>
@@ -142,6 +154,11 @@ export interface AppStore {
   addChannel: (url: string) => Promise<void>
   updateChannel: (id: string, patch: Partial<Channel>) => Promise<void>
   removeChannel: (id: string) => Promise<void>
+  pauseChannel: (id: string) => Promise<void>
+  resumeChannel: (id: string) => Promise<void>
+  bulkRemoveChannels: (ids: string[]) => Promise<void>
+  bulkPauseChannels: (ids: string[]) => Promise<void>
+  bulkResumeChannels: (ids: string[]) => Promise<void>
   selectChannel: (id: string) => void
 
   // Actions — Render
@@ -223,6 +240,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     autoRender: false,
     autoRenderResolution: '480x480',
     autoRenderFPS: 30,
+    autoRenderTitleTemplate: '',
     minimizeToTray: true,
     autoDownloadEnabled: true,
     autoDownloadQuality: '720',
@@ -308,6 +326,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
       workspaces: s.workspaces.filter((w) => w.id !== id),
       selectedWorkspaceId: s.selectedWorkspaceId === id ? null : s.selectedWorkspaceId,
     })),
+
+  setWorkspacePriority: (id, priority, type) => {
+    const patch = type === 'download'
+      ? { downloadPriority: priority }
+      : { renderPriority: priority }
+    set((s) => ({
+      workspaces: s.workspaces.map((w) => w.id === id ? { ...w, ...patch } : w),
+    }))
+    ipc.updateWorkspace(id, patch)
+  },
 
   selectWorkspace: (id) => {
     set({ selectedWorkspaceId: id })
@@ -399,6 +427,63 @@ export const useAppStore = create<AppStore>((set, get) => ({
       get().showToast('Đã xóa kênh')
     } catch {
       get().showToast('Lỗi khi xóa kênh')
+    }
+  },
+
+  pauseChannel: async (id) => {
+    try {
+      const ok = await ipc.pauseChannel(id)
+      if (ok) {
+        set((s) => ({ channels: s.channels.map((c) => c.id === id ? { ...c, paused: true } : c) }))
+        get().showToast('Đã tạm dừng kênh')
+      }
+    } catch {
+      get().showToast('Lỗi khi tạm dừng kênh')
+    }
+  },
+
+  resumeChannel: async (id) => {
+    try {
+      const ok = await ipc.resumeChannel(id)
+      if (ok) {
+        set((s) => ({ channels: s.channels.map((c) => c.id === id ? { ...c, paused: false } : c) }))
+        get().showToast('Đã tiếp tục kênh')
+      }
+    } catch {
+      get().showToast('Lỗi khi tiếp tục kênh')
+    }
+  },
+
+  bulkRemoveChannels: async (ids) => {
+    try {
+      await ipc.bulkRemoveChannels(ids)
+      set((s) => ({
+        channels: s.channels.filter((c) => !ids.includes(c.id)),
+        selectedWorkspaceId: null,
+      }))
+      get().showToast(`Đã xóa ${ids.length} kênh`)
+    } catch {
+      get().showToast('Lỗi khi xóa kênh')
+    }
+  },
+
+  bulkPauseChannels: async (ids) => {
+    try {
+      await ipc.bulkPauseChannels(ids)
+      set((s) => ({ channels: s.channels.map((c) => ids.includes(c.id) ? { ...c, paused: true } : c) }))
+      get().showToast(`Đã tạm dừng ${ids.length} kênh`)
+    } catch {
+      get().showToast('Lỗi khi tạm dừng kênh')
+    }
+  },
+
+  bulkResumeChannels: async (ids) => {
+    try {
+      await ipc.bulkResumeChannels(ids)
+      set((s) => ({ channels: s.channels.map((c) => ids.includes(c.id) ? { ...c, paused: false } : c) }))
+      get().showToast(`Đã tiếp tục ${ids.length} kênh`)
+    } catch {
+      get().showToast('Lỗi khi tiếp tục kênh')
     }
   },
 

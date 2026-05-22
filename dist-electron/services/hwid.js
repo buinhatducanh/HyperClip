@@ -1,3 +1,11 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getMachineId = getMachineId;
+exports.getMachineIdShort = getMachineIdShort;
+exports.generateFallbackId = generateFallbackId;
 /**
  * Hardware ID — stable, non-reversible machine fingerprint for license binding.
  *
@@ -14,15 +22,15 @@
  *   - Stable across reboots (unless hardware changes)
  *   - Unique enough to identify a single machine (collision practically impossible)
  */
-import { execSync } from 'child_process';
-import crypto from 'crypto';
-import os from 'os';
+const child_process_1 = require("child_process");
+const crypto_1 = __importDefault(require("crypto"));
+const os_1 = __importDefault(require("os"));
 // ─── Cache (module-level, computed once per process lifetime) ─────────────────
 let _cachedHwid = null;
 // ─── Windows: extract hardware identifiers ─────────────────────────────────────
 function wmicQuery(query) {
     try {
-        return execSync(`wmic ${query}`, { encoding: 'utf8', windowsHide: true, timeout: 10_000 })
+        return (0, child_process_1.execSync)(`wmic ${query}`, { encoding: 'utf8', windowsHide: true, timeout: 10_000 })
             .trim();
     }
     catch {
@@ -72,7 +80,7 @@ function getWindowsDiskSerial() {
 }
 // ─── Cross-platform entry point ────────────────────────────────────────────────
 /** Get the stable hardware ID for this machine. Cached after first call. */
-export function getMachineId() {
+function getMachineId() {
     if (_cachedHwid)
         return _cachedHwid;
     let composite;
@@ -93,7 +101,7 @@ export function getMachineId() {
         if (parts.length === 0) {
             // Ultimate fallback: MAC + hostname + platform
             const mac = getPrimaryMAC();
-            const hostname = os.hostname();
+            const hostname = os_1.default.hostname();
             composite = `fallback:mac=${mac},host=${hostname},plat=win32`;
         }
         else {
@@ -103,15 +111,15 @@ export function getMachineId() {
     else {
         // macOS / Linux fallback
         const mac = getPrimaryMAC();
-        const hostname = os.hostname();
+        const hostname = os_1.default.hostname();
         const uid = String(process.getuid?.() ?? 0);
         composite = `mac=${mac},host=${hostname},uid=${uid},plat=${process.platform}`;
     }
-    _cachedHwid = crypto.createHash('sha256').update(composite).digest('hex');
+    _cachedHwid = crypto_1.default.createHash('sha256').update(composite).digest('hex');
     return _cachedHwid;
 }
 /** Short form for display (first 8 + last 4 chars). */
-export function getMachineIdShort() {
+function getMachineIdShort() {
     const id = getMachineId();
     return `${id.slice(0, 8).toUpperCase()}-${id.slice(-4).toUpperCase()}`;
 }
@@ -121,7 +129,7 @@ function getPrimaryMAC() {
         if (process.platform === 'win32') {
             // WMIC approach — no PowerShell escaping issues
             try {
-                const wmicOut = execSync('wmic nic where "NetEnabled=true" get MACAddress /format:csv', { encoding: 'utf8', windowsHide: true, timeout: 10_000 }).trim();
+                const wmicOut = (0, child_process_1.execSync)('wmic nic where "NetEnabled=true" get MACAddress /format:csv', { encoding: 'utf8', windowsHide: true, timeout: 10_000 }).trim();
                 const macMatch = wmicOut.match(/([0-9A-F]{2}[:-]){5}[0-9A-F]{2}/i);
                 if (macMatch)
                     return macMatch[0].toUpperCase().replace(/-/g, ':');
@@ -129,7 +137,7 @@ function getPrimaryMAC() {
             catch { }
         }
         else {
-            const out = execSync("ip link show | grep ether | head -1 | awk '{print $2}'", {
+            const out = (0, child_process_1.execSync)("ip link show | grep ether | head -1 | awk '{print $2}'", {
                 encoding: 'utf8', timeout: 10_000
             }).trim();
             if (out && out.length > 0)
@@ -140,6 +148,6 @@ function getPrimaryMAC() {
     return 'UNKNOWNMAC';
 }
 /** Generate a random UUID (for development / fallback). */
-export function generateFallbackId() {
-    return crypto.randomUUID();
+function generateFallbackId() {
+    return crypto_1.default.randomUUID();
 }

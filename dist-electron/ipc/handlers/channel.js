@@ -1,31 +1,34 @@
+"use strict";
 /**
  * Channel IPC handlers.
  * Channels: CHANNEL_INFO, CHANNEL_LIST, CHANNEL_SYNC, CHANNEL_ADD,
  *           CHANNEL_UPDATE, CHANNEL_REMOVE, CHANNEL_UNSUBSCRIBE, CHANNEL_BULK_ADD
  */
-import { IPC_CHANNELS } from '../channels.js';
-import { getChannels, addChannel, updateChannel, removeChannel, } from '../../services/store.js';
-import { getChannelInfo } from '../../services/youtube.js';
-import { getCookieManager } from '../../services/cookie_manager.js';
-import { refreshChannelCache } from '../../services/subscription_feed.js';
-import { unsubscribeChannel } from '../../services/youtube_auth.js';
-import { getTokenManager } from '../../services/token_manager.js';
-import { devLog } from '../../services/unified_log.js';
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.registerChannelHandlers = registerChannelHandlers;
+const channels_js_1 = require("../channels.js");
+const store_js_1 = require("../../services/store.js");
+const youtube_js_1 = require("../../services/youtube.js");
+const cookie_manager_js_1 = require("../../services/cookie_manager.js");
+const subscription_feed_js_1 = require("../../services/subscription_feed.js");
+const youtube_auth_js_1 = require("../../services/youtube_auth.js");
+const token_manager_js_1 = require("../../services/token_manager.js");
+const unified_log_js_1 = require("../../services/unified_log.js");
 const CHANNEL_COLORS = ['#00B4FF', '#7C3AED', '#00FF88', '#FF6B35', '#FF0080', '#FFB800'];
-export function registerChannelHandlers(ipcMain) {
-    ipcMain.handle(IPC_CHANNELS.CHANNEL_INFO, async (_, url) => {
-        return getChannelInfo(url);
+function registerChannelHandlers(ipcMain) {
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.CHANNEL_INFO, async (_, url) => {
+        return (0, youtube_js_1.getChannelInfo)(url);
     });
-    ipcMain.handle(IPC_CHANNELS.CHANNEL_LIST, async () => {
-        return getChannels();
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.CHANNEL_LIST, async () => {
+        return (0, store_js_1.getChannels)();
     });
-    ipcMain.handle(IPC_CHANNELS.CHANNEL_SYNC, async () => {
-        const cm = getCookieManager();
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.CHANNEL_SYNC, async () => {
+        const cm = (0, cookie_manager_js_1.getCookieManager)();
         const result = await cm.syncSubscriptionList();
-        refreshChannelCache();
+        (0, subscription_feed_js_1.refreshChannelCache)();
         return result;
     });
-    ipcMain.handle(IPC_CHANNELS.CHANNEL_ADD, async (_, url) => {
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.CHANNEL_ADD, async (_, url) => {
         const urlTrimmed = url.trim();
         if (!urlTrimmed)
             return null;
@@ -50,7 +53,7 @@ export function registerChannelHandlers(ipcMain) {
         }
         catch { /* ignore URL parse errors */ }
         // ── Duplicate check ───────────────────────────────────────────────────────────
-        const existing = getChannels();
+        const existing = (0, store_js_1.getChannels)();
         const isDupe = existing.some((ch) => {
             if (channelId && ch.channelId === channelId)
                 return true;
@@ -66,7 +69,7 @@ export function registerChannelHandlers(ipcMain) {
         let name;
         let avatarUrl;
         try {
-            const info = await getChannelInfo(urlTrimmed);
+            const info = await (0, youtube_js_1.getChannelInfo)(urlTrimmed);
             if (info && info.channelName) {
                 name = info.channelName;
                 channelId = info.channelId || channelId;
@@ -96,39 +99,39 @@ export function registerChannelHandlers(ipcMain) {
             avatarUrl,
             createdAt: new Date().toISOString(),
         };
-        const saved = addChannel(newCh);
-        refreshChannelCache();
+        const saved = (0, store_js_1.addChannel)(newCh);
+        (0, subscription_feed_js_1.refreshChannelCache)();
         return saved;
     });
-    ipcMain.handle(IPC_CHANNELS.CHANNEL_UPDATE, async (_, id, patch) => {
-        return updateChannel(id, patch);
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.CHANNEL_UPDATE, async (_, id, patch) => {
+        return (0, store_js_1.updateChannel)(id, patch);
     });
-    ipcMain.handle(IPC_CHANNELS.CHANNEL_REMOVE, async (_, id) => {
-        return removeChannel(id);
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.CHANNEL_REMOVE, async (_, id) => {
+        return (0, store_js_1.removeChannel)(id);
     });
     // ── Unsubscribe from YouTube ─────────────────────────────────────────────────
-    ipcMain.handle(IPC_CHANNELS.CHANNEL_UNSUBSCRIBE, async (_, id) => {
-        const channels = getChannels();
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.CHANNEL_UNSUBSCRIBE, async (_, id) => {
+        const channels = (0, store_js_1.getChannels)();
         const ch = channels.find(c => c.id === id);
         if (!ch)
             return { success: false, error: 'Channel not found' };
         if (!ch.channelId)
             return { success: false, error: 'No YouTube channel ID' };
-        const tokenData = await getTokenManager().getBestAvailable(ch.channelId);
+        const tokenData = await (0, token_manager_js_1.getTokenManager)().getBestAvailable(ch.channelId);
         if (!tokenData)
             return { success: false, error: 'No OAuth token available — please configure OAuth credentials in Settings' };
-        devLog(`[CHANNEL_UNSUBSCRIBE] Unsubscribing from ${ch.name} (${ch.channelId})`);
-        const result = await unsubscribeChannel(tokenData.token, ch.channelId);
+        (0, unified_log_js_1.devLog)(`[CHANNEL_UNSUBSCRIBE] Unsubscribing from ${ch.name} (${ch.channelId})`);
+        const result = await (0, youtube_auth_js_1.unsubscribeChannel)(tokenData.token, ch.channelId);
         if (result.success) {
             // Also remove from local tracking
-            removeChannel(id);
-            refreshChannelCache();
-            devLog(`[CHANNEL_UNSUBSCRIBE] Success — ${ch.name} unsubscribed and removed from tracking`);
+            (0, store_js_1.removeChannel)(id);
+            (0, subscription_feed_js_1.refreshChannelCache)();
+            (0, unified_log_js_1.devLog)(`[CHANNEL_UNSUBSCRIBE] Success — ${ch.name} unsubscribed and removed from tracking`);
         }
         return result;
     });
     // ── Bulk add ─────────────────────────────────────────────────────────────────
-    ipcMain.handle(IPC_CHANNELS.CHANNEL_BULK_ADD, async (_, urls) => {
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.CHANNEL_BULK_ADD, async (_, urls) => {
         const results = [];
         for (const url of urls) {
             const trimmed = url.trim();
@@ -140,7 +143,7 @@ export function registerChannelHandlers(ipcMain) {
                 let channelId;
                 let avatarUrl;
                 try {
-                    const info = await getChannelInfo(trimmed);
+                    const info = await (0, youtube_js_1.getChannelInfo)(trimmed);
                     if (info) {
                         name = info.channelName;
                         handle = info.handle || `@${info.channelId}`;
@@ -156,7 +159,7 @@ export function registerChannelHandlers(ipcMain) {
                     name = raw.charAt(0).toUpperCase() + raw.slice(1);
                     handle = `@${raw.toLowerCase()}`;
                 }
-                const channels = getChannels();
+                const channels = (0, store_js_1.getChannels)();
                 const newCh = {
                     id: `ch${Date.now()}`,
                     name,
@@ -166,14 +169,14 @@ export function registerChannelHandlers(ipcMain) {
                     avatarUrl,
                     createdAt: new Date().toISOString(),
                 };
-                addChannel(newCh);
+                (0, store_js_1.addChannel)(newCh);
                 results.push({ url: trimmed, success: true });
             }
             catch (err) {
                 results.push({ url: trimmed, success: false, error: err.message });
             }
         }
-        refreshChannelCache();
+        (0, subscription_feed_js_1.refreshChannelCache)();
         return results;
     });
 }

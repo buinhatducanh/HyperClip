@@ -1,55 +1,94 @@
+"use strict";
 /**
  * Workspace IPC handlers.
  * Channels: WORKSPACE_LIST, WORKSPACE_SET_ACTIVE, WORKSPACE_UPDATE,
  *           FORMATS_GET, WORKSPACE_DELETE, WORKSPACE_RETRY, WORKSPACE_REGENERATE_BLUR
  */
-import fs from 'fs';
-import { IPC_CHANNELS } from '../channels.js';
-import { broadcast, sendNotification, setActiveWorkspaceId, } from '../ipc-state.js';
-import { getWorkspaces, getWorkspace, updateWorkspace, deleteWorkspace, } from '../../services/store.js';
-import { cleanupWorkspace, getVideoStoragePath, ensureStorageDirs, loadSettings, generateWorkspacePaths, } from '../../services/ramdisk.js';
-import { generateBlurBackground } from '../../services/ffmpeg.js';
-import { downloadVideo, getVideoInfo, probeActualDuration, probeAvailableFormats, } from '../../services/youtube.js';
-import { devLog } from '../../services/unified_log.js';
-export function registerWorkspaceHandlers(ipcMain) {
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.registerWorkspaceHandlers = registerWorkspaceHandlers;
+const fs_1 = __importDefault(require("fs"));
+const channels_js_1 = require("../channels.js");
+const ipc_state_js_1 = require("../ipc-state.js");
+const store_js_1 = require("../../services/store.js");
+const ramdisk_js_1 = require("../../services/ramdisk.js");
+const ffmpeg_js_1 = require("../../services/ffmpeg.js");
+const youtube_js_1 = require("../../services/youtube.js");
+const unified_log_js_1 = require("../../services/unified_log.js");
+function registerWorkspaceHandlers(ipcMain) {
     // ── List all workspaces ──────────────────────────────────────────────────────
-    ipcMain.handle(IPC_CHANNELS.WORKSPACE_LIST, async () => {
-        return getWorkspaces();
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.WORKSPACE_LIST, async () => {
+        return (0, store_js_1.getWorkspaces)();
     });
     // ── Track active workspace ───────────────────────────────────────────────────
-    ipcMain.handle(IPC_CHANNELS.WORKSPACE_SET_ACTIVE, async (_, workspaceId) => {
-        setActiveWorkspaceId(workspaceId);
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.WORKSPACE_SET_ACTIVE, async (_, workspaceId) => {
+        (0, ipc_state_js_1.setActiveWorkspaceId)(workspaceId);
         return { success: true };
     });
     // ── Update workspace ─────────────────────────────────────────────────────────
-    ipcMain.handle(IPC_CHANNELS.WORKSPACE_UPDATE, async (_, id, patch) => {
-        const updated = updateWorkspace(id, patch);
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE, async (_, id, patch) => {
+        const updated = (0, store_js_1.updateWorkspace)(id, patch);
         if (updated)
-            broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, updated);
+            (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, updated);
         return updated || { success: false };
     });
     // ── Available formats probe ─────────────────────────────────────────────────
-    ipcMain.handle(IPC_CHANNELS.FORMATS_GET, async (_, videoId, videoUrl) => {
-        const { getYtCookiesFile } = await import('../../services/po_token.js');
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.FORMATS_GET, async (_, videoId, videoUrl) => {
+        const { getYtCookiesFile } = await Promise.resolve().then(() => __importStar(require('../../services/po_token.js')));
         const ytCookiesFile = await getYtCookiesFile();
-        const result = await probeAvailableFormats(videoUrl, ytCookiesFile);
+        const result = await (0, youtube_js_1.probeAvailableFormats)(videoUrl, ytCookiesFile);
         if (result) {
-            devLog(`[Formats] ${videoId}: available heights = [${result.heights.join(', ')}]`);
+            (0, unified_log_js_1.devLog)(`[Formats] ${videoId}: available heights = [${result.heights.join(', ')}]`);
         }
         return result;
     });
     // ── Delete workspace ────────────────────────────────────────────────────────
-    ipcMain.handle(IPC_CHANNELS.WORKSPACE_DELETE, async (_, id) => {
-        const ws = getWorkspace(id);
-        const { bytesFreed, filesDeleted } = cleanupWorkspace(id, ws?.downloadedPath);
-        deleteWorkspace(id);
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.WORKSPACE_DELETE, async (_, id) => {
+        const ws = (0, store_js_1.getWorkspace)(id);
+        const { bytesFreed, filesDeleted } = (0, ramdisk_js_1.cleanupWorkspace)(id, ws?.downloadedPath);
+        (0, store_js_1.deleteWorkspace)(id);
         const freedMB = (bytesFreed / 1024 / 1024).toFixed(1);
-        sendNotification('success', `Deleted (${filesDeleted} files, ${freedMB} MB freed)`, id);
+        (0, ipc_state_js_1.sendNotification)('success', `Deleted (${filesDeleted} files, ${freedMB} MB freed)`, id);
         return { success: true, bytesFreed, filesDeleted };
     });
     // ── Retry download ──────────────────────────────────────────────────────────
-    ipcMain.handle(IPC_CHANNELS.WORKSPACE_RETRY, async (_, id) => {
-        const ws = getWorkspace(id);
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.WORKSPACE_RETRY, async (_, id) => {
+        const ws = (0, store_js_1.getWorkspace)(id);
         if (!ws)
             return { success: false, error: 'Workspace not found' };
         if (!['waiting', 'error'].includes(ws.status)) {
@@ -58,18 +97,18 @@ export function registerWorkspaceHandlers(ipcMain) {
         const videoUrl = ws.videoUrl || (ws.videoId ? `https://www.youtube.com/watch?v=${ws.videoId}` : null);
         if (!videoUrl)
             return { success: false, error: 'No video URL stored' };
-        updateWorkspace(id, { status: 'downloading', downloadProgress: 0 });
-        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id));
-        const storagePath = getVideoStoragePath();
-        ensureStorageDirs();
-        const settings = loadSettings();
+        (0, store_js_1.updateWorkspace)(id, { status: 'downloading', downloadProgress: 0 });
+        (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(id));
+        const storagePath = (0, ramdisk_js_1.getVideoStoragePath)();
+        (0, ramdisk_js_1.ensureStorageDirs)();
+        const settings = (0, ramdisk_js_1.loadSettings)();
         const retryQuality = settings.autoDownloadQuality ?? '720';
         const retryTrimLimit = ws.trimLimit || 10;
-        devLog(`[WORKSPACE_RETRY] quality=${retryQuality}p trimLimit=${retryTrimLimit}m (user config: quality=${settings.autoDownloadQuality}p)`);
-        const { getYtCookiesFile } = await import('../../services/po_token.js');
+        (0, unified_log_js_1.devLog)(`[WORKSPACE_RETRY] quality=${retryQuality}p trimLimit=${retryTrimLimit}m (user config: quality=${settings.autoDownloadQuality}p)`);
+        const { getYtCookiesFile } = await Promise.resolve().then(() => __importStar(require('../../services/po_token.js')));
         const ytCookiesFile = await getYtCookiesFile();
         try {
-            const result = await downloadVideo({
+            const result = await (0, youtube_js_1.downloadVideo)({
                 workspaceId: id,
                 videoUrl,
                 outputDir: storagePath,
@@ -77,7 +116,7 @@ export function registerWorkspaceHandlers(ipcMain) {
                 quality: retryQuality,
                 ytCookiesFile,
                 onProgress: (progress) => {
-                    broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
+                    (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
                         workspaceId: id,
                         percent: progress.percent,
                         speed: progress.speed,
@@ -86,9 +125,9 @@ export function registerWorkspaceHandlers(ipcMain) {
                 },
             });
             if (result.success && result.filePath) {
-                const videoInfo = await getVideoInfo(videoUrl);
-                const actualDuration = await probeActualDuration(result.filePath);
-                updateWorkspace(id, {
+                const videoInfo = await (0, youtube_js_1.getVideoInfo)(videoUrl);
+                const actualDuration = await (0, youtube_js_1.probeActualDuration)(result.filePath);
+                (0, store_js_1.updateWorkspace)(id, {
                     status: 'ready',
                     downloadedAt: new Date().toISOString(),
                     downloadedPath: result.filePath,
@@ -98,11 +137,11 @@ export function registerWorkspaceHandlers(ipcMain) {
                     duration: actualDuration || videoInfo?.duration || 0,
                     downloadQuality: retryQuality,
                 });
-                broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id));
-                const { blurPath } = generateWorkspacePaths(id);
-                const blurResult = await generateBlurBackground(result.filePath, blurPath);
-                updateWorkspace(id, { blurBackgroundPath: blurResult.success ? blurPath : '' });
-                broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id));
+                (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(id));
+                const { blurPath } = (0, ramdisk_js_1.generateWorkspacePaths)(id);
+                const blurResult = await (0, ffmpeg_js_1.generateBlurBackground)(result.filePath, blurPath);
+                (0, store_js_1.updateWorkspace)(id, { blurBackgroundPath: blurResult.success ? blurPath : '' });
+                (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(id));
                 return { success: true };
             }
             else {
@@ -110,35 +149,35 @@ export function registerWorkspaceHandlers(ipcMain) {
                 const isNotAvailable = errorMsg.includes('not available') || errorMsg.includes('video unavailable') || errorMsg.includes('not found');
                 const isPrivate = errorMsg.includes('private video');
                 if (isPrivate) {
-                    updateWorkspace(id, { status: 'error' });
+                    (0, store_js_1.updateWorkspace)(id, { status: 'error' });
                 }
                 else {
-                    updateWorkspace(id, { status: isNotAvailable ? 'error' : 'waiting' });
+                    (0, store_js_1.updateWorkspace)(id, { status: isNotAvailable ? 'error' : 'waiting' });
                 }
-                broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id));
+                (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(id));
                 return { success: false, error: result.error };
             }
         }
         catch (err) {
-            updateWorkspace(id, { status: 'waiting' });
-            broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id));
+            (0, store_js_1.updateWorkspace)(id, { status: 'waiting' });
+            (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(id));
             return { success: false, error: err.message };
         }
     });
     // ── Regenerate blur background ──────────────────────────────────────────────
-    ipcMain.handle(IPC_CHANNELS.WORKSPACE_REGENERATE_BLUR, async (_, id) => {
-        const ws = getWorkspace(id);
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.WORKSPACE_REGENERATE_BLUR, async (_, id) => {
+        const ws = (0, store_js_1.getWorkspace)(id);
         if (!ws)
             return { success: false, error: 'Workspace not found' };
-        if (!ws.downloadedPath || !fs.existsSync(ws.downloadedPath)) {
+        if (!ws.downloadedPath || !fs_1.default.existsSync(ws.downloadedPath)) {
             return { success: false, error: 'Video file not found' };
         }
         try {
-            const { blurPath } = generateWorkspacePaths(id);
-            const result = await generateBlurBackground(ws.downloadedPath, blurPath);
+            const { blurPath } = (0, ramdisk_js_1.generateWorkspacePaths)(id);
+            const result = await (0, ffmpeg_js_1.generateBlurBackground)(ws.downloadedPath, blurPath);
             if (result.success) {
-                updateWorkspace(id, { blurBackgroundPath: blurPath });
-                broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id));
+                (0, store_js_1.updateWorkspace)(id, { blurBackgroundPath: blurPath });
+                (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(id));
             }
             return { success: result.success, error: result.error };
         }

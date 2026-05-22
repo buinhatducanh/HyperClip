@@ -1,3 +1,4 @@
+"use strict";
 /**
  * Project Manager — HyperClip (2026-05-14, updated 2026-05-18)
  *
@@ -22,11 +23,17 @@
  *       proj-002/
  *       ...
  */
-import fs from 'fs';
-import path from 'path';
-import { devLog } from './unified_log.js';
-import { getProjectsDir, getProjectDir, getProjectConfigPath, getProjectConfigEncPath, getProjectTokenPath, getProjectTokenEncPath, getProjectStatsPath, getChannelsDir, } from './paths.js';
-import { readEncryptedFile, writeEncryptedFile, isEncryptedYaml, } from './encrypted_yaml.js';
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ProjectManager = void 0;
+exports.getProjectManager = getProjectManager;
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
+const unified_log_js_1 = require("./unified_log.js");
+const paths_js_1 = require("./paths.js");
+const encrypted_yaml_js_1 = require("./encrypted_yaml.js");
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MAX_UNITS_PER_PROJECT = 9500;
 const EXHAUSTION_ERROR_THRESHOLD = 5;
@@ -45,12 +52,12 @@ class ProjectManager {
     /** Ensure required directories exist */
     _ensureDirs() {
         const dirs = [
-            getProjectsDir(),
-            getChannelsDir(),
+            (0, paths_js_1.getProjectsDir)(),
+            (0, paths_js_1.getChannelsDir)(),
         ];
         for (const dir of dirs) {
-            if (!fs.existsSync(dir)) {
-                fs.mkdirSync(dir, { recursive: true });
+            if (!fs_1.default.existsSync(dir)) {
+                fs_1.default.mkdirSync(dir, { recursive: true });
             }
         }
     }
@@ -65,36 +72,36 @@ class ProjectManager {
         // Check midnight reset
         this._checkReset();
         this._initialized = true;
-        devLog(`[ProjectManager] Initialized: ${this._projects.size} projects loaded`);
+        (0, unified_log_js_1.devLog)(`[ProjectManager] Initialized: ${this._projects.size} projects loaded`);
         this._logSummary();
     }
     /** Load all project configs from projects/{id}/config.enc.yaml (encrypted)
      *  Falls back to config.json for legacy projects (auto-migrates on first write).
      */
     _loadAllProjects() {
-        const projectsDir = getProjectsDir();
-        if (!fs.existsSync(projectsDir)) {
-            fs.mkdirSync(projectsDir, { recursive: true });
-            devLog('[ProjectManager] Created projects/ directory');
+        const projectsDir = (0, paths_js_1.getProjectsDir)();
+        if (!fs_1.default.existsSync(projectsDir)) {
+            fs_1.default.mkdirSync(projectsDir, { recursive: true });
+            (0, unified_log_js_1.devLog)('[ProjectManager] Created projects/ directory');
             return;
         }
-        const entries = fs.readdirSync(projectsDir, { withFileTypes: true });
+        const entries = fs_1.default.readdirSync(projectsDir, { withFileTypes: true });
         for (const entry of entries) {
             if (!entry.isDirectory())
                 continue;
             const projectId = entry.name;
-            const encPath = getProjectConfigEncPath(projectId);
-            const jsonPath = getProjectConfigPath(projectId);
+            const encPath = (0, paths_js_1.getProjectConfigEncPath)(projectId);
+            const jsonPath = (0, paths_js_1.getProjectConfigPath)(projectId);
             let config = null;
             // Try encrypted YAML first
-            if (isEncryptedYaml(encPath)) {
-                config = readEncryptedFile(encPath);
+            if ((0, encrypted_yaml_js_1.isEncryptedYaml)(encPath)) {
+                config = (0, encrypted_yaml_js_1.readEncryptedFile)(encPath);
             }
-            else if (fs.existsSync(jsonPath)) {
+            else if (fs_1.default.existsSync(jsonPath)) {
                 // Legacy JSON — migrate in memory (write encrypted on next save)
                 try {
-                    config = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
-                    devLog(`[ProjectManager] Legacy project config found for ${projectId} — will migrate on next save`);
+                    config = JSON.parse(fs_1.default.readFileSync(jsonPath, 'utf-8'));
+                    (0, unified_log_js_1.devLog)(`[ProjectManager] Legacy project config found for ${projectId} — will migrate on next save`);
                 }
                 catch (e) {
                     console.warn(`[ProjectManager] Failed to parse project config ${projectId}:`, e);
@@ -114,29 +121,29 @@ class ProjectManager {
         }
     }
     _loadProjectStats(projectId) {
-        const statsPath = getProjectStatsPath(projectId);
-        if (fs.existsSync(statsPath)) {
+        const statsPath = (0, paths_js_1.getProjectStatsPath)(projectId);
+        if (fs_1.default.existsSync(statsPath)) {
             try {
-                return JSON.parse(fs.readFileSync(statsPath, 'utf-8'));
+                return JSON.parse(fs_1.default.readFileSync(statsPath, 'utf-8'));
             }
             catch { }
         }
         return this._defaultStats();
     }
     _loadProjectToken(projectId) {
-        const encPath = getProjectTokenEncPath(projectId);
-        const jsonPath = getProjectTokenPath(projectId);
+        const encPath = (0, paths_js_1.getProjectTokenEncPath)(projectId);
+        const jsonPath = (0, paths_js_1.getProjectTokenPath)(projectId);
         // Try encrypted YAML first
-        if (isEncryptedYaml(encPath)) {
-            const token = readEncryptedFile(encPath);
+        if ((0, encrypted_yaml_js_1.isEncryptedYaml)(encPath)) {
+            const token = (0, encrypted_yaml_js_1.readEncryptedFile)(encPath);
             if (token?.access_token)
                 return token;
             return undefined;
         }
         // Legacy JSON fallback
-        if (fs.existsSync(jsonPath)) {
+        if (fs_1.default.existsSync(jsonPath)) {
             try {
-                const token = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+                const token = JSON.parse(fs_1.default.readFileSync(jsonPath, 'utf-8'));
                 if (!token.access_token)
                     return undefined;
                 return token;
@@ -157,10 +164,10 @@ class ProjectManager {
     // ── Channel Assignments ───────────────────────────────────────────────────────
     /** Load channel assignments from channels/ directory */
     _loadAssignments() {
-        const assignmentsFile = path.join(getChannelsDir(), 'assignments.json');
-        if (fs.existsSync(assignmentsFile)) {
+        const assignmentsFile = path_1.default.join((0, paths_js_1.getChannelsDir)(), 'assignments.json');
+        if (fs_1.default.existsSync(assignmentsFile)) {
             try {
-                const data = JSON.parse(fs.readFileSync(assignmentsFile, 'utf-8'));
+                const data = JSON.parse(fs_1.default.readFileSync(assignmentsFile, 'utf-8'));
                 this._assignments = data.assignments || [];
             }
             catch {
@@ -173,8 +180,8 @@ class ProjectManager {
     }
     /** Persist channel assignments */
     _saveAssignments() {
-        const assignmentsFile = path.join(getChannelsDir(), 'assignments.json');
-        fs.writeFileSync(assignmentsFile, JSON.stringify({ assignments: this._assignments }, null, 2), 'utf-8');
+        const assignmentsFile = path_1.default.join((0, paths_js_1.getChannelsDir)(), 'assignments.json');
+        fs_1.default.writeFileSync(assignmentsFile, JSON.stringify({ assignments: this._assignments }, null, 2), 'utf-8');
     }
     /**
      * Auto-assign channels to projects (round-robin).
@@ -188,7 +195,7 @@ class ProjectManager {
     autoAssignChannels(channelIds) {
         const activeProjects = this.getActiveProjects();
         if (activeProjects.length === 0) {
-            devLog('[ProjectManager] No active projects — cannot assign channels');
+            (0, unified_log_js_1.devLog)('[ProjectManager] No active projects — cannot assign channels');
             return;
         }
         const newAssignments = [];
@@ -216,7 +223,7 @@ class ProjectManager {
             project.assignedChannels = [...new Set(assigned)];
             this._saveProjectConfig(project);
         }
-        devLog(`[ProjectManager] Assigned ${channelIds.length} channels to ${projectCount} projects`);
+        (0, unified_log_js_1.devLog)(`[ProjectManager] Assigned ${channelIds.length} channels to ${projectCount} projects`);
     }
     /** Get assignments for a specific channel */
     getAssignmentForChannel(channelId) {
@@ -226,9 +233,9 @@ class ProjectManager {
     /** Add a new project from config (used by bulk import + Settings UI) */
     addProject(config) {
         const { projectId } = config;
-        const projectDir = getProjectDir(projectId);
-        if (!fs.existsSync(projectDir)) {
-            fs.mkdirSync(projectDir, { recursive: true });
+        const projectDir = (0, paths_js_1.getProjectDir)(projectId);
+        if (!fs_1.default.existsSync(projectDir)) {
+            fs_1.default.mkdirSync(projectDir, { recursive: true });
         }
         const project = {
             ...config,
@@ -240,7 +247,7 @@ class ProjectManager {
         this._projects.set(projectId, project);
         this._saveProjectConfig(project);
         this._saveProjectStats(project);
-        devLog(`[ProjectManager] Added project: ${projectId} (${config.projectName})`);
+        (0, unified_log_js_1.devLog)(`[ProjectManager] Added project: ${projectId} (${config.projectName})`);
         return project;
     }
     /** Update project config */
@@ -258,10 +265,10 @@ class ProjectManager {
         if (!project)
             return false;
         // Delete project directory
-        const projectDir = getProjectDir(projectId);
+        const projectDir = (0, paths_js_1.getProjectDir)(projectId);
         try {
-            if (fs.existsSync(projectDir)) {
-                fs.rmSync(projectDir, { recursive: true });
+            if (fs_1.default.existsSync(projectDir)) {
+                fs_1.default.rmSync(projectDir, { recursive: true });
             }
         }
         catch (e) {
@@ -275,7 +282,7 @@ class ProjectManager {
             this._assignments = this._assignments.filter(a => a.primaryProjectId !== projectId && a.backupProjectId !== projectId);
             this._saveAssignments();
         }
-        devLog(`[ProjectManager] Removed project: ${projectId}`);
+        (0, unified_log_js_1.devLog)(`[ProjectManager] Removed project: ${projectId}`);
         return true;
     }
     // ── Token Management ─────────────────────────────────────────────────────────
@@ -288,7 +295,7 @@ class ProjectManager {
         project.status = 'active';
         this._saveProjectTokenEnc(projectId, token);
         this._saveProjectConfig(project);
-        devLog(`[ProjectManager] Token saved (encrypted) for ${projectId}`);
+        (0, unified_log_js_1.devLog)(`[ProjectManager] Token saved (encrypted) for ${projectId}`);
     }
     /** Get token for a project */
     getToken(projectId) {
@@ -347,7 +354,7 @@ class ProjectManager {
             return;
         project.status = 'exhausted';
         this._saveProjectConfig(project);
-        devLog(`[ProjectManager] Project ${projectId} marked exhausted (used=${project.stats.usedToday}, errors=${project.stats.errors})`);
+        (0, unified_log_js_1.devLog)(`[ProjectManager] Project ${projectId} marked exhausted (used=${project.stats.usedToday}, errors=${project.stats.errors})`);
     }
     /** Mark a project as unauthorized (401 — token revoked) */
     markUnauthorized(projectId) {
@@ -382,14 +389,14 @@ class ProjectManager {
         project.stats.unauthorized = false;
         this._saveProjectStats(project);
         this._saveProjectConfig(project);
-        devLog(`[ProjectManager] Reset stats for ${projectId}`);
+        (0, unified_log_js_1.devLog)(`[ProjectManager] Reset stats for ${projectId}`);
     }
     /** Reset ALL projects (manual reset from Settings UI) */
     resetAll() {
         for (const project of this._projects.values()) {
             this.resetProject(project.projectId);
         }
-        devLog('[ProjectManager] Reset all project stats');
+        (0, unified_log_js_1.devLog)('[ProjectManager] Reset all project stats');
     }
     // ── Midnight Reset ──────────────────────────────────────────────────────────
     /** Check if midnight UTC reset is needed */
@@ -397,7 +404,7 @@ class ProjectManager {
         const today = this._todayUTCDate();
         if (this._lastResetUTCDate === today)
             return;
-        devLog(`[ProjectManager] Midnight reset: "${this._lastResetUTCDate}" → "${today}"`);
+        (0, unified_log_js_1.devLog)(`[ProjectManager] Midnight reset: "${this._lastResetUTCDate}" → "${today}"`);
         this._lastResetUTCDate = today;
         for (const project of this._projects.values()) {
             // Re-enable exhausted projects
@@ -415,7 +422,7 @@ class ProjectManager {
             };
             this._saveProjectStats(project);
         }
-        devLog('[ProjectManager] All projects reset for new day');
+        (0, unified_log_js_1.devLog)('[ProjectManager] All projects reset for new day');
     }
     /** Check reset on interval (call every 30 min) */
     checkReset() {
@@ -480,33 +487,33 @@ class ProjectManager {
     // ── Persistence ──────────────────────────────────────────────────────────────
     /** Save project config as encrypted YAML (migrates legacy JSON on first write). */
     _saveProjectConfig(project) {
-        const encPath = getProjectConfigEncPath(project.projectId);
-        const jsonPath = getProjectConfigPath(project.projectId);
+        const encPath = (0, paths_js_1.getProjectConfigEncPath)(project.projectId);
+        const jsonPath = (0, paths_js_1.getProjectConfigPath)(project.projectId);
         const { token: _token, stats: _stats, ...config } = project;
-        writeEncryptedFile(encPath, config);
+        (0, encrypted_yaml_js_1.writeEncryptedFile)(encPath, config);
         // Remove legacy plain JSON after successful encrypted write
-        if (fs.existsSync(jsonPath)) {
+        if (fs_1.default.existsSync(jsonPath)) {
             try {
-                fs.unlinkSync(jsonPath);
+                fs_1.default.unlinkSync(jsonPath);
             }
             catch { }
         }
     }
     /** Save project token as encrypted YAML (migrates legacy JSON on first write). */
     _saveProjectTokenEnc(projectId, token) {
-        const encPath = getProjectTokenEncPath(projectId);
-        const jsonPath = getProjectTokenPath(projectId);
-        writeEncryptedFile(encPath, token);
-        if (fs.existsSync(jsonPath)) {
+        const encPath = (0, paths_js_1.getProjectTokenEncPath)(projectId);
+        const jsonPath = (0, paths_js_1.getProjectTokenPath)(projectId);
+        (0, encrypted_yaml_js_1.writeEncryptedFile)(encPath, token);
+        if (fs_1.default.existsSync(jsonPath)) {
             try {
-                fs.unlinkSync(jsonPath);
+                fs_1.default.unlinkSync(jsonPath);
             }
             catch { }
         }
     }
     _saveProjectStats(project) {
-        const statsPath = getProjectStatsPath(project.projectId);
-        fs.writeFileSync(statsPath, JSON.stringify(project.stats, null, 2), 'utf-8');
+        const statsPath = (0, paths_js_1.getProjectStatsPath)(project.projectId);
+        fs_1.default.writeFileSync(statsPath, JSON.stringify(project.stats, null, 2), 'utf-8');
     }
     // ── Query ───────────────────────────────────────────────────────────────────
     /** Get all projects */
@@ -567,8 +574,8 @@ class ProjectManager {
     }
     _logSummary() {
         const status = this.getStatus();
-        devLog(`[ProjectManager] Summary: total=${status.total}, active=${status.active}, exhausted=${status.exhausted}, pending_auth=${status.pendingAuth}`);
-        devLog(`[ProjectManager] Quota: ${status.totalQuotaUsedToday}/${status.totalQuotaRemaining + status.totalQuotaUsedToday} used today`);
+        (0, unified_log_js_1.devLog)(`[ProjectManager] Summary: total=${status.total}, active=${status.active}, exhausted=${status.exhausted}, pending_auth=${status.pendingAuth}`);
+        (0, unified_log_js_1.devLog)(`[ProjectManager] Quota: ${status.totalQuotaUsedToday}/${status.totalQuotaRemaining + status.totalQuotaUsedToday} used today`);
     }
     /** Get usedToday for a specific project */
     getUsedToday(projectId) {
@@ -584,13 +591,13 @@ class ProjectManager {
         return Date.now() + msUntilMidnightUTC;
     }
 }
+exports.ProjectManager = ProjectManager;
 // ─── Singleton ───────────────────────────────────────────────────────────────
 let _instance = null;
-export function getProjectManager() {
+function getProjectManager() {
     if (!_instance) {
         _instance = new ProjectManager();
         _instance.init();
     }
     return _instance;
 }
-export { ProjectManager };

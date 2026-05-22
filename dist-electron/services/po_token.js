@@ -1,3 +1,4 @@
+"use strict";
 /**
  * PO Token Extractor — HyperClip
  *
@@ -13,16 +14,62 @@
  * 3. The persistent Chrome uses the user's default Chrome profile (same cookies).
  * 4. PO Token is cached for 10 minutes to avoid re-extracting on every download.
  */
-import WebSocket from 'ws';
-import http from 'http';
-import fs from 'fs';
-import path from 'path';
-import { devLog } from './unified_log.js';
-import { ensurePersistentChrome } from './cdp.js';
-import { getAppStoreDir } from './paths.js';
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.navigateAndExtractPoToken = navigateAndExtractPoToken;
+exports.getCDPPort = getCDPPort;
+exports.exportCookiesForYtDlp = exportCookiesForYtDlp;
+exports.getYtCookiesFile = getYtCookiesFile;
+exports.clearYtCookiesCache = clearYtCookiesCache;
+exports.getPoTokenForProfile = getPoTokenForProfile;
+exports.refreshPoToken = refreshPoToken;
+exports.warmupPoTokenCache = warmupPoTokenCache;
+exports.getInnertubePoToken = getInnertubePoToken;
+const ws_1 = __importDefault(require("ws"));
+const http_1 = __importDefault(require("http"));
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
+const unified_log_js_1 = require("./unified_log.js");
+const cdp_js_1 = require("./cdp.js");
+const paths_js_1 = require("./paths.js");
 async function httpGet(url, timeoutMs = 5000) {
     return new Promise((resolve) => {
-        const req = http.get(url, (res) => {
+        const req = http_1.default.get(url, (res) => {
             let body = '';
             res.on('data', (c) => { body += c; });
             res.on('end', () => resolve(body));
@@ -34,33 +81,33 @@ async function httpGet(url, timeoutMs = 5000) {
 async function getCDPTarget(port) {
     const json = await httpGet(`http://localhost:${port}/json`);
     if (!json) {
-        devLog(`[PoToken] getCDPTarget: no response from port ${port}`);
+        (0, unified_log_js_1.devLog)(`[PoToken] getCDPTarget: no response from port ${port}`);
         return null;
     }
     try {
         const tabs = JSON.parse(json);
         if (!tabs.length) {
-            devLog(`[PoToken] getCDPTarget: no tabs found on port ${port}`);
+            (0, unified_log_js_1.devLog)(`[PoToken] getCDPTarget: no tabs found on port ${port}`);
             return null;
         }
         // Prefer YouTube tab that has a specific video URL (not homepage)
         const ytVideoTab = tabs.find(t => t.url?.includes('youtube.com/watch?v='));
         if (ytVideoTab) {
-            devLog(`[PoToken] Target tab (video): "${ytVideoTab.title}" url=${ytVideoTab.url?.slice(0, 60)}`);
+            (0, unified_log_js_1.devLog)(`[PoToken] Target tab (video): "${ytVideoTab.title}" url=${ytVideoTab.url?.slice(0, 60)}`);
             return ytVideoTab;
         }
         // Fallback to any YouTube tab
         const ytTab = tabs.find(t => t.url?.includes('youtube.com'));
         if (ytTab) {
-            devLog(`[PoToken] Target tab (fallback): "${ytTab.title}" url=${ytTab.url?.slice(0, 60)}`);
+            (0, unified_log_js_1.devLog)(`[PoToken] Target tab (fallback): "${ytTab.title}" url=${ytTab.url?.slice(0, 60)}`);
             return ytTab;
         }
         // Last resort: first tab
-        devLog(`[PoToken] Target tab (last resort): "${tabs[0].title}" url=${tabs[0].url?.slice(0, 60)}`);
+        (0, unified_log_js_1.devLog)(`[PoToken] Target tab (last resort): "${tabs[0].title}" url=${tabs[0].url?.slice(0, 60)}`);
         return tabs[0];
     }
     catch (e) {
-        devLog(`[PoToken] getCDPTarget parse error: ${e}`);
+        (0, unified_log_js_1.devLog)(`[PoToken] getCDPTarget parse error: ${e}`);
         return null;
     }
 }
@@ -70,7 +117,7 @@ class CDPClient {
     _pending = new Map();
     async connect(wsUrl) {
         return new Promise((resolve, reject) => {
-            this._ws = new WebSocket(wsUrl);
+            this._ws = new ws_1.default(wsUrl);
             this._ws.on('open', () => resolve());
             this._ws.on('error', (e) => reject(e));
             this._ws.on('message', (data) => {
@@ -107,7 +154,7 @@ class CDPClient {
         });
     }
     async dispose() {
-        if (this._ws && this._ws.readyState === WebSocket.OPEN) {
+        if (this._ws && this._ws.readyState === ws_1.default.OPEN) {
             this._ws.close();
         }
         this._ws = null;
@@ -122,28 +169,28 @@ function sleep(ms) {
  * Called when downloading a specific video — PO Token is per-video.
  * Uses the persistent Chrome on the given port.
  */
-export async function navigateAndExtractPoToken(port, videoId) {
+async function navigateAndExtractPoToken(port, videoId) {
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    devLog(`[PoToken] Navigating to ${videoUrl} for PO Token extraction...`);
+    (0, unified_log_js_1.devLog)(`[PoToken] Navigating to ${videoUrl} for PO Token extraction...`);
     const target = await getCDPTarget(port);
     if (!target) {
-        devLog(`[PoToken] No CDP target found on port ${port}`);
+        (0, unified_log_js_1.devLog)(`[PoToken] No CDP target found on port ${port}`);
         return null;
     }
     const client = new CDPClient();
     try {
         await client.connect(target.webSocketDebuggerUrl);
-        devLog(`[PoToken] Navigating to: ${videoUrl}`);
+        (0, unified_log_js_1.devLog)(`[PoToken] Navigating to: ${videoUrl}`);
         try {
             const navResult = await client.send('Page.navigate', { url: videoUrl });
-            devLog(`[PoToken] Navigate result: ${JSON.stringify(navResult)}`);
+            (0, unified_log_js_1.devLog)(`[PoToken] Navigate result: ${JSON.stringify(navResult)}`);
         }
         catch (e) {
-            devLog(`[PoToken] Navigation error: ${e}`);
+            (0, unified_log_js_1.devLog)(`[PoToken] Navigation error: ${e}`);
             return null;
         }
         // Wait for the video player to load
-        devLog(`[PoToken] Waiting for player to load...`);
+        (0, unified_log_js_1.devLog)(`[PoToken] Waiting for player to load...`);
         let waited = 0;
         let playerLoaded = false;
         while (waited < 15000) {
@@ -157,7 +204,7 @@ export async function navigateAndExtractPoToken(port, videoId) {
                 const val = check?.result?.value;
                 if (val === 'READY') {
                     playerLoaded = true;
-                    devLog(`[PoToken] Player ready after ${waited / 1000}s`);
+                    (0, unified_log_js_1.devLog)(`[PoToken] Player ready after ${waited / 1000}s`);
                     break;
                 }
             }
@@ -202,16 +249,16 @@ export async function navigateAndExtractPoToken(port, videoId) {
             const jsResult = await client.send('Runtime.evaluate', { expression: jsScript, returnByValue: true });
             const jsData = jsResult?.result?.value;
             if (jsData?.token) {
-                devLog(`[PoToken] Extracted from JS: ${jsData.source} (${jsData.token.slice(0, 8)}...)`);
+                (0, unified_log_js_1.devLog)(`[PoToken] Extracted from JS: ${jsData.source} (${jsData.token.slice(0, 8)}...)`);
                 return jsData.token;
             }
         }
         catch (e) {
-            devLog(`[PoToken] JS extraction error: ${e}`);
+            (0, unified_log_js_1.devLog)(`[PoToken] JS extraction error: ${e}`);
         }
         // Strategy 2: Click play and intercept video element src / MediaSource URLs
         // PO Token for DASH streams is often embedded in the stream URL
-        devLog(`[PoToken] Trying video element capture...`);
+        (0, unified_log_js_1.devLog)(`[PoToken] Trying video element capture...`);
         const captureScript = `
       (function() {
         var results = [];
@@ -265,21 +312,21 @@ export async function navigateAndExtractPoToken(port, videoId) {
             if (captureData?.results?.length > 0) {
                 for (const r of captureData.results) {
                     if (r.token) {
-                        devLog(`[PoToken] Extracted from capture: ${r.source} (${r.token.slice(0, 8)}...)`);
+                        (0, unified_log_js_1.devLog)(`[PoToken] Extracted from capture: ${r.source} (${r.token.slice(0, 8)}...)`);
                         return r.token;
                     }
                 }
             }
-            devLog(`[PoToken] Capture: ${captureData?.videoCount || 0} videos, ${captureData?.streamingURLs?.length || 0} stream URLs`);
+            (0, unified_log_js_1.devLog)(`[PoToken] Capture: ${captureData?.videoCount || 0} videos, ${captureData?.streamingURLs?.length || 0} stream URLs`);
             for (const u of (captureData?.streamingURLs || [])) {
-                devLog(`[PoToken] Stream URL: ${u}`);
+                (0, unified_log_js_1.devLog)(`[PoToken] Stream URL: ${u}`);
             }
         }
         catch (e) {
-            devLog(`[PoToken] Capture error: ${e}`);
+            (0, unified_log_js_1.devLog)(`[PoToken] Capture error: ${e}`);
         }
         // Strategy 3: Click play and wait, then re-check
-        devLog(`[PoToken] Clicking play and waiting for stream...`);
+        (0, unified_log_js_1.devLog)(`[PoToken] Clicking play and waiting for stream...`);
         try {
             const playResult = await client.send('Runtime.evaluate', {
                 expression: `
@@ -293,10 +340,10 @@ export async function navigateAndExtractPoToken(port, videoId) {
         `,
                 returnByValue: true,
             });
-            devLog(`[PoToken] Play result: ${JSON.stringify(playResult?.result?.value)}`);
+            (0, unified_log_js_1.devLog)(`[PoToken] Play result: ${JSON.stringify(playResult?.result?.value)}`);
         }
         catch (e) {
-            devLog(`[PoToken] Play click error: ${e}`);
+            (0, unified_log_js_1.devLog)(`[PoToken] Play click error: ${e}`);
         }
         await sleep(5000);
         // Try extraction again after play
@@ -315,25 +362,25 @@ export async function navigateAndExtractPoToken(port, videoId) {
             });
             const afterData = afterResult?.result?.value;
             if (afterData?.token) {
-                devLog(`[PoToken] Extracted after play: ${afterData.source} (${afterData.token.slice(0, 8)}...)`);
+                (0, unified_log_js_1.devLog)(`[PoToken] Extracted after play: ${afterData.source} (${afterData.token.slice(0, 8)}...)`);
                 return afterData.token;
             }
         }
         catch (e) {
-            devLog(`[PoToken] After-play extraction error: ${e}`);
+            (0, unified_log_js_1.devLog)(`[PoToken] After-play extraction error: ${e}`);
         }
-        devLog(`[PoToken] All strategies exhausted — no PO Token found`);
+        (0, unified_log_js_1.devLog)(`[PoToken] All strategies exhausted — no PO Token found`);
         return null;
     }
     catch (e) {
-        devLog(`[PoToken] navigateAndExtractPoToken error: ${String(e).slice(0, 100)}`);
+        (0, unified_log_js_1.devLog)(`[PoToken] navigateAndExtractPoToken error: ${String(e).slice(0, 100)}`);
         return null;
     }
     finally {
         await client.dispose();
     }
 }
-export function getCDPPort(profileId) {
+function getCDPPort(profileId) {
     const idx = parseInt(profileId, 10);
     return 9222 + (isNaN(idx) ? 0 : idx);
 }
@@ -360,12 +407,12 @@ async function extractPoTokenFromProfile(profileId) {
             return token;
     }
     catch (e) {
-        devLog(`[PoToken] extractPoTokenFromProfile(${profileId}) error: ${String(e).slice(0, 100)}`);
+        (0, unified_log_js_1.devLog)(`[PoToken] extractPoTokenFromProfile(${profileId}) error: ${String(e).slice(0, 100)}`);
     }
     // Profile "1" — ensure persistent Chrome is running, then try again
     if (profileId === '1') {
         try {
-            await ensurePersistentChrome();
+            await (0, cdp_js_1.ensurePersistentChrome)();
             const token = await navigateAndExtractPoToken(profilePort, 'dQw4w9WgXcQ');
             if (token)
                 return token;
@@ -380,11 +427,11 @@ async function extractPoTokenFromProfile(profileId) {
  * yt-dlp can use this cookie file to authenticate and bypass EJS challenge.
  * Returns path to the cookie file, or null if extraction fails.
  */
-export async function exportCookiesForYtDlp(port) {
-    devLog(`[PoToken] Exporting cookies from Chrome port ${port}...`);
+async function exportCookiesForYtDlp(port) {
+    (0, unified_log_js_1.devLog)(`[PoToken] Exporting cookies from Chrome port ${port}...`);
     const target = await getCDPTarget(port);
     if (!target) {
-        devLog('[PoToken] No CDP target for cookie export');
+        (0, unified_log_js_1.devLog)('[PoToken] No CDP target for cookie export');
         return null;
     }
     const client = new CDPClient();
@@ -393,21 +440,21 @@ export async function exportCookiesForYtDlp(port) {
         // Get all cookies from Chrome
         const cookiesResult = await client.send('Network.getAllCookies');
         const cookies = cookiesResult?.cookies || [];
-        devLog(`[PoToken] Got ${cookies.length} cookies from Chrome`);
+        (0, unified_log_js_1.devLog)(`[PoToken] Got ${cookies.length} cookies from Chrome`);
         // Filter to YouTube-relevant cookies
         const ytCookies = cookies.filter(c => c.domain?.includes('youtube') || c.domain?.includes('google'));
         if (ytCookies.length === 0) {
-            devLog('[PoToken] No YouTube cookies found');
+            (0, unified_log_js_1.devLog)('[PoToken] No YouTube cookies found');
             return null;
         }
-        devLog(`[PoToken] YouTube cookies: ${ytCookies.map(c => c.name).join(', ')}`);
+        (0, unified_log_js_1.devLog)(`[PoToken] YouTube cookies: ${ytCookies.map(c => c.name).join(', ')}`);
         // Write as Netscape cookie format (compatible with yt-dlp).
         // Field 2 (flag): TRUE = domain cookie (domain starts with '.'), FALSE = host cookie.
         // Field 4 (secure): TRUE = HTTPS only, FALSE = any scheme.
         // IMPORTANT: flag must match domain format — flag=TRUE requires domain starts with '.',
         // flag=FALSE requires domain does NOT start with '.'.
         const sanitize = (s) => s.replace(/[\t\n\r]/g, '');
-        const cookieFile = path.join(getAppStoreDir(), '_yt_cookies.txt');
+        const cookieFile = path_1.default.join((0, paths_js_1.getAppStoreDir)(), '_yt_cookies.txt');
         const lines = [
             '# Netscape HTTP Cookie File',
             '# This file was generated by HyperClip',
@@ -417,12 +464,12 @@ export async function exportCookiesForYtDlp(port) {
                 return `${d}\t${flag}\t${sanitize(c.path)}\t${c.secure ? 'TRUE' : 'FALSE'}\t${c.expires > 0 ? c.expires : 0}\t${sanitize(c.name)}\t${sanitize(c.value)}`;
             }),
         ];
-        fs.writeFileSync(cookieFile, lines.join('\n'), 'utf-8');
-        devLog(`[PoToken] Cookie file written: ${cookieFile}`);
+        fs_1.default.writeFileSync(cookieFile, lines.join('\n'), 'utf-8');
+        (0, unified_log_js_1.devLog)(`[PoToken] Cookie file written: ${cookieFile}`);
         return cookieFile;
     }
     catch (e) {
-        devLog(`[PoToken] Cookie export error: ${e}`);
+        (0, unified_log_js_1.devLog)(`[PoToken] Cookie export error: ${e}`);
         return null;
     }
     finally {
@@ -435,14 +482,14 @@ export async function exportCookiesForYtDlp(port) {
 let _cachedCookiesFile = null;
 let _cachedCookiesTime = 0;
 const COOKIE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-export async function getYtCookiesFile() {
+async function getYtCookiesFile() {
     // Return cached file if still fresh
-    if (_cachedCookiesFile && fs.existsSync(_cachedCookiesFile) && Date.now() - _cachedCookiesTime < COOKIE_CACHE_TTL_MS) {
+    if (_cachedCookiesFile && fs_1.default.existsSync(_cachedCookiesFile) && Date.now() - _cachedCookiesTime < COOKIE_CACHE_TTL_MS) {
         return _cachedCookiesFile;
     }
     // Lazy import to avoid circular deps
-    const { ensurePersistentChrome } = await import('./cdp.js');
-    const { exportCookiesForYtDlp: exportFn } = await import('./po_token.js');
+    const { ensurePersistentChrome } = await Promise.resolve().then(() => __importStar(require('./cdp.js')));
+    const { exportCookiesForYtDlp: exportFn } = await Promise.resolve().then(() => __importStar(require('./po_token.js')));
     const persistent = await ensurePersistentChrome();
     if (!persistent)
         return null;
@@ -454,7 +501,7 @@ export async function getYtCookiesFile() {
     return file;
 }
 /** Clear the cookie cache — call this if the cookie file is corrupted */
-export function clearYtCookiesCache() {
+function clearYtCookiesCache() {
     _cachedCookiesFile = null;
     _cachedCookiesTime = 0;
 }
@@ -468,7 +515,7 @@ const PO_TOKEN_TTL_MS = 10 * 60 * 1000; // Re-fetch every 10 minutes
  * Cache TTL = 10 min to avoid hammering CDP. For auto-download scenarios
  * where no video is playing, this returns null and the caller falls back to web client.
  */
-export async function getPoTokenForProfile(profileId) {
+async function getPoTokenForProfile(profileId) {
     const cached = _tokenCache.get(profileId);
     if (cached && Date.now() - cached.fetchedAt < PO_TOKEN_TTL_MS) {
         return cached.token;
@@ -482,7 +529,7 @@ export async function getPoTokenForProfile(profileId) {
     else if (cached) {
         // Extraction failed but we have a stale cache — keep using it until TTL expires.
         // This bridges gaps where no video is currently playing.
-        devLog(`[PoToken] Real-time extraction failed for profile ${profileId}, using stale cache (${Math.round((PO_TOKEN_TTL_MS - (Date.now() - cached.fetchedAt)) / 1000)}s remaining)`);
+        (0, unified_log_js_1.devLog)(`[PoToken] Real-time extraction failed for profile ${profileId}, using stale cache (${Math.round((PO_TOKEN_TTL_MS - (Date.now() - cached.fetchedAt)) / 1000)}s remaining)`);
         return cached.token;
     }
     return token;
@@ -490,7 +537,7 @@ export async function getPoTokenForProfile(profileId) {
 /**
  * Refresh PO Token for a profile (force re-fetch).
  */
-export async function refreshPoToken(profileId) {
+async function refreshPoToken(profileId) {
     _tokenCache.delete(profileId);
     return getPoTokenForProfile(profileId);
 }
@@ -500,11 +547,11 @@ export async function refreshPoToken(profileId) {
  * Each profile gets navigated to a YouTube video page and the PO Token is extracted.
  * For session 1, ensures persistent Chrome is running first.
  */
-export async function warmupPoTokenCache(profileIds) {
-    devLog(`[PoToken] Warming up PO Token cache for ${profileIds.length} profiles...`);
+async function warmupPoTokenCache(profileIds) {
+    (0, unified_log_js_1.devLog)(`[PoToken] Warming up PO Token cache for ${profileIds.length} profiles...`);
     // Ensure persistent Chrome is running for session 1
     if (profileIds.includes('1')) {
-        await ensurePersistentChrome();
+        await (0, cdp_js_1.ensurePersistentChrome)();
     }
     await Promise.all(profileIds.map(async (pid) => {
         try {
@@ -513,7 +560,7 @@ export async function warmupPoTokenCache(profileIds) {
         catch { }
     }));
     const withToken = profileIds.filter(pid => _tokenCache.has(pid)).length;
-    devLog(`[PoToken] Cache warmed: ${withToken}/${profileIds.length} profiles have PO Tokens`);
+    (0, unified_log_js_1.devLog)(`[PoToken] Cache warmed: ${withToken}/${profileIds.length} profiles have PO Tokens`);
 }
 // ─── Innertube Integration ───────────────────────────────────────────────────
 /**
@@ -525,7 +572,7 @@ export async function warmupPoTokenCache(profileIds) {
  * Since this is complex, we use CDP with persistent Chrome as a simpler alternative.
  * The persistent Chrome runs on port 9223 with the user's default profile.
  */
-export async function getInnertubePoToken(profileId, videoId) {
+async function getInnertubePoToken(profileId, videoId) {
     // For Innertube, we need a video-specific PO Token.
     // Try to get from cache first, then extract from a YouTube video page.
     const cached = _tokenCache.get(profileId);

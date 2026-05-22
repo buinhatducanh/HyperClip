@@ -1,3 +1,4 @@
+"use strict";
 /**
  * Chrome Cookie Extraction — HyperClip
  *
@@ -13,17 +14,64 @@
  * Innertube API has no published quota limit (vs Data API v3's 10k/day per project).
  * With 30 Chrome profiles (30 sessions) = effectively unlimited quota.
  */
-import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
-import { spawn } from 'child_process';
-import { app } from 'electron';
-import initSqlJs from 'sql.js';
-import { devLog } from './unified_log.js';
-import { getChromeProfilesDir } from './paths.js';
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ChromeSessionManager = void 0;
+exports.toSessionPublic = toSessionPublic;
+exports.getHyperClipProfileDir = getHyperClipProfileDir;
+exports.getDefaultChromeProfileDir = getDefaultChromeProfileDir;
+exports.getChromeExe = getChromeExe;
+exports.decryptDPAPIKey = decryptDPAPIKey;
+exports.extractYouTubeCookies = extractYouTubeCookies;
+exports.launchChromeForLogin = launchChromeForLogin;
+exports.computeSAPISIDHASH = computeSAPISIDHASH;
+exports.getSessionManager = getSessionManager;
+const crypto_1 = __importDefault(require("crypto"));
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
+const os_1 = __importDefault(require("os"));
+const child_process_1 = require("child_process");
+const electron_1 = require("electron");
+const sql_js_1 = __importDefault(require("sql.js"));
+const unified_log_js_1 = require("./unified_log.js");
+const paths_js_1 = require("./paths.js");
 /** Sanitize a session object — strips all sensitive data before IPC */
-export function toSessionPublic(s) {
+function toSessionPublic(s) {
     return {
         profileId: s.profileId,
         profileName: s.profileName,
@@ -39,28 +87,28 @@ export function toSessionPublic(s) {
     };
 }
 // ─── Paths ─────────────────────────────────────────────────────────────────────
-const LOCALAPPDATA = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+const LOCALAPPDATA = process.env.LOCALAPPDATA || path_1.default.join(os_1.default.homedir(), 'AppData', 'Local');
 // Dedicated HyperClip profile directory (created by us) — stored at D:\HyperClip-Data\chrome-profiles
-export function getHyperClipProfileDir(profileId) {
-    return path.join(getChromeProfilesDir(), `profile-${profileId}`);
+function getHyperClipProfileDir(profileId) {
+    return path_1.default.join((0, paths_js_1.getChromeProfilesDir)(), `profile-${profileId}`);
 }
 // User's default Chrome profile (already logged in)
-export function getDefaultChromeProfileDir() {
+function getDefaultChromeProfileDir() {
     // Chrome stores the default profile at User Data\Default
-    return path.join(LOCALAPPDATA, 'Google', 'Chrome', 'User Data', 'Default');
+    return path_1.default.join(LOCALAPPDATA, 'Google', 'Chrome', 'User Data', 'Default');
 }
 // Chrome installation path
-export function getChromeExe() {
-    const chromePath = path.join(process.env['PROGRAMFILES'] || 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe');
-    if (fs.existsSync(chromePath))
+function getChromeExe() {
+    const chromePath = path_1.default.join(process.env['PROGRAMFILES'] || 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe');
+    if (fs_1.default.existsSync(chromePath))
         return chromePath;
     // Try other paths
     const altPaths = [
-        path.join(process.env['PROGRAMFILES(X86)'] || '', 'Google\\Chrome\\Application\\chrome.exe'),
-        path.join(os.homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        path_1.default.join(process.env['PROGRAMFILES(X86)'] || '', 'Google\\Chrome\\Application\\chrome.exe'),
+        path_1.default.join(os_1.default.homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'Application', 'chrome.exe'),
     ];
     for (const p of altPaths) {
-        if (fs.existsSync(p))
+        if (fs_1.default.existsSync(p))
             return p;
     }
     return chromePath;
@@ -78,13 +126,13 @@ export function getChromeExe() {
  *
  * @returns 32-byte AES key as Buffer, or null if decryption fails.
  */
-export async function decryptDPAPIKey(localStatePath) {
+async function decryptDPAPIKey(localStatePath) {
     try {
-        const raw = fs.readFileSync(localStatePath, 'utf-8');
+        const raw = fs_1.default.readFileSync(localStatePath, 'utf-8');
         const json = JSON.parse(raw);
         const encryptedKeyB64 = json.os_crypt?.encrypted_key;
         if (!encryptedKeyB64) {
-            devLog(`[DPAPI] No os_crypt.encrypted_key in ${localStatePath}. Keys: ${Object.keys(json).join(', ')}`);
+            (0, unified_log_js_1.devLog)(`[DPAPI] No os_crypt.encrypted_key in ${localStatePath}. Keys: ${Object.keys(json).join(', ')}`);
             return null;
         }
         const encryptedKey = Buffer.from(encryptedKeyB64, 'base64');
@@ -103,11 +151,11 @@ export async function decryptDPAPIKey(localStatePath) {
                 `$encrypted, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser); ` +
                 `[Convert]::ToBase64String($decrypted)`);
             if (!result) {
-                devLog(`[DPAPI] v10: PowerShell DPAPI unwrap returned null`);
+                (0, unified_log_js_1.devLog)(`[DPAPI] v10: PowerShell DPAPI unwrap returned null`);
                 return null;
             }
             const aesKey = Buffer.from(result.trim(), 'base64');
-            devLog(`[DPAPI] v10: Decrypted AES key OK (${aesKey.length} bytes, nonce=${nonce.length}, tag=${authTag.length})`);
+            (0, unified_log_js_1.devLog)(`[DPAPI] v10: Decrypted AES key OK (${aesKey.length} bytes, nonce=${nonce.length}, tag=${authTag.length})`);
             return aesKey;
         }
         else if (prefix === 'DPA') {
@@ -119,27 +167,27 @@ export async function decryptDPAPIKey(localStatePath) {
                 `$encrypted, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser); ` +
                 `[Convert]::ToBase64String($decrypted)`);
             if (!result) {
-                devLog(`[DPAPI] DPA: PowerShell returned null`);
+                (0, unified_log_js_1.devLog)(`[DPAPI] DPA: PowerShell returned null`);
                 return null;
             }
-            devLog(`[DPAPI] DPA: Decrypted key OK (${result.length} chars)`);
+            (0, unified_log_js_1.devLog)(`[DPAPI] DPA: Decrypted key OK (${result.length} chars)`);
             return Buffer.from(result.trim(), 'base64');
         }
         else {
             // Unknown format — try raw base64 as AES key
-            devLog(`[DPAPI] Unknown prefix: ${prefix} (${encryptedKey.slice(0, 5).toString('hex')}). Trying raw base64.`);
+            (0, unified_log_js_1.devLog)(`[DPAPI] Unknown prefix: ${prefix} (${encryptedKey.slice(0, 5).toString('hex')}). Trying raw base64.`);
             return encryptedKey;
         }
     }
     catch (e) {
-        devLog(`[DPAPI] Exception: ${e}`);
+        (0, unified_log_js_1.devLog)(`[DPAPI] Exception: ${e}`);
         return null;
     }
 }
 /** Spawn PowerShell and return stdout. Returns null on failure. */
 function runPowerShellSync(script, timeoutMs = 15000) {
     return new Promise((resolve) => {
-        const ps = spawn('powershell', ['-ExecutionPolicy', 'Bypass', '-Command', script], {
+        const ps = (0, child_process_1.spawn)('powershell', ['-ExecutionPolicy', 'Bypass', '-Command', script], {
             stdio: ['pipe', 'pipe', 'pipe'],
         });
         let stdout = '', stderr = '';
@@ -161,7 +209,7 @@ function runPowerShellSync(script, timeoutMs = 15000) {
 /** Spawn PowerShell async — for non-blocking operations */
 function runPowerShellAsync(script, timeoutMs = 30000) {
     return new Promise((resolve) => {
-        const ps = spawn('powershell', ['-ExecutionPolicy', 'Bypass', '-Command', script], {
+        const ps = (0, child_process_1.spawn)('powershell', ['-ExecutionPolicy', 'Bypass', '-Command', script], {
             stdio: ['pipe', 'pipe', 'pipe'],
         });
         let stdout = '', stderr = '';
@@ -227,9 +275,9 @@ function decryptCookieValue(encrypted, aesKey) {
                 const tag = ctWithTag.slice(-16);
                 const ct = ctWithTag.slice(0, -16);
                 // Derive per-cookie key: SHA256(masterKey + salt)
-                const cookieKey = crypto.createHash('sha256').update(Buffer.concat([aesKey, salt])).digest();
+                const cookieKey = crypto_1.default.createHash('sha256').update(Buffer.concat([aesKey, salt])).digest();
                 try {
-                    const decipher = crypto.createDecipheriv('aes-256-gcm', cookieKey, nonce);
+                    const decipher = crypto_1.default.createDecipheriv('aes-256-gcm', cookieKey, nonce);
                     decipher.setAuthTag(tag);
                     return Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf8');
                 }
@@ -242,7 +290,7 @@ function decryptCookieValue(encrypted, aesKey) {
             const ciphertextWithTag = encrypted.slice(13);
             const tag = ciphertextWithTag.slice(-16);
             const ciphertext = ciphertextWithTag.slice(0, -16);
-            const decipher = crypto.createDecipheriv('aes-256-gcm', aesKey, nonce);
+            const decipher = crypto_1.default.createDecipheriv('aes-256-gcm', aesKey, nonce);
             decipher.setAuthTag(tag);
             const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
             return decrypted.toString('utf8');
@@ -290,7 +338,7 @@ function validateSocsConsent(socs) {
  * Required cookies for Innertube API auth:
  *   SAPISID, __Secure-1PSID, __Secure-1PSIDTS, __Secure-1PSIDCC
  */
-export async function extractYouTubeCookies(profileDir) {
+async function extractYouTubeCookies(profileDir) {
     // Fast path: try persisted CDP cookies first (written by openLoginWindow)
     // Profile dir may be the "Default" folder (for Chrome profile 1) or root HyperClip dir (2-30)
     const isDefaultChrome = profileDir.endsWith('Default') && profileDir.includes('Chrome');
@@ -298,36 +346,36 @@ export async function extractYouTubeCookies(profileDir) {
         // For Chrome Default: cookies persisted at parent level (User Data\_hyperclip_cookies.json)
         // For HyperClip profiles: cookies persisted at Default level (Default\_hyperclip_cookies.json)
         isDefaultChrome
-            ? path.join(profileDir, '..', '_hyperclip_cookies.json')
-            : path.join(profileDir, '_hyperclip_cookies.json'),
-        path.join(profileDir, '_hyperclip_cookies.json'),
-        path.join(profileDir, 'Default', '_hyperclip_cookies.json'),
-        path.join(profileDir, '..', 'Default', '_hyperclip_cookies.json'),
+            ? path_1.default.join(profileDir, '..', '_hyperclip_cookies.json')
+            : path_1.default.join(profileDir, '_hyperclip_cookies.json'),
+        path_1.default.join(profileDir, '_hyperclip_cookies.json'),
+        path_1.default.join(profileDir, 'Default', '_hyperclip_cookies.json'),
+        path_1.default.join(profileDir, '..', 'Default', '_hyperclip_cookies.json'),
     ];
     for (const persistedPath of fastPaths) {
-        if (fs.existsSync(persistedPath)) {
+        if (fs_1.default.existsSync(persistedPath)) {
             try {
-                const raw = fs.readFileSync(persistedPath, 'utf8');
+                const raw = fs_1.default.readFileSync(persistedPath, 'utf8');
                 const cookies = JSON.parse(raw);
                 const rawSocs = cookies.socs ?? null;
                 if (!cookies.socs || cookies.socs.startsWith('CAA')) {
                     cookies.socs = 'CAI';
                 }
                 if (cookies.SAPISID && cookies.PSID) {
-                    devLog(`[Cookie] Loaded persisted cookies (from CDP login) for ${persistedPath}`);
+                    (0, unified_log_js_1.devLog)(`[Cookie] Loaded persisted cookies (from CDP login) for ${persistedPath}`);
                     return { cookies, rawSocs };
                 }
             }
             catch { }
         }
     }
-    const cookieDbPath = path.join(profileDir, 'Default', 'Network', 'Cookies');
-    const localStatePath = path.join(profileDir, 'Local State');
-    devLog(`[Cookie] extractYouTubeCookies: dir=${profileDir}, dbExists=${fs.existsSync(cookieDbPath)}, localStateExists=${fs.existsSync(localStatePath)}`);
-    if (!fs.existsSync(cookieDbPath)) {
-        const altLocalState = path.join(profileDir, '..', 'Local State');
-        devLog(`[Cookie] No Cookies DB at ${cookieDbPath}, alt Local State exists: ${fs.existsSync(altLocalState)}`);
-        if (fs.existsSync(altLocalState)) {
+    const cookieDbPath = path_1.default.join(profileDir, 'Default', 'Network', 'Cookies');
+    const localStatePath = path_1.default.join(profileDir, 'Local State');
+    (0, unified_log_js_1.devLog)(`[Cookie] extractYouTubeCookies: dir=${profileDir}, dbExists=${fs_1.default.existsSync(cookieDbPath)}, localStateExists=${fs_1.default.existsSync(localStatePath)}`);
+    if (!fs_1.default.existsSync(cookieDbPath)) {
+        const altLocalState = path_1.default.join(profileDir, '..', 'Local State');
+        (0, unified_log_js_1.devLog)(`[Cookie] No Cookies DB at ${cookieDbPath}, alt Local State exists: ${fs_1.default.existsSync(altLocalState)}`);
+        if (fs_1.default.existsSync(altLocalState)) {
             return extractYouTubeCookiesFromPath(cookieDbPath, altLocalState);
         }
         return { cookies: null, rawSocs: null };
@@ -338,10 +386,10 @@ async function extractYouTubeCookiesFromPath(cookieDbPath, localStatePath) {
     // Get DPAPI key (Buffer for AES-GCM decryption)
     const aesKey = await decryptDPAPIKey(localStatePath);
     if (!aesKey) {
-        devLog(`[Cookie] decryptDPAPIKey returned null for ${localStatePath}`);
+        (0, unified_log_js_1.devLog)(`[Cookie] decryptDPAPIKey returned null for ${localStatePath}`);
         return { cookies: null, rawSocs: null };
     }
-    devLog(`[Cookie] DPAPI key OK, path=${localStatePath}`);
+    (0, unified_log_js_1.devLog)(`[Cookie] DPAPI key OK, path=${localStatePath}`);
     // Read cookie DB (may be locked by Chrome)
     // Retry up to 3 times with 500ms delay to handle transient locks.
     let dbBuffer = null;
@@ -350,24 +398,24 @@ async function extractYouTubeCookiesFromPath(cookieDbPath, localStatePath) {
     const BASE_DELAY_MS = 1000;
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            dbBuffer = fs.readFileSync(cookieDbPath);
+            dbBuffer = fs_1.default.readFileSync(cookieDbPath);
             break; // Success
         }
         catch (e) {
             const errCode = e.code || '';
             if (attempt < MAX_RETRIES) {
                 const delay = Math.min(BASE_DELAY_MS * Math.pow(2, attempt - 1), 8000);
-                devLog(`[Cookie] DB locked (${errCode}), retry ${attempt}/${MAX_RETRIES - 1} in ${delay}ms...`);
+                (0, unified_log_js_1.devLog)(`[Cookie] DB locked (${errCode}), retry ${attempt}/${MAX_RETRIES - 1} in ${delay}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
             }
             else {
-                devLog(`[Cookie] DB still locked after ${MAX_RETRIES - 1} retries — trying copy fallback...`);
+                (0, unified_log_js_1.devLog)(`[Cookie] DB still locked after ${MAX_RETRIES - 1} retries — trying copy fallback...`);
                 try {
                     // Use read+write — copyFileSync fails with EBUSY on Chrome-locked files
-                    const srcBuf = fs.readFileSync(cookieDbPath);
-                    fs.writeFileSync(copyPath, srcBuf);
+                    const srcBuf = fs_1.default.readFileSync(cookieDbPath);
+                    fs_1.default.writeFileSync(copyPath, srcBuf);
                     dbBuffer = srcBuf;
-                    devLog(`[Cookie] Read DB via buffer fallback (Chrome may still be writing)`);
+                    (0, unified_log_js_1.devLog)(`[Cookie] Read DB via buffer fallback (Chrome may still be writing)`);
                     break;
                 }
                 catch (copyErr) {
@@ -382,16 +430,16 @@ async function extractYouTubeCookiesFromPath(cookieDbPath, localStatePath) {
         return { cookies: null, rawSocs: null };
     try {
         // Use app.getAppPath() which works in both dev and packaged modes (ESM-compatible)
-        const sqlJsDist = app.isPackaged
-            ? path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist')
-            : path.join(app.getAppPath(), 'node_modules', 'sql.js', 'dist');
-        devLog(`[Cookie] sql.js loading WASM from: ${sqlJsDist}`);
-        const SqlJs = await initSqlJs({
-            locateFile: (f) => path.join(sqlJsDist, f),
+        const sqlJsDist = electron_1.app.isPackaged
+            ? path_1.default.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist')
+            : path_1.default.join(electron_1.app.getAppPath(), 'node_modules', 'sql.js', 'dist');
+        (0, unified_log_js_1.devLog)(`[Cookie] sql.js loading WASM from: ${sqlJsDist}`);
+        const SqlJs = await (0, sql_js_1.default)({
+            locateFile: (f) => path_1.default.join(sqlJsDist, f),
         });
-        devLog(`[Cookie] sql.js loaded, opening DB...`);
+        (0, unified_log_js_1.devLog)(`[Cookie] sql.js loaded, opening DB...`);
         const db = new SqlJs.Database(dbBuffer);
-        devLog(`[Cookie] sql.js DB opened, querying...`);
+        (0, unified_log_js_1.devLog)(`[Cookie] sql.js DB opened, querying...`);
         // Query YouTube cookies
         // Chrome stores encrypted values in the 'encrypted_value' column
         // Plain values are stored in 'value' column for non-encrypted cookies
@@ -402,11 +450,11 @@ async function extractYouTubeCookiesFromPath(cookieDbPath, localStatePath) {
         AND name IN ('SAPISID', '__Secure-1PSID', '__Secure-1PSIDTS', '__Secure-1PSIDCC', '__Secure-3PSID', 'LOGGED_IN', '__Secure-1PAPISID', 'SOCS')
     `);
         if (!result.length || !result[0].values.length) {
-            devLog(`[Cookie] No YouTube cookies found in DB for ${cookieDbPath}`);
+            (0, unified_log_js_1.devLog)(`[Cookie] No YouTube cookies found in DB for ${cookieDbPath}`);
             db.close();
             return { cookies: null, rawSocs: null };
         }
-        devLog(`[Cookie] Found ${result[0].values.length} cookie rows: ${result[0].values.map((r) => String(r[1]) + '@' + String(r[0]).slice(0, 20)).join(', ')}`);
+        (0, unified_log_js_1.devLog)(`[Cookie] Found ${result[0].values.length} cookie rows: ${result[0].values.map((r) => String(r[1]) + '@' + String(r[0]).slice(0, 20)).join(', ')}`);
         const cookies = {};
         for (const row of result[0].values) {
             const hostKey = String(row[0]);
@@ -449,7 +497,7 @@ async function extractYouTubeCookiesFromPath(cookieDbPath, localStatePath) {
         return { cookies: null, rawSocs };
     }
     catch (e) {
-        devLog(`[Cookie] sql.js error: ${e}`);
+        (0, unified_log_js_1.devLog)(`[Cookie] sql.js error: ${e}`);
         return { cookies: null, rawSocs: null };
     }
 }
@@ -463,7 +511,7 @@ function getHyperClipProfileDirs() {
     const dirs = [];
     for (let i = 1; i <= DEFAULT_SESSION_COUNT; i++) {
         const dir = getHyperClipProfileDir(String(i));
-        if (fs.existsSync(dir))
+        if (fs_1.default.existsSync(dir))
             dirs.push(dir);
     }
     return dirs;
@@ -472,9 +520,9 @@ function getHyperClipProfileDirs() {
  * Launch Chrome with a specific profile, opening YouTube for login.
  * Returns the process handle so we can wait for it to close.
  */
-export function launchChromeForLogin(profileId) {
+function launchChromeForLogin(profileId) {
     const chromeExe = getChromeExe();
-    if (!fs.existsSync(chromeExe)) {
+    if (!fs_1.default.existsSync(chromeExe)) {
         console.warn('[SessionManager] Chrome not found at:', chromeExe);
         return null;
     }
@@ -484,9 +532,9 @@ export function launchChromeForLogin(profileId) {
         : getHyperClipProfileDir(profileId);
     // Ensure profile directory exists (for non-default profiles)
     if (!isDefaultChrome) {
-        const defaultDir = path.join(profileDir, 'Default');
-        if (!fs.existsSync(defaultDir)) {
-            fs.mkdirSync(defaultDir, { recursive: true });
+        const defaultDir = path_1.default.join(profileDir, 'Default');
+        if (!fs_1.default.existsSync(defaultDir)) {
+            fs_1.default.mkdirSync(defaultDir, { recursive: true });
         }
     }
     const args = [
@@ -497,7 +545,7 @@ export function launchChromeForLogin(profileId) {
         '--disable-first-run-ui',
         'https://www.youtube.com'
     ];
-    const chromeProcess = spawn(chromeExe, args, {
+    const chromeProcess = (0, child_process_1.spawn)(chromeExe, args, {
         detached: false,
         stdio: 'ignore',
     });
@@ -514,15 +562,15 @@ export function launchChromeForLogin(profileId) {
  * Format: {timestamp}_{sha1(timestamp + " " + SAPISID + " " + origin)}
  * origin = "https://www.youtube.com"
  */
-export function computeSAPISIDHASH(sapisid, timestamp) {
+function computeSAPISIDHASH(sapisid, timestamp) {
     const ts = timestamp ?? Math.floor(Date.now() / 1000);
     const origin = 'https://www.youtube.com';
     const message = `${ts} ${sapisid} ${origin}`;
-    const hash = crypto.createHash('sha1').update(message).digest('hex');
+    const hash = crypto_1.default.createHash('sha1').update(message).digest('hex');
     return `${ts}_${hash}`;
 }
 // ─── Session Manager ────────────────────────────────────────────────────────────
-export class ChromeSessionManager {
+class ChromeSessionManager {
     _sessionCount;
     _sessions = [];
     _index = 0;
@@ -533,7 +581,7 @@ export class ChromeSessionManager {
         this._initPromise = this._init();
     }
     async _init() {
-        devLog(`[SessionManager] Initializing ${this._sessionCount} Chrome profiles...`);
+        (0, unified_log_js_1.devLog)(`[SessionManager] Initializing ${this._sessionCount} Chrome profiles...`);
         // Session 1: use user's existing Chrome profile (already logged in)
         // Sessions 2-30: use dedicated HyperClip profiles
         for (let i = 1; i <= this._sessionCount; i++) {
@@ -542,7 +590,7 @@ export class ChromeSessionManager {
             const profileDir = isDefaultChrome
                 ? getDefaultChromeProfileDir()
                 : getHyperClipProfileDir(profileId);
-            const profileExists = fs.existsSync(path.join(profileDir, 'Default', 'Network', 'Cookies'));
+            const profileExists = fs_1.default.existsSync(path_1.default.join(profileDir, 'Default', 'Network', 'Cookies'));
             this._sessions.push({
                 profileId,
                 profileName: isDefaultChrome ? 'Chrome (Default)' : `HyperClip Profile ${i}`,
@@ -561,7 +609,7 @@ export class ChromeSessionManager {
         }
         // PROACTIVE: load persisted CDP cookies (instant — from disk).
         // Then start background CDP login for any session still missing cookies.
-        devLog('[SessionManager] Loading persisted cookies and starting background login...');
+        (0, unified_log_js_1.devLog)('[SessionManager] Loading persisted cookies and starting background login...');
         const BATCH = 10;
         for (let i = 0; i < this._sessions.length; i += BATCH) {
             const batch = this._sessions.slice(i, i + BATCH);
@@ -595,7 +643,7 @@ export class ChromeSessionManager {
                         }
                     }
                     if (session.profileId === '1' || session.profileId === '2') {
-                        devLog(`[SessionManager] Profile ${session.profileId}: cookies=${!!cookies}, isLoggedIn=${session.isLoggedIn}, isConsented=${session.isConsented}, socs="${cookies?.socs?.slice(0, 10) ?? 'null'}"`);
+                        (0, unified_log_js_1.devLog)(`[SessionManager] Profile ${session.profileId}: cookies=${!!cookies}, isLoggedIn=${session.isLoggedIn}, isConsented=${session.isConsented}, socs="${cookies?.socs?.slice(0, 10) ?? 'null'}"`);
                     }
                 }
                 catch (e) {
@@ -612,8 +660,8 @@ export class ChromeSessionManager {
             }
         }
         const valid = this._sessions.filter(s => s.cookies && s.isConsented);
-        devLog(`[SessionManager] ${valid.length}/${this._sessionCount} sessions ready (${this._sessions.filter(s => !s.cookies).length} missing — login from Settings)`);
-        devLog(`[SessionManager] ${valid.length}/${this._sessionCount} sessions ready (${this._sessions.filter(s => !s.cookies).length} missing — login from Settings)`);
+        (0, unified_log_js_1.devLog)(`[SessionManager] ${valid.length}/${this._sessionCount} sessions ready (${this._sessions.filter(s => !s.cookies).length} missing — login from Settings)`);
+        (0, unified_log_js_1.devLog)(`[SessionManager] ${valid.length}/${this._sessionCount} sessions ready (${this._sessions.filter(s => !s.cookies).length} missing — login from Settings)`);
         // ─── Background cookie health monitoring ───────────────────────────────────
         // Tier 1: Every 10 min — refresh top-5 recently-used sessions (hot path)
         // Tier 2: Every 30 min — refresh ALL sessions (catch stale/expired cookies)
@@ -645,7 +693,7 @@ export class ChromeSessionManager {
             const alive = this._sessions.filter(s => s.cookies).length;
             const degraded = health.degradedCount;
             const stale = health.staleCount;
-            devLog(`[SessionManager] Health check: ${alive}/${this._sessionCount} alive, ${degraded} degraded, ${stale} stale (>${Math.round(STALE_THRESHOLD_MS / 86400000)}d), level=${health.level}`);
+            (0, unified_log_js_1.devLog)(`[SessionManager] Health check: ${alive}/${this._sessionCount} alive, ${degraded} degraded, ${stale} stale (>${Math.round(STALE_THRESHOLD_MS / 86400000)}d), level=${health.level}`);
             if (health.level === 'critical') {
                 console.warn('[SessionManager] 🚨 CRITICAL: <20% sessions alive — detection at risk. Re-login Chrome or clone sessions.');
             }
@@ -681,7 +729,7 @@ export class ChromeSessionManager {
                     session.refreshFailCount = 0;
                     if (!wasLoggedIn) {
                         recovered++;
-                        devLog(`[SessionManager] ${tier}: recovered session ${session.profileId}`);
+                        (0, unified_log_js_1.devLog)(`[SessionManager] ${tier}: recovered session ${session.profileId}`);
                     }
                 }
                 else {
@@ -698,7 +746,7 @@ export class ChromeSessionManager {
             }
         }));
         if (recovered > 0 || lost > 0) {
-            devLog(`[SessionManager] ${tier} refresh: ${recovered} recovered, ${lost} lost`);
+            (0, unified_log_js_1.devLog)(`[SessionManager] ${tier} refresh: ${recovered} recovered, ${lost} lost`);
         }
     }
     /**
@@ -770,7 +818,7 @@ export class ChromeSessionManager {
      * auto-extracting cookies.
      */
     async openLoginWindow(profileId) {
-        const { cdpOpenChromeForLogin } = await import('./cdp.js');
+        const { cdpOpenChromeForLogin } = await Promise.resolve().then(() => __importStar(require('./cdp.js')));
         const result = await cdpOpenChromeForLogin(profileId);
         const session = this._sessions.find(s => s.profileId === profileId);
         if (session) {
@@ -791,7 +839,7 @@ export class ChromeSessionManager {
             session.lastUsed = 0;
             session.usedToday = 0;
             if (result.cookies) {
-                devLog(`[SessionManager] openLoginWindow(${profileId}): success — cookies extracted`);
+                (0, unified_log_js_1.devLog)(`[SessionManager] openLoginWindow(${profileId}): success — cookies extracted`);
                 // Persist to disk so next restart can load via extractYouTubeCookies
                 try {
                     this._persistCookiesToFile(profileId, result.cookies);
@@ -801,11 +849,11 @@ export class ChromeSessionManager {
                 }
                 // Rebuild Innertube pool client for this session so it's immediately usable
                 try {
-                    const { getInnertubePool } = await import('./innertube_client.js');
+                    const { getInnertubePool } = await Promise.resolve().then(() => __importStar(require('./innertube_client.js')));
                     const pool = await getInnertubePool();
                     const ok = await pool.refreshClient(profileId);
                     if (ok) {
-                        devLog(`[SessionManager] Innertube client rebuilt for profile ${profileId}`);
+                        (0, unified_log_js_1.devLog)(`[SessionManager] Innertube client rebuilt for profile ${profileId}`);
                     }
                     else {
                         console.warn(`[SessionManager] Innertube client rebuild failed for profile ${profileId}`);
@@ -816,7 +864,7 @@ export class ChromeSessionManager {
                 }
             }
             else {
-                devLog(`[SessionManager] openLoginWindow(${profileId}): failed — ${result.error}`);
+                (0, unified_log_js_1.devLog)(`[SessionManager] openLoginWindow(${profileId}): failed — ${result.error}`);
             }
         }
         if (result.cookies)
@@ -834,10 +882,10 @@ export class ChromeSessionManager {
         // For Chrome Default: profileDir = User Data\Default → persist at parent level (User Data\_hc.json)
         // For HyperClip profiles (2-30): profileDir = HyperClip-Chrome-Profile-N\Default → persist at Default\_hc.json
         const cookieFile = isDefaultChrome
-            ? path.join(profileDir, '..', '_hyperclip_cookies.json')
-            : path.join(profileDir, '_hyperclip_cookies.json');
-        fs.writeFileSync(cookieFile, JSON.stringify(cookies), 'utf8');
-        devLog(`[SessionManager] Cookies persisted to ${cookieFile}`);
+            ? path_1.default.join(profileDir, '..', '_hyperclip_cookies.json')
+            : path_1.default.join(profileDir, '_hyperclip_cookies.json');
+        fs_1.default.writeFileSync(cookieFile, JSON.stringify(cookies), 'utf8');
+        (0, unified_log_js_1.devLog)(`[SessionManager] Cookies persisted to ${cookieFile}`);
     }
     /**
      * Clone cookies from Session 1 to all other sessions.
@@ -848,10 +896,10 @@ export class ChromeSessionManager {
         if (!session1)
             return { success: false, clonedCount: 0, error: 'Session 1 not found' };
         // Source Paths (Session 1 is Default Chrome: profileDir = User Data\Default)
-        const srcSqlite = path.join(session1.profileDir, 'Network', 'Cookies');
-        const srcLocalState = path.join(session1.profileDir, '..', 'Local State');
-        const srcJson = path.join(session1.profileDir, '..', '_hyperclip_cookies.json');
-        if (!fs.existsSync(srcSqlite) && !fs.existsSync(srcJson)) {
+        const srcSqlite = path_1.default.join(session1.profileDir, 'Network', 'Cookies');
+        const srcLocalState = path_1.default.join(session1.profileDir, '..', 'Local State');
+        const srcJson = path_1.default.join(session1.profileDir, '..', '_hyperclip_cookies.json');
+        if (!fs_1.default.existsSync(srcSqlite) && !fs_1.default.existsSync(srcJson)) {
             return { success: false, clonedCount: 0, error: 'Session 1 is not logged in (no cookies found)' };
         }
         let clonedCount = 0;
@@ -861,38 +909,38 @@ export class ChromeSessionManager {
                 if (!destSession)
                     continue;
                 // Destination Paths (Session 2-30: profileDir = HyperClip-Chrome-Profile-N\Default)
-                const destNetworkDir = path.join(destSession.profileDir, 'Network');
-                const destLocalState = path.join(destSession.profileDir, '..', 'Local State');
-                const destJson = path.join(destSession.profileDir, '_hyperclip_cookies.json');
-                if (!fs.existsSync(destNetworkDir)) {
-                    fs.mkdirSync(destNetworkDir, { recursive: true });
+                const destNetworkDir = path_1.default.join(destSession.profileDir, 'Network');
+                const destLocalState = path_1.default.join(destSession.profileDir, '..', 'Local State');
+                const destJson = path_1.default.join(destSession.profileDir, '_hyperclip_cookies.json');
+                if (!fs_1.default.existsSync(destNetworkDir)) {
+                    fs_1.default.mkdirSync(destNetworkDir, { recursive: true });
                 }
                 // Copy SQLite & Local State (for standard decryption if they open Chrome)
                 // Use read+write instead of copyFileSync — Chrome locks Cookies with EBUSY,
                 // but readFileSync can still read locked files (shared read access on Windows).
-                if (fs.existsSync(srcSqlite)) {
+                if (fs_1.default.existsSync(srcSqlite)) {
                     try {
-                        const buf = fs.readFileSync(srcSqlite);
-                        fs.writeFileSync(path.join(destNetworkDir, 'Cookies'), buf);
+                        const buf = fs_1.default.readFileSync(srcSqlite);
+                        fs_1.default.writeFileSync(path_1.default.join(destNetworkDir, 'Cookies'), buf);
                     }
                     catch (e2) {
                         console.warn(`[SessionManager] cloneSessionOne: Cookies copy failed for profile ${i} (Chrome may be open): ${e2.message}`);
                     }
                 }
-                if (fs.existsSync(srcLocalState)) {
+                if (fs_1.default.existsSync(srcLocalState)) {
                     try {
-                        const buf = fs.readFileSync(srcLocalState);
-                        fs.writeFileSync(destLocalState, buf);
+                        const buf = fs_1.default.readFileSync(srcLocalState);
+                        fs_1.default.writeFileSync(destLocalState, buf);
                     }
                     catch (e2) {
                         console.warn(`[SessionManager] cloneSessionOne: Local State copy failed for profile ${i}: ${e2.message}`);
                     }
                 }
                 // Copy Fast-path JSON (for instant HyperClip loading)
-                if (fs.existsSync(srcJson)) {
+                if (fs_1.default.existsSync(srcJson)) {
                     try {
-                        const buf = fs.readFileSync(srcJson);
-                        fs.writeFileSync(destJson, buf);
+                        const buf = fs_1.default.readFileSync(srcJson);
+                        fs_1.default.writeFileSync(destJson, buf);
                     }
                     catch (e2) {
                         console.warn(`[SessionManager] cloneSessionOne: JSON copy failed for profile ${i}: ${e2.message}`);
@@ -934,12 +982,12 @@ export class ChromeSessionManager {
             }
             session.error = cookies ? undefined : 'No YouTube cookies';
             session.usedToday = 0;
-            devLog(`[SessionManager] refreshSession(${profileId}): cookies=${!!cookies}, isLoggedIn=${session.isLoggedIn}, isConsented=${session.isConsented}, socs=${cookies?.socs}`);
+            (0, unified_log_js_1.devLog)(`[SessionManager] refreshSession(${profileId}): cookies=${!!cookies}, isLoggedIn=${session.isLoggedIn}, isConsented=${session.isConsented}, socs=${cookies?.socs}`);
             return !!cookies;
         }
         catch (e) {
             session.error = String(e);
-            devLog(`[SessionManager] refreshSession(${profileId}): ERROR — ${e}`);
+            (0, unified_log_js_1.devLog)(`[SessionManager] refreshSession(${profileId}): ERROR — ${e}`);
             return false;
         }
     }
@@ -959,9 +1007,10 @@ export class ChromeSessionManager {
         return this._sessions;
     }
 }
+exports.ChromeSessionManager = ChromeSessionManager;
 // ─── Singleton ────────────────────────────────────────────────────────────────
 let _manager = null;
-export function getSessionManager() {
+function getSessionManager() {
     if (!_manager) {
         // RAM-aware: laptop ≤32GB → 15 sessions, desktop >32GB → 30 sessions
         let sessionCount = 15;

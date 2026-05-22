@@ -1,3 +1,4 @@
+"use strict";
 /**
  * Health Alert Checker — runs periodically to detect system health issues
  * and send notifications before customer notices problems.
@@ -10,11 +11,17 @@
  * - Disk space low: free < 5GB
  * - No new videos: 24h since last detection
  */
-import { IPC_CHANNELS } from '../ipc/channels.js';
-import { getFreeDiskSpace } from './ramdisk.js';
-import { getSessionManager } from './chrome_cookies.js';
-import { getProjectManager } from './project_manager.js';
-import { getAppStoreDir } from './paths.js';
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.recordVideoDetected = recordVideoDetected;
+exports.recordDownloadFail = recordDownloadFail;
+exports.recordDownloadSuccess = recordDownloadSuccess;
+exports.checkHealthAlerts = checkHealthAlerts;
+exports.sendHealthAlerts = sendHealthAlerts;
+const channels_js_1 = require("../ipc/channels.js");
+const ramdisk_js_1 = require("./ramdisk.js");
+const chrome_cookies_js_1 = require("./chrome_cookies.js");
+const project_manager_js_1 = require("./project_manager.js");
+const paths_js_1 = require("./paths.js");
 // ─── State ───────────────────────────────────────────────────────────────────
 const ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes between repeat alerts
 const sentAlerts = new Map(); // alertId → lastSent timestamp
@@ -22,19 +29,19 @@ const sentAlerts = new Map(); // alertId → lastSent timestamp
 let consecutiveDownloadFails = 0;
 // Track last video detection timestamp
 let lastVideoDetectionMs = 0;
-export function recordVideoDetected() {
+function recordVideoDetected() {
     lastVideoDetectionMs = Date.now();
 }
-export function recordDownloadFail() {
+function recordDownloadFail() {
     consecutiveDownloadFails++;
 }
-export function recordDownloadSuccess() {
+function recordDownloadSuccess() {
     consecutiveDownloadFails = 0;
 }
 // ─── Check Functions ──────────────────────────────────────────────────────────
 async function checkInnertubeHealth() {
     try {
-        const sm = await getSessionManager();
+        const sm = await (0, chrome_cookies_js_1.getSessionManager)();
         await sm.ensureInit();
         const sessions = sm.getSessions();
         const readyCount = sessions.filter(s => s.cookies?.SAPISID && s.cookies?.PSID && s.isConsented).length;
@@ -54,7 +61,7 @@ async function checkInnertubeHealth() {
 }
 async function checkOAuthQuota() {
     try {
-        const pm = getProjectManager();
+        const pm = (0, project_manager_js_1.getProjectManager)();
         const stats = pm.getStatus();
         if (stats.total === 0)
             return null;
@@ -88,8 +95,8 @@ async function checkOAuthQuota() {
 }
 async function checkDiskSpace() {
     try {
-        const storeDir = getAppStoreDir();
-        const freeBytes = getFreeDiskSpace(storeDir);
+        const storeDir = (0, paths_js_1.getAppStoreDir)();
+        const freeBytes = (0, ramdisk_js_1.getFreeDiskSpace)(storeDir);
         const freeGB = freeBytes / (1024 ** 3);
         if (freeGB < 5) {
             return {
@@ -135,7 +142,7 @@ async function checkNoNewVideos() {
     return null;
 }
 // ─── Main Check ──────────────────────────────────────────────────────────────
-export async function checkHealthAlerts() {
+async function checkHealthAlerts() {
     const checks = [
         checkInnertubeHealth,
         checkOAuthQuota,
@@ -152,7 +159,7 @@ export async function checkHealthAlerts() {
     return alerts;
 }
 // ─── Send Alerts to Renderer ─────────────────────────────────────────────────
-export function sendHealthAlerts(alerts, window) {
+function sendHealthAlerts(alerts, window) {
     for (const alert of alerts) {
         const lastSent = sentAlerts.get(alert.id) || 0;
         if (Date.now() - lastSent < ALERT_COOLDOWN_MS)
@@ -162,7 +169,7 @@ export function sendHealthAlerts(alerts, window) {
         const fullMessage = alert.action
             ? `${alert.message}\n→ ${alert.action}`
             : alert.message;
-        window.webContents.send(IPC_CHANNELS.NOTIFICATION_EVENT, {
+        window.webContents.send(channels_js_1.IPC_CHANNELS.NOTIFICATION_EVENT, {
             type,
             message: fullMessage,
             category: alert.category,

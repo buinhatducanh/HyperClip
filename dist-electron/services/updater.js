@@ -1,3 +1,45 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.initAutoUpdater = initAutoUpdater;
+exports.checkForUpdates = checkForUpdates;
+exports.downloadUpdate = downloadUpdate;
+exports.installUpdate = installUpdate;
+exports.getUpdateStatus = getUpdateStatus;
+exports.setUpdateEventHandler = setUpdateEventHandler;
+exports.stopAutoUpdater = stopAutoUpdater;
 /**
  * HyperClip Auto-Update Service — Electron main process.
  *
@@ -16,8 +58,8 @@
  *       (suppress TS errors until installed — module lives in .pnpm/ virtual store)
  */
 // @ts-nocheck
-import { app } from 'electron';
-import { log } from './unified_log.js';
+const electron_1 = require("electron");
+const unified_log_js_1 = require("./unified_log.js");
 // electron-updater is a production dependency — install via: pnpm add electron-updater
 // Uses dynamic import with type suppression since module lives in .pnpm/ virtual store
 // @ts-ignore
@@ -32,17 +74,17 @@ async function getAutoUpdater() {
     if (_autoUpdater)
         return _autoUpdater;
     try {
-        const mod = await import('electron-updater');
+        const mod = await Promise.resolve().then(() => __importStar(require('electron-updater')));
         _autoUpdater = mod.autoUpdater;
         return _autoUpdater;
     }
     catch {
-        log.warn('[AutoUpdater] electron-updater not available — auto-update disabled');
+        unified_log_js_1.log.warn('[AutoUpdater] electron-updater not available — auto-update disabled');
         return null;
     }
 }
 // ─── Init ──────────────────────────────────────────────────────────────────────
-export async function initAutoUpdater() {
+async function initAutoUpdater() {
     const autoUpdater = await getAutoUpdater();
     if (!autoUpdater)
         return;
@@ -52,16 +94,16 @@ export async function initAutoUpdater() {
     autoUpdater.disableWebInstaller = false;
     // Events
     autoUpdater.on('checking-for-update', () => {
-        log.info('[AutoUpdater] Checking for updates...');
+        unified_log_js_1.log.info('[AutoUpdater] Checking for updates...');
     });
     autoUpdater.on('update-available', (info) => {
         _updateAvailable = true;
         _latestVersion = info.version;
-        log.info(`[AutoUpdater] Update available: v${info.version}`);
+        unified_log_js_1.log.info(`[AutoUpdater] Update available: v${info.version}`);
         sendUpdateEvent('available', { version: info.version, releaseNotes: info.releaseNotes });
     });
     autoUpdater.on('update-not-available', (info) => {
-        log.info(`[AutoUpdater] No update available (current: ${app.getVersion()})`);
+        unified_log_js_1.log.info(`[AutoUpdater] No update available (current: ${electron_1.app.getVersion()})`);
     });
     autoUpdater.on('download-progress', (progress) => {
         _downloadProgress = Math.round(progress.percent);
@@ -72,22 +114,22 @@ export async function initAutoUpdater() {
         });
     });
     autoUpdater.on('update-downloaded', (info) => {
-        log.info(`[AutoUpdater] Update downloaded: v${info.version}`);
+        unified_log_js_1.log.info(`[AutoUpdater] Update downloaded: v${info.version}`);
         _downloadProgress = 100;
         sendUpdateEvent('downloaded', { version: info.version });
     });
     autoUpdater.on('error', (err) => {
-        log.warn(`[AutoUpdater] Error: ${err?.message}`);
+        unified_log_js_1.log.warn(`[AutoUpdater] Error: ${err?.message}`);
     });
     // Periodic check every 6 hours
     _checkingTimer = setInterval(async () => {
         await checkForUpdates();
     }, UPDATE_CHECK_INTERVAL_MS);
     _initialized = true;
-    log.info('[AutoUpdater] Initialized');
+    unified_log_js_1.log.info('[AutoUpdater] Initialized');
 }
 // ─── Check & download ─────────────────────────────────────────────────────────
-export async function checkForUpdates() {
+async function checkForUpdates() {
     const autoUpdater = await getAutoUpdater();
     if (!autoUpdater)
         return { available: false };
@@ -99,11 +141,11 @@ export async function checkForUpdates() {
         return { available: false };
     }
     catch (err) {
-        log.warn(`[AutoUpdater] Check failed: ${err?.message}`);
+        unified_log_js_1.log.warn(`[AutoUpdater] Check failed: ${err?.message}`);
         return { available: false };
     }
 }
-export async function downloadUpdate() {
+async function downloadUpdate() {
     const autoUpdater = await getAutoUpdater();
     if (!autoUpdater)
         return false;
@@ -112,21 +154,21 @@ export async function downloadUpdate() {
         return true;
     }
     catch (err) {
-        log.warn(`[AutoUpdater] Download failed: ${err?.message}`);
+        unified_log_js_1.log.warn(`[AutoUpdater] Download failed: ${err?.message}`);
         return false;
     }
 }
-export function installUpdate() {
+function installUpdate() {
     if (_autoUpdater) {
         _autoUpdater.quitAndInstall(false, true); // installNow=false, forceRunAfter=true
     }
 }
 // ─── Status ───────────────────────────────────────────────────────────────────
-export function getUpdateStatus() {
+function getUpdateStatus() {
     return { available: _updateAvailable, version: _latestVersion ?? undefined, progress: _downloadProgress };
 }
 let _updateEventHandler = null;
-export function setUpdateEventHandler(handler) {
+function setUpdateEventHandler(handler) {
     _updateEventHandler = handler;
 }
 function sendUpdateEvent(type, data) {
@@ -134,7 +176,7 @@ function sendUpdateEvent(type, data) {
         _updateEventHandler(type, data);
     }
 }
-export function stopAutoUpdater() {
+function stopAutoUpdater() {
     if (_checkingTimer) {
         clearInterval(_checkingTimer);
         _checkingTimer = null;

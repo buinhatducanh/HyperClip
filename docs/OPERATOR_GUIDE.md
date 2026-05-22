@@ -270,9 +270,9 @@ HyperClip-Data/chrome-profiles/
 
 If SOCS is missing or not CAI, HyperClip **automatically injects** `SOCS=CAI` into the cookie string at 4 places:
 
-1. `InnertubeClientPool._init()` — initial session creation
-2. `InnertubeClientPool._refreshBatch()` — batch refresh
-3. `InnertubeClient.refreshSession()` — per-session refresh
+1. `InnertubeClientPool.init()` — initial session creation
+2. `InnertubeClientPool.refreshClient()` — per-session refresh
+3. `SessionManager.refreshSession()` — session refresh
 4. `openLoginWindow()` — when user opens Chrome login window
 
 **This means customers do NOT need to accept the Google consent banner** — HyperClip handles it automatically.

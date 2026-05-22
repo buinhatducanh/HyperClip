@@ -1,3 +1,4 @@
+"use strict";
 /**
  * Key Manager — HyperClip (refactored 2026-05-14)
  *
@@ -10,23 +11,29 @@
  * Quota tracking is done via ProjectManager (shared with OAuth quota).
  * Each project = 10k units/day for ALL YouTube API calls (OAuth + key).
  */
-import path from 'path';
-import fs from 'fs';
-import https from 'https';
-import { devLog } from './unified_log.js';
-import { getAppStoreDir } from './paths.js';
-import { getProjectManager } from './project_manager.js';
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.KeyManager = void 0;
+exports.getKeyManager = getKeyManager;
+const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
+const https_1 = __importDefault(require("https"));
+const unified_log_js_1 = require("./unified_log.js");
+const paths_js_1 = require("./paths.js");
+const project_manager_js_1 = require("./project_manager.js");
 // ─── Legacy Compat ─────────────────────────────────────────────────────────────
-const KEYS_DIR = getAppStoreDir();
-const KEYS_FILE = path.join(KEYS_DIR, 'api_keys.json');
-const STATS_FILE = path.join(KEYS_DIR, 'key_stats.json');
+const KEYS_DIR = (0, paths_js_1.getAppStoreDir)();
+const KEYS_FILE = path_1.default.join(KEYS_DIR, 'api_keys.json');
+const STATS_FILE = path_1.default.join(KEYS_DIR, 'key_stats.json');
 const MAX_UNITS_PER_KEY = 9500;
 const MAX_ERRORS = 3;
 function _loadLegacyKeys() {
-    if (!fs.existsSync(KEYS_FILE))
+    if (!fs_1.default.existsSync(KEYS_FILE))
         return [];
     try {
-        const data = JSON.parse(fs.readFileSync(KEYS_FILE, 'utf-8'));
+        const data = JSON.parse(fs_1.default.readFileSync(KEYS_FILE, 'utf-8'));
         return (data.keys || []).filter((k) => k.key && k.key !== 'YOUR_API_KEY_01');
     }
     catch {
@@ -48,12 +55,12 @@ class KeyManager {
         const legacy = _loadLegacyKeys();
         if (legacy.length === 0)
             return;
-        const pm = getProjectManager();
+        const pm = (0, project_manager_js_1.getProjectManager)();
         for (const k of legacy) {
             const project = pm.getProject(k.projectId);
             if (project) {
                 pm.updateProject(k.projectId, { apiKey: k.key });
-                devLog(`[KeyManager] Migrated key for ${k.projectId}: ${k.key.slice(0, 12)}...`);
+                (0, unified_log_js_1.devLog)(`[KeyManager] Migrated key for ${k.projectId}: ${k.key.slice(0, 12)}...`);
             }
             else {
                 // Create project for legacy key
@@ -67,10 +74,10 @@ class KeyManager {
                     status: 'active',
                     createdAt: new Date().toISOString(),
                 });
-                devLog(`[KeyManager] Created project ${k.projectId} from legacy key`);
+                (0, unified_log_js_1.devLog)(`[KeyManager] Created project ${k.projectId} from legacy key`);
             }
         }
-        devLog(`[KeyManager] Migrated ${legacy.length} legacy API keys`);
+        (0, unified_log_js_1.devLog)(`[KeyManager] Migrated ${legacy.length} legacy API keys`);
     }
     // ── Smart Rotation ─────────────────────────────────────────────────────────
     /**
@@ -79,7 +86,7 @@ class KeyManager {
      * Otherwise: return key from least-used active project.
      */
     getKey(projectId) {
-        const pm = getProjectManager();
+        const pm = (0, project_manager_js_1.getProjectManager)();
         if (projectId) {
             const project = pm.getProject(projectId);
             if (project?.apiKey) {
@@ -111,47 +118,47 @@ class KeyManager {
     }
     // ── Tracking ───────────────────────────────────────────────────────────────
     track(projectId, units = 1) {
-        getProjectManager().track(projectId, units);
+        (0, project_manager_js_1.getProjectManager)().track(projectId, units);
     }
     recordError(projectId) {
-        getProjectManager().recordError(projectId);
+        (0, project_manager_js_1.getProjectManager)().recordError(projectId);
     }
     trackError(projectId) {
-        getProjectManager().recordQuotaError(projectId);
+        (0, project_manager_js_1.getProjectManager)().recordQuotaError(projectId);
     }
     // ── CRUD ──────────────────────────────────────────────────────────────────
     addKey(key, projectId, name) {
-        const pm = getProjectManager();
+        const pm = (0, project_manager_js_1.getProjectManager)();
         pm.updateProject(projectId, { apiKey: key });
-        devLog(`[KeyManager] Added key: ${name} (${key.slice(0, 12)}...) for ${projectId}`);
+        (0, unified_log_js_1.devLog)(`[KeyManager] Added key: ${name} (${key.slice(0, 12)}...) for ${projectId}`);
     }
     removeKey(projectId) {
-        const pm = getProjectManager();
+        const pm = (0, project_manager_js_1.getProjectManager)();
         pm.updateProject(projectId, { apiKey: '' });
-        devLog(`[KeyManager] Removed key for ${projectId}`);
+        (0, unified_log_js_1.devLog)(`[KeyManager] Removed key for ${projectId}`);
     }
     resetKey(projectId) {
-        const pm = getProjectManager();
+        const pm = (0, project_manager_js_1.getProjectManager)();
         pm.resetProject(projectId);
         return { success: true, nextReset: pm.getNextResetTime() };
     }
     resetAll() {
-        const pm = getProjectManager();
+        const pm = (0, project_manager_js_1.getProjectManager)();
         pm.resetAll();
         return { success: true, nextReset: pm.getNextResetTime() };
     }
     markUnauthorized(projectId) {
-        getProjectManager().markUnauthorized(projectId);
+        (0, project_manager_js_1.getProjectManager)().markUnauthorized(projectId);
     }
     markAuthorized(projectId) {
-        getProjectManager().resetProject(projectId);
+        (0, project_manager_js_1.getProjectManager)().resetProject(projectId);
     }
     _getNextResetTime() {
-        return getProjectManager().getNextResetTime();
+        return (0, project_manager_js_1.getProjectManager)().getNextResetTime();
     }
     // ── Query ─────────────────────────────────────────────────────────────────
     getAllKeys() {
-        const pm = getProjectManager();
+        const pm = (0, project_manager_js_1.getProjectManager)();
         return pm.getAllProjects().map(p => {
             const usedToday = p.stats.usedToday;
             const errors = p.stats.errors;
@@ -185,13 +192,13 @@ class KeyManager {
         });
     }
     getKeyCount() {
-        return getProjectManager().getAllProjects().filter(p => p.apiKey).length;
+        return (0, project_manager_js_1.getProjectManager)().getAllProjects().filter(p => p.apiKey).length;
     }
     getUnauthorizedCount() {
-        return getProjectManager().getAllProjects().filter(p => p.status === 'unauthorized').length;
+        return (0, project_manager_js_1.getProjectManager)().getAllProjects().filter(p => p.status === 'unauthorized').length;
     }
     getUsedToday(projectId) {
-        return getProjectManager().getUsedToday(projectId);
+        return (0, project_manager_js_1.getProjectManager)().getUsedToday(projectId);
     }
     /** Test an API key by making a lightweight API call */
     async testKey(key) {
@@ -200,7 +207,7 @@ class KeyManager {
         url.searchParams.set('regionCode', 'US');
         url.searchParams.set('key', key);
         return new Promise((resolve) => {
-            const req = https.get(url.toString(), { timeout: 10000 }, (res) => {
+            const req = https_1.default.get(url.toString(), { timeout: 10000 }, (res) => {
                 let data = '';
                 res.on('data', (c) => { data += c; });
                 res.on('end', () => {
@@ -242,11 +249,11 @@ class KeyManager {
         });
     }
 }
+exports.KeyManager = KeyManager;
 // ─── Singleton ────────────────────────────────────────────────────────────────
 let _instance = null;
-export function getKeyManager() {
+function getKeyManager() {
     if (!_instance)
         _instance = new KeyManager();
     return _instance;
 }
-export { KeyManager };

@@ -1,21 +1,41 @@
-import { spawn } from 'child_process';
-import { execSync } from 'child_process';
-import path from 'path';
-import fs from 'fs';
-import os from 'os';
-import { getFfmpegPath, getFfprobePath, getFfmpegVersion } from './ffmpeg-paths.js';
-import { runFfmpeg } from './worker-pool.js';
-import { getEffectiveWorkers } from './system.js';
-import { devLog } from './unified_log.js';
-export { getFfmpegPath, getFfprobePath };
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.VIDEO_PCT = exports.BOTTOM_PCT = exports.HEADER_PCT = exports.getFfprobePath = exports.getFfmpegPath = void 0;
+exports.quotePath = quotePath;
+exports.buildArgs = buildArgs;
+exports.runSimpleFfmpeg = runSimpleFfmpeg;
+exports.probeVideoAspect = probeVideoAspect;
+exports.trimVideo = trimVideo;
+exports.generateBlurBackground = generateBlurBackground;
+exports.extractVideoThumbnail = extractVideoThumbnail;
+exports.renderTextOverlay = renderTextOverlay;
+exports.preRenderOverlays = preRenderOverlays;
+exports.renderVideo = renderVideo;
+exports.cancelChunked = cancelChunked;
+exports.cancelAllChunked = cancelAllChunked;
+exports.renderChunked = renderChunked;
+const child_process_1 = require("child_process");
+const child_process_2 = require("child_process");
+const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
+const os_1 = __importDefault(require("os"));
+const ffmpeg_paths_js_1 = require("./ffmpeg-paths.js");
+Object.defineProperty(exports, "getFfmpegPath", { enumerable: true, get: function () { return ffmpeg_paths_js_1.getFfmpegPath; } });
+Object.defineProperty(exports, "getFfprobePath", { enumerable: true, get: function () { return ffmpeg_paths_js_1.getFfprobePath; } });
+const worker_pool_js_1 = require("./worker-pool.js");
+const system_js_1 = require("./system.js");
+const unified_log_js_1 = require("./unified_log.js");
 // ─── SHORT (9:16) canvas zone constants ─────────────────────────────────────────
 // All values as % of canvasH. Responsive to any canvas resolution (360, 720, 1080).
 //
 // Layout: HEADER (25%) | VIDEO (50%) | BOTTOM (25%)
 // Video bottom touches top of bottom zone — no overlap.
-export const HEADER_PCT = 0.25; // 25% — header overlay zone
-export const BOTTOM_PCT = 0.25; // 25% — bottom bar zone (opaque bar + title)
-export const VIDEO_PCT = 1 - HEADER_PCT - BOTTOM_PCT; // 50% — video zone
+exports.HEADER_PCT = 0.25; // 25% — header overlay zone
+exports.BOTTOM_PCT = 0.25; // 25% — bottom bar zone (opaque bar + title)
+exports.VIDEO_PCT = 1 - exports.HEADER_PCT - exports.BOTTOM_PCT; // 50% — video zone
 // ─── Shared font path for drawtext ─────────────────────────────────────────────
 // The font is copied to resources/fonts/arial.ttf at startup.
 // FFmpeg 7.x lavfi parser splits option values at COLON characters (drive letter).
@@ -26,7 +46,7 @@ const FONT_FILE = 'resources/fonts/arial.ttf';
 // ─── Hardware decode/filter helpers ──────────────────────────────────────────────
 // Get hardware capability flags (cached, single call per lifetime).
 function getHwCaps() {
-    return getFfmpegVersion(getFfmpegPath());
+    return (0, ffmpeg_paths_js_1.getFfmpegVersion)((0, ffmpeg_paths_js_1.getFfmpegPath)());
 }
 // Determine the best hardware decoder for the current platform and FFmpeg build.
 // Priority: NVDEC (cuda) > CUVID (legacy) > software
@@ -42,10 +62,10 @@ function getBestHwDecCodec(codec) {
         // Full GPU pipeline when combined with CUDA filters.
         const prefix = codec === 'hevc' ? 'hevc' : 'h264';
         if (ver.hasCudaFilters) {
-            devLog('[FFmpeg] Using CUDA pipeline: h264_cuvid → scale_cuda → h264_nvenc (GPU decode + filter + encode)');
+            (0, unified_log_js_1.devLog)('[FFmpeg] Using CUDA pipeline: h264_cuvid → scale_cuda → h264_nvenc (GPU decode + filter + encode)');
         }
         else {
-            devLog('[FFmpeg] CUVID hardware decode (GPU): no CUDA filters available — decode-only GPU acceleration');
+            (0, unified_log_js_1.devLog)('[FFmpeg] CUVID hardware decode (GPU): no CUDA filters available — decode-only GPU acceleration');
         }
         return prefix + '_cuvid';
     }
@@ -67,7 +87,7 @@ function getOverlayFilter(useGpu) {
 }
 // ─── Shell path helper ─────────────────────────────────────────────────────────
 // Path quoting utility — exported for use by youtube.ts pre-scale function
-export function quotePath(p) {
+function quotePath(p) {
     return '"' + p.replace(/"/g, '""') + '"';
 }
 // Convert CSS hex (#RRGGBB) to FFmpeg hex (0xRRGGBB) for drawtext boxcolor.
@@ -76,7 +96,7 @@ export function quotePath(p) {
 function toFfmpegColor(hex) {
     return '0x' + hex.replace(/^#/, '');
 }
-export function buildArgs(program, args) {
+function buildArgs(program, args) {
     // Build a command string for cmd.exe (shell: true).
     // - Forward slashes only: backslashes in paths cause issues with cmd.exe parsing.
     // - Quote ALL args to prevent cmd.exe from interpreting special characters.
@@ -95,10 +115,10 @@ export function buildArgs(program, args) {
 }
 // Run FFmpeg via execSync — only use this for simple one-shot commands (no complex quoting issues).
 // For anything with multiple inputs or filter_complex, use spawn() + buildArgs() instead.
-export function runSimpleFfmpeg(ffmpeg, ffArgs) {
+function runSimpleFfmpeg(ffmpeg, ffArgs) {
     const cmd = `"${ffmpeg}" ${ffArgs.join(' ')}`;
     try {
-        const out = execSync(cmd, { encoding: 'utf-8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] });
+        const out = (0, child_process_2.execSync)(cmd, { encoding: 'utf-8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] });
         return { code: 0, stderr: out };
     }
     catch (err) {
@@ -106,12 +126,12 @@ export function runSimpleFfmpeg(ffmpeg, ffArgs) {
     }
 }
 // ─── Probe video dimensions ──────────────────────────────────────────────────────
-export async function probeVideoAspect(videoPath) {
-    const ffprobe = getFfprobePath();
+async function probeVideoAspect(videoPath) {
+    const ffprobe = (0, ffmpeg_paths_js_1.getFfprobePath)();
     const normalizedFfprobe = ffprobe.replace(/\\/g, '/');
     const normalizedVideoPath = videoPath.replace(/\\/g, '/');
     try {
-        const out = execSync(`"${normalizedFfprobe}" -v error -select_streams v:0 -show_entries stream=width,height -of json "${normalizedVideoPath}"`, {
+        const out = (0, child_process_2.execSync)(`"${normalizedFfprobe}" -v error -select_streams v:0 -show_entries stream=width,height -of json "${normalizedVideoPath}"`, {
             encoding: 'utf-8',
             timeout: 15000,
         });
@@ -130,11 +150,11 @@ export async function probeVideoAspect(videoPath) {
 }
 // ─── Probe video duration (for smart blur seek) ─────────────────────────────────
 function probeVideoDuration(videoPath) {
-    const ffprobe = getFfprobePath();
+    const ffprobe = (0, ffmpeg_paths_js_1.getFfprobePath)();
     const normalizedFfprobe = ffprobe.replace(/\\/g, '/');
     const normalizedVideoPath = videoPath.replace(/\\/g, '/');
     try {
-        const out = execSync(`"${normalizedFfprobe}" -v error -show_entries format=duration -of json "${normalizedVideoPath}"`, { encoding: 'utf-8', timeout: 10000 });
+        const out = (0, child_process_2.execSync)(`"${normalizedFfprobe}" -v error -show_entries format=duration -of json "${normalizedVideoPath}"`, { encoding: 'utf-8', timeout: 10000 });
         const json = JSON.parse(out);
         const dur = parseFloat(json.format?.duration || '0');
         return dur > 0 ? dur : 0;
@@ -147,8 +167,8 @@ function probeVideoDuration(videoPath) {
 // Uses -ss before -i for fast seek, then -t to limit duration.
 // Output is stream-copied (not re-encoded) so it's very fast.
 // Returns the path to the trimmed file.
-export async function trimVideo(sourcePath, outputPath, startSec, durationSec) {
-    const ffmpeg = getFfmpegPath();
+async function trimVideo(sourcePath, outputPath, startSec, durationSec) {
+    const ffmpeg = (0, ffmpeg_paths_js_1.getFfmpegPath)();
     return new Promise((resolve) => {
         const args = [
             '-ss', String(startSec),
@@ -159,11 +179,11 @@ export async function trimVideo(sourcePath, outputPath, startSec, durationSec) {
             '-y', quotePath(outputPath),
         ];
         const cmd = buildArgs(ffmpeg, args);
-        const proc = spawn(cmd, [], { shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
+        const proc = (0, child_process_1.spawn)(cmd, [], { shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
         let stderr = '';
         proc.stderr?.on('data', (d) => { stderr += d.toString(); });
         proc.on('close', (code) => {
-            if (code === 0 && fs.existsSync(outputPath)) {
+            if (code === 0 && fs_1.default.existsSync(outputPath)) {
                 resolve({ success: true });
             }
             else {
@@ -182,13 +202,13 @@ export async function trimVideo(sourcePath, outputPath, startSec, durationSec) {
 // For short videos (< 5min): seek to 25% of duration
 // For long videos: seek to 5min (past intro, action typically starts)
 // Falls back to first frame if seeking fails.
-export async function generateBlurBackground(videoPath, outputPath, width = 1080, height = 1920, 
+async function generateBlurBackground(videoPath, outputPath, width = 1080, height = 1920, 
 /** Pass known duration to skip redundant ffprobe call (already fetched by getVideoInfo). */
 duration) {
-    const ffmpeg = getFfmpegPath();
+    const ffmpeg = (0, ffmpeg_paths_js_1.getFfmpegPath)();
     const run = (ffArgs) => new Promise((resolve) => {
         const cmd = buildArgs(ffmpeg, ffArgs);
-        const proc = spawn(cmd, [], {
+        const proc = (0, child_process_1.spawn)(cmd, [], {
             shell: true,
             stdio: ['ignore', 'pipe', 'pipe'],
         });
@@ -225,8 +245,8 @@ duration) {
         '-y', quotePath(outputPath),
     ];
     let result = await run(primaryArgs);
-    if (result.code === 0 && fs.existsSync(outputPath)) {
-        devLog(`[Blur] Generated blur bg (seek=${seekLabel})`);
+    if (result.code === 0 && fs_1.default.existsSync(outputPath)) {
+        (0, unified_log_js_1.devLog)(`[Blur] Generated blur bg (seek=${seekLabel})`);
         return { success: true };
     }
     // Fallback 1: try 10% of video (earlier position)
@@ -240,8 +260,8 @@ duration) {
             '-y', quotePath(outputPath),
         ];
         result = await run(fallback1Args);
-        if (result.code === 0 && fs.existsSync(outputPath)) {
-            devLog(`[Blur] Generated blur bg (seek=early ${earlySeek}s)`);
+        if (result.code === 0 && fs_1.default.existsSync(outputPath)) {
+            (0, unified_log_js_1.devLog)(`[Blur] Generated blur bg (seek=early ${earlySeek}s)`);
             return { success: true };
         }
     }
@@ -256,14 +276,14 @@ duration) {
     if (result.code !== 0) {
         return { success: false, error: result.stderr || `ffmpeg failed: ${result.code}` };
     }
-    devLog(`[Blur] Generated blur bg (seek=first frame)`);
+    (0, unified_log_js_1.devLog)(`[Blur] Generated blur bg (seek=first frame)`);
     return { success: true };
 }
 // ─── Thumbnail extraction ──────────────────────────────────────────────────────
 // Extract a single frame from a video file as JPEG thumbnail.
 // Used after download to replace YouTube thumbnail URLs (which 404 for new uploads).
-export async function extractVideoThumbnail(videoPath, outputPath, seekTime = 5) {
-    const ffmpeg = getFfmpegPath();
+async function extractVideoThumbnail(videoPath, outputPath, seekTime = 5) {
+    const ffmpeg = (0, ffmpeg_paths_js_1.getFfmpegPath)();
     return new Promise((resolve) => {
         // Seek to ~5s (past intro, reliable frame)
         const seekStr = `${Math.floor(seekTime / 3600)}:${String(Math.floor((seekTime % 3600) / 60)).padStart(2, '0')}:${String(seekTime % 60).padStart(2, '0')}`;
@@ -276,14 +296,14 @@ export async function extractVideoThumbnail(videoPath, outputPath, seekTime = 5)
             '-y', outputPath,
         ];
         const cmd = buildArgs(ffmpeg, args);
-        const proc = spawn(cmd, [], {
+        const proc = (0, child_process_1.spawn)(cmd, [], {
             shell: true,
             stdio: ['ignore', 'pipe', 'pipe'],
         });
         let stderr = '';
         proc.stderr?.on('data', (d) => { stderr += d.toString(); });
         proc.on('close', (code) => {
-            if (code === 0 && fs.existsSync(outputPath)) {
+            if (code === 0 && fs_1.default.existsSync(outputPath)) {
                 resolve({ success: true, thumbnailPath: outputPath });
             }
             else {
@@ -514,7 +534,7 @@ function buildFilterComplex(opts) {
     const wmFc = watermarkText
         ? fc + `; [${lastLabel}]drawtext=text='${watermarkText.replace(/'/g, "\\'").replace(/:/g, "\\:")}':fontsize=${Math.max(6, Math.floor(canvasH * 0.008))}:fontcolor=ffffff44:borderw=1:bordercolor=00000088:x=(w-text_w)-${Math.floor(canvasW * 0.015)}:y=(h-text_h)-${Math.floor(canvasH * 0.01)}:fontfile=${FONT_FILE}[wm_final]`
         : fc;
-    devLog(`[FilterComplex] ${wmFc}`);
+    (0, unified_log_js_1.devLog)(`[FilterComplex] ${wmFc}`);
     return wmFc;
 }
 // ─── Optimized NVENC parameters ─────────────────────────────────────────────────
@@ -529,7 +549,7 @@ function getNvencParams(codec, isChunked, gpuTier = 'software', canvasW = 0, can
         // x264/x265 CPU params — ultrafast for dev laptop iteration speed.
         // CRF raised slightly vs 'fast' to compensate for ultrafast quality loss.
         const cpuPreset = 'ultrafast';
-        const threads = String(Math.min(os.cpus().length, 8));
+        const threads = String(Math.min(os_1.default.cpus().length, 8));
         if (codec === 'hevc') {
             return ['-preset', cpuPreset, '-crf', '26', '-c:v', 'libx265', '-threads', threads];
         }
@@ -606,8 +626,8 @@ function getNvencParams(codec, isChunked, gpuTier = 'software', canvasW = 0, can
 // Replaces drawtext CPU filter with a pre-generated overlay PNG.
 // FFmpeg's drawtext runs on CPU every frame — this is the biggest bottleneck.
 // Pre-rendering: generate the text box ONCE, overlay as image every frame (CUDA fast).
-export async function renderTextOverlay(text, canvasW, canvasH, headerH, titleH, videoTop, borderColor, bgColor, fontSize, outputPath) {
-    const ffmpeg = getFfmpegPath();
+async function renderTextOverlay(text, canvasW, canvasH, headerH, titleH, videoTop, borderColor, bgColor, fontSize, outputPath) {
+    const ffmpeg = (0, ffmpeg_paths_js_1.getFfmpegPath)();
     // Title box layout
     const boxW = Math.floor(canvasW * 0.66);
     const boxH = Math.floor(titleH * 0.55);
@@ -658,11 +678,11 @@ export async function renderTextOverlay(text, canvasW, canvasH, headerH, titleH,
             '-y', outputPath, // buildArgs already quotes each arg — do NOT double-quote
         ];
         const cmd = buildArgs(ffmpeg, args);
-        const proc = spawn(cmd, [], { shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
+        const proc = (0, child_process_1.spawn)(cmd, [], { shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
         let stderr = '';
         proc.stderr?.on('data', (d) => { stderr += d.toString(); });
         proc.on('close', (code) => {
-            if (code === 0 && fs.existsSync(outputPath)) {
+            if (code === 0 && fs_1.default.existsSync(outputPath)) {
                 resolve({ success: true, overlayPath: outputPath });
             }
             else {
@@ -681,7 +701,7 @@ export async function renderTextOverlay(text, canvasW, canvasH, headerH, titleH,
 //
 // SHORT mode: bottom bar PNG (opaque accent-colored bar with white text at bottom).
 // LANDSCAPE mode: title overlay PNG (border+text, used in title zone).
-export async function preRenderOverlays(metadata, outputDir, workspaceId, gpuTier = 'software') {
+async function preRenderOverlays(metadata, outputDir, workspaceId, gpuTier = 'software') {
     // Bottom bar is created when bottomBarEnabled=true (regardless of title text).
     // If there's title text, it's drawn on the bar. If not, the bar is still created (solid color bar).
     const titleOl = metadata.overlays?.find(o => o.type === 'title' && o.content);
@@ -694,8 +714,8 @@ export async function preRenderOverlays(metadata, outputDir, workspaceId, gpuTie
     // Zone math
     const [canvasW, canvasH] = (metadata.export_resolution || '1080x1920').split('x').map(Number);
     const isShort = canvasH >= canvasW;
-    const bottomBarH = metadata.bottomBarH ?? Math.floor(canvasH * BOTTOM_PCT);
-    const headerH = isShort ? Math.floor(canvasH * HEADER_PCT) : Math.floor((canvasH - Math.floor(canvasH * 0.50)) / 2);
+    const bottomBarH = metadata.bottomBarH ?? Math.floor(canvasH * exports.BOTTOM_PCT);
+    const headerH = isShort ? Math.floor(canvasH * exports.HEADER_PCT) : Math.floor((canvasH - Math.floor(canvasH * 0.50)) / 2);
     const vidHeightPct = metadata.vidHeightPct ?? 50;
     const landscapeVideoH = Math.floor(canvasH * vidHeightPct / 100);
     const landscapeTitleH = Math.floor(canvasH * (100 - vidHeightPct) / 100);
@@ -709,7 +729,7 @@ export async function preRenderOverlays(metadata, outputDir, workspaceId, gpuTie
     // ── SHORT mode: bottom bar PNG (barW × bottomBarH, FULLY opaque bar + text) ──
     // PNG is the EXACT bar size (not canvas). Overlay directly at bottomBarY.
     // LockBits forces A=255 on all pixels to fix anti-aliasing artifacts from FillRectangle.
-    const bottomBarOverlayPath = path.join(outputDir, 'bottom_bar_overlay.png');
+    const bottomBarOverlayPath = path_1.default.join(outputDir, 'bottom_bar_overlay.png');
     const bbFontSize = Math.max(36, Math.floor(bottomBarH * 0.45));
     const bbPs1 = [
         'Add-Type -AssemblyName System.Drawing',
@@ -738,15 +758,15 @@ export async function preRenderOverlays(metadata, outputDir, workspaceId, gpuTie
         '$bmp.Dispose()',
         'Write-Host OK',
     ].join(';');
-    const bbPs1File = path.join(os.tmpdir(), 'hc_bb_' + Date.now() + '.ps1').replace(/\\/g, '/');
-    fs.writeFileSync(bbPs1File, bbPs1);
+    const bbPs1File = path_1.default.join(os_1.default.tmpdir(), 'hc_bb_' + Date.now() + '.ps1').replace(/\\/g, '/');
+    fs_1.default.writeFileSync(bbPs1File, bbPs1);
     // ── LANDSCAPE mode: title overlay PNG (transparent bg, border+text) ──
     // eslint-disable-next-line no-useless-assignment
     let titleOverlayPath = null;
     const titleBarH = landscapeTitleH;
     const borderPx = Math.max(5, Math.floor(titleBarH * 0.02));
     const fontSize = Math.max(28, Math.floor(titleBarH * 0.28));
-    titleOverlayPath = path.join(outputDir, 'title_overlay.png');
+    titleOverlayPath = path_1.default.join(outputDir, 'title_overlay.png');
     const titlePs1 = [
         'Add-Type -AssemblyName System.Drawing',
         `$w=${canvasW};$h=${titleBarH};$b=${borderPx}`,
@@ -768,37 +788,37 @@ export async function preRenderOverlays(metadata, outputDir, workspaceId, gpuTie
         '$bmp.Dispose()',
         'Write-Host OK',
     ].join(';');
-    const titlePs1File = path.join(os.tmpdir(), 'hc_title_' + Date.now() + '.ps1').replace(/\\/g, '/');
-    fs.writeFileSync(titlePs1File, titlePs1);
+    const titlePs1File = path_1.default.join(os_1.default.tmpdir(), 'hc_title_' + Date.now() + '.ps1').replace(/\\/g, '/');
+    fs_1.default.writeFileSync(titlePs1File, titlePs1);
     // Run both in parallel
     const runPs = (f) => new Promise((resolve) => {
-        const proc = spawn('powershell', ['-ExecutionPolicy', 'Bypass', '-File', f], { stdio: ['pipe', 'pipe', 'pipe'] });
+        const proc = (0, child_process_1.spawn)('powershell', ['-ExecutionPolicy', 'Bypass', '-File', f], { stdio: ['pipe', 'pipe', 'pipe'] });
         let so = '', se = '';
         proc.stdout?.on('data', d => { so += d.toString(); });
         proc.stderr?.on('data', d => { se += d.toString(); });
         proc.on('close', code => {
             try {
-                fs.unlinkSync(f);
+                fs_1.default.unlinkSync(f);
             }
             catch { }
             resolve({ code: code ?? 1, stdout: so, stderr: se });
         });
         proc.on('error', e => { try {
-            fs.unlinkSync(f);
+            fs_1.default.unlinkSync(f);
         }
         catch { } ; resolve({ code: 1, stdout: '', stderr: e.message }); });
     });
     const [bbResult, titleResult] = await Promise.all([runPs(bbPs1File), runPs(titlePs1File)]);
-    const bbOk = bbResult.code === 0 && bbResult.stdout.trim() === 'OK' && fs.existsSync(bottomBarOverlayPath);
-    const titleOk = titleResult.code === 0 && titleResult.stdout.trim() === 'OK' && fs.existsSync(titleOverlayPath);
+    const bbOk = bbResult.code === 0 && bbResult.stdout.trim() === 'OK' && fs_1.default.existsSync(bottomBarOverlayPath);
+    const titleOk = titleResult.code === 0 && titleResult.stdout.trim() === 'OK' && fs_1.default.existsSync(titleOverlayPath);
     if (bbOk)
-        devLog('[TextOverlay] Bottom bar: ' + bottomBarOverlayPath);
+        (0, unified_log_js_1.devLog)('[TextOverlay] Bottom bar: ' + bottomBarOverlayPath);
     else
-        devLog('[TextOverlay] Bottom bar failed: ' + bbResult.stderr.slice(0, 100));
+        (0, unified_log_js_1.devLog)('[TextOverlay] Bottom bar failed: ' + bbResult.stderr.slice(0, 100));
     if (titleOk)
-        devLog('[TextOverlay] Title overlay: ' + titleOverlayPath);
+        (0, unified_log_js_1.devLog)('[TextOverlay] Title overlay: ' + titleOverlayPath);
     else
-        devLog('[TextOverlay] Title overlay failed: ' + titleResult.stderr.slice(0, 100));
+        (0, unified_log_js_1.devLog)('[TextOverlay] Title overlay failed: ' + titleResult.stderr.slice(0, 100));
     return {
         bottomBarOverlayPath: bbOk ? bottomBarOverlayPath : null,
         titleOverlayPath: isShort ? null : (titleOk ? titleOverlayPath : null),
@@ -824,7 +844,7 @@ function probeKeyframeNear(ffprobe, videoPath, targetTime, seekWindow = 2) {
     ];
     const cmd = buildArgs(ffprobe, args);
     return new Promise((resolve) => {
-        const proc = spawn(cmd, [], { shell: true, stdio: ['pipe', 'pipe', 'pipe'] });
+        const proc = (0, child_process_1.spawn)(cmd, [], { shell: true, stdio: ['pipe', 'pipe', 'pipe'] });
         let stdout = '';
         proc.stdout?.on('data', (d) => { stdout += d.toString(); });
         proc.on('close', () => resolve(stdout.split('\n')));
@@ -834,7 +854,7 @@ function probeKeyframeNear(ffprobe, videoPath, targetTime, seekWindow = 2) {
 async function findKeyframeSmart(videoPath, totalDuration, targetCount) {
     if (targetCount <= 1 || totalDuration <= 120)
         return [];
-    const ffprobe = getFfprobePath();
+    const ffprobe = (0, ffmpeg_paths_js_1.getFfprobePath)();
     // Probe at evenly-spaced positions and find nearest keyframe ±2s
     const probePositions = [];
     for (let i = 1; i <= targetCount; i++) {
@@ -864,7 +884,7 @@ async function findKeyframeSmart(videoPath, totalDuration, targetCount) {
     return keyframes;
 }
 // ─── Main render ───────────────────────────────────────────────────────────────
-export async function renderVideo(metadata, outputDir, onProgress, gpuTier = 'software') {
+async function renderVideo(metadata, outputDir, onProgress, gpuTier = 'software') {
     const { workspace_id, source_video, export_resolution, video_speed, fps_target, overlays, trim, codec = 'h264', backgroundType = 'blur', backgroundColor = '#000000', backgroundImage, blur_background, vidHeightPct = 50, audioCodec = 'aac', audioBitrate = '192k', } = metadata;
     const [outW, outH] = export_resolution.split('x').map(Number);
     if (!outW || !outH) {
@@ -872,15 +892,15 @@ export async function renderVideo(metadata, outputDir, onProgress, gpuTier = 'so
     }
     // Determine SHORT vs LANDSCAPE from canvas dimensions (not source aspect ratio)
     const resolvedIsShort = outH >= outW;
-    const outputFile = path.join(outputDir, `${workspace_id}_output.mp4`);
+    const outputFile = path_1.default.join(outputDir, `${workspace_id}_output.mp4`);
     const canvasW = outW;
     const canvasH = outH;
     // If user chose "blur" but no blur file exists, fall back to image
     const effectiveBackgroundType = (backgroundType === 'blur' && !blur_background) ? 'image' : backgroundType;
     // Zone dimensions
-    const bottomBarH = metadata.bottomBarH ?? Math.floor(canvasH * BOTTOM_PCT);
+    const bottomBarH = metadata.bottomBarH ?? Math.floor(canvasH * exports.BOTTOM_PCT);
     const headerH = resolvedIsShort
-        ? Math.floor(canvasH * HEADER_PCT)
+        ? Math.floor(canvasH * exports.HEADER_PCT)
         : Math.floor((canvasH - Math.floor(canvasH * vidHeightPct / 100)) / 2);
     const videoH = resolvedIsShort
         ? canvasH - headerH - bottomBarH
@@ -900,7 +920,7 @@ export async function renderVideo(metadata, outputDir, onProgress, gpuTier = 'so
     const nvencCodec = isGpuAvailable
         ? (codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc')
         : (codec === 'hevc' ? 'libx265' : 'libx264');
-    const numThreads = Math.min(os.cpus().length, 16);
+    const numThreads = Math.min(os_1.default.cpus().length, 16);
     // Pre-render overlays (bottom bar PNG for SHORT, title PNG for LANDSCAPE)
     const overlayResult = await preRenderOverlays(metadata, outputDir, workspace_id, gpuTier);
     const bottomBarOverlayPath = overlayResult.bottomBarOverlayPath ?? undefined;
@@ -947,18 +967,18 @@ export async function renderVideo(metadata, outputDir, onProgress, gpuTier = 'so
                 mapOutput = '[fh]';
         }
     }
-    devLog(`[RenderLayout] canvas=${canvasW}x${canvasH} isShort=${resolvedIsShort} headerH=${headerH} videoH=${videoH} videoTop=${videoTop} bottomBarH=${bottomBarH}`);
-    devLog(`[FilterComplex] ${filterComplex}`);
+    (0, unified_log_js_1.devLog)(`[RenderLayout] canvas=${canvasW}x${canvasH} isShort=${resolvedIsShort} headerH=${headerH} videoH=${videoH} videoTop=${videoTop} bottomBarH=${bottomBarH}`);
+    (0, unified_log_js_1.devLog)(`[FilterComplex] ${filterComplex}`);
     // ── ENCODER CONFIG ───────────────────────────────────────────────────────
     const encParams = isGpuAvailable ? getNvencParams(codec, false, gpuTier, canvasW, canvasH, metadata.preset) : ['-preset', 'ultrafast', '-crf', '20'];
-    const srcExists = fs.existsSync(source_video);
-    const srcSize = srcExists ? Math.round(fs.statSync(source_video).size / 1024 / 1024) : 0;
+    const srcExists = fs_1.default.existsSync(source_video);
+    const srcSize = srcExists ? Math.round(fs_1.default.statSync(source_video).size / 1024 / 1024) : 0;
     const crfVal = codec === 'hevc' ? (isGpuAvailable ? '20' : '26') : (isGpuAvailable ? '18' : '22');
     const maxrateVal = canvasH <= 640 ? '3M' : canvasH <= 1080 ? '6M' : '12M';
     const bufsizeVal = canvasH <= 640 ? '6M' : canvasH <= 1080 ? '12M' : '24M';
-    devLog(`[RenderConfig] SOURCE=${source_video} (${srcSize}MB) CANVAS=${canvasW}x${canvasH}(${canvasH}p) CODEC=${nvencCodec} PRESET=${metadata.preset || (isGpuAvailable ? 'p3' : 'ultrafast')} CRF=${crfVal} MAXRATE=${maxrateVal} BUFSIZE=${bufsizeVal} HEADER=${headerOl?.src || 'THUMBNAIL_FALLBACK'} BOTTOMBAR=${bottomBarOverlayPath ? 'ENABLED' : 'DISABLED'} BGTYPE=${effectiveBackgroundType} SPEED=${video_speed || 1}x TRIM=${trimStart}s-${trimStart + duration}s(${duration}s) AUDIO=${metadata.audioCodec || 'aac'}/${metadata.audioBitrate || '192k'} OUTPUT=${outputFile}`);
-    devLog(`[RenderConfig] FFMPEG=${getFfmpegPath()}`);
-    devLog(`[RenderConfig] ENCPARAMS=${encParams.join(' ')}`);
+    (0, unified_log_js_1.devLog)(`[RenderConfig] SOURCE=${source_video} (${srcSize}MB) CANVAS=${canvasW}x${canvasH}(${canvasH}p) CODEC=${nvencCodec} PRESET=${metadata.preset || (isGpuAvailable ? 'p3' : 'ultrafast')} CRF=${crfVal} MAXRATE=${maxrateVal} BUFSIZE=${bufsizeVal} HEADER=${headerOl?.src || 'THUMBNAIL_FALLBACK'} BOTTOMBAR=${bottomBarOverlayPath ? 'ENABLED' : 'DISABLED'} BGTYPE=${effectiveBackgroundType} SPEED=${video_speed || 1}x TRIM=${trimStart}s-${trimStart + duration}s(${duration}s) AUDIO=${metadata.audioCodec || 'aac'}/${metadata.audioBitrate || '192k'} OUTPUT=${outputFile}`);
+    (0, unified_log_js_1.devLog)(`[RenderConfig] FFMPEG=${(0, ffmpeg_paths_js_1.getFfmpegPath)()}`);
+    (0, unified_log_js_1.devLog)(`[RenderConfig] ENCPARAMS=${encParams.join(' ')}`);
     // ───────────────────────────────────────────────────────────────────────
     // Build FFmpeg args
     // Inputs: [0]=source, [1]=background, [2]=header image, [3]=overlay PNG
@@ -991,7 +1011,7 @@ export async function renderVideo(metadata, outputDir, onProgress, gpuTier = 'so
         '-max_muxing_queue_size', '1024',
         '-y', quotePath(outputFile),
     ];
-    const result = await runFfmpeg({
+    const result = await (0, worker_pool_js_1.runFfmpeg)({
         jobId: `single:${workspace_id}`,
         args,
         outputFile,
@@ -1013,10 +1033,10 @@ export async function renderVideo(metadata, outputDir, onProgress, gpuTier = 'so
         },
     });
     if (result.success) {
-        devLog(`[TIMER] RENDER DONE: ${workspace_id} — ${result.outputFile} (${Math.round((result.fileSize ?? 0) / 1024 / 1024)} MB)`);
+        (0, unified_log_js_1.devLog)(`[TIMER] RENDER DONE: ${workspace_id} — ${result.outputFile} (${Math.round((result.fileSize ?? 0) / 1024 / 1024)} MB)`);
     }
     else {
-        devLog(`[TIMER] RENDER FAILED: ${workspace_id} — ${result.error}`);
+        (0, unified_log_js_1.devLog)(`[TIMER] RENDER FAILED: ${workspace_id} — ${result.error}`);
     }
     return {
         success: result.success,
@@ -1030,7 +1050,7 @@ export async function renderVideo(metadata, outputDir, onProgress, gpuTier = 'so
 // ─── Chunked parallel encoding ─────────────────────────────────────────────────
 const chunkedProcesses = new Map();
 const mergeProcess = new Map();
-export function cancelChunked(workspaceId) {
+function cancelChunked(workspaceId) {
     const chunks = chunkedProcesses.get(workspaceId);
     if (chunks) {
         for (const { proc } of chunks) {
@@ -1052,7 +1072,7 @@ export function cancelChunked(workspaceId) {
         catch { }
     }
 }
-export function cancelAllChunked() {
+function cancelAllChunked() {
     for (const [id] of chunkedProcesses)
         cancelChunked(id);
     for (const [id] of mergeProcess) {
@@ -1077,7 +1097,7 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
     // Input seeking caused timestamp corruption with ALL decoders on FFmpeg gyan.dev 7.1 → 1fps playback.
     // Trim filter + setpts=PTS-STARTPTS produces correct timestamps regardless of decoder.
     // CPU-aware threads: use all cores but cap at 16 to avoid oversubscription
-    const chunkThreads = numThreads ?? Math.min(os.cpus().length, 16);
+    const chunkThreads = numThreads ?? Math.min(os_1.default.cpus().length, 16);
     // GPU-accelerated filters when available and GPU tier is good.
     // Must check hasCudaFilters — essentials build lists CUDA filters but NVDEC unavailable → runtime fail.
     const hasGpuFilters = isGpuAvailable && getHwCaps().hasCudaFilters;
@@ -1321,13 +1341,13 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
 }
 // Encode a single chunk
 async function encodeChunk(workspaceId, sourceVideo, blurBg, startSec, durationSec, outputFile, codec, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, titleOverlayPath, onProgress, isShort, videoSpeed, gpuTier, backgroundType, backgroundColor, backgroundImage, audioCodec, audioBitrate, headerOlSrc, titleOl, fpsTarget, vidHeightPct, bottomBarH) {
-    const ffmpeg = getFfmpegPath();
-    const numThreads = Math.min(os.cpus().length, 16);
+    const ffmpeg = (0, ffmpeg_paths_js_1.getFfmpegPath)();
+    const numThreads = Math.min(os_1.default.cpus().length, 16);
     const args = buildChunkArgs(sourceVideo, blurBg, startSec, durationSec, outputFile, codec, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, titleOverlayPath, isShort, videoSpeed, gpuTier, backgroundType, backgroundColor, backgroundImage, numThreads, audioCodec ?? 'aac', audioBitrate ?? '192k', headerOlSrc, titleOl, fpsTarget ?? 30, vidHeightPct, bottomBarH);
     return new Promise((resolve) => {
         const t0 = Date.now();
         const cmd = buildArgs(ffmpeg, args);
-        const proc = spawn(cmd, [], { shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
+        const proc = (0, child_process_1.spawn)(cmd, [], { shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
         if (!chunkedProcesses.has(workspaceId))
             chunkedProcesses.set(workspaceId, []);
         chunkedProcesses.get(workspaceId).push({ proc, outputFile });
@@ -1382,13 +1402,13 @@ async function encodeChunk(workspaceId, sourceVideo, blurBg, startSec, durationS
                     chunkedProcesses.delete(workspaceId);
             }
             const ms = Date.now() - t0;
-            if (!fs.existsSync(outputFile)) {
+            if (!fs_1.default.existsSync(outputFile)) {
                 resolve({ success: false, fileSize: 0, encodeMs: ms, error: 'FFmpeg process ended without output' });
             }
             else {
                 let size = 0;
                 try {
-                    size = fs.statSync(outputFile).size;
+                    size = fs_1.default.statSync(outputFile).size;
                 }
                 catch { }
                 resolve({ success: true, fileSize: size, encodeMs: ms, decodeFps, encodeFps });
@@ -1404,18 +1424,18 @@ async function encodeChunk(workspaceId, sourceVideo, blurBg, startSec, durationS
 // Merge chunks using ffmpeg concat demuxer
 async function mergeChunks(workspaceId, chunkFiles, outputFile, totalDuration, onProgress) {
     if (chunkFiles.length === 1) {
-        fs.copyFileSync(chunkFiles[0], outputFile);
+        fs_1.default.copyFileSync(chunkFiles[0], outputFile);
         let size = 0;
         try {
-            size = fs.statSync(outputFile).size;
+            size = fs_1.default.statSync(outputFile).size;
         }
         catch { }
         return { success: true, fileSize: size };
     }
     const listFile = outputFile + '.concat.txt';
     const listContent = chunkFiles.map(f => `file '${f}'`).join('\n');
-    fs.writeFileSync(listFile, listContent, 'utf-8');
-    const ffmpeg = getFfmpegPath();
+    fs_1.default.writeFileSync(listFile, listContent, 'utf-8');
+    const ffmpeg = (0, ffmpeg_paths_js_1.getFfmpegPath)();
     const args = [
         '-f', 'concat',
         '-safe', '0',
@@ -1425,7 +1445,7 @@ async function mergeChunks(workspaceId, chunkFiles, outputFile, totalDuration, o
     ];
     return new Promise((resolve) => {
         const cmd = buildArgs(ffmpeg, args);
-        const proc = spawn(cmd, [], { shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
+        const proc = (0, child_process_1.spawn)(cmd, [], { shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
         mergeProcess.set(workspaceId, proc);
         // Ring buffer for stderr (same approach as runFfmpeg)
         const LINE_BUF_SIZE = 100;
@@ -1457,17 +1477,17 @@ async function mergeChunks(workspaceId, chunkFiles, outputFile, totalDuration, o
         proc.on('close', (code) => {
             mergeProcess.delete(workspaceId);
             try {
-                fs.unlinkSync(listFile);
+                fs_1.default.unlinkSync(listFile);
             }
             catch { }
-            if (code !== 0 || !fs.existsSync(outputFile)) {
+            if (code !== 0 || !fs_1.default.existsSync(outputFile)) {
                 const recent = lineBuf.slice(-10).join(' | ');
                 resolve({ success: false, fileSize: 0, error: recent || `Concat ${code}` });
             }
             else {
                 let size = 0;
                 try {
-                    size = fs.statSync(outputFile).size;
+                    size = fs_1.default.statSync(outputFile).size;
                 }
                 catch { }
                 resolve({ success: true, fileSize: size });
@@ -1480,7 +1500,7 @@ async function mergeChunks(workspaceId, chunkFiles, outputFile, totalDuration, o
                 proc.kill();
             mergeProcess.delete(workspaceId);
             try {
-                fs.unlinkSync(listFile);
+                fs_1.default.unlinkSync(listFile);
             }
             catch { }
             resolve({ success: false, fileSize: 0, error: 'Concat timeout' });
@@ -1490,11 +1510,11 @@ async function mergeChunks(workspaceId, chunkFiles, outputFile, totalDuration, o
 // ─── Chunked render ────────────────────────────────────────────────────────────
 // Parallel encoding: splits video into chunks, encodes all chunks simultaneously,
 // then merges. All background types (blur, solid, image) are supported.
-export async function renderChunked(metadata, outputDir, config = {}, onProgress) {
+async function renderChunked(metadata, outputDir, config = {}, onProgress) {
     const { workspace_id, source_video, blur_background, trim, export_resolution, codec = 'h264', isShort = true, overlays, video_speed, audioCodec = 'aac', audioBitrate = '192k', fps_target = 30, } = metadata;
     const vidHeightPct = metadata.vidHeightPct ?? 50;
     // Use VRAM-aware effective workers if not explicitly specified
-    const effectiveWorkers = getEffectiveWorkers();
+    const effectiveWorkers = (0, system_js_1.getEffectiveWorkers)();
     const gpuTier = config.gpuTier ?? 'software';
     const workers = config.workers ?? effectiveWorkers;
     // RTX 5080/4090: shorter chunks (90s) = more parallelism, faster total encode
@@ -1507,9 +1527,9 @@ export async function renderChunked(metadata, outputDir, config = {}, onProgress
     // Override isShort from CANVAS dimensions, not from source video aspect ratio.
     const resolvedIsShort2 = canvasH >= canvasW;
     // SHORT: header=25%, video=50%, bottomBarH=25% (BOTTOM_PCT)
-    const bottomBarH = metadata.bottomBarH ?? Math.floor(canvasH * BOTTOM_PCT);
+    const bottomBarH = metadata.bottomBarH ?? Math.floor(canvasH * exports.BOTTOM_PCT);
     const headerH = resolvedIsShort2
-        ? Math.floor(canvasH * HEADER_PCT)
+        ? Math.floor(canvasH * exports.HEADER_PCT)
         : Math.floor((canvasH - Math.floor(canvasH * vidHeightPct / 100)) / 2);
     const titleH = resolvedIsShort2 ? 0 : Math.floor(canvasH * (100 - vidHeightPct) / 100);
     const videoH = resolvedIsShort2
@@ -1525,10 +1545,10 @@ export async function renderChunked(metadata, outputDir, config = {}, onProgress
         const simple = await renderVideo(metadata, outputDir, onProgress, gpuTier);
         return { ...simple, chunks: [], totalEncodeMs: 0 };
     }
-    const ffmpeg = getFfmpegPath();
-    const workspaceDir = path.join(outputDir, 'chunks', workspace_id);
-    if (!fs.existsSync(workspaceDir))
-        fs.mkdirSync(workspaceDir, { recursive: true });
+    const ffmpeg = (0, ffmpeg_paths_js_1.getFfmpegPath)();
+    const workspaceDir = path_1.default.join(outputDir, 'chunks', workspace_id);
+    if (!fs_1.default.existsSync(workspaceDir))
+        fs_1.default.mkdirSync(workspaceDir, { recursive: true });
     onProgress?.({ workspaceId: workspace_id, percent: 0, currentTime: 0, totalTime: 0, fps: 0, speed: '', bitrate: '', phase: 'split' });
     let splitPoints = [trimStart];
     const targetChunks = Math.ceil(totalDuration / chunkDuration);
@@ -1579,7 +1599,7 @@ export async function renderChunked(metadata, outputDir, config = {}, onProgress
             const startSec = finalSplits[idx];
             const endSec = finalSplits[idx + 1];
             const durationSec = endSec - startSec;
-            const chunkFile = path.join(workspaceDir, `chunk_${String(idx).padStart(3, '0')}.mp4`);
+            const chunkFile = path_1.default.join(workspaceDir, `chunk_${String(idx).padStart(3, '0')}.mp4`);
             const result = await encodeChunk(workspace_id, source_video, blur_background || '', startSec, durationSec, chunkFile, codec, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, resolvedIsShort2 ? bottomBarOverlayPath : (titleOverlayPath ?? undefined), (pct) => {
                 const chunkOverall = ((idx + pct / 100) / numChunks) * 90 + 5;
                 onProgress?.({ workspaceId: workspace_id, percent: chunkOverall, currentTime: 0, totalTime: 0, fps: 0, speed: '', bitrate: '', phase: 'encode', chunkIndex: idx });
@@ -1589,7 +1609,7 @@ export async function renderChunked(metadata, outputDir, config = {}, onProgress
         for (const { idx, startSec, endSec, chunkFile, result } of batchResults) {
             if (result.success) {
                 chunks.push({ index: idx, start: startSec, end: endSec, outputPath: chunkFile, fileSize: result.fileSize, encodeMs: result.encodeMs, decodeFps: result.decodeFps, encodeFps: result.encodeFps });
-                devLog(`[Profile] chunk ${idx}: ${result.encodeMs}ms, decode~${result.decodeFps} fps, encode~${result.encodeFps} fps`);
+                (0, unified_log_js_1.devLog)(`[Profile] chunk ${idx}: ${result.encodeMs}ms, decode~${result.decodeFps} fps, encode~${result.encodeFps} fps`);
             }
             else {
                 console.warn(`[Chunk] Chunk ${idx} failed (${result.error}), falling back to standard render`);
@@ -1599,7 +1619,7 @@ export async function renderChunked(metadata, outputDir, config = {}, onProgress
         }
     }
     onProgress?.({ workspaceId: workspace_id, percent: 95, currentTime: 0, totalTime: 0, fps: 0, speed: '', bitrate: '', phase: 'merge' });
-    const outputFile = path.join(outputDir, `${workspace_id}_chunked_output.mp4`);
+    const outputFile = path_1.default.join(outputDir, `${workspace_id}_chunked_output.mp4`);
     chunks.sort((a, b) => a.index - b.index);
     const mergeResult = await mergeChunks(workspace_id, chunks.map(c => c.outputPath), outputFile, totalDuration, (pct) => onProgress?.({ workspaceId: workspace_id, percent: 95 + pct * 0.05, currentTime: 0, totalTime: 0, fps: 0, speed: '', bitrate: '', phase: 'merge' }));
     const totalEncodeMs = chunks.reduce((s, c) => s + c.encodeMs, 0);
@@ -1608,7 +1628,7 @@ export async function renderChunked(metadata, outputDir, config = {}, onProgress
     const encodeFpsVals = chunks.map(c => c.encodeFps).filter((v) => v !== undefined && v > 0);
     const avgDecodeFps = decodeFpsVals.length ? decodeFpsVals.reduce((a, b) => a + b, 0) / decodeFpsVals.length : 0;
     const avgEncodeFps = encodeFpsVals.length ? encodeFpsVals.reduce((a, b) => a + b, 0) / encodeFpsVals.length : 0;
-    devLog(`[Profile] Summary: avgDecode=${avgDecodeFps.toFixed(1)} fps, avgEncode=${avgEncodeFps.toFixed(1)} fps, total=${totalEncodeMs}ms`);
+    (0, unified_log_js_1.devLog)(`[Profile] Summary: avgDecode=${avgDecodeFps.toFixed(1)} fps, avgEncode=${avgEncodeFps.toFixed(1)} fps, total=${totalEncodeMs}ms`);
     if (!mergeResult.success) {
         return { success: false, workspaceId: workspace_id, chunks, totalEncodeMs, error: mergeResult.error };
     }
@@ -1616,13 +1636,13 @@ export async function renderChunked(metadata, outputDir, config = {}, onProgress
     try {
         for (const chunk of chunks) {
             try {
-                fs.unlinkSync(chunk.outputPath);
+                fs_1.default.unlinkSync(chunk.outputPath);
             }
             catch { }
         }
-        const workspaceDir = path.join(outputDir, 'chunks', workspace_id);
+        const workspaceDir = path_1.default.join(outputDir, 'chunks', workspace_id);
         try {
-            fs.rmSync(workspaceDir, { recursive: true, force: true });
+            fs_1.default.rmSync(workspaceDir, { recursive: true, force: true });
         }
         catch { }
     }

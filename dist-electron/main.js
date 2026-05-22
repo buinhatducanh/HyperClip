@@ -1,14 +1,52 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, protocol, crashReporter } from 'electron';
-import path from 'path';
-import os from 'os';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
-import { spawn } from 'child_process';
-import http from 'http';
-import zlib from 'zlib';
-import { IPC_CHANNELS } from './ipc/channels.js';
-import { collectSystemStats, getGPUCapabilities, detectSystemProfile } from './services/system.js';
-import { runDiagnostics } from './services/diagnostics.js';
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.startYouTubePoller = startYouTubePoller;
+const electron_1 = require("electron");
+const path_1 = __importDefault(require("path"));
+const os_1 = __importDefault(require("os"));
+const fs_1 = __importDefault(require("fs"));
+const child_process_1 = require("child_process");
+const http_1 = __importDefault(require("http"));
+const zlib_1 = __importDefault(require("zlib"));
+const channels_js_1 = require("./ipc/channels.js");
+const system_js_1 = require("./services/system.js");
+const diagnostics_js_1 = require("./services/diagnostics.js");
 function formatBytes(bytes) {
     if (!bytes || bytes <= 0)
         return '—';
@@ -26,35 +64,34 @@ function extractQualityFromResolution(res) {
     const h = parts[1] || 1920;
     return h >= w ? w : h;
 }
-import { getWorkspaces, getWorkspace, addWorkspace, updateWorkspace, getChannels, getChannel, updateChannel, markVideoSeen, addRenderedVideo, } from './services/store.js';
-import { downloadVideo, probeVideoAvailability, probeActualDuration, getVideoInfo, getChannelInfo } from './services/youtube.js';
-import { renderVideo, generateBlurBackground, extractVideoThumbnail, cancelAllChunked, probeVideoAspect, trimVideo } from './services/ffmpeg.js';
-import { cancelAllFfmpeg, getPoolStatus } from './services/worker-pool.js';
-import { getFfmpegPath } from './services/ffmpeg-paths.js';
-import { getAppStoreDir, getHyperClipBaseDir, getLegacyDataPath } from './services/paths.js';
-import { getVideoStoragePath, getOutputPath, generateWorkspacePaths, ensureStorageDirs, loadSettings, archiveRenderedFile, getFreeDiskSpace, getRamDiskInfo } from './services/ramdisk.js';
-import { createYouTubePoller, stopYouTubePoller } from './services/youtube_poller.js';
-import { refreshChannelCache } from './services/subscription_feed.js';
-import { initCookieManager, getCookieManager, authEvents, channelEvents } from './services/cookie_manager.js';
-import { getTokenManager } from './services/token_manager.js';
-import { initLicense } from './services/license.js';
-import { killPersistentChrome } from './services/cdp.js';
-import { log, devLog, opLog, setLogWindow, cleanupOldLogs } from './services/unified_log.js';
-import { checkHealthAlerts, sendHealthAlerts, recordVideoDetected, recordDownloadFail, recordDownloadSuccess } from './services/health_alerts.js';
-import { checkResourceAlert } from './services/system.js';
-import { startE2EServer, stopE2EServer } from './services/e2e_server.js';
-import { setIPCState, broadcast as _broadcast, sendNotification as _sendNotification, getActiveWorkspaceId } from './ipc/ipc-state.js';
-import { registerAllHandlers } from './ipc/handlers/index.js';
+const store_js_1 = require("./services/store.js");
+const youtube_js_1 = require("./services/youtube.js");
+const ffmpeg_js_1 = require("./services/ffmpeg.js");
+const worker_pool_js_1 = require("./services/worker-pool.js");
+const ffmpeg_paths_js_1 = require("./services/ffmpeg-paths.js");
+const paths_js_1 = require("./services/paths.js");
+const ramdisk_js_1 = require("./services/ramdisk.js");
+const youtube_poller_js_1 = require("./services/youtube_poller.js");
+const subscription_feed_js_1 = require("./services/subscription_feed.js");
+const cookie_manager_js_1 = require("./services/cookie_manager.js");
+const token_manager_js_1 = require("./services/token_manager.js");
+const license_js_1 = require("./services/license.js");
+const cdp_js_1 = require("./services/cdp.js");
+const unified_log_js_1 = require("./services/unified_log.js");
+const health_alerts_js_1 = require("./services/health_alerts.js");
+const system_js_2 = require("./services/system.js");
+const e2e_server_js_1 = require("./services/e2e_server.js");
+const ipc_state_js_1 = require("./ipc/ipc-state.js");
+const index_js_1 = require("./ipc/handlers/index.js");
 // Fix UTF-8 console output on Windows — set code page to 65001 (UTF-8)
 if (process.platform === 'win32') {
-    import('child_process').then(({ execSync }) => {
+    Promise.resolve().then(() => __importStar(require('child_process'))).then(({ execSync }) => {
         try {
             execSync('chcp 65001', { stdio: 'ignore' });
         }
         catch { }
     }).catch(() => { });
 }
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.NODE_ENV !== 'production';
 const NEXT_PORT = parseInt(process.env.HYPERCLIP_PORT || '3000', 10);
 // Single terminal: Electron auto-boots Next.js if not already running
@@ -84,12 +121,12 @@ let activeBgDownloads = 0;
  *  FFmpeg workers also need RAM, so leave headroom.
  */
 function getMaxConcurrentDownloads() {
-    const settings = loadSettings();
+    const settings = (0, ramdisk_js_1.loadSettings)();
     if (settings.maxConcurrentDownloads && settings.maxConcurrentDownloads > 0) {
         return settings.maxConcurrentDownloads;
     }
-    const freeGB = os.freemem() / (1024 ** 3);
-    const totalGB = os.totalmem() / (1024 ** 3);
+    const freeGB = os_1.default.freemem() / (1024 ** 3);
+    const totalGB = os_1.default.totalmem() / (1024 ** 3);
     if (totalGB >= 48)
         return 3; // RTX 5080 64GB: 3 concurrent
     if (freeGB >= 8)
@@ -106,29 +143,29 @@ function getMaxConcurrentDownloads() {
  */
 function enqueueBgDownload(video) {
     // Respect user's auto-download toggle
-    const settings = loadSettings();
+    const settings = (0, ramdisk_js_1.loadSettings)();
     if (settings.autoDownloadEnabled === false) {
-        devLog(`[BgDownload] Auto-download disabled — skipping ${video.videoId}`);
+        (0, unified_log_js_1.devLog)(`[BgDownload] Auto-download disabled — skipping ${video.videoId}`);
         return;
     }
     // Deduplicate: don't queue if already pending or active
     if (bgDownloadQueue.some(v => v.videoId === video.videoId)) {
-        devLog(`[BgDownload] already queued: ${video.videoId}`);
+        (0, unified_log_js_1.devLog)(`[BgDownload] already queued: ${video.videoId}`);
         return;
     }
-    const existingWorkspaces = getWorkspaces();
+    const existingWorkspaces = (0, store_js_1.getWorkspaces)();
     const alreadyHasWorkspace = existingWorkspaces.some(ws => ws.videoId === video.videoId && ['waiting', 'downloading', 'ready', 'editing', 'rendering', 'done'].includes(ws.status));
     if (alreadyHasWorkspace) {
-        devLog(`[BgDownload] workspace already exists for ${video.videoId}`);
+        (0, unified_log_js_1.devLog)(`[BgDownload] workspace already exists for ${video.videoId}`);
         return;
     }
     // PHASE 1: Create workspace IMMEDIATELY — user sees video in UI within seconds of detection
     const nowIso = new Date().toISOString();
-    const channel = getChannel(video.channelId);
+    const channel = (0, store_js_1.getChannel)(video.channelId);
     const resolvedChannelName = video.channelName || channel?.name || 'Unknown Channel';
-    const settings2 = loadSettings();
+    const settings2 = (0, ramdisk_js_1.loadSettings)();
     const trimLimit = settings2.defaultTrimLimit ?? 10;
-    const ws = addWorkspace({
+    const ws = (0, store_js_1.addWorkspace)({
         channelId: video.channelId,
         channelName: resolvedChannelName,
         channelColor: '#00B4FF',
@@ -151,11 +188,11 @@ function enqueueBgDownload(video) {
         detectedAt: video.detectedAt ? new Date(video.detectedAt).toISOString() : nowIso,
         downloadQuality: settings2.autoDownloadQuality ?? '720',
     });
-    devLog(`[BgDownload] enqueue: ${video.videoId} (${video.title}) → workspace=${ws.id}, queue=${bgDownloadQueue.length + 1}`);
+    (0, unified_log_js_1.devLog)(`[BgDownload] enqueue: ${video.videoId} (${video.title}) → workspace=${ws.id}, queue=${bgDownloadQueue.length + 1}`);
     // Broadcast immediately so UI shows the video right away
-    broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, ws);
+    broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, ws);
     showWindowsToast('📥 Video mới!', `${resolvedChannelName}: ${video.title}`);
-    broadcast(IPC_CHANNELS.ACTIVITY_EVENT, {
+    broadcast(channels_js_1.IPC_CHANNELS.ACTIVITY_EVENT, {
         id: ws.id,
         timestamp: Date.now(),
         type: 'detected',
@@ -179,13 +216,13 @@ function enqueueBgDownload(video) {
  */
 function processBgDownloadQueue() {
     const maxConcurrent = getMaxConcurrentDownloads();
-    devLog(`[BgDownload] processQueue: active=${activeBgDownloads}, max=${maxConcurrent}, queue=${bgDownloadQueue.length}`);
+    (0, unified_log_js_1.devLog)(`[BgDownload] processQueue: active=${activeBgDownloads}, max=${maxConcurrent}, queue=${bgDownloadQueue.length}`);
     while (activeBgDownloads < maxConcurrent && bgDownloadQueue.length > 0) {
         const item = bgDownloadQueue.shift();
-        devLog(`[BgDownload] starting: ${item.videoId} (${item.title}), active=${activeBgDownloads + 1}`);
+        (0, unified_log_js_1.devLog)(`[BgDownload] starting: ${item.videoId} (${item.title}), active=${activeBgDownloads + 1}`);
         activeBgDownloads++;
         // Respect user's download quality setting from Settings
-        const settings = loadSettings();
+        const settings = (0, ramdisk_js_1.loadSettings)();
         const bgQuality = settings.autoDownloadQuality ?? '720';
         autoDownloadFromWebSub(item.videoId, item.channelId, item.channelName, item.title, item.publishedAt, item.detectedAt, bgQuality, item.workspaceId).catch((err) => {
             console.error('[BgDownload] Failed:', item.videoId, err);
@@ -198,8 +235,8 @@ function processBgDownloadQueue() {
 const renderQueue = [];
 // Track which workspace is currently open in the DetailEditor — used to protect from auto-cleanup
 function startNextQueuedRender() {
-    const max = loadSettings().maxConcurrentRenders ?? 2;
-    if (getPoolStatus().active >= max)
+    const max = (0, ramdisk_js_1.loadSettings)().maxConcurrentRenders ?? 2;
+    if ((0, worker_pool_js_1.getPoolStatus)().active >= max)
         return;
     if (renderQueue.length === 0)
         return;
@@ -209,16 +246,16 @@ function startNextQueuedRender() {
 // Scan known storage directories for a downloaded video file by workspaceId.
 function findDownloadedFileAbs(workspaceId) {
     const dirs = [
-        getVideoStoragePath(),
-        path.join(os.tmpdir(), 'hyperclip-video'),
+        (0, ramdisk_js_1.getVideoStoragePath)(),
+        path_1.default.join(os_1.default.tmpdir(), 'hyperclip-video'),
     ];
     for (const dir of dirs) {
         try {
-            if (!fs.existsSync(dir))
+            if (!fs_1.default.existsSync(dir))
                 continue;
-            const files = fs.readdirSync(dir).filter(f => (f.startsWith(workspaceId + '_') || f.startsWith(workspaceId + '.')) && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f));
+            const files = fs_1.default.readdirSync(dir).filter(f => (f.startsWith(workspaceId + '_') || f.startsWith(workspaceId + '.')) && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f));
             if (files.length > 0) {
-                return path.join(dir, files[0]);
+                return path_1.default.join(dir, files[0]);
             }
         }
         catch { }
@@ -227,7 +264,7 @@ function findDownloadedFileAbs(workspaceId) {
 }
 function executeRenderJob(job) {
     const { workspaceId, metadata, resolve } = job;
-    const workspace = getWorkspace(workspaceId);
+    const workspace = (0, store_js_1.getWorkspace)(workspaceId);
     if (!workspace) {
         resolve({ success: false, error: 'Workspace not found' });
         startNextQueuedRender();
@@ -236,9 +273,9 @@ function executeRenderJob(job) {
     // Use pre-scaled path if available (auto-render pre-scaled the source to output resolution).
     // Falls back to downloadedPath, then findDownloadedFileAbs, then metadata source.
     const videoPath = workspace.preScaledPath || workspace.downloadedPath || findDownloadedFileAbs(workspaceId) || metadata.source_video;
-    if (!fs.existsSync(videoPath)) {
+    if (!fs_1.default.existsSync(videoPath)) {
         console.error(`[RENDER] Source video not found: ${videoPath}`);
-        resolve({ success: false, error: `Source video not found: ${path.basename(videoPath)}` });
+        resolve({ success: false, error: `Source video not found: ${path_1.default.basename(videoPath)}` });
         startNextQueuedRender();
         return;
     }
@@ -248,14 +285,14 @@ function executeRenderJob(job) {
     const trimStart = metadata.trim?.start ?? 0;
     const trimEnd = metadata.trim?.end ?? 0;
     const trimDuration = trimEnd - trimStart;
-    devLog(`[TIMER] ═══════════════════════════════════════════════`);
-    devLog(`[TIMER] RENDER START: "${workspace.videoTitle}"`);
-    devLog(`[TIMER]   Quality: ${renderQuality}p | Speed: ${renderSpeed}x | Trim: ${trimDuration}s (${trimStart}s–${trimEnd}s)`);
-    devLog(`[TIMER]   Codec: ${metadata.codec ?? 'hevc'} | Source: ${path.basename(videoPath)}`);
-    devLog(`[TIMER]   ═══════════════════════════════════════════════`);
-    updateWorkspace(workspaceId, { status: 'rendering', renderProgress: 0 });
+    (0, unified_log_js_1.devLog)(`[TIMER] ═══════════════════════════════════════════════`);
+    (0, unified_log_js_1.devLog)(`[TIMER] RENDER START: "${workspace.videoTitle}"`);
+    (0, unified_log_js_1.devLog)(`[TIMER]   Quality: ${renderQuality}p | Speed: ${renderSpeed}x | Trim: ${trimDuration}s (${trimStart}s–${trimEnd}s)`);
+    (0, unified_log_js_1.devLog)(`[TIMER]   Codec: ${metadata.codec ?? 'hevc'} | Source: ${path_1.default.basename(videoPath)}`);
+    (0, unified_log_js_1.devLog)(`[TIMER]   ═══════════════════════════════════════════════`);
+    (0, store_js_1.updateWorkspace)(workspaceId, { status: 'rendering', renderProgress: 0 });
     sendNotification('info', `Rendering: ${workspace.videoTitle}`, workspaceId);
-    broadcast(IPC_CHANNELS.ACTIVITY_EVENT, {
+    broadcast(channels_js_1.IPC_CHANNELS.ACTIVITY_EVENT, {
         id: workspaceId,
         timestamp: Date.now(),
         type: 'rendering',
@@ -263,8 +300,8 @@ function executeRenderJob(job) {
         subtitle: `${renderQuality}p • ${metadata.codec ?? 'hevc'} • ${trimDuration}s`,
         workspaceId,
     });
-    const outputDir = getOutputPath();
-    ensureStorageDirs();
+    const outputDir = (0, ramdisk_js_1.getOutputPath)();
+    (0, ramdisk_js_1.ensureStorageDirs)();
     // Build resolved metadata with workspace state merged in:
     // 1. blur_background: prefer workspace's blurBackgroundPath over metadata's value.
     //    Without this, a 'blur' backgroundType falls back to solid black (no thumbnail canvas bg).
@@ -272,11 +309,11 @@ function executeRenderJob(job) {
     // 3. overlays: keep EXACTLY as metadata specifies (auto-render: [], manual: from editorState).
     // 4. backgroundImage: for landscape 'image' type, fall back to workspace thumbnail if not set.
     const wsBlurBg = workspace?.blurBackgroundPath || '';
-    const wsThumbPath = path.join(getVideoStoragePath(), `thumb_${workspaceId}.jpg`);
+    const wsThumbPath = path_1.default.join((0, ramdisk_js_1.getVideoStoragePath)(), `thumb_${workspaceId}.jpg`);
     // Header overlay fallback: use thumbnail when blurBackgroundPath is not available.
     // Ensures header always shows content even if blur generation failed.
     const resolvedOverlays = (metadata.overlays || []).map((ol) => {
-        if (ol.type === 'header' && !ol.src && fs.existsSync(wsThumbPath)) {
+        if (ol.type === 'header' && !ol.src && fs_1.default.existsSync(wsThumbPath)) {
             return { ...ol, src: wsThumbPath };
         }
         return ol;
@@ -289,18 +326,18 @@ function executeRenderJob(job) {
         blur_background: metadata.blur_background || wsBlurBg,
         // For landscape with 'image' type but no backgroundImage → use workspace thumbnail.
         // Only apply when blur is not available (landscape videos don't generate blur).
-        backgroundImage: !metadata.backgroundImage && !wsBlurBg && fs.existsSync(wsThumbPath) ? wsThumbPath : metadata.backgroundImage,
+        backgroundImage: !metadata.backgroundImage && !wsBlurBg && fs_1.default.existsSync(wsThumbPath) ? wsThumbPath : metadata.backgroundImage,
     };
-    const gpuTier = getGPUCapabilities().tier;
-    renderVideo(resolvedMetadata, outputDir, (progress) => {
-        updateWorkspace(workspaceId, { renderProgress: progress.percent });
-        broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, progress);
+    const gpuTier = (0, system_js_1.getGPUCapabilities)().tier;
+    (0, ffmpeg_js_1.renderVideo)(resolvedMetadata, outputDir, (progress) => {
+        (0, store_js_1.updateWorkspace)(workspaceId, { renderProgress: progress.percent });
+        broadcast(channels_js_1.IPC_CHANNELS.RENDER_PROGRESS_EVENT, progress);
     }, gpuTier).then((result) => {
         const renderElapsed = ((Date.now() - renderStartMs) / 1000).toFixed(1);
         if (result.success) {
-            updateWorkspace(workspaceId, { status: 'done', renderProgress: 100, outputPath: result.outputPath || '' });
+            (0, store_js_1.updateWorkspace)(workspaceId, { status: 'done', renderProgress: 100, outputPath: result.outputPath || '' });
             sendNotification('success', `Done: ${workspace.videoTitle}`, workspaceId);
-            broadcast(IPC_CHANNELS.ACTIVITY_EVENT, {
+            broadcast(channels_js_1.IPC_CHANNELS.ACTIVITY_EVENT, {
                 id: workspaceId,
                 timestamp: Date.now(),
                 type: 'done',
@@ -315,11 +352,11 @@ function executeRenderJob(job) {
                     const quality = extractQualityFromResolution(exportRes);
                     const codec = metadata.codec || 'hevc';
                     // Capture thumbnail as base64 data URI before workspace is deleted
-                    const thumbPath = path.join(getVideoStoragePath(), `thumb_${workspace.id}.jpg`);
-                    const thumbData = fs.existsSync(thumbPath)
-                        ? 'data:image/jpeg;base64,' + fs.readFileSync(thumbPath).toString('base64')
+                    const thumbPath = path_1.default.join((0, ramdisk_js_1.getVideoStoragePath)(), `thumb_${workspace.id}.jpg`);
+                    const thumbData = fs_1.default.existsSync(thumbPath)
+                        ? 'data:image/jpeg;base64,' + fs_1.default.readFileSync(thumbPath).toString('base64')
                         : undefined;
-                    const archiveResult = await archiveRenderedFile(result.outputPath, workspace.channelName, workspace.videoTitle, quality, codec, workspace.fileSize || 0, workspace.duration || 0);
+                    const archiveResult = await (0, ramdisk_js_1.archiveRenderedFile)(result.outputPath, workspace.channelName, workspace.videoTitle, quality, codec, workspace.fileSize || 0, workspace.duration || 0);
                     if (archiveResult.success && archiveResult.archivedPath) {
                         const renderDurationMs = Date.now() - renderStartMs;
                         const renderConfigRecord = {
@@ -344,7 +381,7 @@ function executeRenderJob(job) {
                             originalFileSize: workspace.fileSize || 0,
                             downloadQuality: workspace.downloadQuality,
                         };
-                        const actualBytes = fs.existsSync(result.outputPath) ? fs.statSync(result.outputPath).size : 0;
+                        const actualBytes = fs_1.default.existsSync(result.outputPath) ? fs_1.default.statSync(result.outputPath).size : 0;
                         const record = {
                             id: `rv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
                             workspaceId: workspace.id,
@@ -366,8 +403,8 @@ function executeRenderJob(job) {
                             renderConfig: renderConfigRecord,
                             sourceInfo: sourceInfoRecord,
                         };
-                        addRenderedVideo(record);
-                        broadcast(IPC_CHANNELS.RENDERED_ADD, record);
+                        (0, store_js_1.addRenderedVideo)(record);
+                        broadcast(channels_js_1.IPC_CHANNELS.RENDERED_ADD, record);
                         // [TEST-MODE] Cleanup DISABLED — keep downloaded files for render testing
                         // Cleanup pre-scaled source file after successful render
                         // if (workspace.preScaledPath) { try { fs.unlinkSync(workspace.preScaledPath) } catch {} }
@@ -376,15 +413,15 @@ function executeRenderJob(job) {
                         // if (bytesFreed > 0) { const freedMB = (bytesFreed / 1024 / 1024).toFixed(1); devLog(`[AutoArchive] Cleaned ${freedMB} MB of downloaded files after archive`) }
                         const _fileSizeMB = (actualBytes / 1024 / 1024).toFixed(1);
                         const totalElapsed = ((Date.now() - renderStartMs) / 1000).toFixed(1);
-                        devLog(`[TIMER] ARCHIVE DONE: ${archiveResult.archivedPath}`);
-                        devLog(`[TIMER]   Archive file size: ${_fileSizeMB} MB | Total elapsed: ${totalElapsed}s`);
-                        devLog(`[TIMER] ═══════════════════════════════════════════════`);
+                        (0, unified_log_js_1.devLog)(`[TIMER] ARCHIVE DONE: ${archiveResult.archivedPath}`);
+                        (0, unified_log_js_1.devLog)(`[TIMER]   Archive file size: ${_fileSizeMB} MB | Total elapsed: ${totalElapsed}s`);
+                        (0, unified_log_js_1.devLog)(`[TIMER] ═══════════════════════════════════════════════`);
                     }
                     else {
                         // Archive failed but render succeeded — notify user, keep workspace
                         sendNotification('warning', `Render done, archive failed: ${archiveResult.error || 'unknown'}`, workspaceId);
                         console.warn(`[AutoArchive] failed: ${archiveResult.error} — workspace ${workspace.id} NOT deleted`);
-                        updateWorkspace(workspaceId, { status: 'done', renderProgress: 100, outputPath: result.outputPath || '' });
+                        (0, store_js_1.updateWorkspace)(workspaceId, { status: 'done', renderProgress: 100, outputPath: result.outputPath || '' });
                     }
                 }
                 catch (e) {
@@ -394,19 +431,19 @@ function executeRenderJob(job) {
             })();
         }
         else {
-            updateWorkspace(workspaceId, { status: 'ready', renderProgress: 0 });
+            (0, store_js_1.updateWorkspace)(workspaceId, { status: 'ready', renderProgress: 0 });
             sendNotification('error', `Render failed: ${result.error}`, workspaceId);
         }
         if (result.success) {
-            devLog(`[TIMER] RENDER DONE: "${workspace.videoTitle}" — ${renderElapsed}s (${renderQuality}p @ ${renderSpeed}x speed)`);
+            (0, unified_log_js_1.devLog)(`[TIMER] RENDER DONE: "${workspace.videoTitle}" — ${renderElapsed}s (${renderQuality}p @ ${renderSpeed}x speed)`);
         }
         else {
-            devLog(`[TIMER] RENDER FAILED: "${workspace.videoTitle}" — ${renderElapsed}s — ${result.error}`);
+            (0, unified_log_js_1.devLog)(`[TIMER] RENDER FAILED: "${workspace.videoTitle}" — ${renderElapsed}s — ${result.error}`);
         }
         resolve({ success: result.success, outputPath: result.outputPath });
         startNextQueuedRender();
     }).catch((err) => {
-        updateWorkspace(workspaceId, { status: 'ready', renderProgress: 0 });
+        (0, store_js_1.updateWorkspace)(workspaceId, { status: 'ready', renderProgress: 0 });
         resolve({ success: false, error: String(err) });
         startNextQueuedRender();
     });
@@ -420,8 +457,8 @@ function executeRenderJob(job) {
  * @param intervalMs Polling interval in milliseconds (default: 3000 = 3 seconds)
  * @param onVideos Callback fired with new videos detected since last poll
  */
-export function startYouTubePoller(intervalMs, onVideos, onDegraded) {
-    const poller = createYouTubePoller({
+function startYouTubePoller(intervalMs, onVideos, onDegraded) {
+    const poller = (0, youtube_poller_js_1.createYouTubePoller)({
         pollIntervalMs: intervalMs,
         onNewVideos: (detectedVideos) => {
             onVideos(detectedVideos.map(v => ({
@@ -447,36 +484,36 @@ export function startYouTubePoller(intervalMs, onVideos, onDegraded) {
  */
 async function autoDownloadFromWebSub(videoId, channelId, channelName, title, publishedAt, detectedAt, qualityOverride, workspaceId) {
     try {
-        const storagePath = getVideoStoragePath();
-        ensureStorageDirs();
-        const settings = loadSettings();
+        const storagePath = (0, ramdisk_js_1.getVideoStoragePath)();
+        (0, ramdisk_js_1.ensureStorageDirs)();
+        const settings = (0, ramdisk_js_1.loadSettings)();
         const autoTrimLimit = settings.defaultTrimLimit ?? 10;
         const autoQuality = qualityOverride ?? settings.autoDownloadQuality ?? '720';
         const autoRenderEnabled = settings.autoRender === true;
         // Find the 'waiting' workspace created by enqueueBgDownload
         let ws;
         if (workspaceId) {
-            ws = getWorkspace(workspaceId);
+            ws = (0, store_js_1.getWorkspace)(workspaceId);
         }
         if (!ws) {
             // Fallback: find by videoId (e.g., retry path without workspaceId)
-            const existingWorkspaces = getWorkspaces();
+            const existingWorkspaces = (0, store_js_1.getWorkspaces)();
             ws = existingWorkspaces.find(ws2 => ws2.videoId === videoId && ['waiting', 'error'].includes(ws2.status));
         }
         if (!ws) {
-            devLog(`[Auto] No 'waiting' workspace for ${videoId} — skipping (already handled or duplicate)`);
+            (0, unified_log_js_1.devLog)(`[Auto] No 'waiting' workspace for ${videoId} — skipping (already handled or duplicate)`);
             return;
         }
         // Retry backoff: skip if retryableAt not reached
         if (ws.status === 'waiting' && ws.retryableAt && Date.now() < new Date(ws.retryableAt).getTime()) {
             const remainingMin = Math.ceil((new Date(ws.retryableAt).getTime() - Date.now()) / 60000);
-            devLog(`[Auto] Skipping ${title} — retryableAt not reached (${remainingMin}m remaining)`);
+            (0, unified_log_js_1.devLog)(`[Auto] Skipping ${title} — retryableAt not reached (${remainingMin}m remaining)`);
             return;
         }
         // Update to 'downloading' so UI reflects actual progress
-        updateWorkspace(ws.id, { status: 'downloading', downloadProgress: 0 });
-        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id));
-        broadcast(IPC_CHANNELS.ACTIVITY_EVENT, {
+        (0, store_js_1.updateWorkspace)(ws.id, { status: 'downloading', downloadProgress: 0 });
+        broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
+        broadcast(channels_js_1.IPC_CHANNELS.ACTIVITY_EVENT, {
             id: ws.id,
             timestamp: Date.now(),
             type: 'downloading',
@@ -484,58 +521,58 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
             subtitle: `${channelName} • ${autoQuality}p`,
             workspaceId: ws.id,
         });
-        const channel = getChannel(channelId);
+        const channel = (0, store_js_1.getChannel)(channelId);
         const finalChannelName = channelName || channel?.name || 'Unknown Channel';
         const detectedAtNow = new Date().toISOString();
         const videoUrl = 'https://www.youtube.com/watch?v=' + videoId;
-        devLog(`[Auto] Downloading: ${title} (${videoId}) from ${finalChannelName}, workspace=${ws.id}`);
+        (0, unified_log_js_1.devLog)(`[Auto] Downloading: ${title} (${videoId}) from ${finalChannelName}, workspace=${ws.id}`);
         // Export Chrome cookies (cached 5 min) for yt-dlp authentication
-        const { getYtCookiesFile } = await import('./services/po_token.js');
+        const { getYtCookiesFile } = await Promise.resolve().then(() => __importStar(require('./services/po_token.js')));
         const ytCookiesFile = await getYtCookiesFile();
         // ── PHASE 0: Pre-check — detect private/short/unavailable BEFORE wasting time downloading ──
         // This saves 1-5 minutes per private/short/deleted video.
-        devLog(`[Auto] Pre-check: probing video availability...`);
-        const preCheck = await probeVideoAvailability(videoUrl, ytCookiesFile);
+        (0, unified_log_js_1.devLog)(`[Auto] Pre-check: probing video availability...`);
+        const preCheck = await (0, youtube_js_1.probeVideoAvailability)(videoUrl, ytCookiesFile);
         if (preCheck) {
             if (preCheck.isPrivate) {
-                devLog(`[Auto] Pre-check: video is PRIVATE — skipping download, marking as error`);
-                markVideoSeen(channelId, videoId);
-                updateWorkspace(ws.id, { status: 'error' });
-                broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id));
+                (0, unified_log_js_1.devLog)(`[Auto] Pre-check: video is PRIVATE — skipping download, marking as error`);
+                (0, store_js_1.markVideoSeen)(channelId, videoId);
+                (0, store_js_1.updateWorkspace)(ws.id, { status: 'error' });
+                broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
                 sendNotification('error', `Private: ${title}`, ws.id);
                 return;
             }
             if (preCheck.isNotFound) {
-                devLog(`[Auto] Pre-check: video not found/deleted — skipping download, marking as error`);
-                markVideoSeen(channelId, videoId);
-                updateWorkspace(ws.id, { status: 'error' });
-                broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id));
+                (0, unified_log_js_1.devLog)(`[Auto] Pre-check: video not found/deleted — skipping download, marking as error`);
+                (0, store_js_1.markVideoSeen)(channelId, videoId);
+                (0, store_js_1.updateWorkspace)(ws.id, { status: 'error' });
+                broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
                 sendNotification('error', `Unavailable: ${title}`, ws.id);
                 return;
             }
             if (preCheck.isRateLimited) {
-                devLog(`[Auto] Pre-check: rate-limited — waiting 30s before attempting download`);
+                (0, unified_log_js_1.devLog)(`[Auto] Pre-check: rate-limited — waiting 30s before attempting download`);
                 await new Promise(r => setTimeout(r, 30000));
             }
             if (preCheck.available && preCheck.duration > 0 && preCheck.duration < 60) {
-                devLog(`[Auto] Pre-check: video is ${preCheck.duration}s — too short (Shorts), skipping`);
-                markVideoSeen(channelId, videoId);
-                updateWorkspace(ws.id, { status: 'error' });
-                broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id));
+                (0, unified_log_js_1.devLog)(`[Auto] Pre-check: video is ${preCheck.duration}s — too short (Shorts), skipping`);
+                (0, store_js_1.markVideoSeen)(channelId, videoId);
+                (0, store_js_1.updateWorkspace)(ws.id, { status: 'error' });
+                broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
                 return;
             }
             if (preCheck.available) {
-                devLog(`[Auto] Pre-check: available, duration=${preCheck.duration}s`);
+                (0, unified_log_js_1.devLog)(`[Auto] Pre-check: available, duration=${preCheck.duration}s`);
             }
         }
         else {
-            devLog(`[Auto] Pre-check: could not determine availability — proceeding with download`);
+            (0, unified_log_js_1.devLog)(`[Auto] Pre-check: could not determine availability — proceeding with download`);
         }
-        devLog(`[Auto] DOWNLOAD START: "${title}" quality=${autoQuality}p trimLimit=${autoTrimLimit === 'full' ? 'full' : autoTrimLimit + 'm'}`);
+        (0, unified_log_js_1.devLog)(`[Auto] DOWNLOAD START: "${title}" quality=${autoQuality}p trimLimit=${autoTrimLimit === 'full' ? 'full' : autoTrimLimit + 'm'}`);
         const downloadStartMs = Date.now();
         // downloadVideoStrategy handles the full client chain (web → tv_embedded → ios)
         // with proper error classification, rate-limit backoff, and processing retry.
-        let result = await downloadVideo({
+        let result = await (0, youtube_js_1.downloadVideo)({
             workspaceId: ws.id,
             videoUrl,
             outputDir: storagePath,
@@ -543,7 +580,7 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
             quality: autoQuality,
             ytCookiesFile,
             onProgress: (progress) => {
-                broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
+                broadcast(channels_js_1.IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
                     workspaceId: ws.id,
                     percent: progress.percent,
                     speed: progress.speed,
@@ -552,84 +589,84 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
             },
         });
         if (!result.success || !result.filePath) {
-            recordDownloadFail();
+            (0, health_alerts_js_1.recordDownloadFail)();
             const errorMsg = result.error || '';
             const isNotAvailable = errorMsg.includes('not available') || errorMsg.includes('video unavailable') || errorMsg.includes('not found');
             const isPrivate = errorMsg.includes('private video');
             if (isNotAvailable) {
-                devLog(`[Auto] Video permanently unavailable: ${title} (${videoId})`);
-                markVideoSeen(channelId, videoId);
-                updateWorkspace(ws.id, { status: 'error' });
+                (0, unified_log_js_1.devLog)(`[Auto] Video permanently unavailable: ${title} (${videoId})`);
+                (0, store_js_1.markVideoSeen)(channelId, videoId);
+                (0, store_js_1.updateWorkspace)(ws.id, { status: 'error' });
             }
             else if (isPrivate) {
                 // All clients (web + tv_embedded + ios) returned Private — genuinely inaccessible
-                devLog(`[Auto] All clients returned Private: ${title} (${videoId}) — marking as permanently unavailable`);
-                markVideoSeen(channelId, videoId);
-                updateWorkspace(ws.id, { status: 'error' });
+                (0, unified_log_js_1.devLog)(`[Auto] All clients returned Private: ${title} (${videoId}) — marking as permanently unavailable`);
+                (0, store_js_1.markVideoSeen)(channelId, videoId);
+                (0, store_js_1.updateWorkspace)(ws.id, { status: 'error' });
             }
             else {
                 // Network/rate-limit/timeout — set retryableAt for backoff
-                devLog(`[Auto] Download failed (retryable): ${errorMsg}`);
+                (0, unified_log_js_1.devLog)(`[Auto] Download failed (retryable): ${errorMsg}`);
                 const retryableAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-                updateWorkspace(ws.id, { status: 'error', retryableAt });
+                (0, store_js_1.updateWorkspace)(ws.id, { status: 'error', retryableAt });
             }
-            broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id));
+            broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
             return;
         }
         // Download succeeded — probe aspect ratio to determine if this is a 9:16 vertical video
-        const aspect = await probeVideoAspect(result.filePath);
+        const aspect = await (0, ffmpeg_js_1.probeVideoAspect)(result.filePath);
         const fileSizeMB = result.fileSize ? (result.fileSize / 1024 / 1024).toFixed(1) : '?';
-        devLog(`[Auto] DOWNLOADED: "${title}" → ${result.filePath} (${fileSizeMB}MB) ASPECT=${aspect ? aspect.width + 'x' + aspect.height : 'unknown'} ${aspect?.isShort ? '(VERTICAL)' : '(LANDSCAPE)'}`);
+        (0, unified_log_js_1.devLog)(`[Auto] DOWNLOADED: "${title}" → ${result.filePath} (${fileSizeMB}MB) ASPECT=${aspect ? aspect.width + 'x' + aspect.height : 'unknown'} ${aspect?.isShort ? '(VERTICAL)' : '(LANDSCAPE)'}`);
         // Skip 9:16 vertical videos — user only wants landscape 16:9 content
         if (aspect?.isShort) {
-            devLog(`[Auto] Skipping 9:16 vertical video: ${title}`);
+            (0, unified_log_js_1.devLog)(`[Auto] Skipping 9:16 vertical video: ${title}`);
             try {
-                fs.unlinkSync(result.filePath);
+                fs_1.default.unlinkSync(result.filePath);
             }
             catch { }
-            updateWorkspace(ws.id, { status: 'error' });
-            broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id));
-            markVideoSeen(channelId, videoId);
+            (0, store_js_1.updateWorkspace)(ws.id, { status: 'error' });
+            broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
+            (0, store_js_1.markVideoSeen)(channelId, videoId);
             return;
         }
         const downloadElapsed = ((Date.now() - downloadStartMs) / 1000).toFixed(1);
-        devLog(`[Auto] DOWNLOAD DONE: "${title}" (${downloadElapsed}s, ${fileSizeMB} MB)`);
+        (0, unified_log_js_1.devLog)(`[Auto] DOWNLOAD DONE: "${title}" (${downloadElapsed}s, ${fileSizeMB} MB)`);
         playSuccessBeep();
         // Probe actual duration from file (not yt-dlp metadata, which can be stale/wrong).
         // ffprobe reads container metadata in ~100ms — worth the extra call to ensure correct duration.
-        const actualDuration = await probeActualDuration(result.filePath);
+        const actualDuration = await (0, youtube_js_1.probeActualDuration)(result.filePath);
         const realDuration = actualDuration || result.duration || 0;
         // Phase 1+2: Parallel — thumbnail, video info, trim, and blur ALL run simultaneously.
         // Saves ~15-20s vs sequential execution.
-        const thumbnailPath = path.join(storagePath, `thumb_${ws.id}.jpg`);
+        const thumbnailPath = path_1.default.join(storagePath, `thumb_${ws.id}.jpg`);
         const trimLimitSec = typeof autoTrimLimit === 'number' ? autoTrimLimit * 60 : 0;
         const doTrim = trimLimitSec > 0 && realDuration > trimLimitSec;
         const isLandscape = !aspect?.isShort;
-        const { blurPath } = generateWorkspacePaths(ws.id);
+        const { blurPath } = (0, ramdisk_js_1.generateWorkspacePaths)(ws.id);
         // Run ALL post-processing tasks in parallel: thumbnail, info, trim (if needed), blur (if vertical).
         // Landscape videos skip blur (they use thumbnail as background) — saves ~10-15s.
         // Destructured as [thumbResult, videoInfo, trimData, blurResult]
         // CRITICAL: do NOT delete original file here — thumbnail/info read from it in parallel.
         // Delete it AFTER all parallel tasks complete (after Promise.all resolves).
         const [thumbResult, videoInfo, trimData, blurResult] = await Promise.all([
-            extractVideoThumbnail(result.filePath, thumbnailPath),
-            getVideoInfo('https://www.youtube.com/watch?v=' + videoId),
+            (0, ffmpeg_js_1.extractVideoThumbnail)(result.filePath, thumbnailPath),
+            (0, youtube_js_1.getVideoInfo)('https://www.youtube.com/watch?v=' + videoId),
             // Trim: stream-copy is fast (~1-3s), run in parallel.
             (async () => {
                 if (!doTrim)
                     return null;
                 const trimmedPath = result.filePath.replace(/(\.\w+)$/, '_trimmed$1');
-                const r = await trimVideo(result.filePath, trimmedPath, 0, trimLimitSec);
+                const r = await (0, ffmpeg_js_1.trimVideo)(result.filePath, trimmedPath, 0, trimLimitSec);
                 if (r.success) {
-                    const trimmedSize = fs.statSync(trimmedPath).size;
-                    devLog(`[Auto] Trim OK (${trimLimitSec}s stream-copy, ${(trimmedSize / 1024 / 1024).toFixed(1)} MB)`);
+                    const trimmedSize = fs_1.default.statSync(trimmedPath).size;
+                    (0, unified_log_js_1.devLog)(`[Auto] Trim OK (${trimLimitSec}s stream-copy, ${(trimmedSize / 1024 / 1024).toFixed(1)} MB)`);
                     return { path: trimmedPath, size: trimmedSize, duration: trimLimitSec };
                 }
                 console.warn(`[Auto] Trim failed — using full video`);
                 return null;
             })(),
             // Blur: only for vertical videos. Landscape uses thumbnail bg — skip to save ~10-15s.
-            (isLandscape ? Promise.resolve({ success: true }) : generateBlurBackground(result.filePath, blurPath, 1080, 1920, realDuration || undefined)),
+            (isLandscape ? Promise.resolve({ success: true }) : (0, ffmpeg_js_1.generateBlurBackground)(result.filePath, blurPath, 1080, 1920, realDuration || undefined)),
         ]);
         const realTitle = videoInfo?.title || title;
         const localThumbnail = thumbResult.success
@@ -637,15 +674,15 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
             : (videoInfo?.thumbnail || `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`);
         // Short video check: if downloaded video < 60s, mark as error (YouTube Shorts)
         if (realDuration > 0 && realDuration < 60) {
-            devLog(`[Auto] Video too short (${realDuration}s < 60s) — skipping (YouTube Short)`);
+            (0, unified_log_js_1.devLog)(`[Auto] Video too short (${realDuration}s < 60s) — skipping (YouTube Short)`);
             try {
-                fs.unlinkSync(result.filePath);
+                fs_1.default.unlinkSync(result.filePath);
             }
             catch { }
-            updateWorkspace(ws.id, { status: 'error' });
-            broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id));
+            (0, store_js_1.updateWorkspace)(ws.id, { status: 'error' });
+            broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
             sendNotification('error', `Too short: ${title}`, ws.id);
-            markVideoSeen(channelId, videoId);
+            (0, store_js_1.markVideoSeen)(channelId, videoId);
             return;
         }
         // Determine final file path and size after parallel tasks resolved.
@@ -658,7 +695,7 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
             finalFileSize = trimData.size;
             finalDuration = trimData.duration;
             try {
-                fs.unlinkSync(result.filePath);
+                fs_1.default.unlinkSync(result.filePath);
             }
             catch { } // clean up original
         }
@@ -675,7 +712,7 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
         // updateWorkspace saves to disk synchronously (makeStorableDownloadedPath strips to basename).
         // getWorkspace reads back with resolveWorkspacePaths → absolute path reconstructed.
         // Return value has resolved preScaledPath + downloadedPath — use these for the render trigger.
-        const updatedWs = updateWorkspace(ws.id, {
+        const updatedWs = (0, store_js_1.updateWorkspace)(ws.id, {
             status: 'ready',
             downloadedAt: new Date().toISOString(),
             downloadedPath: finalFilePath,
@@ -689,13 +726,13 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
             preScaledPath,
             downloadQuality: autoQuality,
         });
-        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, updatedWs);
+        broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, updatedWs);
         sendNotification('success', `Auto-ready: ${realTitle}`, ws.id);
-        broadcast(IPC_CHANNELS.AUTO_DOWNLOAD_EVENT, { videoId, title: realTitle, channelName: finalChannelName, detectedAt: detectedAtNow });
+        broadcast(channels_js_1.IPC_CHANNELS.AUTO_DOWNLOAD_EVENT, { videoId, title: realTitle, channelName: finalChannelName, detectedAt: detectedAtNow });
         showWindowsToast('✅ Download xong!', `${realTitle}`);
-        recordDownloadSuccess();
-        recordVideoDetected();
-        broadcast(IPC_CHANNELS.ACTIVITY_EVENT, {
+        (0, health_alerts_js_1.recordDownloadSuccess)();
+        (0, health_alerts_js_1.recordVideoDetected)();
+        broadcast(channels_js_1.IPC_CHANNELS.ACTIVITY_EVENT, {
             id: ws.id,
             timestamp: Date.now(),
             type: 'downloaded',
@@ -708,13 +745,13 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
         // autoRenderAttempted flag prevents infinite loops when render fails → retries.
         // Uses updatedWs (resolved paths from store) to avoid "file not found" race condition.
         if (autoRenderEnabled && !ws.autoRenderAttempted) {
-            updateWorkspace(ws.id, { autoRenderAttempted: true });
+            (0, store_js_1.updateWorkspace)(ws.id, { autoRenderAttempted: true });
             const autoRes = settings.autoRenderResolution ?? '480x480';
             // source_video: prefer preScaledPath (already validated to exist above), fallback to downloadedPath
             const sourceVideo = updatedWs?.preScaledPath || updatedWs?.downloadedPath || preScaledPath || finalFilePath;
             // Only queue if the source file actually exists on disk
-            if (!sourceVideo || !fs.existsSync(sourceVideo)) {
-                devLog(`[Auto] Render skipped — source file not found: ${sourceVideo}`);
+            if (!sourceVideo || !fs_1.default.existsSync(sourceVideo)) {
+                (0, unified_log_js_1.devLog)(`[Auto] Render skipped — source file not found: ${sourceVideo}`);
             }
             else {
                 const autoMetadata = {
@@ -734,24 +771,24 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
                     // thumbPath is created at line 812 above — available at this point.
                     backgroundType: blurBgPath ? 'blur' : 'image',
                     backgroundColor: '#000000',
-                    backgroundImage: blurBgPath ? undefined : path.join(storagePath, `thumb_${ws.id}.jpg`),
+                    backgroundImage: blurBgPath ? undefined : path_1.default.join(storagePath, `thumb_${ws.id}.jpg`),
                     blur_background: blurBgPath,
                     isShort: false,
                 };
-                devLog(`[Auto] Triggering render: ${realTitle} @ ${autoRes}`);
+                (0, unified_log_js_1.devLog)(`[Auto] Triggering render: ${realTitle} @ ${autoRes}`);
                 // Push to render queue and start — same pattern as RENDER_START IPC handler
                 renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve: () => { } });
-                const max = loadSettings().maxConcurrentRenders ?? 2;
-                if (getPoolStatus().active < max) {
+                const max = (0, ramdisk_js_1.loadSettings)().maxConcurrentRenders ?? 2;
+                if ((0, worker_pool_js_1.getPoolStatus)().active < max) {
                     startNextQueuedRender();
                 }
             }
         }
         else {
-            devLog(`[Auto] Downloaded — ready (autoRender=${autoRenderEnabled}, attempted=${!!ws.autoRenderAttempted})`);
+            (0, unified_log_js_1.devLog)(`[Auto] Downloaded — ready (autoRender=${autoRenderEnabled}, attempted=${!!ws.autoRenderAttempted})`);
         }
         // Only mark as seen AFTER successful download — so YouTube processing delay doesn't block retry
-        markVideoSeen(channelId, videoId);
+        (0, store_js_1.markVideoSeen)(channelId, videoId);
     }
     catch (err) {
         console.error('[Poll] Auto-download error:', err);
@@ -775,21 +812,21 @@ async function retryAutoDownload(ws) {
     }
 }
 async function doRetryAutoDownload(ws) {
-    const storagePath = getVideoStoragePath();
+    const storagePath = (0, ramdisk_js_1.getVideoStoragePath)();
     const videoUrl = ws.videoUrl || (ws.videoId ? `https://www.youtube.com/watch?v=${ws.videoId}` : null);
     if (!videoUrl) {
         console.warn(`[Retry] No URL for workspace ${ws.id}`);
         return;
     }
-    const settings = loadSettings();
+    const settings = (0, ramdisk_js_1.loadSettings)();
     const retryQuality = settings.autoDownloadQuality ?? '720';
     // Export Chrome cookies for yt-dlp authentication (bypasses EJS challenge → enables 1080p VP9)
-    const { getYtCookiesFile } = await import('./services/po_token.js');
+    const { getYtCookiesFile } = await Promise.resolve().then(() => __importStar(require('./services/po_token.js')));
     const ytCookiesFile = await getYtCookiesFile();
-    updateWorkspace(ws.id, { status: 'downloading', downloadProgress: 0 });
-    broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id));
+    (0, store_js_1.updateWorkspace)(ws.id, { status: 'downloading', downloadProgress: 0 });
+    broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
     // downloadVideo delegates to downloadVideoStrategy (web → tv_embedded → ios)
-    const result = await downloadVideo({
+    const result = await (0, youtube_js_1.downloadVideo)({
         workspaceId: ws.id,
         videoUrl,
         outputDir: storagePath,
@@ -797,7 +834,7 @@ async function doRetryAutoDownload(ws) {
         quality: retryQuality,
         ytCookiesFile,
         onProgress: (progress) => {
-            broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
+            broadcast(channels_js_1.IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
                 workspaceId: ws.id,
                 percent: progress.percent,
                 speed: progress.speed,
@@ -807,47 +844,47 @@ async function doRetryAutoDownload(ws) {
     });
     if (result.success && result.filePath) {
         // Probe actual duration from downloaded file (not yt-dlp metadata, which can be stale)
-        const actualDuration = await probeActualDuration(result.filePath);
+        const actualDuration = await (0, youtube_js_1.probeActualDuration)(result.filePath);
         // Parallel: thumbnail + video info run simultaneously
-        const thumbPath = path.join(storagePath, `thumb_${ws.id}.jpg`);
+        const thumbPath = path_1.default.join(storagePath, `thumb_${ws.id}.jpg`);
         const [thumbResult, videoInfo] = await Promise.all([
-            extractVideoThumbnail(result.filePath, thumbPath),
-            getVideoInfo(videoUrl),
+            (0, ffmpeg_js_1.extractVideoThumbnail)(result.filePath, thumbPath),
+            (0, youtube_js_1.getVideoInfo)(videoUrl),
         ]);
         const realDuration = actualDuration || videoInfo?.duration || 0;
         const localThumbnail = thumbResult.success
             ? 'local-video:///' + thumbPath.replace(/\\/g, '/')
             : (videoInfo?.thumbnail || `https://img.youtube.com/vi/${ws.videoId}/mqdefault.jpg`);
-        const aspect = await probeVideoAspect(result.filePath);
+        const aspect = await (0, ffmpeg_js_1.probeVideoAspect)(result.filePath);
         // Skip 9:16 vertical videos — user only wants landscape 16:9 content
         if (aspect?.isShort) {
-            devLog(`[Retry] Skipping 9:16 vertical video: ${ws.videoTitle}`);
+            (0, unified_log_js_1.devLog)(`[Retry] Skipping 9:16 vertical video: ${ws.videoTitle}`);
             try {
-                fs.unlinkSync(result.filePath);
+                fs_1.default.unlinkSync(result.filePath);
             }
             catch { }
-            updateWorkspace(ws.id, { status: 'error' });
-            broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id));
+            (0, store_js_1.updateWorkspace)(ws.id, { status: 'error' });
+            broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
             sendNotification('error', `9:16 vertical: ${ws.videoTitle}`, ws.id);
-            markVideoSeen(ws.channelId, ws.videoId);
+            (0, store_js_1.markVideoSeen)(ws.channelId, ws.videoId);
             return;
         }
         // Short video check
         if (realDuration > 0 && realDuration < 60) {
-            devLog(`[Retry] Video too short (${realDuration}s < 60s) — skipping (YouTube Short)`);
+            (0, unified_log_js_1.devLog)(`[Retry] Video too short (${realDuration}s < 60s) — skipping (YouTube Short)`);
             try {
-                fs.unlinkSync(result.filePath);
+                fs_1.default.unlinkSync(result.filePath);
             }
             catch { }
-            updateWorkspace(ws.id, { status: 'error' });
-            broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id));
+            (0, store_js_1.updateWorkspace)(ws.id, { status: 'error' });
+            broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
             sendNotification('error', `Too short: ${ws.videoTitle}`, ws.id);
-            markVideoSeen(ws.channelId, ws.videoId);
+            (0, store_js_1.markVideoSeen)(ws.channelId, ws.videoId);
             return;
         }
         // Parallel: trim + blur (if vertical). Landscape skips blur.
         const isLandscape = !aspect?.isShort;
-        const { blurPath } = generateWorkspacePaths(ws.id);
+        const { blurPath } = (0, ramdisk_js_1.generateWorkspacePaths)(ws.id);
         const trimLimitSec = typeof ws.trimLimit === 'number' ? ws.trimLimit * 60 : 0;
         const doTrim = trimLimitSec > 0 && realDuration > trimLimitSec;
         const [trimResult, blurResult] = await Promise.all([
@@ -855,16 +892,16 @@ async function doRetryAutoDownload(ws) {
                 if (!doTrim)
                     return null;
                 const trimmedPath = result.filePath.replace(/(\.\w+)$/, '_trimmed$1');
-                const r = await trimVideo(result.filePath, trimmedPath, 0, trimLimitSec);
+                const r = await (0, ffmpeg_js_1.trimVideo)(result.filePath, trimmedPath, 0, trimLimitSec);
                 if (r.success) {
-                    const trimmedSize = fs.statSync(trimmedPath).size;
-                    devLog(`[Retry] Trim OK (${trimLimitSec}s, ${(trimmedSize / 1024 / 1024).toFixed(1)} MB)`);
+                    const trimmedSize = fs_1.default.statSync(trimmedPath).size;
+                    (0, unified_log_js_1.devLog)(`[Retry] Trim OK (${trimLimitSec}s, ${(trimmedSize / 1024 / 1024).toFixed(1)} MB)`);
                     return { path: trimmedPath, size: trimmedSize, duration: trimLimitSec };
                 }
                 return null;
             })(),
             // Blur: only for vertical videos. Landscape uses thumbnail bg — skip.
-            (isLandscape ? Promise.resolve({ success: true }) : generateBlurBackground(result.filePath, blurPath, 1080, 1920, realDuration || undefined)),
+            (isLandscape ? Promise.resolve({ success: true }) : (0, ffmpeg_js_1.generateBlurBackground)(result.filePath, blurPath, 1080, 1920, realDuration || undefined)),
         ]);
         let finalFilePath = result.filePath;
         let finalFileSize = result.fileSize || 0;
@@ -874,13 +911,13 @@ async function doRetryAutoDownload(ws) {
             finalFileSize = trimResult.size;
             finalDuration = trimResult.duration;
             try {
-                fs.unlinkSync(result.filePath);
+                fs_1.default.unlinkSync(result.filePath);
             }
             catch { }
         }
         // blurBackgroundPath: vertical videos only (landscape uses thumbnail bg)
         const blurBgPath = blurResult.success && !isLandscape ? blurPath : '';
-        updateWorkspace(ws.id, {
+        (0, store_js_1.updateWorkspace)(ws.id, {
             status: 'ready',
             downloadedAt: new Date().toISOString(),
             downloadedPath: finalFilePath,
@@ -892,10 +929,10 @@ async function doRetryAutoDownload(ws) {
             blurBackgroundPath: blurBgPath,
             downloadQuality: retryQuality,
         });
-        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id));
+        broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
         sendNotification('success', `Auto-ready (retry): ${ws.videoTitle}`, ws.id);
         showWindowsToast('✅ Retry xong!', `${ws.videoTitle}`);
-        markVideoSeen(ws.channelId, ws.videoId);
+        (0, store_js_1.markVideoSeen)(ws.channelId, ws.videoId);
     }
     else {
         const errorMsg = result.error || '';
@@ -903,16 +940,16 @@ async function doRetryAutoDownload(ws) {
         const isPrivate = errorMsg.includes('private video');
         if (isPrivate) {
             // All clients failed with private → genuinely inaccessible
-            updateWorkspace(ws.id, { status: 'error' });
+            (0, store_js_1.updateWorkspace)(ws.id, { status: 'error' });
         }
         else if (isNotAvailable) {
-            updateWorkspace(ws.id, { status: 'error' });
+            (0, store_js_1.updateWorkspace)(ws.id, { status: 'error' });
         }
         else {
             // Still retryable — stay in waiting with next retryableAt
-            updateWorkspace(ws.id, { status: 'waiting', retryableAt: new Date(Date.now() + 5 * 60 * 1000).toISOString() });
+            (0, store_js_1.updateWorkspace)(ws.id, { status: 'waiting', retryableAt: new Date(Date.now() + 5 * 60 * 1000).toISOString() });
         }
-        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id));
+        broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
     }
 }
 // ─── Auto-render catch-up on startup ────────────────────────────────────────────
@@ -920,11 +957,11 @@ async function doRetryAutoDownload(ws) {
 // was disabled at download time, or workspace was created before the feature existed).
 // Triggers auto-render for each one — so nothing slips through the cracks.
 function triggerAutoRenderForReadyWorkspaces() {
-    const settings = loadSettings();
+    const settings = (0, ramdisk_js_1.loadSettings)();
     if (settings.autoRender !== true)
         return;
-    const workspaces = getWorkspaces();
-    const storagePath = getVideoStoragePath();
+    const workspaces = (0, store_js_1.getWorkspaces)();
+    const storagePath = (0, ramdisk_js_1.getVideoStoragePath)();
     for (const ws of workspaces) {
         // Only process 'ready' workspaces without a prior auto-render attempt
         if (ws.status !== 'ready')
@@ -934,23 +971,23 @@ function triggerAutoRenderForReadyWorkspaces() {
         // Resolve the downloaded file — stored as basename, reconstruct absolute path
         const storedName = ws.downloadedPath || '';
         let videoPath = storedName;
-        if (storedName && !path.isAbsolute(storedName)) {
-            const candidates = [storagePath, getVideoStoragePath()];
+        if (storedName && !path_1.default.isAbsolute(storedName)) {
+            const candidates = [storagePath, (0, ramdisk_js_1.getVideoStoragePath)()];
             for (const dir of candidates) {
-                const candidate = path.join(dir, storedName);
-                if (fs.existsSync(candidate)) {
+                const candidate = path_1.default.join(dir, storedName);
+                if (fs_1.default.existsSync(candidate)) {
                     videoPath = candidate;
                     break;
                 }
             }
         }
-        if (!videoPath || !fs.existsSync(videoPath)) {
-            devLog(`[AutoCatchup] Skipping ${ws.id} — file not found: ${videoPath || storedName}`);
+        if (!videoPath || !fs_1.default.existsSync(videoPath)) {
+            (0, unified_log_js_1.devLog)(`[AutoCatchup] Skipping ${ws.id} — file not found: ${videoPath || storedName}`);
             continue;
         }
         // Get blur background if available
-        const { blurPath } = generateWorkspacePaths(ws.id);
-        const blurBgPath = ws.blurBackgroundPath || (fs.existsSync(blurPath) ? blurPath : '');
+        const { blurPath } = (0, ramdisk_js_1.generateWorkspacePaths)(ws.id);
+        const blurBgPath = ws.blurBackgroundPath || (fs_1.default.existsSync(blurPath) ? blurPath : '');
         // Resolve thumbnail path: workspace.thumbnail is "local-video:///D:/path/to/thumb_xxx.jpg"
         // Extract the filesystem path from this URI to find the actual thumbnail location.
         // This is more reliable than reconstructing from storagePath (which may differ from
@@ -962,12 +999,12 @@ function triggerAutoRenderForReadyWorkspaces() {
         else {
             // Fallback: scan known dirs for thumb_{wsId}.jpg
             const thumbCandidates = [
-                path.join(storagePath, `thumb_${ws.id}.jpg`),
-                path.join(getVideoStoragePath(), `thumb_${ws.id}.jpg`),
-                path.join('D:\\HyperClip-Data\\downloads', `thumb_${ws.id}.jpg`),
+                path_1.default.join(storagePath, `thumb_${ws.id}.jpg`),
+                path_1.default.join((0, ramdisk_js_1.getVideoStoragePath)(), `thumb_${ws.id}.jpg`),
+                path_1.default.join('D:\\HyperClip-Data\\downloads', `thumb_${ws.id}.jpg`),
             ];
             for (const tc of thumbCandidates) {
-                if (fs.existsSync(tc)) {
+                if (fs_1.default.existsSync(tc)) {
                     thumbnailPath = tc;
                     break;
                 }
@@ -988,16 +1025,16 @@ function triggerAutoRenderForReadyWorkspaces() {
             // Portrait (9:16): use blur bg. Landscape (16:9): use thumbnail.
             backgroundType: blurBgPath ? 'blur' : 'image',
             backgroundColor: '#000000',
-            backgroundImage: blurBgPath ? undefined : (thumbnailPath && fs.existsSync(thumbnailPath) ? thumbnailPath : undefined),
+            backgroundImage: blurBgPath ? undefined : (thumbnailPath && fs_1.default.existsSync(thumbnailPath) ? thumbnailPath : undefined),
             blur_background: blurBgPath,
             isShort: ws.isShort ?? false,
         };
         // Mark as attempted FIRST to avoid double-trigger
-        updateWorkspace(ws.id, { autoRenderAttempted: true });
-        devLog(`[AutoCatchup] Triggering render for ${ws.id} (${ws.videoTitle?.slice(0, 40)})`);
+        (0, store_js_1.updateWorkspace)(ws.id, { autoRenderAttempted: true });
+        (0, unified_log_js_1.devLog)(`[AutoCatchup] Triggering render for ${ws.id} (${ws.videoTitle?.slice(0, 40)})`);
         renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve: () => { } });
-        const max = loadSettings().maxConcurrentRenders ?? 2;
-        if (getPoolStatus().active < max) {
+        const max = (0, ramdisk_js_1.loadSettings)().maxConcurrentRenders ?? 2;
+        if ((0, worker_pool_js_1.getPoolStatus)().active < max) {
             startNextQueuedRender();
         }
     }
@@ -1009,29 +1046,29 @@ function triggerAutoRenderForReadyWorkspaces() {
 function scanExistingDownloadedFiles() {
     // Scan both new persistent path AND legacy temp path (for backwards compat)
     const pathsToScan = [
-        getVideoStoragePath(),
-        path.join(os.tmpdir(), 'hyperclip-video'), // legacy path
+        (0, ramdisk_js_1.getVideoStoragePath)(),
+        path_1.default.join(os_1.default.tmpdir(), 'hyperclip-video'), // legacy path
     ];
     const seen = new Set();
     let totalRegistered = 0;
     for (const storagePath of pathsToScan) {
         try {
-            if (!fs.existsSync(storagePath))
+            if (!fs_1.default.existsSync(storagePath))
                 continue;
-            const files = fs.readdirSync(storagePath).filter(f => f.endsWith('.mp4'));
+            const files = fs_1.default.readdirSync(storagePath).filter(f => f.endsWith('.mp4'));
             if (files.length === 0)
                 continue;
-            devLog(`[HyperClip] Scanning ${files.length} file(s) in ${storagePath}`);
+            (0, unified_log_js_1.devLog)(`[HyperClip] Scanning ${files.length} file(s) in ${storagePath}`);
             for (const file of files) {
                 // Pattern: ws-{timestamp}-{random}_{videoId}.mp4
                 const match = file.match(/^ws-\d+-[a-z0-9]+_(.+)\.mp4$/);
                 if (match && !seen.has(match[1])) {
                     const videoId = match[1];
                     seen.add(videoId);
-                    const channels = getChannels();
+                    const channels = (0, store_js_1.getChannels)();
                     for (const ch of channels) {
                         if (ch.channelId)
-                            markVideoSeen(ch.channelId, videoId);
+                            (0, store_js_1.markVideoSeen)(ch.channelId, videoId);
                     }
                     totalRegistered++;
                 }
@@ -1042,7 +1079,7 @@ function scanExistingDownloadedFiles() {
         }
     }
     if (totalRegistered > 0) {
-        devLog(`[HyperClip] Registered ${totalRegistered} existing file(s) as "seen"`);
+        (0, unified_log_js_1.devLog)(`[HyperClip] Registered ${totalRegistered} existing file(s) as "seen"`);
     }
 }
 // ─── Channel ID Resolution ─────────────────────────────────────────────────────────
@@ -1050,7 +1087,7 @@ function scanExistingDownloadedFiles() {
 // Called at startup ONLY for channels that NEED resolution (missing/invalid channelId).
 // Channels with already-valid channelIds are skipped entirely — no HTTP calls needed.
 async function resolveChannelIdsForPoll() {
-    const channels = getChannels();
+    const channels = (0, store_js_1.getChannels)();
     let resolved = 0;
     let skipped = 0;
     for (const ch of channels) {
@@ -1080,10 +1117,10 @@ async function resolveChannelIdsForPoll() {
             continue;
         }
         try {
-            const info = await getChannelInfo(resolveUrl);
+            const info = await (0, youtube_js_1.getChannelInfo)(resolveUrl);
             if (info && info.channelId && info.channelId.startsWith('UC') && info.channelId.length >= 24) {
-                devLog(`[Channel] Resolved "${ch.name}" [${strategy}]: ${info.channelId}`);
-                updateChannel(ch.id, { channelId: info.channelId, name: info.channelName || ch.name });
+                (0, unified_log_js_1.devLog)(`[Channel] Resolved "${ch.name}" [${strategy}]: ${info.channelId}`);
+                (0, store_js_1.updateChannel)(ch.id, { channelId: info.channelId, name: info.channelName || ch.name });
                 resolved++;
             }
             else if (info && !info.channelId) {
@@ -1100,8 +1137,8 @@ async function resolveChannelIdsForPoll() {
             skipped++;
         }
     }
-    devLog(`[Channel] Resolution: ${resolved} resolved, ${skipped} skipped (${channels.length - resolved - skipped} verified)`);
-    refreshChannelCache();
+    (0, unified_log_js_1.devLog)(`[Channel] Resolution: ${resolved} resolved, ${skipped} skipped (${channels.length - resolved - skipped} verified)`);
+    (0, subscription_feed_js_1.refreshChannelCache)();
 }
 function isValidChannelId(id) {
     // Real YouTube channel IDs: UC prefix + 22 base64 chars = 24 chars total
@@ -1110,7 +1147,7 @@ function isValidChannelId(id) {
 // ─── Port checker ───────────────────────────────────────────────────────────────
 function isPortOpen(port) {
     return new Promise((resolve) => {
-        const req = http.get(`http://localhost:${port}`, (res) => {
+        const req = http_1.default.get(`http://localhost:${port}`, (res) => {
             resolve(res.statusCode === 200);
         });
         req.on('error', () => resolve(false));
@@ -1123,13 +1160,13 @@ function startNextServer() {
     //   - app is unpacked (asar: false), all files in resources/app/
     //   - Next.js bin: resources/app/node_modules/next/dist/bin/next
     //   - cwd must be resources/app/ so Next.js finds .next/ in current dir
-    const appUnpacked = app.isPackaged
-        ? path.join(process.resourcesPath, 'app')
-        : path.join(__dirname, '..');
-    const nextBin = path.join(appUnpacked, 'node_modules', 'next', 'dist', 'bin', 'next');
-    devLog(`[HyperClip] Next.js bin: ${nextBin}`);
-    devLog(`[HyperClip] Next.js exists: ${fs.existsSync(nextBin)}`);
-    devLog(`[HyperClip] cwd: ${appUnpacked}`);
+    const appUnpacked = electron_1.app.isPackaged
+        ? path_1.default.join(process.resourcesPath, 'app')
+        : path_1.default.join(__dirname, '..');
+    const nextBin = path_1.default.join(appUnpacked, 'node_modules', 'next', 'dist', 'bin', 'next');
+    (0, unified_log_js_1.devLog)(`[HyperClip] Next.js bin: ${nextBin}`);
+    (0, unified_log_js_1.devLog)(`[HyperClip] Next.js exists: ${fs_1.default.existsSync(nextBin)}`);
+    (0, unified_log_js_1.devLog)(`[HyperClip] cwd: ${appUnpacked}`);
     let startupResolve = null;
     return new Promise((resolve) => {
         startupResolve = resolve;
@@ -1137,10 +1174,10 @@ function startNextServer() {
         // Bundled: resources/node/node.exe (shipped in installer)
         // System: fallback to whatever "node" resolves to in PATH
         let nodeExe = 'node';
-        const bundledNode = app.isPackaged && process.resourcesPath
-            ? path.join(process.resourcesPath, 'node', 'node.exe')
+        const bundledNode = electron_1.app.isPackaged && process.resourcesPath
+            ? path_1.default.join(process.resourcesPath, 'node', 'node.exe')
             : '';
-        if (bundledNode && fs.existsSync(bundledNode)) {
+        if (bundledNode && fs_1.default.existsSync(bundledNode)) {
             nodeExe = bundledNode;
         }
         else {
@@ -1148,19 +1185,19 @@ function startNextServer() {
                 const { execSync } = require('child_process');
                 const result = execSync('where node', { timeout: 5000, encoding: 'utf-8' });
                 const firstPath = result.trim().split('\n')[0];
-                if (firstPath && fs.existsSync(firstPath))
+                if (firstPath && fs_1.default.existsSync(firstPath))
                     nodeExe = firstPath;
             }
             catch { }
         }
-        devLog(`[HyperClip] node executable: ${nodeExe}`);
-        nextServer = spawn(nodeExe, [nextBin, '-p', String(NEXT_PORT)], {
+        (0, unified_log_js_1.devLog)(`[HyperClip] node executable: ${nodeExe}`);
+        nextServer = (0, child_process_1.spawn)(nodeExe, [nextBin, '-p', String(NEXT_PORT)], {
             cwd: appUnpacked,
             stdio: ['ignore', 'pipe', 'pipe'],
-            env: { ...process.env, NODE_ENV: isDev ? 'development' : 'production', PATH: (process.env.PATH || '') + path.delimiter + path.dirname(process.execPath), PORT: String(NEXT_PORT) },
+            env: { ...process.env, NODE_ENV: isDev ? 'development' : 'production', PATH: (process.env.PATH || '') + path_1.default.delimiter + path_1.default.dirname(process.execPath), PORT: String(NEXT_PORT) },
         });
         nextServerOwned = true;
-        devLog(`[HyperClip] Booting Next.js on port ${NEXT_PORT}...`);
+        (0, unified_log_js_1.devLog)(`[HyperClip] Booting Next.js on port ${NEXT_PORT}...`);
         nextServer.on('error', (err) => {
             if (err.code === 'EADDRINUSE') {
                 console.error(`[HyperClip] Port ${NEXT_PORT} is already in use. Set HYPERCLIP_PORT env var to use a different port.`);
@@ -1183,7 +1220,7 @@ function startNextServer() {
             const text = data.toString();
             process.stdout.write('[Next.js] ' + text);
             if (readyPatternsStdout.some(p => text.includes(p))) {
-                devLog(`[HyperClip] Next.js stdout signal → http://localhost:${NEXT_PORT}`);
+                (0, unified_log_js_1.devLog)(`[HyperClip] Next.js stdout signal → http://localhost:${NEXT_PORT}`);
                 if (startupResolve) {
                     startupResolve();
                     startupResolve = null;
@@ -1194,7 +1231,7 @@ function startNextServer() {
             const text = data.toString();
             process.stderr.write('[Next.js] ' + text);
             if (readyPatternsStderr.some(p => text.includes(p))) {
-                devLog(`[HyperClip] Next.js stderr signal → http://localhost:${NEXT_PORT}`);
+                (0, unified_log_js_1.devLog)(`[HyperClip] Next.js stderr signal → http://localhost:${NEXT_PORT}`);
                 if (startupResolve) {
                     startupResolve();
                     startupResolve = null;
@@ -1213,16 +1250,22 @@ function startNextServer() {
 }
 // ─── Window ────────────────────────────────────────────────────────────────────
 function getPreloadPath() {
-    return path.join(__dirname, 'preload.js');
+    return path_1.default.join(__dirname, 'preload.js');
 }
 async function createWindow() {
-    mainWindow = new BrowserWindow({
+    // Icon path: packaged → resources/build/icon.ico, dev → build/icon.ico
+    const iconBase = electron_1.app.isPackaged
+        ? process.resourcesPath
+        : path_1.default.join(__dirname, '..');
+    const iconPath = path_1.default.join(iconBase, 'build', 'icon.ico');
+    mainWindow = new electron_1.BrowserWindow({
         width: 1400,
         height: 900,
         minWidth: 1200,
         minHeight: 700,
         backgroundColor: '#121212',
         title: 'HyperClip',
+        icon: iconPath,
         webPreferences: {
             preload: getPreloadPath(),
             contextIsolation: true,
@@ -1232,7 +1275,7 @@ async function createWindow() {
         frame: true,
     });
     // Wire unified log to renderer for live streaming
-    setLogWindow(mainWindow);
+    (0, unified_log_js_1.setLogWindow)(mainWindow);
     void mainWindow.loadURL(`http://localhost:${NEXT_PORT}`);
     // Retry load if initial attempt fails (server might still be warming up)
     let loadRetries = 0;
@@ -1242,19 +1285,19 @@ async function createWindow() {
         console.warn(`[HyperClip] Load failed (attempt ${loadRetries}): ${errorDescription} (${errorCode})`);
         if (loadRetries <= maxRetries) {
             setTimeout(() => {
-                devLog(`[HyperClip] Retrying load (attempt ${loadRetries + 1}/${maxRetries + 1})...`);
+                (0, unified_log_js_1.devLog)(`[HyperClip] Retrying load (attempt ${loadRetries + 1}/${maxRetries + 1})...`);
                 void mainWindow?.webContents.loadURL(`http://localhost:${NEXT_PORT}`);
             }, 2000);
         }
     });
     mainWindow.webContents.on('did-finish-load', () => {
-        devLog(`[HyperClip] Window loaded successfully`);
+        (0, unified_log_js_1.devLog)(`[HyperClip] Window loaded successfully`);
     });
     mainWindow.once('ready-to-show', () => {
         mainWindow?.show();
     });
     mainWindow.on('close', (e) => {
-        if (loadSettings().quitOnClose !== false) {
+        if ((0, ramdisk_js_1.loadSettings)().quitOnClose !== false) {
             // quitOnClose=true (default): actually quit
             void quitAll();
         }
@@ -1338,21 +1381,21 @@ function createBlueIcon() {
     ihdr[10] = 0;
     ihdr[11] = 0;
     ihdr[12] = 0;
-    const compressed = zlib.deflateSync(raw);
+    const compressed = zlib_1.default.deflateSync(raw);
     const png = Buffer.concat([
         Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
         chunk('IHDR', ihdr),
         chunk('IDAT', compressed),
         chunk('IEND', Buffer.alloc(0)),
     ]);
-    return nativeImage.createFromBuffer(png);
+    return electron_1.nativeImage.createFromBuffer(png);
 }
 // ─── System tray ──────────────────────────────────────────────────────────────
 function createTray() {
-    const iconPath = path.join(process.resourcesPath || __dirname, 'resources', 'icon.png');
+    const iconPath = path_1.default.join(process.resourcesPath || __dirname, 'resources', 'icon.png');
     let trayIcon;
     try {
-        trayIcon = nativeImage.createFromPath(iconPath);
+        trayIcon = electron_1.nativeImage.createFromPath(iconPath);
         if (trayIcon.isEmpty()) {
             // Fallback: create a 16x16 blue icon programmatically
             trayIcon = createBlueIcon();
@@ -1361,8 +1404,8 @@ function createTray() {
     catch {
         trayIcon = createBlueIcon();
     }
-    tray = new Tray(trayIcon);
-    const contextMenu = Menu.buildFromTemplate([
+    tray = new electron_1.Tray(trayIcon);
+    const contextMenu = electron_1.Menu.buildFromTemplate([
         { label: 'Show HyperClip', click: () => mainWindow?.show() },
         { type: 'separator' },
         { label: 'Quick Add Tracker', click: () => mainWindow?.webContents.send('quick-add') },
@@ -1375,13 +1418,13 @@ function createTray() {
 }
 // ─── Broadcast helpers ─────────────────────────────────────────────────────────
 // Delegates to the shared state module so extracted handlers stay in sync.
-function broadcast(channel, data) { void _broadcast(channel, data); }
-function sendNotification(type, message, workspaceId) { void _sendNotification(type, message, workspaceId); }
+function broadcast(channel, data) { void (0, ipc_state_js_1.broadcast)(channel, data); }
+function sendNotification(type, message, workspaceId) { void (0, ipc_state_js_1.sendNotification)(type, message, workspaceId); }
 // ─── Audio notification ────────────────────────────────────────────────────────────
 function playSuccessBeep() {
     // Distinct double-chime on download complete — loud enough to cut through background noise
     if (process.platform === 'win32') {
-        import('child_process').then(({ spawn }) => {
+        Promise.resolve().then(() => __importStar(require('child_process'))).then(({ spawn }) => {
             // Exclamation is louder than Asterisk; play twice for emphasis
             spawn('powershell', [
                 '-c',
@@ -1396,7 +1439,7 @@ function playSuccessBeep() {
 function showWindowsToast(title, body) {
     if (process.platform !== 'win32')
         return;
-    import('child_process').then(({ spawn }) => {
+    Promise.resolve().then(() => __importStar(require('child_process'))).then(({ spawn }) => {
         const escapedTitle = title.replace(/"/g, '`"');
         const escapedBody = body.replace(/`/g, '``').replace(/"/g, '`"');
         const script = [
@@ -1415,62 +1458,62 @@ function showWindowsToast(title, body) {
 // ─── Auto-cleanup runs on startup ─────────────────────────────────────────────────
 ;
 (() => {
-    const cleanupDays = loadSettings().downloadsCleanupDays ?? 7;
+    const cleanupDays = (0, ramdisk_js_1.loadSettings)().downloadsCleanupDays ?? 7;
     if (cleanupDays <= 0)
         return;
     try {
-        const storagePath = getVideoStoragePath();
+        const storagePath = (0, ramdisk_js_1.getVideoStoragePath)();
         const cutoff = Date.now() - cleanupDays * 24 * 60 * 60 * 1000;
-        const workspaces = getWorkspaces();
+        const workspaces = (0, store_js_1.getWorkspaces)();
         const activeIds = new Set(workspaces.map(w => w.id));
-        const activeWsId = getActiveWorkspaceId();
+        const activeWsId = (0, ipc_state_js_1.getActiveWorkspaceId)();
         if (activeWsId)
             activeIds.add(activeWsId);
         let cleaned = 0;
-        for (const entry of fs.readdirSync(storagePath)) {
+        for (const entry of fs_1.default.readdirSync(storagePath)) {
             if (entry.startsWith('blur_'))
                 continue;
-            const ext = path.extname(entry).toLowerCase();
+            const ext = path_1.default.extname(entry).toLowerCase();
             if (!['.mp4', '.mkv', '.webm', '.avi', '.mov'].includes(ext))
                 continue;
             const entryBase = entry.replace(/\.\w+$/, '');
             const isActive = Array.from(activeIds).some(id => entryBase.startsWith(id + '_') || entryBase === id);
             if (isActive)
                 continue;
-            const fullPath = path.join(storagePath, entry);
+            const fullPath = path_1.default.join(storagePath, entry);
             try {
-                const stat = fs.statSync(fullPath);
+                const stat = fs_1.default.statSync(fullPath);
                 if (stat.mtimeMs < cutoff) {
-                    fs.unlinkSync(fullPath);
+                    fs_1.default.unlinkSync(fullPath);
                     cleaned++;
                 }
             }
             catch { }
         }
         if (cleaned > 0)
-            devLog(`[AutoCleanup] Removed ${cleaned} old video files`);
+            (0, unified_log_js_1.devLog)(`[AutoCleanup] Removed ${cleaned} old video files`);
     }
     catch { }
 })();
 // Relay auth status changes to renderer (registered at module load — catches early OAuth events)
-authEvents.on('authUpdated', (status) => {
+cookie_manager_js_1.authEvents.on('authUpdated', (status) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(IPC_CHANNELS.AUTH_UPDATE_EVENT, status);
+        mainWindow.webContents.send(channels_js_1.IPC_CHANNELS.AUTH_UPDATE_EVENT, status);
     }
 });
 // Cookie critical failure → redirect renderer to login screen
-authEvents.on('cookieCritical', (errorMsg) => {
+cookie_manager_js_1.authEvents.on('cookieCritical', (errorMsg) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-        devLog(`[HyperClip] Cookie critical failure: ${errorMsg} — redirecting to login`);
-        mainWindow.webContents.send(IPC_CHANNELS.AUTH_COOKIE_CRITICAL, errorMsg);
+        (0, unified_log_js_1.devLog)(`[HyperClip] Cookie critical failure: ${errorMsg} — redirecting to login`);
+        mainWindow.webContents.send(channels_js_1.IPC_CHANNELS.AUTH_COOKIE_CRITICAL, errorMsg);
         // Navigate to settings/login page
         mainWindow.webContents.send('navigate', '/settings');
     }
 });
 // Relay channel sync events so frontend re-fetches channel list
-channelEvents.on('channelsSynced', () => {
+cookie_manager_js_1.channelEvents.on('channelsSynced', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(IPC_CHANNELS.CHANNEL_SYNCED_EVENT, null);
+        mainWindow.webContents.send(channels_js_1.IPC_CHANNELS.CHANNEL_SYNCED_EVENT, null);
     }
 });
 // ─── System monitor ────────────────────────────────────────────────────────────
@@ -1480,10 +1523,10 @@ function startSystemMonitor() {
     setInterval(() => {
         if (!mainWindow || mainWindow.isDestroyed())
             return;
-        const stats = collectSystemStats();
-        mainWindow.webContents.send(IPC_CHANNELS.SYSTEM_STATS_EVENT, stats);
+        const stats = (0, system_js_1.collectSystemStats)();
+        mainWindow.webContents.send(channels_js_1.IPC_CHANNELS.SYSTEM_STATS_EVENT, stats);
         // Resource watchdog: notify on high RAM/GPU
-        const alert = checkResourceAlert();
+        const alert = (0, system_js_2.checkResourceAlert)();
         if (alert.level !== 'normal') {
             const notifType = alert.level === 'critical' ? 'error' : 'warning';
             sendNotification(notifType, `[Resource] ${alert.reason}`);
@@ -1492,65 +1535,65 @@ function startSystemMonitor() {
 }
 // ─── Shutdown ─────────────────────────────────────────────────────────────────
 async function quitAll() {
-    await stopYouTubePoller();
-    cancelAllFfmpeg();
-    cancelAllChunked();
-    killPersistentChrome();
+    await (0, youtube_poller_js_1.stopYouTubePoller)();
+    (0, worker_pool_js_1.cancelAllFfmpeg)();
+    (0, ffmpeg_js_1.cancelAllChunked)();
+    (0, cdp_js_1.killPersistentChrome)();
     renderQueue.forEach(job => job.resolve({ success: false, error: 'App shutting down' }));
     renderQueue.length = 0;
     if (nextServerOwned && nextServer)
         nextServer.kill();
-    getTokenManager().dispose();
+    (0, token_manager_js_1.getTokenManager)().dispose();
     mainWindow?.destroy();
     // Wait for child processes to actually terminate before quitting.
     // On Windows, SIGTERM from proc.kill() is asynchronous — app.quit()
     // would exit before FFmpeg/Chrome are fully terminated.
     await new Promise(resolve => setTimeout(resolve, 500));
-    app.quit();
+    electron_1.app.quit();
 }
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
-ensureStorageDirs();
+(0, ramdisk_js_1.ensureStorageDirs)();
 // Auto-cleanup old logs (>7 days) on startup
-const cleanup = cleanupOldLogs();
+const cleanup = (0, unified_log_js_1.cleanupOldLogs)();
 if (cleanup.deletedCount > 0) {
     const freedMB = (cleanup.freedBytes / 1024 / 1024).toFixed(1);
-    devLog(`[LogCleanup] Removed ${cleanup.deletedCount} old log file(s), freed ${freedMB} MB`);
+    (0, unified_log_js_1.devLog)(`[LogCleanup] Removed ${cleanup.deletedCount} old log file(s), freed ${freedMB} MB`);
 }
-void app.whenReady().then(async () => {
-    devLog('[HyperClip] Starting...');
+void electron_1.app.whenReady().then(async () => {
+    (0, unified_log_js_1.devLog)('[HyperClip] Starting...');
     // Auto-migrate: if legacy AppData\Roaming\HyperClip exists, move it to the new base dir.
     {
-        const legacy = getLegacyDataPath();
-        const legacyMarker = path.join(getHyperClipBaseDir(), '.legacy-migrated');
-        if (legacy && !fs.existsSync(legacyMarker)) {
-            devLog(`[Migration] Found legacy data at ${legacy}, migrating to ${getHyperClipBaseDir()}...`);
+        const legacy = (0, paths_js_1.getLegacyDataPath)();
+        const legacyMarker = path_1.default.join((0, paths_js_1.getHyperClipBaseDir)(), '.legacy-migrated');
+        if (legacy && !fs_1.default.existsSync(legacyMarker)) {
+            (0, unified_log_js_1.devLog)(`[Migration] Found legacy data at ${legacy}, migrating to ${(0, paths_js_1.getHyperClipBaseDir)()}...`);
             try {
-                const dest = getAppStoreDir();
-                if (!fs.existsSync(dest))
-                    fs.mkdirSync(dest, { recursive: true });
-                const files = fs.readdirSync(legacy);
+                const dest = (0, paths_js_1.getAppStoreDir)();
+                if (!fs_1.default.existsSync(dest))
+                    fs_1.default.mkdirSync(dest, { recursive: true });
+                const files = fs_1.default.readdirSync(legacy);
                 for (const file of files) {
-                    const src = path.join(legacy, file);
-                    const dst = path.join(dest, file);
-                    if (!fs.existsSync(dst)) {
-                        fs.renameSync(src, dst);
+                    const src = path_1.default.join(legacy, file);
+                    const dst = path_1.default.join(dest, file);
+                    if (!fs_1.default.existsSync(dst)) {
+                        fs_1.default.renameSync(src, dst);
                     }
                 }
-                fs.writeFileSync(legacyMarker, JSON.stringify({ migratedAt: Date.now(), legacyPath: legacy }), 'utf-8');
-                devLog(`[Migration] App data migrated to ${dest}`);
+                fs_1.default.writeFileSync(legacyMarker, JSON.stringify({ migratedAt: Date.now(), legacyPath: legacy }), 'utf-8');
+                (0, unified_log_js_1.devLog)(`[Migration] App data migrated to ${dest}`);
                 // Also migrate Chrome profiles: AppData\Local\HyperClip-Chrome-Profile-* → chrome-profiles\profile-*
-                const LOCALAPPDATA = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
-                const chromeProfilesDest = path.join(getHyperClipBaseDir(), 'chrome-profiles');
+                const LOCALAPPDATA = process.env.LOCALAPPDATA || path_1.default.join(os_1.default.homedir(), 'AppData', 'Local');
+                const chromeProfilesDest = path_1.default.join((0, paths_js_1.getHyperClipBaseDir)(), 'chrome-profiles');
                 let migratedProfiles = 0;
                 for (let i = 1; i <= 30; i++) {
-                    const srcProfile = path.join(LOCALAPPDATA, `HyperClip-Chrome-Profile-${i}`);
-                    const dstProfile = path.join(chromeProfilesDest, `profile-${i}`, 'Default');
-                    if (fs.existsSync(srcProfile) && !fs.existsSync(dstProfile)) {
+                    const srcProfile = path_1.default.join(LOCALAPPDATA, `HyperClip-Chrome-Profile-${i}`);
+                    const dstProfile = path_1.default.join(chromeProfilesDest, `profile-${i}`, 'Default');
+                    if (fs_1.default.existsSync(srcProfile) && !fs_1.default.existsSync(dstProfile)) {
                         try {
-                            fs.mkdirSync(path.dirname(dstProfile), { recursive: true });
-                            const items = fs.readdirSync(srcProfile);
+                            fs_1.default.mkdirSync(path_1.default.dirname(dstProfile), { recursive: true });
+                            const items = fs_1.default.readdirSync(srcProfile);
                             for (const item of items) {
-                                fs.renameSync(path.join(srcProfile, item), path.join(dstProfile, item));
+                                fs_1.default.renameSync(path_1.default.join(srcProfile, item), path_1.default.join(dstProfile, item));
                             }
                             migratedProfiles++;
                         }
@@ -1560,7 +1603,7 @@ void app.whenReady().then(async () => {
                     }
                 }
                 if (migratedProfiles > 0) {
-                    devLog(`[Migration] Migrated ${migratedProfiles} Chrome profiles to ${chromeProfilesDest}`);
+                    (0, unified_log_js_1.devLog)(`[Migration] Migrated ${migratedProfiles} Chrome profiles to ${chromeProfilesDest}`);
                 }
                 sendNotification('info', `HyperClip đã chuyển dữ liệu sang ổ D để giảm tải ổ C.`);
             }
@@ -1570,7 +1613,7 @@ void app.whenReady().then(async () => {
         }
     }
     // P0: Run system diagnostics — check all prerequisites and alert user to issues
-    const diag = await runDiagnostics();
+    const diag = await (0, diagnostics_js_1.runDiagnostics)();
     if (!diag.overall.ready) {
         console.warn('[HyperClip] Diagnostics issues:');
         for (const issue of diag.overall.issues) {
@@ -1579,14 +1622,14 @@ void app.whenReady().then(async () => {
         sendNotification('warning', `Có vấn đề: ${diag.overall.issues[0]}. Xem Settings → Diagnostics để biết thêm.`);
     }
     else {
-        devLog('[HyperClip] Diagnostics: All prerequisites OK');
+        (0, unified_log_js_1.devLog)('[HyperClip] Diagnostics: All prerequisites OK');
     }
     // P0: Hardware-aware performance profile log
-    const caps = getGPUCapabilities();
-    const profile = detectSystemProfile();
-    devLog(`[HyperClip] Performance profile: GPU=${caps.gpuName} [${caps.encoder}] tier=${caps.tier} workers=${caps.maxChunkWorkers} sessions=${profile.sessionCount} RAM=${profile.isLaptop ? 'laptop' : 'desktop'}`);
+    const caps = (0, system_js_1.getGPUCapabilities)();
+    const profile = (0, system_js_1.detectSystemProfile)();
+    (0, unified_log_js_1.devLog)(`[HyperClip] Performance profile: GPU=${caps.gpuName} [${caps.encoder}] tier=${caps.tier} workers=${caps.maxChunkWorkers} sessions=${profile.sessionCount} RAM=${profile.isLaptop ? 'laptop' : 'desktop'}`);
     // Validate FFmpeg hardware encoder (separate from existence check)
-    const ffmpegPath = getFfmpegPath();
+    const ffmpegPath = (0, ffmpeg_paths_js_1.getFfmpegPath)();
     if (diag.ffmpeg.ok && !diag.ffmpeg.hasNvenc) {
         console.warn('[HyperClip] FFmpeg found but no NVENC hardware encoder — rendering will use CPU (slow).');
         sendNotification('info', 'FFmpeg không có NVENC — render sẽ chậm. Khuyến nghị FFmpeg build có hỗ trợ NVIDIA NVENC.');
@@ -1600,15 +1643,15 @@ void app.whenReady().then(async () => {
     const cudaFilterStatus = diag.ffmpeg.hasCudaFilters
         ? '✓ CUDA filters (GPU scale/crop/overlay)'
         : '✗ Không có CUDA filters (CPU filter pipeline)';
-    devLog(`[HyperClip] FFmpeg pipeline: ${nvDecStatus}`);
-    devLog(`[HyperClip] FFmpeg pipeline: ${cudaFilterStatus}`);
+    (0, unified_log_js_1.devLog)(`[HyperClip] FFmpeg pipeline: ${nvDecStatus}`);
+    (0, unified_log_js_1.devLog)(`[HyperClip] FFmpeg pipeline: ${cudaFilterStatus}`);
     if (diag.ffmpeg.ok && (!diag.ffmpeg.hasNvdec || !diag.ffmpeg.hasCudaFilters)) {
         console.warn('[HyperClip] RENDER: CPU decode + CPU filter + NVENC GPU encode (không có NVDEC/CUDA filters)');
         sendNotification('info', `Render: CPU decode + CPU filter + NVENC GPU encode. CÀI FFmpeg build có NVDEC để render nhanh hơn.`);
     }
     // P2: RAM disk not available
     if (!diag.storage.ramDiskAvailable) {
-        devLog('[HyperClip] RAM disk not available — videos will be stored on disk (slower I/O).');
+        (0, unified_log_js_1.devLog)('[HyperClip] RAM disk not available — videos will be stored on disk (slower I/O).');
         sendNotification('info', 'RAM disk chưa bật — video sẽ lưu ổ C (chậm hơn RAM disk). Có thể bỏ qua nếu không cần tốc độ cao.');
     }
     // Setup: copy Arial font to resources/fonts/ for FFmpeg drawtext (lavfi requires no `:` in fontfile paths).
@@ -1616,11 +1659,11 @@ void app.whenReady().then(async () => {
     // Using a relative path `resources/fonts/arial.ttf` avoids this issue entirely.
     // Additionally, create fontconfig config so FFmpeg can find the font via fontfile=arial.ttf.
     {
-        const fontsDir = path.join(__dirname, '..', 'resources', 'fonts');
-        const fontPath = path.join(fontsDir, 'arial.ttf');
+        const fontsDir = path_1.default.join(__dirname, '..', 'resources', 'fonts');
+        const fontPath = path_1.default.join(fontsDir, 'arial.ttf');
         // Also create fontconfig at D:\fonts\fonts.conf for FONTCONFIG_FILE env var
         const fcDir = 'D:\\fonts';
-        const fcPath = path.join(fcDir, 'fonts.conf');
+        const fcPath = path_1.default.join(fcDir, 'fonts.conf');
         const fcXml = `<?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
 <fontconfig>
@@ -1628,38 +1671,38 @@ void app.whenReady().then(async () => {
   <dir>${fcDir.replace(/\\/g, '\\\\')}</dir>
 </fontconfig>
 `;
-        if (!fs.existsSync(fontPath)) {
+        if (!fs_1.default.existsSync(fontPath)) {
             try {
-                fs.mkdirSync(fontsDir, { recursive: true });
+                fs_1.default.mkdirSync(fontsDir, { recursive: true });
                 const systemFont = 'C:\\Windows\\Fonts\\arial.ttf';
-                if (fs.existsSync(systemFont)) {
-                    fs.copyFileSync(systemFont, fontPath);
-                    devLog(`[Setup] Copied Arial font to ${fontPath}`);
+                if (fs_1.default.existsSync(systemFont)) {
+                    fs_1.default.copyFileSync(systemFont, fontPath);
+                    (0, unified_log_js_1.devLog)(`[Setup] Copied Arial font to ${fontPath}`);
                 }
                 else {
-                    devLog(`[Setup] System Arial font not found at ${systemFont} — text overlays may fail`);
+                    (0, unified_log_js_1.devLog)(`[Setup] System Arial font not found at ${systemFont} — text overlays may fail`);
                 }
             }
             catch (e) {
-                devLog(`[Setup] Font copy failed: ${e}`);
+                (0, unified_log_js_1.devLog)(`[Setup] Font copy failed: ${e}`);
             }
         }
         else {
-            devLog(`[Setup] Arial font already present at ${fontPath}`);
+            (0, unified_log_js_1.devLog)(`[Setup] Arial font already present at ${fontPath}`);
         }
     }
     // Auto-boot Next.js if not already running on port 3000
     const nextRunning = await isPortOpen(NEXT_PORT);
     if (nextRunning) {
-        devLog(`[HyperClip] Next.js already running on port ${NEXT_PORT}`);
+        (0, unified_log_js_1.devLog)(`[HyperClip] Next.js already running on port ${NEXT_PORT}`);
     }
     else {
         await startNextServer();
     }
     // Poll HTTP until server responds (handles cases where port is open but
     // Next.js hasn't finished compiling yet, especially in production).
-    devLog(`[HyperClip] Waiting for Next.js HTTP server on port ${NEXT_PORT}...`);
-    const http = await import('http');
+    (0, unified_log_js_1.devLog)(`[HyperClip] Waiting for Next.js HTTP server on port ${NEXT_PORT}...`);
+    const http = await Promise.resolve().then(() => __importStar(require('http')));
     await new Promise((resolve) => {
         let attempts = 0;
         const timeout = setTimeout(() => {
@@ -1670,20 +1713,20 @@ void app.whenReady().then(async () => {
             attempts++;
             const req = http.get(`http://localhost:${NEXT_PORT}`, (res) => {
                 clearTimeout(timeout);
-                devLog(`[HyperClip] Next.js HTTP server confirmed (status ${res.statusCode}) after ${attempts} attempt(s)`);
+                (0, unified_log_js_1.devLog)(`[HyperClip] Next.js HTTP server confirmed (status ${res.statusCode}) after ${attempts} attempt(s)`);
                 res.resume();
                 resolve();
             });
             req.on('error', (err) => {
                 if (attempts % 10 === 0) {
-                    devLog(`[HyperClip] HTTP check attempt ${attempts}: ${err.message}`);
+                    (0, unified_log_js_1.devLog)(`[HyperClip] HTTP check attempt ${attempts}: ${err.message}`);
                 }
                 setTimeout(check, 1000);
             });
             req.setTimeout(5000, () => {
                 req.destroy();
                 if (attempts % 10 === 0) {
-                    devLog(`[HyperClip] HTTP check attempt ${attempts}: timeout, retrying...`);
+                    (0, unified_log_js_1.devLog)(`[HyperClip] HTTP check attempt ${attempts}: timeout, retrying...`);
                 }
             });
         };
@@ -1695,7 +1738,7 @@ void app.whenReady().then(async () => {
     // Two-slash format (local-video://C:/...) causes Chromium to treat C: as the
     // "host", stripping it during PathForRequest → handler gets C/Users/... (broken path).
     // With three slashes, Chromium treats the path as /C:/Users/... and returns it correctly.
-    protocol.registerFileProtocol('local-video', (request, callback) => {
+    electron_1.protocol.registerFileProtocol('local-video', (request, callback) => {
         let filePath = request.url.replace(/^local-video:\/\/?\/?/, '');
         // Chromium may include a leading slash in the path for three-slash URLs.
         // Normalize: strip one leading slash so we get C:/Users/... (valid Windows path).
@@ -1704,22 +1747,22 @@ void app.whenReady().then(async () => {
         callback({ path: decodeURIComponent(filePath) });
     });
     void createWindow();
-    setIPCState({ mainWindow });
+    (0, ipc_state_js_1.setIPCState)({ mainWindow });
     void createTray();
-    registerAllHandlers(ipcMain, () => mainWindow);
+    (0, index_js_1.registerAllHandlers)(electron_1.ipcMain, () => mainWindow);
     // Init license (validates cached license, starts heartbeat if valid)
-    void initLicense();
+    void (0, license_js_1.initLicense)();
     // ─── Health Alert Checker (every 60s) ───────────────────────────────────────
     // Runs periodic health checks and sends notifications to the renderer.
     setInterval(async () => {
         if (!mainWindow || mainWindow.isDestroyed())
             return;
         try {
-            const alerts = await checkHealthAlerts();
-            sendHealthAlerts(alerts, mainWindow);
+            const alerts = await (0, health_alerts_js_1.checkHealthAlerts)();
+            (0, health_alerts_js_1.sendHealthAlerts)(alerts, mainWindow);
         }
         catch (e) {
-            devLog(`[HealthCheck] Error: ${e.message}`);
+            (0, unified_log_js_1.devLog)(`[HealthCheck] Error: ${e.message}`);
         }
     }, 60_000);
     // Initial health check after 30 seconds (let things settle)
@@ -1727,8 +1770,8 @@ void app.whenReady().then(async () => {
         if (!mainWindow || mainWindow.isDestroyed())
             return;
         try {
-            const alerts = await checkHealthAlerts();
-            sendHealthAlerts(alerts, mainWindow);
+            const alerts = await (0, health_alerts_js_1.checkHealthAlerts)();
+            (0, health_alerts_js_1.sendHealthAlerts)(alerts, mainWindow);
         }
         catch { }
     }, 30_000);
@@ -1739,26 +1782,26 @@ void app.whenReady().then(async () => {
     // - Source video exists → reset to 'ready' (user can re-render)
     // - Source video missing → reset to 'error' (user can re-download)
     {
-        const ws = getWorkspaces();
+        const ws = (0, store_js_1.getWorkspaces)();
         let recovered = 0;
         for (const w of ws) {
             if (w.status === 'rendering') {
                 const sourcePath = findDownloadedFileAbs(w.id) || w.downloadedPath;
-                const sourceExists = sourcePath && fs.existsSync(sourcePath);
+                const sourceExists = sourcePath && fs_1.default.existsSync(sourcePath);
                 if (sourceExists) {
-                    devLog(`[StartupRecovery] "${w.videoTitle}" → 'ready' (source video found: ${path.basename(sourcePath)})`);
-                    updateWorkspace(w.id, { status: 'ready', renderProgress: 0 });
+                    (0, unified_log_js_1.devLog)(`[StartupRecovery] "${w.videoTitle}" → 'ready' (source video found: ${path_1.default.basename(sourcePath)})`);
+                    (0, store_js_1.updateWorkspace)(w.id, { status: 'ready', renderProgress: 0 });
                 }
                 else {
-                    devLog(`[StartupRecovery] "${w.videoTitle}" → 'error' (source video not found)`);
-                    updateWorkspace(w.id, { status: 'error', renderProgress: 0 });
+                    (0, unified_log_js_1.devLog)(`[StartupRecovery] "${w.videoTitle}" → 'error' (source video not found)`);
+                    (0, store_js_1.updateWorkspace)(w.id, { status: 'error', renderProgress: 0 });
                 }
-                broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(w.id));
+                broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(w.id));
                 recovered++;
             }
         }
         if (recovered > 0)
-            devLog(`[StartupRecovery] Recovered ${recovered} stale rendering workspace(s)`);
+            (0, unified_log_js_1.devLog)(`[StartupRecovery] Recovered ${recovered} stale rendering workspace(s)`);
     }
     // Scan storage directory for existing downloaded files — register them as "seen"
     // so poll won't re-download files already on disk
@@ -1768,15 +1811,15 @@ void app.whenReady().then(async () => {
     // the trigger was skipped due to a prior crash / missing autoRenderAttempted field.
     triggerAutoRenderForReadyWorkspaces();
     // Init cookie manager (auto-refresh every 15m + sub sync every 2m)
-    const cookieResult = await initCookieManager();
+    const cookieResult = await (0, cookie_manager_js_1.initCookieManager)();
     if (cookieResult.success) {
-        devLog(`[HyperClip] Cookies ready (${cookieResult.browser}, ${cookieResult.cookies.length} cookies)`);
+        (0, unified_log_js_1.devLog)(`[HyperClip] Cookies ready (${cookieResult.browser}, ${cookieResult.cookies.length} cookies)`);
     }
     else {
         console.warn(`[HyperClip] Cookie init failed: ${cookieResult.error} — polling will retry`);
     }
     // Start auto-refresh timer (cookies + subscription sync)
-    getCookieManager().startAutoRefresh();
+    (0, cookie_manager_js_1.getCookieManager)().startAutoRefresh();
     // Start polling ONLY after the renderer page has fully loaded AND Innertube pool is initialized.
     // This guarantees the window + frontend IPC listeners are ready before
     // any broadcast() call, so workspaces are always created and shown in real-time.
@@ -1787,11 +1830,11 @@ void app.whenReady().then(async () => {
             // Pre-warm the Innertube pool before polling starts.
             // Without this, the first poll races with pool initialization → OAuth fallback waste.
             // The pool init runs concurrently with SessionManager init (~12s), so start it early.
-            devLog('[HyperClip] Pre-warming Innertube pool...');
-            const { getInnertubePool } = await import('./services/innertube_client.js');
+            (0, unified_log_js_1.devLog)('[HyperClip] Pre-warming Innertube pool...');
+            const { getInnertubePool } = await Promise.resolve().then(() => __importStar(require('./services/innertube_client.js')));
             const pool = await getInnertubePool();
             const poolStatus = pool.getStatus();
-            devLog(`[HyperClip] Innertube pool: ${poolStatus.readyCount}/${poolStatus.totalSessions} sessions ready`);
+            (0, unified_log_js_1.devLog)(`[HyperClip] Innertube pool: ${poolStatus.readyCount}/${poolStatus.totalSessions} sessions ready`);
             startYouTubePoller(5_000, (videos) => {
                 // Deduplicate within the same poll: OAuth can return the same videoId from
                 // multiple channels (same video appears in multiple channel feeds).
@@ -1799,7 +1842,7 @@ void app.whenReady().then(async () => {
                 const seen = new Set();
                 const uniqueVideos = videos.filter(v => {
                     if (seen.has(v.videoId)) {
-                        devLog(`[AutoIngest] dedup: skipping duplicate ${v.videoId} from channel ${v.channelName} (already processed in this poll)`);
+                        (0, unified_log_js_1.devLog)(`[AutoIngest] dedup: skipping duplicate ${v.videoId} from channel ${v.channelName} (already processed in this poll)`);
                         return false;
                     }
                     seen.add(v.videoId);
@@ -1809,18 +1852,18 @@ void app.whenReady().then(async () => {
                 // Each enqueueBgDownload() immediately creates a 'waiting' workspace → UI shows video right away.
                 // Downloads run in parallel (max 2-3 concurrent) without blocking the poller.
                 if (uniqueVideos.length > 0) {
-                    opLog.success('scan', `${uniqueVideos.length} video mới sẵn sàng tải về`, uniqueVideos.map(v => v.title).join(', '));
+                    unified_log_js_1.opLog.success('scan', `${uniqueVideos.length} video mới sẵn sàng tải về`, uniqueVideos.map(v => v.title).join(', '));
                 }
                 for (const v of uniqueVideos) {
-                    devLog(`[AutoIngest] new video detected: ${v.title} (${v.channelName}), enqueueing...`);
-                    opLog.info('download', `Đang tải: ${v.title}`, v.channelName);
+                    (0, unified_log_js_1.devLog)(`[AutoIngest] new video detected: ${v.title} (${v.channelName}), enqueueing...`);
+                    unified_log_js_1.opLog.info('download', `Đang tải: ${v.title}`, v.channelName);
                     // Check for existing 'error' workspace with expired backoff — retry it directly
-                    const existingWorkspaces = getWorkspaces();
+                    const existingWorkspaces = (0, store_js_1.getWorkspaces)();
                     const errorWs = existingWorkspaces.find(ws => ws.videoId === v.videoId &&
                         ws.status === 'error' &&
                         (!ws.retryableAt || Date.now() >= new Date(ws.retryableAt).getTime()));
                     if (errorWs && !inProgressAutoRetries.has(errorWs.id)) {
-                        devLog(`[AutoIngest] retrying errored workspace ${errorWs.id}: ${v.title}`);
+                        (0, unified_log_js_1.devLog)(`[AutoIngest] retrying errored workspace ${errorWs.id}: ${v.title}`);
                         void retryAutoDownload(errorWs);
                         continue;
                     }
@@ -1829,34 +1872,34 @@ void app.whenReady().then(async () => {
             }, () => {
                 // Innertube degraded — notify UI
                 if (mainWindow && !mainWindow.isDestroyed()) {
-                    mainWindow.webContents.send(IPC_CHANNELS.INNERTUBE_DEGRADED_EVENT, { degraded: true });
-                    mainWindow.webContents.send(IPC_CHANNELS.NOTIFICATION_EVENT, {
+                    mainWindow.webContents.send(channels_js_1.IPC_CHANNELS.INNERTUBE_DEGRADED_EVENT, { degraded: true });
+                    mainWindow.webContents.send(channels_js_1.IPC_CHANNELS.NOTIFICATION_EVENT, {
                         type: 'warning',
                         message: '⚠️ Innertube đang degraded — đang kiểm tra OAuth...',
                     });
                 }
             });
-            devLog('[HyperClip] Auto-ingestion active (5s interval)');
-            devLog(`[HyperClip] Ready → http://localhost:${NEXT_PORT}`);
+            (0, unified_log_js_1.devLog)('[HyperClip] Auto-ingestion active (5s interval)');
+            (0, unified_log_js_1.devLog)(`[HyperClip] Ready → http://localhost:${NEXT_PORT}`);
             startSystemMonitor();
             // ─── Periodic storage cleanup (every 1 hour) ─────────────────────────────────
             setInterval(() => {
-                const cleanupDays = loadSettings().downloadsCleanupDays ?? 7;
+                const cleanupDays = (0, ramdisk_js_1.loadSettings)().downloadsCleanupDays ?? 7;
                 if (cleanupDays <= 0)
                     return;
                 try {
-                    const storagePath = getVideoStoragePath();
+                    const storagePath = (0, ramdisk_js_1.getVideoStoragePath)();
                     const cutoff = Date.now() - cleanupDays * 24 * 60 * 60 * 1000;
-                    const workspaces = getWorkspaces();
+                    const workspaces = (0, store_js_1.getWorkspaces)();
                     const activeIds = new Set(workspaces.map(w => w.id));
-                    const activeWsId = getActiveWorkspaceId();
+                    const activeWsId = (0, ipc_state_js_1.getActiveWorkspaceId)();
                     if (activeWsId)
                         activeIds.add(activeWsId);
                     let cleaned = 0;
-                    for (const entry of fs.readdirSync(storagePath)) {
+                    for (const entry of fs_1.default.readdirSync(storagePath)) {
                         if (entry.startsWith('blur_'))
                             continue;
-                        const ext = path.extname(entry).toLowerCase();
+                        const ext = path_1.default.extname(entry).toLowerCase();
                         if (!['.mp4', '.mkv', '.webm', '.avi', '.mov'].includes(ext))
                             continue;
                         // Skip if this file belongs to an active workspace
@@ -1864,34 +1907,34 @@ void app.whenReady().then(async () => {
                         const isActive = Array.from(activeIds).some(id => entryBase.startsWith(id + '_') || entryBase === id);
                         if (isActive)
                             continue;
-                        const fullPath = path.join(storagePath, entry);
+                        const fullPath = path_1.default.join(storagePath, entry);
                         try {
-                            const stat = fs.statSync(fullPath);
+                            const stat = fs_1.default.statSync(fullPath);
                             if (stat.mtimeMs < cutoff) {
-                                fs.unlinkSync(fullPath);
+                                fs_1.default.unlinkSync(fullPath);
                                 cleaned++;
                             }
                         }
                         catch { }
                     }
                     if (cleaned > 0)
-                        devLog(`[PeriodicCleanup] Removed ${cleaned} old video files`);
+                        (0, unified_log_js_1.devLog)(`[PeriodicCleanup] Removed ${cleaned} old video files`);
                 }
                 catch { }
             }, 60 * 60 * 1000);
             // ─── Disk space monitoring (every 30 minutes) ──────────────────────────────
             setInterval(() => {
                 try {
-                    const storagePath = getVideoStoragePath();
-                    const ramDiskInfo = getRamDiskInfo();
+                    const storagePath = (0, ramdisk_js_1.getVideoStoragePath)();
+                    const ramDiskInfo = (0, ramdisk_js_1.getRamDiskInfo)();
                     // RAMDISK-aware: warn when 80% full (not hardcoded 20GB)
                     const FREE_WARNING_BYTES = ramDiskInfo.isAvailable
                         ? Math.floor(ramDiskInfo.total * (1 - ramDiskInfo.warningPct) * 1024 * 1024 * 1024)
                         : 20 * 1024 * 1024 * 1024; // Fallback: 20GB for non-RAMDISK paths
-                    const freeBytes = getFreeDiskSpace(storagePath);
+                    const freeBytes = (0, ramdisk_js_1.getFreeDiskSpace)(storagePath);
                     if (freeBytes > 0 && freeBytes < FREE_WARNING_BYTES) {
                         const freeGB = (freeBytes / (1024 ** 3)).toFixed(1);
-                        mainWindow?.webContents.send(IPC_CHANNELS.NOTIFICATION_EVENT, { type: 'warning', message: `Low disk space: only ${freeGB} GB free` });
+                        mainWindow?.webContents.send(channels_js_1.IPC_CHANNELS.NOTIFICATION_EVENT, { type: 'warning', message: `Low disk space: only ${freeGB} GB free` });
                     }
                 }
                 catch { }
@@ -1903,12 +1946,12 @@ void app.whenReady().then(async () => {
 // before-quit fires before the app actually exits — ensures quitAll() runs first.
 // ─── Single instance lock ─────────────────────────────────────────────────────
 // Only allow one instance. Second-instance launches focus the existing window.
-const gotLock = app.requestSingleInstanceLock();
+const gotLock = electron_1.app.requestSingleInstanceLock();
 if (!gotLock) {
-    app.quit();
+    electron_1.app.quit();
 }
 else {
-    app.on('second-instance', () => {
+    electron_1.app.on('second-instance', () => {
         if (mainWindow) {
             if (mainWindow.isMinimized())
                 mainWindow.restore();
@@ -1916,39 +1959,39 @@ else {
         }
     });
 }
-app.on('before-quit', (e) => {
+electron_1.app.on('before-quit', (e) => {
     e.preventDefault(); // Prevent immediate exit
     void quitAll(); // Run full cleanup (cancel FFmpeg, stop poller, etc.)
     // app.quit() called inside quitAll() after cleanup
 });
-app.on('window-all-closed', quitAll);
-app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0)
+electron_1.app.on('window-all-closed', quitAll);
+electron_1.app.on('activate', () => {
+    if (electron_1.BrowserWindow.getAllWindows().length === 0)
         void createWindow();
 });
 process.on('uncaughtException', (err) => {
-    log.crash('Uncaught exception', err);
+    unified_log_js_1.log.crash('Uncaught exception', err);
     sendNotification('error', `Uncaught error: ${err.message}`);
 });
 process.on('unhandledRejection', (reason) => {
-    log.crash('Unhandled promise rejection', reason);
+    unified_log_js_1.log.crash('Unhandled promise rejection', reason);
 });
 // ─── Crash Reporter (Electron built-in) ───────────────────────────────────────
 // Stores minidumps locally. User can export via Settings > Logs.
-crashReporter.start({
+electron_1.crashReporter.start({
     productName: 'HyperClip',
     companyName: 'LoopCompany',
     submitURL: '', // No server yet — minidumps saved locally only
     uploadToServer: false,
 });
 // Log startup banner
-log.info(`HyperClip starting — v${app.getVersion()} | Electron ${process.versions.electron} | Node ${process.version}`);
+unified_log_js_1.log.info(`HyperClip starting — v${electron_1.app.getVersion()} | Electron ${process.versions.electron} | Node ${process.version}`);
 // ─── E2E Test Server ───────────────────────────────────────────────────────────
 // Starts an HTTP server on port 9312 when HYPERCLIP_TEST=1.
 // The test client (scripts/test-e2e.mjs) connects to this server to run E2E tests.
 if (process.env.HYPERCLIP_TEST === '1') {
-    void app.whenReady().then(() => {
-        startE2EServer();
-        app.on('quit', stopE2EServer);
+    void electron_1.app.whenReady().then(() => {
+        (0, e2e_server_js_1.startE2EServer)();
+        electron_1.app.on('quit', e2e_server_js_1.stopE2EServer);
     });
 }

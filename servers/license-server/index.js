@@ -77,14 +77,16 @@ function adminAuth(req) {
 // ─── Routes ────────────────────────────────────────────────────────────────────
 const routes = {
   // POST /activate — bind hwId to key (one-time)
-  async activate(req, res, ip) {
+  activate(req, res, ip) {
     if (!checkRateLimit(ip)) {
       return sendJSON(res, 429, { success: false, error: 'Too many requests. Try again later.' })
     }
 
     let body = ''
-    for await (const chunk of req) body += chunk
-    const { key, machineId } = JSON.parse(body)
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const { key, machineId } = JSON.parse(body)
 
     if (!key || typeof key !== 'string' || !machineId || typeof machineId !== 'string') {
       return sendJSON(res, 400, { success: false, error: 'Missing key or machineId' })
@@ -94,6 +96,58 @@ const routes = {
     const normalizedKey = key.trim().toUpperCase()
     const db = loadDB()
     const record = db.find(r => r.key.toUpperCase() === normalizedKey)
+
+    // Demo key activation: DEMO-{days}-{suffix} → create ephemeral record on the fly
+    if (!record && normalizedKey.startsWith('DEMO-')) {
+      const match = normalizedKey.match(/^DEMO-(\d{1,2})-([A-Z0-9]{3,8})$/)
+      if (!match) {
+        return sendJSON(res, 400, { success: false, error: 'Invalid demo key format. Use: DEMO-{days}-{suffix}', code: 'INVALID_KEY' })
+      }
+      const days = parseInt(match[1], 10)
+      if (days < 1 || days > 2) {
+        return sendJSON(res, 400, { success: false, error: 'Demo key duration must be 1-2 days.', code: 'INVALID_KEY' })
+      }
+      // Check for re-activation (same machine)
+      const existing = db.find(r => r.key.toUpperCase() === normalizedKey && r.hwId === machineId)
+      if (existing) {
+        return sendJSON(res, 200, {
+          success: true, keyId: existing.keyId,
+          features: existing.features,
+          expiresAt: existing.expiresAt,
+          machineId,
+        })
+      }
+      const expiry = new Date()
+      expiry.setDate(expiry.getDate() + days)
+      expiry.setHours(0, 0, 0, 0)
+      const keyId = `D-${Date.now().toString(36).toUpperCase()}-${match[2]}`
+      const newRecord = {
+        keyId,
+        key: normalizedKey,
+        hwId: machineId,
+        used: true,
+        revoked: false,
+        maxSeats: 1,
+        expiresAt: expiry.toISOString(),
+        features: ['pro', 'auto_render', 'multi_channel'],
+        customerName: '',
+        customerEmail: '',
+        customerPhone: '',
+        activatedAt: new Date().toISOString(),
+        activatedIp: ip,
+        createdAt: new Date().toISOString(),
+      }
+      db.push(newRecord)
+      saveDB(db)
+      console.log(`[Demo] Activated: ${keyId} | machine: ${machineId.slice(0, 8)}... | expires: ${expiry.toISOString()}`)
+      return sendJSON(res, 200, {
+        success: true, keyId,
+        expiresAt: expiry.toISOString(),
+        features: newRecord.features,
+        issuedAt: newRecord.activatedAt,
+        activatedAt: newRecord.activatedAt,
+      })
+    }
 
     if (!record) {
       return sendJSON(res, 404, { success: false, error: 'License key not found' })
@@ -146,11 +200,15 @@ const routes = {
       machineId,
       issuedAt: record.activatedAt,
     })
+      } catch (err) {
+        sendJSON(res, 400, { success: false, error: 'Bad request' })
+      }
+    })
   },
 
   // GET /validate?keyId=...&machineId=... — heartbeat / check not revoked
   validate(req, res, ip) {
-    const url = new URL(req.url, `http://${ip}`)
+    const url = new URL(req.url, 'http://127.0.0.1')
     const keyId = url.searchParams.get('keyId')
     const machineId = url.searchParams.get('machineId')
 
@@ -189,52 +247,89 @@ const routes = {
   // POST /revoke — admin: revoke a license
   revoke(req, res) {
     if (!adminAuth(req)) return sendJSON(res, 401, { error: 'Unauthorized' })
-
     let body = ''
-    for await (const chunk of req) body += chunk
-    const { keyId } = JSON.parse(body)
-
-    const db = loadDB()
-    const record = db.find(r => r.keyId === keyId)
-    if (!record) return sendJSON(res, 404, { error: 'Key not found' })
-
-    record.revoked = true
-    saveDB(db)
-    return sendJSON(res, 200, { success: true, message: `License ${keyId} revoked` })
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const { keyId } = JSON.parse(body)
+        const db = loadDB()
+        const record = db.find(r => r.keyId === keyId)
+        if (!record) return sendJSON(res, 404, { error: 'Key not found' })
+        record.revoked = true
+        saveDB(db)
+        sendJSON(res, 200, { success: true, message: `License ${keyId} revoked` })
+      } catch {
+        sendJSON(res, 400, { error: 'Bad request' })
+      }
+    })
   },
 
   // POST /generate — admin: create a new license key
   generate(req, res) {
     if (!adminAuth(req)) return sendJSON(res, 401, { error: 'Unauthorized' })
-
     let body = ''
-    for await (const chunk of req) body += chunk
-    const { customerName, customerEmail, customerPhone, maxSeats, features, expiresAt } = JSON.parse(body)
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const { customerName, customerEmail, customerPhone, maxSeats, features, expiresAt } = JSON.parse(body)
+        const keyId = `HYP-2026-${String(Date.now()).slice(-8)}-${crypto.randomBytes(2).toString('hex').toUpperCase()}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`
+        const key = `HYP-2026-${crypto.randomBytes(2).toString('hex').toUpperCase()}-${crypto.randomBytes(2).toString('hex').toUpperCase()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`
+        const record = {
+          keyId, key, hwId: null, used: false, revoked: false,
+          maxSeats: maxSeats || 1, expiresAt: expiresAt || null,
+          features: features || ['pro'],
+          customerName: customerName || '', customerEmail: customerEmail || '', customerPhone: customerPhone || '',
+          activatedAt: null, activatedIp: null, createdAt: new Date().toISOString(),
+        }
+        const db = loadDB()
+        db.push(record)
+        saveDB(db)
+        sendJSON(res, 201, { success: true, keyId, key, record })
+      } catch {
+        sendJSON(res, 400, { error: 'Bad request' })
+      }
+    })
+  },
 
-    const keyId = `HYP-2026-${String(Date.now()).slice(-8)}-${crypto.randomBytes(2).toString('hex').toUpperCase()}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`
-    const key = `HYP-2026-${crypto.randomBytes(2).toString('hex').toUpperCase()}-${crypto.randomBytes(2).toString('hex').toUpperCase()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`
-
-    const record = {
-      keyId,
-      key,
-      hwId: null,
-      used: false,
-      revoked: false,
-      maxSeats: maxSeats || 1,
-      expiresAt: expiresAt || null,
-      features: features || ['pro'],
-      customerName: customerName || '',
-      customerEmail: customerEmail || '',
-      customerPhone: customerPhone || '',
-      activatedAt: null,
-      activatedIp: null,
-      createdAt: new Date().toISOString(),
-    }
-
-    const db = loadDB()
-    db.push(record)
-    saveDB(db)
-    return sendJSON(res, 201, { success: true, keyId, key, record })
+  // POST /generate-demo — admin: create a time-limited demo key
+  generateDemo(req, res) {
+    if (!adminAuth(req)) return sendJSON(res, 401, { error: 'Unauthorized' })
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const { days, customKey, machineId } = JSON.parse(body)
+        const MAX_DAYS = 2
+        const useDays = (days && days >= 1 && days <= MAX_DAYS) ? days : MAX_DAYS
+        const suffix = customKey
+          ? customKey.toUpperCase().trim().slice(0, 8)
+          : crypto.randomBytes(3).toString('hex').toUpperCase()
+        const key = `DEMO-${useDays}-${suffix}`
+        const keyId = `D-${Date.now().toString(36).toUpperCase()}-${suffix}`
+        const expiry = new Date()
+        expiry.setDate(expiry.getDate() + useDays)
+        expiry.setHours(0, 0, 0, 0)
+        const record = {
+          keyId, key,
+          hwId: machineId || null, used: !!machineId, revoked: false, maxSeats: 1,
+          expiresAt: expiry.toISOString(),
+          features: ['pro', 'auto_render', 'multi_channel'],
+          customerName: '', customerEmail: '', customerPhone: '',
+          activatedAt: machineId ? new Date().toISOString() : null,
+          activatedIp: null, createdAt: new Date().toISOString(),
+        }
+        const db = loadDB()
+        db.push(record)
+        saveDB(db)
+        console.log(`[Admin] Generated demo key: ${key} | keyId: ${keyId} | expires: ${expiry.toISOString()}`)
+        sendJSON(res, 201, {
+          success: true, keyId, key,
+          expiresAt: expiry.toISOString(), days: useDays,
+        })
+      } catch {
+        sendJSON(res, 400, { error: 'Bad request' })
+      }
+    })
   },
 
   // GET /keys — admin: list all licenses
@@ -298,18 +393,18 @@ function route(req, res, ip) {
   setCors(res)
   if (req.method === 'OPTIONS') return res.writeHead(204).end()
 
-  const url = new URL(req.url, `http://${ip}`)
+  // Always use 127.0.0.1 as base to avoid IPv6 URL parsing issues
+  const url = new URL(req.url, 'http://127.0.0.1')
 
   if (req.method === 'POST' && url.pathname === '/activate') return routes.activate(req, res, ip)
   if (req.method === 'GET' && url.pathname === '/validate') return routes.validate(req, res, ip)
   if (req.method === 'POST' && url.pathname === '/revoke') return routes.revoke(req, res)
   if (req.method === 'POST' && url.pathname === '/generate') return routes.generate(req, res)
+  if (req.method === 'POST' && url.pathname === '/generate-demo') return routes.generateDemo(req, res)
   if (req.method === 'GET' && url.pathname === '/keys') return routes.listKeys(req, res)
   if (req.method === 'GET' && url.pathname === '/health') return routes.health(req, res)
-
-  // Update / manifest routes
-  if (url.pathname.startsWith('/updates/')) return routes.serveUpdate(req, res)
   if (url.pathname === '/manifest.json') return routes.getManifest(req, res)
+  if (url.pathname.startsWith('/updates/')) return routes.serveUpdate(req, res)
 
   sendJSON(res, 404, { error: 'Not found' })
 }
@@ -323,8 +418,8 @@ const server = http.createServer((req, res) => {
   try {
     route(req, res, ip)
   } catch (err) {
-    console.error('[LicenseServer] Error:', err.message)
-    sendJSON(res, 500, { error: 'Internal server error' })
+    console.error('[LicenseServer] Error:', err.message, '| url:', req.url, '| stack:', err.stack?.slice(0, 200))
+    sendJSON(res, 500, { error: 'Internal server error: ' + err.message })
   }
 })
 

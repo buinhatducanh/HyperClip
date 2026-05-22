@@ -30,6 +30,15 @@ export interface UpdateStatus {
   ready?: boolean
 }
 
+export interface ChannelSettings {
+  trimLimit?: number | 'full'
+  downloadQuality?: string
+  autoRender?: boolean
+  resolution?: string
+  autoSplit?: boolean
+  splitMinutes?: number
+}
+
 export interface Channel {
   id: string;
   name: string;
@@ -37,6 +46,17 @@ export interface Channel {
   avatarColor: string;
   channelId?: string;   // YouTube channel ID (UC...)
   avatarUrl?: string;   // YouTube avatar image URL
+  /** True = paused, skipped by poller */
+  paused?: boolean;
+  /** Per-channel settings override */
+  settings?: ChannelSettings;
+}
+
+export interface SplitPart {
+  index: number
+  start: number
+  end: number
+  duration: number
 }
 
 export interface Video {
@@ -60,6 +80,12 @@ export interface Video {
   downloadQuality?: string;
   /** YouTube available video heights (e.g. [360, 720, 1080]) — for quality validation UI */
   availableFormats?: number[];
+  /** ID of workspace this was split from */
+  parentId?: string;
+  /** 1-based part index within split */
+  partIndex?: number;
+  /** Total parts this video was split into */
+  totalParts?: number;
 }
 
 export interface EditorState {

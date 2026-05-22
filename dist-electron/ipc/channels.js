@@ -1,5 +1,8 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.IPC_CHANNELS = void 0;
 // IPC Channel constants — shared between main and renderer
-export const IPC_CHANNELS = {
+exports.IPC_CHANNELS = {
     // Tracker
     TRACKER_ADD: 'tracker:add',
     TRACKER_REMOVE: 'tracker:remove',

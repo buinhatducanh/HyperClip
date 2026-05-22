@@ -1,16 +1,32 @@
-import { spawn, execSync } from 'child_process';
-import os from 'os';
-import path from 'path';
-import fs from 'fs';
-import https from 'https';
-import { app } from 'electron';
-import { getFfmpegPath, getFfprobePath } from './ffmpeg-paths.js';
-import { buildArgs, runSimpleFfmpeg, quotePath } from './ffmpeg.js';
-import { devLog } from './unified_log.js';
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getLatestVideosFromRss = getLatestVideosFromRss;
+exports.getChannelMetadataFromHttp = getChannelMetadataFromHttp;
+exports.getChannelId = getChannelId;
+exports.getChannelInfo = getChannelInfo;
+exports.getVideoInfo = getVideoInfo;
+exports.probeVideoAvailability = probeVideoAvailability;
+exports.probeActualDuration = probeActualDuration;
+exports.probeAvailableFormats = probeAvailableFormats;
+exports.downloadVideoStrategy = downloadVideoStrategy;
+exports.preScaleVideo = preScaleVideo;
+exports.downloadVideo = downloadVideo;
+const child_process_1 = require("child_process");
+const os_1 = __importDefault(require("os"));
+const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
+const https_1 = __importDefault(require("https"));
+const electron_1 = require("electron");
+const ffmpeg_paths_js_1 = require("./ffmpeg-paths.js");
+const ffmpeg_js_1 = require("./ffmpeg.js");
+const unified_log_js_1 = require("./unified_log.js");
 // ─── HTTP helpers ───────────────────────────────────────────────────────────────
 function httpGet(url, timeout = 10000) {
     return new Promise((resolve, reject) => {
-        const req = https.get(url, {
+        const req = https_1.default.get(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept-Language': 'en-US,en;q=0.9',
@@ -29,7 +45,7 @@ function httpGet(url, timeout = 10000) {
     });
 }
 // Fetch latest videos from a channel's RSS feed
-export async function getLatestVideosFromRss(channelId, limit = 3) {
+async function getLatestVideosFromRss(channelId, limit = 3) {
     // Only use if it looks like a valid UC ID. If it's a handle, this will (and should) fail.
     if (!channelId || !channelId.startsWith('UC'))
         return [];
@@ -60,7 +76,7 @@ export async function getLatestVideosFromRss(channelId, limit = 3) {
         return [];
     }
 }
-export async function getChannelMetadataFromHttp(url) {
+async function getChannelMetadataFromHttp(url) {
     // Extract channel ID from URL: /channel/UCxxx or /@handle or raw corrupted UC ID
     let channelId = '';
     let channelUrl = url;
@@ -173,52 +189,52 @@ function getYtdlpPath() {
     // 1. Bundled in resources/ (shipped with app)
     //    In dev mode: app.getAppPath() = project root (D:\...\HyperClip) → resources/yt-dlp/yt-dlp.exe ✓
     //    In prod:    process.resourcesPath = app.asar/resources              → yt-dlp/yt-dlp.exe ✓
-    const appPath = app?.getAppPath?.();
+    const appPath = electron_1.app?.getAppPath?.();
     if (appPath) {
-        const devBundled = path.join(appPath, 'resources', 'yt-dlp', 'yt-dlp.exe');
-        if (fs.existsSync(devBundled))
+        const devBundled = path_1.default.join(appPath, 'resources', 'yt-dlp', 'yt-dlp.exe');
+        if (fs_1.default.existsSync(devBundled))
             return devBundled;
     }
     if (process.resourcesPath) {
-        const prodBundled = path.join(process.resourcesPath, 'yt-dlp', 'yt-dlp.exe');
-        if (fs.existsSync(prodBundled))
+        const prodBundled = path_1.default.join(process.resourcesPath, 'yt-dlp', 'yt-dlp.exe');
+        if (fs_1.default.existsSync(prodBundled))
             return prodBundled;
     }
     // 2. node_modules/.bin (npm package — no Python needed if using bundled binary)
-    const npmBin = path.join(process.cwd(), 'node_modules', '.bin', 'yt-dlp');
-    if (fs.existsSync(npmBin))
+    const npmBin = path_1.default.join(process.cwd(), 'node_modules', '.bin', 'yt-dlp');
+    if (fs_1.default.existsSync(npmBin))
         return npmBin;
-    const npmBinExe = path.join(process.cwd(), 'node_modules', '.bin', 'yt-dlp.exe');
-    if (fs.existsSync(npmBinExe))
+    const npmBinExe = path_1.default.join(process.cwd(), 'node_modules', '.bin', 'yt-dlp.exe');
+    if (fs_1.default.existsSync(npmBinExe))
         return npmBinExe;
     // 3. Common pip install locations (Roaming Python + Local Python Scripts)
     for (const ver of ['Python314', 'Python313', 'Python312', 'Python311']) {
-        const roamingScripts = path.join(process.env.APPDATA || '', 'Python', ver, 'Scripts');
-        const ytdlpExe = path.join(roamingScripts, 'yt-dlp.exe');
-        if (fs.existsSync(ytdlpExe))
+        const roamingScripts = path_1.default.join(process.env.APPDATA || '', 'Python', ver, 'Scripts');
+        const ytdlpExe = path_1.default.join(roamingScripts, 'yt-dlp.exe');
+        if (fs_1.default.existsSync(ytdlpExe))
             return ytdlpExe;
-        const ytdlpSh = path.join(roamingScripts, 'yt-dlp');
-        if (fs.existsSync(ytdlpSh))
+        const ytdlpSh = path_1.default.join(roamingScripts, 'yt-dlp');
+        if (fs_1.default.existsSync(ytdlpSh))
             return ytdlpSh;
         // Local Python install (Python313 etc. in AppData\Local\Programs)
-        const localScripts = path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', ver, 'Scripts');
-        const localExe = path.join(localScripts, 'yt-dlp.exe');
-        if (fs.existsSync(localExe))
+        const localScripts = path_1.default.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', ver, 'Scripts');
+        const localExe = path_1.default.join(localScripts, 'yt-dlp.exe');
+        if (fs_1.default.existsSync(localExe))
             return localExe;
-        const localSh = path.join(localScripts, 'yt-dlp');
-        if (fs.existsSync(localSh))
+        const localSh = path_1.default.join(localScripts, 'yt-dlp');
+        if (fs_1.default.existsSync(localSh))
             return localSh;
     }
     // 4. User-local AppData Roaming Python fallback
-    const roamingPythonScripts = path.join(process.env.APPDATA || '', 'Python', 'Scripts');
-    if (fs.existsSync(path.join(roamingPythonScripts, 'yt-dlp.exe'))) {
-        return path.join(roamingPythonScripts, 'yt-dlp.exe');
+    const roamingPythonScripts = path_1.default.join(process.env.APPDATA || '', 'Python', 'Scripts');
+    if (fs_1.default.existsSync(path_1.default.join(roamingPythonScripts, 'yt-dlp.exe'))) {
+        return path_1.default.join(roamingPythonScripts, 'yt-dlp.exe');
     }
     // 4. PATH
     const pathEnv = process.env.PATH || '';
-    for (const dir of pathEnv.split(path.delimiter)) {
-        const ytdlp = path.join(dir, 'yt-dlp');
-        if (fs.existsSync(ytdlp))
+    for (const dir of pathEnv.split(path_1.default.delimiter)) {
+        const ytdlp = path_1.default.join(dir, 'yt-dlp');
+        if (fs_1.default.existsSync(ytdlp))
             return ytdlp;
     }
     // Fallback: assume in PATH
@@ -279,10 +295,10 @@ function _simulateDownloadProgress(workspaceId, onProgress, durationSec, quality
     _simTicker.set(workspaceId, ticker);
     return stopSimulation.bind(null, workspaceId);
 }
-export async function getChannelId(videoUrl) {
+async function getChannelId(videoUrl) {
     const ytdlp = getYtdlpPath();
     return new Promise((resolve) => {
-        const proc = spawn(ytdlp, [
+        const proc = (0, child_process_1.spawn)(ytdlp, [
             ...getJsRuntimeArgs(),
             '--flat-playlist',
             '--print', '%(channel_id)s',
@@ -310,7 +326,7 @@ export async function getChannelId(videoUrl) {
         setTimeout(() => { proc.kill(); resolve(null); }, 15000);
     });
 }
-export async function getChannelInfo(url) {
+async function getChannelInfo(url) {
     // Try HTTP oEmbed first (fast, no external tool needed)
     const httpResult = await getChannelMetadataFromHttp(url);
     if (httpResult && httpResult.channelName !== 'Unknown') {
@@ -321,7 +337,7 @@ export async function getChannelInfo(url) {
     return new Promise((resolve) => {
         let stdout = '';
         let stderr = '';
-        const proc = spawn(ytdlp, [
+        const proc = (0, child_process_1.spawn)(ytdlp, [
             ...getJsRuntimeArgs(),
             '--dump-json',
             '--no-download',
@@ -358,12 +374,12 @@ export async function getChannelInfo(url) {
         setTimeout(() => { proc.kill(); resolve(null); }, 20000);
     });
 }
-export async function getVideoInfo(videoUrl) {
+async function getVideoInfo(videoUrl) {
     const ytdlp = getYtdlpPath();
     return new Promise((resolve) => {
         let stdout = '';
         let stderr = '';
-        const proc = spawn(ytdlp, [
+        const proc = (0, child_process_1.spawn)(ytdlp, [
             ...getJsRuntimeArgs(),
             '--dump-json',
             '--no-download',
@@ -501,10 +517,10 @@ async function _multiInstanceDownload(opts) {
     sections.forEach(s => {
         console.log(`  Instance ${s.label}: ${makeSectionArg(s.start, s.end)}`);
     });
-    const ffmpegPath = getFfmpegPath();
-    const ffmpegDir = path.dirname(ffmpegPath);
-    const ytDlpDir = path.dirname(ytdlp);
-    const enrichedPath = ffmpegDir + path.delimiter + ytDlpDir + path.delimiter + (process.env.PATH || '');
+    const ffmpegPath = (0, ffmpeg_paths_js_1.getFfmpegPath)();
+    const ffmpegDir = path_1.default.dirname(ffmpegPath);
+    const ytDlpDir = path_1.default.dirname(ytdlp);
+    const enrichedPath = ffmpegDir + path_1.default.delimiter + ytDlpDir + path_1.default.delimiter + (process.env.PATH || '');
     // OPTIMIZATION #3: Try RAM disk for fragment cache on Linux (tmpfs).
     // On Windows, yt-dlp uses temp dir — already fine. On Linux, this can save disk I/O.
     // Add --cache-dir if running on Linux tmpfs mount
@@ -519,12 +535,12 @@ async function _multiInstanceDownload(opts) {
     const progressPerInstance = 100 / instanceCount;
     const downloadPromises = sections.map((section, idx) => {
         return new Promise((resolve) => {
-            const outputTemplate = path.join(outputDir, `${workspaceId}_part${String(idx).padStart(2, '0')}_%(id)s.%(ext)s`);
+            const outputTemplate = path_1.default.join(outputDir, `${workspaceId}_part${String(idx).padStart(2, '0')}_%(id)s.%(ext)s`);
             const args = [
                 ...buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, makeSectionArg(section.start, section.end), idx, poToken, ytCookiesFile),
                 ...cacheDirArgs,
             ];
-            const proc = spawn(ytdlp, args, {
+            const proc = (0, child_process_1.spawn)(ytdlp, args, {
                 env: { ...process.env, PATH: enrichedPath },
                 stdio: ['ignore', 'pipe', 'pipe'],
             });
@@ -576,10 +592,10 @@ async function _multiInstanceDownload(opts) {
             proc.on('close', (code) => {
                 if (!downloadedFile) {
                     try {
-                        const files = fs.readdirSync(outputDir);
+                        const files = fs_1.default.readdirSync(outputDir);
                         const match = files.find(f => f.startsWith(`${workspaceId}_part${String(idx).padStart(2, '0')}_`) && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f));
                         if (match)
-                            downloadedFile = path.join(outputDir, match);
+                            downloadedFile = path_1.default.join(outputDir, match);
                     }
                     catch { }
                 }
@@ -611,13 +627,13 @@ async function _multiInstanceDownload(opts) {
                     const retryPromises = failedInstances.map(async (failedResult) => {
                         const sectionIdx = failedResult.idx;
                         const section = sections[sectionIdx];
-                        const outputTemplate = path.join(outputDir, `${workspaceId}_part${String(sectionIdx).padStart(2, '0')}_%(id)s.%(ext)s`);
+                        const outputTemplate = path_1.default.join(outputDir, `${workspaceId}_part${String(sectionIdx).padStart(2, '0')}_%(id)s.%(ext)s`);
                         const args = [
                             ...buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, makeSectionArg(section.start, section.end), sectionIdx, poToken, ytCookiesFile),
                             ...cacheDirArgs,
                         ];
                         return new Promise((resolve) => {
-                            const proc = spawn(ytdlp, args, { env: { ...process.env, PATH: enrichedPath }, stdio: ['ignore', 'pipe', 'pipe'] });
+                            const proc = (0, child_process_1.spawn)(ytdlp, args, { env: { ...process.env, PATH: enrichedPath }, stdio: ['ignore', 'pipe', 'pipe'] });
                             let stderr = '';
                             let downloadedFile = '';
                             proc.stdout?.on('data', (data) => {
@@ -633,10 +649,10 @@ async function _multiInstanceDownload(opts) {
                             proc.on('close', (code) => {
                                 if (!downloadedFile) {
                                     try {
-                                        const files = fs.readdirSync(outputDir);
+                                        const files = fs_1.default.readdirSync(outputDir);
                                         const match = files.find(f => f.startsWith(`${workspaceId}_part${String(sectionIdx).padStart(2, '0')}_`) && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f));
                                         if (match)
-                                            downloadedFile = path.join(outputDir, match);
+                                            downloadedFile = path_1.default.join(outputDir, match);
                                     }
                                     catch { }
                                 }
@@ -661,7 +677,7 @@ async function _multiInstanceDownload(opts) {
                     for (const file of chunkFiles) {
                         if (file)
                             try {
-                                fs.unlinkSync(file);
+                                fs_1.default.unlinkSync(file);
                             }
                             catch { }
                     }
@@ -674,7 +690,7 @@ async function _multiInstanceDownload(opts) {
                 for (const file of chunkFiles) {
                     if (file)
                         try {
-                            fs.unlinkSync(file);
+                            fs_1.default.unlinkSync(file);
                         }
                         catch { }
                 }
@@ -686,7 +702,7 @@ async function _multiInstanceDownload(opts) {
             for (const file of chunkFiles) {
                 if (file)
                     try {
-                        fs.unlinkSync(file);
+                        fs_1.default.unlinkSync(file);
                     }
                     catch { }
             }
@@ -695,34 +711,34 @@ async function _multiInstanceDownload(opts) {
     }
     console.log(`[yt-dlp] All ${instanceCount} instances complete — merging with FFmpeg concat`);
     // Merge all sections with FFmpeg concat demuxer (stream copy — no re-encode, very fast)
-    const concatListFile = path.join(outputDir, `${workspaceId}_concat.txt`);
+    const concatListFile = path_1.default.join(outputDir, `${workspaceId}_concat.txt`);
     const concatList = chunkFiles.filter((f) => !!f).map(f => `file '${f.replace(/\\/g, '/')}'`).join('\n');
-    fs.writeFileSync(concatListFile, concatList, 'utf-8');
-    const outputFile = path.join(outputDir, `${workspaceId}.mp4`);
+    fs_1.default.writeFileSync(concatListFile, concatList, 'utf-8');
+    const outputFile = path_1.default.join(outputDir, `${workspaceId}.mp4`);
     const mergeArgs = [
         '-f', 'concat', '-safe', '0',
         '-i', `"${concatListFile.replace(/\\/g, '/')}"`,
         '-c', 'copy',
         '-y', `"${outputFile.replace(/\\/g, '/')}"`,
     ];
-    const mergeResult = runSimpleFfmpeg(ffmpegPath, mergeArgs);
+    const mergeResult = (0, ffmpeg_js_1.runSimpleFfmpeg)(ffmpegPath, mergeArgs);
     try {
-        fs.unlinkSync(concatListFile);
+        fs_1.default.unlinkSync(concatListFile);
     }
     catch { }
     // Clean up intermediate section files
     for (const file of chunkFiles) {
         if (file)
             try {
-                fs.unlinkSync(file);
+                fs_1.default.unlinkSync(file);
             }
             catch { }
     }
-    if (mergeResult.code !== 0 || !fs.existsSync(outputFile)) {
+    if (mergeResult.code !== 0 || !fs_1.default.existsSync(outputFile)) {
         console.error(`[yt-dlp] FFmpeg concat failed: ${mergeResult.stderr}`);
         return null;
     }
-    const fileSize = fs.statSync(outputFile).size;
+    const fileSize = fs_1.default.statSync(outputFile).size;
     console.log(`[yt-dlp] Merge complete: ${outputFile} (${(fileSize / 1024 / 1024).toFixed(1)} MB)`);
     return {
         success: true,
@@ -737,12 +753,12 @@ async function _multiInstanceDownload(opts) {
  * Uses web client + Chrome cookies for best detection accuracy.
  * Falls back to tv_embedded on "Private video" error.
  */
-export async function probeVideoAvailability(videoUrl, ytCookiesFile) {
+async function probeVideoAvailability(videoUrl, ytCookiesFile) {
     const ytdlp = getYtdlpPath();
-    const ffmpeg = getFfmpegPath();
-    const ffmpegDir = path.dirname(ffmpeg);
-    const ytDlpDir = path.dirname(ytdlp);
-    const enrichedPath = ffmpegDir + path.delimiter + ytDlpDir + path.delimiter + (process.env.PATH || '');
+    const ffmpeg = (0, ffmpeg_paths_js_1.getFfmpegPath)();
+    const ffmpegDir = path_1.default.dirname(ffmpeg);
+    const ytDlpDir = path_1.default.dirname(ytdlp);
+    const enrichedPath = ffmpegDir + path_1.default.delimiter + ytDlpDir + path_1.default.delimiter + (process.env.PATH || '');
     const tryClient = async (client) => {
         return new Promise((resolve) => {
             const args = [
@@ -757,7 +773,7 @@ export async function probeVideoAvailability(videoUrl, ytCookiesFile) {
             if (ytCookiesFile) {
                 args.push('--cookies', ytCookiesFile);
             }
-            const proc = spawn(ytdlp, args, {
+            const proc = (0, child_process_1.spawn)(ytdlp, args, {
                 env: { ...process.env, PATH: enrichedPath },
                 stdio: ['ignore', 'pipe', 'pipe'],
             });
@@ -832,24 +848,24 @@ export async function probeVideoAvailability(videoUrl, ytCookiesFile) {
     return null;
 }
 /** Use ffprobe to get real video duration from a downloaded file. */
-export async function probeActualDuration(filePath) {
-    if (!fs.existsSync(filePath))
+async function probeActualDuration(filePath) {
+    if (!fs_1.default.existsSync(filePath))
         return 0;
     try {
-        const ffprobePath = getFfprobePath();
-        const out = execSync(`"${ffprobePath}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 -- "${filePath}"`, { encoding: 'utf-8', timeout: 10000 });
+        const ffprobePath = (0, ffmpeg_paths_js_1.getFfprobePath)();
+        const out = (0, child_process_1.execSync)(`"${ffprobePath}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 -- "${filePath}"`, { encoding: 'utf-8', timeout: 10000 });
         return Math.max(0, Math.floor(parseFloat(out.trim())));
     }
     catch {
         return 0;
     }
 }
-export async function probeAvailableFormats(videoUrl, ytCookiesFile) {
+async function probeAvailableFormats(videoUrl, ytCookiesFile) {
     const ytdlp = getYtdlpPath();
-    const ffmpeg = getFfmpegPath();
-    const ffmpegDir = path.dirname(ffmpeg);
-    const ytDlpDir = path.dirname(ytdlp);
-    const enrichedPath = ffmpegDir + path.delimiter + ytDlpDir + path.delimiter + (process.env.PATH || '');
+    const ffmpeg = (0, ffmpeg_paths_js_1.getFfmpegPath)();
+    const ffmpegDir = path_1.default.dirname(ffmpeg);
+    const ytDlpDir = path_1.default.dirname(ytdlp);
+    const enrichedPath = ffmpegDir + path_1.default.delimiter + ytDlpDir + path_1.default.delimiter + (process.env.PATH || '');
     // Try tv_embedded first — returns full format list even when web is EJS-blocked
     for (const client of ['tv_embedded', 'web']) {
         const result = await new Promise((resolve) => {
@@ -864,7 +880,7 @@ export async function probeAvailableFormats(videoUrl, ytCookiesFile) {
             ];
             if (ytCookiesFile)
                 args.push('--cookies', ytCookiesFile);
-            const proc = spawn(ytdlp, args, {
+            const proc = (0, child_process_1.spawn)(ytdlp, args, {
                 env: { ...process.env, PATH: enrichedPath },
                 stdio: ['ignore', 'pipe', 'pipe'],
             });
@@ -910,7 +926,7 @@ export async function probeAvailableFormats(videoUrl, ytCookiesFile) {
  * 3. Multi-instance only if video is actually > 30s
  * 4. Rate-limit detection with exponential backoff
  */
-export async function downloadVideoStrategy(opts) {
+async function downloadVideoStrategy(opts) {
     const { workspaceId } = opts;
     // tv_embedded first: returns H.264 720p/1080p (avc1.64001f/avc1.64002a)
     // even when 'web' client is limited to 360p by EJS challenge with Chrome session cookies.
@@ -918,23 +934,23 @@ export async function downloadVideoStrategy(opts) {
     const clients = ['tv_embedded', 'web', 'ios'];
     for (let i = 0; i < clients.length; i++) {
         const client = clients[i];
-        devLog(`[Download] Trying client: ${client} (${i + 1}/${clients.length})`);
+        (0, unified_log_js_1.devLog)(`[Download] Trying client: ${client} (${i + 1}/${clients.length})`);
         const result = await downloadWithClient({
             ...opts,
             client,
         });
         if (result.success) {
-            devLog(`[Download] ${client} succeeded: ${result.filePath}`);
+            (0, unified_log_js_1.devLog)(`[Download] ${client} succeeded: ${result.filePath}`);
             return result;
         }
         const err = result.error || '';
         // Fatal errors — stop trying other clients
         if (result.isNotFound) {
-            devLog(`[Download] ${client} → video not available/deleted — giving up`);
+            (0, unified_log_js_1.devLog)(`[Download] ${client} → video not available/deleted — giving up`);
             return result;
         }
         if (result.isRateLimited) {
-            devLog(`[Download] ${client} → rate-limited (429) — exponential backoff`);
+            (0, unified_log_js_1.devLog)(`[Download] ${client} → rate-limited (429) — exponential backoff`);
             // Exponential backoff: 2s, 4s, 8s
             const delay = 2000 * Math.pow(2, i);
             await new Promise(r => setTimeout(r, delay));
@@ -942,7 +958,7 @@ export async function downloadVideoStrategy(opts) {
             continue;
         }
         if (result.isProcessing) {
-            devLog(`[Download] ${client} → video still processing — exponential backoff`);
+            (0, unified_log_js_1.devLog)(`[Download] ${client} → video still processing — exponential backoff`);
             const delay = 15000 + Math.random() * 10000;
             await new Promise(r => setTimeout(r, delay));
             // Retry same client after backoff
@@ -952,11 +968,11 @@ export async function downloadVideoStrategy(opts) {
         }
         // Private video — try next client
         if (result.isPrivate) {
-            devLog(`[Download] ${client} → private/unauthorized — trying next client`);
+            (0, unified_log_js_1.devLog)(`[Download] ${client} → private/unauthorized — trying next client`);
             continue;
         }
         // Unknown error — try next client
-        devLog(`[Download] ${client} → unknown error: ${err.slice(0, 100)} — trying next client`);
+        (0, unified_log_js_1.devLog)(`[Download] ${client} → unknown error: ${err.slice(0, 100)} — trying next client`);
         continue;
     }
     // All clients failed
@@ -969,30 +985,30 @@ export async function downloadVideoStrategy(opts) {
 async function downloadWithClient(opts) {
     const { workspaceId, videoUrl, outputDir, trimLimit, quality = '720', maxInstances = 'auto', onProgress, ytCookiesFile, client } = opts;
     const ytdlp = getYtdlpPath();
-    if (!fs.existsSync(ytdlp)) {
+    if (!fs_1.default.existsSync(ytdlp)) {
         return { success: false, workspaceId, error: `yt-dlp not found at ${ytdlp}` };
     }
-    if (!fs.existsSync(outputDir)) {
-        fs.mkdirSync(outputDir, { recursive: true });
+    if (!fs_1.default.existsSync(outputDir)) {
+        fs_1.default.mkdirSync(outputDir, { recursive: true });
     }
     // Check for existing file
     const existingFiles = (() => {
         try {
-            return fs.readdirSync(outputDir).filter(f => f.startsWith(workspaceId + '_') && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f));
+            return fs_1.default.readdirSync(outputDir).filter(f => f.startsWith(workspaceId + '_') && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f));
         }
         catch {
             return [];
         }
     })();
     if (existingFiles.length > 0) {
-        const existingFile = path.join(outputDir, existingFiles[0]);
+        const existingFile = path_1.default.join(outputDir, existingFiles[0]);
         let fileSize = 0;
         try {
-            fileSize = fs.statSync(existingFile).size;
+            fileSize = fs_1.default.statSync(existingFile).size;
         }
         catch { }
         const duration = await probeActualDuration(existingFile);
-        devLog(`[Download] File already exists: ${existingFile} (${(fileSize / 1024 / 1024).toFixed(1)} MB)`);
+        (0, unified_log_js_1.devLog)(`[Download] File already exists: ${existingFile} (${(fileSize / 1024 / 1024).toFixed(1)} MB)`);
         return { success: true, workspaceId, filePath: existingFile, duration, fileSize, reason: 'existing_file' };
     }
     const q = parseInt(quality);
@@ -1008,7 +1024,7 @@ async function downloadWithClient(opts) {
     ].join('/');
     console.log(`[Download] quality=${quality} maxHeight=${maxHeight}p selector=${formatSelector}`);
     // Multi-instance: only for 1080p+ with enough free RAM AND video > 30s
-    const freeMemGB = os.freemem() / (1024 ** 3);
+    const freeMemGB = os_1.default.freemem() / (1024 ** 3);
     let instanceCount = 1;
     if (maxInstances === 'auto' && freeMemGB >= 8 && maxHeight >= 1080) {
         instanceCount = 2;
@@ -1038,7 +1054,7 @@ async function downloadWithClient(opts) {
             // Verify actual duration with ffprobe
             const actualDuration = await probeActualDuration(result.filePath);
             if (actualDuration > 0 && actualDuration < 30) {
-                devLog(`[Download] Section succeeded but video is only ${actualDuration}s — multi-instance wasted, continuing`);
+                (0, unified_log_js_1.devLog)(`[Download] Section succeeded but video is only ${actualDuration}s — multi-instance wasted, continuing`);
             }
             return result;
         }
@@ -1051,7 +1067,7 @@ async function downloadWithClient(opts) {
         if (classified.isProcessing)
             return { ...result, ...classified };
         // For private/error: try full download below
-        devLog(`[Download] Section failed: ${result.error?.slice(0, 80)} — falling back to full`);
+        (0, unified_log_js_1.devLog)(`[Download] Section failed: ${result.error?.slice(0, 80)} — falling back to full`);
     }
     // ── Full download (with section if trimLimit was set) ─────────────────────
     // ALWAYS pass sectionArg to yt-dlp if trimLimit was configured — this makes yt-dlp
@@ -1080,11 +1096,11 @@ function classifyError(error, stderr) {
 async function spawnDownload(opts) {
     const { workspaceId, videoUrl, outputDir, formatSelector, client, ytCookiesFile, extraArgs, onProgress } = opts;
     const ytdlp = getYtdlpPath();
-    const ffmpeg = getFfmpegPath();
-    const ffmpegDir = path.dirname(ffmpeg);
-    const ytDlpDir = path.dirname(ytdlp);
-    const enrichedPath = ffmpegDir + path.delimiter + ytDlpDir + path.delimiter + (process.env.PATH || '');
-    const outputTemplate = path.join(outputDir, `${workspaceId}_%(id)s.%(ext)s`);
+    const ffmpeg = (0, ffmpeg_paths_js_1.getFfmpegPath)();
+    const ffmpegDir = path_1.default.dirname(ffmpeg);
+    const ytDlpDir = path_1.default.dirname(ytdlp);
+    const enrichedPath = ffmpegDir + path_1.default.delimiter + ytDlpDir + path_1.default.delimiter + (process.env.PATH || '');
+    const outputTemplate = path_1.default.join(outputDir, `${workspaceId}_%(id)s.%(ext)s`);
     const args = [
         videoUrl,
         ...getJsRuntimeArgs(),
@@ -1103,12 +1119,12 @@ async function spawnDownload(opts) {
         '--http-chunk-size', '10485760',
         ...extraArgs,
     ];
-    devLog(`[Download] Spawning yt-dlp (${client}): ${ytdlp}`);
-    devLog(`[Download] Args:`, args.map(a => a.length > 60 ? a.slice(0, 60) + '...' : a));
+    (0, unified_log_js_1.devLog)(`[Download] Spawning yt-dlp (${client}): ${ytdlp}`);
+    (0, unified_log_js_1.devLog)(`[Download] Args:`, args.map(a => a.length > 60 ? a.slice(0, 60) + '...' : a));
     return new Promise((resolve) => {
         let proc;
         try {
-            proc = spawn(ytdlp, args, {
+            proc = (0, child_process_1.spawn)(ytdlp, args, {
                 env: { ...process.env, PATH: enrichedPath },
                 stdio: ['ignore', 'pipe', 'pipe'],
             });
@@ -1131,7 +1147,7 @@ async function spawnDownload(opts) {
                 const pct = parseFloat(pctMatch[1]);
                 if (pct >= 0 && pct <= 100) {
                     if (!progressEmitted) {
-                        devLog(`[Download] Progress: ${pct}%`);
+                        (0, unified_log_js_1.devLog)(`[Download] Progress: ${pct}%`);
                         progressEmitted = true;
                     }
                     onProgress?.({ workspaceId, percent: pct, speed: '', eta: '', downloaded: '', total: '' });
@@ -1139,11 +1155,11 @@ async function spawnDownload(opts) {
             }
             else if (destMatch) {
                 downloadedFile = destMatch[1].trim();
-                devLog(`[Download] Dest: ${downloadedFile}`);
+                (0, unified_log_js_1.devLog)(`[Download] Dest: ${downloadedFile}`);
             }
             else if (mergeMatch) {
                 downloadedFile = mergeMatch[1];
-                devLog(`[Download] Merged: ${downloadedFile}`);
+                (0, unified_log_js_1.devLog)(`[Download] Merged: ${downloadedFile}`);
                 onProgress?.({ workspaceId, percent: 99, speed: 'processing', eta: 0, downloaded: '', total: '' });
             }
             else if (errorMatch) {
@@ -1152,7 +1168,7 @@ async function spawnDownload(opts) {
             else if (text.includes('[download]') && !text.includes('%') && !text.includes('ERROR')) {
                 const trimmed = text.trim().slice(0, 100);
                 if (trimmed)
-                    devLog(`[Download] ${trimmed}`);
+                    (0, unified_log_js_1.devLog)(`[Download] ${trimmed}`);
             }
         });
         proc.stderr?.on('data', (data) => {
@@ -1189,13 +1205,13 @@ async function spawnDownload(opts) {
         }, timeout);
         proc.on('close', (code) => {
             clearTimeout(timer);
-            devLog(`[Download] Closed code=${code}, file="${downloadedFile}"`);
+            (0, unified_log_js_1.devLog)(`[Download] Closed code=${code}, file="${downloadedFile}"`);
             if (!downloadedFile) {
                 try {
-                    const files = fs.readdirSync(outputDir);
+                    const files = fs_1.default.readdirSync(outputDir);
                     const match = files.find(f => f.startsWith(workspaceId + '_') && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f));
                     if (match)
-                        downloadedFile = path.join(outputDir, match);
+                        downloadedFile = path_1.default.join(outputDir, match);
                 }
                 catch { }
             }
@@ -1208,20 +1224,20 @@ async function spawnDownload(opts) {
             }
             let fileSize = 0;
             try {
-                fileSize = fs.statSync(downloadedFile).size;
+                fileSize = fs_1.default.statSync(downloadedFile).size;
             }
             catch { }
             // Verify file is not corrupt (must be > 50KB)
             if (fileSize < 50_000) {
-                devLog(`[Download] File too small (${fileSize} bytes) — likely corrupt`);
+                (0, unified_log_js_1.devLog)(`[Download] File too small (${fileSize} bytes) — likely corrupt`);
                 try {
-                    fs.unlinkSync(downloadedFile);
+                    fs_1.default.unlinkSync(downloadedFile);
                 }
                 catch { }
                 resolve({ success: false, workspaceId, error: `File too small (${fileSize} bytes)`, stderr });
                 return;
             }
-            const actualDuration = fs.existsSync(downloadedFile) ? 0 : 0; // will be probed by caller
+            const actualDuration = fs_1.default.existsSync(downloadedFile) ? 0 : 0; // will be probed by caller
             resolve({ success: true, workspaceId, filePath: downloadedFile, duration: actualDuration, fileSize, stderr });
         });
     });
@@ -1238,33 +1254,33 @@ async function spawnDownload(opts) {
 //
 // Tradeoff: extra ~1-2s pre-processing, but render is ~5-10s faster.
 // For auto-render pipeline: net savings = ~3-8s per video.
-export async function preScaleVideo(sourcePath, outputPath, canvasW, canvasH) {
-    const ffmpeg = getFfmpegPath();
+async function preScaleVideo(sourcePath, outputPath, canvasW, canvasH) {
+    const ffmpeg = (0, ffmpeg_paths_js_1.getFfmpegPath)();
     // Scale portrait source to EXACTLY canvas dimensions so the render pipeline's scale
     // filter becomes a no-op (or trivial center-crop). This saves ~5-10s per render.
     // For portrait source entering portrait canvas: scale to canvasW, then pad/crop to canvasH.
     // The key insight: for 9:16 source → 9:16 canvas, scale by HEIGHT matches better
     // (avoids excess pillarboxing in the crop step).
     const args = [
-        '-i', quotePath(sourcePath),
+        '-i', (0, ffmpeg_js_1.quotePath)(sourcePath),
         '-vf', `scale=${canvasW}:${canvasH}:force_original_aspect_ratio=decrease`,
         '-c:v', 'libx264',
         '-preset', 'ultrafast',
         '-crf', '18', // Lossless for practical purposes (CRF 18 ≈ high quality)
         '-c:a', 'copy', // Copy audio without re-encoding
         '-threads', '4',
-        '-y', quotePath(outputPath),
+        '-y', (0, ffmpeg_js_1.quotePath)(outputPath),
     ];
-    const cmd = buildArgs(ffmpeg, args);
+    const cmd = (0, ffmpeg_js_1.buildArgs)(ffmpeg, args);
     return new Promise((resolve) => {
-        const proc = spawn(cmd, [], {
+        const proc = (0, child_process_1.spawn)(cmd, [], {
             shell: true,
             stdio: ['ignore', 'pipe', 'pipe'],
         });
         let stderr = '';
         proc.stderr?.on('data', (d) => { stderr += d.toString(); });
         proc.on('close', (code) => {
-            if (code === 0 && fs.existsSync(outputPath)) {
+            if (code === 0 && fs_1.default.existsSync(outputPath)) {
                 resolve({ success: true });
             }
             else {
@@ -1284,7 +1300,7 @@ export async function preScaleVideo(sourcePath, outputPath, canvasW, canvasH) {
  *
  * New callers: prefer downloadVideoStrategy() directly for cleaner API.
  */
-export async function downloadVideo(opts) {
+async function downloadVideo(opts) {
     // If explicit playerClient is given (e.g. 'tv_embedded'), use it directly without the
     // fallback chain (caller is already retrying with a specific client).
     if (opts.playerClient) {

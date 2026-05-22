@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, memo } from 'react'
 import type { Workspace } from '../../lib/store'
 import type { RenderedVideo } from '../../types'
 import type { Channel } from '../../types'
@@ -20,6 +20,7 @@ interface Props {
   onRemoveRendered?: (id: string) => void
   onShowToast?: (msg: string) => void
   onSplit?: (id: string, partMinutes: number) => void
+  onPriorityChange?: (id: string, direction: 'up' | 'down', type: 'download' | 'render') => void
   trimLimitMinutes?: number
 }
 
@@ -48,12 +49,16 @@ function groupByStatus(workspaces: Workspace[]): Map<GroupStatus, Workspace[]> {
       groups.get(status)!.push(ws)
     }
   }
+  // Sort each group by priority (lower = higher priority = rendered first)
+  for (const [, items] of groups) {
+    items.sort((a, b) => (a.downloadPriority ?? 0) - (b.downloadPriority ?? 0))
+  }
   return groups
 }
 
-export function WorkspaceQueue({
+export const WorkspaceQueue = memo(function WorkspaceQueue({
   workspaces, renderedVideos = [], channels = [], selectedId, selectedRenderedId,
-  onSelect, onSelectRendered, onQuickAction, onRetry, onRemoveRendered, onShowToast, onSplit, trimLimitMinutes = 10,
+  onSelect, onSelectRendered, onQuickAction, onRetry, onRemoveRendered, onShowToast, onSplit, onPriorityChange, trimLimitMinutes = 10,
 }: Props) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<GroupStatus>>(new Set<GroupStatus>(['done']))
   const [activeTab, setActiveTab] = useState<ActiveTab>('pipeline')
@@ -379,6 +384,7 @@ export function WorkspaceQueue({
                         onRetry={onRetry}
                         onSplit={onSplit}
                         trimLimitMinutes={trimLimitMinutes}
+                        onPriorityChange={onPriorityChange}
                       />
                     ))}
                   </div>
@@ -399,4 +405,4 @@ export function WorkspaceQueue({
       </div>
     </div>
   )
-}
+})

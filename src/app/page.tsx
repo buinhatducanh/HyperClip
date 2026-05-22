@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
+import { useState, useEffect, useRef, useCallback, Suspense, memo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import { shallow } from 'zustand/shallow'
 // SHORT layout: HEADER(25%) | VIDEO(50%) | BOTTOM(25%)
 // Must match electron/services/ffmpeg.ts HEADER_PCT / BOTTOM_PCT constants.
 const BOTTOM_PCT = 0.25
@@ -108,33 +109,35 @@ export default function DashboardPage() {
 }
 
 function DashboardContent() {
-  const {
-    workspaces,
-    renderedVideos,
-    channels,
-    selectedWorkspaceId,
-    systemStats,
-    editorState,
-    toast,
-    addWorkspace,
-    updateWorkspace,
-    removeWorkspace,
-    initChannels,
-    initWorkspaces,
-    initRenderedVideos,
-    removeRenderedVideo,
-    selectWorkspace,
-    updateSystemStats,
-    showToast,
-    addNotification,
-    updateEditorState,
-    resetEditorState,
-    undoEditor,
-    redoEditor,
-    addRenderedVideo,
-    settings,
-    setSettings,
-  } = useAppStore()
+  // Individual selectors — each component only re-renders when its specific value changes.
+  // Using shallow for arrays/objects to prevent unnecessary re-renders.
+  const workspaces = useAppStore(s => s.workspaces, shallow)
+  const renderedVideos = useAppStore(s => s.renderedVideos, shallow)
+  const channels = useAppStore(s => s.channels, shallow)
+  const selectedWorkspaceId = useAppStore(s => s.selectedWorkspaceId)
+  const systemStats = useAppStore(s => s.systemStats, shallow)
+  const editorState = useAppStore(s => s.editorState, shallow)
+  const toast = useAppStore(s => s.toast)
+  const settings = useAppStore(s => s.settings, shallow)
+  // Actions — always stable references (defined once in create())
+  const addWorkspace = useAppStore(s => s.addWorkspace)
+  const updateWorkspace = useAppStore(s => s.updateWorkspace)
+  const removeWorkspace = useAppStore(s => s.removeWorkspace)
+  const initChannels = useAppStore(s => s.initChannels)
+  const initWorkspaces = useAppStore(s => s.initWorkspaces)
+  const initRenderedVideos = useAppStore(s => s.initRenderedVideos)
+  const removeRenderedVideo = useAppStore(s => s.removeRenderedVideo)
+  const selectWorkspace = useAppStore(s => s.selectWorkspace)
+  const updateSystemStats = useAppStore(s => s.updateSystemStats)
+  const showToast = useAppStore(s => s.showToast)
+  const addNotification = useAppStore(s => s.addNotification)
+  const updateEditorState = useAppStore(s => s.updateEditorState)
+  const resetEditorState = useAppStore(s => s.resetEditorState)
+  const undoEditor = useAppStore(s => s.undoEditor)
+  const redoEditor = useAppStore(s => s.redoEditor)
+  const addRenderedVideo = useAppStore(s => s.addRenderedVideo)
+  const setSettings = useAppStore(s => s.setSettings)
+  const setWorkspacePriority = useAppStore(s => s.setWorkspacePriority)
 
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
   /** License check: null = loading, true = valid, false = invalid */
@@ -198,11 +201,21 @@ function DashboardContent() {
   const lastEtaUpdateMs = useRef<Map<string, number>>(new Map())
   /** Lightweight ETA display map — only updates when rounded value changes. */
   const [etaDisplay, setEtaDisplay] = useState<Map<string, string>>(new Map())
+  /** Ref to track latest etaDisplay for use inside setInterval (avoids stale closure). */
+  const etaDisplayRef = useRef<Map<string, string>>(new Map())
 
   useEffect(() => {
+    etaDisplayRef.current = etaDisplay
+  }, [etaDisplay])
+
+  useEffect(() => {
+    // No dependency on etaDisplay — interval reads from ref, not closure.
+    // Only recreates on mount/unmount.
     const tid = setInterval(() => {
       const now = Date.now()
-      const newDisplay = new Map(etaDisplay)
+      // Copy ref's current value (avoids stale closure without needing etaDisplay in deps)
+      const currentDisplay = etaDisplayRef.current
+      const newDisplay = new Map(currentDisplay)
       let changed = false
       const expired: string[] = []
 
@@ -229,12 +242,14 @@ function DashboardContent() {
         etaCountdownSec.current.delete(id)
         lastEtaDisplayed.current.delete(id)
         lastEtaUpdateMs.current.delete(id)
+        newDisplay.delete(id)
+        changed = true
       })
 
       if (changed) setEtaDisplay(newDisplay)
     }, 1000)
     return () => clearInterval(tid)
-  }, [etaDisplay])
+  }, [])
 
   // Fetch auth status on mount + listen for updates
   useEffect(() => {
@@ -452,7 +467,7 @@ function DashboardContent() {
   // Separate Maps for render vs download progress — avoids status race conditions.
   // Status check at FLUSH time (not event time) ensures correct routing.
   const _pendingRender = useRef<Map<string, { percent: number; eta?: number | string }>>(new Map())
-  const _pendingDownload = useRef<Map<string, { percent: number; eta?: number | string; speed?: string }>>(new Map())
+  const _pendingDownload = useRef<Map<string, { percent: number }>>(new Map())
   const _lastFlushMs = useRef<number>(0)
 
   useEffect(() => {
@@ -477,8 +492,6 @@ function DashboardContent() {
         if (ws?.status === 'downloading') {
           updateWorkspace(wsId, {
             downloadProgress: data.percent,
-            downloadSpeed: data.speed && data.speed !== '...' ? data.speed : undefined,
-            downloadEta: data.eta ? fmtEta(data.eta) : undefined,
           } as Partial<Workspace>)
         }
       })
@@ -501,7 +514,15 @@ function DashboardContent() {
           })
           return
         }
-        _pendingDownload.current.set(p.workspaceId, { percent: p.percent, eta: p.eta, speed: p.speed })
+        // Speed + ETA update immediately for responsive UX
+        if (p.speed || p.eta !== undefined) {
+          updateWorkspace(p.workspaceId, {
+            downloadSpeed: p.speed && p.speed !== '...' ? p.speed : undefined,
+            downloadEta: p.eta ? fmtEta(p.eta) : undefined,
+          } as Partial<Workspace>)
+        }
+        // Percentage batched to avoid excessive React re-renders
+        _pendingDownload.current.set(p.workspaceId, { percent: p.percent })
       }
     })
     return () => { clearInterval(flushInterval); cleanup?.() }
@@ -798,21 +819,37 @@ function DashboardContent() {
     else showToast(`Retry failed: ${result.error}`)
   }
 
-  const handleEditorChange = (patch: Partial<EditorState>) => {
+  const handlePriorityChange = (id: string, direction: 'up' | 'down', type: 'download' | 'render') => {
+    const { workspaces: allWorkspaces, setWorkspacePriority: setPriority, showToast: toast } = useAppStore.getState()
+    const ws = allWorkspaces.find(w => w.id === id)
+    if (!ws) return
+    const current = type === 'download'
+      ? (ws.downloadPriority ?? 0)
+      : (ws.renderPriority ?? 0)
+    const delta = direction === 'up' ? -1 : 1
+    setPriority(id, current + delta, type)
+    toast(direction === 'up' ? `↑ Ưu tiên cao hơn` : `↓ Ưu tiên thấp hơn`)
+  }
+
+  const handleEditorChange = useCallback((patch: Partial<EditorState>) => {
+    // Use getState() inside callback to avoid closure dependencies on Zustand state.
+    // This keeps the callback reference stable across renders.
+    const { editorState: currentEditor, workspaces: allWorkspaces, selectedWorkspaceId: currentWsId, updateEditorState: updateEd, updateWorkspace: updateWs } = useAppStore.getState()
+
     // Auto-upgrade to 720p when TikTok mode is toggled ON (false → true) and source is below 720p
-    if (patch.upscaleToTikTok === true && editorState.upscaleToTikTok === false) {
-      const ws = workspaces.find(w => w.id === selectedWorkspaceId)
+    if (patch.upscaleToTikTok === true && currentEditor.upscaleToTikTok === false) {
+      const ws = allWorkspaces.find(w => w.id === currentWsId)
       const sourceHeight = ws?.videoResolution ? parseInt(ws.videoResolution.split('x')[1]) : (ws?.downloadQuality ? parseInt(ws.downloadQuality) : 0)
-      if (sourceHeight > 0 && sourceHeight < 720 && editorState.exportQuality < 720) {
+      if (sourceHeight > 0 && sourceHeight < 720 && currentEditor.exportQuality < 720) {
         patch = { ...patch, exportQuality: 720 as 1080 | 720 | 360 }
-        showToast(`Upscale: 360p → 720p for TikTok`)
+        useAppStore.getState().showToast(`Upscale: 360p → 720p for TikTok`)
       }
     }
-    updateEditorState(patch)
-    if (patch.exportQuality !== undefined && selectedWorkspaceId) {
-      updateWorkspace(selectedWorkspaceId, { quality: patch.exportQuality as 1080 | 720 | 360 })
+    updateEd(patch)
+    if (patch.exportQuality !== undefined && currentWsId) {
+      updateWs(currentWsId, { quality: patch.exportQuality as 1080 | 720 | 360 })
     }
-  }
+  }, [])
 
   const handleRender = async () => {
     if (!selectedWorkspaceId) return
@@ -898,7 +935,7 @@ function DashboardContent() {
 
   const handleSplit = async (workspaceId: string, partMinutes: number) => {
     showToast(`Đang tách video thành các phần...`)
-    const result = await ipc.splitWorkspace(workspaceId, partMinutes)
+    const result = await ipc.splitWorkspace(workspaceId, { partMinutes })
     if (result?.success) {
       const count = result.newWorkspaces?.length || 0
       showToast(`Đã tách thành ${count} phần mới!`)
@@ -1091,6 +1128,7 @@ function DashboardContent() {
             onSelectRendered={handleRenderedVideoSelect}
             onQuickAction={handleQuickAction}
             onRetry={handleRetry}
+            onPriorityChange={handlePriorityChange}
             onRemoveRendered={(id) => {
               if (selectedRenderedVideoId === id) setSelectedRenderedVideoId(null)
               removeRenderedVideo(id)

@@ -1,3 +1,4 @@
+"use strict";
 /**
  * Token Manager — HyperClip (refactored 2026-05-14)
  *
@@ -7,25 +8,31 @@
  *
  * Legacy compat: reads from oauth_tokens.json/oauth_config.json if no project data found.
  */
-import path from 'path';
-import fs from 'fs';
-import https from 'https';
-import { devLog } from './unified_log.js';
-import { getAppStoreDir, getProjectsDir } from './paths.js';
-import { getProjectManager } from './project_manager.js';
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.TokenManager = void 0;
+exports.getTokenManager = getTokenManager;
+const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
+const https_1 = __importDefault(require("https"));
+const unified_log_js_1 = require("./unified_log.js");
+const paths_js_1 = require("./paths.js");
+const project_manager_js_1 = require("./project_manager.js");
 // ─── Legacy Compat ─────────────────────────────────────────────────────────────
 // Read from legacy files (oauth_tokens.json) if no project data exists.
 // Used for migration + backward compat with existing installations.
 const MAX_UNITS_PER_TOKEN = 9500;
-const TOKENS_DIR = getAppStoreDir();
-const TOKENS_FILE = path.join(TOKENS_DIR, 'oauth_tokens.json');
-const STATS_FILE = path.join(TOKENS_DIR, 'token_stats.json');
-const CONFIG_FILE = path.join(TOKENS_DIR, 'oauth_config.json');
+const TOKENS_DIR = (0, paths_js_1.getAppStoreDir)();
+const TOKENS_FILE = path_1.default.join(TOKENS_DIR, 'oauth_tokens.json');
+const STATS_FILE = path_1.default.join(TOKENS_DIR, 'token_stats.json');
+const CONFIG_FILE = path_1.default.join(TOKENS_DIR, 'oauth_config.json');
 function _loadLegacyTokens() {
-    if (!fs.existsSync(TOKENS_FILE))
+    if (!fs_1.default.existsSync(TOKENS_FILE))
         return [];
     try {
-        const raw = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf-8'));
+        const raw = JSON.parse(fs_1.default.readFileSync(TOKENS_FILE, 'utf-8'));
         if (Array.isArray(raw))
             return raw;
         if (raw && typeof raw === 'object' && raw.access_token) {
@@ -36,10 +43,10 @@ function _loadLegacyTokens() {
     return [];
 }
 function _loadLegacyConfig() {
-    if (!fs.existsSync(CONFIG_FILE))
+    if (!fs_1.default.existsSync(CONFIG_FILE))
         return {};
     try {
-        const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+        const cfg = JSON.parse(fs_1.default.readFileSync(CONFIG_FILE, 'utf-8'));
         if (cfg.client_id) {
             // Legacy single-project format → no projectId mapping
             return {};
@@ -61,14 +68,14 @@ function _loadLegacyConfig() {
     return {};
 }
 function _hasProjectData() {
-    const projectsDir = getProjectsDir();
-    if (!fs.existsSync(projectsDir))
+    const projectsDir = (0, paths_js_1.getProjectsDir)();
+    if (!fs_1.default.existsSync(projectsDir))
         return false;
-    const entries = fs.readdirSync(projectsDir, { withFileTypes: true });
+    const entries = fs_1.default.readdirSync(projectsDir, { withFileTypes: true });
     return entries.some(e => e.isDirectory() && e.name.startsWith('proj-'));
 }
 function _migrateLegacyToken(entry, configCreds) {
-    const pm = getProjectManager();
+    const pm = (0, project_manager_js_1.getProjectManager)();
     const projectId = entry.projectId || `legacy-${Object.keys(_loadLegacyTokens()).length}`;
     const creds = configCreds[entry.projectId];
     pm.addProject({
@@ -108,11 +115,11 @@ class TokenManager {
             const legacyTokens = _loadLegacyTokens();
             const configCreds = _loadLegacyConfig();
             if (legacyTokens.length > 0) {
-                devLog(`[TokenManager] Migrating ${legacyTokens.length} legacy tokens to project structure...`);
+                (0, unified_log_js_1.devLog)(`[TokenManager] Migrating ${legacyTokens.length} legacy tokens to project structure...`);
                 for (const entry of legacyTokens) {
                     _migrateLegacyToken(entry, configCreds);
                 }
-                devLog('[TokenManager] Migration complete');
+                (0, unified_log_js_1.devLog)('[TokenManager] Migration complete');
             }
         }
         this._initialized = true;
@@ -123,23 +130,23 @@ class TokenManager {
         this._resetCheckTimer = setInterval(() => { void this._checkReset(); }, 30 * 60 * 1000);
     }
     _checkReset() {
-        const pm = getProjectManager();
+        const pm = (0, project_manager_js_1.getProjectManager)();
         pm.checkReset();
     }
     // ── Token Refresh ─────────────────────────────────────────────────────────
     async refreshToken(projectId) {
-        const pm = getProjectManager();
+        const pm = (0, project_manager_js_1.getProjectManager)();
         const project = pm.getProject(projectId);
         if (!project)
             return null;
         const { clientId, clientSecret } = project;
         if (!clientId || !clientSecret) {
-            devLog(`[TokenManager] refreshToken(${projectId}): no credentials — skipping`);
+            (0, unified_log_js_1.devLog)(`[TokenManager] refreshToken(${projectId}): no credentials — skipping`);
             return null;
         }
         const token = pm.getToken(projectId);
         if (!token?.refresh_token) {
-            devLog(`[TokenManager] refreshToken(${projectId}): no refresh_token — needs re-auth`);
+            (0, unified_log_js_1.devLog)(`[TokenManager] refreshToken(${projectId}): no refresh_token — needs re-auth`);
             return null;
         }
         return new Promise((resolve) => {
@@ -158,7 +165,7 @@ class TokenManager {
                     'Content-Length': Buffer.byteLength(body),
                 },
             };
-            const req = https.request(options, (res) => {
+            const req = https_1.default.request(options, (res) => {
                 let data = '';
                 res.on('data', (c) => { data += c; });
                 res.on('end', () => {
@@ -174,7 +181,7 @@ class TokenManager {
                         };
                         // Save to project
                         pm.saveToken(projectId, refreshed);
-                        devLog(`[TokenManager] Token refreshed for ${projectId} (expires ${new Date(refreshed.expires_at).toISOString()})`);
+                        (0, unified_log_js_1.devLog)(`[TokenManager] Token refreshed for ${projectId} (expires ${new Date(refreshed.expires_at).toISOString()})`);
                         resolve(refreshed);
                     }
                     catch (e) {
@@ -197,7 +204,7 @@ class TokenManager {
      * Runs at startup (5s delay) and every 30 minutes.
      */
     async _proactiveRefresh() {
-        const pm = getProjectManager();
+        const pm = (0, project_manager_js_1.getProjectManager)();
         const projects = pm.getAllProjects();
         const now = Date.now();
         const EXPIRY_THRESHOLD_MS = 30 * 60 * 1000;
@@ -209,7 +216,7 @@ class TokenManager {
         });
         if (expiring.length === 0)
             return;
-        devLog(`[TokenManager] Proactive refresh: ${expiring.length}/${projects.length} tokens expiring soon`);
+        (0, unified_log_js_1.devLog)(`[TokenManager] Proactive refresh: ${expiring.length}/${projects.length} tokens expiring soon`);
         const results = await Promise.allSettled(expiring.map(p => this.refreshToken(p.projectId)));
         const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && r.value === null));
         if (failed.length > 0) {
@@ -224,7 +231,7 @@ class TokenManager {
      * Auto-refreshes if token is expired.
      */
     async getBestAvailable(channelId) {
-        const pm = getProjectManager();
+        const pm = (0, project_manager_js_1.getProjectManager)();
         const now = Date.now();
         // Step 1: Get project for this channel (or least-used fallback)
         let project = null;
@@ -235,18 +242,18 @@ class TokenManager {
             project = pm.getLeastUsedProject();
         }
         if (!project) {
-            devLog('[TokenManager] getBestAvailable: no projects available');
+            (0, unified_log_js_1.devLog)('[TokenManager] getBestAvailable: no projects available');
             return null;
         }
         // Step 2: Get token
         let token = pm.getToken(project.projectId);
         if (!token) {
-            devLog(`[TokenManager] getBestAvailable: ${project.projectId} has no token`);
+            (0, unified_log_js_1.devLog)(`[TokenManager] getBestAvailable: ${project.projectId} has no token`);
             return null;
         }
         // Step 3: Refresh if needed (5 min buffer)
         if (token.expires_at - 5 * 60 * 1000 < now) {
-            devLog(`[TokenManager] Token for ${project.projectId} expired — refreshing...`);
+            (0, unified_log_js_1.devLog)(`[TokenManager] Token for ${project.projectId} expired — refreshing...`);
             const refreshed = await this.refreshToken(project.projectId);
             if (!refreshed) {
                 // Fallback to backup project or least-used
@@ -284,20 +291,20 @@ class TokenManager {
     }
     // ── Tracking ───────────────────────────────────────────────────────────────
     track(projectId) {
-        const pm = getProjectManager();
+        const pm = (0, project_manager_js_1.getProjectManager)();
         pm.track(projectId, 1);
     }
     recordError(projectId) {
-        const pm = getProjectManager();
+        const pm = (0, project_manager_js_1.getProjectManager)();
         pm.recordError(projectId);
     }
     trackError(projectId) {
-        const pm = getProjectManager();
+        const pm = (0, project_manager_js_1.getProjectManager)();
         pm.recordQuotaError(projectId);
     }
     // ── CRUD ─────────────────────────────────────────────────────────────────
     addToken(projectId, clientId, clientSecret, tokens) {
-        const pm = getProjectManager();
+        const pm = (0, project_manager_js_1.getProjectManager)();
         const project = pm.getProject(projectId) || pm.addProject({
             projectId,
             projectName: projectId,
@@ -312,35 +319,35 @@ class TokenManager {
         if (tokens.access_token) {
             pm.saveToken(projectId, tokens);
         }
-        devLog(`[TokenManager] Token added/updated for ${projectId}`);
+        (0, unified_log_js_1.devLog)(`[TokenManager] Token added/updated for ${projectId}`);
     }
     getToken(projectId) {
-        return getProjectManager().getToken(projectId);
+        return (0, project_manager_js_1.getProjectManager)().getToken(projectId);
     }
     removeToken(projectId) {
-        getProjectManager().removeProject(projectId);
-        devLog(`[TokenManager] Token removed for ${projectId}`);
+        (0, project_manager_js_1.getProjectManager)().removeProject(projectId);
+        (0, unified_log_js_1.devLog)(`[TokenManager] Token removed for ${projectId}`);
     }
     reload() {
         // ProjectManager is always fresh — no-op
     }
     resetAll() {
-        getProjectManager().resetAll();
-        devLog('[TokenManager] Reset all token quotas');
+        (0, project_manager_js_1.getProjectManager)().resetAll();
+        (0, unified_log_js_1.devLog)('[TokenManager] Reset all token quotas');
     }
     resetTokenStats(projectId) {
-        const pm = getProjectManager();
+        const pm = (0, project_manager_js_1.getProjectManager)();
         const project = pm.getProject(projectId);
         const wasUnauthorized = project?.status === 'unauthorized';
         pm.resetProject(projectId);
         return { success: true, nextReset: pm.getNextResetTime(), wasUnauthorized };
     }
     markUnauthorized(projectId) {
-        getProjectManager().markUnauthorized(projectId);
+        (0, project_manager_js_1.getProjectManager)().markUnauthorized(projectId);
     }
     markAuthorized(projectId) {
         // Re-enable: just reset stats
-        getProjectManager().resetProject(projectId);
+        (0, project_manager_js_1.getProjectManager)().resetProject(projectId);
     }
     /** Test a token by refreshing it */
     async testToken(projectId) {
@@ -361,14 +368,14 @@ class TokenManager {
         }
     }
     getTokenCount() {
-        return getProjectManager().getAllProjects().filter(p => p.token?.access_token).length;
+        return (0, project_manager_js_1.getProjectManager)().getAllProjects().filter(p => p.token?.access_token).length;
     }
     _getNextResetTime() {
-        return getProjectManager().getNextResetTime();
+        return (0, project_manager_js_1.getProjectManager)().getNextResetTime();
     }
     /** Get status for all tokens (for Settings UI) */
     getAllStatuses() {
-        const pm = getProjectManager();
+        const pm = (0, project_manager_js_1.getProjectManager)();
         return pm.getAllProjects().map(p => {
             const usedToday = p.stats.usedToday;
             const errors = p.stats.errors;
@@ -403,11 +410,11 @@ class TokenManager {
         });
     }
 }
+exports.TokenManager = TokenManager;
 // ─── Singleton ─────────────────────────────────────────────────────────────
 let _instance = null;
-export function getTokenManager() {
+function getTokenManager() {
     if (!_instance)
         _instance = new TokenManager();
     return _instance;
 }
-export { TokenManager };

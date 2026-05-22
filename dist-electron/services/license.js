@@ -1,3 +1,17 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.DEV_LICENSE_BYPASS = void 0;
+exports.activateLicense = activateLicense;
+exports.validateLicense = validateLicense;
+exports.startLicenseHeartbeat = startLicenseHeartbeat;
+exports.stopLicenseHeartbeat = stopLicenseHeartbeat;
+exports.getLicenseStatus = getLicenseStatus;
+exports.hasFeature = hasFeature;
+exports.initLicense = initLicense;
+exports.revokeLocalLicense = revokeLocalLicense;
 /**
  * HyperClip License Service — Electron main process.
  *
@@ -11,14 +25,14 @@
  * License file: D:\HyperClip-Data\app\license.enc.yaml
  * Encrypted with AES-256-GCM using machineId as key material.
  */
-import fs from 'fs';
-import path from 'path';
-import https from 'https';
-import http from 'http';
-import { app } from 'electron';
-import { getMachineId } from './hwid.js';
-import { encrypt, decrypt, blobToYAMLString, parseYAMLBlob } from './crypto.js';
-import { log } from './unified_log.js';
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
+const https_1 = __importDefault(require("https"));
+const http_1 = __importDefault(require("http"));
+const electron_1 = require("electron");
+const hwid_js_1 = require("./hwid.js");
+const crypto_js_1 = require("./crypto.js");
+const unified_log_js_1 = require("./unified_log.js");
 // ─── Config ───────────────────────────────────────────────────────────────────
 // Vercel deployment URL — set LICENSE_SERVER_URL env var in Vercel dashboard
 // Default points to local dev server; update to your Vercel deployment URL after deploy.
@@ -27,20 +41,20 @@ const LICENSE_ACTIVATE_PATH = '/api/license/activate';
 const LICENSE_VALIDATE_PATH = '/api/license/validate';
 const LICENSE_FILE = 'license.enc.yaml';
 const VALIDATE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
-const LICENSE_DIR = app?.isPackaged
-    ? path.join(app.getPath('userData'), 'data')
-    : path.join(process.env.HYPERCLIP_DATA_DIR || 'D:\\HyperClip-Data', 'app');
+const LICENSE_DIR = electron_1.app?.isPackaged
+    ? path_1.default.join(electron_1.app.getPath('userData'), 'data')
+    : path_1.default.join(process.env.HYPERCLIP_DATA_DIR || 'D:\\HyperClip-Data', 'app');
 // ─── Module-level state ─────────────────────────────────────────────────────────
 let _status = { activated: false, valid: false };
 let _validateTimer = null;
 // ─── Path helpers ──────────────────────────────────────────────────────────────
 function getLicensePath() {
-    return path.join(LICENSE_DIR, LICENSE_FILE);
+    return path_1.default.join(LICENSE_DIR, LICENSE_FILE);
 }
 // ─── HTTP helpers ───────────────────────────────────────────────────────────────
 function httpRequest(options, body) {
     return new Promise((resolve, reject) => {
-        const protocol = options.protocol === 'https:' ? https : http;
+        const protocol = options.protocol === 'https:' ? https_1.default : http_1.default;
         const req = protocol.request(options, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
@@ -62,41 +76,41 @@ function httpRequest(options, body) {
 }
 // ─── License persistence ─────────────────────────────────────────────────────────
 function saveLicense(record) {
-    fs.mkdirSync(LICENSE_DIR, { recursive: true });
-    const machineId = getMachineId();
+    fs_1.default.mkdirSync(LICENSE_DIR, { recursive: true });
+    const machineId = (0, hwid_js_1.getMachineId)();
     const plaintext = JSON.stringify(record);
-    const blob = encrypt(plaintext, machineId);
-    const yaml = blobToYAMLString(blob);
-    fs.writeFileSync(getLicensePath(), yaml, 'utf8');
-    log.info(`[License] Saved license for keyId=${record.keyId}`);
+    const blob = (0, crypto_js_1.encrypt)(plaintext, machineId);
+    const yaml = (0, crypto_js_1.blobToYAMLString)(blob);
+    fs_1.default.writeFileSync(getLicensePath(), yaml, 'utf8');
+    unified_log_js_1.log.info(`[License] Saved license for keyId=${record.keyId}`);
 }
 function loadLicense() {
     const filePath = getLicensePath();
-    if (!fs.existsSync(filePath))
+    if (!fs_1.default.existsSync(filePath))
         return null;
     try {
-        const yaml = fs.readFileSync(filePath, 'utf8');
-        const blob = parseYAMLBlob(yaml);
-        const plaintext = decrypt(blob, getMachineId());
+        const yaml = fs_1.default.readFileSync(filePath, 'utf8');
+        const blob = (0, crypto_js_1.parseYAMLBlob)(yaml);
+        const plaintext = (0, crypto_js_1.decrypt)(blob, (0, hwid_js_1.getMachineId)());
         return JSON.parse(plaintext);
     }
     catch (err) {
-        log.warn(`[License] Failed to load license (corrupted or wrong machine): ${err}`);
+        unified_log_js_1.log.warn(`[License] Failed to load license (corrupted or wrong machine): ${err}`);
         return null;
     }
 }
 function deleteLicense() {
     const p = getLicensePath();
-    if (fs.existsSync(p))
-        fs.unlinkSync(p);
+    if (fs_1.default.existsSync(p))
+        fs_1.default.unlinkSync(p);
     _status = { activated: false, valid: false };
 }
 /**
  * Attempt to activate HyperClip with a license key.
  * This is a ONE-TIME operation per machine.
  */
-export async function activateLicense(key) {
-    const machineId = getMachineId();
+async function activateLicense(key) {
+    const machineId = (0, hwid_js_1.getMachineId)();
     const body = JSON.stringify({ key, machineId });
     const options = {
         protocol: LICENSE_SERVER_URL.startsWith('https') ? 'https:' : 'http:',
@@ -125,7 +139,7 @@ export async function activateLicense(key) {
             };
             saveLicense(record);
             _status = { activated: true, valid: true, record };
-            log.info(`[License] Activated: keyId=${record.keyId}, machineId=${machineId.slice(0, 8)}...`);
+            unified_log_js_1.log.info(`[License] Activated: keyId=${record.keyId}, machineId=${machineId.slice(0, 8)}...`);
             return { success: true, record };
         }
         const errorMap = {
@@ -141,7 +155,7 @@ export async function activateLicense(key) {
         };
     }
     catch (err) {
-        log.error(`[License] Activation failed: ${err}`);
+        unified_log_js_1.log.error(`[License] Activation failed: ${err}`);
         return {
             success: false,
             error: `Không thể kết nối server: ${err instanceof Error ? err.message : 'Network error'}`,
@@ -155,7 +169,7 @@ export async function activateLicense(key) {
  * - If server unreachable: use cached license (offline mode)
  * - If revoked/expired: mark invalid, block app
  */
-export async function validateLicense() {
+async function validateLicense() {
     const record = loadLicense();
     if (!record) {
         _status = { activated: false, valid: false, reason: 'No license file found' };
@@ -187,31 +201,31 @@ export async function validateLicense() {
     }
     catch (err) {
         // Offline: trust cached license
-        log.warn(`[License] Validate failed (offline), trusting cached license: ${err}`);
+        unified_log_js_1.log.warn(`[License] Validate failed (offline), trusting cached license: ${err}`);
         _status = { activated: true, valid: true, record, reason: 'Offline mode' };
         return _status;
     }
 }
 // ─── Heartbeat timer ───────────────────────────────────────────────────────────
-export function startLicenseHeartbeat() {
+function startLicenseHeartbeat() {
     if (_validateTimer)
         return;
     _validateTimer = setInterval(async () => {
         const s = await validateLicense();
         if (!s.valid && s.reason && s.reason !== 'Offline mode') {
-            log.warn(`[License] Heartbeat failed: ${s.reason}`);
+            unified_log_js_1.log.warn(`[License] Heartbeat failed: ${s.reason}`);
         }
     }, VALIDATE_INTERVAL_MS);
-    log.info(`[License] Heartbeat started (every ${VALIDATE_INTERVAL_MS / 3600000}h)`);
+    unified_log_js_1.log.info(`[License] Heartbeat started (every ${VALIDATE_INTERVAL_MS / 3600000}h)`);
 }
-export function stopLicenseHeartbeat() {
+function stopLicenseHeartbeat() {
     if (_validateTimer) {
         clearInterval(_validateTimer);
         _validateTimer = null;
     }
 }
 // ─── Status ────────────────────────────────────────────────────────────────────
-export function getLicenseStatus() {
+function getLicenseStatus() {
     // Check local expiration even if server is unreachable (demo mode)
     if (_status.record?.expiresAt) {
         const expiry = new Date(_status.record.expiresAt);
@@ -222,11 +236,11 @@ export function getLicenseStatus() {
     return { ..._status };
 }
 /** Get features list from active license. */
-export function hasFeature(feature) {
+function hasFeature(feature) {
     return _status.record?.features.includes(feature) ?? false;
 }
 // ─── Init (call at app startup) ────────────────────────────────────────────────
-export async function initLicense() {
+async function initLicense() {
     const record = loadLicense();
     if (record) {
         const s = await validateLicense();
@@ -237,15 +251,15 @@ export async function initLicense() {
     return { activated: false, valid: false, reason: 'No license' };
 }
 // ─── Revoke (for development / admin) ─────────────────────────────────────────
-export function revokeLocalLicense() {
+function revokeLocalLicense() {
     deleteLicense();
     stopLicenseHeartbeat();
-    log.info('[License] Local license revoked');
+    unified_log_js_1.log.info('[License] Local license revoked');
 }
 // ─── Dev mode bypass ────────────────────────────────────────────────────────────
-export const DEV_LICENSE_BYPASS = process.env.DEV_LICENSE_BYPASS === '1';
-if (DEV_LICENSE_BYPASS) {
-    log.warn('[License] DEV BYPASS ACTIVE — license check disabled');
+exports.DEV_LICENSE_BYPASS = process.env.DEV_LICENSE_BYPASS === '1';
+if (exports.DEV_LICENSE_BYPASS) {
+    unified_log_js_1.log.warn('[License] DEV BYPASS ACTIVE — license check disabled');
     _status = {
         activated: true,
         valid: true,
@@ -253,7 +267,7 @@ if (DEV_LICENSE_BYPASS) {
         record: {
             keyId: 'DEV',
             key: 'DEV',
-            machineId: getMachineId(),
+            machineId: (0, hwid_js_1.getMachineId)(),
             features: ['pro', 'auto_render', 'multi_channel'],
             expiresAt: null,
             issuedAt: new Date().toISOString(),
@@ -270,7 +284,7 @@ const DEMO_MODE = process.env.DEMO_MODE === 'true';
 const DEMO_EXPIRY = new Date();
 DEMO_EXPIRY.setHours(24, 0, 0, 0); // midnight tonight (00:00 tomorrow)
 if (DEMO_MODE) {
-    const machineId = getMachineId();
+    const machineId = (0, hwid_js_1.getMachineId)();
     const demoRecord = {
         keyId: 'DEMO-20260520',
         key: 'DEMO-MODE-ENABLED',
@@ -288,5 +302,5 @@ if (DEMO_MODE) {
         reason: 'Demo mode',
         record: demoRecord,
     };
-    log.warn(`[License] DEMO MODE — expires ${DEMO_EXPIRY.toLocaleString()} | Machine: ${machineId.slice(0, 8)}...`);
+    unified_log_js_1.log.warn(`[License] DEMO MODE — expires ${DEMO_EXPIRY.toLocaleString()} | Machine: ${machineId.slice(0, 8)}...`);
 }

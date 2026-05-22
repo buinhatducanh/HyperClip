@@ -1,5 +1,12 @@
+"use strict";
 // Operation Log Service — in-memory circular buffer for MMO Control Center
 // Streams real-time events to the renderer via WebContents
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.opLog = void 0;
+exports.setOpLogWindow = setOpLogWindow;
+exports.addOpLog = addOpLog;
+exports.getOpLogs = getOpLogs;
+exports.clearOpLogs = clearOpLogs;
 const MAX_ENTRIES = 500;
 const _buffer = [];
 function emitToRenderer() {
@@ -8,11 +15,11 @@ function emitToRenderer() {
     }
 }
 let mainWindow = null;
-export function setOpLogWindow(win) {
+function setOpLogWindow(win) {
     mainWindow = win;
 }
 let _idCounter = 0;
-export function addOpLog(level, category, message, detail) {
+function addOpLog(level, category, message, detail) {
     const entry = {
         id: `op-${Date.now()}-${_idCounter++}`,
         timestamp: Date.now(),
@@ -28,15 +35,15 @@ export function addOpLog(level, category, message, detail) {
     emitToRenderer();
     return entry;
 }
-export function getOpLogs() {
+function getOpLogs() {
     return _buffer.slice(-MAX_ENTRIES);
 }
-export function clearOpLogs() {
+function clearOpLogs() {
     _buffer.length = 0;
     emitToRenderer();
 }
 // Convenience helpers
-export const opLog = {
+exports.opLog = {
     info: (category, message, detail) => addOpLog('info', category, message, detail),
     warn: (category, message, detail) => addOpLog('warn', category, message, detail),
     error: (category, message, detail) => addOpLog('error', category, message, detail),

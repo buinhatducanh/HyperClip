@@ -1,3 +1,4 @@
+"use strict";
 /**
  * YouTube OAuth 2.0 Authentication — HyperClip
  *
@@ -8,20 +9,37 @@
  * SETUP: User needs to create a Google Cloud project and get credentials.
  * Instructions are in the UI when OAuth setup is needed.
  */
-import http from 'http';
-import https from 'https';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
-import { shell } from 'electron';
-import { devLog } from './unified_log.js';
-import { getAppStoreDir } from './paths.js';
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getOAuthClientId = getOAuthClientId;
+exports.getOAuthClientSecret = getOAuthClientSecret;
+exports.setOAuthClientId = setOAuthClientId;
+exports.loadTokens = loadTokens;
+exports.saveTokens = saveTokens;
+exports.clearTokens = clearTokens;
+exports.buildOAuthUrl = buildOAuthUrl;
+exports.refreshAccessToken = refreshAccessToken;
+exports.getValidAccessToken = getValidAccessToken;
+exports.startOAuthFlow = startOAuthFlow;
+exports.fetchAccountInfo = fetchAccountInfo;
+exports.fetchMySubscriptions = fetchMySubscriptions;
+exports.unsubscribeChannel = unsubscribeChannel;
+const http_1 = __importDefault(require("http"));
+const https_1 = __importDefault(require("https"));
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
+const os_1 = __importDefault(require("os"));
+const electron_1 = require("electron");
+const unified_log_js_1 = require("./unified_log.js");
+const paths_js_1 = require("./paths.js");
 // ─── Constants ────────────────────────────────────────────────────────────────
 const OAUTH_PORT = 8765;
 const OAUTH_PORT_MAX = 8775; // range of ports to try if primary is in use
 // NOTE: Must match TOKENS_FILE in token_manager.ts (%APPDATA%\HyperClip\oauth_tokens.json)
 // The old temp path is no longer used — token_manager is the authoritative reader.
-const TOKEN_FILE = path.join(getAppStoreDir(), 'oauth_tokens.json');
+const TOKEN_FILE = path_1.default.join((0, paths_js_1.getAppStoreDir)(), 'oauth_tokens.json');
 // Active OAuth server — closed before starting a new flow to prevent EADDRINUSE
 let _activeServer = null;
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -30,21 +48,21 @@ function getRedirectUri() {
 }
 function getTokenFile() {
     // TokenManager also uses %APPDATA%\HyperClip\ — ensure that dir exists
-    const dir = path.dirname(TOKEN_FILE);
-    if (!fs.existsSync(dir))
-        fs.mkdirSync(dir, { recursive: true });
+    const dir = path_1.default.dirname(TOKEN_FILE);
+    if (!fs_1.default.existsSync(dir))
+        fs_1.default.mkdirSync(dir, { recursive: true });
     return TOKEN_FILE;
 }
 // Default Client ID — loaded from environment or config file (never hardcoded in source)
 // Users must set up their own Google Cloud project credentials
 const DEFAULT_CLIENT_ID = process.env.HYPERCLIP_OAUTH_CLIENT_ID || '';
-export function getOAuthClientId() {
+function getOAuthClientId() {
     // ── Single-source: read from oauth_tokens.json (authoritative for credentials + tokens)
     const tokenFile = getTokenFile();
     // 1. Check oauth_tokens.json — use the first token that has credentials
     try {
-        if (fs.existsSync(tokenFile)) {
-            const raw = JSON.parse(fs.readFileSync(tokenFile, 'utf-8'));
+        if (fs_1.default.existsSync(tokenFile)) {
+            const raw = JSON.parse(fs_1.default.readFileSync(tokenFile, 'utf-8'));
             const tokens = Array.isArray(raw) ? raw : (raw?.access_token ? [raw] : []);
             for (const t of tokens) {
                 if (t.clientId)
@@ -55,9 +73,9 @@ export function getOAuthClientId() {
     catch { }
     // 2. Fall back to oauth_config.json (app data dir — set by addProject/reauthorizeProject)
     try {
-        const configFile2 = path.join(getAppStoreDir(), 'oauth_config.json');
-        if (fs.existsSync(configFile2)) {
-            const config = JSON.parse(fs.readFileSync(configFile2, 'utf-8'));
+        const configFile2 = path_1.default.join((0, paths_js_1.getAppStoreDir)(), 'oauth_config.json');
+        if (fs_1.default.existsSync(configFile2)) {
+            const config = JSON.parse(fs_1.default.readFileSync(configFile2, 'utf-8'));
             if (typeof config === 'object') {
                 if (config.client_id)
                     return config.client_id;
@@ -72,12 +90,12 @@ export function getOAuthClientId() {
     // 3. Embedded default (unverified app warning — user should create their own project)
     return DEFAULT_CLIENT_ID;
 }
-export function getOAuthClientSecret() {
+function getOAuthClientSecret() {
     const tokenFile = getTokenFile();
     // 1. Check oauth_tokens.json first
     try {
-        if (fs.existsSync(tokenFile)) {
-            const raw = JSON.parse(fs.readFileSync(tokenFile, 'utf-8'));
+        if (fs_1.default.existsSync(tokenFile)) {
+            const raw = JSON.parse(fs_1.default.readFileSync(tokenFile, 'utf-8'));
             const tokens = Array.isArray(raw) ? raw : (raw?.access_token ? [raw] : []);
             for (const t of tokens) {
                 if (t.clientSecret)
@@ -88,9 +106,9 @@ export function getOAuthClientSecret() {
     catch { }
     // 2. Fall back to oauth_config.json (app data dir)
     try {
-        const configFile2 = path.join(getAppStoreDir(), 'oauth_config.json');
-        if (fs.existsSync(configFile2)) {
-            const config = JSON.parse(fs.readFileSync(configFile2, 'utf-8'));
+        const configFile2 = path_1.default.join((0, paths_js_1.getAppStoreDir)(), 'oauth_config.json');
+        if (fs_1.default.existsSync(configFile2)) {
+            const config = JSON.parse(fs_1.default.readFileSync(configFile2, 'utf-8'));
             if (typeof config === 'object') {
                 if (config.client_secret)
                     return config.client_secret;
@@ -104,27 +122,27 @@ export function getOAuthClientSecret() {
     catch { }
     return '';
 }
-export function setOAuthClientId(clientId) {
+function setOAuthClientId(clientId) {
     // Write to oauth_config.json in app data dir AND update oauth_tokens.json entries
-    const appDataDir = getAppStoreDir();
-    const configFile = path.join(appDataDir, 'oauth_config.json');
+    const appDataDir = (0, paths_js_1.getAppStoreDir)();
+    const configFile = path_1.default.join(appDataDir, 'oauth_config.json');
     const tokenFile = getTokenFile();
-    if (!fs.existsSync(appDataDir))
-        fs.mkdirSync(appDataDir, { recursive: true });
+    if (!fs_1.default.existsSync(appDataDir))
+        fs_1.default.mkdirSync(appDataDir, { recursive: true });
     // 1. Update oauth_config.json in app data dir
     const existing = {};
     try {
-        if (fs.existsSync(configFile)) {
-            Object.assign(existing, JSON.parse(fs.readFileSync(configFile, 'utf-8')));
+        if (fs_1.default.existsSync(configFile)) {
+            Object.assign(existing, JSON.parse(fs_1.default.readFileSync(configFile, 'utf-8')));
         }
     }
     catch { }
     existing.client_id = clientId;
-    fs.writeFileSync(configFile, JSON.stringify(existing, null, 2), 'utf-8');
+    fs_1.default.writeFileSync(configFile, JSON.stringify(existing, null, 2), 'utf-8');
     // 2. Update credentials in oauth_tokens.json for all entries that don't have credentials
     try {
-        if (fs.existsSync(tokenFile)) {
-            const raw = JSON.parse(fs.readFileSync(tokenFile, 'utf-8'));
+        if (fs_1.default.existsSync(tokenFile)) {
+            const raw = JSON.parse(fs_1.default.readFileSync(tokenFile, 'utf-8'));
             const tokens = Array.isArray(raw) ? raw : [];
             let updated = false;
             for (const t of tokens) {
@@ -134,20 +152,20 @@ export function setOAuthClientId(clientId) {
                 }
             }
             if (updated) {
-                fs.writeFileSync(tokenFile, JSON.stringify(tokens, null, 2), 'utf-8');
-                devLog('[OAuth] Updated clientId in oauth_tokens.json for', tokens.length, 'token(s)');
+                fs_1.default.writeFileSync(tokenFile, JSON.stringify(tokens, null, 2), 'utf-8');
+                (0, unified_log_js_1.devLog)('[OAuth] Updated clientId in oauth_tokens.json for', tokens.length, 'token(s)');
             }
         }
     }
     catch { }
 }
 // ─── Token Storage ─────────────────────────────────────────────────────────────
-export function loadTokens() {
+function loadTokens() {
     const file = getTokenFile();
     try {
-        if (fs.existsSync(file)) {
-            const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
-            devLog('[OAuth] Tokens loaded from:', file);
+        if (fs_1.default.existsSync(file)) {
+            const data = JSON.parse(fs_1.default.readFileSync(file, 'utf-8'));
+            (0, unified_log_js_1.devLog)('[OAuth] Tokens loaded from:', file);
             // Legacy single-token format (object) — return as-is
             if (!Array.isArray(data))
                 return data;
@@ -159,19 +177,19 @@ export function loadTokens() {
     catch (e) {
         console.warn('[OAuth] Failed to load tokens from', file, ':', e);
     }
-    devLog('[OAuth] No tokens found at:', file);
+    (0, unified_log_js_1.devLog)('[OAuth] No tokens found at:', file);
     return null;
 }
-export function saveTokens(tokens, clientId, clientSecret, projectId) {
+function saveTokens(tokens, clientId, clientSecret, projectId) {
     const file = getTokenFile();
     const resolvedProjectId = projectId || tokens.projectId || 'proj-01';
     try {
         // Always use multi-project array format. Read existing tokens, merge, write back.
         // This prevents overwriting all tokens when startOAuthFlow is called without projectId.
         let existingTokens = [];
-        if (fs.existsSync(file)) {
+        if (fs_1.default.existsSync(file)) {
             try {
-                const raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
+                const raw = JSON.parse(fs_1.default.readFileSync(file, 'utf-8'));
                 if (Array.isArray(raw)) {
                     existingTokens = raw;
                 }
@@ -195,24 +213,24 @@ export function saveTokens(tokens, clientId, clientSecret, projectId) {
         else {
             existingTokens.push(entry);
         }
-        fs.writeFileSync(file, JSON.stringify(existingTokens, null, 2), 'utf-8');
-        devLog('[OAuth] Tokens saved to:', file, '— expires at:', new Date(tokens.expires_at).toISOString(), ` (project: ${resolvedProjectId})`);
+        fs_1.default.writeFileSync(file, JSON.stringify(existingTokens, null, 2), 'utf-8');
+        (0, unified_log_js_1.devLog)('[OAuth] Tokens saved to:', file, '— expires at:', new Date(tokens.expires_at).toISOString(), ` (project: ${resolvedProjectId})`);
     }
     catch (e) {
         console.error('[OAuth] FAILED to save tokens to', file, ':', e);
         throw e;
     }
 }
-export function clearTokens() {
+function clearTokens() {
     try {
-        if (fs.existsSync(getTokenFile()))
-            fs.unlinkSync(getTokenFile());
+        if (fs_1.default.existsSync(getTokenFile()))
+            fs_1.default.unlinkSync(getTokenFile());
     }
     catch { }
     _cachedToken = null;
 }
 // ─── OAuth URL Builder ─────────────────────────────────────────────────────────
-export function buildOAuthUrl(clientId) {
+function buildOAuthUrl(clientId) {
     const scopes = 'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube';
     const params = new URLSearchParams({
         client_id: clientId,
@@ -237,7 +255,7 @@ function exchangeCodeForTokens(clientId, clientSecret, code) {
             bodyParams['client_secret'] = clientSecret;
         const body = new URLSearchParams(bodyParams).toString();
         const maskedSecret = clientSecret ? `${clientSecret.slice(0, 8)}...` : '(none)';
-        devLog(`[OAuth] Token exchange: clientId=${clientId.slice(0, 20)}..., secret=${maskedSecret}, grant=authorization_code`);
+        (0, unified_log_js_1.devLog)(`[OAuth] Token exchange: clientId=${clientId.slice(0, 20)}..., secret=${maskedSecret}, grant=authorization_code`);
         const options = {
             hostname: 'oauth2.googleapis.com',
             path: '/token',
@@ -247,12 +265,12 @@ function exchangeCodeForTokens(clientId, clientSecret, code) {
                 'Content-Length': Buffer.byteLength(body),
             },
         };
-        const req = https.request(options, (res) => {
+        const req = https_1.default.request(options, (res) => {
             let data = '';
             res.on('data', (chunk) => (data += chunk));
             res.on('end', () => {
                 // Log the raw response for debugging
-                devLog(`[OAuth] Token exchange response status: ${res.statusCode}, body: ${data.slice(0, 200)}`);
+                (0, unified_log_js_1.devLog)(`[OAuth] Token exchange response status: ${res.statusCode}, body: ${data.slice(0, 200)}`);
                 if (res.statusCode !== 200) {
                     try {
                         const errJson = JSON.parse(data);
@@ -293,7 +311,7 @@ function exchangeCodeForTokens(clientId, clientSecret, code) {
     });
 }
 // ─── Token Refresh ────────────────────────────────────────────────────────────
-export function refreshAccessToken(clientId, clientSecret, refreshToken) {
+function refreshAccessToken(clientId, clientSecret, refreshToken) {
     return new Promise((resolve, reject) => {
         const bodyParams = {
             client_id: clientId,
@@ -312,7 +330,7 @@ export function refreshAccessToken(clientId, clientSecret, refreshToken) {
                 'Content-Length': Buffer.byteLength(body),
             },
         };
-        const req = https.request(options, (res) => {
+        const req = https_1.default.request(options, (res) => {
             let data = '';
             res.on('data', (chunk) => (data += chunk));
             res.on('end', () => {
@@ -341,21 +359,21 @@ export function refreshAccessToken(clientId, clientSecret, refreshToken) {
 }
 // ─── Get Valid Access Token (cached) ─────────────────────────────────────────
 let _cachedToken = null;
-export async function getValidAccessToken(clientId) {
+async function getValidAccessToken(clientId) {
     // Return cached token if still valid (with 60s buffer)
     if (_cachedToken && _cachedToken.expiresAt - 60000 > Date.now()) {
-        devLog('[OAuth] Using cached token (expires in', Math.round((_cachedToken.expiresAt - Date.now()) / 60000), 'min)');
+        (0, unified_log_js_1.devLog)('[OAuth] Using cached token (expires in', Math.round((_cachedToken.expiresAt - Date.now()) / 60000), 'min)');
         return _cachedToken.token;
     }
     const tokens = loadTokens();
-    devLog('[OAuth] Tokens loaded:', tokens ? 'yes (expires ' + (tokens.expires_at ? new Date(tokens.expires_at).toISOString() : 'unknown') + ')' : 'NO');
+    (0, unified_log_js_1.devLog)('[OAuth] Tokens loaded:', tokens ? 'yes (expires ' + (tokens.expires_at ? new Date(tokens.expires_at).toISOString() : 'unknown') + ')' : 'NO');
     if (!tokens?.access_token) {
         console.warn('[OAuth] No access_token in loaded tokens');
         return null;
     }
     // Refresh if expired (with 60s buffer)
     if (tokens.expires_at - 60000 < Date.now()) {
-        devLog('[OAuth] Token expired, refreshing...');
+        (0, unified_log_js_1.devLog)('[OAuth] Token expired, refreshing...');
         try {
             const clientSecret = getOAuthClientSecret();
             const newTokens = await refreshAccessToken(clientId, clientSecret, tokens.refresh_token);
@@ -379,18 +397,18 @@ export async function getValidAccessToken(clientId) {
  * @param clientSecret OAuth Client Secret (optional — uses default if not provided)
  * @param projectId Project ID to store with token (for multi-project key-token pairing)
  */
-export async function startOAuthFlow(clientId, clientSecret, projectId) {
+async function startOAuthFlow(clientId, clientSecret, projectId) {
     // If no secret provided, read from config file (for backward compat with cookie_manager)
     const effectiveSecret = clientSecret || (() => {
         try {
             // Try app data dir first (where addProject saves), then fallback to temp (legacy)
             const dirs = [
-                path.join(getAppStoreDir(), 'oauth_config.json'),
-                path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_config.json'),
+                path_1.default.join((0, paths_js_1.getAppStoreDir)(), 'oauth_config.json'),
+                path_1.default.join(os_1.default.tmpdir(), 'hyperclip-cookies', 'oauth_config.json'),
             ];
             for (const configPath of dirs) {
-                if (fs.existsSync(configPath)) {
-                    const cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+                if (fs_1.default.existsSync(configPath)) {
+                    const cfg = JSON.parse(fs_1.default.readFileSync(configPath, 'utf-8'));
                     if (projectId && cfg[projectId]?.clientSecret)
                         return cfg[projectId].clientSecret;
                     if (cfg.client_secret)
@@ -433,7 +451,7 @@ export async function startOAuthFlow(clientId, clientSecret, projectId) {
             });
         };
         const tryListen = (port) => {
-            server = http.createServer((req, res) => {
+            server = http_1.default.createServer((req, res) => {
                 const url = new URL(req.url || '', `http://localhost:${port}`);
                 const code = url.searchParams.get('code');
                 const error = url.searchParams.get('error');
@@ -452,7 +470,7 @@ export async function startOAuthFlow(clientId, clientSecret, projectId) {
                 // Got the code — exchange for tokens (don't send HTML until we know result)
                 exchangeCodeForTokens(clientId, effectiveSecret, code)
                     .then((tokens) => {
-                    devLog('[OAuth] Token exchanged — expires in', Math.round((tokens.expires_at - Date.now()) / 60000), 'minutes', projectId ? ` (project: ${projectId})` : '');
+                    (0, unified_log_js_1.devLog)('[OAuth] Token exchanged — expires in', Math.round((tokens.expires_at - Date.now()) / 60000), 'minutes', projectId ? ` (project: ${projectId})` : '');
                     // Save to flat file for legacy compat (no projectId = single-project flow).
                     // Per-project flows (with projectId) rely on TokenManager.addToken() from main.ts instead.
                     if (!projectId) {
@@ -482,9 +500,9 @@ export async function startOAuthFlow(clientId, clientSecret, projectId) {
             });
             server.listen(port, '127.0.0.1', () => {
                 const oauthUrl = buildOAuthUrl(clientId);
-                devLog(`[OAuth] Starting OAuth flow on port ${port} — opening browser`);
+                (0, unified_log_js_1.devLog)(`[OAuth] Starting OAuth flow on port ${port} — opening browser`);
                 _activeServer = server;
-                shell.openExternal(oauthUrl).catch((e) => {
+                electron_1.shell.openExternal(oauthUrl).catch((e) => {
                     console.warn('[OAuth] Failed to open browser:', e);
                     finish({ success: false, error: 'Failed to open browser' });
                 });
@@ -503,7 +521,7 @@ export async function startOAuthFlow(clientId, clientSecret, projectId) {
 /**
  * Get account info from YouTube API.
  */
-export async function fetchAccountInfo(accessToken) {
+async function fetchAccountInfo(accessToken) {
     return new Promise((resolve) => {
         const options = {
             hostname: 'www.googleapis.com',
@@ -513,7 +531,7 @@ export async function fetchAccountInfo(accessToken) {
                 Authorization: `Bearer ${accessToken}`,
             },
         };
-        const req = https.request(options, (res) => {
+        const req = https_1.default.request(options, (res) => {
             let data = '';
             res.on('data', (chunk) => (data += chunk));
             res.on('end', () => {
@@ -539,7 +557,7 @@ export async function fetchAccountInfo(accessToken) {
  * Called periodically to keep the channel store in sync with the user's
  * real YouTube subscriptions (handles subscribe/unsubscribe on youtube.com).
  */
-export async function fetchMySubscriptions(accessToken) {
+async function fetchMySubscriptions(accessToken) {
     const subscriptions = [];
     let nextPageToken = undefined;
     do {
@@ -558,7 +576,7 @@ export async function fetchMySubscriptions(accessToken) {
                 method: 'GET',
                 headers: { Authorization: `Bearer ${accessToken}` },
             };
-            const req = https.request(options, (res) => {
+            const req = https_1.default.request(options, (res) => {
                 let data = '';
                 res.on('data', (c) => { data += c; });
                 res.on('end', () => {
@@ -596,7 +614,7 @@ export async function fetchMySubscriptions(accessToken) {
  * Requires a valid OAuth access token with `https://www.googleapis.com/auth/youtube` scope.
  * Returns { success: true } on success, or { success: false, error: string } on failure.
  */
-export async function unsubscribeChannel(accessToken, channelId) {
+async function unsubscribeChannel(accessToken, channelId) {
     // First: find the subscription ID for this channel
     let nextPageToken = undefined;
     do {
@@ -614,7 +632,7 @@ export async function unsubscribeChannel(accessToken, channelId) {
                 method: 'GET',
                 headers: { Authorization: `Bearer ${accessToken}` },
             };
-            const req = https.request(options, (res) => {
+            const req = https_1.default.request(options, (res) => {
                 let data = '';
                 res.on('data', (c) => { data += c; });
                 res.on('end', () => {
@@ -649,7 +667,7 @@ export async function unsubscribeChannel(accessToken, channelId) {
                             'Content-Length': Buffer.byteLength(body),
                         },
                     };
-                    const req = https.request(options, (res) => {
+                    const req = https_1.default.request(options, (res) => {
                         let data = '';
                         res.on('data', (c) => { data += c; });
                         res.on('end', () => {

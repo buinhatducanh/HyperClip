@@ -36,7 +36,13 @@ export interface ElectronAPI {
   retryWorkspace: (id: string) => Promise<unknown>
   redownloadHd: (id: string) => Promise<{ success: boolean; error?: string }>
   regenerateWorkspaceBlur: (id: string) => Promise<{ success: boolean; blurPath?: string; error?: string }>
-  splitWorkspace: (id: string, partMinutes?: number) => Promise<{ success: boolean; newWorkspaces?: unknown[]; error?: string }>
+  splitWorkspace: (id: string, opts?: { intervals?: number[]; partMinutes?: number; autoSplit?: boolean; autoRender?: boolean } | number) => Promise<{ success: boolean; newWorkspaces?: unknown[]; error?: string }>
+  splitWorkspacePreview: (id: string, intervals?: number[], partMinutes?: number) => Promise<{ parts: Array<{ index: number; start: number; end: number; duration: number }>; numParts: number; totalSec: number } | null>
+  pauseChannel: (id: string) => Promise<boolean>
+  resumeChannel: (id: string) => Promise<boolean>
+  bulkPauseChannels: (ids: string[]) => Promise<number>
+  bulkResumeChannels: (ids: string[]) => Promise<number>
+  bulkRemoveChannels: (ids: string[]) => Promise<number>
   setActiveWorkspace: (workspaceId: string | null) => Promise<{ success: boolean }>
   getVideoFile: (workspaceId: string) => Promise<{ path: string; url: string } | null>
   getVideoBlob: (workspaceId: string) => Promise<Uint8Array | null>

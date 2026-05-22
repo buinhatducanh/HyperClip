@@ -1,3 +1,4 @@
+"use strict";
 /**
  * Subscription Feed — HyperClip (hybrid pipeline, 2026-05-14)
  *
@@ -12,17 +13,56 @@
  * Early termination: stops after N new videos found.
  * Uploads playlist ID cached 24h.
  */
-import https from 'https';
-import path from 'path';
-import fs from 'fs';
-import { getTokenManager } from './token_manager.js';
-import { getProjectManager } from './project_manager.js';
-import { getChannels } from './store.js';
-import { getInnertubePool } from './innertube_client.js';
-import { getLatestVideosFromRss } from './youtube.js';
-import { getChannelsDir } from './paths.js';
-import { devLog } from './unified_log.js';
-import { loadSettings } from './ramdisk.js';
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.fetchSubscriptionFeed = fetchSubscriptionFeed;
+exports.refreshChannelCache = refreshChannelCache;
+const https_1 = __importDefault(require("https"));
+const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
+const token_manager_js_1 = require("./token_manager.js");
+const project_manager_js_1 = require("./project_manager.js");
+const store_js_1 = require("./store.js");
+const innertube_client_js_1 = require("./innertube_client.js");
+const youtube_js_1 = require("./youtube.js");
+const paths_js_1 = require("./paths.js");
+const unified_log_js_1 = require("./unified_log.js");
+const ramdisk_js_1 = require("./ramdisk.js");
 // NOTE: opLog uses dynamic import inside functions to avoid circular dependency
 // (operation_log.ts imports BrowserWindow from Electron, which isn't available at module load)
 /** Parse ISO 8601 duration (e.g. "PT5M30S" or "PT1H2M3S") to seconds. */
@@ -46,7 +86,7 @@ let _consecutiveZeroInnertubePolls = 0;
 // ─── OAuth API Helper ───────────────────────────────────────────────────────────
 function apiGet(urlStr, token) {
     return new Promise((resolve) => {
-        const req = https.get({
+        const req = https_1.default.get({
             hostname: 'www.googleapis.com',
             path: urlStr,
             headers: {
@@ -72,19 +112,19 @@ function apiGet(urlStr, token) {
         req.setTimeout(15000, () => { req.destroy(); resolve({ json: { error: 'Request timeout' }, isQuotaError: false }); });
     });
 }
-const UPLOADS_CACHE_FILE = path.join(getChannelsDir(), 'uploads-cache.json');
+const UPLOADS_CACHE_FILE = path_1.default.join((0, paths_js_1.getChannelsDir)(), 'uploads-cache.json');
 const _uploadsCache = new Map();
 function _loadCacheFromDisk() {
     try {
-        if (fs.existsSync(UPLOADS_CACHE_FILE)) {
-            const raw = JSON.parse(fs.readFileSync(UPLOADS_CACHE_FILE, 'utf-8'));
+        if (fs_1.default.existsSync(UPLOADS_CACHE_FILE)) {
+            const raw = JSON.parse(fs_1.default.readFileSync(UPLOADS_CACHE_FILE, 'utf-8'));
             if (Array.isArray(raw)) {
                 for (const entry of raw) {
                     if (entry.channelId && entry.uploadsId) {
                         _uploadsCache.set(entry.channelId, { uploadsId: entry.uploadsId, fetchedAt: entry.fetchedAt });
                     }
                 }
-                devLog(`[SubFeed] Loaded ${_uploadsCache.size} cached uploads playlist IDs`);
+                (0, unified_log_js_1.devLog)(`[SubFeed] Loaded ${_uploadsCache.size} cached uploads playlist IDs`);
             }
         }
     }
@@ -99,7 +139,7 @@ function _saveCacheToDisk() {
             uploadsId: entry.uploadsId,
             fetchedAt: entry.fetchedAt,
         }));
-        fs.writeFileSync(UPLOADS_CACHE_FILE, JSON.stringify(entries, null, 2), 'utf-8');
+        fs_1.default.writeFileSync(UPLOADS_CACHE_FILE, JSON.stringify(entries, null, 2), 'utf-8');
     }
     catch (e) {
         console.warn('[SubFeed] Failed to persist uploads cache:', e);
@@ -122,7 +162,7 @@ async function fetchChannelWithRss(ch, seenVideoIds) {
     const channelId = ch.channelId || ch.id;
     if (!channelId || !channelId.startsWith('UC'))
         return null;
-    const rssVideos = await getLatestVideosFromRss(channelId, 3);
+    const rssVideos = await (0, youtube_js_1.getLatestVideosFromRss)(channelId, 3);
     for (const rv of rssVideos) {
         if (seenVideoIds?.has(rv.videoId))
             continue;
@@ -202,7 +242,7 @@ async function fetchChannelWithOAuth(ch, token, projectId, seenVideoIds) {
 }
 async function verifyVideoAgeByOAuth(videoId) {
     try {
-        const tm = getTokenManager();
+        const tm = (0, token_manager_js_1.getTokenManager)();
         const best = await tm.getBestAvailable();
         if (!best)
             return null;
@@ -220,7 +260,7 @@ async function verifyVideoAgeByOAuth(videoId) {
         if (publishedAt === 0 || Date.now() - publishedAt > MAX_VIDEO_AGE_MS)
             return null;
         // Duration filter from settings
-        const settings = loadSettings();
+        const settings = (0, ramdisk_js_1.loadSettings)();
         const minSec = settings.videoMinDurationSec ?? 0;
         const maxSec = settings.videoMaxDurationSec ?? 0;
         if (minSec > 0 || maxSec > 0) {
@@ -249,13 +289,13 @@ async function fetchChannelWithInnertube(ch, seenVideoIds) {
     // Use getLatestVideos (plural) for full control over filtering logic.
     // getLatestVideo (singular) has internal skip logic that can silently reject
     // valid videos due to inconsistent session responses between concurrent calls.
-    const pool = await getInnertubePool();
+    const pool = await (0, innertube_client_js_1.getInnertubePool)();
     const allVideos = await pool.getLatestVideos(channelId, 5);
     if (allVideos.length === 0) {
-        devLog(`[SubFeed] getLatestVideos(${channelId}): 0 videos extracted`);
+        (0, unified_log_js_1.devLog)(`[SubFeed] getLatestVideos(${channelId}): 0 videos extracted`);
         return null;
     }
-    devLog(`[SubFeed] getLatestVideos(${channelId}): ${allVideos.length} videos, top=${allVideos[0].videoId} (${allVideos[0].publishedAt > 0 ? Math.round((Date.now() - allVideos[0].publishedAt) / 1000) + 's ago' : 'ZERO'})`);
+    (0, unified_log_js_1.devLog)(`[SubFeed] getLatestVideos(${channelId}): ${allVideos.length} videos, top=${allVideos[0].videoId} (${allVideos[0].publishedAt > 0 ? Math.round((Date.now() - allVideos[0].publishedAt) / 1000) + 's ago' : 'ZERO'})`);
     // Take the first (newest) video that passes age + dedup checks
     for (const v of allVideos) {
         // Skip deleted/private
@@ -263,20 +303,20 @@ async function fetchChannelWithInnertube(ch, seenVideoIds) {
             continue;
         // Skip already-seen (handled by getLatestVideos already, but double-check)
         if (seenVideoIds?.has(v.videoId)) {
-            devLog(`[SubFeed] Innertube: ${v.videoId} already seen — skipping`);
+            (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: ${v.videoId} already seen — skipping`);
             continue;
         }
         if (v.publishedAt === 0) {
-            devLog(`[SubFeed] Innertube: ${v.videoId} publishedAt=0 — trying RSS...`);
+            (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: ${v.videoId} publishedAt=0 — trying RSS...`);
             const rss = await fetchChannelWithRss(ch, seenVideoIds);
             if (rss) {
-                devLog(`[SubFeed] RSS ✓: ${rss.videoId} — using RSS`);
+                (0, unified_log_js_1.devLog)(`[SubFeed] RSS ✓: ${rss.videoId} — using RSS`);
                 return rss;
             }
-            devLog(`[SubFeed] RSS empty/old — trying OAuth...`);
+            (0, unified_log_js_1.devLog)(`[SubFeed] RSS empty/old — trying OAuth...`);
             const oauth = await verifyVideoAgeByOAuth(v.videoId);
             if (oauth) {
-                devLog(`[SubFeed] OAuth ✓: ${v.videoId} — verified ${Math.round((Date.now() - oauth.publishedAt) / 1000)}s ago`);
+                (0, unified_log_js_1.devLog)(`[SubFeed] OAuth ✓: ${v.videoId} — verified ${Math.round((Date.now() - oauth.publishedAt) / 1000)}s ago`);
                 return {
                     videoId: v.videoId,
                     title: oauth.title,
@@ -292,10 +332,10 @@ async function fetchChannelWithInnertube(ch, seenVideoIds) {
         }
         const ageMin = (Date.now() - v.publishedAt) / 60000;
         if (ageMin > 10) {
-            devLog(`[SubFeed] Innertube: ${v.videoId} is ${ageMin.toFixed(1)}m old (>10m) — skipping`);
+            (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: ${v.videoId} is ${ageMin.toFixed(1)}m old (>10m) — skipping`);
             continue;
         }
-        devLog(`[SubFeed] Innertube ✓: ${v.videoId} (${Math.round(ageMin * 60)}s ago) — accepting`);
+        (0, unified_log_js_1.devLog)(`[SubFeed] Innertube ✓: ${v.videoId} (${Math.round(ageMin * 60)}s ago) — accepting`);
         return {
             videoId: v.videoId,
             title: v.title,
@@ -306,24 +346,24 @@ async function fetchChannelWithInnertube(ch, seenVideoIds) {
             duration: '',
         };
     }
-    devLog(`[SubFeed] Innertube: all videos for ${channelId} filtered out (too old / seen / unpublished)`);
+    (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: all videos for ${channelId} filtered out (too old / seen / unpublished)`);
     return null;
 }
 // ─── Main Export ─────────────────────────────────────────────────────────────
-export async function fetchSubscriptionFeed(options = {}) {
+async function fetchSubscriptionFeed(options = {}) {
     const { seenVideoIds } = options;
     const targetStop = MAX_VIDEOS_PER_POLL;
-    const channels = getChannels();
+    const channels = (0, store_js_1.getChannels)();
     if (channels.length === 0)
         return { videos: [], source: 'none' };
     const results = [];
     // eslint-disable-next-line no-useless-assignment -- used for observability logging
     let innertubeAvailable = false;
     // Lazy load opLog to avoid circular import at module initialization
-    const { opLog } = await import('./unified_log.js');
+    const { opLog } = await Promise.resolve().then(() => __importStar(require('./unified_log.js')));
     // Step 1: Innertube PRIMARY (0 quota, ~200ms/call)
     try {
-        const pool = await getInnertubePool();
+        const pool = await (0, innertube_client_js_1.getInnertubePool)();
         const readyCount = pool.getReadyCount();
         const totalSessions = pool.getStatus().totalSessions;
         if (pool.isReady() && readyCount > 0) {
@@ -337,7 +377,7 @@ export async function fetchSubscriptionFeed(options = {}) {
                         results.push(video);
                         seenVideoIds?.add(video.videoId);
                         if (results.length >= targetStop) {
-                            devLog(`[SubFeed] Innertube: ${results.length} videos found — returning`);
+                            (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: ${results.length} videos found — returning`);
                             opLog.success('scan', `Tìm thấy ${results.length} video mới — dừng sớm`);
                             return { videos: results, source: 'innertube' };
                         }
@@ -347,7 +387,7 @@ export async function fetchSubscriptionFeed(options = {}) {
             // Only devLog when zero videos — every 30th poll (~2.5 min) to reduce spam
             const _pollTick = Math.floor(Date.now() / 5000);
             if (_pollTick % 30 === 0) {
-                devLog(`[SubFeed] Innertube: 0 videos across ${channels.length} channels (no new content)`);
+                (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: 0 videos across ${channels.length} channels (no new content)`);
             }
             if (results.length === 0) {
                 _consecutiveZeroInnertubePolls++;
@@ -372,17 +412,17 @@ export async function fetchSubscriptionFeed(options = {}) {
             };
         }
         else {
-            devLog(`[SubFeed] Innertube: 0/${totalSessions} sessions ready`);
+            (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: 0/${totalSessions} sessions ready`);
             innertubeAvailable = false;
         }
     }
     catch (e) {
-        devLog(`[SubFeed] Innertube error: ${e}`);
+        (0, unified_log_js_1.devLog)(`[SubFeed] Innertube error: ${e}`);
         innertubeAvailable = false;
     }
     // Step 2b: OAuth FULL COVERAGE (Innertube dead)
     if (results.length === 0 && !innertubeAvailable) {
-        devLog(`[SubFeed] Innertube DOWN — OAuth FULL COVERAGE mode`);
+        (0, unified_log_js_1.devLog)(`[SubFeed] Innertube DOWN — OAuth FULL COVERAGE mode`);
         await _fetchOAuthFullCoverage(channels, results, seenVideoIds, targetStop);
         if (results.length >= targetStop) {
             return { videos: results.slice(0, targetStop), source: 'oauth' };
@@ -392,7 +432,7 @@ export async function fetchSubscriptionFeed(options = {}) {
     if (results.length === 0) {
         const priorityChannels = channels.slice(0, 10);
         const RSS_CONCURRENT = 3;
-        devLog(`[SubFeed] All sources exhausted — RSS fallback for ${priorityChannels.length} channels`);
+        (0, unified_log_js_1.devLog)(`[SubFeed] All sources exhausted — RSS fallback for ${priorityChannels.length} channels`);
         for (let i = 0; i < priorityChannels.length; i += RSS_CONCURRENT) {
             const batch = priorityChannels.slice(i, i + RSS_CONCURRENT);
             const rssResults = await Promise.all(batch.map(ch => fetchChannelWithRss(ch, seenVideoIds)));
@@ -423,7 +463,7 @@ export async function fetchSubscriptionFeed(options = {}) {
         const newest = unique[0];
         const ageMin = (Date.now() - newest.publishedAt) / 60000;
         const ageLabel = ageMin < 1 ? 'vua xong' : Math.floor(ageMin) + 'm ago';
-        devLog(`[SubFeed] ${unique.length} video(s) found (${source}): "${newest.title.slice(0, 40)}" from ${newest.channelName} (${ageLabel})`);
+        (0, unified_log_js_1.devLog)(`[SubFeed] ${unique.length} video(s) found (${source}): "${newest.title.slice(0, 40)}" from ${newest.channelName} (${ageLabel})`);
     }
     return { videos: unique, source: unique.length > 0 ? source : 'oauth' };
 }
@@ -433,8 +473,8 @@ export async function fetchSubscriptionFeed(options = {}) {
  * Total cost: ~69k units/day (3.5% of 2M total quota).
  */
 async function _fetchOAuthDistributed(channels, results, seenVideoIds, targetStop) {
-    const pm = getProjectManager();
-    const tm = getTokenManager();
+    const pm = (0, project_manager_js_1.getProjectManager)();
+    const tm = (0, token_manager_js_1.getTokenManager)();
     const status = pm.getStatus();
     if (status.total === 0)
         return;
@@ -467,7 +507,7 @@ async function _fetchOAuthDistributed(channels, results, seenVideoIds, targetSto
             if (!results.some(r => r.videoId === video.videoId)) {
                 results.push(video);
                 seenVideoIds?.add(video.videoId);
-                devLog(`[SubFeed] OAuth-DIST: found "${video.title.slice(0, 40)}" via ${project.projectId}`);
+                (0, unified_log_js_1.devLog)(`[SubFeed] OAuth-DIST: found "${video.title.slice(0, 40)}" via ${project.projectId}`);
             }
         }
     }
@@ -478,12 +518,12 @@ async function _fetchOAuthDistributed(channels, results, seenVideoIds, targetSto
  * ~1.7M units/day — 86% of 2M total. Survives Innertube outage for days.
  */
 async function _fetchOAuthFullCoverage(channels, results, seenVideoIds, targetStop) {
-    const tm = getTokenManager();
+    const tm = (0, token_manager_js_1.getTokenManager)();
     const statuses = tm.getAllStatuses();
     const hasAvailable = statuses.some(ts => ts.hasToken && ts.status !== 'exhausted');
     if (!hasAvailable)
         return;
-    devLog(`[SubFeed] OAuth FULL COVERAGE: scanning ${channels.length} channels`);
+    (0, unified_log_js_1.devLog)(`[SubFeed] OAuth FULL COVERAGE: scanning ${channels.length} channels`);
     for (let i = 0; i < channels.length; i += MAX_CONCURRENT) {
         const batch = channels.slice(i, i + MAX_CONCURRENT);
         const best = await tm.getBestAvailable();
@@ -503,7 +543,7 @@ async function _fetchOAuthFullCoverage(channels, results, seenVideoIds, targetSt
                 results.push(video);
                 seenVideoIds?.add(video.videoId);
                 if (results.length >= targetStop) {
-                    devLog(`[SubFeed] OAuth FULL COVERAGE: ${results.length} videos found`);
+                    (0, unified_log_js_1.devLog)(`[SubFeed] OAuth FULL COVERAGE: ${results.length} videos found`);
                     return;
                 }
             }
@@ -529,6 +569,6 @@ async function _fetchOAuthFullCoverage(channels, results, seenVideoIds, targetSt
     }
 }
 // ─── Channel Cache ─────────────────────────────────────────────────────────────
-export function refreshChannelCache() {
+function refreshChannelCache() {
     // Channels are read directly from the store — no in-memory cache to refresh
 }

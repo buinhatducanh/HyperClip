@@ -1,11 +1,22 @@
-import { spawn } from 'child_process';
-import fs from 'fs';
-import { getFfmpegPath, validateFfmpeg } from './ffmpeg-paths.js';
-import { getGPUCapabilities, getEffectiveWorkers } from './system.js';
-import { devLog } from './unified_log.js';
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.renderPool = exports.WorkerPool = void 0;
+exports.getChunkPoolStatus = getChunkPoolStatus;
+exports.runFfmpeg = runFfmpeg;
+exports.cancelFfmpeg = cancelFfmpeg;
+exports.cancelAllFfmpeg = cancelAllFfmpeg;
+exports.getPoolStatus = getPoolStatus;
+const child_process_1 = require("child_process");
+const fs_1 = __importDefault(require("fs"));
+const ffmpeg_paths_js_1 = require("./ffmpeg-paths.js");
+const system_js_1 = require("./system.js");
+const unified_log_js_1 = require("./unified_log.js");
 // Cache validation result — check once at startup
 let _ffmpegValidated = false;
-export class WorkerPool {
+class WorkerPool {
     active = new Map();
     queue = [];
     _maxWorkers;
@@ -96,23 +107,24 @@ export class WorkerPool {
         this._drain();
     }
 }
+exports.WorkerPool = WorkerPool;
 // Render pool — GPU-aware single-pass worker count.
 // Lazy init to avoid circular dependency (renderPool → ffmpeg-paths → system → ramdisk → renderPool)
 let _renderPool = null;
 let _renderPoolWorkers = 0;
 function getRenderPool() {
     if (!_renderPool) {
-        const caps = getGPUCapabilities();
+        const caps = (0, system_js_1.getGPUCapabilities)();
         // Env override: explicit control
         const envMax = parseInt(process.env.HYPERCLIP_MAX_WORKERS || '', 10);
         const maxWorkers = !isNaN(envMax) && envMax > 0 ? envMax : 2;
         _renderPool = new WorkerPool(maxWorkers);
         _renderPoolWorkers = maxWorkers;
-        devLog(`[WorkerPool] Render pool initialized: ${maxWorkers} workers (GPU: ${caps.gpuName}, encoder: ${caps.encoder})`);
+        (0, unified_log_js_1.devLog)(`[WorkerPool] Render pool initialized: ${maxWorkers} workers (GPU: ${caps.gpuName}, encoder: ${caps.encoder})`);
     }
     return _renderPool;
 }
-export const renderPool = {
+exports.renderPool = {
     get pool() { return getRenderPool(); },
     get status() { return getRenderPool().status; },
     get maxWorkers() { return _renderPoolWorkers; },
@@ -129,24 +141,24 @@ export const renderPool = {
 let _chunkPool = null;
 function getChunkPool() {
     if (!_chunkPool) {
-        const caps = getGPUCapabilities();
+        const caps = (0, system_js_1.getGPUCapabilities)();
         // Env override: explicit control
         const envMax = parseInt(process.env.HYPERCLIP_MAX_CHUNK_WORKERS || '', 10);
         const envOverride = !isNaN(envMax) && envMax > 0;
-        const effective = envOverride ? envMax : Math.min(getEffectiveWorkers(), 4); // cap at 4 max
+        const effective = envOverride ? envMax : Math.min((0, system_js_1.getEffectiveWorkers)(), 4); // cap at 4 max
         _chunkPool = new WorkerPool(effective);
-        devLog(`[WorkerPool] Chunk pool initialized: ${effective} workers (GPU: ${caps.gpuName}, encoder: ${caps.encoder}, base=${caps.maxChunkWorkers})`);
+        (0, unified_log_js_1.devLog)(`[WorkerPool] Chunk pool initialized: ${effective} workers (GPU: ${caps.gpuName}, encoder: ${caps.encoder}, base=${caps.maxChunkWorkers})`);
     }
     return _chunkPool;
 }
-export function getChunkPoolStatus() {
+function getChunkPoolStatus() {
     return getChunkPool().status;
 }
 // Normalize paths to forward slashes for cross-platform FFmpeg compatibility.
 function normalizePath(p) {
     return p.replace(/\\/g, '/');
 }
-export async function runFfmpeg(opts) {
+async function runFfmpeg(opts) {
     const { jobId, args, outputFile, onProgress, onFps, timeoutMs = 2 * 60 * 60 * 1000 } = opts;
     // Debug: log all args with input indices marked
     const filterIdx = args.indexOf('-filter_complex');
@@ -156,24 +168,24 @@ export async function runFfmpeg(opts) {
         if (args[i] === '-i')
             inputs.push(`  [${inputs.length}]: ${args[i + 1]}`);
     }
-    devLog(`[runFfmpeg] job=${jobId} inputs: ${inputs.join(' | ')}`);
-    devLog(`[runFfmpeg] filter_complex="${filterVal}"`);
-    devLog(`[runFfmpeg] output=${args[args.length - 1]}`);
+    (0, unified_log_js_1.devLog)(`[runFfmpeg] job=${jobId} inputs: ${inputs.join(' | ')}`);
+    (0, unified_log_js_1.devLog)(`[runFfmpeg] filter_complex="${filterVal}"`);
+    (0, unified_log_js_1.devLog)(`[runFfmpeg] output=${args[args.length - 1]}`);
     return new Promise((resolve) => {
         const t0 = Date.now();
-        const ffmpeg = normalizePath(getFfmpegPath());
+        const ffmpeg = normalizePath((0, ffmpeg_paths_js_1.getFfmpegPath)());
         const normalizedArgs = args.map(a => {
             if (a.startsWith('"'))
                 return normalizePath(a.slice(1, a.length - 1));
             return a;
         });
-        const proc = spawn(ffmpeg, normalizedArgs, { shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+        const proc = (0, child_process_1.spawn)(ffmpeg, normalizedArgs, { shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
         // Register with pool for cancellation support
-        renderPool.track(jobId, proc);
+        exports.renderPool.track(jobId, proc);
         // Startup validation: check FFmpeg actually works (first render only)
         if (!_ffmpegValidated) {
             _ffmpegValidated = true;
-            validateFfmpeg(ffmpeg).catch(e => console.warn('[FFmpeg] Validation warning:', e));
+            (0, ffmpeg_paths_js_1.validateFfmpeg)(ffmpeg).catch(e => console.warn('[FFmpeg] Validation warning:', e));
         }
         const LINE_BUF_SIZE = 200;
         const lineBuf = [];
@@ -195,7 +207,7 @@ export async function runFfmpeg(opts) {
             closed = true;
             if (!proc.killed)
                 proc.kill();
-            renderPool.release(jobId);
+            exports.renderPool.release(jobId);
             resolve({ success: false, error: 'Timeout' });
         }, timeoutMs);
         proc.stderr?.on('data', (data) => {
@@ -230,7 +242,7 @@ export async function runFfmpeg(opts) {
         proc.on('error', (err) => {
             closed = true;
             clearTimeout(timeout);
-            renderPool.release(jobId);
+            exports.renderPool.release(jobId);
             resolve({ success: false, error: err.message });
         });
         proc.on('close', (code) => {
@@ -238,14 +250,14 @@ export async function runFfmpeg(opts) {
                 return;
             closed = true;
             clearTimeout(timeout);
-            renderPool.release(jobId);
+            exports.renderPool.release(jobId);
             // Force 100% on close (FFmpeg may not emit final time= line)
             onProgress?.(100, Date.now() - t0);
             const cleanPath = outputFile.replace(/"/g, '');
-            if (code === 0 && fs.existsSync(cleanPath)) {
+            if (code === 0 && fs_1.default.existsSync(cleanPath)) {
                 let size = 0;
                 try {
-                    size = fs.statSync(cleanPath).size;
+                    size = fs_1.default.statSync(cleanPath).size;
                 }
                 catch { }
                 resolve({ success: true, outputFile, fileSize: size });
@@ -257,12 +269,12 @@ export async function runFfmpeg(opts) {
         });
     });
 }
-export function cancelFfmpeg(jobId) {
-    return renderPool.cancel(jobId);
+function cancelFfmpeg(jobId) {
+    return exports.renderPool.cancel(jobId);
 }
-export function cancelAllFfmpeg() {
-    renderPool.cancelAll();
+function cancelAllFfmpeg() {
+    exports.renderPool.cancelAll();
 }
-export function getPoolStatus() {
-    return renderPool.status;
+function getPoolStatus() {
+    return exports.renderPool.status;
 }

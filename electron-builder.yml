@@ -6,7 +6,10 @@ directories:
   buildResources: build
 files:
   - dist-electron/**/*
+  - src/**/*
+  - next.config.mjs
   - package.json
+  - .next/**/*
 extraResources:
   - from: resources/ffmpeg/bin/
     to: ffmpeg/bin/
@@ -16,6 +19,8 @@ extraResources:
     to: node/
     filter:
       - "**/*"
+  - from: build/icon.ico
+    to: build/icon.ico
 asarUnpack: []
 
 # Auto-update configuration (disabled — manual update only)

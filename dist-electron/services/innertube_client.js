@@ -1,3 +1,4 @@
+"use strict";
 /**
  * Innertube Client Pool — HyperClip
  *
@@ -8,6 +9,12 @@
  * Primary detection path — NO quota limit, ~200ms/request.
  * Fallback: OAuth Data API v3 (TokenManager, quota-limited).
  */
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getInnertubePool = getInnertubePool;
+exports.getInnertubePoolSync = getInnertubePoolSync;
 // Suppress noisy youtubei.js logs (e.g. "[YOUTUBEJS][Text] Unable to find matching run")
 const _origLog = console.log;
 const _origWarn = console.warn;
@@ -30,10 +37,10 @@ console.error = (...args) => {
         return;
     _origErr(...args);
 };
-import Innertube from 'youtubei.js';
-import { getSessionManager } from './chrome_cookies.js';
-import { getPoTokenForProfile } from './po_token.js';
-import { devLog } from './unified_log.js';
+const youtubei_js_1 = __importDefault(require("youtubei.js"));
+const chrome_cookies_js_1 = require("./chrome_cookies.js");
+const po_token_js_1 = require("./po_token.js");
+const unified_log_js_1 = require("./unified_log.js");
 // ─── Thumbnail helper ─────────────────────────────────────────────────────────
 // YouTube thumbnails array is ordered smallest → largest.
 // Return the highest-resolution URL (last item) or undefined.
@@ -439,10 +446,10 @@ class InnertubeClientPool {
         this._initialized = true;
     }
     async _doInit() {
-        const sm = getSessionManager();
+        const sm = (0, chrome_cookies_js_1.getSessionManager)();
         await sm.ensureInit();
         const sessions = sm.getSessions();
-        devLog(`[InnertubePool] Building client pool from ${sessions.length} Chrome sessions...`);
+        (0, unified_log_js_1.devLog)(`[InnertubePool] Building client pool from ${sessions.length} Chrome sessions...`);
         // Build pool entries — no clients yet, just cookies
         this._sessions = sessions.map(s => ({
             profileId: s.profileId,
@@ -468,8 +475,8 @@ class InnertubeClientPool {
                 if (entry.cookies && entry.cookies.SAPISID && entry.cookies.PSID) {
                     try {
                         const cookieStr = buildCookieString(entry.cookies);
-                        devLog(`[InnertubePool] Session ${entry.profileId}: creating client (PSID=${entry.cookies.PSID.slice(0, 4)}..., SAPISID=${entry.cookies.SAPISID.slice(0, 6)}..., SOCS=${entry.cookies.socs ?? 'none'})`);
-                        entry.client = await Innertube.create({
+                        (0, unified_log_js_1.devLog)(`[InnertubePool] Session ${entry.profileId}: creating client (PSID=${entry.cookies.PSID.slice(0, 4)}..., SAPISID=${entry.cookies.SAPISID.slice(0, 6)}..., SOCS=${entry.cookies.socs ?? 'none'})`);
+                        entry.client = await youtubei_js_1.default.create({
                             cookie: cookieStr,
                             retrieve_player: false, // we only need metadata, not streaming
                             enable_session_cache: false, // each session is distinct
@@ -480,7 +487,7 @@ class InnertubeClientPool {
                         try {
                             await entry.client.getHomeFeed();
                             readyCount++;
-                            devLog(`[InnertubePool] Session ${entry.profileId}: ✓ client created and health-checked`);
+                            (0, unified_log_js_1.devLog)(`[InnertubePool] Session ${entry.profileId}: ✓ client created and health-checked`);
                         }
                         catch (healthErr) {
                             const errStr = String(healthErr);
@@ -489,10 +496,10 @@ class InnertubeClientPool {
                                 entry.client = null;
                                 entry.error = `auth check failed: ${errStr.slice(0, 80)}`;
                                 entry.lastErrorAt = Date.now();
-                                devLog(`[InnertubePool] Session ${entry.profileId}: ✗ auth check failed — ${entry.error}`);
+                                (0, unified_log_js_1.devLog)(`[InnertubePool] Session ${entry.profileId}: ✗ auth check failed — ${entry.error}`);
                             }
                             else {
-                                devLog(`[InnertubePool] Session ${entry.profileId}: health check transient error — not marked ready: ${errStr.slice(0, 80)}`);
+                                (0, unified_log_js_1.devLog)(`[InnertubePool] Session ${entry.profileId}: health check transient error — not marked ready: ${errStr.slice(0, 80)}`);
                             }
                         }
                     }
@@ -500,7 +507,7 @@ class InnertubeClientPool {
                         entry.error = String(e).slice(0, 120);
                         entry.lastErrorAt = Date.now();
                         entry.client = null;
-                        devLog(`[InnertubePool] Session ${entry.profileId}: ✗ error — ${entry.error}`);
+                        (0, unified_log_js_1.devLog)(`[InnertubePool] Session ${entry.profileId}: ✗ error — ${entry.error}`);
                     }
                 }
                 else {
@@ -515,15 +522,15 @@ class InnertubeClientPool {
                     if (entry.cookies?.PSID && entry.cookies?.SAPISID && !entry.cookies?.PSIDCC)
                         reasons.push('no PSIDCC (may be ok)');
                     entry.error = reasons.join('; ');
-                    devLog(`[InnertubePool] Session ${entry.profileId}: skipped — ${entry.error}`);
+                    (0, unified_log_js_1.devLog)(`[InnertubePool] Session ${entry.profileId}: skipped — ${entry.error}`);
                 }
             }));
         }
         const ready = this._sessions.filter(e => e.client !== null).length;
         const skipped = this._sessions.filter(e => !e.client);
-        devLog(`[InnertubePool] ${ready}/${this._sessions.length} sessions ready`);
+        (0, unified_log_js_1.devLog)(`[InnertubePool] ${ready}/${this._sessions.length} sessions ready`);
         if (skipped.length > 0) {
-            devLog(`[InnertubePool] Skipped sessions (${skipped.length}): ${skipped.map(e => `${e.profileId}(${e.error})`).join(', ')}`);
+            (0, unified_log_js_1.devLog)(`[InnertubePool] Skipped sessions (${skipped.length}): ${skipped.map(e => `${e.profileId}(${e.error})`).join(', ')}`);
         }
         if (ready === 0) {
             console.warn('[InnertubePool] ⚠️ No sessions ready — Innertube detection will fail. Use OAuth fallback.');
@@ -575,15 +582,15 @@ class InnertubeClientPool {
         // Strategy 1: try getChannelVideos() — some channels have a /videos tab
         // even when getVideos() (tab discovery) fails
         try {
-            devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): trying getChannelVideos()`);
+            (0, unified_log_js_1.devLog)(`[InnertubePool] _fetchUploadsTab(${channelId}): trying getChannelVideos()`);
             const videosTab = await channel.getChannelVideos();
             if (videosTab) {
-                devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): getChannelVideos succeeded`);
+                (0, unified_log_js_1.devLog)(`[InnertubePool] _fetchUploadsTab(${channelId}): getChannelVideos succeeded`);
                 return videosTab;
             }
         }
         catch (e) {
-            devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): getChannelVideos failed — ${String(e).slice(0, 80)}`);
+            (0, unified_log_js_1.devLog)(`[InnertubePool] _fetchUploadsTab(${channelId}): getChannelVideos failed — ${String(e).slice(0, 80)}`);
         }
         // Strategy 2: navigate directly to /videos using browse action.
         // Extract the uploads URL from channel info. The channel page always contains
@@ -593,7 +600,7 @@ class InnertubeClientPool {
             const metadata = info?.metadata?.channelMetadataRenderer;
             const uploadsUrl = metadata?.uploadsUrl;
             if (uploadsUrl) {
-                devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): navigating to ${uploadsUrl}`);
+                (0, unified_log_js_1.devLog)(`[InnertubePool] _fetchUploadsTab(${channelId}): navigating to ${uploadsUrl}`);
                 const session = client.session;
                 if (session) {
                     const response = await session.actions.execute('/browse', {
@@ -601,17 +608,17 @@ class InnertubeClientPool {
                         params: 'EgZ2aWRlb3M%3D',
                     });
                     if (response) {
-                        devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): browse succeeded`);
+                        (0, unified_log_js_1.devLog)(`[InnertubePool] _fetchUploadsTab(${channelId}): browse succeeded`);
                         return { page: response, current_tab: { content: response } };
                     }
                 }
             }
             else {
-                devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): no uploadsUrl in channel metadata`);
+                (0, unified_log_js_1.devLog)(`[InnertubePool] _fetchUploadsTab(${channelId}): no uploadsUrl in channel metadata`);
             }
         }
         catch (e) {
-            devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): browse fallback failed — ${String(e).slice(0, 80)}`);
+            (0, unified_log_js_1.devLog)(`[InnertubePool] _fetchUploadsTab(${channelId}): browse fallback failed — ${String(e).slice(0, 80)}`);
         }
         return null;
     }
@@ -629,7 +636,7 @@ class InnertubeClientPool {
     async getLatestVideo(channelId, seenVideoIds) {
         const entry = this.getNextClient();
         if (!entry) {
-            devLog(`[InnertubePool] getLatestVideo(${channelId}): no client available`);
+            (0, unified_log_js_1.devLog)(`[InnertubePool] getLatestVideo(${channelId}): no client available`);
             return null;
         }
         // Reset error count on successful client acquisition — start fresh
@@ -659,13 +666,13 @@ class InnertubeClientPool {
             // This handles: brand-new channels, channels with no Videos/Featured tabs,
             // channels that require authentication for tab access.
             if (bothTabsFailed) {
-                devLog(`[InnertubePool] getLatestVideo(${channelId}): standard tabs unavailable — trying uploads playlist`);
+                (0, unified_log_js_1.devLog)(`[InnertubePool] getLatestVideo(${channelId}): standard tabs unavailable — trying uploads playlist`);
                 const uploadsTab = await this._fetchUploadsTab(entry.client, channelId, channel);
                 if (uploadsTab) {
                     videosTab = uploadsTab;
                 }
                 else {
-                    devLog(`[InnertubePool] getLatestVideo(${channelId}): uploads playlist fetch also failed`);
+                    (0, unified_log_js_1.devLog)(`[InnertubePool] getLatestVideo(${channelId}): uploads playlist fetch also failed`);
                     return null;
                 }
             }
@@ -675,7 +682,7 @@ class InnertubeClientPool {
                 const hasMemo = !!(videosTab?.page?.contents_memo || videosTab?.memo || videosTab?.page?.on_response_received_endpoints_memo);
                 const hasCurrentTab = !!(videosTab?.current_tab?.content);
                 const hasPageContents = !!(videosTab?.page?.contents);
-                devLog(`[InnertubePool] getLatestVideo(${channelId}): extractVideosFromTab=0 (hasMemo=${hasMemo} hasCurrentTab=${hasCurrentTab} hasPageContents=${hasPageContents})`);
+                (0, unified_log_js_1.devLog)(`[InnertubePool] getLatestVideo(${channelId}): extractVideosFromTab=0 (hasMemo=${hasMemo} hasCurrentTab=${hasCurrentTab} hasPageContents=${hasPageContents})`);
                 return null;
             }
             // ── Always log top-5 extraction result for new video detection debugging ──────
@@ -685,7 +692,7 @@ class InnertubeClientPool {
                 title: extractLockupVideoField(vi, 'title').slice(0, 40),
                 published: extractLockupVideoField(vi, 'published') || '(empty)',
             }));
-            devLog(`[InnertubePool] ${channelId} top-5: parseable=${parseableCount}/5 → ${JSON.stringify(top5)}`);
+            (0, unified_log_js_1.devLog)(`[InnertubePool] ${channelId} top-5: parseable=${parseableCount}/5 → ${JSON.stringify(top5)}`);
             // Try top-1..top-5 — skip deleted/private and seen videos
             const maxCheck = Math.min(5, videoItems.length);
             for (let i = 0; i < maxCheck; i++) {
@@ -723,7 +730,7 @@ class InnertubeClientPool {
                 const publishedAt = parseRelativeDate(publishedRaw);
                 // DEBUG: log raw extraction for Zilk Kay (UC...)
                 if (channelId.startsWith('UC')) {
-                    devLog(`[DEBUG] ${channelId} [${i}] raw="${publishedRaw}" parsed=${publishedAt > 0 ? 'VALID' : 'ZERO'} age=${publishedAt > 0 ? Math.round((Date.now() - publishedAt) / 60000) + 'm' : 'N/A'}`);
+                    (0, unified_log_js_1.devLog)(`[DEBUG] ${channelId} [${i}] raw="${publishedRaw}" parsed=${publishedAt > 0 ? 'VALID' : 'ZERO'} age=${publishedAt > 0 ? Math.round((Date.now() - publishedAt) / 60000) + 'm' : 'N/A'}`);
                 }
                 // Age filter: skip videos older than 10 min (if age is parseable).
                 // Skip unparseable age (publishedAt=0) — these are OLD videos where YouTube never
@@ -731,12 +738,12 @@ class InnertubeClientPool {
                 const MAX_VIDEO_AGE_MS = 10 * 60 * 1000;
                 if (publishedAt > 0 && Date.now() - publishedAt > MAX_VIDEO_AGE_MS) {
                     const ageMin = Math.round((Date.now() - publishedAt) / 60000);
-                    devLog(`[InnertubePool] check[${i}]: id=${videoId} "${title.slice(0, 30)}" SKIP (age): ${ageMin}m old > 10m`);
+                    (0, unified_log_js_1.devLog)(`[InnertubePool] check[${i}]: id=${videoId} "${title.slice(0, 30)}" SKIP (age): ${ageMin}m old > 10m`);
                     continue;
                 }
                 // publishedAt=0 = old video with no cached timestamp — skip.
                 if (publishedAt === 0) {
-                    devLog(`[InnertubePool] check[${i}]: id=${videoId} "${title.slice(0, 30)}" age UNPARSEABLE — skip (old, no cached timestamp)`);
+                    (0, unified_log_js_1.devLog)(`[InnertubePool] check[${i}]: id=${videoId} "${title.slice(0, 30)}" age UNPARSEABLE — skip (old, no cached timestamp)`);
                     continue;
                 }
                 // Extract channel name:
@@ -775,7 +782,7 @@ class InnertubeClientPool {
                 // Log ACCEPT — helps debug why old videos are being downloaded
                 const ageMs = Date.now() - publishedAt;
                 const ageLabel = ageMs < 60000 ? 'just now' : ageMs < 3600000 ? `${Math.round(ageMs / 60000)}m ago` : ageMs < 86400000 ? `${Math.round(ageMs / 3600000)}h ago` : `${Math.round(ageMs / 86400000)}d ago`;
-                devLog(`[InnertubePool] ✓ ACCEPT[${i}]: id=${videoId} "${title.slice(0, 40)}" age=${ageLabel}`);
+                (0, unified_log_js_1.devLog)(`[InnertubePool] ✓ ACCEPT[${i}]: id=${videoId} "${title.slice(0, 40)}" age=${ageLabel}`);
                 return {
                     videoId: String(videoId),
                     title: String(title),
@@ -791,7 +798,7 @@ class InnertubeClientPool {
         }
         catch (e) {
             const errStr = String(e);
-            devLog(`[InnertubePool] getLatestVideo(${channelId}) error: ${errStr.slice(0, 200)}`);
+            (0, unified_log_js_1.devLog)(`[InnertubePool] getLatestVideo(${channelId}) error: ${errStr.slice(0, 200)}`);
             const sessionEntry = this._sessions.find(s => s.profileId === entry.profileId);
             if (sessionEntry) {
                 sessionEntry.lastErrorAt = Date.now();
@@ -811,7 +818,7 @@ class InnertubeClientPool {
     async getLatestVideos(channelId, count = 5) {
         const entry = this.getNextClient();
         if (!entry) {
-            devLog(`[InnertubePool] getLatestVideos(${channelId}): no client available`);
+            (0, unified_log_js_1.devLog)(`[InnertubePool] getLatestVideos(${channelId}): no client available`);
             return [];
         }
         // Reset error count on successful client acquisition
@@ -835,12 +842,12 @@ class InnertubeClientPool {
             }
             // When both standard tabs are unavailable, try the uploads playlist
             if (bothTabsFailed) {
-                devLog(`[InnertubePool] getLatestVideos(${channelId}): standard tabs unavailable — trying uploads playlist`);
+                (0, unified_log_js_1.devLog)(`[InnertubePool] getLatestVideos(${channelId}): standard tabs unavailable — trying uploads playlist`);
                 videosTab = await this._fetchUploadsTab(entry.client, channelId, channel) ?? undefined;
             }
             const videoItems = videosTab ? extractVideosFromTab(videosTab) : [];
             if (videoItems.length === 0) {
-                devLog(`[InnertubePool] getLatestVideos(${channelId}): 0 videos — session=${entry.profileId}`);
+                (0, unified_log_js_1.devLog)(`[InnertubePool] getLatestVideos(${channelId}): 0 videos — session=${entry.profileId}`);
                 return [];
             }
             const results = [];
@@ -874,7 +881,7 @@ class InnertubeClientPool {
                 const publishedAt2 = parseRelativeDate(pr2);
                 // Skip videos with unparseable timestamps — can't verify age, safer to exclude
                 if (publishedAt2 === 0) {
-                    devLog(`[InnertubePool] getLatestVideos(${channelId}): top-${i + 1} id=${videoId} age unparseable ("${pr2}") — skipping — session=${entry.profileId}`);
+                    (0, unified_log_js_1.devLog)(`[InnertubePool] getLatestVideos(${channelId}): top-${i + 1} id=${videoId} age unparseable ("${pr2}") — skipping — session=${entry.profileId}`);
                     continue;
                 }
                 const publishedText = pr2 || undefined;
@@ -915,16 +922,16 @@ class InnertubeClientPool {
                 });
             }
             if (results.length === 0) {
-                devLog(`[InnertubePool] getLatestVideos(${channelId}): all top-${limit} videos deleted/private — session=${entry.profileId}`);
+                (0, unified_log_js_1.devLog)(`[InnertubePool] getLatestVideos(${channelId}): all top-${limit} videos deleted/private — session=${entry.profileId}`);
             }
             else {
-                devLog(`[InnertubePool] getLatestVideos(${channelId}): got ${results.length} videos (session=${entry.profileId})`);
+                (0, unified_log_js_1.devLog)(`[InnertubePool] getLatestVideos(${channelId}): got ${results.length} videos (session=${entry.profileId})`);
             }
             return results;
         }
         catch (e) {
             const errStr = String(e);
-            devLog(`[InnertubePool] getLatestVideos(${channelId}) error: ${errStr.slice(0, 200)}`);
+            (0, unified_log_js_1.devLog)(`[InnertubePool] getLatestVideos(${channelId}) error: ${errStr.slice(0, 200)}`);
             const sessionEntry = this._sessions.find(s => s.profileId === entry.profileId);
             if (sessionEntry) {
                 sessionEntry.lastErrorAt = Date.now();
@@ -943,14 +950,14 @@ class InnertubeClientPool {
         const entry = this._sessions.find(s => s.profileId === profileId);
         if (!entry)
             return false;
-        const sm = getSessionManager();
+        const sm = (0, chrome_cookies_js_1.getSessionManager)();
         await sm.refreshSession(profileId);
         const session = sm.getSessions().find(s => s.profileId === profileId);
         if (!session?.cookies)
             return false;
         try {
             const cookieStr = buildCookieString(session.cookies);
-            entry.client = await Innertube.create({
+            entry.client = await youtubei_js_1.default.create({
                 cookie: cookieStr,
                 retrieve_player: false,
                 enable_session_cache: false,
@@ -962,7 +969,7 @@ class InnertubeClientPool {
                 entry.error = undefined;
                 entry.lastErrorAt = 0;
                 entry.errorCount = 0;
-                devLog(`[InnertubePool] Session ${profileId}: refreshed and health-checked OK`);
+                (0, unified_log_js_1.devLog)(`[InnertubePool] Session ${profileId}: refreshed and health-checked OK`);
                 return true;
             }
             catch (healthErr) {
@@ -971,13 +978,13 @@ class InnertubeClientPool {
                 if (isAuthError) {
                     entry.client = null;
                     entry.error = `auth check failed: ${errStr.slice(0, 80)}`;
-                    devLog(`[InnertubePool] Session ${profileId}: refresh auth check failed — ${entry.error}`);
+                    (0, unified_log_js_1.devLog)(`[InnertubePool] Session ${profileId}: refresh auth check failed — ${entry.error}`);
                     return false;
                 }
                 entry.cookies = session.cookies;
                 entry.error = undefined;
                 entry.lastErrorAt = 0;
-                devLog(`[InnertubePool] Session ${profileId}: refreshed (health check skipped: ${errStr.slice(0, 60)})`);
+                (0, unified_log_js_1.devLog)(`[InnertubePool] Session ${profileId}: refreshed (health check skipped: ${errStr.slice(0, 60)})`);
                 return true;
             }
         }
@@ -1016,7 +1023,7 @@ class InnertubeClientPool {
         if (entry?.po_token)
             return entry.po_token;
         // Not in pool cache — extract from Chrome via CDP
-        const token = await getPoTokenForProfile(profileId);
+        const token = await (0, po_token_js_1.getPoTokenForProfile)(profileId);
         if (entry && token) {
             entry.po_token = token;
         }
@@ -1056,13 +1063,13 @@ class InnertubeClientPool {
 }
 // ─── Singleton ───────────────────────────────────────────────────────────────
 let _pool = null;
-export async function getInnertubePool() {
+async function getInnertubePool() {
     if (!_pool) {
         _pool = new InnertubeClientPool();
         await _pool.init();
     }
     return _pool;
 }
-export function getInnertubePoolSync() {
+function getInnertubePoolSync() {
     return _pool;
 }

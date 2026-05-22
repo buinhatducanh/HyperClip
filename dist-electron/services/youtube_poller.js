@@ -1,3 +1,4 @@
+"use strict";
 /**
  * YouTube Poller — HyperClip
  *
@@ -5,16 +6,57 @@
  * Primary: activities?home=true + cookies (1 unit/poll, ~200ms)
  * Fallback: playlistItems per channel batch (only when primary returns 0)
  */
-import { fetchSubscriptionFeed } from './subscription_feed.js';
-import fs from 'fs';
-import path from 'path';
-import { devLog } from './unified_log.js';
-import { getChannelsDir } from './paths.js';
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.YouTubePoller = void 0;
+exports.createYouTubePoller = createYouTubePoller;
+exports.getYouTubePoller = getYouTubePoller;
+exports.stopYouTubePoller = stopYouTubePoller;
+const subscription_feed_js_1 = require("./subscription_feed.js");
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
+const unified_log_js_1 = require("./unified_log.js");
+const paths_js_1 = require("./paths.js");
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DEFAULT_POLL_INTERVAL_MS = 2000; // 2 seconds — target < 20s detection latency
 const MAX_VIDEOS_PER_POLL = 5;
 const SEEN_IDS_CAP = 10000; // cap to prevent unbounded memory growth
-const SEEN_IDS_FILE = path.join(getChannelsDir(), 'seen-ids.json');
+const SEEN_IDS_FILE = path_1.default.join((0, paths_js_1.getChannelsDir)(), 'seen-ids.json');
 // ─── SeenVideoIds persistence ─────────────────────────────────────────────────
 /**
  * Load seen video IDs from disk.
@@ -22,8 +64,8 @@ const SEEN_IDS_FILE = path.join(getChannelsDir(), 'seen-ids.json');
  */
 function loadSeenVideoIds() {
     try {
-        if (fs.existsSync(SEEN_IDS_FILE)) {
-            const raw = JSON.parse(fs.readFileSync(SEEN_IDS_FILE, 'utf-8'));
+        if (fs_1.default.existsSync(SEEN_IDS_FILE)) {
+            const raw = JSON.parse(fs_1.default.readFileSync(SEEN_IDS_FILE, 'utf-8'));
             return new Set(Array.isArray(raw) ? raw : []);
         }
     }
@@ -37,7 +79,7 @@ function loadSeenVideoIds() {
 function saveSeenVideoIds(ids) {
     try {
         const arr = Array.from(ids);
-        fs.writeFileSync(SEEN_IDS_FILE, JSON.stringify(arr), 'utf-8');
+        fs_1.default.writeFileSync(SEEN_IDS_FILE, JSON.stringify(arr), 'utf-8');
     }
     catch { }
 }
@@ -69,7 +111,7 @@ class YouTubePoller {
         this._notifyDegraded = options.onDegraded;
         // Load persisted seen IDs on startup — survives app restarts
         this._seenVideoIds = loadSeenVideoIds();
-        devLog(`[YouTubePoller] Loaded ${this._seenVideoIds.size} seen video IDs from disk`);
+        (0, unified_log_js_1.devLog)(`[YouTubePoller] Loaded ${this._seenVideoIds.size} seen video IDs from disk`);
     }
     getStatus() {
         return {
@@ -92,7 +134,7 @@ class YouTubePoller {
             this._backoffReason = null;
             this._lastExhaustedWarnAt = 0;
             this._exhaustionCount = 0;
-            devLog('[YouTubePoller] Backoff cleared — resuming polling');
+            (0, unified_log_js_1.devLog)('[YouTubePoller] Backoff cleared — resuming polling');
         }
     }
     /** Pause polling — clears timer and stops the poll loop */
@@ -102,9 +144,9 @@ class YouTubePoller {
             this._pollTimer = null;
         }
         this._active = false;
-        devLog('[YouTubePoller] Polling paused by user');
+        (0, unified_log_js_1.devLog)('[YouTubePoller] Polling paused by user');
         void (async () => {
-            const { opLog } = await import('./unified_log.js');
+            const { opLog } = await Promise.resolve().then(() => __importStar(require('./unified_log.js')));
             opLog.info('system', 'Đã tạm dừng quét kênh');
         })();
     }
@@ -116,7 +158,7 @@ class YouTubePoller {
             this._pollTimer = null;
         }
         this._scheduleNextPoll();
-        devLog(`[YouTubePoller] Restarted with ${intervalMs}ms interval`);
+        (0, unified_log_js_1.devLog)(`[YouTubePoller] Restarted with ${intervalMs}ms interval`);
     }
     /**
      * Quick non-consuming check of resource availability.
@@ -124,7 +166,7 @@ class YouTubePoller {
      */
     async _checkResources() {
         try {
-            const { getTokenManager } = await import('./token_manager.js');
+            const { getTokenManager } = await Promise.resolve().then(() => __importStar(require('./token_manager.js')));
             const tm = getTokenManager();
             const statuses = tm.getAllStatuses();
             const hasOAuth = statuses.some(ts => ts.hasToken && ts.status !== 'exhausted');
@@ -161,7 +203,7 @@ class YouTubePoller {
                 // Also check Innertube pool — it may recover if cookies were refreshed
                 let poolReady = false;
                 try {
-                    const { getInnertubePoolSync } = await import('./innertube_client.js');
+                    const { getInnertubePoolSync } = await Promise.resolve().then(() => __importStar(require('./innertube_client.js')));
                     const pool = getInnertubePoolSync();
                     poolReady = pool?.isReady() ?? false;
                 }
@@ -171,19 +213,19 @@ class YouTubePoller {
                     this._exhaustedBackoffUntil = 0;
                     this._backoffReason = null;
                     const reason = poolReady ? 'Innertube pool' : 'OAuth';
-                    devLog(`[YouTubePoller] ${reason} recovered ✓ — resuming polling`);
+                    (0, unified_log_js_1.devLog)(`[YouTubePoller] ${reason} recovered ✓ — resuming polling`);
                 }
                 else {
-                    devLog(`[YouTubePoller] Backoff (${remaining}s remaining) — checking...`);
+                    (0, unified_log_js_1.devLog)(`[YouTubePoller] Backoff (${remaining}s remaining) — checking...`);
                 }
             }
             return;
         }
         // Log every poll start — confirms poller is alive and making API calls
         if (this._pollsSinceLastLog === 0) {
-            devLog(`[YouTubePoller] Scanning...`);
+            (0, unified_log_js_1.devLog)(`[YouTubePoller] Scanning...`);
         }
-        const subResult = await fetchSubscriptionFeed({
+        const subResult = await (0, subscription_feed_js_1.fetchSubscriptionFeed)({
             // Request enough to fill maxVideosPerPoll + buffer — early exit kicks in at channel level
             maxVideos: this._maxVideosPerPoll + 5,
             seenVideoIds: this._seenVideoIds,
@@ -262,12 +304,12 @@ class YouTubePoller {
             const elapsed = this._lastPollAt
                 ? Math.round((Date.now() - this._lastPollAt) / 1000)
                 : 0;
-            devLog(`[YouTubePoller] alive · ${this._videoCount} polled · ${this._newVideoCount} new · last ${elapsed}s ago`);
+            (0, unified_log_js_1.devLog)(`[YouTubePoller] alive · ${this._videoCount} polled · ${this._newVideoCount} new · last ${elapsed}s ago`);
             this._pollsSinceLastLog = 0;
         }
         if (newVideos.length > 0) {
             this._lastNewVideosAt = Date.now();
-            devLog(`[YouTubePoller] ${newVideos.length} video moi (${subResult.source}): ${newVideos.map(v => v.title.slice(0, 40) + ' (' + v.channelName + ')').join(', ')}`);
+            (0, unified_log_js_1.devLog)(`[YouTubePoller] ${newVideos.length} video moi (${subResult.source}): ${newVideos.map(v => v.title.slice(0, 40) + ' (' + v.channelName + ')').join(', ')}`);
             this._onNewVideos?.(newVideos);
         }
     }
@@ -287,7 +329,7 @@ class YouTubePoller {
         if (this._active)
             return;
         this._active = true;
-        devLog(`[YouTubePoller] Starting (interval: ${this._pollIntervalMs / 1000}s ± 20%% jitter, seen IDs: ${this._seenVideoIds.size})`);
+        (0, unified_log_js_1.devLog)(`[YouTubePoller] Starting (interval: ${this._pollIntervalMs / 1000}s ± 20%% jitter, seen IDs: ${this._seenVideoIds.size})`);
         void this._pollOnce();
         this._scheduleNextPoll();
     }
@@ -297,24 +339,24 @@ class YouTubePoller {
             clearTimeout(this._pollTimer);
             this._pollTimer = null;
         }
-        devLog('[YouTubePoller] Stopped');
+        (0, unified_log_js_1.devLog)('[YouTubePoller] Stopped');
     }
 }
+exports.YouTubePoller = YouTubePoller;
 // ─── Singleton ────────────────────────────────────────────────────────────────
 let _poller = null;
-export function createYouTubePoller(options) {
+function createYouTubePoller(options) {
     if (_poller)
         _poller.stop();
     _poller = new YouTubePoller(options);
     return _poller;
 }
-export function getYouTubePoller() {
+function getYouTubePoller() {
     return _poller;
 }
-export function stopYouTubePoller() {
+function stopYouTubePoller() {
     if (_poller) {
         _poller.stop();
         _poller = null;
     }
 }
-export { YouTubePoller };

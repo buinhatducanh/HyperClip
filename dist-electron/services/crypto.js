@@ -1,3 +1,19 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.deriveKey = deriveKey;
+exports.encrypt = encrypt;
+exports.decrypt = decrypt;
+exports.blobToYAMLString = blobToYAMLString;
+exports.parseYAMLBlob = parseYAMLBlob;
+exports.computeHMAC = computeHMAC;
+exports.verifyHMAC = verifyHMAC;
+exports.generateRSAKeyPair = generateRSAKeyPair;
+exports.rsaSign = rsaSign;
+exports.rsaVerify = rsaVerify;
+exports.sha256 = sha256;
 /**
  * Crypto primitives for HyperClip licensing and data encryption.
  * - AES-256-GCM for encrypting YAML config files
@@ -5,7 +21,7 @@
  * - RSA-2048 for signing update manifests
  * - HMAC-SHA256 for tamper detection
  */
-import crypto from 'crypto';
+const crypto_1 = __importDefault(require("crypto"));
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const ALGORITHM = 'aes-256-gcm';
 const KEY_LENGTH = 32; // 256 bits
@@ -15,16 +31,16 @@ const SALT_LENGTH = 32;
 const PBKDF2_ITERATIONS = 100_000;
 // ─── Machine-id based key derivation ───────────────────────────────────────────
 /** Derive a 256-bit AES key from machineId + a fixed app salt. */
-export function deriveKey(machineId, salt) {
-    const usedSalt = salt ?? crypto.randomBytes(SALT_LENGTH);
-    const key = crypto.pbkdf2Sync(machineId, usedSalt, PBKDF2_ITERATIONS, KEY_LENGTH, 'sha256');
+function deriveKey(machineId, salt) {
+    const usedSalt = salt ?? crypto_1.default.randomBytes(SALT_LENGTH);
+    const key = crypto_1.default.pbkdf2Sync(machineId, usedSalt, PBKDF2_ITERATIONS, KEY_LENGTH, 'sha256');
     return { key, salt: usedSalt };
 }
 /** Encrypt plaintext with AES-256-GCM. Returns a serializable object. */
-export function encrypt(plaintext, machineId) {
+function encrypt(plaintext, machineId) {
     const { key, salt } = deriveKey(machineId);
-    const iv = crypto.randomBytes(IV_LENGTH);
-    const cipher = crypto.createCipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
+    const iv = crypto_1.default.randomBytes(IV_LENGTH);
+    const cipher = crypto_1.default.createCipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
     const encrypted = Buffer.concat([
         cipher.update(plaintext, 'utf8'),
         cipher.final(),
@@ -39,10 +55,10 @@ export function encrypt(plaintext, machineId) {
     };
 }
 /** Decrypt an AES-256-GCM blob. Throws on wrong machineId or tampered data. */
-export function decrypt(blob, machineId) {
-    const key = crypto.pbkdf2Sync(machineId, Buffer.from(blob.salt, 'hex'), PBKDF2_ITERATIONS, KEY_LENGTH, 'sha256');
+function decrypt(blob, machineId) {
+    const key = crypto_1.default.pbkdf2Sync(machineId, Buffer.from(blob.salt, 'hex'), PBKDF2_ITERATIONS, KEY_LENGTH, 'sha256');
     const iv = Buffer.from(blob.iv, 'hex');
-    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
+    const decipher = crypto_1.default.createDecipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
     decipher.setAuthTag(Buffer.from(blob.tag, 'hex'));
     const decrypted = Buffer.concat([
         decipher.update(Buffer.from(blob.data, 'base64')),
@@ -52,7 +68,7 @@ export function decrypt(blob, machineId) {
 }
 // ─── YAML-serializable helpers ─────────────────────────────────────────────────
 /** Serialize EncryptedBlob to a YAML-compatible string (no special chars). */
-export function blobToYAMLString(blob) {
+function blobToYAMLString(blob) {
     return [
         `version: ${blob.version}`,
         `iv: "${blob.iv}"`,
@@ -63,7 +79,7 @@ export function blobToYAMLString(blob) {
     ].join('\n');
 }
 /** Parse a YAML-like string back into an EncryptedBlob. */
-export function parseYAMLBlob(raw) {
+function parseYAMLBlob(raw) {
     const lines = raw.split('\n');
     const get = (key) => {
         const line = lines.find(l => l.startsWith(`${key}:`));
@@ -81,17 +97,17 @@ export function parseYAMLBlob(raw) {
     };
 }
 // ─── HMAC for tamper detection (on top of GCM) ─────────────────────────────────
-export function computeHMAC(data, key) {
-    return crypto.createHmac('sha256', key).update(data).digest('hex');
+function computeHMAC(data, key) {
+    return crypto_1.default.createHmac('sha256', key).update(data).digest('hex');
 }
-export function verifyHMAC(data, expected, key) {
+function verifyHMAC(data, expected, key) {
     const actual = computeHMAC(data, key);
-    return crypto.timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex'));
+    return crypto_1.default.timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex'));
 }
 // ─── RSA key pair for update signing ───────────────────────────────────────────
 /** Generate a new RSA-2048 key pair. Store privateKey PEM securely (e.g. server-side). */
-export function generateRSAKeyPair() {
-    const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+function generateRSAKeyPair() {
+    const { publicKey, privateKey } = crypto_1.default.generateKeyPairSync('rsa', {
         modulusLength: 2048,
         publicKeyEncoding: { type: 'spki', format: 'pem' },
         privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
@@ -99,16 +115,16 @@ export function generateRSAKeyPair() {
     return { publicKey, privateKey };
 }
 /** Sign data with RSA private key (PKCS#1 v1.5 padding). */
-export function rsaSign(data, privateKeyPem) {
-    const sign = crypto.createSign('RSA-SHA256');
+function rsaSign(data, privateKeyPem) {
+    const sign = crypto_1.default.createSign('RSA-SHA256');
     sign.update(data);
     sign.end();
     return sign.sign(privateKeyPem, 'hex');
 }
 /** Verify RSA signature. */
-export function rsaVerify(data, signature, publicKeyPem) {
+function rsaVerify(data, signature, publicKeyPem) {
     try {
-        const verify = crypto.createVerify('RSA-SHA256');
+        const verify = crypto_1.default.createVerify('RSA-SHA256');
         verify.update(data);
         verify.end();
         return verify.verify(publicKeyPem, signature, 'hex');
@@ -118,6 +134,6 @@ export function rsaVerify(data, signature, publicKeyPem) {
     }
 }
 /** Compute SHA-256 hash of a string. */
-export function sha256(str) {
-    return crypto.createHash('sha256').update(str).digest('hex');
+function sha256(str) {
+    return crypto_1.default.createHash('sha256').update(str).digest('hex');
 }
