@@ -1,38 +1,18 @@
 ; HyperClip NSIS Post-Install Script
-; Handles graceful upgrade: detect running instance, prompt user to close, retry.
-
-!include "FileFunc.nsh"
+;
+; IMPORTANT: All user data (workspaces, channels, downloads, renders) lives in:
+;   D:\HyperClip-Data\ (or E:/F: depending on largest free space)
+; This is OUTSIDE the install directory — safe from uninstall/upgrade.
+;
+; NSIS only manages: shortcuts + uninstaller entry.
 
 !macro customInstall
-  ; ─── Step 1: Create HyperClip-Data directory structure ───────────────────
-  CreateDirectory "$APPDATA\HyperClip"
-  CreateDirectory "$APPDATA\HyperClip\downloads"
-  CreateDirectory "$APPDATA\HyperClip\blur"
-  CreateDirectory "$APPDATA\HyperClip\logs"
-  CreateDirectory "$APPDATA\HyperClip\chrome-profiles"
-
-  ; ─── Step 2: Check if HyperClip is running ──────────────────────────────
-  ; electron-builder default: NSIS will detect via its own mechanism
-  ; We add a polite prompt as a belt-and-suspenders approach.
-  DetailPrint "Checking for running HyperClip instance..."
-  nsExec::ExecToLog 'tasklist /FI "IMAGENAME eq HyperClip.exe" /NH'
-  Pop $0
-
-  ; If HyperClip is running, show a user-friendly message before NSIS kills it
-  ; The actual process termination is handled by electron-builder/NSIS built-in logic.
-  ; This macro runs AFTER NSIS has already attempted to close the app.
-
+  ; No-op: electron-builder handles running-instance detection automatically.
+  ; Data dir is managed by the app at D:\HyperClip-Data\ on first launch.
 !macroend
 
 !macro customUnInstall
-  ; Ask user whether to keep data
-  MessageBox MB_YESNO|MB_ICONQUESTION "Remove HyperClip data? (Workspaces, channels, and rendered videos will be deleted)" IDNO skip_data
-
-  ; Remove all app data
-  RMDir /r "$APPDATA\HyperClip"
-
-skip_data:
-  ; Remove shortcuts
+  ; Shortcuts only — data at D:\HyperClip-Data\ is untouched by uninstall.
   Delete "$DESKTOP\HyperClip.lnk"
   RMDir /r "$SMPROGRAMS\HyperClip"
 !macroend

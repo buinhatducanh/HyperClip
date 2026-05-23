@@ -97,6 +97,7 @@ const NEXT_PORT = parseInt(process.env.HYPERCLIP_PORT || '3000', 10);
 // Single terminal: Electron auto-boots Next.js if not already running
 let mainWindow = null;
 let tray = null;
+let _isQuitting = false;
 let nextServer = null;
 let nextServerOwned = false; // did WE spawn the Next.js server?
 // ─── Render Queue (Tier 2+3.2: Multi-worker via worker pool) ──────────────────
@@ -1297,8 +1298,12 @@ async function createWindow() {
         mainWindow?.show();
     });
     mainWindow.on('close', (e) => {
+        if (_isQuitting)
+            return;
         if ((0, ramdisk_js_1.loadSettings)().quitOnClose !== false) {
             // quitOnClose=true (default): actually quit
+            e.preventDefault();
+            _isQuitting = true;
             void quitAll();
         }
         else {
@@ -1544,11 +1549,13 @@ async function quitAll() {
     if (nextServerOwned && nextServer)
         nextServer.kill();
     (0, token_manager_js_1.getTokenManager)().dispose();
+    // Destroy tray icon FIRST — Windows keeps tray icon alive until explicitly destroyed.
+    // If we call app.quit() before tray.destroy(), the icon stays in the system tray.
+    if (tray) {
+        tray.destroy();
+        tray = null;
+    }
     mainWindow?.destroy();
-    // Wait for child processes to actually terminate before quitting.
-    // On Windows, SIGTERM from proc.kill() is asynchronous — app.quit()
-    // would exit before FFmpeg/Chrome are fully terminated.
-    await new Promise(resolve => setTimeout(resolve, 500));
     electron_1.app.quit();
 }
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
@@ -2030,11 +2037,18 @@ else {
     });
 }
 electron_1.app.on('before-quit', (e) => {
-    e.preventDefault(); // Prevent immediate exit
-    void quitAll(); // Run full cleanup (cancel FFmpeg, stop poller, etc.)
-    // app.quit() called inside quitAll() after cleanup
+    if (_isQuitting)
+        return;
+    e.preventDefault();
+    _isQuitting = true;
+    void quitAll();
 });
-electron_1.app.on('window-all-closed', quitAll);
+electron_1.app.on('window-all-closed', () => {
+    if (_isQuitting)
+        return;
+    _isQuitting = true;
+    void quitAll();
+});
 electron_1.app.on('activate', () => {
     if (electron_1.BrowserWindow.getAllWindows().length === 0)
         void createWindow();

@@ -72,6 +72,7 @@ const NEXT_PORT = parseInt(process.env.HYPERCLIP_PORT || '3000', 10)
 // Single terminal: Electron auto-boots Next.js if not already running
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+let _isQuitting = false
 let nextServer: ReturnType<typeof spawn> | null = null
 let nextServerOwned = false // did WE spawn the Next.js server?
 
@@ -1346,8 +1347,11 @@ async function createWindow() {
   })
 
   mainWindow.on('close', (e) => {
+    if (_isQuitting) return
     if (loadSettings().quitOnClose !== false) {
       // quitOnClose=true (default): actually quit
+      e.preventDefault()
+      _isQuitting = true
       void quitAll()
     } else {
       // Legacy: minimize to tray instead of quitting
@@ -1590,12 +1594,15 @@ async function quitAll() {
   renderQueue.length = 0
   if (nextServerOwned && nextServer) nextServer.kill()
   getTokenManager().dispose()
-  mainWindow?.destroy()
 
-  // Wait for child processes to actually terminate before quitting.
-  // On Windows, SIGTERM from proc.kill() is asynchronous — app.quit()
-  // would exit before FFmpeg/Chrome are fully terminated.
-  await new Promise(resolve => setTimeout(resolve, 500))
+  // Destroy tray icon FIRST — Windows keeps tray icon alive until explicitly destroyed.
+  // If we call app.quit() before tray.destroy(), the icon stays in the system tray.
+  if (tray) {
+    tray.destroy()
+    tray = null
+  }
+
+  mainWindow?.destroy()
 
   app.quit()
 }
@@ -2082,12 +2089,17 @@ if (!gotLock) {
 }
 
 app.on('before-quit', (e) => {
-  e.preventDefault()           // Prevent immediate exit
-  void quitAll()               // Run full cleanup (cancel FFmpeg, stop poller, etc.)
-  // app.quit() called inside quitAll() after cleanup
+  if (_isQuitting) return
+  e.preventDefault()
+  _isQuitting = true
+  void quitAll()
 })
 
-app.on('window-all-closed', quitAll)
+app.on('window-all-closed', () => {
+  if (_isQuitting) return
+  _isQuitting = true
+  void quitAll()
+})
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) void createWindow()
