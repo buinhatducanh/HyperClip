@@ -97,56 +97,10 @@ const routes = {
     const db = loadDB()
     const record = db.find(r => r.key.toUpperCase() === normalizedKey)
 
-    // Demo key activation: DEMO-{days}-{suffix} → create ephemeral record on the fly
+    // Demo key: only activate if it already exists in DB
+    // On-the-fly creation is DISABLED — prevents abuse
     if (!record && normalizedKey.startsWith('DEMO-')) {
-      const match = normalizedKey.match(/^DEMO-(\d{1,2})-([A-Z0-9]{3,8})$/)
-      if (!match) {
-        return sendJSON(res, 400, { success: false, error: 'Invalid demo key format. Use: DEMO-{days}-{suffix}', code: 'INVALID_KEY' })
-      }
-      const days = parseInt(match[1], 10)
-      if (days < 1 || days > 2) {
-        return sendJSON(res, 400, { success: false, error: 'Demo key duration must be 1-2 days.', code: 'INVALID_KEY' })
-      }
-      // Check for re-activation (same machine)
-      const existing = db.find(r => r.key.toUpperCase() === normalizedKey && r.hwId === machineId)
-      if (existing) {
-        return sendJSON(res, 200, {
-          success: true, keyId: existing.keyId,
-          features: existing.features,
-          expiresAt: existing.expiresAt,
-          machineId,
-        })
-      }
-      const expiry = new Date()
-      expiry.setDate(expiry.getDate() + days)
-      expiry.setHours(0, 0, 0, 0)
-      const keyId = `D-${Date.now().toString(36).toUpperCase()}-${match[2]}`
-      const newRecord = {
-        keyId,
-        key: normalizedKey,
-        hwId: machineId,
-        used: true,
-        revoked: false,
-        maxSeats: 1,
-        expiresAt: expiry.toISOString(),
-        features: ['pro', 'auto_render', 'multi_channel'],
-        customerName: '',
-        customerEmail: '',
-        customerPhone: '',
-        activatedAt: new Date().toISOString(),
-        activatedIp: ip,
-        createdAt: new Date().toISOString(),
-      }
-      db.push(newRecord)
-      saveDB(db)
-      console.log(`[Demo] Activated: ${keyId} | machine: ${machineId.slice(0, 8)}... | expires: ${expiry.toISOString()}`)
-      return sendJSON(res, 200, {
-        success: true, keyId,
-        expiresAt: expiry.toISOString(),
-        features: newRecord.features,
-        issuedAt: newRecord.activatedAt,
-        activatedAt: newRecord.activatedAt,
-      })
+      return sendJSON(res, 404, { success: false, error: 'Demo key not found. Please contact support for a valid key.', code: 'KEY_NOT_FOUND' })
     }
 
     if (!record) {

@@ -900,20 +900,39 @@ export async function preRenderOverlays(
   const b2 = parseInt(hex.slice(4, 6), 16)
   const escapedTitleText = (titleOl?.content || '').replace(/"/g, '""')
 
-  // ── SHORT mode: bottom bar PNG (barW × bottomBarH, FULLY opaque bar + text) ──
-  // PNG is the EXACT bar size (not canvas). Overlay directly at bottomBarY.
-  // LockBits forces A=255 on all pixels to fix anti-aliasing artifacts from FillRectangle.
+  // ── SHORT mode: bottom bar PNG (barW × bottomBarH, blur bg + text) ──
+  // Step 1: FFmpeg creates the blur background (scale blur to bar dimensions)
+  // Step 2: PowerShell adds gradient overlay + white text + LockBits fix alpha
+  // If blur unavailable → solid accent color as background
   const bottomBarOverlayPath = path.join(outputDir, 'bottom_bar_overlay.png')
+  const bbBgPath = path.join(os.tmpdir(), 'hc_bb_bg_' + Date.now() + '.png').replace(/\\/g, '/')
   const bbFontSize = Math.max(36, Math.floor(bottomBarH * 0.45))
+  const blurPath = metadata.blur_background
+
+  const runFf = (args: string[]) => new Promise<{ code: number; stderr: string }>((resolve) => {
+    const ffmpegBin = getFfmpegPath()
+    const cmd = buildArgs(ffmpegBin, args)
+    const proc = spawn(cmd, [], { shell: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    let se = ''
+    proc.stderr?.on('data', d => { se += d.toString() })
+    proc.on('close', code => resolve({ code: code ?? 1, stderr: se }))
+  })
+
   const bbPs1 = [
     'Add-Type -AssemblyName System.Drawing',
-    `$w=${canvasW};$h=${bottomBarH};$bmp=New-Object System.Drawing.Bitmap($w,$h)`,
+    `$w=${canvasW};$h=${bottomBarH};$bg="${bbBgPath}";$out="${bottomBarOverlayPath.replace(/\\/g, '/')}"`,
+    '$bmp=New-Object System.Drawing.Bitmap($w,$h)',
     '$g=[System.Drawing.Graphics]::FromImage($bmp)',
     '$g.SmoothingMode=[System.Drawing.Drawing2D.SmoothingMode]::AntiAlias',
     '$g.TextRenderingHint=[System.Drawing.Text.TextRenderingHint]::AntiAlias',
-    '$brush=New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255,' + r + ',' + g + ',' + b2 + '))',
-    '$g.FillRectangle($brush,0,0,$w,$h)',
-    '$brush.Dispose()',
+    // Load blur background if available, else solid accent color
+    'if(Test-Path $bg){$orig=[System.Drawing.Image]::FromFile($bg);$g.DrawImage($orig,0,0,$w,$h);$orig.Dispose()}else{$brush=New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255,' + r + ',' + g + ',' + b2 + '));$g.FillRectangle($brush,0,0,$w,$h);$brush.Dispose()}',
+    // Gradient overlay: dark at top → transparent at bottom (top 60% of bar)
+    '$gw=$w;$gh=$h;$gradTop=[Math]::Floor($gh*0.60)',
+    '$brush2=New-Object System.Drawing.Drawing2D.LinearGradientBrush((New-Object System.Drawing.Point(0,0)),(New-Object System.Drawing.Point(0,$gradTop)),[System.Drawing.Color]::FromArgb(200,0,0,0),[System.Drawing.Color]::Transparent)',
+    '$g.FillRectangle($brush2,0,0,$gw,$gradTop)',
+    '$brush2.Dispose()',
+    // White text centered
     '$font=New-Object System.Drawing.Font("Arial",' + bbFontSize + ',[System.Drawing.FontStyle]::Bold)',
     '$sf=New-Object System.Drawing.StringFormat',
     '$sf.Alignment=[System.Drawing.StringAlignment]::Center',
@@ -921,6 +940,7 @@ export async function preRenderOverlays(
     '$rect=New-Object System.Drawing.RectangleF(0,0,$w,$h)',
     '$g.DrawString("' + escapedText + '",$font,(New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)),$rect,$sf)',
     '$g.Dispose();$font.Dispose();$sf.Dispose()',
+    // LockBits: force alpha=255 (fix anti-aliasing artifacts from FillRectangle)
     '$rect2=New-Object System.Drawing.Rectangle(0,0,$w,$h)',
     '$bd=$bmp.LockBits($rect2,[System.Drawing.Imaging.ImageLockMode]::ReadWrite,[System.Drawing.Imaging.PixelFormat]::Format32bppArgb)',
     '$bytes=[byte[]]::new($bd.Stride*$h)',
@@ -928,10 +948,15 @@ export async function preRenderOverlays(
     'for($i=3;$i -lt $bytes.Length;$i+=4){$bytes[$i]=255}',
     '[System.Runtime.InteropServices.Marshal]::Copy($bytes,0,$bd.Scan0,$bytes.Length)',
     '$bmp.UnlockBits($bd)',
-    '$bmp.Save("' + bottomBarOverlayPath.replace(/\\/g, '/') + '",[System.Drawing.Imaging.ImageFormat]::Png)',
+    '$bmp.Save($out,[System.Drawing.Imaging.ImageFormat]::Png)',
     '$bmp.Dispose()',
     'Write-Host OK',
   ].join(';')
+
+  // Step 1: FFmpeg creates background (blur scaled to bar size, or solid color)
+  const ffBgPromise = (blurPath && fs.existsSync(blurPath))
+    ? runFf(['-i', blurPath, '-vf', `scale=${canvasW}:${bottomBarH}:force_original_aspect_ratio=increase,crop=${canvasW}:${bottomBarH}:(ow-iw)/2:(oh-ih)/2`, '-y', bbBgPath])
+    : runFf(['-f', 'lavfi', '-i', `color=c=${hex.substring(0,6)}:s=${canvasW}x${bottomBarH}:d=0.01`, '-frames:v', '1', '-y', bbBgPath])
 
   const bbPs1File = path.join(os.tmpdir(), 'hc_bb_' + Date.now() + '.ps1').replace(/\\/g, '/')
   fs.writeFileSync(bbPs1File, bbPs1)
@@ -968,7 +993,11 @@ export async function preRenderOverlays(
   const titlePs1File = path.join(os.tmpdir(), 'hc_title_' + Date.now() + '.ps1').replace(/\\/g, '/')
   fs.writeFileSync(titlePs1File, titlePs1)
 
-  // Run both in parallel
+  // Step 1: FFmpeg generates blur background for bottom bar
+  const ffResult = await ffBgPromise
+  if (ffResult.code !== 0) devLog('[TextOverlay] FFmpeg bg failed: ' + ffResult.stderr.slice(0, 100))
+
+  // Step 2: Run PS scripts (bottom bar + landscape title in parallel)
   const runPs = (f: string) => new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
     const proc = spawn('powershell', ['-ExecutionPolicy', 'Bypass', '-File', f], { stdio: ['pipe', 'pipe', 'pipe'] })
     let so = '', se = ''
@@ -982,6 +1011,9 @@ export async function preRenderOverlays(
   })
 
   const [bbResult, titleResult] = await Promise.all([runPs(bbPs1File), runPs(titlePs1File)])
+
+  // Cleanup temp blur background
+  try { fs.unlinkSync(bbBgPath) } catch {}
 
   const bbOk = bbResult.code === 0 && bbResult.stdout.trim() === 'OK' && fs.existsSync(bottomBarOverlayPath)
   const titleOk = titleResult.code === 0 && titleResult.stdout.trim() === 'OK' && fs.existsSync(titleOverlayPath)

@@ -10,6 +10,7 @@ files:
   - next.config.mjs
   - package.json
   - .next/**/*
+  - servers/**/*
 extraResources:
   - from: resources/ffmpeg/bin/
     to: ffmpeg/bin/

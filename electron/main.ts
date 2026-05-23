@@ -1806,6 +1806,74 @@ void app.whenReady().then(async () => {
   void createTray()
   registerAllHandlers(ipcMain, () => mainWindow)
 
+  // ─── Bundled License Server ─────────────────────────────────────────────────
+  // Auto-starts the license server bundled inside the packaged app.
+  // Falls back gracefully if server already running or files missing.
+  const LICENSE_SERVER_PORT = 3001
+  const bundledServerDir = app.isPackaged
+    ? path.join(process.resourcesPath!, 'app', 'servers', 'license-server')
+    : path.join(__dirname, '..', 'servers', 'license-server')
+  const bundledIndex = path.join(bundledServerDir, 'index.js')
+  const bundledNodeModules = path.join(bundledServerDir, 'node_modules')
+
+  async function isPortInUse(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const s = http.createServer()
+      s.once('error', () => { resolve(true) })
+      s.once('listening', () => { s.close(); resolve(false) })
+      s.listen(port, '127.0.0.1')
+    })
+  }
+
+  async function waitForServer(port: number, timeoutMs = 5000): Promise<boolean> {
+    const start = Date.now()
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const res = await fetch(`http://localhost:${port}/health`)
+        if (res.ok) return true
+      } catch {}
+      await new Promise(r => setTimeout(r, 200))
+    }
+    return false
+  }
+
+  let licenseServerStarted = false
+  if (app.isPackaged && fs.existsSync(bundledIndex) && fs.existsSync(bundledNodeModules)) {
+    const portInUse = await isPortInUse(LICENSE_SERVER_PORT)
+    if (!portInUse) {
+      devLog(`[LicenseServer] Starting bundled server from ${bundledServerDir}`)
+      const nodeExe = path.join(process.resourcesPath!, 'node', 'node.exe')
+      const nodeBin = fs.existsSync(nodeExe) ? nodeExe : 'node'
+      const server = spawn(nodeBin, [bundledIndex], {
+        cwd: bundledServerDir,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: true,
+        env: { ...process.env, PORT: String(LICENSE_SERVER_PORT) },
+      })
+      server.unref()
+      const ready = await waitForServer(LICENSE_SERVER_PORT)
+      if (ready) {
+        devLog(`[LicenseServer] Bundled server ready on port ${LICENSE_SERVER_PORT}`)
+        process.env.LICENSE_SERVER_URL = `http://localhost:${LICENSE_SERVER_PORT}`
+        licenseServerStarted = true
+      } else {
+        devLog(`[LicenseServer] Bundled server failed to start within 5s`)
+      }
+    } else {
+      devLog(`[LicenseServer] Port ${LICENSE_SERVER_PORT} already in use — assuming server running`)
+      process.env.LICENSE_SERVER_URL = `http://localhost:${LICENSE_SERVER_PORT}`
+      licenseServerStarted = true
+    }
+  } else if (!app.isPackaged) {
+    // Dev: point to localhost if server is running, else warn
+    const portInUse = await isPortInUse(LICENSE_SERVER_PORT)
+    if (portInUse) {
+      process.env.LICENSE_SERVER_URL = `http://localhost:${LICENSE_SERVER_PORT}`
+    } else {
+      devLog(`[LicenseServer] No server on port ${LICENSE_SERVER_PORT} — start with: node servers/license-server/index.js`)
+    }
+  }
+
   // Init license (validates cached license, starts heartbeat if valid)
   void initLicense()
 

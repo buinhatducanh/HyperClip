@@ -3,8 +3,8 @@
  * Body: { key: string; machineId: string }
  * Returns: { success: boolean; keyId?: string; expiresAt?: string; features?: string[]; error?: string; code?: string }
  *
- * Demo key format: DEMO-{DAYS}-{SUFFIX}
- * Example: DEMO-2-ABC123 → valid for 2 days from activation
+ * Keys MUST be pre-created via /api/admin/licenses (POST).
+ * On-the-fly creation is DISABLED to prevent abuse.
  *
  * On Vercel: uses env var LICENSE_STORE (not persistent across Lambda invocations)
  * For production: use the bundled local license server instead
@@ -12,7 +12,6 @@
 import { NextResponse } from 'next/server'
 
 const STORE_ENV = 'LICENSE_STORE'
-const MAX_DAYS = 2
 
 interface StoredLicense {
   key: string
@@ -35,13 +34,6 @@ function saveStore(store: Record<string, StoredLicense>): void {
   process.env[STORE_ENV] = JSON.stringify(store)
 }
 
-function generateDemoExpiry(days: number): string {
-  const expiry = new Date()
-  expiry.setDate(expiry.getDate() + days)
-  expiry.setHours(0, 0, 0, 0)
-  return expiry.toISOString()
-}
-
 export async function POST(req: Request) {
   try {
     const body = await req.json()
@@ -55,55 +47,58 @@ export async function POST(req: Request) {
     }
 
     const keyUpper = key.trim().toUpperCase()
+    const store = getStore()
 
-    // ── Demo key activation ────────────────────────────────────────────────────
-    if (keyUpper.startsWith('DEMO-')) {
-      const match = keyUpper.match(/^DEMO-(\d{1,2})-([A-Z0-9]{3,8})$/)
-      if (!match) {
-        return NextResponse.json({ success: false, error: 'Invalid demo key format. Use: DEMO-2-SUFFIX', code: 'INVALID_KEY' }, { status: 400 })
+    // ── Find key in store (must be pre-created by admin) ────────────────────
+    let found: StoredLicense | null = null
+    let foundKeyId: string | null = null
+    for (const [keyId, entry] of Object.entries(store)) {
+      if (entry.key === keyUpper) {
+        found = entry
+        foundKeyId = keyId
+        break
       }
+    }
 
-      const days = parseInt(match[1], 10)
-      if (isNaN(days) || days < 1 || days > MAX_DAYS) {
-        return NextResponse.json({ success: false, error: `Demo key duration must be 1-${MAX_DAYS} days`, code: 'INVALID_KEY' }, { status: 400 })
-      }
+    if (!found) {
+      return NextResponse.json({ success: false, error: 'License key không hợp lệ', code: 'NOT_FOUND' }, { status: 400 })
+    }
 
-      // Check if already activated by this machine
-      const store = getStore()
-      for (const entry of Object.values(store)) {
-        if (entry.key === keyUpper && entry.machineId === machineId) {
-          return NextResponse.json({
-            success: true,
-            keyId: entry.keyId,
-            expiresAt: entry.expiresAt,
-            features: ['pro', 'auto_render', 'multi_channel'],
-            issuedAt: entry.activatedAt,
-            activatedAt: entry.activatedAt,
-            reactivated: true,
-          })
-        }
-      }
-
-      const keyId = `D-${Date.now().toString(36).toUpperCase()}-${match[2]}`
-      const expiresAt = generateDemoExpiry(days)
-      const now = new Date().toISOString()
-
-      store[keyId] = { key: keyUpper, machineId, activatedAt: now, expiresAt, keyId }
-      saveStore(store)
-
-      console.log(`[Activate] Demo: ${keyId} | machine: ${machineId.slice(0, 8)}... | expires: ${expiresAt}`)
-
+    // Check: same machine re-activating → return existing record
+    if (found.machineId === machineId) {
       return NextResponse.json({
         success: true,
-        keyId,
-        expiresAt,
+        keyId: found.keyId,
+        expiresAt: found.expiresAt,
         features: ['pro', 'auto_render', 'multi_channel'],
-        issuedAt: now,
-        activatedAt: now,
+        issuedAt: found.activatedAt,
+        activatedAt: found.activatedAt,
+        reactivated: true,
       })
     }
 
-    return NextResponse.json({ success: false, error: 'License key không hợp lệ', code: 'NOT_FOUND' }, { status: 400 })
+    // Check: different machine → key already used (both 'not-activated' and '' mean unbound)
+    if (found.machineId && found.machineId !== 'not-activated') {
+      return NextResponse.json({ success: false, error: 'License đã được kích hoạt trên máy khác.', code: 'ALREADY_USED' }, { status: 403 })
+    }
+
+    // First-time activation
+    const now = new Date().toISOString()
+    found.machineId = machineId
+    found.activatedAt = now
+    store[foundKeyId!] = found
+    saveStore(store)
+
+    console.log(`[Activate] Demo: ${found.keyId} | machine: ${machineId.slice(0, 8)}... | expires: ${found.expiresAt}`)
+
+    return NextResponse.json({
+      success: true,
+      keyId: found.keyId,
+      expiresAt: found.expiresAt,
+      features: ['pro', 'auto_render', 'multi_channel'],
+      issuedAt: now,
+      activatedAt: now,
+    })
   } catch {
     return NextResponse.json({ success: false, error: 'Bad request', code: 'BAD_REQUEST' }, { status: 400 })
   }

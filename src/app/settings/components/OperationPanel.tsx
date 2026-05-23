@@ -271,12 +271,12 @@ export function OperationPanel() {
           <div style={{ fontSize: 20, fontWeight: 800, color: '#00B4FF', lineHeight: 1 }}>{channels.length}</div>
           <div style={{ fontSize: 8, color: '#444', letterSpacing: '0.08em', marginTop: 4 }}>KÊNH ĐANG QUÉT</div>
         </div>
-        {/* Sessions */}
-        <div style={{ textAlign: 'center' }}>
+        {/* Sessions — explanation: sessions = Chrome browsers scanning channels */}
+        <div style={{ textAlign: 'center' }} title={`${totalSessions} Chrome browsers — dùng để quét YouTube cho tất cả channels`}>
           <div style={{ fontSize: 20, fontWeight: 800, color: consentedCount > 0 ? '#00FF88' : '#FF4444', lineHeight: 1 }}>
             {consentedCount}/{totalSessions}
           </div>
-          <div style={{ fontSize: 8, color: '#444', letterSpacing: '0.08em', marginTop: 4 }}>SESSIONS SẴN SÀNG</div>
+          <div style={{ fontSize: 8, color: '#444', letterSpacing: '0.08em', marginTop: 4 }}>SESSION ⚡ CHANNEL</div>
         </div>
         {/* Innertube */}
         <div style={{ textAlign: 'center' }}>
@@ -315,6 +315,29 @@ export function OperationPanel() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
           {/* Channel Manager */}
+          {/* Sessions ↔ Channels explanation */}
+          <div style={{
+            padding: '8px 12px', background: '#0d0d0d', border: '1px solid #1a1a1a',
+            borderRadius: 6, fontSize: 8, color: '#444', lineHeight: '14px',
+          }}>
+            <span style={{ color: '#00B4FF' }}>⚡</span>{' '}
+            <span style={{ color: '#666' }}>
+              <b style={{ color: '#888' }}>Sessions</b> = Chrome browsers để quét YouTube.{' '}
+              {totalSessions > 0
+                ? `${consentedCount}/${totalSessions} sẵn sàng`
+                : 'Chưa có sessions'}
+              {' — tự động dựa trên RAM.'}
+            </span>{' '}
+            <span style={{ color: '#444' }}>
+              <b style={{ color: '#888' }}>Channels</b> = kênh YouTube cần theo dõi.{' '}
+              {channels.length > 0
+                ? `${channels.length} kênh đang quét`
+                : 'Chưa có kênh nào'}.
+            </span>{' '}
+            <span style={{ color: '#333' }}>
+              Nhiều channels → dùng chung sessions, không cần thêm sessions.
+            </span>
+          </div>
           <div style={s.card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <span style={{ fontSize: 10, fontWeight: 800, color: '#555', letterSpacing: '0.1em' }}>QUẢN LÝ KÊNH</span>

@@ -61,8 +61,8 @@ export default function SessionsSection() {
               boxShadow: `0 0 4px ${consented.length > 0 ? '#00FF88' : '#FF4444'}66`,
             }} />
             <span style={{ fontSize: 9, color: '#555', fontFamily: 'monospace' }}>
-              {status.consentedCount}/{status.sessionCount} sessions ready
-              {consented.length > 0 && ' · Innertube API: active'}
+              {status.consentedCount}/{status.sessionCount} sessions sẵn sàng
+              {consented.length > 0 && ' · đang quét channels'}
             </span>
           </div>
           <button
@@ -82,8 +82,10 @@ export default function SessionsSection() {
 
       {/* Info */}
       <div style={{ padding: '0 14px 12px', fontSize: 9, color: '#444', lineHeight: '14px' }}>
-        Session cookies → YouTube Innertube API (không quota limit). Dùng cho detection.
-        OAuth projects → Data API v3 (10k units/ngày). Dùng cho download + fallback.
+        <b style={{ color: '#888' }}>Sessions</b> = Chrome browsers để quét YouTube cho <b style={{ color: '#888' }}>tất cả channels</b>.
+        Không cần thêm sessions khi thêm kênh — sessions chia sẻ cho mọi channels.
+        <br />
+        <b style={{ color: '#888' }}>OAuth projects</b> = dự phòng, dùng khi Innertube API lỗi.
         <br />Click &quot;Mở Chrome&quot; để đăng nhập YouTube cho profile đó.
         <br />Nếu thấy &quot;SOCS&quot; → mở YouTube trong Chrome, chấp nhận các điều khoản.
       </div>
@@ -92,7 +94,22 @@ export default function SessionsSection() {
         <div style={{ fontSize: 10, color: '#444', textAlign: 'center', padding: '16px' }}>Đang tải sessions...</div>
       ) : (
         <div style={{ padding: '0 14px 14px' }}>
-          {/* Logged in sessions */}
+          {/* Summary */}
+          <div style={{
+            padding: '8px 12px', background: '#0a0a0a', border: '1px solid #1a1a1a',
+            borderRadius: 6, fontSize: 8, color: '#444', lineHeight: '14px', marginBottom: 12,
+          }}>
+            <span style={{ color: '#00B4FF' }}>⚡</span>{' '}
+            <span style={{ color: '#666' }}>
+              <b style={{ color: '#888' }}>{status.consentedCount}/{status.sessionCount} sessions</b> sẵn sàng để quét YouTube cho tất cả channels.{' '}
+              {consented.length > 0
+                ? 'Innertube API hoạt động.'
+                : 'Cần đăng nhập Chrome để bắt đầu.'}
+            </span>
+          </div>
+
+          {/* Session list */}
+
           {consented.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 8, color: '#333', letterSpacing: '0.08em', marginBottom: 6, fontWeight: 700 }}>READY ({consented.length})</div>
@@ -177,7 +194,7 @@ export default function SessionsSection() {
           {status?.sessionCount === 0 && (
             <div style={{ textAlign: 'center', padding: '24px' }}>
               <div style={{ fontSize: 10, color: '#333', marginBottom: 8 }}>Chưa khởi tạo Chrome profiles.</div>
-              <div style={{ fontSize: 9, color: '#2a2a2a' }}>Khởi động lại app để tạo 30 HyperClip-Chrome-Profile folders.</div>
+              <div style={{ fontSize: 9, color: '#2a2a2a' }}>Khởi động lại app để tạo sessions. Sessions = Chrome browsers quét YouTube cho tất cả channels.</div>
             </div>
           )}
         </div>

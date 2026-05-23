@@ -726,20 +726,37 @@ async function preRenderOverlays(metadata, outputDir, workspaceId, gpuTier = 'so
     const g = parseInt(hex.slice(2, 4), 16);
     const b2 = parseInt(hex.slice(4, 6), 16);
     const escapedTitleText = (titleOl?.content || '').replace(/"/g, '""');
-    // ── SHORT mode: bottom bar PNG (barW × bottomBarH, FULLY opaque bar + text) ──
-    // PNG is the EXACT bar size (not canvas). Overlay directly at bottomBarY.
-    // LockBits forces A=255 on all pixels to fix anti-aliasing artifacts from FillRectangle.
+    // ── SHORT mode: bottom bar PNG (barW × bottomBarH, blur bg + text) ──
+    // Step 1: FFmpeg creates the blur background (scale blur to bar dimensions)
+    // Step 2: PowerShell adds gradient overlay + white text + LockBits fix alpha
+    // If blur unavailable → solid accent color as background
     const bottomBarOverlayPath = path_1.default.join(outputDir, 'bottom_bar_overlay.png');
+    const bbBgPath = path_1.default.join(os_1.default.tmpdir(), 'hc_bb_bg_' + Date.now() + '.png').replace(/\\/g, '/');
     const bbFontSize = Math.max(36, Math.floor(bottomBarH * 0.45));
+    const blurPath = metadata.blur_background;
+    const runFf = (args) => new Promise((resolve) => {
+        const ffmpegBin = (0, ffmpeg_paths_js_1.getFfmpegPath)();
+        const cmd = buildArgs(ffmpegBin, args);
+        const proc = (0, child_process_1.spawn)(cmd, [], { shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
+        let se = '';
+        proc.stderr?.on('data', d => { se += d.toString(); });
+        proc.on('close', code => resolve({ code: code ?? 1, stderr: se }));
+    });
     const bbPs1 = [
         'Add-Type -AssemblyName System.Drawing',
-        `$w=${canvasW};$h=${bottomBarH};$bmp=New-Object System.Drawing.Bitmap($w,$h)`,
+        `$w=${canvasW};$h=${bottomBarH};$bg="${bbBgPath}";$out="${bottomBarOverlayPath.replace(/\\/g, '/')}"`,
+        '$bmp=New-Object System.Drawing.Bitmap($w,$h)',
         '$g=[System.Drawing.Graphics]::FromImage($bmp)',
         '$g.SmoothingMode=[System.Drawing.Drawing2D.SmoothingMode]::AntiAlias',
         '$g.TextRenderingHint=[System.Drawing.Text.TextRenderingHint]::AntiAlias',
-        '$brush=New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255,' + r + ',' + g + ',' + b2 + '))',
-        '$g.FillRectangle($brush,0,0,$w,$h)',
-        '$brush.Dispose()',
+        // Load blur background if available, else solid accent color
+        'if(Test-Path $bg){$orig=[System.Drawing.Image]::FromFile($bg);$g.DrawImage($orig,0,0,$w,$h);$orig.Dispose()}else{$brush=New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255,' + r + ',' + g + ',' + b2 + '));$g.FillRectangle($brush,0,0,$w,$h);$brush.Dispose()}',
+        // Gradient overlay: dark at top → transparent at bottom (top 60% of bar)
+        '$gw=$w;$gh=$h;$gradTop=[Math]::Floor($gh*0.60)',
+        '$brush2=New-Object System.Drawing.Drawing2D.LinearGradientBrush((New-Object System.Drawing.Point(0,0)),(New-Object System.Drawing.Point(0,$gradTop)),[System.Drawing.Color]::FromArgb(200,0,0,0),[System.Drawing.Color]::Transparent)',
+        '$g.FillRectangle($brush2,0,0,$gw,$gradTop)',
+        '$brush2.Dispose()',
+        // White text centered
         '$font=New-Object System.Drawing.Font("Arial",' + bbFontSize + ',[System.Drawing.FontStyle]::Bold)',
         '$sf=New-Object System.Drawing.StringFormat',
         '$sf.Alignment=[System.Drawing.StringAlignment]::Center',
@@ -747,6 +764,7 @@ async function preRenderOverlays(metadata, outputDir, workspaceId, gpuTier = 'so
         '$rect=New-Object System.Drawing.RectangleF(0,0,$w,$h)',
         '$g.DrawString("' + escapedText + '",$font,(New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)),$rect,$sf)',
         '$g.Dispose();$font.Dispose();$sf.Dispose()',
+        // LockBits: force alpha=255 (fix anti-aliasing artifacts from FillRectangle)
         '$rect2=New-Object System.Drawing.Rectangle(0,0,$w,$h)',
         '$bd=$bmp.LockBits($rect2,[System.Drawing.Imaging.ImageLockMode]::ReadWrite,[System.Drawing.Imaging.PixelFormat]::Format32bppArgb)',
         '$bytes=[byte[]]::new($bd.Stride*$h)',
@@ -754,10 +772,14 @@ async function preRenderOverlays(metadata, outputDir, workspaceId, gpuTier = 'so
         'for($i=3;$i -lt $bytes.Length;$i+=4){$bytes[$i]=255}',
         '[System.Runtime.InteropServices.Marshal]::Copy($bytes,0,$bd.Scan0,$bytes.Length)',
         '$bmp.UnlockBits($bd)',
-        '$bmp.Save("' + bottomBarOverlayPath.replace(/\\/g, '/') + '",[System.Drawing.Imaging.ImageFormat]::Png)',
+        '$bmp.Save($out,[System.Drawing.Imaging.ImageFormat]::Png)',
         '$bmp.Dispose()',
         'Write-Host OK',
     ].join(';');
+    // Step 1: FFmpeg creates background (blur scaled to bar size, or solid color)
+    const ffBgPromise = (blurPath && fs_1.default.existsSync(blurPath))
+        ? runFf(['-i', blurPath, '-vf', `scale=${canvasW}:${bottomBarH}:force_original_aspect_ratio=increase,crop=${canvasW}:${bottomBarH}:(ow-iw)/2:(oh-ih)/2`, '-y', bbBgPath])
+        : runFf(['-f', 'lavfi', '-i', `color=c=${hex.substring(0, 6)}:s=${canvasW}x${bottomBarH}:d=0.01`, '-frames:v', '1', '-y', bbBgPath]);
     const bbPs1File = path_1.default.join(os_1.default.tmpdir(), 'hc_bb_' + Date.now() + '.ps1').replace(/\\/g, '/');
     fs_1.default.writeFileSync(bbPs1File, bbPs1);
     // ── LANDSCAPE mode: title overlay PNG (transparent bg, border+text) ──
@@ -790,7 +812,11 @@ async function preRenderOverlays(metadata, outputDir, workspaceId, gpuTier = 'so
     ].join(';');
     const titlePs1File = path_1.default.join(os_1.default.tmpdir(), 'hc_title_' + Date.now() + '.ps1').replace(/\\/g, '/');
     fs_1.default.writeFileSync(titlePs1File, titlePs1);
-    // Run both in parallel
+    // Step 1: FFmpeg generates blur background for bottom bar
+    const ffResult = await ffBgPromise;
+    if (ffResult.code !== 0)
+        (0, unified_log_js_1.devLog)('[TextOverlay] FFmpeg bg failed: ' + ffResult.stderr.slice(0, 100));
+    // Step 2: Run PS scripts (bottom bar + landscape title in parallel)
     const runPs = (f) => new Promise((resolve) => {
         const proc = (0, child_process_1.spawn)('powershell', ['-ExecutionPolicy', 'Bypass', '-File', f], { stdio: ['pipe', 'pipe', 'pipe'] });
         let so = '', se = '';
@@ -809,6 +835,11 @@ async function preRenderOverlays(metadata, outputDir, workspaceId, gpuTier = 'so
         catch { } ; resolve({ code: 1, stdout: '', stderr: e.message }); });
     });
     const [bbResult, titleResult] = await Promise.all([runPs(bbPs1File), runPs(titlePs1File)]);
+    // Cleanup temp blur background
+    try {
+        fs_1.default.unlinkSync(bbBgPath);
+    }
+    catch { }
     const bbOk = bbResult.code === 0 && bbResult.stdout.trim() === 'OK' && fs_1.default.existsSync(bottomBarOverlayPath);
     const titleOk = titleResult.code === 0 && titleResult.stdout.trim() === 'OK' && fs_1.default.existsSync(titleOverlayPath);
     if (bbOk)

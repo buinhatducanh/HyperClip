@@ -1750,6 +1750,76 @@ void electron_1.app.whenReady().then(async () => {
     (0, ipc_state_js_1.setIPCState)({ mainWindow });
     void createTray();
     (0, index_js_1.registerAllHandlers)(electron_1.ipcMain, () => mainWindow);
+    // ─── Bundled License Server ─────────────────────────────────────────────────
+    // Auto-starts the license server bundled inside the packaged app.
+    // Falls back gracefully if server already running or files missing.
+    const LICENSE_SERVER_PORT = 3001;
+    const bundledServerDir = electron_1.app.isPackaged
+        ? path_1.default.join(process.resourcesPath, 'app', 'servers', 'license-server')
+        : path_1.default.join(__dirname, '..', 'servers', 'license-server');
+    const bundledIndex = path_1.default.join(bundledServerDir, 'index.js');
+    const bundledNodeModules = path_1.default.join(bundledServerDir, 'node_modules');
+    async function isPortInUse(port) {
+        return new Promise((resolve) => {
+            const s = http.createServer();
+            s.once('error', () => { resolve(true); });
+            s.once('listening', () => { s.close(); resolve(false); });
+            s.listen(port, '127.0.0.1');
+        });
+    }
+    async function waitForServer(port, timeoutMs = 5000) {
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+            try {
+                const res = await fetch(`http://localhost:${port}/health`);
+                if (res.ok)
+                    return true;
+            }
+            catch { }
+            await new Promise(r => setTimeout(r, 200));
+        }
+        return false;
+    }
+    let licenseServerStarted = false;
+    if (electron_1.app.isPackaged && fs_1.default.existsSync(bundledIndex) && fs_1.default.existsSync(bundledNodeModules)) {
+        const portInUse = await isPortInUse(LICENSE_SERVER_PORT);
+        if (!portInUse) {
+            (0, unified_log_js_1.devLog)(`[LicenseServer] Starting bundled server from ${bundledServerDir}`);
+            const nodeExe = path_1.default.join(process.resourcesPath, 'node', 'node.exe');
+            const nodeBin = fs_1.default.existsSync(nodeExe) ? nodeExe : 'node';
+            const server = (0, child_process_1.spawn)(nodeBin, [bundledIndex], {
+                cwd: bundledServerDir,
+                stdio: ['ignore', 'pipe', 'pipe'],
+                detached: true,
+                env: { ...process.env, PORT: String(LICENSE_SERVER_PORT) },
+            });
+            server.unref();
+            const ready = await waitForServer(LICENSE_SERVER_PORT);
+            if (ready) {
+                (0, unified_log_js_1.devLog)(`[LicenseServer] Bundled server ready on port ${LICENSE_SERVER_PORT}`);
+                process.env.LICENSE_SERVER_URL = `http://localhost:${LICENSE_SERVER_PORT}`;
+                licenseServerStarted = true;
+            }
+            else {
+                (0, unified_log_js_1.devLog)(`[LicenseServer] Bundled server failed to start within 5s`);
+            }
+        }
+        else {
+            (0, unified_log_js_1.devLog)(`[LicenseServer] Port ${LICENSE_SERVER_PORT} already in use — assuming server running`);
+            process.env.LICENSE_SERVER_URL = `http://localhost:${LICENSE_SERVER_PORT}`;
+            licenseServerStarted = true;
+        }
+    }
+    else if (!electron_1.app.isPackaged) {
+        // Dev: point to localhost if server is running, else warn
+        const portInUse = await isPortInUse(LICENSE_SERVER_PORT);
+        if (portInUse) {
+            process.env.LICENSE_SERVER_URL = `http://localhost:${LICENSE_SERVER_PORT}`;
+        }
+        else {
+            (0, unified_log_js_1.devLog)(`[LicenseServer] No server on port ${LICENSE_SERVER_PORT} — start with: node servers/license-server/index.js`);
+        }
+    }
     // Init license (validates cached license, starts heartbeat if valid)
     void (0, license_js_1.initLicense)();
     // ─── Health Alert Checker (every 60s) ───────────────────────────────────────

@@ -1397,20 +1397,47 @@ const CanvasArea = React.memo(function CanvasArea({ video, editorState, onChange
               </div>
 
               {isShort && editorState.bottomBarEnabled ? (
-                // Bottom bar preview: solid accent color bar + white text
-                // Matches FFmpeg BOTTOM_ZONE: fully opaque accent, no thumbnail, text on top
+                // Bottom bar preview: thumbnail/blur bg + gradient + white text
+                // Matches FFmpeg: blur background (same content as header zone) + text overlay
                 <div style={{
                   width: '100%', height: '100%',
-                  background: editorState.bottomBarColor || '#000000',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  position: 'relative',
+                  overflow: 'hidden',
                 }}>
-                  {/* Text */}
-                  <span style={{
-                    fontSize: Math.round(bottomBarH * 0.45),
-                    fontWeight: 700, color: '#FFF', textAlign: 'center', lineHeight: 1.2,
+                  {/* Background: thumbnail/blur (same content as header zone) */}
+                  {(localThumbSrc || video.thumbnail) ? (
+                    <img
+                      src={localThumbSrc || video.thumbnail}
+                      alt=""
+                      style={{
+                        position: 'absolute', inset: 0,
+                        width: '100%', height: '100%',
+                        objectFit: 'cover',
+                        objectPosition: `center ${editorState.headerImageOffsetY}%`,
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  ) : (
+                    <div style={{ position: 'absolute', inset: 0, background: editorState.bottomBarColor || '#000' }} />
+                  )}
+                  {/* Gradient overlay: dark at top → transparent at bottom (top 60%) */}
+                  <div style={{
+                    position: 'absolute', inset: 0,
+                    background: 'linear-gradient(to bottom, rgba(0,0,0,0.70) 0%, rgba(0,0,0,0.30) 40%, rgba(0,0,0,0) 100%)',
+                    pointerEvents: 'none',
+                  }} />
+                  {/* White text centered */}
+                  <div style={{
+                    position: 'absolute', inset: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    {editorState.titleText || 'PART 1'}
-                  </span>
+                    <span style={{
+                      fontSize: Math.round(bottomBarH * 0.45),
+                      fontWeight: 700, color: '#FFF', textAlign: 'center', lineHeight: 1.2,
+                    }}>
+                      {editorState.titleText || 'PART 1'}
+                    </span>
+                  </div>
                 </div>
               ) : (
                 // Title overlay preview — matches FFmpeg drawtext (no box, text only on video)

@@ -122,7 +122,7 @@ export async function POST(req: Request) {
     const record: StoredLicense = {
       key,
       machineId: machineId || 'not-activated',
-      activatedAt: now,
+      activatedAt: machineId ? now : '',   // only set if pre-bound to a machine
       expiresAt,
       keyId,
     }

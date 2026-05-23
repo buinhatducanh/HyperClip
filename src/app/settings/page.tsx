@@ -42,7 +42,7 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'sessions' | 'projects' | 'keys' | 'system' | 'diag' | 'operation' | 'logs'>('sessions')
 
   const TABS = [
-    { id: 'sessions' as const, label: 'Sessions', color: '#00FF88' },
+    { id: 'sessions' as const, label: 'Sessions', color: '#00B4FF' },
     { id: 'projects' as const, label: 'Projects', color: '#00FF88' },
     { id: 'keys' as const, label: 'API Keys', color: '#00B4FF' },
     { id: 'system' as const, label: 'Storage', color: '#FFB800' },
