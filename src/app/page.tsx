@@ -149,6 +149,12 @@ function DashboardContent() {
     ? renderedVideos.find(v => v.workspaceId === compareWorkspaceId) ?? null
     : null
 
+  // Stable refs for IPC callbacks (avoids stale closures + re-registration on every render)
+  const updateWorkspaceRef = useRef(updateWorkspace)
+  const addWorkspaceRef = useRef(addWorkspace)
+  updateWorkspaceRef.current = updateWorkspace
+  addWorkspaceRef.current = addWorkspace
+
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
   const [authStatus, setAuthStatus] = useState<{
     isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string
@@ -352,7 +358,9 @@ function DashboardContent() {
         if (typeof patch.fileSize === 'number') patch.fileSize = formatFileSizeRaw(patch.fileSize)
         if (patch.downloadedAt) patch.downloadedAt = formatDateRaw(patch.downloadedAt)
         if (typeof patch.duration === 'number') patch.duration = formatDurationRaw(patch.duration)
-        updateWorkspace(data.id, patch)
+        // Skip if no meaningful fields changed (avoids unnecessary re-renders)
+        const hasChange = Object.keys(patch).some(k => (existing as any)[k] !== (patch as any)[k])
+        if (hasChange) updateWorkspaceRef.current(data.id, patch)
       } else {
         const formatted: Workspace = {
           id: data.id, channelId: data.channelId || '', channelName: (data.channelName && data.channelName !== 'N/A') ? data.channelName : 'Unknown Channel',
@@ -369,11 +377,11 @@ function DashboardContent() {
           detectedAt: data.detectedAt,
           videoResolution: data.videoResolution,
         }
-        addWorkspace(formatted)
+        addWorkspaceRef.current(formatted)
       }
     })
     return cleanup
-  }, [updateWorkspace, addWorkspace])
+  }, [])
 
   // System stats
   useEffect(() => {
@@ -389,19 +397,6 @@ function DashboardContent() {
     ipc.getPollerStatus().then(setPollerStatus)
     return () => clearInterval(interval)
   }, [])
-
-  // Notifications
-  useEffect(() => {
-    const cleanup = window.electronAPI?.onNotification((n) => {
-      const notif = n as { type: string; message: string }
-      addNotification({ type: notif.type as any, message: notif.message })
-      showToast(notif.message)
-    })
-    return cleanup
-  }, [showToast, addNotification])
-
-  // Download ETA throttle — prevents flickering when ETA oscillates between close values
-  const _lastDownloadEta = useRef<Map<string, string>>(new Map())
 
   // Activity feed — pipeline events (detected, downloading, downloaded, rendering, done)
   useEffect(() => {
@@ -534,12 +529,14 @@ function DashboardContent() {
     return cleanup
   }, [])
 
-  // Auto-download notification
+  // Auto-download: notification + audio + activity upsert — SINGLE listener (was duplicate)
   useEffect(() => {
     const cleanup = ipc.onAutoDownload((data) => {
-      const d = data as { videoId: string; title: string; channelName: string }
+      const d = data as { videoId: string; title: string; channelName: string; workspaceId?: string }
+      // Toast
       addNotification({ type: 'autodownload', message: `${(d.channelName && d.channelName !== 'N/A') ? d.channelName : 'Unknown Channel'}: ${d.title}` })
       showToast(`Auto: ${d.title}`)
+      // Audio chime
       try {
         const ctx = new AudioContext()
         const notes = [523.25, 659.25, 783.99]
@@ -555,6 +552,13 @@ function DashboardContent() {
         })
         void ctx.resume()
       } catch {}
+      // Activity upsert
+      if (d.workspaceId) {
+        upsertActivity(d.workspaceId, 'detected', `Phát hiện video mới: ${d.title}`, undefined, false)
+        etaCountdownSec.current.set(d.workspaceId, 60)
+        lastEtaDisplayed.current.set(d.workspaceId, '')
+        lastEtaUpdateMs.current.set(d.workspaceId, 0)
+      }
     })
     return cleanup
   }, [showToast, addNotification])
@@ -606,19 +610,6 @@ function DashboardContent() {
     })
   }
 
-  // Auto-download: phát hiện video mới
-  useEffect(() => {
-    const cleanup = ipc.onAutoDownload((data) => {
-      const d = data as { videoId: string; title: string; channelName: string; workspaceId?: string }
-      if (!d.workspaceId) return
-      upsertActivity(d.workspaceId, 'detected', `Phát hiện video mới: ${d.title}`, undefined, false)
-      // Seed ETA countdown with default 60s until render progress provides real ETA
-      etaCountdownSec.current.set(d.workspaceId, 60)
-      lastEtaDisplayed.current.set(d.workspaceId, '')
-      lastEtaUpdateMs.current.set(d.workspaceId, 0)
-    })
-    return cleanup
-  }, [])
 
   // Download / render progress: update activity and seed/refresh ETA countdown
   useEffect(() => {

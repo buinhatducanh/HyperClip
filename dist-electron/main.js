@@ -330,9 +330,18 @@ function executeRenderJob(job) {
         backgroundImage: !metadata.backgroundImage && !wsBlurBg && fs_1.default.existsSync(wsThumbPath) ? wsThumbPath : metadata.backgroundImage,
     };
     const gpuTier = (0, system_js_1.getGPUCapabilities)().tier;
+    let _lastBroadcastMs = 0;
+    let _lastBroadcastPercent = -1;
     (0, ffmpeg_js_1.renderVideo)(resolvedMetadata, outputDir, (progress) => {
         (0, store_js_1.updateWorkspace)(workspaceId, { renderProgress: progress.percent });
-        broadcast(channels_js_1.IPC_CHANNELS.RENDER_PROGRESS_EVENT, progress);
+        // Throttle: only broadcast every 500ms OR when percent changes by ≥2
+        const now = Date.now();
+        const pctDelta = Math.abs(progress.percent - _lastBroadcastPercent);
+        if (now - _lastBroadcastMs >= 500 || pctDelta >= 2) {
+            _lastBroadcastMs = now;
+            _lastBroadcastPercent = progress.percent;
+            broadcast(channels_js_1.IPC_CHANNELS.RENDER_PROGRESS_EVENT, progress);
+        }
     }, gpuTier).then((result) => {
         const renderElapsed = ((Date.now() - renderStartMs) / 1000).toFixed(1);
         if (result.success) {
@@ -571,6 +580,8 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
         }
         (0, unified_log_js_1.devLog)(`[Auto] DOWNLOAD START: "${title}" quality=${autoQuality}p trimLimit=${autoTrimLimit === 'full' ? 'full' : autoTrimLimit + 'm'}`);
         const downloadStartMs = Date.now();
+        let _dlLastBroadcastMs = 0;
+        let _dlLastPercent = -1;
         // downloadVideoStrategy handles the full client chain (web → tv_embedded → ios)
         // with proper error classification, rate-limit backoff, and processing retry.
         let result = await (0, youtube_js_1.downloadVideo)({
@@ -581,12 +592,19 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
             quality: autoQuality,
             ytCookiesFile,
             onProgress: (progress) => {
-                broadcast(channels_js_1.IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
-                    workspaceId: ws.id,
-                    percent: progress.percent,
-                    speed: progress.speed,
-                    eta: progress.eta,
-                });
+                // Throttle: broadcast every 500ms OR when percent changes
+                const now = Date.now();
+                const pctDelta = Math.abs(progress.percent - _dlLastPercent);
+                if (now - _dlLastBroadcastMs >= 500 || pctDelta >= 2 || progress.speed === 'processing') {
+                    _dlLastBroadcastMs = now;
+                    _dlLastPercent = progress.percent;
+                    broadcast(channels_js_1.IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
+                        workspaceId: ws.id,
+                        percent: progress.percent,
+                        speed: progress.speed,
+                        eta: progress.eta,
+                    });
+                }
             },
         });
         if (!result.success || !result.filePath) {
@@ -826,6 +844,8 @@ async function doRetryAutoDownload(ws) {
     const ytCookiesFile = await getYtCookiesFile();
     (0, store_js_1.updateWorkspace)(ws.id, { status: 'downloading', downloadProgress: 0 });
     broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
+    let _retryDlLastMs = 0;
+    let _retryDlLastPct = -1;
     // downloadVideo delegates to downloadVideoStrategy (web → tv_embedded → ios)
     const result = await (0, youtube_js_1.downloadVideo)({
         workspaceId: ws.id,
@@ -835,12 +855,18 @@ async function doRetryAutoDownload(ws) {
         quality: retryQuality,
         ytCookiesFile,
         onProgress: (progress) => {
-            broadcast(channels_js_1.IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
-                workspaceId: ws.id,
-                percent: progress.percent,
-                speed: progress.speed,
-                eta: progress.eta,
-            });
+            const now = Date.now();
+            const pctDelta = Math.abs(progress.percent - _retryDlLastPct);
+            if (now - _retryDlLastMs >= 500 || pctDelta >= 2) {
+                _retryDlLastMs = now;
+                _retryDlLastPct = progress.percent;
+                broadcast(channels_js_1.IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
+                    workspaceId: ws.id,
+                    percent: progress.percent,
+                    speed: progress.speed,
+                    eta: progress.eta,
+                });
+            }
         },
     });
     if (result.success && result.filePath) {

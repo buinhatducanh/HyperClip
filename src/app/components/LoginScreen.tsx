@@ -126,6 +126,35 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
                 nhấn vào đây
               </span>
             </div>
+
+            {/* Divider */}
+            <div style={{ width: '100%', height: 1, background: '#1A1A1A' }} />
+
+            {/* Always-visible login actions — prevents blocking on first install */}
+            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button
+                onClick={handleLogin}
+                style={{
+                  width: '100%', height: 36,
+                  background: '#00B4FF', border: 'none',
+                  borderRadius: 6, fontSize: 12, fontWeight: 700,
+                  color: '#fff', cursor: 'pointer',
+                }}
+              >
+                Đăng nhập với Google
+              </button>
+              <button
+                onClick={() => setStatus({ ...status, isReady: true, oauthReady: false, accountName: 'Demo Mode' })}
+                style={{
+                  width: '100%', height: 28,
+                  background: 'transparent', border: '1px solid #2A2A2A',
+                  borderRadius: 6, fontSize: 10,
+                  color: '#555', cursor: 'pointer',
+                }}
+              >
+                Dùng thử (không theo dõi tự động)
+              </button>
+            </div>
           </div>
         )}
 
@@ -248,52 +277,7 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
           </div>
         )}
 
-        {/* Tokens present but not yet recognized (oauthReady=false, no accountName) — offer re-login */}
-        {!status.isReady && !status.oauthReady && !status.quotaExceeded && !status.accountName && (
-          <div style={{
-            background: '#111', border: '1px solid #1E1E1E',
-            borderRadius: 12, padding: '28px 40px',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
-            minWidth: 320, maxWidth: 400,
-          }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 13, color: '#fff', fontWeight: 600, marginBottom: 6 }}>
-                Đăng nhập YouTube
-              </div>
-              <div style={{ fontSize: 11, color: '#555', lineHeight: 1.6 }}>
-                HyperClip cần quyền truy cập YouTube để theo dõi kênh đăng ký.
-              </div>
-            </div>
-            <button
-              onClick={handleLogin}
-              style={{
-                width: '100%', height: 36,
-                background: '#00B4FF', border: 'none',
-                borderRadius: 6, fontSize: 12, fontWeight: 700,
-                color: '#fff', cursor: 'pointer',
-              }}
-            >
-              Đăng nhập với Google
-            </button>
 
-            {/* Demo mode — skip OAuth, still works with manual workspace add */}
-            <div style={{ width: '100%', height: 1, background: '#1A1A1A' }} />
-            <button
-              onClick={() => setStatus({ ...status, isReady: true, oauthReady: false, accountName: 'Demo Mode' })}
-              style={{
-                width: '100%', height: 28,
-                background: 'transparent', border: '1px solid #2A2A2A',
-                borderRadius: 6, fontSize: 10,
-                color: '#555', cursor: 'pointer',
-              }}
-            >
-              Dùng thử (không theo dõi tự động)
-            </button>
-            <div style={{ fontSize: 9, color: '#333', textAlign: 'center', lineHeight: 1.5 }}>
-              Thêm video thủ công, chỉnh sửa và render. Theo dõi kênh tự động cần đăng nhập Google.
-            </div>
-          </div>
-        )}
       </div>
     </>
   )

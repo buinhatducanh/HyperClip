@@ -53,6 +53,43 @@ function groupByStatus(workspaces: Workspace[]): Map<GroupStatus, Workspace[]> {
   return groups
 }
 
+const MemoizedGroupHeader = memo(function GroupHeader({
+  status, count, cfg, isCollapsed, onToggle
+}: {
+  status: GroupStatus; count: number; cfg: typeof GROUP_CONFIG[GroupStatus]
+  isCollapsed: boolean; onToggle: () => void
+}) {
+  return (
+    <div
+      onClick={() => cfg.collapsible && onToggle()}
+      className="flex items-center px-4 shrink-0"
+      style={{
+        height: 26,
+        background: '#0F0F0F',
+        borderBottom: '1px solid #181818',
+        cursor: cfg.collapsible ? 'pointer' : 'default',
+        userSelect: 'none',
+      }}
+    >
+      <span style={{ width: 5, height: 5, borderRadius: '50%', background: cfg.color, display: 'inline-block', marginRight: 6, boxShadow: `0 0 4px ${cfg.color}88` }} />
+      <span style={{ fontSize: 9, fontWeight: 700, color: '#555', letterSpacing: '0.08em' }}>
+        {cfg.label}
+      </span>
+      <span style={{ marginLeft: 5, fontSize: 9, fontFamily: 'monospace', color: '#444' }}>
+        · {count}
+      </span>
+      {cfg.collapsible && (
+        <svg
+          width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="2"
+          style={{ marginLeft: 'auto', transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      )}
+    </div>
+  )
+})
+
 export const WorkspaceQueue = memo(function WorkspaceQueue({
   workspaces, renderedVideos = [], channels = [], selectedId, selectedRenderedId,
   onSelect, onSelectRendered, onQuickAction, onRetry, onRemoveRendered, onShowToast, onSplit, trimLimitMinutes = 10,
@@ -83,7 +120,8 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
     return result
   }, [workspaces, searchQuery, filterStatus, filterChannel])
 
-  const groups = groupByStatus(filteredWorkspaces)
+  // Memoize groupBy to avoid recomputing on every render
+  const groups = useMemo(() => groupByStatus(filteredWorkspaces), [filteredWorkspaces])
 
   const toggleGroup = (status: GroupStatus) => {
     setCollapsedGroups(prev => {
@@ -319,57 +357,14 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
 
                 return (
                   <div key={status}>
-                    {/* Group header */}
-                    <div
-                      onClick={() => cfg.collapsible && toggleGroup(status)}
-                      className="flex items-center px-4 shrink-0"
-                      style={{
-                        height: 26,
-                        background: '#0F0F0F',
-                        borderBottom: '1px solid #181818',
-                        cursor: cfg.collapsible ? 'pointer' : 'default',
-                        userSelect: 'none',
-                      }}
-                    >
-                      <span style={{ width: 5, height: 5, borderRadius: '50%', background: cfg.color, display: 'inline-block', marginRight: 6, boxShadow: `0 0 4px ${cfg.color}88` }} />
-                      <span
-                        style={{
-                          fontSize: 9,
-                          fontWeight: 700,
-                          color: '#555',
-                          letterSpacing: '0.08em',
-                        }}
-                      >
-                        {cfg.label}
-                      </span>
-                      <span
-                        style={{
-                          marginLeft: 5,
-                          fontSize: 9,
-                          fontFamily: 'monospace',
-                          color: '#444',
-                        }}
-                      >
-                        · {items.length}
-                      </span>
-                      {cfg.collapsible && (
-                        <svg
-                          width="10"
-                          height="10"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="#333"
-                          strokeWidth="2"
-                          style={{
-                            marginLeft: 'auto',
-                            transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
-                            transition: 'transform 0.15s',
-                          }}
-                        >
-                          <polyline points="6 9 12 15 18 9" />
-                        </svg>
-                      )}
-                    </div>
+                    {/* Group header — memoized to avoid re-render on unrelated state changes */}
+                    <MemoizedGroupHeader
+                      status={status}
+                      count={items.length}
+                      cfg={cfg}
+                      isCollapsed={isCollapsed}
+                      onToggle={() => toggleGroup(status)}
+                    />
 
                     {/* Group items */}
                     {!isCollapsed && items.map((ws) => (

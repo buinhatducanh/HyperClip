@@ -107,6 +107,7 @@
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
     "extract-zip": "^2.0.1",
+    "playwright": "^1.60.0",
     "png-to-ico": "^3.0.1",
     "postcss": "^8.5.10",
     "sharp": "^0.34.5",

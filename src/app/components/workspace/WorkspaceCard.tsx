@@ -149,29 +149,37 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
   const thumbW = isShort ? thumbW9 : thumbW16
 
   return (
+    // Outer wrapper: handles hover state for both card body and action strip.
+    // The action strip is a sibling, so card's onMouseLeave won't affect it.
     <div
-      onClick={onClick}
-      style={{
-        background: isSelected ? '#0D1F2A' : '#161616',
-        borderLeft: `3px solid ${isSelected ? '#00B4FF' : 'transparent'}`,
-        borderBottom: '1px solid #181818',
-        padding: '10px 12px',
-        cursor: 'pointer',
-        transition: 'background 0.15s',
-        position: 'relative',
-      }}
-      onMouseEnter={(e) => {
-        if (!isSelected) e.currentTarget.style.background = '#191919'
-        const actions = e.currentTarget.querySelector('.card-actions') as HTMLElement
+      onMouseEnter={() => {
+        const card = document.querySelector<HTMLElement>(`.card-body-${workspace.id}`)
+        const actions = document.querySelector<HTMLElement>(`.card-actions-${workspace.id}`)
+        if (card && !isSelected) card.style.background = '#191919'
         if (actions) actions.style.opacity = '1'
       }}
-      onMouseLeave={(e) => {
-        if (!isSelected) e.currentTarget.style.background = '#161616'
-        const actions = e.currentTarget.querySelector('.card-actions') as HTMLElement
+      onMouseLeave={() => {
+        const card = document.querySelector<HTMLElement>(`.card-body-${workspace.id}`)
+        const actions = document.querySelector<HTMLElement>(`.card-actions-${workspace.id}`)
+        if (card && !isSelected) card.style.background = '#161616'
         if (actions) actions.style.opacity = '0'
       }}
     >
-      <div style={{ display: 'flex', gap: 10, alignItems: 'stretch' }}>
+      {/* Card body: click + hover styling */}
+      <div
+        onClick={onClick}
+        className={`card-body-${workspace.id}`}
+        style={{
+          background: isSelected ? '#0D1F2A' : '#161616',
+          borderLeft: `3px solid ${isSelected ? '#00B4FF' : 'transparent'}`,
+          borderBottom: '1px solid #181818',
+          padding: '10px 12px',
+          cursor: 'pointer',
+          transition: 'background 0.15s',
+          position: 'relative',
+        }}
+      >
+        <div style={{ display: 'flex', gap: 10, alignItems: 'stretch' }}>
         {/* ── Thumbnail wrapper (allows quality badge tooltip to overflow) ── */}
         <div style={{ position: 'relative', flexShrink: 0 }}>
         {/* ── Thumbnail ── */}
@@ -502,13 +510,16 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
           )}
         </div>
       </div>
+      {/* end card body */}
 
-      {/* Action strip */}
+      {/* Action strip — sibling of card body so card onMouseLeave won't hide it */}
       <div
-        className="card-actions"
+        className={`card-actions card-actions-${workspace.id}`}
         style={{
           display: 'flex', gap: 10, alignItems: 'center',
-          marginTop: 7, paddingTop: 6, borderTop: '1px solid #1e1e1e',
+          paddingTop: 6, paddingLeft: 12, paddingRight: 12,
+          paddingBottom: 6,
+          borderBottom: '1px solid #181818',
           opacity: 0.5, transition: 'opacity 0.15s',
         }}
       >
@@ -553,6 +564,7 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
           </button>
         )}
       </div>
+    </div>
     </div>
   )
 })
