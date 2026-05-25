@@ -89,6 +89,7 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
   const [thumbSrc, setThumbSrc] = useState<string>('')
   const [thumbFailed, setThumbFailed] = useState(false)
   const [showQualityTip, setShowQualityTip] = useState(false)
+  const [isHovered, setIsHovered] = useState(false)
 
   // Resolve thumbnail — cached + staggered to avoid IPC burst on startup
   useEffect(() => {
@@ -149,28 +150,30 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
   const thumbW = isShort ? thumbW9 : thumbW16
 
   return (
-    // Outer wrapper: handles hover state for both card body and action strip.
-    // The action strip is a sibling, so card's onMouseLeave won't affect it.
     <div
-      onMouseEnter={() => {
-        const card = document.querySelector<HTMLElement>(`.card-body-${workspace.id}`)
-        const actions = document.querySelector<HTMLElement>(`.card-actions-${workspace.id}`)
-        if (card && !isSelected) card.style.background = '#191919'
-        if (actions) actions.style.opacity = '1'
-      }}
-      onMouseLeave={() => {
-        const card = document.querySelector<HTMLElement>(`.card-body-${workspace.id}`)
-        const actions = document.querySelector<HTMLElement>(`.card-actions-${workspace.id}`)
-        if (card && !isSelected) card.style.background = '#161616'
-        if (actions) actions.style.opacity = '0'
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={(e) => {
+        const target = e.target as HTMLElement
+        const actionBtn = target.closest('button[data-action-area]') as HTMLButtonElement | null
+        if (actionBtn) {
+          const btnText = actionBtn.textContent?.trim() || ''
+          console.log('[DEBUG] Action button clicked:', btnText, workspace.id)
+          if (btnText === 'CHI TIẾT') onQuickAction?.('open', workspace.id)
+          else if (btnText === 'XÓA') onQuickAction?.('delete', workspace.id)
+          else if (btnText === 'THỬ LẠI') onRetry?.(workspace.id)
+          else if (btnText === 'TÁCH') onSplit?.(workspace.id, trimLimitMinutes)
+          return
+        }
+        // Card body clicked → open preview
+        onClick()
       }}
     >
-      {/* Card body: click + hover styling */}
+      {/* Card body: visual styling only */}
       <div
-        onClick={onClick}
         className={`card-body-${workspace.id}`}
         style={{
-          background: isSelected ? '#0D1F2A' : '#161616',
+          background: isSelected ? '#0D1F2A' : (isHovered ? '#191919' : '#161616'),
           borderLeft: `3px solid ${isSelected ? '#00B4FF' : 'transparent'}`,
           borderBottom: '1px solid #181818',
           padding: '10px 12px',
@@ -514,28 +517,30 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
 
       {/* Action strip — sibling of card body so card onMouseLeave won't hide it */}
       <div
+        data-action-area="1"
         className={`card-actions card-actions-${workspace.id}`}
         style={{
           display: 'flex', gap: 10, alignItems: 'center',
           paddingTop: 6, paddingLeft: 12, paddingRight: 12,
           paddingBottom: 6,
           borderBottom: '1px solid #181818',
-          opacity: 0.5, transition: 'opacity 0.15s',
+          opacity: isHovered ? 1 : 0.5, transition: 'opacity 0.15s',
+          pointerEvents: 'auto',
         }}
       >
         {onQuickAction && (
           <>
             <button
-              onClick={(e) => { e.stopPropagation(); onQuickAction('open', workspace.id) }}
-              style={{ fontSize: 9, fontWeight: 600, color: '#00B4FF', background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.06em', padding: '2px 0' }}
+              data-action-area="1"
+              style={{ fontSize: 9, fontWeight: 600, color: '#00B4FF', background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.06em', padding: '2px 0', pointerEvents: 'auto' }}
               onMouseEnter={e => (e.currentTarget.style.color = '#00D4FF')}
               onMouseLeave={e => (e.currentTarget.style.color = '#00B4FF')}
             >
               CHI TIẾT
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); onQuickAction('delete', workspace.id) }}
-              style={{ fontSize: 9, fontWeight: 600, color: '#555', background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0' }}
+              data-action-area="1"
+              style={{ fontSize: 9, fontWeight: 600, color: '#555', background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0', pointerEvents: 'auto' }}
               onMouseEnter={e => (e.currentTarget.style.color = '#FF4444')}
               onMouseLeave={e => (e.currentTarget.style.color = '#555')}
             >
@@ -545,8 +550,8 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
         )}
         {showRetry && (
           <button
-            onClick={(e) => { e.stopPropagation(); onRetry!(workspace.id) }}
-            style={{ fontSize: 9, fontWeight: 600, color: '#666', background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0' }}
+            data-action-area="1"
+            style={{ fontSize: 9, fontWeight: 600, color: '#666', background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0', pointerEvents: 'auto' }}
             onMouseEnter={e => (e.currentTarget.style.color = '#FFB800')}
             onMouseLeave={e => (e.currentTarget.style.color = '#666')}
           >
@@ -555,8 +560,8 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
         )}
         {showSplit && (
           <button
-            onClick={(e) => { e.stopPropagation(); onSplit?.(workspace.id, trimLimitMinutes) }}
-            style={{ fontSize: 9, fontWeight: 600, color: '#666', background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0' }}
+            data-action-area="1"
+            style={{ fontSize: 9, fontWeight: 600, color: '#666', background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0', pointerEvents: 'auto' }}
             onMouseEnter={e => (e.currentTarget.style.color = '#00FF88')}
             onMouseLeave={e => (e.currentTarget.style.color = '#666')}
           >

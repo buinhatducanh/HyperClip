@@ -1029,7 +1029,9 @@ function DashboardContent() {
     <div style={{ display: 'flex', height: '100vh', background: '#0E0E0E', fontFamily: 'Inter, sans-serif', color: '#fff', overflow: 'hidden' }}>
       {/* Login screen */}
       {!authStatus.isReady && (
-        <LoginScreen accountName={authStatus.accountName} oauthReady={authStatus.oauthReady} onLogout={handleLogout} />
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999 }}>
+          <LoginScreen accountName={authStatus.accountName} oauthReady={authStatus.oauthReady} onLogout={handleLogout} />
+        </div>
       )}
 
       {/* Diagnostics issues banner */}

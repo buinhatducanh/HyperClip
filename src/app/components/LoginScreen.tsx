@@ -19,13 +19,15 @@ interface AuthStatus {
   quotaError?: string
 }
 
-function Spinner() {
+function Spinner({ style, size }: { style?: React.CSSProperties; size?: number }) {
+  const s = size ?? 40
   return (
     <div style={{
-      width: 40, height: 40, borderRadius: '50%',
-      border: '3px solid #1A1A1A',
+      width: s, height: s, borderRadius: '50%',
+      border: `${Math.max(2, Math.round(s * 0.075))}px solid #1A1A1A`,
       borderTopColor: '#00B4FF',
       animation: 'spin 1s linear infinite',
+      ...style,
     }} />
   )
 }
@@ -40,6 +42,9 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
     quotaExceeded: false,
     quotaError: '',
   })
+  // P1: loading state for login button + chrome-window-opening badge
+  const [isLoggingIn, setIsLoggingIn] = useState(false)
+  const [showChromeBadge, setShowChromeBadge] = useState(false)
 
   useEffect(() => {
     ipc.getAuthStatus().then((s: AuthStatus) => setStatus(s))
@@ -52,8 +57,14 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
   }
 
   const handleLogin = async () => {
-    const result = await ipc.startOAuthFlow() as AuthStatus
-    setStatus(result)
+    setIsLoggingIn(true)
+    setShowChromeBadge(true)
+    try {
+      const result = await ipc.startOAuthFlow() as AuthStatus
+      setStatus(result)
+    } finally {
+      setIsLoggingIn(false)
+    }
   }
 
   return (
@@ -100,6 +111,7 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
             borderRadius: 12, padding: '28px 40px',
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
             minWidth: 320, maxWidth: 400,
+            position: 'relative',
           }}>
             <Spinner />
             <div style={{ textAlign: 'center' }}>
@@ -116,6 +128,18 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
               <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#00B4FF', animation: 'blink 1.4s ease-in-out infinite' }} />
               <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#00B4FF', animation: 'blink 1.4s ease-in-out 0.2s infinite' }} />
               <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#00B4FF', animation: 'blink 1.4s ease-in-out 0.4s infinite' }} />
+              {/* P1: Chrome window badge — shown immediately after login click */}
+              {showChromeBadge && (
+                <div style={{
+                  fontSize: 9, color: '#00B4FF',
+                  background: 'rgba(0,180,255,0.08)',
+                  border: '1px solid rgba(0,180,255,0.2)',
+                  borderRadius: 4, padding: '2px 6px',
+                  whiteSpace: 'nowrap',
+                }}>
+                  Chrome đã mở
+                </div>
+              )}
             </div>
             <div style={{ fontSize: 10, color: '#333', textAlign: 'center', lineHeight: 1.6 }}>
               Nếu cửa sổ Chrome không mở,{' '}
@@ -131,20 +155,38 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
             <div style={{ width: '100%', height: 1, background: '#1A1A1A' }} />
 
             {/* Always-visible login actions — prevents blocking on first install */}
-            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* position: relative + z-index: 1 ensures buttons are above any overlapping elements */}
+            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8, position: 'relative', zIndex: 1 }}>
               <button
                 onClick={handleLogin}
+                type="button"
+                disabled={isLoggingIn}
                 style={{
                   width: '100%', height: 36,
-                  background: '#00B4FF', border: 'none',
+                  background: isLoggingIn ? '#007ABF' : '#00B4FF',
+                  border: 'none',
                   borderRadius: 6, fontSize: 12, fontWeight: 700,
-                  color: '#fff', cursor: 'pointer',
+                  color: '#fff',
+                  cursor: isLoggingIn ? 'default' : 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  opacity: isLoggingIn ? 0.8 : 1,
+                  transition: 'opacity 0.15s, background 0.15s',
                 }}
               >
-                Đăng nhập với Google
+                {isLoggingIn ? (
+                  <>
+                    <Spinner size={14} />
+                    Đang mở cửa sổ Chrome...
+                  </>
+                ) : (
+                  'Đăng nhập với Google'
+                )}
               </button>
               <button
-                onClick={() => setStatus({ ...status, isReady: true, oauthReady: false, accountName: 'Demo Mode' })}
+                onClick={() => {
+                  setShowChromeBadge(false)
+                  setStatus({ ...status, isReady: true, oauthReady: false, accountName: 'Demo Mode' })
+                }}
                 style={{
                   width: '100%', height: 28,
                   background: 'transparent', border: '1px solid #2A2A2A',

@@ -207,6 +207,21 @@
     window.addEventListener('load', () => {
       window.postMessage({ type: 'console:ready' }, '*');
     });
+
+    // Click outside to close: when window loses focus (user clicks outside the window),
+    // hide the console so it doesn't block other interactions.
+    // Only hide if the user didn't click the window's own controls.
+    let _clickingControls = false
+    document.getElementById('controls').addEventListener('mousedown', () => { _clickingControls = true })
+    document.getElementById('autoScroll').addEventListener('mousedown', () => { _clickingControls = true })
+
+    window.addEventListener('blur', () => {
+      // If user was clicking our own buttons, let them handle it; otherwise close
+      if (!_clickingControls) {
+        window.electronAPI.close()
+      }
+      _clickingControls = false
+    })
   </script>
 </body>
 </html>
