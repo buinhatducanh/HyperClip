@@ -45,6 +45,7 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
   // P1: loading state for login button + chrome-window-opening badge
   const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [showChromeBadge, setShowChromeBadge] = useState(false)
+  const [loginError, setLoginError] = useState<string | null>(null)
 
   useEffect(() => {
     ipc.getAuthStatus().then((s: AuthStatus) => setStatus(s))
@@ -57,11 +58,17 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
   }
 
   const handleLogin = async () => {
+    setLoginError(null)
     setIsLoggingIn(true)
     setShowChromeBadge(true)
     try {
       const result = await ipc.startOAuthFlow() as AuthStatus
       setStatus(result)
+    } catch (err: any) {
+      setLoginError(err?.message === 'MISSING_OAUTH_CREDS'
+        ? 'Chưa có OAuth credentials. Vui lòng vào Settings để thiết lập Client ID & Client Secret.'
+        : `Lỗi: ${err?.message ?? String(err)}`)
+      setShowChromeBadge(false)
     } finally {
       setIsLoggingIn(false)
     }
@@ -113,17 +120,36 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
             minWidth: 320, maxWidth: 400,
             position: 'relative',
           }}>
-            <Spinner />
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 13, color: '#fff', fontWeight: 600, marginBottom: 6 }}>
-                Đang đợi đăng nhập
-              </div>
-              <div style={{ fontSize: 11, color: '#555', lineHeight: 1.6 }}>
-                Cửa sổ Chrome đã mở.{' '}
-                <span style={{ color: '#00B4FF' }}>Đăng nhập Google</span> để tiếp tục.
-              </div>
-            </div>
-            {/* Animated dots */}
+            {loginError ? (
+              <>
+                {/* Error state */}
+                <div style={{ fontSize: 22, textAlign: 'center' }}>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FF4444" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="15" y1="9" x2="9" y2="15" />
+                    <line x1="9" y1="9" x2="15" y2="15" />
+                  </svg>
+                </div>
+                <div style={{ fontSize: 11, color: '#FF6666', textAlign: 'center', lineHeight: 1.5, padding: '0 4px' }}>
+                  {loginError}
+                </div>
+              </>
+            ) : (
+              <>
+                <Spinner />
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 13, color: '#fff', fontWeight: 600, marginBottom: 6 }}>
+                    Đang đợi đăng nhập
+                  </div>
+                  <div style={{ fontSize: 11, color: '#555', lineHeight: 1.6 }}>
+                    Cửa sổ Chrome đã mở.{' '}
+                    <span style={{ color: '#00B4FF' }}>Đăng nhập Google</span> để tiếp tục.
+                  </div>
+                </div>
+              </>
+            )}
+            {/* Animated dots — hidden when there's an error */}
+            {!loginError && (
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#00B4FF', animation: 'blink 1.4s ease-in-out infinite' }} />
               <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#00B4FF', animation: 'blink 1.4s ease-in-out 0.2s infinite' }} />
@@ -141,6 +167,8 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
                 </div>
               )}
             </div>
+            )}
+            {!loginError && (
             <div style={{ fontSize: 10, color: '#333', textAlign: 'center', lineHeight: 1.6 }}>
               Nếu cửa sổ Chrome không mở,{' '}
               <span
@@ -150,6 +178,7 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
                 nhấn vào đây
               </span>
             </div>
+            )}
 
             {/* Divider */}
             <div style={{ width: '100%', height: 1, background: '#1A1A1A' }} />

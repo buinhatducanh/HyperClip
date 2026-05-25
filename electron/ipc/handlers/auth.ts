@@ -26,6 +26,10 @@ export function registerAuthHandlers(ipcMain: IpcMain): void {
 
   // ── OAuth Flow ───────────────────────────────────────────────────────────
   ipcMain.handle(IPC_CHANNELS.AUTH_OAUTH_START, async () => {
+    const clientId = getOAuthClientId()
+    if (!clientId) {
+      throw new Error('MISSING_OAUTH_CREDS')
+    }
     await getCookieManager().startOAuthFlow()
     return getCookieManager().getAuthStatus()
   })
