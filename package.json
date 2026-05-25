@@ -10,7 +10,7 @@
     "dev:next": "next dev",
     "build": "next build",
     "start": "next start",
-    "electron:dev": "npx tsc -p electron/tsconfig.main.json && npx tsc -p electron/tsconfig.preload.json && node -e \"const fs=require('fs');let c=fs.readFileSync('dist-electron/main.js','utf8');c=c.replace(/const __dirname = .+;\\n/,'');c=c.replace(/const __filename = .+;\\n/,'');fs.writeFileSync('dist-electron/main.js',c);\" && node scripts/electron-dev.cjs",
+    "electron:dev": "node node_modules/typescript/lib/tsc.js -p electron/tsconfig.main.json && node node_modules/typescript/lib/tsc.js -p electron/tsconfig.preload.json && node scripts/electron-dev.cjs",
     "electron:build": "node node_modules/.pnpm/typescript@6.0.3/node_modules/typescript/lib/tsc.js --noEmit -p electron/tsconfig.main.json && node node_modules/.pnpm/typescript@6.0.3/node_modules/typescript/lib/tsc.js --noEmit -p electron/tsconfig.preload.json && node scripts/build.mjs",
     "setup:ffmpeg": "powershell -ExecutionPolicy Bypass -File scripts/setup-ffmpeg.ps1",
     "setup:ytdlp": "node scripts/setup-ytdlp.mjs",

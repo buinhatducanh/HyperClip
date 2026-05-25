@@ -14,12 +14,31 @@ function resolveBinary(name: string): string {
 
   // Helper: probe a binary and score it for CUDA/NVENC capability.
   // Higher score = more suitable for GPU-accelerated rendering.
-  function probeAndScore(fp: string): { ok: boolean; score: number; version: string } {
+  function probeAndScore(fp: string, quickOnly = false): { ok: boolean; score: number; version: string } {
     try {
       const out = execSync(`"${fp}" -version 2>&1`, { encoding: 'utf-8', timeout: 5000 })
       if (!out.includes(name)) return { ok: false, score: 0, version: '' }
 
-      // Check if this binary claims NVENC support
+      // Quick mode: only check version and basic path-based scoring — skip encoder enumeration
+      if (quickOnly) {
+        let score = 10
+        const lower = fp.toLowerCase()
+        if (lower.includes('cuda') || lower.includes('nvenc') || lower.includes('nvidia')) score += 50
+        if (lower.includes('full')) score += 30
+        if (lower.includes('share')) score += 20
+        if (lower.includes('essentials')) score += 15
+        if (lower.includes('gpl')) score += 10
+        if (lower.includes('git')) score += 25
+        const verMatch = out.match(/(\d+)\.(\d+)/)
+        if (verMatch) {
+          const major = parseInt(verMatch[1])
+          if (major >= 7) score += 20
+          else if (major >= 5) score += 10
+        }
+        return { ok: true, score, version: out.split('\n')[0].trim() }
+      }
+
+      // Full probe: check encoders + NVENC hardware test
       let hasNvEncoders = false
       let hasTestedNvEnc = false
       let nvencWorks = false
@@ -38,7 +57,7 @@ function resolveBinary(name: string): string {
               // Pipe stderr to detect actual error message
               const result = execSync(
                 `"${fp}" -f lavfi -i color=c=blue:s=1920x1080:d=0.1 -c:v ${testCodec} -frames:v 1 -y "${testFile}"`,
-                { timeout: 15000, stdio: ['ignore', 'pipe', 'pipe'] }
+                { timeout: 10000, stdio: ['ignore', 'pipe', 'pipe'] }
               )
               const sz = fs.statSync(testFile).size
               nvencWorks = sz > 100
@@ -139,16 +158,25 @@ function resolveBinary(name: string): string {
   if (scoopShims) candidates.push(path.join(scoopShims, name + '.exe'))
 
   // Find best candidate by CUDA capability score
+  // Optimization: stop early if a bundled FFmpeg is found (highest priority = bundled).
+  // For non-bundled candidates: only probe if no bundled candidate was found.
   let bestFp = ''
   let bestScore = -1
   let bestVersion = ''
+  let bundledFound = false
   for (const fp of candidates) {
-    const { ok, score, version } = probeAndScore(fp)
+    // Bundled candidates (first in list) get full probe
+    const isBundled = fp.includes(process.resourcesPath || '') || fp.includes('resources' + path.sep + 'ffmpeg')
+    const quickOnly = !isBundled && bundledFound
+    const { ok, score, version } = probeAndScore(fp, quickOnly)
     if (ok && score > bestScore) {
       bestScore = score
       bestFp = fp
       bestVersion = version
+      if (isBundled) bundledFound = true
     }
+    // If bundled was found and this is not bundled, stop scanning PATH candidates
+    if (bundledFound && !isBundled && fp.includes(path.sep + '.bin' + path.sep)) break
   }
 
   if (bestFp) {

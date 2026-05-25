@@ -379,7 +379,7 @@ function buildFilterComplex(opts) {
             // cropY: center the video content vertically in the video zone.
             // Shift by videoTop so video starts at row videoTop (below header zone).
             const cropY = videoTop;
-            videoChain2 = `${trimSection}${scale}=-2:${videoH},crop=${canvasW}:${videoH}:${cropX}:${cropY}${speedFilter ? ',' + speedFilter : ''}[vid]`;
+            videoChain2 = `${trimSection}${scale}=-2:${videoH}:flags=lanczos,crop=${canvasW}:${videoH}:${cropX}:${cropY}${speedFilter ? ',' + speedFilter : ''}[vid]`;
         }
         else {
             // Source narrower than canvas aspect: scale to canvasW wide, crop excess height.
@@ -391,7 +391,7 @@ function buildFilterComplex(opts) {
             const trimSection = (trimStart > 0 || trimDuration > 0)
                 ? `[0:v]${fpsTag}trim=start=${trimStart}:duration=${trimDuration > 0 ? trimDuration : 999999},setpts=PTS-STARTPTS,`
                 : `[0:v]${fpsTag}setpts=PTS-STARTPTS,`;
-            videoChain2 = `${trimSection}${scale}=${canvasW}:-2,crop=${canvasW}:${videoH}:0:${cropY >= 0 ? cropY : 0}${speedFilter ? ',' + speedFilter : ''}[vid]`;
+            videoChain2 = `${trimSection}${scale}=${canvasW}:-2:flags=lanczos,crop=${canvasW}:${videoH}:0:${cropY >= 0 ? cropY : 0}${speedFilter ? ',' + speedFilter : ''}[vid]`;
         }
         // [1:v] thumbnail → FILL canvas (not fit within).
         // force_original_aspect_ratio=increase: scale up until canvas is covered.
@@ -469,7 +469,7 @@ function buildFilterComplex(opts) {
     const scaledW = Math.round(videoH * 16 / 9);
     const cropX = Math.round((scaledW - canvasW) / 2);
     const speedFps = speedFilter ? ',' + speedFilter : '';
-    const scaleChain = `${trimSection}[trimmed]${scale}=-2:${videoH},crop=${canvasW}:${videoH}:${cropX}:0${speedFps}[vid]`;
+    const scaleChain = `${trimSection}[trimmed]${scale}=-2:${videoH}:flags=lanczos,crop=${canvasW}:${videoH}:${cropX}:0${speedFps}[vid]`;
     const videoChain = scaleChain;
     // Scale background to canvas — FILL canvas (not fit within).
     // BG shows through: header zone (top) + bottom bar gap (bottom).
@@ -940,7 +940,10 @@ async function renderVideo(metadata, outputDir, onProgress, gpuTier = 'software'
     const videoW = Math.floor(videoH * 16 / 9);
     const trimStart = trim.start;
     const trimEnd = trim.end;
-    const duration = trimEnd - trimStart;
+    const trimDuration = trimEnd - trimStart;
+    // Speed-adjusted output duration: trim duration divided by speed multiplier.
+    // e.g. 4:00 (240s) at 1.2x speed → 200s output.
+    const duration = video_speed !== 1.0 ? trimDuration / video_speed : trimDuration;
     // Speed filter: setpts to change playback speed
     const speedFilter = video_speed !== 1.0 ? `setpts=${1 / video_speed}*PTS` : '';
     // Overlay inputs from editor
@@ -1133,6 +1136,8 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
     // Must check hasCudaFilters — essentials build lists CUDA filters but NVDEC unavailable → runtime fail.
     const hasGpuFilters = isGpuAvailable && getHwCaps().hasCudaFilters;
     const scale = hasGpuFilters ? 'scale_cuda' : 'scale';
+    // lanczos: much better than bilinear for upscaling (720p→1080p) and sharper downscaling (CPU only)
+    const sf = hasGpuFilters ? '' : ':flags=lanczos';
     const overlay = hasGpuFilters ? 'overlay_cuda' : 'overlay';
     // Pre-scaled source detection: when the source filename contains '_preScaled',
     // it was already downscaled to the export resolution by preScaleVideo().
@@ -1178,10 +1183,10 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
             // Shift crop by videoTop so video content starts at row videoTop (below header zone).
             const cropYChunked = videoTop;
             if (speedFilter) {
-                videoSection = '[0:v]' + trimPre + scale + '=-2:' + videoH + ',crop=' + canvasW + ':' + videoH + ':' + cropXNum + ':' + cropYChunked + '[scaled]; [scaled]' + speedFilter.replace(',', '') + '[vid]';
+                videoSection = '[0:v]' + trimPre + scale + '=-2:' + videoH + sf + ',crop=' + canvasW + ':' + videoH + ':' + cropXNum + ':' + cropYChunked + '[scaled]; [scaled]' + speedFilter.replace(',', '') + '[vid]';
             }
             else {
-                videoSection = '[0:v]' + trimPre + scale + '=-2:' + videoH + ',crop=' + canvasW + ':' + videoH + ':' + cropXNum + ':' + cropYChunked + '[vid]';
+                videoSection = '[0:v]' + trimPre + scale + '=-2:' + videoH + sf + ',crop=' + canvasW + ':' + videoH + ':' + cropXNum + ':' + cropYChunked + '[vid]';
             }
         }
         else {
@@ -1198,10 +1203,10 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
                 }
             }
             else if (speedFilter) {
-                videoSection = '[0:v]' + trimPre + scale + '=' + canvasW + ':-2,crop=' + canvasW + ':' + videoH + ':0:' + cropY + '[scaled]; [scaled]' + speedFilter.replace(',', '') + '[vid]';
+                videoSection = '[0:v]' + trimPre + scale + '=' + canvasW + ':-2' + sf + ',crop=' + canvasW + ':' + videoH + ':0:' + cropY + '[scaled]; [scaled]' + speedFilter.replace(',', '') + '[vid]';
             }
             else {
-                videoSection = '[0:v]' + trimPre + scale + '=' + canvasW + ':-2,crop=' + canvasW + ':' + videoH + ':0:' + cropY + '[vid]';
+                videoSection = '[0:v]' + trimPre + scale + '=' + canvasW + ':-2' + sf + ',crop=' + canvasW + ':' + videoH + ':0:' + cropY + '[vid]';
             }
         }
         // Header overlay section: scale header image to canvas width × headerH, overlay on [vz] → [fh].
@@ -1278,7 +1283,7 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
             ...getNvencParams(codec, true, gpuTier, canvasW, canvasH),
             '-max_muxing_queue_size', '512',
             '-c:a', audioCodec, '-b:a', audioBitrate,
-            '-t', String(trimDuration),
+            '-t', String(videoSpeed && videoSpeed !== 1 ? trimDuration / videoSpeed : trimDuration),
             '-y', quotePath(outputFile),
         ];
     }
@@ -1301,7 +1306,8 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
     }
     else {
         // scale=-2:videoH → source 1920x1080 → 1920x1472; crop center canvasW columns
-        sections.push('[0:v]' + trimPre + scale + '=-2:' + videoH + ',crop=' + canvasW + ':' + videoH + ':(iw-' + canvasW + ')/2:0[vid]');
+        // lanczos: better quality than bilinear for upscaling (720p→1080p) and downscaling
+        sections.push('[0:v]' + trimPre + scale + '=-2:' + videoH + ':flags=lanczos,crop=' + canvasW + ':' + videoH + ':(iw-' + canvasW + ')/2:0[vid]');
     }
     // Section 2: background — FILL canvas.
     const bgFilter = backgroundType === 'solid'
@@ -1366,7 +1372,7 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
         ...getNvencParams(codec, true, gpuTier),
         '-max_muxing_queue_size', '512',
         '-c:a', audioCodec, '-b:a', audioBitrate,
-        '-t', String(trimDuration),
+        '-t', String(videoSpeed && videoSpeed !== 1 ? trimDuration / videoSpeed : trimDuration),
         '-y', quotePath(outputFile),
     ];
 }
@@ -1570,7 +1576,9 @@ async function renderChunked(metadata, outputDir, config = {}, onProgress) {
     const videoW = Math.floor(videoH * 16 / 9);
     const trimStart = trim.start;
     const trimEnd = trim.end;
-    const totalDuration = trimEnd - trimStart;
+    const rawTrimDuration = trimEnd - trimStart;
+    // Speed-adjusted output duration: trim duration divided by speed multiplier.
+    const totalDuration = video_speed !== 1.0 ? rawTrimDuration / video_speed : rawTrimDuration;
     // Short duration → single-pass (no chunking overhead needed)
     if (totalDuration <= 30) {
         const simple = await renderVideo(metadata, outputDir, onProgress, gpuTier);

@@ -14,6 +14,8 @@ import { DetailEditor } from './components/DetailEditor'
 import { RenderedVideoDetail } from './components/RenderedVideoDetail'
 import { LoginScreen } from './components/LoginScreen'
 import { ConfirmationDialog } from './components/ConfirmationDialog'
+import { VideoCompareModal } from './components/VideoCompareModal'
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from './components/ui/resizable'
 import type { Channel, Video, SystemStats, EditorState } from './types'
 import { useAppStore, type Workspace } from './lib/store'
 import { ipc } from './lib/ipc'
@@ -136,7 +138,16 @@ function DashboardContent() {
   const redoEditor = useAppStore(s => s.redoEditor)
   const addRenderedVideo = useAppStore(s => s.addRenderedVideo)
   const setSettings = useAppStore(s => s.setSettings)
-  const setWorkspacePriority = useAppStore(s => s.setWorkspacePriority)
+
+  // ── Video compare modal ─────────────────────────────────────────────────────
+  const [compareWorkspaceId, setCompareWorkspaceId] = useState<string | null>(null)
+  const handleCompare = useCallback((workspaceId: string) => {
+    setCompareWorkspaceId(workspaceId)
+  }, [])
+  const compareWorkspace = workspaces.find(w => w.id === compareWorkspaceId) ?? null
+  const compareRendered = compareWorkspaceId
+    ? renderedVideos.find(v => v.workspaceId === compareWorkspaceId) ?? null
+    : null
 
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
   const [authStatus, setAuthStatus] = useState<{
@@ -805,18 +816,6 @@ function DashboardContent() {
     else showToast(`Retry failed: ${result.error}`)
   }
 
-  const handlePriorityChange = (id: string, direction: 'up' | 'down', type: 'download' | 'render') => {
-    const { workspaces: allWorkspaces, setWorkspacePriority: setPriority, showToast: toast } = useAppStore.getState()
-    const ws = allWorkspaces.find(w => w.id === id)
-    if (!ws) return
-    const current = type === 'download'
-      ? (ws.downloadPriority ?? 0)
-      : (ws.renderPriority ?? 0)
-    const delta = direction === 'up' ? -1 : 1
-    setPriority(id, current + delta, type)
-    toast(direction === 'up' ? `↑ Ưu tiên cao hơn` : `↓ Ưu tiên thấp hơn`)
-  }
-
   const handleEditorChange = useCallback((patch: Partial<EditorState>) => {
     // Use getState() inside callback to avoid closure dependencies on Zustand state.
     // This keeps the callback reference stable across renders.
@@ -1078,12 +1077,9 @@ function DashboardContent() {
       />
 
       {/* Main: workspace queue + editor */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      <ResizablePanelGroup direction="horizontal" style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Workspace queue */}
-        <div style={{
-          width: 260, borderRight: '1px solid #1E1E1E', display: 'flex', flexDirection: 'column',
-          overflow: 'hidden', flexShrink: 0,
-        }}>
+        <ResizablePanel defaultSize={15} minSize={10} maxSize={40} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid #1E1E1E' }}>
           {showSkeleton ? (
             <SkeletonQueue />
           ) : (
@@ -1097,7 +1093,6 @@ function DashboardContent() {
             onSelectRendered={handleRenderedVideoSelect}
             onQuickAction={handleQuickAction}
             onRetry={handleRetry}
-            onPriorityChange={handlePriorityChange}
             onRemoveRendered={(id) => {
               if (selectedRenderedVideoId === id) setSelectedRenderedVideoId(null)
               removeRenderedVideo(id)
@@ -1105,12 +1100,15 @@ function DashboardContent() {
             onShowToast={showToast}
             onSplit={handleSplit}
             trimLimitMinutes={settings.defaultTrimLimit as number}
+            onCompare={handleCompare}
           />
           )}
-        </div>
+        </ResizablePanel>
+
+        <ResizableHandle withHandle />
 
         {/* Editor / Rendered detail */}
-        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        <ResizablePanel style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {showSkeleton ? (
             <SkeletonEditor />
           ) : selectedRenderedVideoId && renderedVideos.find(v => v.id === selectedRenderedVideoId) ? (
@@ -1133,8 +1131,8 @@ function DashboardContent() {
               availableFormats={selectedVideo?.availableFormats}
             />
           )}
-        </div>
-      </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
 
       {/* Toast */}
       {toast && (
@@ -1178,6 +1176,15 @@ function DashboardContent() {
         onConfirm={confirmDialog?.onConfirm ?? (() => {})}
         onCancel={() => setConfirmDialog(null)}
       />
+
+      {/* Video compare modal */}
+      {compareWorkspaceId && (
+        <VideoCompareModal
+          workspace={compareWorkspace}
+          rendered={compareRendered}
+          onClose={() => setCompareWorkspaceId(null)}
+        />
+      )}
 
       <style>{`
         * { box-sizing: border-box; }

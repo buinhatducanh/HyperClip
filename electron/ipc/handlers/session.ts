@@ -22,7 +22,9 @@ export function registerSessionHandlers(
 ): void {
   ipcMain.handle(IPC_CHANNELS.SESSION_LIST, async () => {
     const sm = getSessionManager()
-    await sm.ensureInit()
+    // Return current state immediately — do NOT await ensureInit() which blocks
+    // for 15+ seconds while loading 30 Chrome profile cookies via DPAPI.
+    // The frontend handles missing data gracefully with its own 8s timeout.
     return sm.getStatus()
   })
 

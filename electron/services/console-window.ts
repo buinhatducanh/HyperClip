@@ -6,19 +6,20 @@
  * what's happening in real-time so they can report bugs easily.
  *
  * The window:
- *   - Opens at bottom-right of screen
+ *   - Opens at last saved position (or bottom-right on first launch)
  *   - Always on top (never obscured)
- *   - 520px wide × 320px tall
- *   - Dark terminal theme (no frame, draggable)
+ *   - Draggable via title bar + resizable
+ *   - Dark terminal theme (no frame)
  *   - Auto-scrolls, caps at 1000 lines
  *   - Logs written to: D:\HyperClip-Data\logs/hyperclip.log (already done by unified_log.ts)
+ *   - Position/size persisted to console-window-state.json
  *
  * Communication:
  *   - Preload (console-preload.js) bridges ipcRenderer 'log:stream' → window.postMessage
  *   - console-window.html receives via window.addEventListener('message', ...)
  */
 
-import { BrowserWindow, screen, app } from 'electron'
+import { BrowserWindow, screen, app, ipcMain } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { setLogWindow } from './unified_log.js'
@@ -44,18 +45,53 @@ function getConsoleWindowHTML(): string {
   return path.join(base, 'console-window.html')
 }
 
+function getConsoleStatePath(): string {
+  const base = app.isPackaged
+    ? path.join(process.resourcesPath!, 'app')
+    : path.join(__dirname, '..', '..')
+  return path.join(base, 'electron', 'console-window-state.json')
+}
+
+interface WindowState {
+  x: number; y: number; width: number; height: number
+}
+
+function loadWindowState(): WindowState | null {
+  try {
+    const file = getConsoleStatePath()
+    if (fs.existsSync(file)) {
+      const data = JSON.parse(fs.readFileSync(file, 'utf-8'))
+      if (data.x != null && data.y != null) return data as WindowState
+    }
+  } catch {}
+  return null
+}
+
+function saveWindowState(win: BrowserWindow): void {
+  try {
+    const bounds = win.getBounds()
+    const file = getConsoleStatePath()
+    fs.writeFileSync(file, JSON.stringify(bounds), 'utf-8')
+  } catch {}
+}
+
 export function createConsoleWindow(): BrowserWindow | null {
   if (consoleWindow && !consoleWindow.isDestroyed()) {
     consoleWindow.show()
     return consoleWindow
   }
 
+  const saved = loadWindowState()
   const primaryDisplay = screen.getPrimaryDisplay()
   const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize
 
-  const WIN_W = 520
-  const WIN_H = 320
+  const WIN_W = saved?.width ?? 520
+  const WIN_H = saved?.height ?? 320
   const MARGIN = 16
+
+  // If saved position is off-screen, reset to default
+  const savedOnScreen = saved && saved.x >= 0 && saved.y >= 0
+    && saved.x < screenWidth && saved.y < screenHeight
 
   const preloadPath = getConsolePreloadPath()
   const htmlPath = getConsoleWindowHTML()
@@ -63,8 +99,8 @@ export function createConsoleWindow(): BrowserWindow | null {
   const win = new BrowserWindow({
     width: WIN_W,
     height: WIN_H,
-    x: screenWidth - WIN_W - MARGIN,
-    y: screenHeight - WIN_H - MARGIN,
+    x: savedOnScreen ? saved!.x : screenWidth - WIN_W - MARGIN,
+    y: savedOnScreen ? saved!.y : screenHeight - WIN_H - MARGIN,
     frame: false,
     transparent: false,
     alwaysOnTop: true,
@@ -99,15 +135,27 @@ export function createConsoleWindow(): BrowserWindow | null {
     win.show()
   })
 
+  // Persist position/size on move or resize (debounced by saving on close is enough, but also save on events)
+  const saveBounds = () => saveWindowState(win)
+  win.on('move', saveBounds)
+  win.on('resize', saveBounds)
+
   win.on('close', (e) => {
     if (_isQuitting) return
     e.preventDefault()
+    saveWindowState(win)
     win.hide()
   })
 
   // Register with unified_log so it receives log:stream events
-  // The preload bridges log:stream → postMessage → console-window.html
   setLogWindow(win)
+
+  // IPC handlers for frameless window controls
+  ipcMain.on('console:minimize', () => { win.minimize() })
+  ipcMain.on('console:close', () => {
+    saveWindowState(win)
+    win.hide()
+  })
 
   consoleWindow = win
   return win

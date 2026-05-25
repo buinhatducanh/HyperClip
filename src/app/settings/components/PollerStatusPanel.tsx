@@ -41,8 +41,20 @@ export function PollerStatusPanel() {
     ])
   }
 
-  useEffect(() => { load() }, [])
-  useEffect(() => { const t = setInterval(load, 8000); return () => clearInterval(t) }, [])
+  const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T | null> =>
+    Promise.race([promise, new Promise<T | null>((r) => setTimeout(() => r(null), ms))])
+
+  const loadWithTimeout = async () => {
+    await Promise.all([
+      withTimeout(ipc.getPollerStatus(), 5000).then(r => { if (r !== null) setPollerStatus(r) }).catch(() => {}),
+      withTimeout(ipc.getSessionStatus(), 8000).then(r => { if (r !== null) setSessionStatus(r) }).catch(() => {}),
+      withTimeout(ipc.getProjectTokenStatuses(), 5000).then(r => { if (r !== null) setProjectStatus(r) }).catch(() => {}),
+      withTimeout(ipc.getKeys(), 5000).then(r => { if (r !== null) setKeyStatus(r) }).catch(() => {}),
+    ])
+  }
+
+  useEffect(() => { loadWithTimeout() }, [])
+  useEffect(() => { const t = setInterval(loadWithTimeout, 8000); return () => clearInterval(t) }, [])
 
   // Listen for Innertube degraded events from main process
   useEffect(() => {

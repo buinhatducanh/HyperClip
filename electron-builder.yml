@@ -12,6 +12,7 @@ files:
   - .next/**/*
   - servers/**/*
   - console-window.html
+  - electron/console-preload.js
 extraResources:
   - from: resources/ffmpeg/bin/
     to: ffmpeg/bin/
@@ -53,12 +54,9 @@ nsis:
   uninstallerIcon: build/icon.ico
   include: installer.nsh
   perMachine: false
-  installMode: currentUser
   deleteAppDataOnUninstall: false
   runAfterFinish: true
   installerHeaderIcon: build/icon.ico
-  installerAbortedCaption: "HyperClip Setup"
-  showLanguageDialog: false
   displayLanguageSelector: false
 
 linux:

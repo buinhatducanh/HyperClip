@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import type { Channel, SystemStats } from '../types'
 import { ipc } from '../lib/ipc'
 import { useAppStore } from '../lib/store'
+import { VideoCompareModal } from './VideoCompareModal'
 import { SkeletonChannelItem } from './Skeleton'
 import { DetectionStatusBar } from './DetectionStatusBar'
 import { ActivityLog, type ActivityEntry } from './ActivityLog'
@@ -147,6 +148,27 @@ export function Sidebar({
     title: string; message: string; confirmLabel?: string; confirmDanger?: boolean; onConfirm: () => void
   } | null>(null)
   const showToast = useAppStore((s) => s.showToast)
+  const workspaces = useAppStore((s) => s.workspaces)
+  const renderedVideos = useAppStore((s) => s.renderedVideos)
+
+  // ── Video compare ──────────────────────────────────────────────────────────────
+  const [compareWorkspaceId, setCompareWorkspaceId] = useState<string | null>(null)
+  const compareWorkspace = useMemo(
+    () => workspaces.find(w => w.id === compareWorkspaceId) ?? null,
+    [workspaces, compareWorkspaceId]
+  )
+  const compareRendered = useMemo(
+    () => compareWorkspaceId ? renderedVideos.find(v => v.workspaceId === compareWorkspaceId) ?? null : null,
+    [renderedVideos, compareWorkspaceId]
+  )
+  const renderedWorkspaceIds = useMemo(
+    () => new Set(renderedVideos.map(v => v.workspaceId)),
+    [renderedVideos]
+  )
+
+  const handleCompare = useCallback((workspaceId: string) => {
+    setCompareWorkspaceId(workspaceId)
+  }, [])
 
   const ramPct = Math.round((systemStats.ramUsed / systemStats.ramTotal) * 100)
   const gpuShort = systemStats.gpuName ? systemStats.gpuName.split(' ').slice(0, 2).join(' ') : 'GPU'
@@ -506,7 +528,12 @@ export function Sidebar({
       </div>
 
       {/* Activity log — pipeline events */}
-      <ActivityLog entries={activityEntries} etaDisplay={etaDisplay} />
+      <ActivityLog
+        entries={activityEntries}
+        etaDisplay={etaDisplay}
+        onCompare={handleCompare}
+        renderedWorkspaceIds={renderedWorkspaceIds}
+      />
 
       {/* Storage manager */}
       <div style={{ padding: '6px 10px 4px', borderTop: '1px solid #1E1E1E', flexShrink: 0 }}>
@@ -844,6 +871,15 @@ export function Sidebar({
         onConfirm={confirmDialog?.onConfirm ?? (() => {})}
         onCancel={() => setConfirmDialog(null)}
       />
+
+      {/* Video compare modal */}
+      {compareWorkspaceId && (
+        <VideoCompareModal
+          workspace={compareWorkspace}
+          rendered={compareRendered}
+          onClose={() => setCompareWorkspaceId(null)}
+        />
+      )}
     </div>
   )
 }

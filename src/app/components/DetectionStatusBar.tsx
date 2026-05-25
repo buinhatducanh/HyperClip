@@ -3,6 +3,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { ipc } from '../lib/ipc'
 
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([
+    promise,
+    new Promise<T | null>((resolve) => setTimeout(() => resolve(null), ms)),
+  ])
+}
+
 function formatAgo(ts: number | null): string {
   if (!ts) return '—'
   const s = Math.floor((Date.now() - ts) / 1000)
@@ -25,14 +32,14 @@ export function DetectionStatusBar() {
 
   const load = useCallback(async () => {
     const [ps, ss, pr] = await Promise.all([
-      ipc.getPollerStatus(),
-      ipc.getSessionStatus(),
-      ipc.getProjects(),
+      withTimeout(ipc.getPollerStatus(), 5000),
+      withTimeout(ipc.getSessionStatus(), 8000),
+      withTimeout(ipc.getProjectTokenStatuses(), 5000),
     ])
-    setPollerStatus(ps)
-    setSessionStatus(ss)
-    setProjectStatus(pr as any[])
-    stateRef.current = { ps, ss, pr }
+    setPollerStatus(ps ?? null)
+    setSessionStatus(ss ?? null)
+    setProjectStatus((pr ?? []) as any[])
+    stateRef.current = { ps: ps ?? undefined, ss: ss ?? undefined, pr: pr ?? [] }
 
     if (ps?.lastPollAt && ps.lastPollAt !== lastPollAtRef.current) {
       lastPollAtRef.current = ps.lastPollAt
@@ -105,6 +112,22 @@ export function DetectionStatusBar() {
   const hasWarning = !!warning
   const isHealthy = source === 'Innertube' && sessionHealthPct >= 60 && !hasWarning
 
+  // Short warning for display — keep under 30 chars so it fits in the bar
+  const shortWarning = warning
+    .replace('OAuth exhausted — add GCP project', 'OAuth exhausted')
+    .replace(' — All sources dead', ' (all dead)')
+    .replace(' — Innertube down', ' (YT down)')
+    .replace(' — OAuth exhausted', ' (exhausted)')
+    .replace(' — Waiting...', ' (wait...)')
+    .replace('Backoff ', 'BO ')
+    .replace('Innertube down', 'YT down')
+    .replace('OAuth ', '')
+    .replace('All sources dead', 'all dead')
+    .replace('Waiting...', 'wait...')
+    .replace('Accept consent in Chrome', 'need consent')
+    .replace('No session login — open Chrome to restore', 'sessions lost')
+    .replace('Innertube degraded — health check running', 'degraded')
+
   return (
     <div
       onClick={() => { window.location.href = '/settings' }}
@@ -121,6 +144,7 @@ export function DetectionStatusBar() {
         cursor: 'pointer',
         flexShrink: 0,
         overflow: 'hidden',
+        minWidth: 0,
       }}
     >
       {/* Source badge */}
@@ -163,36 +187,30 @@ export function DetectionStatusBar() {
         </div>
       )}
 
-      {/* Poll timing */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginLeft: 'auto', flexShrink: 0 }}>
-        <span style={{ fontSize: 8, color: '#333' }}>
-          {formatAgo(ps?.lastPollAt)} / {intervalSec}s
-        </span>
-      </div>
-
-      {/* Warning */}
+      {/* Warning — shrinks to fill middle space; timing/arrow anchor right via marginLeft:auto in the container below */}
       {hasWarning && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 3,
           background: warnColor + '15',
           border: `1px solid ${warnColor}33`,
           borderRadius: 3, padding: '1px 4px',
-          flexShrink: 1,
+          flex: 1,
           overflow: 'hidden',
           minWidth: 0,
+          maxWidth: '100%',
         }}>
           <span style={{ fontSize: 8, fontWeight: 600, color: warnColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            ⚠ {warning}
+            ⚠ {shortWarning}
           </span>
         </div>
       )}
 
-      {/* Settings arrow */}
-      <div style={{
-        display: 'flex', alignItems: 'center', flexShrink: 0,
-        color: '#2a2a2a',
-      }}>
-        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      {/* Timing + arrow — marginLeft:auto keeps them anchored to the right edge */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0, marginLeft: 'auto' }}>
+        <span style={{ fontSize: 8, color: '#444', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+          {formatAgo(ps?.lastPollAt)} / {intervalSec}s
+        </span>
+        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#2a2a2a" strokeWidth="2">
           <path d="M9 18l6-6-6-6" />
         </svg>
       </div>

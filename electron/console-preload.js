@@ -6,13 +6,18 @@
  */
 
 /* eslint-disable @typescript-eslint/no-require-imports, no-undef */
-const { ipcRenderer } = require('electron') // require is fine in preload context
+const { ipcRenderer } = require('electron')
 
 // Listen for log:stream from unified_log.ts
 ipcRenderer.on('log:stream', (_event, entries) => {
-  // Forward to the window that loaded this preload
-  window.postMessage({ type: 'log:entries', entries }, '*') // window is the preload's BrowserWindow
+  window.postMessage({ type: 'log:entries', entries }, '*')
 })
 
 // Signal ready to the service that created this window
-window.postMessage({ type: 'console:ready' }, '*') // window is the preload's BrowserWindow
+window.postMessage({ type: 'console:ready' }, '*')
+
+// Expose window controls for frameless window
+window.electronAPI = {
+  minimize: () => ipcRenderer.send('console:minimize'),
+  close: () => ipcRenderer.send('console:close'),
+}

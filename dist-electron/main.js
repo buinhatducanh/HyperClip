@@ -77,9 +77,10 @@ const cookie_manager_js_1 = require("./services/cookie_manager.js");
 const token_manager_js_1 = require("./services/token_manager.js");
 const cdp_js_1 = require("./services/cdp.js");
 const unified_log_js_1 = require("./services/unified_log.js");
+const console_window_js_1 = require("./services/console-window.js");
 const health_alerts_js_1 = require("./services/health_alerts.js");
+const github_updater_js_1 = require("./services/github-updater.js");
 const system_js_2 = require("./services/system.js");
-const e2e_server_js_1 = require("./services/e2e_server.js");
 const ipc_state_js_1 = require("./ipc/ipc-state.js");
 const index_js_1 = require("./ipc/handlers/index.js");
 // Fix UTF-8 console output on Windows — set code page to 65001 (UTF-8)
@@ -1276,6 +1277,8 @@ async function createWindow() {
     });
     // Wire unified log to renderer for live streaming
     (0, unified_log_js_1.setLogWindow)(mainWindow);
+    // Show customer-facing console window (always-on-top, bottom-right)
+    (0, console_window_js_1.createConsoleWindow)();
     void mainWindow.loadURL(`http://localhost:${NEXT_PORT}`);
     // Retry load if initial attempt fails (server might still be warming up)
     let loadRetries = 0;
@@ -1539,6 +1542,7 @@ function startSystemMonitor() {
 }
 // ─── Shutdown ─────────────────────────────────────────────────────────────────
 async function quitAll() {
+    (0, console_window_js_1.setConsoleWindowQuit)(true);
     await (0, youtube_poller_js_1.stopYouTubePoller)();
     (0, worker_pool_js_1.cancelAllFfmpeg)();
     (0, ffmpeg_js_1.cancelAllChunked)();
@@ -1555,6 +1559,7 @@ async function quitAll() {
         tray = null;
     }
     mainWindow?.destroy();
+    (0, console_window_js_1.destroyConsoleWindow)();
     electron_1.app.quit();
 }
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
@@ -1854,6 +1859,18 @@ void electron_1.app.whenReady().then(async () => {
         }
         catch { }
     }, 30_000);
+    // ─── GitHub Auto-Update (check every 6h + initial check after 10s) ─────────────
+    (0, github_updater_js_1.startAutoCheck)();
+    setTimeout(async () => {
+        try {
+            const { checkForUpdates } = await Promise.resolve().then(() => __importStar(require('./services/github-updater.js')));
+            const result = await checkForUpdates();
+            if (result.available) {
+                (0, unified_log_js_1.devLog)(`[GitHubUpdater] New version available: v${result.version}`);
+            }
+        }
+        catch { }
+    }, 10_000);
     // Resolve missing channelIds for demo channels at startup
     void resolveChannelIdsForPoll();
     // ─── Startup recovery: reset stale 'rendering' workspaces ───────────────────
@@ -2072,12 +2089,3 @@ electron_1.crashReporter.start({
 });
 // Log startup banner
 unified_log_js_1.log.info(`HyperClip starting — v${electron_1.app.getVersion()} | Electron ${process.versions.electron} | Node ${process.version}`);
-// ─── E2E Test Server ───────────────────────────────────────────────────────────
-// Starts an HTTP server on port 9312 when HYPERCLIP_TEST=1.
-// The test client (scripts/test-e2e.mjs) connects to this server to run E2E tests.
-if (process.env.HYPERCLIP_TEST === '1') {
-    void electron_1.app.whenReady().then(() => {
-        (0, e2e_server_js_1.startE2EServer)();
-        electron_1.app.on('quit', e2e_server_js_1.stopE2EServer);
-    });
-}

@@ -55,7 +55,9 @@ const unified_log_js_1 = require("../../services/unified_log.js");
 function registerSessionHandlers(ipcMain, getMainWindow) {
     ipcMain.handle(channels_js_1.IPC_CHANNELS.SESSION_LIST, async () => {
         const sm = (0, chrome_cookies_js_1.getSessionManager)();
-        await sm.ensureInit();
+        // Return current state immediately — do NOT await ensureInit() which blocks
+        // for 15+ seconds while loading 30 Chrome profile cookies via DPAPI.
+        // The frontend handles missing data gracefully with its own 8s timeout.
         return sm.getStatus();
     });
     ipcMain.handle(channels_js_1.IPC_CHANNELS.SESSION_REFRESH_ALL, async () => {

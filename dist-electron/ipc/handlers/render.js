@@ -59,7 +59,7 @@ function executeRenderJob(job) {
         return;
     }
     const renderStartMs = Date.now();
-    const renderQuality = parseInt((metadata.export_resolution || '1080x1920').split('x')[1]) || 1080;
+    const renderQuality = extractQualityFromResolution(metadata.export_resolution || '1080x1920');
     const renderSpeed = metadata.video_speed ?? 1.0;
     const trimStart = metadata.trim?.start ?? 0;
     const trimEnd = metadata.trim?.end ?? 0;
@@ -116,17 +116,22 @@ function executeRenderJob(job) {
             // Auto-archive
             void (async () => {
                 try {
-                    const quality = parseInt((metadata.export_resolution || '1080x1920').split('x')[1]);
+                    const exportRes = metadata.export_resolution || '1080x1920';
+                    const quality = extractQualityFromResolution(exportRes);
                     const codec = metadata.codec || 'hevc';
                     const thumbPath = path_1.default.join((0, ramdisk_js_1.getVideoStoragePath)(), `thumb_${workspace.id}.jpg`);
                     const thumbData = fs_1.default.existsSync(thumbPath)
                         ? 'data:image/jpeg;base64,' + fs_1.default.readFileSync(thumbPath).toString('base64')
                         : undefined;
-                    const archiveResult = await (0, ramdisk_js_1.archiveRenderedFile)(result.outputPath, workspace.channelName, workspace.videoTitle, quality || 1080, codec, workspace.fileSize || 0, workspace.duration || 0);
+                    const archiveResult = await (0, ramdisk_js_1.archiveRenderedFile)(result.outputPath, workspace.channelName, workspace.videoTitle, quality, codec, workspace.fileSize || 0, workspace.duration || 0);
                     if (archiveResult.success && archiveResult.archivedPath) {
                         const renderDurationMs = Date.now() - renderStartMs;
+                        // isShort reflects OUTPUT canvas aspect, not source.
+                        // Portrait (height >= width) → 9:16 vertical.
+                        const [outW, outH] = exportRes.split('x').map(Number);
+                        const resolvedIsShort = (outH || 1920) >= (outW || 1080);
                         const renderConfigRecord = {
-                            exportResolution: metadata.export_resolution || '1080x1920',
+                            exportResolution: exportRes,
                             fps: metadata.fps_target || 30,
                             speed: metadata.video_speed ?? 1.0,
                             codec: metadata.codec || 'hevc',
@@ -137,7 +142,7 @@ function executeRenderJob(job) {
                             audioBitrate: metadata.audioBitrate,
                             trimStart: metadata.trim?.start,
                             trimEnd: metadata.trim?.end,
-                            isShort: metadata.isShort,
+                            isShort: resolvedIsShort,
                             vidHeightPct: metadata.vidHeightPct,
                             gpuTier,
                         };
@@ -147,7 +152,8 @@ function executeRenderJob(job) {
                             originalFileSize: workspace.fileSize || 0,
                             downloadQuality: workspace.downloadQuality,
                         };
-                        const actualBytes = fs_1.default.existsSync(result.outputPath) ? fs_1.default.statSync(result.outputPath).size : 0;
+                        // Prefer result.fileSize (from FFmpeg output); fall back to fs.statSync.
+                        const actualBytes = result.fileSize || (fs_1.default.existsSync(result.outputPath) ? fs_1.default.statSync(result.outputPath).size : 0);
                         const record = {
                             id: `rv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
                             workspaceId: workspace.id,
@@ -160,7 +166,8 @@ function executeRenderJob(job) {
                             codec,
                             fileSize: (0, ramdisk_js_1.formatBytes)(actualBytes),
                             fileSizeBytes: actualBytes,
-                            duration: workspace.duration || 0,
+                            // Output duration = source trim duration / speed.
+                            duration: result.duration || workspace.duration || 0,
                             thumbnail: workspace.thumbnail,
                             thumbnailData: thumbData,
                             videoResolution: workspace.videoResolution,
@@ -302,7 +309,33 @@ function registerRenderHandlers(ipcMain) {
                     const codec = metadata.codec || 'hevc';
                     const archiveResult = await (0, ramdisk_js_1.archiveRenderedFile)(result.outputPath, workspace.channelName, workspace.videoTitle, quality, codec, workspace.fileSize || 0, workspace.duration || 0);
                     if (archiveResult.success && archiveResult.archivedPath) {
-                        const actualBytes = fs_1.default.existsSync(result.outputPath) ? fs_1.default.statSync(result.outputPath).size : 0;
+                        // Prefer result.fileSize (from FFmpeg output); fall back to fs.statSync.
+                        const actualBytes = result.fileSize || (fs_1.default.existsSync(result.outputPath) ? fs_1.default.statSync(result.outputPath).size : 0);
+                        // isShort reflects OUTPUT canvas aspect, not source.
+                        const [outW, outH] = exportRes.split('x').map(Number);
+                        const resolvedIsShort = (outH || 1920) >= (outW || 1080);
+                        const renderConfigRecord = {
+                            exportResolution: exportRes,
+                            fps: metadata.fps_target || 30,
+                            speed: metadata.video_speed ?? 1.0,
+                            codec: metadata.codec || 'hevc',
+                            preset: metadata.preset,
+                            tune: metadata.tune,
+                            backgroundType: metadata.backgroundType,
+                            audioCodec: metadata.audioCodec,
+                            audioBitrate: metadata.audioBitrate,
+                            trimStart: metadata.trim?.start,
+                            trimEnd: metadata.trim?.end,
+                            isShort: resolvedIsShort,
+                            vidHeightPct: metadata.vidHeightPct,
+                            gpuTier: effectiveConfig.gpuTier ?? 'software',
+                        };
+                        const sourceInfoRecord = {
+                            originalResolution: workspace.videoResolution,
+                            originalDuration: workspace.duration || 0,
+                            originalFileSize: workspace.fileSize || 0,
+                            downloadQuality: workspace.downloadQuality,
+                        };
                         const record = {
                             id: `rv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
                             workspaceId: workspace.id,
@@ -315,11 +348,14 @@ function registerRenderHandlers(ipcMain) {
                             codec,
                             fileSize: (0, ramdisk_js_1.formatBytes)(actualBytes),
                             fileSizeBytes: actualBytes,
-                            duration: workspace.duration || 0,
+                            // Output duration = source trim duration / speed.
+                            duration: result.duration || workspace.duration || 0,
                             thumbnail: workspace.thumbnail,
                             thumbnailData: thumbData,
                             videoResolution: workspace.videoResolution,
                             renderedAt: new Date().toISOString(),
+                            renderConfig: renderConfigRecord,
+                            sourceInfo: sourceInfoRecord,
                         };
                         (0, store_js_1.addRenderedVideo)(record);
                         (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.RENDERED_ADD, record);

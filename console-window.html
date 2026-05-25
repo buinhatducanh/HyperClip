@@ -23,9 +23,11 @@
       border-bottom: 1px solid #1a1a1a;
       display: flex;
       align-items: center;
-      padding: 0 12px;
-      gap: 12px;
+      padding: 0 8px;
+      gap: 8px;
       z-index: 10;
+      -webkit-app-region: drag;
+      user-select: none;
     }
     #title {
       font-size: 10px;
@@ -37,8 +39,13 @@
       font-size: 9px;
       color: #333;
     }
-    #clearBtn {
+    #controls {
       margin-left: auto;
+      display: flex;
+      gap: 6px;
+      -webkit-app-region: no-drag;
+    }
+    .ctrlBtn {
       background: transparent;
       border: 1px solid #1a1a1a;
       color: #444;
@@ -47,7 +54,8 @@
       cursor: pointer;
       border-radius: 3px;
     }
-    #clearBtn:hover { background: #141414; color: #555; }
+    .ctrlBtn:hover { background: #141414; color: #555; }
+    .ctrlBtn.close:hover { background: #3a1a1a; color: #FF5555; border-color: #3a1a1a; }
     #logs {
       padding: 32px 8px 8px 8px;
       height: 100vh;
@@ -96,9 +104,13 @@
 </head>
 <body>
   <div id="header">
-    <span id="title">▶ HYPERCLIP CONSOLE</span>
+    <span id="title">▶ HYPERCLIP</span>
     <span id="status">Đang kết nối...</span>
-    <button id="clearBtn" onclick="clearLogs()">XÓA</button>
+    <div id="controls">
+      <button class="ctrlBtn" onclick="clearLogs()">XÓA</button>
+      <button class="ctrlBtn" onclick="window.electronAPI.minimize()">─</button>
+      <button class="ctrlBtn close" onclick="window.electronAPI.close()">✕</button>
+    </div>
   </div>
   <div id="logs"></div>
   <div id="autoScroll">Auto: <span id="autoLabel">ON</span></div>

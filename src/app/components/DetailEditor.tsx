@@ -1600,15 +1600,13 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
   const is = (id: string) => expanded.has(id)
 
   const sourceHeight = sourceResolution ? parseInt(sourceResolution.split('x')[1]) : 0
-  // Max export quality: YouTube probe (truth) > source height > downloadQuality (global setting)
-  // availableFormats from YouTube probe takes priority — reflects actual available heights on YouTube
-  const maxAllowedHeight = availableFormats && availableFormats.length > 0
-    ? Math.max(...availableFormats) // YouTube-probed max
-    : sourceHeight > 0
-      ? sourceHeight  // Use actual source resolution as ceiling
-      : downloadQuality
-        ? parseInt(downloadQuality)
-        : 1080  // Unknown source — show all buttons
+  // Max export quality: source height > downloadQuality (global setting) > 1080
+  // YouTube probe max is NOT used as ceiling — user can upscale via FFmpeg (e.g. 720p source → 1080p export)
+  const maxAllowedHeight = sourceHeight > 0
+    ? sourceHeight  // Use actual source resolution as ceiling
+    : downloadQuality
+      ? parseInt(downloadQuality)
+      : 1080  // Unknown source — show all buttons
 
   // Auto-upgrade only when probe reveals a higher available format AND current is below that max.
   // Never auto-downgrade — respect the user's manual selection.
@@ -1763,7 +1761,7 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
           {/* Quality buttons */}
           <div style={{ display: 'flex', gap: 3 }}>
             {([1080, 720, 360] as const).map(q => {
-              const hidden = (availableFormats && availableFormats.length > 0 && !availableFormats.includes(q)) || q > maxAllowedHeight
+              const hidden = q > maxAllowedHeight
               const active = editorState.exportQuality === q
               return (
                 <button

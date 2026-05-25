@@ -20,8 +20,9 @@ interface Props {
   onRemoveRendered?: (id: string) => void
   onShowToast?: (msg: string) => void
   onSplit?: (id: string, partMinutes: number) => void
-  onPriorityChange?: (id: string, direction: 'up' | 'down', type: 'download' | 'render') => void
   trimLimitMinutes?: number
+  /** Opens compare modal for a workspace (from RenderedVideos or WorkspaceCard) */
+  onCompare?: (workspaceId: string) => void
 }
 
 type GroupStatus = 'ready' | 'rendering' | 'downloading' | 'waiting' | 'editing' | 'done'
@@ -49,16 +50,13 @@ function groupByStatus(workspaces: Workspace[]): Map<GroupStatus, Workspace[]> {
       groups.get(status)!.push(ws)
     }
   }
-  // Sort each group by priority (lower = higher priority = rendered first)
-  for (const [, items] of groups) {
-    items.sort((a, b) => (a.downloadPriority ?? 0) - (b.downloadPriority ?? 0))
-  }
   return groups
 }
 
 export const WorkspaceQueue = memo(function WorkspaceQueue({
   workspaces, renderedVideos = [], channels = [], selectedId, selectedRenderedId,
-  onSelect, onSelectRendered, onQuickAction, onRetry, onRemoveRendered, onShowToast, onSplit, onPriorityChange, trimLimitMinutes = 10,
+  onSelect, onSelectRendered, onQuickAction, onRetry, onRemoveRendered, onShowToast, onSplit, trimLimitMinutes = 10,
+  onCompare,
 }: Props) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<GroupStatus>>(new Set<GroupStatus>(['done']))
   const [activeTab, setActiveTab] = useState<ActiveTab>('pipeline')
@@ -384,7 +382,6 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
                         onRetry={onRetry}
                         onSplit={onSplit}
                         trimLimitMinutes={trimLimitMinutes}
-                        onPriorityChange={onPriorityChange}
                       />
                     ))}
                   </div>
@@ -400,6 +397,7 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
             onSelect={(id) => onSelectRendered?.(id)}
             onRemove={(id) => onRemoveRendered?.(id)}
             onShowToast={(msg) => onShowToast?.(msg)}
+            onCompare={onCompare}
           />
         )}
       </div>

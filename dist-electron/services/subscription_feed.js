@@ -83,6 +83,11 @@ const MAX_CONCURRENT = 10;
 const MAX_VIDEOS_PER_POLL = 5;
 // ─── Module-level state ────────────────────────────────────────────────────────
 let _consecutiveZeroInnertubePolls = 0;
+// Smart logging: track what we've already logged to avoid spam.
+let _lastLoggedChannelCount = -1; // -1 = never logged
+let _lastZeroWarningAt = 0; // 0 = no warning yet
+let _lastSessionCount = -1; // -1 = never logged
+const _ZERO_WARNING_COOLDOWN_MS = 5 * 60 * 1000; // 5 min between "no new" warnings
 // ─── OAuth API Helper ───────────────────────────────────────────────────────────
 function apiGet(urlStr, token) {
     return new Promise((resolve) => {
@@ -368,7 +373,15 @@ async function fetchSubscriptionFeed(options = {}) {
         const totalSessions = pool.getStatus().totalSessions;
         if (pool.isReady() && readyCount > 0) {
             innertubeAvailable = true;
-            opLog.info('scan', `Quét ${channels.length} kênh (${readyCount}/${totalSessions} sessions)`);
+            // Smart log: only emit "Quét X kênh" when something meaningful changed.
+            // Changes: channel count, session count, or first poll ever.
+            const channelCountChanged = _lastLoggedChannelCount !== channels.length;
+            const sessionCountChanged = _lastSessionCount !== readyCount;
+            if (channelCountChanged || sessionCountChanged || _lastLoggedChannelCount === -1) {
+                opLog.info('scan', `Quét ${channels.length} kênh (${readyCount}/${totalSessions} sessions)`);
+                _lastLoggedChannelCount = channels.length;
+                _lastSessionCount = readyCount;
+            }
             for (let i = 0; i < channels.length; i += MAX_CONCURRENT) {
                 const batch = channels.slice(i, i + MAX_CONCURRENT);
                 const batchResults = await Promise.all(batch.map(ch => fetchChannelWithInnertube(ch, seenVideoIds)));
@@ -384,20 +397,18 @@ async function fetchSubscriptionFeed(options = {}) {
                     }
                 }
             }
-            // Only devLog when zero videos — every 30th poll (~2.5 min) to reduce spam
-            const _pollTick = Math.floor(Date.now() / 5000);
-            if (_pollTick % 30 === 0) {
-                (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: 0 videos across ${channels.length} channels (no new content)`);
-            }
             if (results.length === 0) {
                 _consecutiveZeroInnertubePolls++;
-                // Only warn after 3 consecutive empty polls to avoid log spam
-                if (_consecutiveZeroInnertubePolls >= 3) {
+                // Warn once at N=3, then again only after 5-minute cooldown.
+                const now = Date.now();
+                if (_consecutiveZeroInnertubePolls === 3 || (now - _lastZeroWarningAt) > _ZERO_WARNING_COOLDOWN_MS) {
                     opLog.warn('scan', `Không có video mới sau ${_consecutiveZeroInnertubePolls} lần quét liên tiếp`);
+                    _lastZeroWarningAt = now;
                 }
             }
             else {
                 _consecutiveZeroInnertubePolls = 0;
+                _lastZeroWarningAt = 0;
                 opLog.success('scan', `Tìm thấy ${results.length} video mới từ ${results.filter((v) => v.channelName).length} kênh`);
             }
             // Step 2: OAuth DISTRIBUTED (continuous coverage)

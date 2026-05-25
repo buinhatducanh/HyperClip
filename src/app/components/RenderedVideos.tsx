@@ -10,6 +10,7 @@ interface Props {
   onSelect: (id: string) => void
   onRemove: (id: string) => void
   onShowToast: (msg: string) => void
+  onCompare?: (workspaceId: string) => void
 }
 
 function formatDuration(sec: number): string {
@@ -29,7 +30,7 @@ function formatRenderTime(ms?: number): string {
   return `${m}m ${s}s`
 }
 
-export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowToast }: Props) {
+export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowToast, onCompare }: Props) {
   // Cache for local-video:// thumbnails that need blob conversion
   const [localThumbCache, setLocalThumbCache] = useState<Record<string, string>>({})
 
@@ -242,6 +243,24 @@ export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowT
                   }}>
                     ⚡ {formatRenderTime(video.renderDurationMs)}
                   </span>
+                )}
+                {/* Compare */}
+                {onCompare && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onCompare(video.workspaceId) }}
+                    style={{
+                      fontSize: 7, fontWeight: 700,
+                      color: '#C084FC', background: '#C084FC10',
+                      border: '1px solid #C084FC28',
+                      borderRadius: 2, padding: '1px 6px',
+                      cursor: 'pointer', letterSpacing: '0.04em',
+                      transition: 'all 0.12s',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = '#C084FC20' }}
+                    onMouseLeave={e => { e.currentTarget.style.background = '#C084FC10' }}
+                  >
+                    ↔ SO SÁNH
+                  </button>
                 )}
               </div>
             </div>
