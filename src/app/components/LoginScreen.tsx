@@ -64,12 +64,12 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
     setIsLoggingIn(true)
     setShowChromeBadge(true)
     try {
-      const result = await ipc.startOAuthFlow() as AuthStatus
-      setStatus(result)
+      const result = await ipc.startChromeLogin()
+      if (!result.success) {
+        setLoginError('Không thể mở Chrome. Vui lòng kiểm tra Chrome đã được cài đặt.')
+      }
     } catch (err: any) {
-      setLoginError(err?.message === 'MISSING_OAUTH_CREDS'
-        ? 'Chưa có OAuth credentials. Vui lòng vào Settings để thiết lập Client ID & Client Secret.'
-        : `Lỗi: ${err?.message ?? String(err)}`)
+      setLoginError(`Lỗi: ${err?.message ?? String(err)}`)
       setShowChromeBadge(false)
     } finally {
       setIsLoggingIn(false)

@@ -74,6 +74,7 @@ export interface ElectronAPI {
   onCookieCritical: (callback: (errorMsg: string) => void) => () => void
   logout: () => Promise<{ success: boolean }>
   startOAuthFlow: () => Promise<{ isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean }>
+  startChromeLogin: () => Promise<{ success: boolean; profileId: string }>
   setOAuthCredentials: (clientId: string, clientSecret: string) => Promise<{ success: boolean }>
   getOAuthCredentials: () => Promise<{ clientId: string }>
   getKeys: () => Promise<unknown[]>

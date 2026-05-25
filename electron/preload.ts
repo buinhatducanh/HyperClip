@@ -90,6 +90,7 @@ const IPC = {
   SESSION_LIST: 'session:list',
   SESSION_REFRESH_ALL: 'session:refresh-all',
   SESSION_OPEN_LOGIN: 'session:open-login',
+  AUTH_CHROME_START: 'auth:chrome-start',
   SESSION_CLONE_ONE: 'session:clone-one',
 
   // Poller
@@ -382,6 +383,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC.SESSION_REFRESH_ALL) as Promise<{ success: boolean; refreshedCount: number }>,
   openSessionLogin: (profileId: string) =>
     ipcRenderer.invoke(IPC.SESSION_OPEN_LOGIN, profileId) as Promise<{ success: boolean }>,
+  startChromeLogin: () =>
+    ipcRenderer.invoke(IPC.AUTH_CHROME_START) as Promise<{ success: boolean; profileId: string }>,
   cloneSessionOne: () =>
     ipcRenderer.invoke(IPC.SESSION_CLONE_ONE) as Promise<{ success: boolean; clonedCount: number; error?: string }>,
 

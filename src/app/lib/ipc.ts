@@ -55,6 +55,7 @@ type ElectronAPI = {
   getAuthStatus: () => Promise<{ isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean; cookieCritical?: boolean; cookieError?: string }>
   logout: () => Promise<{ success: boolean }>
   startOAuthFlow: () => Promise<{ isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean }>
+  startChromeLogin: () => Promise<{ success: boolean; profileId: string }>
   setOAuthCredentials: (clientId: string, clientSecret: string) => Promise<{ success: boolean }>
   getOAuthCredentials: () => Promise<{ clientId: string }>
   getKeys: () => Promise<unknown[]>
@@ -268,6 +269,9 @@ export const ipc = {
   },
   async getOAuthCredentials() {
     return window.electronAPI?.getOAuthCredentials() ?? { clientId: '' }
+  },
+  async startChromeLogin() {
+    return window.electronAPI?.startChromeLogin() ?? { success: false, profileId: '' }
   },
   async getKeys(): Promise<KeyStatus[]> {
     const result = await window.electronAPI?.getKeys()

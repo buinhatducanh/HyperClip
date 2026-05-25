@@ -12,6 +12,7 @@ import fs from 'fs'
 import { execSync } from 'child_process'
 import { IPC_CHANNELS } from '../channels.js'
 import { getSessionManager } from '../../services/chrome_cookies.js'
+import { authEvents } from '../../services/cookie_manager.js'
 import { runDiagnostics } from '../../services/diagnostics.js'
 import { loadSettings } from '../../services/ramdisk.js'
 import { getLogDir, getSystemSnapshot, getLogEntries, readFileLogs, getLogDiskUsage, cleanupOldLogs } from '../../services/unified_log.js'
@@ -38,6 +39,22 @@ export function registerSessionHandlers(
     const sm = getSessionManager()
     const cookiesExtracted = await sm.openLoginWindow(profileId)
     return { success: true, cookiesExtracted }
+  })
+
+  // ── Chrome Login (replaces OAuth flow on LoginScreen) ─────────────────────
+  ipcMain.handle(IPC_CHANNELS.AUTH_CHROME_START, async () => {
+    const sm = getSessionManager()
+    const { getCookieManager } = await import('../../services/cookie_manager.js')
+    const sessions = sm.getSessions()
+    // Use first available slot (profile 1), creating if necessary
+    const targetId = sessions.length > 0
+      ? sessions[0].profileId
+      : 'Profile 1'
+    await sm.openLoginWindow(targetId)
+    // Refresh cookie manager status and notify renderer
+    const status = getCookieManager().getAuthStatus()
+    authEvents.emit('authUpdated', status)
+    return { success: true, profileId: targetId }
   })
 
   ipcMain.handle(IPC_CHANNELS.SESSION_CLONE_ONE, async () => {

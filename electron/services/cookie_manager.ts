@@ -294,9 +294,11 @@ class ElectronCookieManager implements CookieManager {
       } catch {}
     }
     return {
-      isReady: oauthReadyLive,
+      // Ready if OAuth tokens valid OR Chrome cookies exist.
+      // Chrome cookies alone are sufficient for Innertube detection (OAuth is fallback).
+      isReady: oauthReadyLive || this._cookies.length > 0,
       cookieCount: this._cookies.length,
-      loggedOut: !oauthReadyLive,
+      loggedOut: !oauthReadyLive && this._cookies.length === 0,
       accountName: this._accountName,
       oauthReady: oauthReadyLive,
       quotaExceeded: this._quotaExceeded,
