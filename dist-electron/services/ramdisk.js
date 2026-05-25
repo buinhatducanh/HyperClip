@@ -245,16 +245,13 @@ function calculateDirSize(dirPath) {
 }
 // Get free disk space for a path (cross-platform)
 function getFreeDiskSpace(dirPath) {
-    // On Windows, use wmic command
+    // On Windows, use PowerShell (wmic deprecated on Windows 11)
     if (process.platform === 'win32') {
         try {
-            const drive = path_1.default.parse(dirPath).root || 'C:';
-            const out = (0, child_process_1.execSync)(`wmic logicaldisk where "DeviceID='${drive.replace('\\', '')}'" get FreeSpace /format:value`, {
-                encoding: 'utf-8',
-                timeout: 5000,
-            });
-            const match = out.match(/FreeSpace=(\d+)/);
-            return match ? parseInt(match[1]) : 0;
+            const drive = (path_1.default.parse(dirPath).root || 'C:').replace('\\', '');
+            const out = (0, child_process_1.execSync)(`powershell -Command "(Get-CimInstance Win32_LogicalDisk -Filter \\"DeviceID='${drive}'\\").FreeSpace"`, { encoding: 'utf-8', timeout: 5000, windowsHide: true });
+            const free = parseInt(out.trim(), 10);
+            return isNaN(free) ? 0 : free;
         }
         catch {
             return 0;

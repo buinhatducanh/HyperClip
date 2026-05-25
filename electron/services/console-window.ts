@@ -82,7 +82,12 @@ export function createConsoleWindow(): BrowserWindow | null {
   }
 
   const saved = loadWindowState()
-  const primaryDisplay = screen.getPrimaryDisplay()
+  let primaryDisplay: Electron.Display
+  try {
+    primaryDisplay = screen.getPrimaryDisplay()
+  } catch {
+    primaryDisplay = screen.getAllDisplays()[0]
+  }
   const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize
 
   const WIN_W = saved?.width ?? 520
@@ -90,8 +95,15 @@ export function createConsoleWindow(): BrowserWindow | null {
   const MARGIN = 16
 
   // If saved position is off-screen, reset to default
-  const savedOnScreen = saved && saved.x >= 0 && saved.y >= 0
-    && saved.x < screenWidth && saved.y < screenHeight
+  let winX: number, winY: number
+  if (saved && saved.x >= 0 && saved.y >= 0
+    && saved.x + WIN_W <= screenWidth && saved.y + WIN_H <= screenHeight) {
+    winX = saved.x
+    winY = saved.y
+  } else {
+    winX = screenWidth - WIN_W - MARGIN
+    winY = screenHeight - WIN_H - MARGIN
+  }
 
   const preloadPath = getConsolePreloadPath()
   const htmlPath = getConsoleWindowHTML()
@@ -99,8 +111,8 @@ export function createConsoleWindow(): BrowserWindow | null {
   const win = new BrowserWindow({
     width: WIN_W,
     height: WIN_H,
-    x: savedOnScreen ? saved!.x : screenWidth - WIN_W - MARGIN,
-    y: savedOnScreen ? saved!.y : screenHeight - WIN_H - MARGIN,
+    x: winX,
+    y: winY,
     frame: false,
     transparent: false,
     alwaysOnTop: true,
@@ -120,6 +132,19 @@ export function createConsoleWindow(): BrowserWindow | null {
     },
   })
 
+  // Attach ready-to-show BEFORE load so we never miss it
+  let didShow = false
+  const doShow = () => {
+    if (didShow) return
+    didShow = true
+    win.show()
+    win.focus()
+  }
+  win.once('ready-to-show', doShow)
+
+  // Fallback: if ready-to-show never fires within 3s, force-show anyway
+  const showTimeout = setTimeout(() => doShow(), 3000)
+
   if (!fs.existsSync(htmlPath)) {
     console.warn(`[ConsoleWindow] HTML not found: ${htmlPath}`)
     void win.loadURL(`data:text/html,<html><body style="background:%230a0a0a;color:%23555;font-family:monospace;font-size:12px;padding:12px">
@@ -131,28 +156,24 @@ export function createConsoleWindow(): BrowserWindow | null {
     void win.loadFile(htmlPath)
   }
 
-  win.once('ready-to-show', () => {
-    win.show()
-  })
-
-  // Persist position/size on move or resize (debounced by saving on close is enough, but also save on events)
+  // Persist position/size on move or resize
   const saveBounds = () => saveWindowState(win)
   win.on('move', saveBounds)
   win.on('resize', saveBounds)
 
   win.on('close', (e) => {
+    clearTimeout(showTimeout)
     if (_isQuitting) return
     e.preventDefault()
     saveWindowState(win)
     win.hide()
   })
 
-  // Register with unified_log so it receives log:stream events
   setLogWindow(win)
 
-  // IPC handlers for frameless window controls
   ipcMain.on('console:minimize', () => { win.minimize() })
   ipcMain.on('console:close', () => {
+    clearTimeout(showTimeout)
     saveWindowState(win)
     win.hide()
   })

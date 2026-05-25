@@ -37,43 +37,72 @@ function wmicQuery(query) {
         return '';
     }
 }
+// PowerShell equivalents for Windows 11+ where wmic is deprecated
+function psQuery(query) {
+    try {
+        return (0, child_process_1.execSync)(`powershell -Command "${query}"`, { encoding: 'utf8', windowsHide: true, timeout: 10_000 })
+            .trim();
+    }
+    catch {
+        return '';
+    }
+}
 function getWindowsMachineId() {
     try {
-        // CSProduct UUID — unique per Windows installation
-        const uuid = wmicQuery('csproduct get uuid');
+        const uuid = psQuery('(Get-CimInstance Win32_ComputerSystemProduct).UUID');
         const uuidMatch = uuid.match(/GUID\s*[:-]?\s*([a-f0-9-]+)/i);
         if (uuidMatch)
             return uuidMatch[1].toLowerCase();
+        // Fallback to wmic
+        const wmicUuid = wmicQuery('csproduct get uuid');
+        const wmicMatch = wmicUuid.match(/GUID\s*[:-]?\s*([a-f0-9-]+)/i);
+        if (wmicMatch)
+            return wmicMatch[1].toLowerCase();
     }
     catch { }
     return '';
 }
 function getWindowsCPUId() {
     try {
-        const cpu = wmicQuery('cpu get processorid');
-        const match = cpu.match(/ProcessorId\s*[:-]?\s*([a-f0-9]+)/i);
+        const cpu = psQuery("(Get-CimInstance Win32_Processor).ProcessorId");
+        const match = cpu.match(/([a-f0-9]+)/i);
         if (match)
             return match[1].toUpperCase();
+        // Fallback
+        const wmicCpu = wmicQuery('cpu get processorid');
+        const wmicMatch = wmicCpu.match(/ProcessorId\s*[:-]?\s*([a-f0-9]+)/i);
+        if (wmicMatch)
+            return wmicMatch[1].toUpperCase();
     }
     catch { }
     return '';
 }
 function getWindowsMotherboardSerial() {
     try {
-        const baseboard = wmicQuery('baseboard get serialnumber');
-        const match = baseboard.match(/SerialNumber\s*[:-]?\s*([a-z0-9*-]+)/i);
+        const serial = psQuery("(Get-CimInstance Win32_BaseBoard).SerialNumber");
+        const match = serial.match(/([a-z0-9*-]+)/i);
         if (match)
             return match[1].replace(/\*/g, 'X').trim();
+        // Fallback
+        const wmicSerial = wmicQuery('baseboard get serialnumber');
+        const wmicMatch = wmicSerial.match(/SerialNumber\s*[:-]?\s*([a-z0-9*-]+)/i);
+        if (wmicMatch)
+            return wmicMatch[1].replace(/\*/g, 'X').trim();
     }
     catch { }
     return '';
 }
 function getWindowsDiskSerial() {
     try {
-        const disk = wmicQuery('diskdrive get serialnumber');
-        const match = disk.match(/SerialNumber\s*[:-]?\s*([a-f0-9]+)/i);
+        const disk = psQuery("(Get-CimInstance Win32_DiskDrive | Select-Object -First 1).SerialNumber");
+        const match = disk.match(/([a-f0-9]+)/i);
         if (match)
             return match[1].toUpperCase();
+        // Fallback
+        const wmicDisk = wmicQuery('diskdrive get serialnumber');
+        const wmicMatch = wmicDisk.match(/SerialNumber\s*[:-]?\s*([a-f0-9]+)/i);
+        if (wmicMatch)
+            return wmicMatch[1].toUpperCase();
     }
     catch { }
     return '';
@@ -127,7 +156,15 @@ function getMachineIdShort() {
 function getPrimaryMAC() {
     try {
         if (process.platform === 'win32') {
-            // WMIC approach — no PowerShell escaping issues
+            // PowerShell approach (wmic deprecated on Windows 11)
+            try {
+                const psOut = (0, child_process_1.execSync)(`powershell -Command "(Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | Select-Object -First 1).MacAddress"`, { encoding: 'utf8', windowsHide: true, timeout: 10_000 }).trim();
+                const macMatch = psOut.match(/([0-9A-F]{2}[:-]){5}[0-9A-F]{2}/i);
+                if (macMatch)
+                    return macMatch[0].toUpperCase().replace(/-/g, ':');
+            }
+            catch { }
+            // Fallback: WMIC
             try {
                 const wmicOut = (0, child_process_1.execSync)('wmic nic where "NetEnabled=true" get MACAddress /format:csv', { encoding: 'utf8', windowsHide: true, timeout: 10_000 }).trim();
                 const macMatch = wmicOut.match(/([0-9A-F]{2}[:-]){5}[0-9A-F]{2}/i);

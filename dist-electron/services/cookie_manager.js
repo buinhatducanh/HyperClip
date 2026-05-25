@@ -151,13 +151,30 @@ class ElectronCookieManager {
             (0, unified_log_js_1.devLog)('[CookieManager] OAuth tokens valid');
         }
         else {
-            console.warn(`[CookieManager] OAuth check failed: ${result.error}`);
-            this._cookieCriticalCount++;
-            this._cookieErrorMsg = result.error || 'OAuth tokens invalid';
-            if (this._cookieCriticalCount >= 3) {
-                console.error('[CookieManager] OAuth critical failure — redirecting to login');
-                exports.authEvents.emit('cookieCritical', this._cookieErrorMsg);
-                exports.authEvents.emit('authUpdated', this.getAuthStatus());
+            // Only treat OAuth failure as critical if Chrome sessions are ALSO not working.
+            // OAuth is a FALLBACK — Chrome sessions (Innertube) are the PRIMARY auth.
+            let chromeHasLogin = false;
+            try {
+                const { getSessionManager } = require('./chrome_cookies.js');
+                const sm = getSessionManager();
+                const sessions = sm.getSessions();
+                chromeHasLogin = sessions.some((s) => s.isLoggedIn && s.isConsented);
+            }
+            catch { }
+            if (chromeHasLogin) {
+                // Chrome sessions are working — just log and reset counter
+                (0, unified_log_js_1.devLog)('[CookieManager] OAuth refresh failed but Chrome sessions are active — skipping');
+                this._cookieCriticalCount = 0;
+            }
+            else {
+                console.warn(`[CookieManager] OAuth check failed: ${result.error} (no Chrome sessions either)`);
+                this._cookieCriticalCount++;
+                this._cookieErrorMsg = result.error || 'OAuth tokens invalid';
+                if (this._cookieCriticalCount >= 3) {
+                    console.error('[CookieManager] Auth critical failure — redirecting to login');
+                    exports.authEvents.emit('cookieCritical', this._cookieErrorMsg);
+                    exports.authEvents.emit('authUpdated', this.getAuthStatus());
+                }
             }
         }
         onRefresh?.(result);

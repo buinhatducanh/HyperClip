@@ -40,7 +40,8 @@
       "Bash(rm -f ~/AppData/Local/electron/Cache/electron-v41.5.0-win32-x64.zip)",
       "Bash(rm -f ~/AppData/Local/electron/Cache/0bb2a552b63feacad81a0c34a460be1e22038a1fa7d013aeb54e89ffa2280cd8/*)",
       "Skill(update-config)",
-      "Skill(update-config:*)"
+      "Skill(update-config:*)",
+      "WebFetch(domain:www.gyan.dev)"
     ]
   },
   "enabledMcpjsonServers": [

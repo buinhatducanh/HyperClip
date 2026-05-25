@@ -41,24 +41,24 @@ function getLegacyAppDataDir() {
 // Find the drive with the most free space (excluding C:).
 function findLargestDrive() {
     try {
-        const output = (0, child_process_1.execSync)('wmic logicaldisk get caption,freespace /format:csv', {
-            encoding: 'utf8', windowsHide: true, timeout: 10000,
-        });
+        // PowerShell approach (wmic deprecated on Windows 11)
+        const output = (0, child_process_1.execSync)(`powershell -Command "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID,FreeSpace | ConvertTo-Csv -NoTypeInformation"`, { encoding: 'utf8', windowsHide: true, timeout: 10000 });
         const lines = output.trim().split('\n').slice(1); // skip header
         let best = { drive: 'C', free: 0 };
         for (const line of lines) {
-            const parts = line.trim().split(',');
-            if (parts.length < 3)
+            // CSV format: "DeviceID","FreeSpace"
+            const parts = line.replace(/"/g, '').split(',');
+            if (parts.length < 2)
                 continue;
-            const drive = parts[1].replace(':', '');
-            const free = parseInt(parts[2], 10) || 0;
+            const deviceId = parts[0].replace(':', '').trim();
+            const free = parseInt(parts[1], 10) || 0;
             // Prefer non-C drives; skip removable/fixed network drives without media
-            if (drive === 'C') {
+            if (deviceId === 'C') {
                 if (free > best.free)
-                    best = { drive, free };
+                    best = { drive: deviceId, free };
             }
             else if (free > best.free) {
-                best = { drive, free };
+                best = { drive: deviceId, free };
             }
         }
         return `${best.drive}:\\HyperClip-Data`;

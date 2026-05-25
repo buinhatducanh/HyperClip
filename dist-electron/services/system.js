@@ -119,11 +119,11 @@ function detectGPUOnce() {
     // ── Step 2: Try Intel Arc / Arc B-Series via WMI ─────────────────────────────
     if (!hasGPU) {
         try {
-            // Use WMIC to get GPU names (works on Windows without additional tools)
-            const wmiOutput = (0, child_process_1.execSync)('wmic path win32_VideoController get name,adapterram /format:csv', { encoding: 'utf-8', timeout: 8000 }).trim();
-            const lines = wmiOutput.split('\n').filter(l => l.trim());
+            // PowerShell approach (wmic deprecated on Windows 11)
+            const psOutput = (0, child_process_1.execSync)(`powershell -Command "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ConvertTo-Csv -NoTypeInformation"`, { encoding: 'utf-8', timeout: 8000, windowsHide: true }).trim();
+            const lines = psOutput.split('\n').filter(l => l.trim());
             for (const line of lines.slice(1)) { // skip header
-                const cols = line.split(',');
+                const cols = line.replace(/"/g, '').split(',');
                 if (cols.length >= 2) {
                     const name = cols[1]?.trim() || '';
                     const ramStr = cols[2]?.trim() || '0';
