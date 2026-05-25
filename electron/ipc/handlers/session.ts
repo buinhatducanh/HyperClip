@@ -50,11 +50,11 @@ export function registerSessionHandlers(
     const targetId = sessions.length > 0
       ? sessions[0].profileId
       : 'Profile 1'
-    await sm.openLoginWindow(targetId)
+    const cookiesExtracted = await sm.openLoginWindow(targetId)
     // Refresh cookie manager status and notify renderer
     const status = getCookieManager().getAuthStatus()
     authEvents.emit('authUpdated', status)
-    return { success: true, profileId: targetId }
+    return { success: cookiesExtracted, profileId: targetId }
   })
 
   ipcMain.handle(IPC_CHANNELS.SESSION_CLONE_ONE, async () => {
