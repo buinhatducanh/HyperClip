@@ -276,10 +276,22 @@ class ElectronCookieManager {
             }
             catch { }
         }
+        // Also check SessionManager for Chrome cookies (primary auth path)
+        let chromeSessionCount = 0;
+        let chromeHasLogin = false;
+        try {
+            const { getSessionManager } = require('./chrome_cookies.js');
+            const sm = getSessionManager();
+            const sessions = sm.getSessions();
+            chromeSessionCount = sessions.length;
+            chromeHasLogin = sessions.some((s) => s.isLoggedIn && s.isConsented);
+        }
+        catch { }
         return {
-            isReady: oauthReadyLive,
-            cookieCount: this._cookies.length,
-            loggedOut: !oauthReadyLive,
+            // Ready if OAuth tokens valid OR Chrome sessions have logged-in consented sessions.
+            isReady: oauthReadyLive || chromeHasLogin,
+            cookieCount: chromeSessionCount,
+            loggedOut: !oauthReadyLive && !chromeHasLogin,
             accountName: this._accountName,
             oauthReady: oauthReadyLive,
             quotaExceeded: this._quotaExceeded,

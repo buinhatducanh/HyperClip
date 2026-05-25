@@ -94,6 +94,7 @@ exports.IPC_CHANNELS = {
     SESSION_LIST: 'session:list',
     SESSION_REFRESH_ALL: 'session:refresh-all',
     SESSION_OPEN_LOGIN: 'session:open-login',
+    AUTH_CHROME_START: 'auth:chrome-start',
     SESSION_CLONE_ONE: 'session:clone-one',
     // Rendered videos
     RENDERED_LIST: 'rendered:list',

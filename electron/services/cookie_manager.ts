@@ -302,7 +302,7 @@ class ElectronCookieManager implements CookieManager {
       const sm = getSessionManager()
       const sessions = sm.getSessions()
       chromeSessionCount = sessions.length
-      chromeHasLogin = sessions.some(s => s.isLoggedIn && s.isConsented)
+      chromeHasLogin = sessions.some((s: { isLoggedIn: boolean; isConsented: boolean }) => s.isLoggedIn && s.isConsented)
     } catch {}
 
     return {

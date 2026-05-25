@@ -55,6 +55,10 @@ function registerAuthHandlers(ipcMain) {
     });
     // ── OAuth Flow ───────────────────────────────────────────────────────────
     ipcMain.handle(channels_js_1.IPC_CHANNELS.AUTH_OAUTH_START, async () => {
+        const clientId = (0, youtube_auth_js_1.getOAuthClientId)();
+        if (!clientId) {
+            throw new Error('MISSING_OAUTH_CREDS');
+        }
         await (0, cookie_manager_js_1.getCookieManager)().startOAuthFlow();
         return (0, cookie_manager_js_1.getCookieManager)().getAuthStatus();
     });
