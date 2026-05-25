@@ -158,12 +158,6 @@ export const IPC_CHANNELS = {
   // YouTube available formats probe (for quality validation UI)
   FORMATS_GET: 'formats:get',
 
-  // License
-  LICENSE_STATUS: 'license:status',
-  LICENSE_ACTIVATE: 'license:activate',
-  LICENSE_VALIDATE: 'license:validate',
-  LICENSE_REVOKE: 'license:revoke',
-
   // Auto-update
   UPDATE_CHECK: 'update:check',
   UPDATE_DOWNLOAD: 'update:download',

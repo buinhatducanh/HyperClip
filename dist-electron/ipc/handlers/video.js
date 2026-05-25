@@ -15,12 +15,14 @@ const store_js_1 = require("../../services/store.js");
 const ramdisk_js_1 = require("../../services/ramdisk.js");
 const paths_js_1 = require("../../services/paths.js");
 const ipc_state_js_1 = require("../ipc-state.js");
+const unified_log_js_1 = require("../../services/unified_log.js");
 // Scan known storage directories for a downloaded video file by workspaceId.
 function findDownloadedFileAbs(workspaceId) {
     const dirs = [
         (0, ramdisk_js_1.getVideoStoragePath)(),
         path_1.default.join((0, paths_js_1.getAppStoreDir)(), 'downloads'),
         path_1.default.join((0, paths_js_1.getAppStoreDir)(), 'videos'),
+        'D:\\HyperClip-Data\\downloads',
     ];
     for (const dir of dirs) {
         try {
@@ -30,7 +32,7 @@ function findDownloadedFileAbs(workspaceId) {
                 return base === workspaceId || base.startsWith(workspaceId + '_') || base.startsWith(workspaceId + '.');
             });
             if (found) {
-                const abs = path_1.default.join(dir, found);
+                const abs = path_1.default.normalize(path_1.default.join(dir, found));
                 if (fs_1.default.existsSync(abs))
                     return abs;
             }
@@ -43,17 +45,21 @@ function registerVideoHandlers(ipcMain) {
     // Serve video file path for HTML5 preview player
     ipcMain.handle(channels_js_1.IPC_CHANNELS.VIDEO_FILE, async (_, workspaceId) => {
         const ws = (0, store_js_1.getWorkspace)(workspaceId);
+        (0, unified_log_js_1.devLog)(`[VIDEO_FILE] workspace=${workspaceId} downloadedPath="${ws?.downloadedPath}" status=${ws?.status}`);
         if (!ws || !ws.downloadedPath)
             return null;
         const stored = ws.downloadedPath;
-        const abs = stored.startsWith('/') || stored.match(/^[A-Z]:/i)
-            ? stored
+        const abs = (stored.startsWith('/') || stored.match(/^[A-Z]:/i))
+            ? path_1.default.normalize(stored)
             : path_1.default.join((0, ramdisk_js_1.getVideoStoragePath)(), stored);
+        (0, unified_log_js_1.devLog)(`[VIDEO_FILE] resolved path="${abs}" exists=${fs_1.default.existsSync(abs)}`);
         let absPath = abs;
         if (!fs_1.default.existsSync(absPath)) {
             const found = findDownloadedFileAbs(workspaceId);
+            (0, unified_log_js_1.devLog)(`[VIDEO_FILE] findDownloadedFileAbs found="${found}"`);
             if (found) {
                 absPath = found;
+                (0, unified_log_js_1.devLog)(`[VIDEO_FILE] using found path="${absPath}"`);
             }
             else {
                 // File gone (deleted by cleanup or manually) — mark workspace as error so UI shows retry
@@ -73,15 +79,17 @@ function registerVideoHandlers(ipcMain) {
     // Serve full video file as ArrayBuffer (for blob URL playback)
     ipcMain.handle(channels_js_1.IPC_CHANNELS.VIDEO_BLOB, async (_, workspaceId) => {
         const ws = (0, store_js_1.getWorkspace)(workspaceId);
+        (0, unified_log_js_1.devLog)(`[VIDEO_BLOB] workspace=${workspaceId} downloadedPath="${ws?.downloadedPath}"`);
         if (!ws || !ws.downloadedPath)
             return null;
         const stored = ws.downloadedPath;
-        const abs = stored.startsWith('/') || stored.match(/^[A-Z]:/i)
-            ? stored
+        const abs = (stored.startsWith('/') || stored.match(/^[A-Z]:/i))
+            ? path_1.default.normalize(stored)
             : path_1.default.join((0, ramdisk_js_1.getVideoStoragePath)(), stored);
         let absPath = abs;
         if (!fs_1.default.existsSync(absPath)) {
             const found = findDownloadedFileAbs(workspaceId);
+            (0, unified_log_js_1.devLog)(`[VIDEO_BLOB] path="${absPath}" not found, findDownloadedFileAbs="${found}"`);
             if (found)
                 absPath = found;
             else {
@@ -91,6 +99,7 @@ function registerVideoHandlers(ipcMain) {
         }
         try {
             const data = fs_1.default.readFileSync(absPath);
+            (0, unified_log_js_1.devLog)(`[VIDEO_BLOB] read ${data.byteLength} bytes from "${absPath}"`);
             return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
         }
         catch (err) {

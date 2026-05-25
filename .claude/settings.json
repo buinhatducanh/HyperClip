@@ -1,4 +1,12 @@
 {
+  "cleanupPeriodDays": 30,
+  "env": {
+    "BASH_DEFAULT_TIMEOUT_MS": "60000",
+    "BASH_MAX_OUTPUT_LENGTH": "20000",
+    "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1",
+    "NODE_ENV": "development"
+  },
+  "includeCoAuthoredBy": true,
   "permissions": {
     "allow": [
       "Bash",
@@ -16,7 +24,9 @@
       "Bash(jest:*)",
       "Bash(vitest:*)",
       "Bash(webpack:*)",
-      "Bash(vite:*)"
+      "Bash(vite:*)",
+      "Read(//d/HyperClip-Data/logs/**)",
+      "Read(//d/HyperClip-Data/**)"
     ],
     "deny": [
       "Bash(curl:*)",
@@ -25,14 +35,6 @@
     ],
     "defaultMode": "dontAsk"
   },
-  "env": {
-    "BASH_DEFAULT_TIMEOUT_MS": "60000",
-    "BASH_MAX_OUTPUT_LENGTH": "20000",
-    "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1",
-    "NODE_ENV": "development"
-  },
-  "includeCoAuthoredBy": true,
-  "cleanupPeriodDays": 30,
   "hooks": {
     "PreToolUse": [
       {

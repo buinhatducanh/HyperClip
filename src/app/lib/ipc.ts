@@ -98,21 +98,6 @@ type ElectronAPI = {
   /** Probe YouTube for available video heights (360, 720, 1080) — for quality validation UI */
   getAvailableFormats: (videoId: string, videoUrl: string) => Promise<{ videoId: string; heights: number[] } | null>
 
-  // ─── License ───────────────────────────────────────────────────────────────────
-  getLicenseStatus: () => Promise<{
-    activated: boolean; valid: boolean; reason?: string; record?: {
-      keyId: string; machineId: string; features: string[]; expiresAt: string | null; issuedAt: string; activatedAt: string
-    }; updateAvailable?: boolean; latestVersion?: string; updateProgress?: number
-  }>
-  activateLicense: (key: string) => Promise<{
-    success: boolean; error?: string; code?: string; record?: {
-      keyId: string; machineId: string; features: string[]; expiresAt: string | null; issuedAt: string; activatedAt: string
-    }
-  }>
-  validateLicense: () => Promise<{ activated: boolean; valid: boolean; reason?: string; record?: unknown }>
-  revokeLicense: () => Promise<{ success: boolean }>
-  onLicenseInit: (callback: (status: unknown) => void) => () => void
-
   // ─── Auto-update ────────────────────────────────────────────────────────────────
   checkForUpdate: () => Promise<{ available: boolean; version?: string }>
   downloadUpdate: () => Promise<{ success: boolean }>
@@ -456,23 +441,6 @@ export const ipc = {
   // ─── YouTube formats probe ─────────────────────────────────────────────────────
   async getAvailableFormats(videoId: string, videoUrl: string): Promise<{ videoId: string; heights: number[] } | null> {
     return window.electronAPI?.getAvailableFormats(videoId, videoUrl) ?? null
-  },
-
-  // ─── License ────────────────────────────────────────────────────────────────────
-  async getLicenseStatus() {
-    return window.electronAPI?.getLicenseStatus() ?? { activated: false, valid: false, reason: 'electronAPI not available' }
-  },
-  async activateLicense(key: string) {
-    return window.electronAPI?.activateLicense(key) ?? { success: false, error: 'electronAPI not available' }
-  },
-  async validateLicense() {
-    return window.electronAPI?.validateLicense() ?? { activated: false, valid: false, reason: 'electronAPI not available' }
-  },
-  async revokeLicense() {
-    return window.electronAPI?.revokeLicense() ?? { success: false }
-  },
-  onLicenseInit(callback: (status: unknown) => void) {
-    return window.electronAPI?.onLicenseInit(callback as any) ?? (() => {})
   },
 
   // ─── Auto-update ─────────────────────────────────────────────────────────────────

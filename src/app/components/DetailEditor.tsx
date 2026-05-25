@@ -1083,25 +1083,17 @@ const CanvasArea = React.memo(function CanvasArea({ video, editorState, onChange
     setIsReady(false); setPlaying(false); setCurrentTime(0); setVideoDuration(0); setVideoError(false)
 
     let cancelled = false
-    // Use file URL first — no memory copy, instant playback for local files.
-    // Fall back to blob URL only when file URL is unavailable.
-    ipc.getVideoFile(video.id).then((result) => {
+    // Force blob URL — protocol handler (registerFileProtocol) has unreliable file serving on Electron 41.
+    // Blob approach reads the entire file into memory but is 100% reliable.
+    ipc.getVideoBlob(video.id).then((bytes) => {
       if (cancelled) return
-      if (result?.url) {
-        setVideoSrc(result.url)
+      if (bytes && bytes.length > 0) {
+        const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'video/mp4' })
+        const url = URL.createObjectURL(blob)
+        blobUrlRef.current = url
+        setVideoSrc(url)
       } else {
-        // Fallback: load as blob (slower for large files, but works when file path is inaccessible)
-        return ipc.getVideoBlob(video.id).then((bytes) => {
-          if (cancelled) return
-          if (bytes && bytes.length > 0) {
-            const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'video/mp4' })
-            const url = URL.createObjectURL(blob)
-            blobUrlRef.current = url
-            setVideoSrc(url)
-          } else {
-            setVideoNotAvailable(true)
-          }
-        })
+        setVideoNotAvailable(true)
       }
     })
 
@@ -1364,10 +1356,10 @@ const CanvasArea = React.memo(function CanvasArea({ video, editorState, onChange
                 </div>
               )}
 
-              {/* Error badge */}
+              {/* Error / status badge */}
               {(videoError || videoNotAvailable) && (
                 <div style={{ position: 'absolute', bottom: 4, left: 4, right: 4, padding: '2px 6px', borderRadius: 2, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', fontSize: 8, color: videoError ? '#FF4444' : '#FFB800', fontWeight: 700, textAlign: 'center', letterSpacing: '0.08em' }}>
-                  {videoError ? 'VIDEO ERROR' : 'PREVIEW UNAVAILABLE'}
+                  {videoError ? 'VIDEO ERROR' : video.status === 'rendering' ? 'ĐANG RENDER...' : 'PREVIEW UNAVAILABLE'}
                 </div>
               )}
 

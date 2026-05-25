@@ -12,8 +12,9 @@ import { isRamDiskAvailable } from './ramdisk.js'
 function getYtdlpStatus(): { ok: boolean; path: string; error?: string } {
   const candidates: string[] = []
 
-  // Bundled in resources/
-  if (app.isReady() && app.getAppPath) {
+  // Bundled in resources/ — use process.resourcesPath (works for both dev + packaged)
+  if (app.isReady()) {
+    candidates.push(path.join(process.resourcesPath, 'yt-dlp', 'yt-dlp.exe'))
     candidates.push(path.join(app.getAppPath(), 'resources', 'yt-dlp', 'yt-dlp.exe'))
   }
   // node_modules/.bin (dev + npm package)
@@ -35,7 +36,10 @@ function getYtdlpStatus(): { ok: boolean; path: string; error?: string } {
   for (const p of candidates) {
     if (!p) continue
     try {
-      if (fs.existsSync(p)) return { ok: true, path: p }
+      if (fs.existsSync(p)) {
+        console.log(`[diagnostics] yt-dlp FOUND — ${p}`)
+        return { ok: true, path: p }
+      }
     } catch {}
   }
   return { ok: false, path: '', error: 'yt-dlp not found. Download từ https://github.com/yt-dlp/yt-dlp/releases hoặc cài Python + pip install yt-dlp.' }

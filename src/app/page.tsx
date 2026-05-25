@@ -13,7 +13,6 @@ import { RenderQueueBar } from './components/workspace/RenderQueueBar'
 import { DetailEditor } from './components/DetailEditor'
 import { RenderedVideoDetail } from './components/RenderedVideoDetail'
 import { LoginScreen } from './components/LoginScreen'
-import { LicenseScreen } from './components/LicenseScreen'
 import { ConfirmationDialog } from './components/ConfirmationDialog'
 import type { Channel, Video, SystemStats, EditorState } from './types'
 import { useAppStore, type Workspace } from './lib/store'
@@ -140,8 +139,6 @@ function DashboardContent() {
   const setWorkspacePriority = useAppStore(s => s.setWorkspacePriority)
 
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
-  /** License check: null = loading, true = valid, false = invalid */
-  const [licenseValid, setLicenseValid] = useState<boolean | null>(null)
   const [authStatus, setAuthStatus] = useState<{
     isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string
     oauthReady: boolean; quotaExceeded?: boolean
@@ -265,7 +262,8 @@ function DashboardContent() {
 
   // Redirect to onboarding if auth is ready but onboarding not complete
   useEffect(() => {
-    if (authStatus.isReady && !onboardingDone) {
+    if (!authStatus.isReady) return
+    if (!onboardingDone) {
       router.push('/onboarding')
     }
   }, [authStatus.isReady, onboardingDone, router])
@@ -296,18 +294,6 @@ function DashboardContent() {
       } catch {}
     }
     fetchDiag()
-  }, [])
-
-  // Check license status on mount — blocks app if license is invalid/expired
-  useEffect(() => {
-    ipc.getLicenseStatus().then((s: any) => {
-      // DEMO_MODE env var auto-sets valid=true, reason='Demo mode' — proceed normally
-      // Real license: valid=true → proceed; valid=false → show LicenseScreen overlay
-      setLicenseValid(s.valid)
-    }).catch(() => {
-      // Network error — allow app to proceed (offline mode trust)
-      setLicenseValid(true)
-    })
   }, [])
 
   // Poll key health every 30s
@@ -1051,26 +1037,9 @@ function DashboardContent() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: '#0E0E0E', fontFamily: 'Inter, sans-serif', color: '#fff', overflow: 'hidden' }}>
-      {/* License activation — blocks entire app until valid license activated */}
-      {licenseValid === false && <LicenseScreen />}
-
       {/* Login screen */}
       {!authStatus.isReady && (
         <LoginScreen accountName={authStatus.accountName} oauthReady={authStatus.oauthReady} onLogout={handleLogout} />
-      )}
-
-      {/* Demo mode banner — visible when logged in but OAuth not active */}
-      {authStatus.isReady && !authStatus.oauthReady && authStatus.accountName === 'Demo Mode' && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
-          background: '#FF6B3522', borderBottom: '1px solid #FF6B3544',
-          padding: '6px 16px', display: 'flex', alignItems: 'center', gap: 8,
-          fontSize: 10, color: '#FF6B35',
-        }}>
-          <span>⚡</span>
-          <span style={{ flex: 1 }}>Demo Mode — Theo dõi tự động đang tắt.</span>
-          <Link href="/settings" style={{ color: '#FF6B35', textDecoration: 'none', fontWeight: 600 }}>Đăng nhập →</Link>
-        </div>
       )}
 
       {/* Diagnostics issues banner */}

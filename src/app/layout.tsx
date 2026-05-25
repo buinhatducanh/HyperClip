@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 require('./globals.css')
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 export const metadata: Metadata = {
   title: 'HyperClip — Auto-Render',
@@ -17,7 +18,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="vi" className="dark">
-      <body>{children}</body>
+      <body>
+        <ErrorBoundary>{children}</ErrorBoundary>
+      </body>
     </html>
   )
 }

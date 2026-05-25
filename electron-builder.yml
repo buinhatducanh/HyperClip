@@ -20,6 +20,8 @@ extraResources:
     to: node/
     filter:
       - "**/*"
+  - from: resources/fonts/
+    to: fonts/
   - from: build/icon.ico
     to: build/icon.ico
 asarUnpack: []
@@ -32,6 +34,9 @@ asarUnpack: []
 win:
   target:
     - target: nsis
+      arch:
+        - x64
+    - target: dir
       arch:
         - x64
   icon: build/icon.ico
@@ -50,6 +55,27 @@ nsis:
   deleteAppDataOnUninstall: false
   runAfterFinish: true
   installerHeaderIcon: build/icon.ico
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: dir
+      arch:
+        - x64
+  category: Video
+  icon: build/icon.png
+  artifactName: "${productName}-${version}.${ext}"
+
+mac:
+  target:
+    - target: dir
+      arch:
+        - x64
+  category: public.app-category.video
+  icon: build/icon.icns
+  artifactName: "${productName}-${version}.${ext}"
 
 asar: false
 compression: maximum

@@ -237,6 +237,23 @@ class ElectronCookieManager {
     async validateCookies() {
         return this._oauthReady && await this._checkOAuthTokens();
     }
+    _hasStoredTokens() {
+        const dirs = [
+            path_1.default.join((0, paths_js_1.getAppStoreDir)(), 'oauth_tokens.json'),
+            path_1.default.join(os_1.default.tmpdir(), 'hyperclip-cookies', 'oauth_tokens.json'),
+        ];
+        for (const tokenFile of dirs) {
+            if (fs_1.default.existsSync(tokenFile)) {
+                try {
+                    const data = JSON.parse(fs_1.default.readFileSync(tokenFile, 'utf-8'));
+                    if (Array.isArray(data) && data.some((t) => t.expires_at && t.expires_at - 60_000 > Date.now()))
+                        return true;
+                }
+                catch { }
+            }
+        }
+        return false;
+    }
     getAuthStatus() {
         let oauthReadyLive = this._oauthReady;
         if (!oauthReadyLive) {

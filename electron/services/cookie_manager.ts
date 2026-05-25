@@ -253,6 +253,24 @@ class ElectronCookieManager implements CookieManager {
     return this._oauthReady && await this._checkOAuthTokens()
   }
 
+  private _hasStoredTokens(): boolean {
+    const dirs = [
+      path.join(getAppStoreDir(), 'oauth_tokens.json'),
+      path.join(os.tmpdir(), 'hyperclip-cookies', 'oauth_tokens.json'),
+    ]
+    for (const tokenFile of dirs) {
+      if (fs.existsSync(tokenFile)) {
+        try {
+          const data = JSON.parse(fs.readFileSync(tokenFile, 'utf-8'))
+          if (Array.isArray(data) && data.some((t: { expires_at?: number }) =>
+            t.expires_at && t.expires_at - 60_000 > Date.now()
+          )) return true
+        } catch {}
+      }
+    }
+    return false
+  }
+
   getAuthStatus(): AuthStatus {
     let oauthReadyLive = this._oauthReady
     if (!oauthReadyLive) {

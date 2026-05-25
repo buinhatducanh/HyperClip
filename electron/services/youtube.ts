@@ -1257,14 +1257,14 @@ async function downloadWithClient(opts: DownloadWithClientOpts): Promise<Downloa
 
   const q = parseInt(quality)
   const maxHeight = isNaN(q) ? 720 : q
-  // Priority: any codec @ target quality + AAC -> any codec @ target + best audio
-  // -> any codec @ lower quality -> bestvideo+bestaudio (no cap).
-  // This ensures VP9/AV1 1080p is picked over H.264 360p when H.264 1080p unavailable.
+  // All fallbacks enforce height<=maxHeight — no unconstrained fallback.
+  // Priority: bestvideo@maxHeight+best_audio @ AAC → same w/ any audio codec
+  // → same w/ any video codec → bestvideo@maxHeight+best_audio (strict cap).
   const formatSelector = [
-    // Any codec @ target quality + AAC
-    `bestvideo[height<=${maxHeight}]+bestaudio[acodec=aac]/bestvideo[height<=${maxHeight}]+bestaudio/bestvideo+bestaudio/bestvideo+bestaudio`,
-    // Any codec @ any quality + best audio
-    `bestvideo+bestaudio/bestvideo+bestaudio/bestvideo+bestaudio/bestvideo+bestaudio`,
+    `bestvideo[height<=${maxHeight}][vcodec!="none"]+bestaudio[acodec=aac]`,
+    `bestvideo[height<=${maxHeight}][vcodec!="none"]+bestaudio`,
+    `bestvideo[height<=${maxHeight}]+bestaudio[acodec=aac]`,
+    `bestvideo[height<=${maxHeight}]+bestaudio`,
   ].join('/')
   console.log(`[Download] quality=${quality} maxHeight=${maxHeight}p selector=${formatSelector}`)
 
@@ -1422,10 +1422,10 @@ async function spawnDownload(opts: SpawnDownloadOpts): Promise<DownloadStrategyR
           onProgress?.({ workspaceId, percent: pct, speed: '', eta: '', downloaded: '', total: '' })
         }
       } else if (destMatch) {
-        downloadedFile = destMatch[1].trim()
+        downloadedFile = path.normalize(destMatch[1].trim())
         devLog(`[Download] Dest: ${downloadedFile}`)
       } else if (mergeMatch) {
-        downloadedFile = mergeMatch[1]
+        downloadedFile = path.normalize(mergeMatch[1])
         devLog(`[Download] Merged: ${downloadedFile}`)
         onProgress?.({ workspaceId, percent: 99, speed: 'processing', eta: 0, downloaded: '', total: '' })
       } else if (errorMatch) {

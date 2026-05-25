@@ -17,7 +17,6 @@ const fs_1 = __importDefault(require("fs"));
 const channels_js_1 = require("../channels.js");
 const ipc_state_js_1 = require("../ipc-state.js");
 const store_js_1 = require("../../services/store.js");
-const license_js_1 = require("../../services/license.js");
 const ramdisk_js_1 = require("../../services/ramdisk.js");
 const ffmpeg_js_1 = require("../../services/ffmpeg.js");
 const worker_pool_js_1 = require("../../services/worker-pool.js");
@@ -94,8 +93,7 @@ function executeRenderJob(job) {
         overlays: resolvedOverlays,
         blur_background: metadata.blur_background || wsBlurBg,
         backgroundImage: !metadata.backgroundImage && !wsBlurBg && fs_1.default.existsSync(wsThumbPath) ? wsThumbPath : metadata.backgroundImage,
-        // Inject DEMO watermark for demo mode — appears at bottom-right of every rendered frame
-        watermarkText: (0, license_js_1.getLicenseStatus)().reason === 'Demo mode' ? 'DEMO' : (metadata.watermarkText || ''),
+        watermarkText: metadata.watermarkText || '',
     };
     const gpuTier = (0, system_js_1.getGPUCapabilities)().tier;
     void (0, ffmpeg_js_1.renderVideo)(resolvedMetadata, outputDir, (progress) => {
@@ -281,7 +279,7 @@ function registerRenderHandlers(ipcMain) {
             source_video: videoPath,
             blur_background: metadata.blur_background || wsBlurBg,
             backgroundImage: (!metadata.backgroundImage || !fs_1.default.existsSync(metadata.backgroundImage)) && !wsBlurBg && fs_1.default.existsSync(wsThumbPath) ? wsThumbPath : metadata.backgroundImage,
-            watermarkText: (0, license_js_1.getLicenseStatus)().reason === 'Demo mode' ? 'DEMO' : (metadata.watermarkText || ''),
+            watermarkText: metadata.watermarkText || '',
         };
         const result = await (0, ffmpeg_js_1.renderChunked)(resolvedMetadata, outputDir, effectiveConfig, (progress) => {
             (0, store_js_1.updateWorkspace)(workspaceId, { renderProgress: Math.round(progress.percent) });

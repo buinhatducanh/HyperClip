@@ -120,12 +120,6 @@ const IPC = {
     OPERATION_LOGS_CLEAR: 'operation:logs-clear',
     POLLER_PAUSE: 'poller:pause',
     CHANNEL_BULK_ADD: 'channel:bulk-add',
-    // License
-    LICENSE_STATUS: 'license:status',
-    LICENSE_ACTIVATE: 'license:activate',
-    LICENSE_VALIDATE: 'license:validate',
-    LICENSE_REVOKE: 'license:revoke',
-    LICENSE_INIT_EVENT: 'license:init',
     // Auto-update
     UPDATE_CHECK: 'update:check',
     UPDATE_DOWNLOAD: 'update:download',
@@ -307,16 +301,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
         const handler = (_, entry) => callback(entry);
         ipcRenderer.on('activity:event', handler);
         return () => ipcRenderer.removeListener('activity:event', handler);
-    },
-    // License
-    getLicenseStatus: () => ipcRenderer.invoke(IPC.LICENSE_STATUS),
-    activateLicense: (key) => ipcRenderer.invoke(IPC.LICENSE_ACTIVATE, key),
-    validateLicense: () => ipcRenderer.invoke(IPC.LICENSE_VALIDATE),
-    revokeLicense: () => ipcRenderer.invoke(IPC.LICENSE_REVOKE),
-    onLicenseInit: (callback) => {
-        const handler = (_, status) => callback(status);
-        ipcRenderer.on(IPC.LICENSE_INIT_EVENT, handler);
-        return () => ipcRenderer.removeListener(IPC.LICENSE_INIT_EVENT, handler);
     },
     // Auto-update
     checkForUpdate: () => ipcRenderer.invoke(IPC.UPDATE_CHECK),

@@ -7,7 +7,7 @@ import extract from 'extract-zip'
 const require = createRequire(import.meta.url)
 
 const root = process.cwd()
-const env = { ...process.env, NODE_ENV: 'production' }
+const env = { ...process.env, NODE_ENV: 'production', DEMO_MODE: 'true' }
 
 function run(cmd, args) {
   return new Promise((resolve, reject) => {
@@ -97,16 +97,13 @@ async function main() {
 
     console.log('[build] Build complete!')
 
-    // ── Step final: Create portable zip (PowerShell Compress-Archive) ──────────────
+    // ── Step final: Create portable zip (7z — PowerShell Compress-Archive fails on locked files) ──
     const unpackedDir = path.join(root, 'release', 'win-unpacked')
     const zipPath = path.join(root, 'release', `HyperClip-portable.zip`)
     if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath)
 
-    console.log('[build] Creating portable zip...')
-    await run('powershell', [
-      '-Command',
-      `Compress-Archive -Path "${unpackedDir}\\*" -DestinationPath "${zipPath}" -Force`
-    ])
+    console.log('[build] Creating portable zip (7z)...')
+    await run('7z', ['a', '-tzip', zipPath, `${unpackedDir}/*`, '-mx=1'])
     const zipSize = (fs.statSync(zipPath).size / 1024 / 1024).toFixed(1)
     console.log(`[build] Portable zip: ${path.basename(zipPath)} (${zipSize} MB)`)
   } catch (e) {

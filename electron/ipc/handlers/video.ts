@@ -11,6 +11,7 @@ import { getWorkspace, updateWorkspace } from '../../services/store.js'
 import { getVideoStoragePath } from '../../services/ramdisk.js'
 import { getAppStoreDir } from '../../services/paths.js'
 import { broadcast } from '../ipc-state.js'
+import { devLog } from '../../services/unified_log.js'
 
 // Scan known storage directories for a downloaded video file by workspaceId.
 function findDownloadedFileAbs(workspaceId: string): string | null {
@@ -18,6 +19,7 @@ function findDownloadedFileAbs(workspaceId: string): string | null {
     getVideoStoragePath(),
     path.join(getAppStoreDir(), 'downloads'),
     path.join(getAppStoreDir(), 'videos'),
+    'D:\\HyperClip-Data\\downloads',
   ]
   for (const dir of dirs) {
     try {
@@ -27,7 +29,7 @@ function findDownloadedFileAbs(workspaceId: string): string | null {
         return base === workspaceId || base.startsWith(workspaceId + '_') || base.startsWith(workspaceId + '.')
       })
       if (found) {
-        const abs = path.join(dir, found)
+        const abs = path.normalize(path.join(dir, found))
         if (fs.existsSync(abs)) return abs
       }
     } catch { /* skip inaccessible dirs */ }
@@ -39,17 +41,21 @@ export function registerVideoHandlers(ipcMain: IpcMain): void {
   // Serve video file path for HTML5 preview player
   ipcMain.handle(IPC_CHANNELS.VIDEO_FILE, async (_, workspaceId: string): Promise<{ path: string; url: string } | null> => {
     const ws = getWorkspace(workspaceId)
+    devLog(`[VIDEO_FILE] workspace=${workspaceId} downloadedPath="${ws?.downloadedPath}" status=${ws?.status}`)
     if (!ws || !ws.downloadedPath) return null
 
     const stored = ws.downloadedPath
-    const abs = stored.startsWith('/') || stored.match(/^[A-Z]:/i)
-      ? stored
+    const abs = (stored.startsWith('/') || stored.match(/^[A-Z]:/i))
+      ? path.normalize(stored)
       : path.join(getVideoStoragePath(), stored)
+    devLog(`[VIDEO_FILE] resolved path="${abs}" exists=${fs.existsSync(abs)}`)
     let absPath = abs
     if (!fs.existsSync(absPath)) {
       const found = findDownloadedFileAbs(workspaceId)
+      devLog(`[VIDEO_FILE] findDownloadedFileAbs found="${found}"`)
       if (found) {
         absPath = found
+        devLog(`[VIDEO_FILE] using found path="${absPath}"`)
       } else {
         // File gone (deleted by cleanup or manually) — mark workspace as error so UI shows retry
         console.warn(`[VIDEO_FILE] file not found: ${ws.downloadedPath}`)
@@ -70,14 +76,16 @@ export function registerVideoHandlers(ipcMain: IpcMain): void {
   // Serve full video file as ArrayBuffer (for blob URL playback)
   ipcMain.handle(IPC_CHANNELS.VIDEO_BLOB, async (_, workspaceId: string): Promise<Uint8Array | null> => {
     const ws = getWorkspace(workspaceId)
+    devLog(`[VIDEO_BLOB] workspace=${workspaceId} downloadedPath="${ws?.downloadedPath}"`)
     if (!ws || !ws.downloadedPath) return null
     const stored = ws.downloadedPath
-    const abs = stored.startsWith('/') || stored.match(/^[A-Z]:/i)
-      ? stored
+    const abs = (stored.startsWith('/') || stored.match(/^[A-Z]:/i))
+      ? path.normalize(stored)
       : path.join(getVideoStoragePath(), stored)
     let absPath = abs
     if (!fs.existsSync(absPath)) {
       const found = findDownloadedFileAbs(workspaceId)
+      devLog(`[VIDEO_BLOB] path="${absPath}" not found, findDownloadedFileAbs="${found}"`)
       if (found) absPath = found
       else {
         console.warn(`[VIDEO_BLOB] file not found: ${ws.downloadedPath}`)
@@ -86,6 +94,7 @@ export function registerVideoHandlers(ipcMain: IpcMain): void {
     }
     try {
       const data = fs.readFileSync(absPath)
+      devLog(`[VIDEO_BLOB] read ${data.byteLength} bytes from "${absPath}"`)
       return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
     } catch (err) {
       console.error(`[VIDEO_BLOB] read error: ${err}`)

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Channel, Video, SystemStats, EditorState, RenderedVideo, LicenseStatus, UpdateStatus } from '../types'
+import type { Channel, Video, SystemStats, EditorState, RenderedVideo, UpdateStatus } from '../types'
 import { ipc } from './ipc'
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
@@ -119,10 +119,7 @@ export interface AppStore {
   notifications: AppNotification[]
   isInitialLoading: boolean
 
-  // License
-  license: LicenseStatus
   update: UpdateStatus
-  setLicense: (status: LicenseStatus) => void
   setUpdate: (status: UpdateStatus) => void
 
   // Actions — Notifications
@@ -266,12 +263,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
   editorHistoryIndex: -1,
   isInitialLoading: true,
 
-  // License — starts as "checking"
-  license: { activated: false, valid: false, reason: 'Loading...' },
   update: { available: false, progress: 0 },
 
   // Actions
-  setLicense: (status) => set({ license: status }),
   setUpdate: (status) => set({ update: status }),
 
   // Actions — Workspace

@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getGPUCapabilities = getGPUCapabilities;
 exports.detectSystemProfile = detectSystemProfile;
 exports.getSessionCount = getSessionCount;
+exports.getGpuLive = getGpuLive;
 exports.getEffectiveWorkers = getEffectiveWorkers;
 exports.collectSystemStats = collectSystemStats;
 exports.checkResourceAlert = checkResourceAlert;
@@ -323,18 +324,37 @@ function getPerWorkerVRAM() {
         return 400; // RTX 3060/4060: tighter
     return 300;
 }
+let _cachedGpuLive = null;
+let _cachedGpuLiveTime = 0;
+const _GPU_CACHE_TTL_MS = 5000;
 function getVramInfo() {
-    // Always fresh query — nvidia-smi is fast enough for 2s interval
-    // Cache only on failure so we don't spam nvidia-smi if it errors
+    // Single nvidia-smi call with 5s TTL — eliminates duplicate blocking calls.
+    // Returns: [total, free, used, gpuUsage, gpuTemp]
+    const now = Date.now();
+    if (_cachedGpuLive && (now - _cachedGpuLiveTime) < _GPU_CACHE_TTL_MS) {
+        return { total: _cachedGpuLive.total, free: _cachedGpuLive.free, used: _cachedGpuLive.used };
+    }
     try {
-        const out = (0, child_process_1.execSync)('nvidia-smi --query-gpu=memory.total,memory.free,memory.used --format=csv,noheader,nounits', { encoding: 'utf-8', timeout: 3000 }).trim();
+        const out = (0, child_process_1.execSync)('nvidia-smi --query-gpu=memory.total,memory.free,memory.used,utilization.gpu,temperature.gpu --format=csv,noheader,nounits', { encoding: 'utf-8', timeout: 3000 }).trim();
         const parts = out.split(',').map((s) => parseInt(s.trim()) || 0);
-        _cachedVRAM = { total: parts[0] || 0, free: parts[1] || 0, used: parts[2] || 0 };
+        _cachedGpuLive = {
+            total: parts[0] || 0,
+            free: parts[1] || 0,
+            used: parts[2] || 0,
+            gpuUsage: parts[3] || 0,
+            gpuTemp: parts[4] || 0,
+        };
+        _cachedGpuLiveTime = now;
     }
     catch {
         // Keep last known values on error
     }
-    return _cachedVRAM;
+    return _cachedGpuLive ?? { total: 0, free: 0, used: 0, gpuUsage: 0, gpuTemp: 0 };
+}
+function getGpuLive() {
+    // Returns live GPU data (usage + temp) from cache without extra nvidia-smi call.
+    getVramInfo(); // populate cache if stale
+    return _cachedGpuLive ?? { total: 0, free: 0, used: 0, gpuUsage: 0, gpuTemp: 0 };
 }
 // Get effective worker count based on available VRAM.
 // Per-session VRAM budget (1920x1080 canvas, H.265 encode + NVDEC decode + filter):
@@ -407,24 +427,15 @@ function getNetworkIp() {
 function collectSystemStats() {
     const gpu = detectGPUOnce();
     const cpuInfo = getCpuUsage();
-    // GPU real-time: only query nvidia-smi when NVIDIA GPU is present
+    // GPU real-time: single nvidia-smi call via getGpuLive() (5s TTL, shared cache)
     let gpuUsage = 0;
     let gpuTemp = 0;
     let gpuMemFree = 0;
     if (gpu.hasGPU && gpu.encoder === 'nvenc') {
-        try {
-            // Always refresh VRAM on every collectSystemStats call (every 2s)
-            const vram = getVramInfo();
-            gpuMemFree = vram.free;
-            // Query usage/temp separately (different query, needed for UI display)
-            const output = (0, child_process_1.execSync)('nvidia-smi --query-gpu=utilization.gpu,temperature.gpu --format=csv,noheader,nounits', {
-                encoding: 'utf-8', timeout: 3000,
-            });
-            const parts = output.trim().split(',').map((s) => s.trim());
-            gpuUsage = parseInt(parts[0]) || 0;
-            gpuTemp = parseInt(parts[1]) || 0;
-        }
-        catch { }
+        const live = getGpuLive();
+        gpuMemFree = live.free;
+        gpuUsage = live.gpuUsage;
+        gpuTemp = live.gpuTemp;
     }
     const totalMem = os_1.default.totalmem();
     const freeMem = os_1.default.freemem();
@@ -472,6 +483,9 @@ const GAME_PROCESSES = [
 let _lastAlert = { level: 'normal', reason: '' };
 let _lastAlertTime = 0;
 const ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+let _lastGameScanTime = 0;
+const GAME_SCAN_INTERVAL_MS = 30 * 1000; // 30 seconds — tasklist is expensive
+let _cachedGameDetected = false;
 function checkResourceAlert() {
     const now = Date.now();
     if (now - _lastAlertTime < ALERT_COOLDOWN_MS)
@@ -479,18 +493,23 @@ function checkResourceAlert() {
     const stats = collectSystemStats();
     const ramPct = Math.round((1 - stats.ramFree / stats.ramTotal) * 100);
     const gpuPct = stats.gpuUsage ?? 0;
-    // Detect game processes
-    let gameDetected = false;
-    try {
-        const out = (0, child_process_1.execSync)('tasklist /FI "IMAGENAME eq *.exe" /NH 2>nul', { encoding: 'utf-8', timeout: 5000, windowsHide: true });
-        for (const game of GAME_PROCESSES) {
-            if (out.toLowerCase().includes(game.toLowerCase())) {
-                gameDetected = true;
-                break;
+    // Detect game processes — throttle tasklist to every 30s
+    let gameDetected = _cachedGameDetected;
+    if (now - _lastGameScanTime >= GAME_SCAN_INTERVAL_MS) {
+        try {
+            const out = (0, child_process_1.execSync)('tasklist /FI "IMAGENAME eq *.exe" /NH 2>nul', { encoding: 'utf-8', timeout: 5000, windowsHide: true });
+            _cachedGameDetected = false;
+            for (const game of GAME_PROCESSES) {
+                if (out.toLowerCase().includes(game.toLowerCase())) {
+                    _cachedGameDetected = true;
+                    break;
+                }
             }
+            _lastGameScanTime = now;
         }
+        catch { }
+        gameDetected = _cachedGameDetected;
     }
-    catch { }
     let level = 'normal';
     let reason = '';
     if (gameDetected && (ramPct >= 60 || gpuPct >= 60)) {

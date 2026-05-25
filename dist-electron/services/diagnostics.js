@@ -48,8 +48,9 @@ const ramdisk_js_1 = require("./ramdisk.js");
 // yt-dlp: check resources/bundled (shipped with app) → node_modules/.bin → PATH
 function getYtdlpStatus() {
     const candidates = [];
-    // Bundled in resources/
-    if (electron_1.app.isReady() && electron_1.app.getAppPath) {
+    // Bundled in resources/ — use process.resourcesPath (works for both dev + packaged)
+    if (electron_1.app.isReady()) {
+        candidates.push(path_1.default.join(process.resourcesPath, 'yt-dlp', 'yt-dlp.exe'));
         candidates.push(path_1.default.join(electron_1.app.getAppPath(), 'resources', 'yt-dlp', 'yt-dlp.exe'));
     }
     // node_modules/.bin (dev + npm package)
@@ -71,8 +72,10 @@ function getYtdlpStatus() {
         if (!p)
             continue;
         try {
-            if (fs_1.default.existsSync(p))
+            if (fs_1.default.existsSync(p)) {
+                console.log(`[diagnostics] yt-dlp FOUND — ${p}`);
                 return { ok: true, path: p };
+            }
         }
         catch { }
     }

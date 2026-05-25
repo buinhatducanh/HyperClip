@@ -1013,14 +1013,14 @@ async function downloadWithClient(opts) {
     }
     const q = parseInt(quality);
     const maxHeight = isNaN(q) ? 720 : q;
-    // Priority: any codec @ target quality + AAC -> any codec @ target + best audio
-    // -> any codec @ lower quality -> bestvideo+bestaudio (no cap).
-    // This ensures VP9/AV1 1080p is picked over H.264 360p when H.264 1080p unavailable.
+    // All fallbacks enforce height<=maxHeight — no unconstrained fallback.
+    // Priority: bestvideo@maxHeight+best_audio @ AAC → same w/ any audio codec
+    // → same w/ any video codec → bestvideo@maxHeight+best_audio (strict cap).
     const formatSelector = [
-        // Any codec @ target quality + AAC
-        `bestvideo[height<=${maxHeight}]+bestaudio[acodec=aac]/bestvideo[height<=${maxHeight}]+bestaudio/bestvideo+bestaudio/bestvideo+bestaudio`,
-        // Any codec @ any quality + best audio
-        `bestvideo+bestaudio/bestvideo+bestaudio/bestvideo+bestaudio/bestvideo+bestaudio`,
+        `bestvideo[height<=${maxHeight}][vcodec!="none"]+bestaudio[acodec=aac]`,
+        `bestvideo[height<=${maxHeight}][vcodec!="none"]+bestaudio`,
+        `bestvideo[height<=${maxHeight}]+bestaudio[acodec=aac]`,
+        `bestvideo[height<=${maxHeight}]+bestaudio`,
     ].join('/');
     console.log(`[Download] quality=${quality} maxHeight=${maxHeight}p selector=${formatSelector}`);
     // Multi-instance: only for 1080p+ with enough free RAM AND video > 30s
@@ -1154,11 +1154,11 @@ async function spawnDownload(opts) {
                 }
             }
             else if (destMatch) {
-                downloadedFile = destMatch[1].trim();
+                downloadedFile = path_1.default.normalize(destMatch[1].trim());
                 (0, unified_log_js_1.devLog)(`[Download] Dest: ${downloadedFile}`);
             }
             else if (mergeMatch) {
-                downloadedFile = mergeMatch[1];
+                downloadedFile = path_1.default.normalize(mergeMatch[1]);
                 (0, unified_log_js_1.devLog)(`[Download] Merged: ${downloadedFile}`);
                 onProgress?.({ workspaceId, percent: 99, speed: 'processing', eta: 0, downloaded: '', total: '' });
             }

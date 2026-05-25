@@ -143,13 +143,6 @@ const IPC = {
   POLLER_PAUSE: 'poller:pause',
   CHANNEL_BULK_ADD: 'channel:bulk-add',
 
-  // License
-  LICENSE_STATUS: 'license:status',
-  LICENSE_ACTIVATE: 'license:activate',
-  LICENSE_VALIDATE: 'license:validate',
-  LICENSE_REVOKE: 'license:revoke',
-  LICENSE_INIT_EVENT: 'license:init',
-
   // Auto-update
   UPDATE_CHECK: 'update:check',
   UPDATE_DOWNLOAD: 'update:download',
@@ -458,31 +451,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_: any, entry: any) => callback(entry)
     ipcRenderer.on('activity:event', handler)
     return () => ipcRenderer.removeListener('activity:event', handler)
-  },
-
-  // License
-  getLicenseStatus: () =>
-    ipcRenderer.invoke(IPC.LICENSE_STATUS) as Promise<{
-      activated: boolean; valid: boolean; reason?: string; record?: {
-        keyId: string; machineId: string; features: string[]; expiresAt: string | null; issuedAt: string; activatedAt: string
-      }; updateAvailable?: boolean; latestVersion?: string; updateProgress?: number
-    }>,
-  activateLicense: (key: string) =>
-    ipcRenderer.invoke(IPC.LICENSE_ACTIVATE, key) as Promise<{
-      success: boolean; error?: string; code?: string; record?: {
-        keyId: string; machineId: string; features: string[]; expiresAt: string | null; issuedAt: string; activatedAt: string
-      }
-    }>,
-  validateLicense: () =>
-    ipcRenderer.invoke(IPC.LICENSE_VALIDATE) as Promise<{
-      activated: boolean; valid: boolean; reason?: string; record?: unknown
-    }>,
-  revokeLicense: () =>
-    ipcRenderer.invoke(IPC.LICENSE_REVOKE) as Promise<{ success: boolean }>,
-  onLicenseInit: (callback: (status: unknown) => void) => {
-    const handler = (_: any, status: unknown) => callback(status)
-    ipcRenderer.on(IPC.LICENSE_INIT_EVENT, handler)
-    return () => ipcRenderer.removeListener(IPC.LICENSE_INIT_EVENT, handler)
   },
 
   // Auto-update

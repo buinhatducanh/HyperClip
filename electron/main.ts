@@ -44,7 +44,6 @@ import { initCookieManager, getCookieManager, authEvents, channelEvents } from '
 import { getKeyManager } from './services/key_manager.js'
 import { getProjectManager } from './services/project_manager.js'
 import { getTokenManager } from './services/token_manager.js'
-import { initLicense } from './services/license.js'
 import { killPersistentChrome } from './services/cdp.js'
 import { getSessionManager } from './services/chrome_cookies.js'
 import { getInnertubePoolSync } from './services/innertube_client.js'
@@ -1796,16 +1795,21 @@ void app.whenReady().then(async () => {
 
   // Register local-video:// protocol to serve downloaded video files to renderer.
   // Chromium blocks file:// URLs in <video src> — this bypasses that restriction.
-  // URL format MUST be local-video:///C:/Users/... (THREE slashes after scheme).
-  // Two-slash format (local-video://C:/...) causes Chromium to treat C: as the
-  // "host", stripping it during PathForRequest → handler gets C/Users/... (broken path).
-  // With three slashes, Chromium treats the path as /C:/Users/... and returns it correctly.
+  // URL format: local-video:///C:/path/to/file.mp4 (THREE slashes, forward slashes).
+  // Uses registerFileProtocol: passes the file path to Chromium, which reads the file directly.
   protocol.registerFileProtocol('local-video', (request, callback) => {
     let filePath = request.url.replace(/^local-video:\/\/?\/?/, '')
-    // Chromium may include a leading slash in the path for three-slash URLs.
-    // Normalize: strip one leading slash so we get C:/Users/... (valid Windows path).
     if (filePath.startsWith('/')) filePath = filePath.slice(1)
-    callback({ path: decodeURIComponent(filePath) })
+    filePath = decodeURIComponent(filePath)
+    const isAbsolute = /^[A-Z]:\\/i.test(filePath) || filePath.startsWith('\\')
+    const absPath = isAbsolute ? path.normalize(filePath) : path.resolve(filePath)
+    devLog(`[Protocol] local-video url="${request.url}" resolved="${absPath}" exists=${fs.existsSync(absPath)}`)
+    if (!fs.existsSync(absPath)) {
+      devLog(`[Protocol] local-video: file not found: ${absPath}`)
+      callback({ error: -6 })
+      return
+    }
+    callback({ path: absPath })
   })
 
   void createWindow()
@@ -1881,8 +1885,6 @@ void app.whenReady().then(async () => {
     }
   }
 
-  // Init license (validates cached license, starts heartbeat if valid)
-  void initLicense()
 
   // ─── Health Alert Checker (every 60s) ───────────────────────────────────────
   // Runs periodic health checks and sends notifications to the renderer.

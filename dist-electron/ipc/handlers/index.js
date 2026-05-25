@@ -23,7 +23,6 @@ const settings_js_1 = require("./settings.js");
 const poller_js_1 = require("./poller.js");
 const op_logs_js_1 = require("./op-logs.js");
 const project_js_1 = require("./project.js");
-const license_js_1 = require("./license.js");
 function registerAllHandlers(ipcMain, _getMainWindow) {
     (0, unified_log_js_1.devLog)('[IPC] Registering handlers...');
     (0, system_js_1.registerSystemHandlers)(ipcMain);
@@ -40,6 +39,5 @@ function registerAllHandlers(ipcMain, _getMainWindow) {
     (0, settings_js_1.registerSettingsHandlers)(ipcMain);
     (0, poller_js_1.registerPollerHandlers)(ipcMain);
     (0, op_logs_js_1.registerOpLogHandlers)(ipcMain);
-    (0, license_js_1.registerLicenseHandlers)(ipcMain);
     (0, unified_log_js_1.devLog)('[IPC] All handlers registered');
 }

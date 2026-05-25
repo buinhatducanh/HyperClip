@@ -603,54 +603,44 @@ class InnertubeClientPool {
   }
 
   /**
-   * Fetch the uploads playlist directly from a channel's metadata.
-   * This bypasses the tab-based approach that fails when a channel has no
-   * Videos/Featured tabs (brand-new channels, restricted channels, etc.).
+   * Fetch the videos tab using the Innertube browse action with params for the
+   * /videos tab. This bypasses the tab-based approach that fails when a channel
+   * has no Videos/Featured tabs (brand-new channels, restricted channels, etc.).
    *
-   * Strategy: getChannelVideos() calls getTab('videos') internally.
-   * If that also fails → use the Innertube browse action to navigate directly
-   * to the channel's /videos URL, bypassing tab discovery.
+   * Uses the Innertube session's browse action directly, no need for uploadsUrl.
    */
   private async _fetchUploadsTab(client: Innertube, channelId: string, channel: any): Promise<any | null> {
-    // Strategy 1: try getChannelVideos() — some channels have a /videos tab
-    // even when getVideos() (tab discovery) fails
+    // Strategy 1: navigate directly to /videos using browse action with parse: true.
+    // This is the most reliable way to get the parsed videos tab content directly.
     try {
-      devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): trying getChannelVideos()`)
-      const videosTab = await (channel as any).getChannelVideos()
-      if (videosTab) {
-        devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): getChannelVideos succeeded`)
-        return videosTab
+      devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): navigating directly to browse /videos tab`)
+      const response = await client.actions.execute('/browse', {
+        browseId: channelId,
+        params: 'EgZ2aWRlb3M%3D',
+        parse: true,
+      })
+      if (response) {
+        devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): browse /videos tab succeeded`)
+        return new (channel.constructor)(client.actions, response, true)
       }
     } catch (e) {
-      devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): getChannelVideos failed — ${String(e).slice(0, 80)}`)
+      devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): browse /videos tab failed — ${String(e).slice(0, 80)}`)
     }
 
-    // Strategy 2: navigate directly to /videos using browse action.
-    // Extract the uploads URL from channel info. The channel page always contains
-    // the /videos URL in channelMetadataRenderer.
-    try {
-      const info = (channel as any).info
-      const metadata = info?.metadata?.channelMetadataRenderer
-      const uploadsUrl = metadata?.uploadsUrl
-
-      if (uploadsUrl) {
-        devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): navigating to ${uploadsUrl}`)
-        const session = (client as any).session
-        if (session) {
-          const response = await session.actions.execute('/browse', {
-            browseId: channelId,
-            params: 'EgZ2aWRlb3M%3D',
-          })
-          if (response) {
-            devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): browse succeeded`)
-            return { page: response, current_tab: { content: response } }
-          }
+    // Strategy 2: Fetch the uploads playlist (UU...) directly.
+    // Every channel's uploads playlist ID is the channel ID with 'UC' replaced by 'UU'.
+    if (channelId.startsWith('UC') && channelId.length === 24) {
+      try {
+        const uploadsPlaylistId = 'UU' + channelId.slice(2)
+        devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): fetching uploads playlist ${uploadsPlaylistId}`)
+        const playlist = await client.getPlaylist(uploadsPlaylistId)
+        if (playlist) {
+          devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): uploads playlist fetch succeeded`)
+          return playlist
         }
-      } else {
-        devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): no uploadsUrl in channel metadata`)
+      } catch (e) {
+        devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): uploads playlist fetch failed — ${String(e).slice(0, 80)}`)
       }
-    } catch (e) {
-      devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): browse fallback failed — ${String(e).slice(0, 80)}`)
     }
 
     return null

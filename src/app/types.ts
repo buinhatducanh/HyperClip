@@ -2,26 +2,6 @@ export type VideoStatus = 'new' | 'rendering' | 'done';
 export type CanvasBg = 'black' | 'white';
 export type TitleShape = 'rounded' | 'square' | 'diamond';
 
-// ─── License ─────────────────────────────────────────────────────────────────────
-export interface LicenseRecord {
-  keyId: string
-  machineId: string
-  features: string[]
-  expiresAt: string | null
-  issuedAt: string
-  activatedAt: string
-}
-
-export interface LicenseStatus {
-  activated: boolean
-  valid: boolean
-  reason?: string
-  record?: LicenseRecord
-  updateAvailable?: boolean
-  latestVersion?: string
-  updateProgress?: number
-}
-
 export interface UpdateStatus {
   available: boolean
   version?: string
