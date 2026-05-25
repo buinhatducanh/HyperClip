@@ -41,7 +41,7 @@ interface UpdateConfig {
 
 function getConfig(): UpdateConfig {
   // UPDATE_REPO env var overrides default
-  const repo = process.env.UPDATE_REPO || 'D--LOOP-COMPANY/HyperClip'
+  const repo = process.env.UPDATE_REPO || 'buinhatducanh/HyperClip'
   const token = process.env.GH_TOKEN || null
   const currentVersion = app.getVersion() || '0.0.0'
   return { repo, currentVersion, token }
