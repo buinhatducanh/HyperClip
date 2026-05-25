@@ -645,7 +645,12 @@ export class ChromeSessionManager {
       const profileDir = isDefaultChrome
         ? getDefaultChromeProfileDir()
         : getHyperClipProfileDir(profileId)
-      const profileExists = fs.existsSync(path.join(profileDir, 'Default', 'Network', 'Cookies'))
+      // Default Chrome profile: cookies at <profileDir>\Network\Cookies (no extra Default subfolder)
+      // HyperClip profiles: cookies at <profileDir>\Default\Network\Cookies
+      const cookieDbPath = isDefaultChrome
+        ? path.join(profileDir, 'Network', 'Cookies')
+        : path.join(profileDir, 'Default', 'Network', 'Cookies')
+      const profileExists = fs.existsSync(cookieDbPath)
 
       this._sessions.push({
         profileId,
@@ -716,7 +721,30 @@ export class ChromeSessionManager {
 
     const valid = this._sessions.filter(s => s.cookies && s.isConsented)
     devLog(`[SessionManager] ${valid.length}/${this._sessionCount} sessions ready (${this._sessions.filter(s => !s.cookies).length} missing — login from Settings)`)
-    devLog(`[SessionManager] ${valid.length}/${this._sessionCount} sessions ready (${this._sessions.filter(s => !s.cookies).length} missing — login from Settings)`)
+
+    // ─── Background login recovery ─────────────────────────────────────────────
+    // If some sessions don't have cookies (Chrome was running during startup,
+    // preventing DPAPI extraction), trigger background login to recover them.
+    // This runs silently in the background — user can continue using the app
+    // with the sessions that already have cookies.
+    const missing = this._sessions.filter(s => !s.cookies || !s.isLoggedIn)
+    if (missing.length > 0) {
+      devLog(`[SessionManager] Starting background login recovery for ${missing.length} missing sessions...`)
+      for (let i = 0; i < missing.length; i++) {
+        const session = missing[i]
+        // Stagger logins 3s apart to avoid Chrome window conflicts
+        setTimeout(async () => {
+          if (!session.cookies) {
+            devLog(`[SessionManager] Background login for profile ${session.profileId}...`)
+            try {
+              await this.openLoginWindow(session.profileId)
+            } catch (e) {
+              devLog(`[SessionManager] Background login failed for profile ${session.profileId}: ${e}`)
+            }
+          }
+        }, i * 3000)
+      }
+    }
 
     // ─── Background cookie health monitoring ───────────────────────────────────
     // Tier 1: Every 10 min — refresh top-5 recently-used sessions (hot path)
