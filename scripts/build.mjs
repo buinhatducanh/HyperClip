@@ -99,10 +99,14 @@ async function main() {
 
     // ── Step final: Create portable zip (7z — PowerShell Compress-Archive fails on locked files) ──
     const unpackedDir = path.join(root, 'release', 'win-unpacked')
-    const zipPath = path.join(root, 'release', `HyperClip-portable.zip`)
+
+    // Determine version for portable zip name
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
+    const version = pkg.version || '0.0.0'
+    const zipPath = path.join(root, 'release', `HyperClip-portable-${version}.zip`)
     if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath)
 
-    console.log('[build] Creating portable zip (7z)...')
+    console.log(`[build] Creating portable zip v${version} (7z)...`)
     await run('7z', ['a', '-tzip', zipPath, `${unpackedDir}/*`, '-mx=1'])
     const zipSize = (fs.statSync(zipPath).size / 1024 / 1024).toFixed(1)
     console.log(`[build] Portable zip: ${path.basename(zipPath)} (${zipSize} MB)`)

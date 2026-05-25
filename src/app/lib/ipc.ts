@@ -99,11 +99,11 @@ type ElectronAPI = {
   getAvailableFormats: (videoId: string, videoUrl: string) => Promise<{ videoId: string; heights: number[] } | null>
 
   // ─── Auto-update ────────────────────────────────────────────────────────────────
-  checkForUpdate: () => Promise<{ available: boolean; version?: string }>
+  checkForUpdate: () => Promise<{ available: boolean; version: string; releaseNotes: string; downloadUrl: string | null; downloadSize: number; publishedAt: string }>
   downloadUpdate: () => Promise<{ success: boolean }>
   installUpdate: () => Promise<{ success: boolean }>
-  getUpdateStatus: () => Promise<{ available: boolean; version?: string; progress: number }>
-  onUpdateEvent: (callback: (event: { type: string; version?: string; percent?: number }) => void) => () => void
+  getUpdateStatus: () => Promise<{ available: boolean; version: string; releaseNotes: string; downloadSize: number; progress: number; downloaded: boolean; downloadedPath: string | null }>
+  onUpdateEvent: (callback: (event: { type: string; version?: string; percent?: number; releaseNotes?: string; downloadSize?: number; publishedAt?: string; message?: string }) => void) => () => void
 }
 
 export const ipc = {
@@ -445,7 +445,7 @@ export const ipc = {
 
   // ─── Auto-update ─────────────────────────────────────────────────────────────────
   async checkForUpdate() {
-    return window.electronAPI?.checkForUpdate() ?? { available: false }
+    return window.electronAPI?.checkForUpdate() ?? { available: false, version: '', releaseNotes: '', downloadUrl: null, downloadSize: 0, publishedAt: '' }
   },
   async downloadUpdate() {
     return window.electronAPI?.downloadUpdate() ?? { success: false }
@@ -454,9 +454,9 @@ export const ipc = {
     return window.electronAPI?.installUpdate() ?? { success: false }
   },
   async getUpdateStatus() {
-    return window.electronAPI?.getUpdateStatus() ?? { available: false, progress: 0 }
+    return window.electronAPI?.getUpdateStatus() ?? { available: false, version: '', releaseNotes: '', downloadSize: 0, progress: 0, downloaded: false, downloadedPath: null }
   },
-  onUpdateEvent(callback: (event: { type: string; version?: string; percent?: number }) => void) {
+  onUpdateEvent(callback: (event: { type: string; version?: string; percent?: number; releaseNotes?: string; downloadSize?: number; publishedAt?: string; message?: string }) => void) {
     return window.electronAPI?.onUpdateEvent(callback as any) ?? (() => {})
   },
 

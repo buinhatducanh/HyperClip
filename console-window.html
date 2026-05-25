@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>HyperClip Console</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0a;
+      color: #ccc;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 11px;
+      line-height: 1.5;
+      overflow: hidden;
+    }
+    #header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 28px;
+      background: #0d0d0d;
+      border-bottom: 1px solid #1a1a1a;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 12px;
+      z-index: 10;
+    }
+    #title {
+      font-size: 10px;
+      font-weight: 700;
+      color: #00FF88;
+      letter-spacing: 0.15em;
+    }
+    #status {
+      font-size: 9px;
+      color: #333;
+    }
+    #clearBtn {
+      margin-left: auto;
+      background: transparent;
+      border: 1px solid #1a1a1a;
+      color: #444;
+      font-size: 9px;
+      padding: 2px 8px;
+      cursor: pointer;
+      border-radius: 3px;
+    }
+    #clearBtn:hover { background: #141414; color: #555; }
+    #logs {
+      padding: 32px 8px 8px 8px;
+      height: 100vh;
+      overflow-y: scroll;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    #logs::-webkit-scrollbar { width: 4px; }
+    #logs::-webkit-scrollbar-track { background: transparent; }
+    #logs::-webkit-scrollbar-thumb { background: #1a1a1a; border-radius: 2px; }
+    .line { display: block; padding: 1px 4px; border-radius: 2px; }
+    .line:hover { background: #141414; }
+    .ts { color: #2d2d2d; margin-right: 6px; }
+    .dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+    .cat { color: #2e2e2e; margin-right: 6px; min-width: 60px; display: inline-block; }
+    .msg { color: #777; }
+    .error .msg { color: #FF5555; }
+    .error { background: #FF555510; }
+    .warn .msg { color: #FFB800; }
+    .warn { background: #FFB80010; }
+    .success .msg { color: #00FF88; }
+    .success { background: #00FF8810; }
+    .info .msg { color: #888; }
+    .debug .msg { color: #444; }
+    .detail { color: #333; }
+    #count {
+      position: fixed;
+      bottom: 6px;
+      right: 12px;
+      font-size: 9px;
+      color: #222;
+      z-index: 10;
+      pointer-events: none;
+    }
+    #autoScroll {
+      position: fixed;
+      bottom: 6px;
+      left: 12px;
+      font-size: 9px;
+      color: #2d2d2d;
+      z-index: 10;
+    }
+    .sys { color: #555; }
+    .startup { color: #333; }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <span id="title">▶ HYPERCLIP CONSOLE</span>
+    <span id="status">Đang kết nối...</span>
+    <button id="clearBtn" onclick="clearLogs()">XÓA</button>
+  </div>
+  <div id="logs"></div>
+  <div id="autoScroll">Auto: <span id="autoLabel">ON</span></div>
+  <div id="count"></div>
+
+  <script>
+    const MAX_LINES = 1000;
+    let logs = [];
+    let autoScroll = true;
+    let lineCount = 0;
+
+    const logsEl = document.getElementById('logs');
+    const statusEl = document.getElementById('status');
+    const countEl = document.getElementById('count');
+    const autoLabelEl = document.getElementById('autoLabel');
+
+    const CAT_LABELS = {
+      scan: 'QUÉT', download: 'TẢI', render: 'RENDER',
+      channel: 'KÊNH', system: 'HỆ THỐNG', auth: 'ĐĂNG NHẬP',
+      general: 'CHUNG'
+    };
+
+    function fmtTime(ts) {
+      const d = new Date(ts);
+      return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    function renderEntry(entry) {
+      const div = document.createElement('span');
+      div.className = `line ${entry.level}`;
+
+      const time = `<span class="ts">${fmtTime(entry.timestamp)}</span>`;
+      const dot = `<span class="dot" style="background:${getLevelColor(entry.level)}"></span>`;
+      const cat = `<span class="cat">${CAT_LABELS[entry.category] || entry.category}</span>`;
+      const msg = `<span class="msg">${escapeHtml(entry.message)}</span>`;
+      const detail = entry.detail ? `<span class="detail"> — ${escapeHtml(entry.detail)}</span>` : '';
+
+      div.innerHTML = time + dot + cat + msg + detail;
+      return div;
+    }
+
+    function getLevelColor(level) {
+      const map = { error: '#FF5555', warn: '#FFB800', success: '#00FF88', info: '#888888', debug: '#444444' };
+      return map[level] || '#888';
+    }
+
+    function addEntries(entries) {
+      for (const entry of entries) {
+        if (!entry || !entry.id) continue;
+        if (logs.some(e => e.id === entry.id)) continue;
+        logs.push(entry);
+        if (logs.length > MAX_LINES) {
+          logs.shift();
+          if (logsEl.firstChild) logsEl.removeChild(logsEl.firstChild);
+        }
+        logsEl.appendChild(renderEntry(entry));
+      }
+      lineCount = logs.length;
+      countEl.textContent = `${lineCount} / ${MAX_LINES} dòng`;
+      if (autoScroll) logsEl.scrollTop = logsEl.scrollHeight;
+    }
+
+    function clearLogs() {
+      logs = [];
+      logsEl.innerHTML = '';
+      lineCount = 0;
+      countEl.textContent = '';
+    }
+
+    // Auto-scroll toggle on click
+    document.getElementById('autoScroll').addEventListener('click', () => {
+      autoScroll = !autoScroll;
+      autoLabelEl.textContent = autoScroll ? 'ON' : 'OFF';
+      if (autoScroll) logsEl.scrollTop = logsEl.scrollHeight;
+    });
+
+    // Receive logs via window.postMessage from preload
+    window.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'log:entries') {
+        addEntries(event.data.entries);
+        statusEl.textContent = 'Đã kết nối';
+        statusEl.style.color = '#00FF8844';
+      }
+    });
+
+    // Signal ready
+    window.addEventListener('load', () => {
+      window.postMessage({ type: 'console:ready' }, '*');
+    });
+  </script>
+</body>
+</html>

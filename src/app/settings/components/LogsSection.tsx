@@ -30,15 +30,25 @@ const LEVEL_COLORS: Record<string, string> = {
   debug: '#444444',
 }
 
-const CATEGORY_LABELS: Record<string, string> = {
-  scan: 'Quét',
-  download: 'Tải',
-  render: 'Render',
-  channel: 'Kênh',
-  system: 'Hệ thống',
-  auth: 'Đăng nhập',
-  general: 'Chung',
+const LEVEL_BG: Record<string, string> = {
+  error: '#FF555518',
+  warn: '#FFB80014',
+  success: '#00FF8814',
+  info: 'transparent',
+  debug: 'transparent',
 }
+
+const CATEGORY_LABELS: Record<string, string> = {
+  scan: 'QUÉT',
+  download: 'TẢI',
+  render: 'RENDER',
+  channel: 'KÊNH',
+  system: 'HỆ THỐNG',
+  auth: 'ĐĂNG NHẬP',
+  general: 'CHUNG',
+}
+
+const MAX_LINES = 1000
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -50,11 +60,28 @@ function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString('en-US', { hour12: false })
 }
 
+function formatDateTime(ts: number): string {
+  return new Date(ts).toLocaleString('vi-VN', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  })
+}
+
 function formatDate(ts: number): string {
   return new Date(ts).toLocaleString('vi-VN', {
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
   })
+}
+
+function formatLogText(logs: LogEntry[]): string {
+  return logs.map(e => {
+    const dt = formatDateTime(e.timestamp)
+    const cat = (CATEGORY_LABELS[e.category] || e.category).padEnd(9)
+    const lvl = e.level.toUpperCase().padEnd(7)
+    const detail = e.detail ? ` — ${e.detail}` : ''
+    return `[${dt}] [${cat}] [${lvl}] ${e.message}${detail}`
+  }).join('\n')
 }
 
 export function LogsSection() {
@@ -74,13 +101,15 @@ export function LogsSection() {
   const [autoScroll, setAutoScroll] = useState(true)
   const opLogsEndRef = useRef<HTMLDivElement>(null)
 
-  // ─── Export state ─────────────────────────────────────────────────────────────
+  // ─── UI state ────────────────────────────────────────────────────────────────
   const [exporting, setExporting] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [diskUsage, setDiskUsage] = useState<{ totalBytes: number; fileCount: number; oldestAge: number } | null>(null)
   const [cleaningUp, setCleaningUp] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [copyError, setCopyError] = useState(false)
 
-  // ─── Load file logs ───────────────────────────────────────────────────────────
+  // ─── Load file logs ────────────────────────────────────────────────────────────
   const loadFileLogs = useCallback(async () => {
     setLoadingFiles(true)
     try {
@@ -103,7 +132,7 @@ export function LogsSection() {
   }, [selectedFile])
 
   useEffect(() => {
-    loadFileLogs()
+    void loadFileLogs()
   }, [loadFileLogs, refreshKey])
 
   useEffect(() => {
@@ -118,11 +147,10 @@ export function LogsSection() {
     const cleanup = ipc.onOpLogs((entries: LogEntry[]) => {
       setOpLogs(prev => {
         if (entries.length === 0) return prev
-        // entries is the last 50 from the buffer — merge with existing
         const existingIds = new Set(prev.map(e => e.id))
         const newEntries = entries.filter(e => !existingIds.has(e.id))
         if (newEntries.length === 0) return prev
-        return [...prev, ...newEntries].slice(-200)
+        return [...prev, ...newEntries].slice(-MAX_LINES)
       })
     })
     return cleanup
@@ -130,8 +158,8 @@ export function LogsSection() {
 
   // Also load initial entries
   useEffect(() => {
-    ipc.getOpLogs().then((logs: unknown) => {
-      if (Array.isArray(logs)) setOpLogs(logs as LogEntry[])
+    void ipc.getOpLogs().then((logs: unknown) => {
+      if (Array.isArray(logs)) setOpLogs((logs as LogEntry[]).slice(-MAX_LINES))
     }).catch(() => {})
   }, [])
 
@@ -149,11 +177,31 @@ export function LogsSection() {
     return true
   })
 
-  // ─── Export ──────────────────────────────────────────────────────────────────
+  // ─── Copy to clipboard ──────────────────────────────────────────────────────
+  const handleCopy = useCallback(() => {
+    const text = formatLogText(filteredLogs)
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setCopyError(false)
+      setTimeout(() => setCopied(false), 2000)
+    }).catch(() => {
+      setCopyError(true)
+      setTimeout(() => setCopyError(false), 2000)
+    })
+  }, [filteredLogs])
+
+  // ─── Open log folder ─────────────────────────────────────────────────────────
+  const handleOpenFolder = useCallback(() => {
+    if (logDir) {
+      ipc.openFolder(logDir).catch(() => {})
+    }
+  }, [logDir])
+
+  // ─── Export ─────────────────────────────────────────────────────────────────
   const handleExport = async () => {
     setExporting(true)
     try {
-      const result = await ipc.exportLogs()
+      await ipc.exportLogs()
     } catch {} finally {
       setExporting(false)
     }
@@ -165,8 +213,6 @@ export function LogsSection() {
     try {
       const result = await ipc.cleanupLogs()
       if (result.deletedCount > 0) {
-        const freedMB = (result.freedBytes / 1024 / 1024).toFixed(1)
-        // Reload after cleanup
         await loadFileLogs()
       }
     } catch {} finally {
@@ -177,24 +223,29 @@ export function LogsSection() {
   // ─── Log entry component ─────────────────────────────────────────────────────
   const LogRow = ({ entry }: { entry: LogEntry }) => {
     const color = LEVEL_COLORS[entry.level] || '#888'
+    const bg = LEVEL_BG[entry.level] || 'transparent'
     return (
       <div style={{
-        display: 'flex', alignItems: 'flex-start', gap: 8, padding: '3px 4px',
+        display: 'flex', alignItems: 'flex-start', gap: 8, padding: '2px 6px',
         borderRadius: 3, marginBottom: 1,
-        transition: 'background 0.1s',
+        background: bg,
+        minHeight: 18,
       }}>
-        <span style={{ fontSize: 8, color: '#2a2a2a', fontFamily: 'monospace', flexShrink: 0, paddingTop: 2 }}>
+        <span style={{ fontSize: 8.5, color: '#2d2d2d', fontFamily: 'monospace', flexShrink: 0, paddingTop: 2, minWidth: 68 }}>
           {formatTime(entry.timestamp)}
         </span>
         <span style={{
-          width: 6, height: 6, borderRadius: '50%',
+          width: 5, height: 5, borderRadius: '50%',
           background: color, flexShrink: 0, marginTop: 3,
         }} />
-        <span style={{ fontSize: 8, color: '#3a3a3a', fontFamily: 'monospace', flexShrink: 0, paddingTop: 2, minWidth: 50 }}>
+        <span style={{ fontSize: 8, color: '#2e2e2e', fontFamily: 'monospace', flexShrink: 0, paddingTop: 2, minWidth: 54 }}>
           {CATEGORY_LABELS[entry.category] || entry.category}
         </span>
-        <span style={{ fontSize: 9, color, flex: 1, paddingTop: 1 }}>
+        <span style={{ fontSize: 9, color, flex: 1, paddingTop: 1, fontFamily: 'monospace' }}>
           {entry.message}
+          {entry.detail && (
+            <span style={{ color: '#333', fontSize: 8 }}> — {entry.detail}</span>
+          )}
         </span>
       </div>
     )
@@ -207,8 +258,13 @@ export function LogsSection() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', letterSpacing: '0.1em' }}>LOGS</div>
-          <div style={{ fontSize: 8, color: '#333', fontFamily: 'monospace', marginTop: 2 }}>{logDir}</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', letterSpacing: '0.1em' }}>
+            <span style={{ color: '#00FF88', marginRight: 6 }}>▶</span>
+            CONSOLE
+          </div>
+          <div style={{ fontSize: 8, color: '#333', fontFamily: 'monospace', marginTop: 2 }}>
+            {logDir || 'Đang khởi tạo...'}
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           {/* Disk usage */}
@@ -221,12 +277,44 @@ export function LogsSection() {
               <span style={{ fontSize: 9, color: '#222' }}>({diskUsage.fileCount} files)</span>
             </div>
           )}
+
+          {/* Copy to clipboard */}
+          <button
+            onClick={handleCopy}
+            disabled={filteredLogs.length === 0}
+            title="Sao chép tất cả dòng hiển thị vào clipboard"
+            style={{
+              height: 28, paddingLeft: 10, paddingRight: 10,
+              background: copied ? '#003318' : copyError ? '#330000' : '#141414',
+              border: `1px solid ${copied ? '#00FF8866' : copyError ? '#FF555566' : '#1a1a1a'}`,
+              borderRadius: 4, color: copied ? '#00FF88' : copyError ? '#FF5555' : '#444',
+              fontSize: 8, fontWeight: 700, cursor: filteredLogs.length === 0 ? 'not-allowed' : 'pointer',
+              minWidth: 70,
+            }}>
+            {copied ? '✓ ĐÃ COPY' : copyError ? '✗ LỖI' : '📋 COPY'}
+          </button>
+
+          {/* Open log folder */}
+          <button
+            onClick={handleOpenFolder}
+            disabled={!logDir}
+            title="Mở thư mục chứa file log"
+            style={{
+              height: 28, paddingLeft: 10, paddingRight: 10,
+              background: '#141414', border: '1px solid #1a1a1a',
+              borderRadius: 4, color: logDir ? '#444' : '#222',
+              fontSize: 8, fontWeight: 700, cursor: logDir ? 'pointer' : 'not-allowed',
+            }}>
+            📁 MỞ THƯ MỤC
+          </button>
+
           <button onClick={() => setRefreshKey(k => k + 1)} style={{
             height: 28, paddingLeft: 10, paddingRight: 10,
             background: '#141414', border: '1px solid #1a1a1a',
             borderRadius: 4, color: '#444', fontSize: 8, fontWeight: 700,
             cursor: 'pointer',
-          }}>↻ Refresh</button>
+          }}>↻</button>
+
           <button onClick={handleCleanup} disabled={cleaningUp} style={{
             height: 28, paddingLeft: 10, paddingRight: 10,
             background: cleaningUp ? '#1a1200' : '#0d0d0d',
@@ -234,8 +322,9 @@ export function LogsSection() {
             borderRadius: 4, color: cleaningUp ? '#444' : '#555',
             fontSize: 8, fontWeight: 700, cursor: cleaningUp ? 'not-allowed' : 'pointer',
           }}>
-            {cleaningUp ? 'Cleaning...' : '🗑 Dọn cũ'}
+            {cleaningUp ? '...' : '🗑'}
           </button>
+
           <button onClick={handleExport} disabled={exporting} style={{
             height: 28, paddingLeft: 14, paddingRight: 14,
             background: exporting ? '#1a1200' : '#1a1400',
@@ -243,7 +332,7 @@ export function LogsSection() {
             borderRadius: 4, color: exporting ? '#444' : '#FF6B35',
             fontSize: 9, fontWeight: 700, cursor: exporting ? 'not-allowed' : 'pointer',
           }}>
-            {exporting ? 'ĐANG XUẤT...' : '📦 XUẤT ZIP'}
+            {exporting ? '...' : '📦 XUẤT ZIP'}
           </button>
         </div>
       </div>
@@ -259,12 +348,12 @@ export function LogsSection() {
             fontSize: 9, fontWeight: 700, cursor: 'pointer',
             letterSpacing: '0.05em',
           }}>
-            {tab === 'operation' ? '📡 HOẠT ĐỘNG' : '📁 FILE LOGS'}
+            {tab === 'operation' ? '📡 CONSOLE (trực tiếp)' : '📁 FILE LOGS'}
           </button>
         ))}
       </div>
 
-      {/* ── OPERATION LOGS TAB ──────────────────────────────────────────────────── */}
+      {/* ── CONSOLE TAB ──────────────────────────────────────────────────── */}
       {activeTab === 'operation' && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, overflow: 'hidden' }}>
 
@@ -272,7 +361,7 @@ export function LogsSection() {
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
             {/* Level filter */}
             <div style={{ display: 'flex', gap: 3 }}>
-              {(['all', 'info', 'warn', 'error', 'success'] as LogLevel[]).map(lvl => (
+              {(['all', 'error', 'warn', 'success', 'info'] as LogLevel[]).map(lvl => (
                 <button key={lvl} onClick={() => setFilterLevel(lvl)} style={{
                   height: 22, paddingLeft: 8, paddingRight: 8,
                   background: filterLevel === lvl ? (LEVEL_COLORS[lvl] || '#888') + '22' : 'transparent',
@@ -302,10 +391,13 @@ export function LogsSection() {
               ))}
             </div>
 
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-              <span style={{ fontSize: 8, color: '#2a2a2a', paddingTop: 4 }}>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+              {/* Line count */}
+              <span style={{ fontSize: 8, color: '#2a2a2a', paddingTop: 4, fontFamily: 'monospace' }}>
                 {filteredLogs.length} / {opLogs.length} dòng
+                {opLogs.length >= MAX_LINES && <span style={{ color: '#FFB800' }}> (max {MAX_LINES})</span>}
               </span>
+
               <button onClick={() => setAutoScroll(v => !v)} style={{
                 height: 22, paddingLeft: 8, paddingRight: 8,
                 background: autoScroll ? '#00B4FF18' : 'transparent',
@@ -334,9 +426,12 @@ export function LogsSection() {
             borderRadius: 6, padding: 6,
           }}>
             {filteredLogs.length === 0 ? (
-              <div style={{ fontSize: 9, color: '#222', textAlign: 'center', padding: '32px 0' }}>
+              <div style={{
+                fontSize: 9, color: '#222', textAlign: 'center', padding: '32px 0',
+                fontFamily: 'monospace',
+              }}>
                 {opLogs.length === 0
-                  ? 'Chưa có log. Poller đang quét sẽ hiển thị tại đây.'
+                  ? 'Chưa có log. Đang theo dõi...'
                   : 'Không có dòng nào khớp bộ lọc.'}
               </div>
             ) : (
@@ -412,11 +507,11 @@ export function LogsSection() {
 
       {/* Help */}
       <div style={{ padding: '8px 12px', background: '#0D0D0D', borderRadius: 6, borderLeft: '3px solid #333', flexShrink: 0 }}>
-        <div style={{ fontSize: 8, fontWeight: 700, color: '#444', marginBottom: 4 }}>CÁCH BÁO LỖI</div>
+        <div style={{ fontSize: 8, fontWeight: 700, color: '#444', marginBottom: 4 }}>BÁO LỖI CHO DEV</div>
         <div style={{ fontSize: 8, color: '#2a2a2a', lineHeight: 1.8 }}>
-          1. Nhấn <strong style={{ color: '#444' }}>Xuất ZIP</strong> để tạo file nén<br />
-          2. Gửi file <strong style={{ color: '#444' }}>.zip</strong> qua Zalo/Telegram kèm mô tả lỗi<br />
-          3. Hoặc gửi đường dẫn thư mục: <span style={{ color: '#444', fontFamily: 'monospace' }}>{logDir}</span>
+          1. Nhấn <strong style={{ color: '#555' }}>COPY</strong> để sao chép logs<br />
+          2. Dán vào Zalo/Telegram kèm mô tả lỗi<br />
+          3. Hoặc nhấn <strong style={{ color: '#555' }}>MỞ THƯ MỤC</strong> → gửi file log
         </div>
       </div>
     </div>

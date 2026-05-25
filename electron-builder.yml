@@ -11,6 +11,7 @@ files:
   - package.json
   - .next/**/*
   - servers/**/*
+  - console-window.html
 extraResources:
   - from: resources/ffmpeg/bin/
     to: ffmpeg/bin/

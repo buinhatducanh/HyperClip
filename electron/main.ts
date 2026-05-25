@@ -50,9 +50,14 @@ import { getInnertubePoolSync } from './services/innertube_client.js'
 import type { SessionStatus } from './services/chrome_cookies.js'
 import { log, devLog, opLog, setLogWindow, cleanupOldLogs } from './services/unified_log.js'
 import { getLogDir, getSystemSnapshot } from './services/unified_log.js'
+import {
+  createConsoleWindow,
+  destroyConsoleWindow,
+  setConsoleWindowQuit,
+} from './services/console-window.js'
 import { checkHealthAlerts, sendHealthAlerts, recordVideoDetected, recordDownloadFail, recordDownloadSuccess } from './services/health_alerts.js'
+import { startAutoCheck as startGitHubUpdateCheck } from './services/github-updater.js'
 import { checkResourceAlert, getLastResourceAlert } from './services/system.js'
-import { startE2EServer, stopE2EServer } from './services/e2e_server.js'
 import { registerSettingsHandlers } from './ipc/handlers/settings.js'
 import { registerStorageHandlers } from './ipc/handlers/storage.js'
 import { setIPCState, broadcast as _broadcast, sendNotification as _sendNotification, getActiveWorkspaceId } from './ipc/ipc-state.js'
@@ -1321,6 +1326,9 @@ async function createWindow() {
   // Wire unified log to renderer for live streaming
   setLogWindow(mainWindow)
 
+  // Show customer-facing console window (always-on-top, bottom-right)
+  createConsoleWindow()
+
   void mainWindow.loadURL(`http://localhost:${NEXT_PORT}`)
 
   // Retry load if initial attempt fails (server might still be warming up)
@@ -1585,6 +1593,7 @@ function startSystemMonitor() {
 
 // ─── Shutdown ─────────────────────────────────────────────────────────────────
 async function quitAll() {
+  setConsoleWindowQuit(true)
   await stopYouTubePoller()
   cancelAllFfmpeg()
   cancelAllChunked()
@@ -1602,6 +1611,7 @@ async function quitAll() {
   }
 
   mainWindow?.destroy()
+  destroyConsoleWindow()
 
   app.quit()
 }
@@ -1907,6 +1917,18 @@ void app.whenReady().then(async () => {
     } catch {}
   }, 30_000)
 
+  // ─── GitHub Auto-Update (check every 6h + initial check after 10s) ─────────────
+  startGitHubUpdateCheck()
+  setTimeout(async () => {
+    try {
+      const { checkForUpdates } = await import('./services/github-updater.js')
+      const result = await checkForUpdates()
+      if (result.available) {
+        devLog(`[GitHubUpdater] New version available: v${result.version}`)
+      }
+    } catch {}
+  }, 10_000)
+
   // Resolve missing channelIds for demo channels at startup
   void resolveChannelIdsForPoll()
 
@@ -2128,12 +2150,3 @@ crashReporter.start({
 // Log startup banner
 log.info(`HyperClip starting — v${app.getVersion()} | Electron ${process.versions.electron} | Node ${process.version}`)
 
-// ─── E2E Test Server ───────────────────────────────────────────────────────────
-// Starts an HTTP server on port 9312 when HYPERCLIP_TEST=1.
-// The test client (scripts/test-e2e.mjs) connects to this server to run E2E tests.
-if (process.env.HYPERCLIP_TEST === '1') {
-  void app.whenReady().then(() => {
-    startE2EServer()
-    app.on('quit', stopE2EServer)
-  })
-}

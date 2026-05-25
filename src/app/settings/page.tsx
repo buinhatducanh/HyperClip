@@ -31,6 +31,7 @@ import { PollerStatusPanel } from './components/PollerStatusPanel'
 import { StorageWidget } from './components/StorageWidget'
 import { DiagnosticsSection } from './components/DiagnosticsSection'
 import { LogsSection } from './components/LogsSection'
+import { UpdateSection } from './components/UpdateSection'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,7 +40,7 @@ export const dynamic = 'force-dynamic'
 
 export default function SettingsPage() {
   const { settings, systemStats, setSettings } = useAppStore()
-  const [activeTab, setActiveTab] = useState<'sessions' | 'projects' | 'keys' | 'system' | 'diag' | 'operation' | 'logs'>('sessions')
+  const [activeTab, setActiveTab] = useState<'sessions' | 'projects' | 'keys' | 'system' | 'diag' | 'operation' | 'logs' | 'update'>('sessions')
 
   const TABS = [
     { id: 'sessions' as const, label: 'Sessions', color: '#00B4FF' },
@@ -49,6 +50,7 @@ export default function SettingsPage() {
     { id: 'diag' as const, label: 'Diagnostics', color: '#FF6B35' },
     { id: 'operation' as const, label: 'Channels', color: '#00FF88' },
     { id: 'logs' as const, label: 'Logs', color: '#FF6B35' },
+    { id: 'update' as const, label: 'Update', color: '#00FF88' },
   ]
 
   return (
@@ -294,6 +296,9 @@ export default function SettingsPage() {
 
         {/* LOGS tab */}
         {activeTab === 'logs' && <LogsSection />}
+
+        {/* UPDATE tab */}
+        {activeTab === 'update' && <UpdateSection />}
 
         {/* OPERATION tab */}
         {activeTab === 'operation' && <OperationPanel />}

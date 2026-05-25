@@ -10,7 +10,7 @@ on:
       skip_tests:
         description: Skip test step
         required: false
-        default: 'false'
+        default: false
         type: boolean
 
 env:
@@ -81,8 +81,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: hyperclip-portable
-          path: release/HyperClip-*.zip
-          retention-days: 90
+          path: release/HyperClip-portable-*.zip
+          retention-days: 1
 
   # ── Stage 3: Upload to CDN ─────────────────────────────────────────────────────
   upload-cdn:
@@ -172,6 +172,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build, upload-cdn]
     if: startsWith(github.ref, 'refs/tags/v')
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -187,13 +189,30 @@ jobs:
           name: hyperclip-portable
           path: artifacts/
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          draft: false
-          prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
-          files: |
-            artifacts/HyperClip-Setup-*.exe
-            artifacts/HyperClip-*.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create Release + Upload Assets via GitHub CLI
+        run: |
+          # Find the actual files
+          SETUP_FILE=$(ls artifacts/*.exe 2>/dev/null | head -1)
+          PORTABLE_FILE=$(ls artifacts/*.zip 2>/dev/null | head -1)
+          echo "Setup: $SETUP_FILE"
+          echo "Portable: $PORTABLE_FILE"
+
+          # Get the tag name without 'v' prefix
+          TAG="${GITHUB_REF_NAME#v}"
+          echo "Tag: $TAG"
+
+          # Create a draft release, then upload assets
+          # Use GitHub CLI to create release
+          gh release create "v${TAG}" \
+            --title "HyperClip v${TAG}" \
+            --notes "See https://github.com/${{ github.repository }}/releases" \
+            --draft \
+            --prerelease=${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
+
+          # Upload assets
+          if [ -n "$SETUP_FILE" ]; then
+            gh release upload "v${TAG}" "$SETUP_FILE" --clobber
+          fi
+          if [ -n "$PORTABLE_FILE" ]; then
+            gh release upload "v${TAG}" "$PORTABLE_FILE" --clobber
+          fi
