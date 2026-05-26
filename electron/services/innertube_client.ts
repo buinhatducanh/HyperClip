@@ -116,6 +116,33 @@ function parseRelativeDate(relativeStr: string): number {
 // ─── LockupView video metadata extraction ────────────────────────────────────
 
 /**
+ * Deep string scan: recursively search an object for any string matching
+ * a relative-time pattern like "5 minutes ago", "3 hours ago", etc.
+ * This catches LockupView formats where YouTube moves published_time_text
+ * to an unexpected path.
+ */
+function deepFindRelativeTime(obj: any, depth = 0, maxDepth = 5): string {
+  if (!obj || typeof obj !== 'object' || depth > maxDepth) return ''
+  for (const key of Object.keys(obj)) {
+    const val = obj[key]
+    if (typeof val === 'string' && /\d+\s*(second|minute|hour|day|week)/i.test(val)) {
+      return val
+    }
+    if (Array.isArray(val)) {
+      for (const item of val) {
+        const found = deepFindRelativeTime(item, depth + 1, maxDepth)
+        if (found) return found
+      }
+    }
+    if (typeof val === 'object') {
+      const found = deepFindRelativeTime(val, depth + 1, maxDepth)
+      if (found) return found
+    }
+  }
+  return ''
+}
+
+/**
  * Extract video metadata from a LockupView item.
  * YouTubei.js returns DIFFERENT structures for different channels:
  *
@@ -125,7 +152,7 @@ function parseRelativeDate(relativeStr: string): number {
  * Structure B (e.g. Zilk Kay): metadata in metadata.metadata sub-object
  *   { type: "LockupView", content_id: "vid", metadata: { metadata: { published_time_text, title } } }
  *
- * Tries all paths and returns the first valid value found.
+ * Fallback: deep string scan for time-like text (catches ANY format).
  */
 function extractLockupVideoField(item: any, field: 'videoId' | 'title' | 'published'): string {
   if (!item) return ''
@@ -144,16 +171,14 @@ function extractLockupVideoField(item: any, field: 'videoId' | 'title' | 'publis
       if (typeof mPt === 'string') return mPt
       if (typeof mPt?.text === 'string') return mPt.text
     }
-    // Structure C: metadata.metadata.metadata_parts[i].text.text (Zilk Kay pattern)
+    // Structure C: metadata.metadata.metadata_rows[0].metadata_parts[i].text.text (Zilk Kay pattern)
     const parts = item.metadata?.metadata?.metadata_rows?.[0]?.metadata_parts
     if (parts && Array.isArray(parts)) {
       for (const part of parts) {
-        // Look for a text value that looks like a relative time ("X minutes ago", etc.)
         const text = part?.text?.text || part?.text
         if (text && typeof text === 'string' && /\d+\s*(second|minute|hour|day|week)/i.test(text)) {
           return text
         }
-        // Also check runs array for time-like text
         const runs = part?.text?.runs
         if (runs && Array.isArray(runs)) {
           for (const run of runs) {
@@ -165,6 +190,10 @@ function extractLockupVideoField(item: any, field: 'videoId' | 'title' | 'publis
         }
       }
     }
+    // Fallback: deep scan entire item for time-like strings.
+    // This catches LockupView formats not covered by A/B/C above.
+    const deepFound = deepFindRelativeTime(item)
+    if (deepFound) return deepFound
     return ''
   }
 
@@ -445,6 +474,11 @@ function buildCookieString(cookies: YouTubeCookies): string {
 
 // ─── InnertubeClientPool ──────────────────────────────────────────────────────
 
+/** Max consecutive empty timestamp results before suspending a session */
+const MAX_EMPTY_BEFORE_SUSPEND = 5
+/** How long to wait before retrying a suspended session (5 min) */
+const SUSPEND_COOLDOWN_MS = 5 * 60 * 1000
+
 interface PoolEntry {
   profileId: string
   profileName: string
@@ -458,6 +492,10 @@ interface PoolEntry {
   lastUsed: number
   /** Consecutive error count for exponential backoff */
   errorCount: number
+  /** Consecutive polls where all videos had unparseable timestamps */
+  emptyTimestampCount: number
+  /** When this session was suspended (0 = not suspended) */
+  suspendedAt: number
 }
 
 class InnertubeClientPool {
@@ -494,6 +532,8 @@ class InnertubeClientPool {
       usedToday: 0,
       lastUsed: 0,
       errorCount: 0,
+      emptyTimestampCount: 0,
+      suspendedAt: 0,
     }))
 
     // Pre-warm clients for sessions that have valid cookies
@@ -570,7 +610,8 @@ class InnertubeClientPool {
 
   /**
    * Get the next available Innertube client (round-robin).
-   * Skips sessions that failed recently (10s cooldown).
+   * Skips sessions that failed recently (10s cooldown) or are suspended.
+   * Auto-recycles suspended sessions after SUSPEND_COOLDOWN_MS.
    * Returns null if no clients are available.
    */
   getNextClient(): { client: Innertube; profileId: string } | null {
@@ -584,7 +625,19 @@ class InnertubeClientPool {
       const idx = (this._index + attempt) % total
       const entry = this._sessions[idx]
 
-      if (!entry.client) continue
+      if (!entry.client) {
+        // Try recycling a suspended client after cooldown
+        if (entry.suspendedAt > 0 && now - entry.suspendedAt > SUSPEND_COOLDOWN_MS) {
+          entry.suspendedAt = 0
+          entry.emptyTimestampCount = 0
+          entry.error = 'recycle: retrying suspended session'
+          devLog(`[InnertubePool] Session ${entry.profileId}: recycling after ${SUSPEND_COOLDOWN_MS / 60000}min cooldown`)
+        }
+        continue
+      }
+
+      // Skip suspended sessions entirely (not even error-backoff)
+      if (entry.suspendedAt > 0) continue
 
       // Exponential backoff on errors: 30s, 60s, 120s, 240s, max 5 min
       if (entry.lastErrorAt > 0 && entry.errorCount > 0) {
@@ -967,9 +1020,24 @@ class InnertubeClientPool {
       }
 
       if (results.length === 0) {
-        devLog(`[InnertubePool] getLatestVideos(${channelId}): all top-${limit} videos deleted/private — session=${entry.profileId}`)
+        devLog(`[InnertubePool] getLatestVideos(${channelId}): 0 valid (unparseable/deleted/seen) — session=${entry.profileId}`)
+        // Track empty result for session health — if all videos had unparseable
+        // timestamps, this session may have a broken LockupView format.
+        if (sessionEntry) {
+          sessionEntry.emptyTimestampCount++
+          if (sessionEntry.emptyTimestampCount >= MAX_EMPTY_BEFORE_SUSPEND && !sessionEntry.suspendedAt) {
+            sessionEntry.suspendedAt = Date.now()
+            sessionEntry.error = `suspended: ${sessionEntry.emptyTimestampCount} consecutive empty timestamps`
+            devLog(`[InnertubePool] Session ${entry.profileId}: SUSPENDED (${sessionEntry.emptyTimestampCount} empty polls)`)
+          }
+        }
       } else {
         devLog(`[InnertubePool] getLatestVideos(${channelId}): got ${results.length} videos (session=${entry.profileId})`)
+        // Session returned valid results — reset empty counter and unsuspend
+        if (sessionEntry) {
+          sessionEntry.emptyTimestampCount = 0
+          sessionEntry.suspendedAt = 0
+        }
       }
 
       return results
