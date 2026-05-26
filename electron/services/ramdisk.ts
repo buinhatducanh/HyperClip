@@ -91,6 +91,8 @@ export function loadSettings(): AppSettingsStore {
   if (_settings.videoMinDurationSec === undefined) _settings.videoMinDurationSec = 0
   if (_settings.videoMaxDurationSec === undefined) _settings.videoMaxDurationSec = 0
   if (_settings.quitOnClose === undefined) _settings.quitOnClose = true
+  if (_settings.autoSplitParts === undefined) _settings.autoSplitParts = 1
+  if (_settings.autoSplitMinutes === undefined) _settings.autoSplitMinutes = 0
 
   return _settings
 }
