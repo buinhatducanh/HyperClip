@@ -221,11 +221,14 @@ exports.log = {
             console.error(msg, err);
     },
 };
-/** Replaces dev_log.ts — silent unless DEV_LOG=1 */
+/** Replaces dev_log.ts — silent unless DEV_LOG=1. Writes to both console and persistent log. */
 const _devSilent = process.env.DEV_LOG !== '1';
 const devLog = (...a) => {
-    if (!_devSilent)
-        console.log('[DEV]', ...a);
+    if (!_devSilent) {
+        const msg = '[DEV] ' + a.map(v => typeof v === 'object' ? JSON.stringify(v) : String(v)).join(' ');
+        console.log(msg);
+        _fileLog.info(msg);
+    }
 };
 exports.devLog = devLog;
 /** Replaces operation_log.ts */
