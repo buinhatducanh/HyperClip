@@ -164,9 +164,13 @@ function resolveBinary(name: string): string {
   let bestScore = -1
   let bestVersion = ''
   let bundledFound = false
-  for (const fp of candidates) {
+  for (let fp of candidates) {
+    // Normalize to forward slashes — backslashes with \f, \n, \t, \s etc.
+    // get mangled by the shell when passed in execSync quotes.
+    fp = fp.replace(/\\/g, '/')
     // Bundled candidates (first in list) get full probe
-    const isBundled = fp.includes(process.resourcesPath || '') || fp.includes('resources' + path.sep + 'ffmpeg')
+    const normalizedResourcesPath = (process.resourcesPath || '').replace(/\\/g, '/')
+    const isBundled = fp.includes(normalizedResourcesPath) || fp.includes('resources/ffmpeg')
     const quickOnly = !isBundled && bundledFound
     const { ok, score, version } = probeAndScore(fp, quickOnly)
     if (ok && score > bestScore) {
@@ -176,7 +180,7 @@ function resolveBinary(name: string): string {
       if (isBundled) bundledFound = true
     }
     // If bundled was found and this is not bundled, stop scanning PATH candidates
-    if (bundledFound && !isBundled && fp.includes(path.sep + '.bin' + path.sep)) break
+    if (bundledFound && !isBundled && fp.includes('/.bin/')) break
   }
 
   if (bestFp) {

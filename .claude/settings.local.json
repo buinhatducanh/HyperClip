@@ -42,6 +42,9 @@
       "Skill(update-config)",
       "Skill(update-config:*)",
       "WebFetch(domain:www.gyan.dev)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\MSI\\.claude"
     ]
   },
   "enabledMcpjsonServers": [
