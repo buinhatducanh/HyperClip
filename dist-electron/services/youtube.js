@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getLatestVideosFromRss = getLatestVideosFromRss;
 exports.getChannelMetadataFromHttp = getChannelMetadataFromHttp;
+exports.checkYtdlpSupportsJsRuntimes = checkYtdlpSupportsJsRuntimes;
 exports.getChannelId = getChannelId;
 exports.getChannelInfo = getChannelInfo;
 exports.getVideoInfo = getVideoInfo;
@@ -182,7 +183,34 @@ async function getChannelMetadataFromHttp(url) {
 // yt-dlp JS runtime args — modern yt-dlp requires a JS runtime for YouTube extraction.
 // Without this, videos are incorrectly reported as "not available".
 // Supported runtimes: deno, node, bun, quickjs
+// NOTE: --js-runtimes was added in yt-dlp 2024.x. Older versions fail with "no such option".
+// Cache version check to avoid repeated execSync calls.
+let _ytdlpVersion = null;
+let _ytdlpSupportsJsRuntimes = null;
+function checkYtdlpSupportsJsRuntimes() {
+    if (_ytdlpSupportsJsRuntimes !== null)
+        return;
+    try {
+        const ytdlp = getYtdlpPath();
+        const { execSync } = require('child_process');
+        const v = execSync(`"${ytdlp}" --version`, { timeout: 5000, windowsHide: true }).toString().trim();
+        _ytdlpVersion = v;
+        // --js-runtimes added in yt-dlp 2024.08.x (approx). Be conservative: require 2024.01+.
+        const parts = v.split('.');
+        const major = parseInt(parts[0] || '0');
+        const minor = parseInt(parts[1] || '0');
+        _ytdlpSupportsJsRuntimes = major > 2024 || (major === 2024 && minor >= 1);
+        (0, unified_log_js_1.devLog)(`[yt-dlp] version=${v}, js-runtimes=${_ytdlpSupportsJsRuntimes}`);
+    }
+    catch {
+        _ytdlpSupportsJsRuntimes = true;
+        (0, unified_log_js_1.devLog)(`[yt-dlp] version check failed, assuming js-runtimes supported`);
+    }
+}
 function getJsRuntimeArgs() {
+    checkYtdlpSupportsJsRuntimes();
+    if (_ytdlpSupportsJsRuntimes === false)
+        return [];
     return ['--js-runtimes', 'node'];
 }
 // Find yt-dlp executable
@@ -1078,14 +1106,18 @@ async function downloadWithClient(opts) {
         if (classified.isProcessing)
             return { ...result, ...classified };
         // For private/error: try full download below
-        (0, unified_log_js_1.devLog)(`[Download] Section failed: ${result.error?.slice(0, 80)} — falling back to full`);
+        const sfErr = result.error?.includes('yt-dlp code') && result.stderr
+            ? result.error + ' | ' + result.stderr.trim().split('\n').slice(0, 2).join(' | ')
+            : result.error;
+        (0, unified_log_js_1.devLog)(`[Download] Section failed: ${sfErr?.slice(0, 120)} — falling back to full`);
     }
-    // ── Full download (with section if trimLimit was set) ─────────────────────
-    // ALWAYS pass sectionArg to yt-dlp if trimLimit was configured — this makes yt-dlp
-    // skip HLS segments beyond the trim window (significant bandwidth savings).
+    // ── Full download ────────────────────────────────────────────────────────
+    // Never use --download-sections here — the section download already handled trimming.
+    // Using --download-sections on the full path can cause yt-dlp to fail on certain videos
+    // (e.g., Shorts, specific HLS streams) even when the full video is downloadable.
     const result = await spawnDownload({
         workspaceId, videoUrl, outputDir, formatSelector, client, ytCookiesFile,
-        extraArgs: sectionArg ? ['--download-sections', sectionArg] : [],
+        extraArgs: [],
         instanceCount: 1, sectionArg: null, maxInstances: 1, quality, onProgress,
     });
     if (result.success) {
@@ -1229,7 +1261,17 @@ async function spawnDownload(opts) {
             const isFatal = code !== 0 && code !== 2;
             if (isFatal || !downloadedFile) {
                 const errorLines = stderr.trim().split('\n').filter(l => l.includes('ERROR'));
-                const fullError = errorLines.join(' | ') || `yt-dlp code ${code}`;
+                let fullError = errorLines.join(' | ');
+                if (!fullError) {
+                    // No "ERROR" lines — use first meaningful lines of stderr
+                    const meaningful = stderr.trim().split('\n')
+                        .filter(l => l.trim() && !l.includes('[download]') && !l.includes('[ffmpeg]') && !l.includes('[Fixup'))
+                        .slice(0, 3);
+                    fullError = meaningful.length > 0 ? meaningful.join(' | ') : `yt-dlp code ${code}`;
+                }
+                // Always log stderr on failure so we can debug
+                const firstLines = stderr.trim().split('\n').slice(0, 5).join('\n');
+                (0, unified_log_js_1.devLog)(`[Download] yt-dlp stderr:\n${firstLines}`);
                 resolve({ success: false, workspaceId, error: fullError, stderr });
                 return;
             }

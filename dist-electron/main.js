@@ -1695,6 +1695,9 @@ void electron_1.app.whenReady().then(async () => {
         (0, unified_log_js_1.devLog)('[HyperClip] RAM disk not available — videos will be stored on disk (slower I/O).');
         sendNotification('info', 'RAM disk chưa bật — video sẽ lưu ổ C (chậm hơn RAM disk). Có thể bỏ qua nếu không cần tốc độ cao.');
     }
+    // P3: Check yt-dlp version — older versions don't support --js-runtimes
+    const { checkYtdlpSupportsJsRuntimes } = await Promise.resolve().then(() => __importStar(require('./services/youtube.js')));
+    checkYtdlpSupportsJsRuntimes();
     // Setup: copy Arial font to resources/fonts/ for FFmpeg drawtext (lavfi requires no `:` in fontfile paths).
     // FFmpeg gyan.dev lavfi parser splits option values at COLON characters (drive letter `D:`).
     // Using a relative path `resources/fonts/arial.ttf` avoids this issue entirely.
