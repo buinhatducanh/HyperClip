@@ -36,7 +36,7 @@ import { downloadVideo, downloadVideoStrategy, probeVideoAvailability, probeActu
 import { renderVideo, renderChunked, generateBlurBackground, extractVideoThumbnail, cancelChunked, cancelAllChunked, probeVideoAspect, trimVideo, type RenderMetadata, type RenderProgress, type ChunkConfig } from './services/ffmpeg.js'
 import { cancelFfmpeg, cancelAllFfmpeg, getPoolStatus } from './services/worker-pool.js'
 import { getFfmpegPath, validateFfmpeg } from './services/ffmpeg-paths.js'
-import { getAppStoreDir, getHyperClipBaseDir, getLegacyDataPath } from './services/paths.js'
+import { getAppStoreDir, getHyperClipBaseDir, getDownloadsDir, getLegacyDataPath } from './services/paths.js'
 import { getVideoStoragePath, getOutputPath, generateWorkspacePaths, cleanupWorkspace, ensureStorageDirs, loadSettings, saveSettings, archiveRenderedFile, getArchivePath, openArchiveFolder, showInFolder, getFreeDiskSpace, getRamDiskInfo } from './services/ramdisk.js'
 import { createYouTubePoller, stopYouTubePoller, getYouTubePoller } from './services/youtube_poller.js'
 import { refreshChannelCache } from './services/subscription_feed.js'
@@ -808,6 +808,15 @@ async function autoDownloadFromWebSub(
       workspaceId: ws.id,
     })
 
+    // ── Auto-split trigger ──────────────────────────────────────────────────────────
+    // NOTE: Full auto-split implementation requires calling the workspace-split handler
+    // directly from main process. For now, this logs intent and falls through to
+    // auto-render. The split handler (workspace-split.ts) is available via IPC for
+    // manual/manual-auto split. Full backend integration TBD.
+    if ((settings.autoSplitParts ?? 1) > 1 && autoRenderEnabled) {
+      devLog(`[AutoSplit] Config: ${settings.autoSplitParts} parts (backend auto-split not yet wired)`)
+    }
+
     // ── Auto-render trigger ───────────────────────────────────────────────────────
     // Only triggers if: settings.autoRender=true AND no prior attempt on this workspace.
     // autoRenderAttempted flag prevents infinite loops when render fails → retries.
@@ -1099,7 +1108,7 @@ function triggerAutoRenderForReadyWorkspaces(): void {
       const thumbCandidates = [
         path.join(storagePath, `thumb_${ws.id}.jpg`),
         path.join(getVideoStoragePath(), `thumb_${ws.id}.jpg`),
-        path.join('D:\\HyperClip-Data\\downloads', `thumb_${ws.id}.jpg`),
+        path.join(getDownloadsDir(), `thumb_${ws.id}.jpg`),
       ]
       for (const tc of thumbCandidates) {
         if (fs.existsSync(tc)) { thumbnailPath = tc; break }
@@ -1776,8 +1785,8 @@ void app.whenReady().then(async () => {
   {
     const fontsDir = path.join(__dirname, '..', 'resources', 'fonts')
     const fontPath = path.join(fontsDir, 'arial.ttf')
-    // Also create fontconfig at D:\fonts\fonts.conf for FONTCONFIG_FILE env var
-    const fcDir = 'D:\\fonts'
+    // Also create fontconfig under HyperClip-Data for FONTCONFIG_FILE env var
+    const fcDir = path.join(getHyperClipBaseDir(), 'fonts')
     const fcPath = path.join(fcDir, 'fonts.conf')
     const fcXml = `<?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
