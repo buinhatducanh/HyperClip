@@ -36,25 +36,33 @@ export function registerSessionHandlers(
   })
 
   ipcMain.handle(IPC_CHANNELS.SESSION_OPEN_LOGIN, async (_, profileId: string) => {
-    const sm = getSessionManager()
-    const cookiesExtracted = await sm.openLoginWindow(profileId)
-    return { success: true, cookiesExtracted }
+    try {
+      const sm = getSessionManager()
+      const cookiesExtracted = await sm.openLoginWindow(profileId)
+      return { success: true, cookiesExtracted }
+    } catch (e) {
+      console.error('[SessionHandler] SESSION_OPEN_LOGIN failed:', e)
+      return { success: false, cookiesExtracted: false, error: String(e) }
+    }
   })
 
   // ── Chrome Login (replaces OAuth flow on LoginScreen) ─────────────────────
   ipcMain.handle(IPC_CHANNELS.AUTH_CHROME_START, async () => {
-    const sm = getSessionManager()
-    const { getCookieManager } = await import('../../services/cookie_manager.js')
-    const sessions = sm.getSessions()
-    // Use first available slot (profile 1), creating if necessary
-    const targetId = sessions.length > 0
-      ? sessions[0].profileId
-      : 'Profile 1'
-    const cookiesExtracted = await sm.openLoginWindow(targetId)
-    // Refresh cookie manager status and notify renderer
-    const status = getCookieManager().getAuthStatus()
-    authEvents.emit('authUpdated', status)
-    return { success: cookiesExtracted, profileId: targetId }
+    try {
+      const sm = getSessionManager()
+      const { getCookieManager } = await import('../../services/cookie_manager.js')
+      const sessions = sm.getSessions()
+      const targetId = sessions.length > 0
+        ? sessions[0].profileId
+        : 'Profile 1'
+      const cookiesExtracted = await sm.openLoginWindow(targetId)
+      const status = getCookieManager().getAuthStatus()
+      authEvents.emit('authUpdated', status)
+      return { success: cookiesExtracted, profileId: targetId }
+    } catch (e) {
+      console.error('[SessionHandler] AUTH_CHROME_START failed:', e)
+      return { success: false, profileId: '', error: String(e) }
+    }
   })
 
   ipcMain.handle(IPC_CHANNELS.SESSION_CLONE_ONE, async () => {
