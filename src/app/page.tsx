@@ -478,14 +478,13 @@ function DashboardContent() {
       })
       _pendingRender.current.clear()
 
-      // Route download progress — check status at flush time (not event time) to avoid race
+      // Flush batched download progress — update regardless of current status.
+      // WorkspaceCard guards display with status === 'downloading', so this is safe.
+      // Main process also calls updateWorkspace directly, so this is a backup path.
       _pendingDownload.current.forEach((data, wsId) => {
-        const ws = useAppStore.getState().workspaces.find(w => w.id === wsId)
-        if (ws?.status === 'downloading') {
-          updateWorkspace(wsId, {
-            downloadProgress: data.percent,
-          } as Partial<Workspace>)
-        }
+        updateWorkspace(wsId, {
+          downloadProgress: data.percent,
+        } as Partial<Workspace>)
       })
       _pendingDownload.current.clear()
     }, 500)
@@ -497,7 +496,9 @@ function DashboardContent() {
       if (!current) return
       if (current.status === 'rendering') {
         _pendingRender.current.set(p.workspaceId, { percent: p.percent, eta: p.eta })
-      } else if (current.status === 'downloading') {
+      } else {
+        // Download progress: batch regardless of status (main process also updates directly).
+        // WorkspaceCard guards display with status === 'downloading', so safe to update here.
         if (p.speed === 'processing') {
           updateWorkspace(p.workspaceId, {
             downloadProgress: 99,
@@ -506,14 +507,6 @@ function DashboardContent() {
           })
           return
         }
-        // Speed + ETA update immediately for responsive UX
-        if (p.speed || p.eta !== undefined) {
-          updateWorkspace(p.workspaceId, {
-            downloadSpeed: p.speed && p.speed !== '...' ? p.speed : undefined,
-            downloadEta: p.eta ? fmtEta(p.eta) : undefined,
-          } as Partial<Workspace>)
-        }
-        // Percentage batched to avoid excessive React re-renders
         _pendingDownload.current.set(p.workspaceId, { percent: p.percent })
       }
     })

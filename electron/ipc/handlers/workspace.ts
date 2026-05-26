@@ -110,11 +110,7 @@ export function registerWorkspaceHandlers(ipcMain: IpcMain): void {
         quality: retryQuality,
         ytCookiesFile,
         onProgress: (progress) => {
-          updateWorkspace(id, {
-            downloadProgress: progress.percent,
-            downloadSpeed: progress.speed && progress.speed !== '...' ? progress.speed : undefined,
-            downloadEta: progress.eta && progress.eta !== 0 ? String(progress.eta) : undefined,
-          })
+          updateWorkspace(id, { downloadProgress: progress.percent })
           broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id))
           broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
             workspaceId: id,

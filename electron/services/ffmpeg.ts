@@ -906,7 +906,7 @@ export async function preRenderOverlays(
   // If blur unavailable → solid accent color as background
   const bottomBarOverlayPath = path.join(outputDir, 'bottom_bar_overlay.png')
   const bbBgPath = path.join(os.tmpdir(), 'hc_bb_bg_' + Date.now() + '.png').replace(/\\/g, '/')
-  const bbFontSize = Math.max(36, Math.floor(bottomBarH * 0.45))
+  const bbFontSize = Math.max(28, Math.floor(bottomBarH * 0.25))
   const blurPath = metadata.blur_background
 
   const runFf = (args: string[]) => new Promise<{ code: number; stderr: string }>((resolve) => {

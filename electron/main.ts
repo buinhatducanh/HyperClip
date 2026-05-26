@@ -640,12 +640,8 @@ async function autoDownloadFromWebSub(
           _dlLastPercent = progress.percent
           // Update workspace store directly (main process) — ensures downloadProgress
           // is always persisted even if renderer status check has a race condition.
-          // This also writes to disk, but store debounces saves to ~5s intervals.
-          updateWorkspace(ws.id, {
-            downloadProgress: progress.percent,
-            downloadSpeed: progress.speed && progress.speed !== '...' ? progress.speed : undefined,
-            downloadEta: progress.eta && progress.eta !== 0 ? String(progress.eta) : undefined,
-          })
+          // Speed/ETA sent via RENDER_PROGRESS_EVENT, handled by frontend.
+          updateWorkspace(ws.id, { downloadProgress: progress.percent })
           broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
           broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
             workspaceId: ws.id,
@@ -915,11 +911,7 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
       if (now - _retryDlLastMs >= 500 || pctDelta >= 2) {
         _retryDlLastMs = now
         _retryDlLastPct = progress.percent
-        updateWorkspace(ws.id, {
-          downloadProgress: progress.percent,
-          downloadSpeed: progress.speed && progress.speed !== '...' ? progress.speed : undefined,
-          downloadEta: progress.eta && progress.eta !== 0 ? String(progress.eta) : undefined,
-        })
+        updateWorkspace(ws.id, { downloadProgress: progress.percent })
         broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
         broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
           workspaceId: ws.id,

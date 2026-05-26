@@ -21,7 +21,7 @@ $headerH = [int]($CanvasH * $HEADER_PCT)
 $bottomH  = [int]($CanvasH * $BOTTOM_PCT)
 $videoH   = $CanvasH - $headerH - $bottomH
 $bottomBarY = $headerH + $videoH
-$fontSize = [Math]::Max(24, [int]($bottomH * 0.45))
+$fontSize = [Math]::Max(24, [int]($bottomH * 0.25))
 
 Write-Host "Core Render SHORT: ${CanvasW}x${CanvasH} Header=$headerH Video=$videoH Bottom=$bottomH"
 
