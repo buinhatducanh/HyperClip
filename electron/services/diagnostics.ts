@@ -12,10 +12,11 @@ import { isRamDiskAvailable } from './ramdisk.js'
 function getYtdlpStatus(): { ok: boolean; path: string; error?: string } {
   const candidates: string[] = []
 
-  // Bundled in resources/ — use process.resourcesPath (works for both dev + packaged)
+  // Bundled in resources/ — dev: app.getAppPath()/resources/yt-dlp/yt-dlp.exe
+  // packaged: process.resourcesPath/yt-dlp/yt-dlp.exe
   if (app.isReady()) {
-    candidates.push(path.join(process.resourcesPath, 'yt-dlp', 'yt-dlp.exe'))
     candidates.push(path.join(app.getAppPath(), 'resources', 'yt-dlp', 'yt-dlp.exe'))
+    candidates.push(path.join(process.resourcesPath || '', 'yt-dlp', 'yt-dlp.exe'))
   }
   // node_modules/.bin (dev + npm package)
   candidates.push(path.join(process.cwd(), 'node_modules', '.bin', 'yt-dlp.exe'))
@@ -42,7 +43,7 @@ function getYtdlpStatus(): { ok: boolean; path: string; error?: string } {
       }
     } catch {}
   }
-  return { ok: false, path: '', error: 'yt-dlp not found. Download từ https://github.com/yt-dlp/yt-dlp/releases hoặc cài Python + pip install yt-dlp.' }
+  return { ok: false, path: '', error: 'yt-dlp not found. Chạy: npm run setup:ytdlp' }
 }
 
 // Check yt-dlp can execute (basic version check)

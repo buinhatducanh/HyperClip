@@ -583,6 +583,7 @@ async function autoDownloadFromWebSub(
     if (preCheck) {
       if (preCheck.isPrivate) {
         devLog(`[Auto] Pre-check: video is PRIVATE — skipping download, marking as error`)
+        opLog.error('download', `Private video skipped: ${title}`)
         markVideoSeen(channelId, videoId)
         updateWorkspace(ws.id, { status: 'error' })
         broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
@@ -591,6 +592,7 @@ async function autoDownloadFromWebSub(
       }
       if (preCheck.isNotFound) {
         devLog(`[Auto] Pre-check: video not found/deleted — skipping download, marking as error`)
+        opLog.error('download', `Video unavailable: ${title}`)
         markVideoSeen(channelId, videoId)
         updateWorkspace(ws.id, { status: 'error' })
         broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
@@ -636,6 +638,15 @@ async function autoDownloadFromWebSub(
         if (now - _dlLastBroadcastMs >= 500 || pctDelta >= 2 || progress.speed === 'processing') {
           _dlLastBroadcastMs = now
           _dlLastPercent = progress.percent
+          // Update workspace store directly (main process) — ensures downloadProgress
+          // is always persisted even if renderer status check has a race condition.
+          // This also writes to disk, but store debounces saves to ~5s intervals.
+          updateWorkspace(ws.id, {
+            downloadProgress: progress.percent,
+            downloadSpeed: progress.speed && progress.speed !== '...' ? progress.speed : undefined,
+            downloadEta: progress.eta && progress.eta !== 0 ? String(progress.eta) : undefined,
+          })
+          broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
           broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
             workspaceId: ws.id,
             percent: progress.percent,
@@ -736,6 +747,7 @@ async function autoDownloadFromWebSub(
     // Short video check: if downloaded video < 60s, mark as error (YouTube Shorts)
     if (realDuration > 0 && realDuration < 60) {
       devLog(`[Auto] Video too short (${realDuration}s < 60s) — skipping (YouTube Short)`)
+      opLog.error('download', `Video too short (${realDuration}s < 60s): ${title}`)
       try { fs.unlinkSync(result.filePath) } catch {}
       updateWorkspace(ws.id, { status: 'error' })
       broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
@@ -903,6 +915,12 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
       if (now - _retryDlLastMs >= 500 || pctDelta >= 2) {
         _retryDlLastMs = now
         _retryDlLastPct = progress.percent
+        updateWorkspace(ws.id, {
+          downloadProgress: progress.percent,
+          downloadSpeed: progress.speed && progress.speed !== '...' ? progress.speed : undefined,
+          downloadEta: progress.eta && progress.eta !== 0 ? String(progress.eta) : undefined,
+        })
+        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
         broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
           workspaceId: ws.id,
           percent: progress.percent,
@@ -932,6 +950,7 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
     // Skip 9:16 vertical videos — user only wants landscape 16:9 content
     if (aspect?.isShort) {
       devLog(`[Retry] Skipping 9:16 vertical video: ${ws.videoTitle}`)
+      opLog.error('download', `9:16 vertical video skipped: ${ws.videoTitle}`)
       try { fs.unlinkSync(result.filePath) } catch {}
       updateWorkspace(ws.id, { status: 'error' })
       broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
@@ -943,6 +962,7 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
     // Short video check
     if (realDuration > 0 && realDuration < 60) {
       devLog(`[Retry] Video too short (${realDuration}s < 60s) — skipping (YouTube Short)`)
+      opLog.error('download', `Video too short (${realDuration}s < 60s): ${ws.videoTitle}`)
       try { fs.unlinkSync(result.filePath) } catch {}
       updateWorkspace(ws.id, { status: 'error' })
       broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
