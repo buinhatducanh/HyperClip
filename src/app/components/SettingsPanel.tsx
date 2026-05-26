@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import type { Channel, SystemStats, RenderedVideo } from '../types'
-import type { AppSettings, Workspace } from '../lib/store'
+import { useState, useEffect } from 'react'
+import type { Channel, SystemStats } from '../types'
+import type { AppSettings } from '../lib/store'
 import { ipc } from '../lib/ipc'
 import { useAppStore } from '../lib/store'
 
@@ -10,384 +10,394 @@ interface Props {
   settings: AppSettings
   systemStats: SystemStats
   channels: Channel[]
-  workspaces: Workspace[]
-  renderedVideos: RenderedVideo[]
+  activeChannelId: string | null
+  onSettingsChange: (patch: Partial<AppSettings>) => void
 }
 
-export function SettingsPanel({ settings, systemStats }: Props) {
-  const setSettings = useAppStore(s => s.setSettings)
-  const showToast = useAppStore(s => s.showToast)
+// ─── Shared components ────────────────────────────────────────────────
 
-  const handleSettingChange = useCallback(async (patch: Partial<AppSettings>) => {
-    setSettings(patch)
-    await ipc.updateSettings(patch)
-  }, [setSettings])
-
+function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   return (
-    <div style={{
-      flex: 1, overflowY: 'auto', padding: '10px 12px',
-      display: 'flex', flexWrap: 'wrap', alignContent: 'flex-start', gap: 10,
-    }}>
-      {/* ─── Auto Render Card ───────────────────────────────────────────── */}
-      <Card title="AUTO RENDER" accent="#00FF88" width={320}>
-        <ToggleRow
-          label="Auto-render"
-          value={settings.autoRender}
-          onChange={v => handleSettingChange({ autoRender: v })}
-        />
-
-        <div style={{ marginBottom: 8 }}>
-          <Label>Resolution</Label>
-          <div style={{ display: 'flex', gap: 3 }}>
-            {(['480x480', '720x720', '1080x1080'] as const).map(res => (
-              <MiniBtn
-                key={res}
-                active={settings.autoRenderResolution === res}
-                onClick={() => handleSettingChange({ autoRenderResolution: res })}
-              >
-                {res.replace('x', 'p')}
-              </MiniBtn>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 8 }}>
-          <Label>FPS</Label>
-          <div style={{ display: 'flex', gap: 3 }}>
-            {([30, 60] as const).map(fps => (
-              <MiniBtn
-                key={fps}
-                active={settings.autoRenderFPS === fps}
-                onClick={() => handleSettingChange({ autoRenderFPS: fps })}
-              >
-                {fps}fps
-              </MiniBtn>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 8 }}>
-          <Label>Auto-split</Label>
-          <div style={{ display: 'flex', gap: 3, alignItems: 'center', marginBottom: 4 }}>
-            <span style={{ fontSize: 8, color: '#555' }}>Parts:</span>
-            {[1, 2, 3, 4, 5].map(n => (
-              <MiniBtn
-                key={n}
-                active={settings.autoSplitParts === n}
-                onClick={() => handleSettingChange({ autoSplitParts: n })}
-              >
-                {n}
-              </MiniBtn>
-            ))}
-          </div>
-          <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-            <span style={{ fontSize: 8, color: '#555' }}>Min/part:</span>
-            {[0, 2, 3, 5, 10].map(m => (
-              <MiniBtn
-                key={m}
-                active={settings.autoSplitMinutes === m}
-                onClick={() => handleSettingChange({ autoSplitMinutes: m })}
-              >
-                {m === 0 ? 'Auto' : `${m}m`}
-              </MiniBtn>
-            ))}
-          </div>
-        </div>
-      </Card>
-
-      {/* ─── Download Card ─────────────────────────────────────────────── */}
-      <Card title="DOWNLOAD" accent="#00B4FF" width={320}>
-        <div style={{ marginBottom: 8 }}>
-          <Label>Quality</Label>
-          <div style={{ display: 'flex', gap: 3 }}>
-            {(['360', '480', '720', '1080'] as const).map(q => (
-              <MiniBtn
-                key={q}
-                active={(settings.autoDownloadQuality || '720') === q}
-                onClick={() => handleSettingChange({ autoDownloadQuality: q })}
-              >
-                {q}p
-              </MiniBtn>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 8 }}>
-          <Label>Trim (minutes)</Label>
-          <div style={{ display: 'flex', gap: 3 }}>
-            <input type="number" min={1} max={999}
-              value={settings.defaultTrimLimit === 'full' ? '' : Number(settings.defaultTrimLimit)}
-              placeholder={settings.defaultTrimLimit === 'full' ? 'full' : '10'}
-              onChange={e => {
-                const val = parseInt(e.target.value, 10)
-                if (!isNaN(val) && val > 0) handleSettingChange({ defaultTrimLimit: val })
-              }}
-              style={{
-                width: 60, height: 22, padding: '0 6px', background: '#0D0D0D',
-                border: '1px solid #222', borderRadius: 3, color: '#00B4FF',
-                fontSize: 9, fontFamily: 'monospace', outline: 'none',
-              }}
-            />
-            <MiniBtn
-              active={settings.defaultTrimLimit === 'full'}
-              onClick={() => handleSettingChange({ defaultTrimLimit: 'full' })}
-            >
-              FULL
-            </MiniBtn>
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 8 }}>
-          <Label>Concurrent downloads</Label>
-          <div style={{ display: 'flex', gap: 3 }}>
-            {[1, 3, 5, 10].map(n => (
-              <MiniBtn
-                key={n}
-                active={(settings.maxConcurrentDownloads || 3) === n}
-                onClick={() => handleSettingChange({ maxConcurrentDownloads: n })}
-              >
-                {n}
-              </MiniBtn>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 8 }}>
-          <Label>Concurrent renders</Label>
-          <div style={{ display: 'flex', gap: 3 }}>
-            {[1, 2, 4, 8].map(n => (
-              <MiniBtn
-                key={n}
-                active={(settings.maxConcurrentRenders || 2) === n}
-                onClick={() => handleSettingChange({ maxConcurrentRenders: n })}
-              >
-                {n}
-              </MiniBtn>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div>
-            <Label>Min duration (sec)</Label>
-            <input type="number" min={0} value={settings.videoMinDurationSec || 0}
-              onChange={e => handleSettingChange({ videoMinDurationSec: parseInt(e.target.value, 10) || 0 })}
-              style={{ width: '100%', height: 22, padding: '0 6px', background: '#0D0D0D', border: '1px solid #222', borderRadius: 3, color: '#888', fontSize: 9, fontFamily: 'monospace', outline: 'none' }}
-            />
-          </div>
-          <div>
-            <Label>Max duration (sec)</Label>
-            <input type="number" min={0} value={settings.videoMaxDurationSec || 0}
-              onChange={e => handleSettingChange({ videoMaxDurationSec: parseInt(e.target.value, 10) || 0 })}
-              style={{ width: '100%', height: 22, padding: '0 6px', background: '#0D0D0D', border: '1px solid #222', borderRadius: 3, color: '#888', fontSize: 9, fontFamily: 'monospace', outline: 'none' }}
-            />
-          </div>
-        </div>
-      </Card>
-
-      {/* ─── Storage Card ──────────────────────────────────────────────── */}
-      <StorageCard />
-
-      {/* ─── System Card ──────────────────────────────────────────────── */}
-      <Card title="SYSTEM" accent="#7C3AED" width={320}>
-        <StatRow label="GPU" value={`${systemStats.gpuName} · ${systemStats.gpuTemp}°C · ${systemStats.gpuUsage}% · ${systemStats.gpuEncoder}`} />
-        <StatRow label="CPU" value={`${systemStats.cpuName} · ${systemStats.cpuUsage}%`} />
-        <StatRow label="RAM" value={`${systemStats.ramUsed.toFixed(0)} / ${systemStats.ramTotal.toFixed(0)} GB`} />
-        <StatRow label="Workers" value={`${systemStats.activeWorkers || 0} active · ${systemStats.gpuEncoder}`} />
-      </Card>
-
-      {/* ─── Detection Card ────────────────────────────────────────────── */}
-      <DetectionCard />
-
-      {/* ─── Misc Card ─────────────────────────────────────────────────── */}
-      <Card title="MISC" accent="#888" width={320}>
-        <div style={{ fontSize: 9, color: '#555', marginBottom: 6 }}>
-          <span style={{ color: settings.proxyEnabled ? '#FFB800' : '#555' }}>
-            Proxy: {settings.proxyEnabled ? 'ON' : 'OFF'}
-          </span>
-          {settings.proxyHost && <span style={{ marginLeft: 6, color: '#444' }}>{settings.proxyHost}:{settings.proxyPort}</span>}
-        </div>
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          <a href="/settings?tab=sessions" style={{ ...linkStyle }}>Sessions</a>
-          <a href="/settings?tab=oauth" style={{ ...linkStyle }}>OAuth Projects</a>
-          <a href="/settings?tab=keys" style={{ ...linkStyle }}>API Keys</a>
-          <a href="/settings?tab=diagnostics" style={{ ...linkStyle }}>Diagnostics</a>
-        </div>
-      </Card>
-    </div>
-  )
-}
-
-// ─── Sub-components ─────────────────────────────────────────────────────
-
-function Card({ title, accent, width, children }: { title: string; accent: string; width: number; children: React.ReactNode }) {
-  return (
-    <div style={{
-      width, background: '#111', border: `1px solid #1E1E1E`, borderRadius: 6,
-      padding: '10px 12px', flexShrink: 0,
-    }}>
-      <div style={{
-        fontSize: 9, fontWeight: 800, color: accent, letterSpacing: '0.1em',
-        marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6,
-      }}>
-        <span style={{ width: 4, height: 4, borderRadius: '50%', background: accent, display: 'inline-block' }} />
-        {title}
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function Label({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 8, color: '#444', marginBottom: 3, fontWeight: 600 }}>{children}</div>
-}
-
-function MiniBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
+    <div
+      onClick={() => onChange(!value)}
       style={{
-        height: 22, padding: '0 7px', border: `1px solid ${active ? '#00B4FF66' : '#222'}`,
-        borderRadius: 3, background: active ? '#00B4FF15' : 'transparent',
-        color: active ? '#00B4FF' : '#555', fontSize: 9, fontWeight: 700,
-        cursor: 'pointer', fontFamily: 'monospace', transition: 'all 0.1s',
+        width: 28, height: 12, cursor: 'pointer', flexShrink: 0,
+        background: value ? '#00FF88' : '#1A1A1A',
+        border: `1px solid ${value ? '#00FF8866' : '#333'}`,
+        borderRadius: 6, position: 'relative', transition: 'background 0.15s',
       }}
     >
+      <div style={{
+        width: 10, height: 10, background: value ? '#000' : '#555',
+        borderRadius: '50%', position: 'absolute', top: 1,
+        left: value ? 'unset' : 1, right: value ? 2 : 'unset',
+        transition: 'all 0.15s',
+      }} />
+    </div>
+  )
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <div style={{ fontSize: 8, fontWeight: 700, color: '#888', marginBottom: 3 }}>{children}</div>
+}
+
+function Card({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ margin: '4px 6px 2px', background: '#0D0D0D', border: '1px solid #1A1A1A', borderRadius: 4, padding: 8 }}>
       {children}
-    </button>
-  )
-}
-
-function ToggleRow({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-      <span style={{ fontSize: 9, color: '#888', flex: 1 }}>{label}</span>
-      <button
-        onClick={() => onChange(!value)}
-        style={{
-          width: 28, height: 16, borderRadius: 8, border: 'none', cursor: 'pointer', flexShrink: 0,
-          background: value ? '#00FF8844' : '#222', position: 'relative', transition: 'background 0.15s',
-        }}
-      >
-        <div style={{
-          width: 12, height: 12, borderRadius: '50%',
-          background: value ? '#00FF88' : '#555',
-          position: 'absolute', top: 2, left: value ? 14 : 2, transition: 'left 0.15s',
-        }} />
-      </button>
     </div>
   )
 }
 
-function StatRow({ label, value }: { label: string; value: string }) {
+function BtnGroup({ options, value, onChange }: {
+  options: { label: string; value: any }[]
+  value: any
+  onChange: (v: any) => void
+}) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-      <span style={{ fontSize: 8, color: '#555', fontWeight: 700, width: 36, flexShrink: 0 }}>{label}</span>
-      <span style={{ fontSize: 9, color: '#666', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {value}
-      </span>
+    <div style={{ display: 'flex', gap: 2 }}>
+      {options.map(opt => {
+        const active = opt.value === value
+        return (
+          <button key={String(opt.value)} onClick={() => onChange(opt.value)} style={{
+            flex: 1, height: 22, cursor: 'pointer',
+            background: active ? '#00B4FF20' : '#1A1A1A',
+            border: `1px solid ${active ? '#00B4FF44' : '#222'}`,
+            borderRadius: 2, fontSize: 7, fontWeight: 700,
+            color: active ? '#00B4FF' : '#555',
+            fontFamily: 'monospace', transition: 'all 0.1s',
+          }}>
+            {opt.label}
+          </button>
+        )
+      })}
     </div>
   )
 }
 
-function StorageCard() {
-  const showToast = useAppStore(s => s.showToast)
-  const [storageStats, setStorageStats] = useState<{
-    downloadPath: string; outputPath: string; downloads: number; total: number; freeBytes: number
-  } | null>(null)
+// ═══════════════════════════════════════════════════════════════════════
+// AUTO RENDER CARD
+// ═══════════════════════════════════════════════════════════════════════
 
-  const loadStats = useCallback(async () => {
-    try { setStorageStats(await ipc.getStorageSize() as any) } catch {}
-  }, [])
-
-  useEffect(() => { loadStats() }, [loadStats])
-
-  const freeGB = storageStats?.freeBytes ? storageStats.freeBytes / (1024**3) : 0
-  const usedMB = storageStats?.downloads || 0
-  const usedGB = usedMB / 1024
-  const totalGB = freeGB + usedGB
-  const usedPct = totalGB > 0 ? Math.round((usedGB / totalGB) * 100) : 0
-  const isLow = freeGB < 5
-
+function AutoRenderCard({ s, onChange }: { s: AppSettings; onChange: (p: Partial<AppSettings>) => void }) {
   return (
-    <Card title="STORAGE" accent="#FFB800" width={320}>
-      {/* Disk bar */}
-      <div style={{ marginBottom: 6 }}>
-        <div style={{ height: 4, background: '#1A1A1A', borderRadius: 2, marginBottom: 3 }}>
-          <div style={{
-            width: `${Math.min(usedPct, 100)}%`, height: '100%',
-            background: isLow ? '#FF4444' : usedPct > 70 ? '#FFB800' : '#00B4FF',
-            borderRadius: 2,
-          }} />
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8, color: isLow ? '#FF4444' : '#555', fontFamily: 'monospace' }}>
-          <span>{usedMB.toFixed(0)}MB used</span>
-          <span>{freeGB.toFixed(0)}GB free</span>
-        </div>
+    <Card>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: '#00FF88', flex: 1 }}>AUTO RENDER</span>
+        <Toggle value={s.autoRender} onChange={v => onChange({ autoRender: v })} />
       </div>
 
-      {/* Paths */}
       <div style={{ marginBottom: 4 }}>
-        <div style={{ fontSize: 8, color: '#444' }}>Video path</div>
-        <div style={{ fontSize: 8, color: '#555', fontFamily: 'monospace' }}>
-          {storageStats?.downloadPath || '…'}
-        </div>
-      </div>
-      <div style={{ marginBottom: 6 }}>
-        <div style={{ fontSize: 8, color: '#444' }}>Output path</div>
-        <div style={{ fontSize: 8, color: '#555', fontFamily: 'monospace' }}>
-          {storageStats?.outputPath || '…'}
-        </div>
+        <SectionLabel>Resolution</SectionLabel>
+        <BtnGroup
+          options={[{ label: '1080p', value: '1080p' }, { label: '720p', value: '720p' }, { label: '360p', value: '360p' }]}
+          value={s.autoRenderResolution}
+          onChange={v => onChange({ autoRenderResolution: v as string })}
+        />
       </div>
 
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: 4 }}>
-        <button onClick={() => storageStats?.downloadPath && ipc.openFolder(storageStats.downloadPath)}
-          style={actionBtnStyle}>Mở DL</button>
-        <button onClick={() => ipc.clearDownloads().then(r => { if (r.success) { showToast(`Freed ${r.freedMB}MB`); loadStats() } })}
-          style={actionBtnStyle}>Xóa DL</button>
-        <button onClick={() => ipc.clearBlur().then(r => { if (r.success) { showToast('Cleared blur'); loadStats() } })}
-          style={actionBtnStyle}>Xóa BLR</button>
+      <div style={{ marginBottom: 4 }}>
+        <SectionLabel>FPS</SectionLabel>
+        <BtnGroup
+          options={[{ label: '30', value: 30 }, { label: '60', value: 60 }]}
+          value={s.autoRenderFPS}
+          onChange={v => onChange({ autoRenderFPS: v as 30 | 60 })}
+        />
+      </div>
+
+      <div style={{ marginBottom: 4 }}>
+        <SectionLabel>Số phần</SectionLabel>
+        <BtnGroup
+          options={[{ label: '1 (no split)', value: 1 }, { label: '2', value: 2 }, { label: '3', value: 3 }, { label: '4', value: 4 }, { label: '5', value: 5 }]}
+          value={(s as any).autoSplitParts ?? 1}
+          onChange={v => onChange({ autoSplitParts: v as number } as any)}
+        />
+      </div>
+
+      <div style={{ marginBottom: 4 }}>
+        <SectionLabel>Phút/phần</SectionLabel>
+        <BtnGroup
+          options={[{ label: 'Auto', value: 0 }, { label: '2', value: 2 }, { label: '3', value: 3 }, { label: '5', value: 5 }, { label: '10', value: 10 }]}
+          value={(s as any).autoSplitMinutes ?? 0}
+          onChange={v => onChange({ autoSplitMinutes: v as number } as any)}
+        />
+      </div>
+
+      <div>
+        <SectionLabel>Title template</SectionLabel>
+        <input type="text" value={s.autoRenderTitleTemplate} onChange={e => onChange({ autoRenderTitleTemplate: e.target.value } as any)}
+          placeholder='{title} - {channel}' style={{
+            width: '100%', height: 22, background: '#0A0A0A', border: '1px solid #222',
+            borderRadius: 2, color: '#00B4FF', fontSize: 7, fontFamily: 'monospace', padding: '0 6px', outline: 'none',
+          }}
+        />
       </div>
     </Card>
   )
 }
 
-function DetectionCard() {
-  const [pollerStatus, setPollerStatus] = useState<{
-    active: boolean; newVideoCount: number; lastError: string | null
-  } | null>(null)
+// ═══════════════════════════════════════════════════════════════════════
+// DOWNLOAD CARD
+// ═══════════════════════════════════════════════════════════════════════
+
+function DownloadCard({ s, onChange }: { s: AppSettings; onChange: (p: Partial<AppSettings>) => void }) {
+  return (
+    <Card>
+      <SectionLabel>DOWNLOAD</SectionLabel>
+
+      <div style={{ marginBottom: 4 }}>
+        <SectionLabel>Chất lượng download</SectionLabel>
+        <BtnGroup
+          options={[{ label: '360p', value: '360' }, { label: '480p', value: '480' }, { label: '720p', value: '720' }, { label: '1080p', value: '1080' }]}
+          value={s.autoDownloadQuality}
+          onChange={v => onChange({ autoDownloadQuality: v as string })}
+        />
+      </div>
+
+      <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 4 }}>
+        <span style={{ fontSize: 7, color: '#555', whiteSpace: 'nowrap' }}>Trim</span>
+        <div style={{ flex: 1, background: '#0A0A0A', border: '1px solid #222', borderRadius: 2, padding: '2px 6px', fontSize: 7, color: '#00B4FF', fontFamily: 'monospace' }}>
+          {s.defaultTrimLimit === 'full' ? 'FULL' : `${s.defaultTrimLimit} phút`}
+        </div>
+        <button onClick={() => onChange({ defaultTrimLimit: s.defaultTrimLimit === 'full' ? 10 : 'full' })} style={{
+          padding: '2px 6px', background: '#1A1A1A', border: '1px solid #222', borderRadius: 2, fontSize: 6,
+          color: s.defaultTrimLimit === 'full' ? '#00B4FF' : '#555', cursor: 'pointer', fontWeight: s.defaultTrimLimit === 'full' ? 700 : 400,
+        }}>FULL</button>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+        <div>
+          <SectionLabel>Tải đồng thời</SectionLabel>
+          <BtnGroup options={[{ label: '3', value: 3 }, { label: '5', value: 5 }, { label: '10', value: 10 }]} value={s.maxConcurrentDownloads} onChange={v => onChange({ maxConcurrentDownloads: v as number })} />
+        </div>
+        <div>
+          <SectionLabel>Render đồng thời</SectionLabel>
+          <BtnGroup options={[{ label: '2', value: 2 }, { label: '4', value: 4 }, { label: '8', value: 8 }]} value={s.maxConcurrentRenders} onChange={v => onChange({ maxConcurrentRenders: v as number })} />
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// CHANNEL OVERRIDE CARD
+// ═══════════════════════════════════════════════════════════════════════
+
+function ChannelOverrideCard({ channels }: { channels: Channel[] }) {
+  const [channelId, setChannelId] = useState('')
+  const channel = channels.find(c => c.id === channelId) || channels[0]
+  const chSettings = channel?.settings
 
   useEffect(() => {
-    ipc.getPollerStatus().then(setPollerStatus)
-    const t = setInterval(() => ipc.getPollerStatus().then(setPollerStatus), 10000)
+    if (!channelId && channels.length > 0) setChannelId(channels[0].id)
+  }, [channels, channelId])
+
+  if (!channel || channels.length === 0) return null
+
+  const handleOverride = (patch: Record<string, any>) => {
+    const newSettings = { ...(chSettings || {}), ...patch }
+    useAppStore.getState().updateChannel(channel.id, { settings: newSettings as any })
+    ipc.updateChannel(channel.id, { settings: newSettings })
+  }
+
+  const hasOverride = !!chSettings && Object.keys(chSettings).length > 0
+
+  return (
+    <Card>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: '#FFB800', flex: 1 }}>CHANNEL OVERRIDE</span>
+        <select value={channel.id} onChange={e => setChannelId(e.target.value)} style={{
+          height: 20, background: '#1A1A1A', border: '1px solid #222', borderRadius: 2, color: '#888', fontSize: 7, fontFamily: 'monospace', cursor: 'pointer',
+        }}>
+          {channels.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        {hasOverride && <span style={{ fontSize: 6, color: '#FFB800', background: '#FFB80015', padding: '1px 4px', borderRadius: 2, border: '1px solid #FFB80044' }}>override</span>}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 4 }}>
+        <div>
+          <SectionLabel>Resolution</SectionLabel>
+          <BtnGroup options={[{ label: '720p', value: '720p' }, { label: '1080p', value: '1080p' }]} value={chSettings?.resolution || 'global'} onChange={v => handleOverride({ resolution: v })} />
+        </div>
+        <div>
+          <SectionLabel>FPS</SectionLabel>
+          <BtnGroup options={[{ label: '30', value: 30 }, { label: '60', value: 60 }]} value={chSettings?.fps || 'global'} onChange={v => handleOverride({ fps: v })} />
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 2, marginBottom: 4 }}>
+        <button onClick={() => handleOverride({ autoSplit: true, splitMinutes: 3 })} style={{
+          flex: 1, height: 20, background: chSettings?.autoSplit ? '#00B4FF20' : '#1A1A1A',
+          border: `1px solid ${chSettings?.autoSplit ? '#00B4FF44' : '#222'}`, borderRadius: 2, fontSize: 6, cursor: 'pointer',
+          color: chSettings?.autoSplit ? '#00B4FF' : '#555', fontWeight: 700,
+        }}>Auto-split</button>
+        <button onClick={() => handleOverride({ autoSplit: false })} style={{
+          flex: 1, height: 20, background: chSettings?.autoSplit === false ? '#00B4FF20' : '#1A1A1A',
+          border: `1px solid ${chSettings?.autoSplit === false ? '#00B4FF44' : '#222'}`, borderRadius: 2, fontSize: 6, cursor: 'pointer',
+          color: chSettings?.autoSplit === false ? '#00B4FF' : '#555',
+        }}>No split</button>
+      </div>
+
+      {hasOverride && (
+        <button onClick={() => { useAppStore.getState().updateChannel(channel.id, { settings: undefined as any }); ipc.updateChannel(channel.id, { settings: undefined }) }} style={{
+          width: '100%', height: 20, background: '#1A1A1A', border: '1px solid #FF444422', borderRadius: 2, fontSize: 6, color: '#FF4444', cursor: 'pointer',
+        }}>Reset to global</button>
+      )}
+    </Card>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// STORAGE CARD
+// ═══════════════════════════════════════════════════════════════════════
+
+function StorageCard({ s, onChange }: { s: AppSettings; onChange: (p: Partial<AppSettings>) => void }) {
+  const [storageStats, setStorageStats] = useState<any>(null)
+  const showToast = useAppStore(s => s.showToast)
+
+  useEffect(() => {
+    ipc.getStorageSize().then(setStorageStats).catch(() => {})
+    const t = setInterval(() => ipc.getStorageSize().then(setStorageStats).catch(() => {}), 30000)
     return () => clearInterval(t)
   }, [])
 
+  const freeGB = storageStats ? Math.round(storageStats.freeBytes / (1024**3)) : 0
+  const usedMB = storageStats ? Math.round(storageStats.downloads) : 0
+  const usedPct = freeGB + usedMB / 1024 > 0 ? Math.round((usedMB / 1024) / (freeGB + usedMB / 1024) * 100) : 0
+
   return (
-    <Card title="DETECTION" accent="#00B4FF" width={320}>
-      <StatRow label="Innertube" value="30/30 sessions" />
-      <StatRow label="Poller" value={`${pollerStatus?.active ? 'active' : 'inactive'} · 5s${pollerStatus?.lastError ? ` · error: ${pollerStatus.lastError}` : ''}`} />
-      <span style={{
-        display: 'inline-block', fontSize: 8, fontWeight: 700,
-        color: '#00FF88', background: '#00FF8815',
-        padding: '1px 5px', borderRadius: 3, marginTop: 4,
-      }}>
-        PRIMARY
-      </span>
+    <Card>
+      <SectionLabel>STORAGE</SectionLabel>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+        <div style={{ flex: 1, height: 5, background: '#1A1A1A', borderRadius: 2 }}>
+          <div style={{ width: `${Math.min(usedPct, 100)}%`, height: '100%', background: usedPct > 80 ? '#FF4444' : '#00B4FF', borderRadius: 2 }} />
+        </div>
+        <span style={{ fontSize: 7, color: '#00B4FF66', fontFamily: 'monospace' }}>{usedMB}MB / {freeGB}GB free</span>
+      </div>
+
+      <div style={{ marginBottom: 3 }}>
+        <div style={{ fontSize: 7, color: '#555', marginBottom: 1 }}>Video path</div>
+        <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+          <div style={{ flex: 1, background: '#0A0A0A', border: '1px solid #222', borderRadius: 2, padding: '2px 5px', fontSize: 7, color: '#444', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.videoStoragePath || '(default)'}</div>
+          <button onClick={async () => { const r = await ipc.pickFolder(s.videoStoragePath); if (r?.path) { onChange({ videoStoragePath: r.path } as any); ipc.updateSettings({ videoStoragePath: r.path }) } }} style={{ padding: '2px 5px', background: '#1A1A1A', border: '1px solid #222', borderRadius: 2, fontSize: 7, color: '#555', cursor: 'pointer', flexShrink: 0 }}>📁</button>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 4 }}>
+        <div style={{ fontSize: 7, color: '#555', marginBottom: 1 }}>Output path</div>
+        <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+          <div style={{ flex: 1, background: '#0A0A0A', border: '1px solid #222', borderRadius: 2, padding: '2px 5px', fontSize: 7, color: '#444', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.outputPath || '(default)'}</div>
+          <button onClick={async () => { const r = await ipc.pickFolder(s.outputPath); if (r?.path) { onChange({ outputPath: r.path } as any); ipc.updateSettings({ outputPath: r.path }) } }} style={{ padding: '2px 5px', background: '#1A1A1A', border: '1px solid #222', borderRadius: 2, fontSize: 7, color: '#555', cursor: 'pointer', flexShrink: 0 }}>📁</button>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 2, marginBottom: 4 }}>
+        <button onClick={() => storageStats?.downloadPath && ipc.openFolder(storageStats.downloadPath)} style={{ flex: 1, height: 20, background: '#1A1A1A', border: '1px solid #222', borderRadius: 2, fontSize: 6, color: '#555', cursor: 'pointer' }}>Mở thư mục</button>
+        <button onClick={async () => { const r = await ipc.clearDownloads(); if (r.success) showToast(`Freed ${r.freedMB}MB`) }} style={{ flex: 1, height: 20, background: '#1A1A1A', border: '1px solid #FF444422', borderRadius: 2, fontSize: 6, color: '#FF4444', cursor: 'pointer' }}>Xóa cache</button>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span style={{ fontSize: 7, color: '#555' }}>Tự động xóa sau</span>
+        <select value={s.downloadsCleanupDays} onChange={e => onChange({ downloadsCleanupDays: Number(e.target.value) } as any)} style={{ height: 20, flex: 1, background: '#1A1A1A', border: '1px solid #222', borderRadius: 2, color: '#00B4FF', fontSize: 7, fontFamily: 'monospace', cursor: 'pointer' }}>
+          <option value={0}>Không</option>
+          <option value={3}>3 ngày</option>
+          <option value={7}>7 ngày</option>
+          <option value={14}>14 ngày</option>
+          <option value={30}>30 ngày</option>
+        </select>
+      </div>
     </Card>
   )
 }
 
-const linkStyle: React.CSSProperties = {
-  height: 22, padding: '0 8px', border: '1px solid #222', borderRadius: 3,
-  background: 'transparent', color: '#666', fontSize: 9, fontWeight: 600,
-  cursor: 'pointer', textDecoration: 'none', display: 'inline-flex',
-  alignItems: 'center',
+// ═══════════════════════════════════════════════════════════════════════
+// DETECTION CARD
+// ═══════════════════════════════════════════════════════════════════════
+
+function DetectionCard() {
+  const [pollerStatus, setPollerStatus] = useState<any>(null)
+  const [sessionStatus, setSessionStatus] = useState<any>(null)
+  const [innertubeDegraded, setInnertubeDegraded] = useState(false)
+
+  useEffect(() => {
+    const load = () => { ipc.getPollerStatus().then(setPollerStatus).catch(() => {}); ipc.getSessionStatus().then(setSessionStatus).catch(() => {}) }
+    load()
+    const t = setInterval(load, 8000)
+    const cleanup = (ipc as any).onInnertubeDegraded?.((data: any) => setInnertubeDegraded(data.degraded))
+    return () => { clearInterval(t); cleanup?.() }
+  }, [])
+
+  const consented = sessionStatus?.consentedCount ?? 0
+  const healthPct = sessionStatus?.health?.healthPct ?? 0
+
+  return (
+    <Card>
+      <SectionLabel>DETECTION</SectionLabel>
+      <div style={{ fontSize: 7, color: '#555', lineHeight: 1.7 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 5, height: 5, borderRadius: '50%', background: consented > 0 ? '#00FF88' : '#333', flexShrink: 0 }} />
+          Innertube: <span style={{ color: consented > 0 ? '#00FF88' : '#555', fontWeight: 600 }}>{consented}/{sessionStatus?.sessionCount ?? 0}</span> sessions
+          {innertubeDegraded && <span style={{ color: '#FFB800', fontSize: 6, background: '#FFB80020', padding: '0 4px', borderRadius: 2 }}>DEGRADED</span>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 5, height: 5, borderRadius: '50%', background: healthPct >= 50 ? '#00FF88' : healthPct > 0 ? '#FFB800' : '#333', flexShrink: 0 }} />
+          Session health: <span style={{ color: healthPct >= 50 ? '#00FF88' : '#FFB800', fontWeight: 600 }}>{healthPct}%</span>
+        </div>
+        <div style={{ marginTop: 2 }}>Poll: {pollerStatus?.active ? 'active' : 'paused'} · {pollerStatus?.lastError ? '⚠ lỗi' : '0 lỗi'}</div>
+      </div>
+    </Card>
+  )
 }
 
-const actionBtnStyle: React.CSSProperties = {
-  height: 24, padding: '0 8px', border: '1px solid #222', borderRadius: 3,
-  background: 'transparent', color: '#666', fontSize: 9, fontWeight: 600,
-  cursor: 'pointer', fontFamily: 'monospace',
+// ═══════════════════════════════════════════════════════════════════════
+// SYSTEM CARD + MISC
+// ═══════════════════════════════════════════════════════════════════════
+
+function SystemCard({ systemStats }: { systemStats: SystemStats }) {
+  return (
+    <Card>
+      <SectionLabel>SYSTEM</SectionLabel>
+      <div style={{ fontSize: 7, color: '#555', lineHeight: 1.7 }}>
+        <div>GPU: <span style={{ color: '#888' }}>{systemStats.gpuName || 'N/A'} · {systemStats.gpuTemp || 0}°C · {systemStats.gpuUsage || 0}%</span></div>
+        <div>CPU: <span style={{ color: '#888' }}>{systemStats.cpuName || 'N/A'} · {systemStats.cpuUsage || 0}%</span></div>
+        <div>RAM: <span style={{ color: '#888' }}>{Math.round(systemStats.ramUsed || 0)} / {Math.round(systemStats.ramTotal || 0)} GB</span></div>
+        <div>Workers: <span style={{ color: '#00B4FF', fontWeight: 600 }}>{systemStats.activeWorkers || 0}</span> / {systemStats.maxChunkWorkers || 8} · NVENC</div>
+      </div>
+    </Card>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// MAIN EXPORT
+// ═══════════════════════════════════════════════════════════════════════
+
+export function SettingsPanel({ settings, systemStats, channels, onSettingsChange }: Props) {
+  return (
+    <div style={{ flex: 1, background: '#121212', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Header bar */}
+      <div style={{ fontSize: 8, color: '#555', fontWeight: 700, padding: '5px 10px', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0D0D0D' }}>
+        <span style={{ letterSpacing: 1 }}>SETTINGS</span>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <a href="/settings?tab=sessions" style={{ padding: '1px 5px', border: '1px solid #222', borderRadius: 2, fontSize: 6, color: '#555', textDecoration: 'none' }}>Sessions</a>
+          <a href="/settings?tab=projects" style={{ padding: '1px 5px', border: '1px solid #222', borderRadius: 2, fontSize: 6, color: '#555', textDecoration: 'none' }}>Projects</a>
+          <a href="/settings?tab=keys" style={{ padding: '1px 5px', border: '1px solid #222', borderRadius: 2, fontSize: 6, color: '#555', textDecoration: 'none' }}>Keys</a>
+          <a href="/settings?tab=diag" style={{ padding: '1px 5px', border: '1px solid #FF444422', borderRadius: 2, fontSize: 6, color: '#FF444466', textDecoration: 'none' }}>Diag</a>
+        </div>
+      </div>
+
+      {/* 2-column cards */}
+      <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexWrap: 'wrap', alignContent: 'flex-start' }}>
+        <div style={{ flex: '1 1 240px', display: 'flex', flexDirection: 'column' }}>
+          <AutoRenderCard s={settings} onChange={onSettingsChange} />
+          <DownloadCard s={settings} onChange={onSettingsChange} />
+          <ChannelOverrideCard channels={channels} />
+        </div>
+        <div style={{ flex: '1 1 240px', display: 'flex', flexDirection: 'column' }}>
+          <StorageCard s={settings} onChange={onSettingsChange} />
+          <DetectionCard />
+          <SystemCard systemStats={systemStats} />
+        </div>
+      </div>
+    </div>
+  )
 }
