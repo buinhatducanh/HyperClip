@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback, Suspense, memo } from 'react'
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { shallow } from 'zustand/shallow'
@@ -750,8 +750,11 @@ function DashboardContent() {
               settings={settings}
               systemStats={systemStats}
               channels={channels}
-              workspaces={filteredWorkspaces}
-              renderedVideos={renderedVideos}
+              activeChannelId={activeChannelId}
+              onSettingsChange={async (patch) => {
+                setSettings(patch)
+                await ipc.updateSettings(patch)
+              }}
             />
           )}
         </div>
@@ -787,9 +790,6 @@ function DashboardContent() {
       {/* Activity Log Bar */}
       <ActivityLogBar
         entries={[...activityMap.values()].reverse()}
-        etaDisplay={etaDisplay}
-        onCompare={handleCompare}
-        renderedWorkspaceIds={new Set(renderedVideos.map(v => v.workspaceId))}
       />
 
       {/* Toast */}
