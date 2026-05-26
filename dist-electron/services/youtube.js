@@ -209,16 +209,19 @@ function getYtdlpPath() {
     if (fs_1.default.existsSync(npmBinExe))
         return npmBinExe;
     // 3. Common pip install locations (Roaming Python + Local Python Scripts)
+    // Use os.homedir() for robust cross-user path resolution (env vars may be missing)
+    const appDataRoaming = path_1.default.join(os_1.default.homedir(), 'AppData', 'Roaming');
+    const appDataLocal = path_1.default.join(os_1.default.homedir(), 'AppData', 'Local');
     for (const ver of ['Python314', 'Python311', 'Python312', 'Python313']) {
-        const roamingScripts = path_1.default.join(process.env.APPDATA || '', 'Python', ver, 'Scripts');
+        const roamingScripts = path_1.default.join(appDataRoaming, 'Python', ver, 'Scripts');
         const ytdlpExe = path_1.default.join(roamingScripts, 'yt-dlp.exe');
         if (fs_1.default.existsSync(ytdlpExe))
             return ytdlpExe;
         const ytdlpSh = path_1.default.join(roamingScripts, 'yt-dlp');
         if (fs_1.default.existsSync(ytdlpSh))
             return ytdlpSh;
-        // Local Python install (Python313 etc. in AppData\Local\Programs)
-        const localScripts = path_1.default.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', ver, 'Scripts');
+        // Local Python install (AppData\Local\Programs)
+        const localScripts = path_1.default.join(appDataLocal, 'Programs', 'Python', ver, 'Scripts');
         const localExe = path_1.default.join(localScripts, 'yt-dlp.exe');
         if (fs_1.default.existsSync(localExe))
             return localExe;
@@ -227,7 +230,7 @@ function getYtdlpPath() {
             return localSh;
     }
     // 4. User-local AppData Roaming Python fallback
-    const roamingPythonScripts = path_1.default.join(process.env.APPDATA || '', 'Python', 'Scripts');
+    const roamingPythonScripts = path_1.default.join(appDataRoaming, 'Python', 'Scripts');
     if (fs_1.default.existsSync(path_1.default.join(roamingPythonScripts, 'yt-dlp.exe'))) {
         return path_1.default.join(roamingPythonScripts, 'yt-dlp.exe');
     }
@@ -467,7 +470,7 @@ function buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, section
         args.push('--cookies', ytCookiesFile);
         console.log(`[yt-dlp] Using Chrome cookies: ${ytCookiesFile.split(/[/\\]/).pop()}`);
     }
-    args.push('-f', resolvedFormat, '--output', outputTemplate, '--no-playlist', '--newline', '--concurrent-fragments', String((0, system_js_1.getDownloadParams)().fragments), '--retries', '3', '--fragment-retries', '3', '--socket-timeout', '10', '--http-chunk-size', '10485760', '--download-sections', sectionArg);
+    args.push('-f', resolvedFormat, '--output', outputTemplate, '--no-playlist', '--no-update', '--newline', '--concurrent-fragments', String((0, system_js_1.getDownloadParams)().fragments), '--retries', '3', '--fragment-retries', '3', '--socket-timeout', '10', '--http-chunk-size', '10485760', '--download-sections', sectionArg);
     return args;
 }
 function makeSectionArg(startSec, endSec) {

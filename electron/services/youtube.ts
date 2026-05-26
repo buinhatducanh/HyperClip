@@ -200,22 +200,25 @@ function getYtdlpPath(): string {
   if (fs.existsSync(npmBinExe)) return npmBinExe
 
   // 3. Common pip install locations (Roaming Python + Local Python Scripts)
+  // Use os.homedir() for robust cross-user path resolution (env vars may be missing)
+  const appDataRoaming = path.join(os.homedir(), 'AppData', 'Roaming')
+  const appDataLocal = path.join(os.homedir(), 'AppData', 'Local')
   for (const ver of ['Python314', 'Python311', 'Python312', 'Python313']) {
-    const roamingScripts = path.join(process.env.APPDATA || '', 'Python', ver, 'Scripts')
+    const roamingScripts = path.join(appDataRoaming, 'Python', ver, 'Scripts')
     const ytdlpExe = path.join(roamingScripts, 'yt-dlp.exe')
     if (fs.existsSync(ytdlpExe)) return ytdlpExe
     const ytdlpSh = path.join(roamingScripts, 'yt-dlp')
     if (fs.existsSync(ytdlpSh)) return ytdlpSh
 
-    // Local Python install (Python313 etc. in AppData\Local\Programs)
-    const localScripts = path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', ver, 'Scripts')
+    // Local Python install (AppData\Local\Programs)
+    const localScripts = path.join(appDataLocal, 'Programs', 'Python', ver, 'Scripts')
     const localExe = path.join(localScripts, 'yt-dlp.exe')
     if (fs.existsSync(localExe)) return localExe
     const localSh = path.join(localScripts, 'yt-dlp')
     if (fs.existsSync(localSh)) return localSh
   }
   // 4. User-local AppData Roaming Python fallback
-  const roamingPythonScripts = path.join(process.env.APPDATA || '', 'Python', 'Scripts')
+  const roamingPythonScripts = path.join(appDataRoaming, 'Python', 'Scripts')
   if (fs.existsSync(path.join(roamingPythonScripts, 'yt-dlp.exe'))) {
     return path.join(roamingPythonScripts, 'yt-dlp.exe')
   }
@@ -604,6 +607,7 @@ function buildYtDlpArgs(ytdlp: string, videoUrl: string, formatSelector: string,
     '-f', resolvedFormat,
     '--output', outputTemplate,
     '--no-playlist',
+    '--no-update',
     '--newline',
     '--concurrent-fragments', String(getDownloadParams().fragments),
     '--retries', '3',
