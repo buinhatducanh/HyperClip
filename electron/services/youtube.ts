@@ -174,7 +174,33 @@ export async function getChannelMetadataFromHttp(url: string): Promise<YtdlpChan
 // yt-dlp JS runtime args — modern yt-dlp requires a JS runtime for YouTube extraction.
 // Without this, videos are incorrectly reported as "not available".
 // Supported runtimes: deno, node, bun, quickjs
+// NOTE: --js-runtimes was added in yt-dlp 2024.x. Older versions fail with "no such option".
+// Cache version check to avoid repeated execSync calls.
+let _ytdlpVersion: string | null = null
+let _ytdlpSupportsJsRuntimes: boolean | null = null
+
+export function checkYtdlpSupportsJsRuntimes(): void {
+  if (_ytdlpSupportsJsRuntimes !== null) return
+  try {
+    const ytdlp = getYtdlpPath()
+    const { execSync } = require('child_process') as typeof import('child_process')
+    const v = execSync(`"${ytdlp}" --version`, { timeout: 5000, windowsHide: true }).toString().trim()
+    _ytdlpVersion = v
+    // --js-runtimes added in yt-dlp 2024.08.x (approx). Be conservative: require 2024.01+.
+    const parts = v.split('.')
+    const major = parseInt(parts[0] || '0')
+    const minor = parseInt(parts[1] || '0')
+    _ytdlpSupportsJsRuntimes = major > 2024 || (major === 2024 && minor >= 1)
+    devLog(`[yt-dlp] version=${v}, js-runtimes=${_ytdlpSupportsJsRuntimes}`)
+  } catch {
+    _ytdlpSupportsJsRuntimes = true
+    devLog(`[yt-dlp] version check failed, assuming js-runtimes supported`)
+  }
+}
+
 function getJsRuntimeArgs(): string[] {
+  checkYtdlpSupportsJsRuntimes()
+  if (_ytdlpSupportsJsRuntimes === false) return []
   return ['--js-runtimes', 'node']
 }
 
