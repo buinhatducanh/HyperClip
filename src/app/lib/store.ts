@@ -83,8 +83,10 @@ export interface AppSettings {
   defaultQuality: 1080 | 720  // default render quality
   autoDownloadEnabled: boolean  // whether auto-download is enabled
   autoRender: boolean
-  autoRenderResolution: string  // '480x480'|'720x720'|'1080x1080'
+  autoRenderResolution: string  // '1080p' | '720p' | '360p'
   autoRenderFPS: number         // 30|60
+  autoSplitParts: number         // 1 = no split, 2-10 = number of parts
+  autoSplitMinutes: number       // 0 = use autoSplitParts instead
   autoRenderTitleTemplate: string  // title template for auto-rendered videos
   minimizeToTray: boolean
   autoDownloadQuality: string  // '360'|'480'|'720'|'1080'
@@ -235,8 +237,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     defaultTrimLimit: 10,  // 10 minutes — auto-download respects this
     defaultQuality: 1080,
     autoRender: false,
-    autoRenderResolution: '480x480',
+    autoRenderResolution: '1080p',
     autoRenderFPS: 30,
+    autoSplitParts: 1,       // default: no split
+    autoSplitMinutes: 0,     // default: use parts-based,
     autoRenderTitleTemplate: '',
     minimizeToTray: true,
     autoDownloadEnabled: true,

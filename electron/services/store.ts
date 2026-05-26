@@ -99,6 +99,15 @@ export interface StoredChannel {
   avatarUrl?: string
   createdAt: string
   paused?: boolean
+  settings?: {
+    trimLimit?: number | 'full'
+    downloadQuality?: string
+    autoRender?: boolean
+    resolution?: string
+    fps?: 30 | 60
+    autoSplit?: boolean
+    splitMinutes?: number
+  }
 }
 
 // Empty default — user adds their own channels via onboarding
