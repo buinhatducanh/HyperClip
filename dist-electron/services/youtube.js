@@ -209,7 +209,7 @@ function getYtdlpPath() {
     if (fs_1.default.existsSync(npmBinExe))
         return npmBinExe;
     // 3. Common pip install locations (Roaming Python + Local Python Scripts)
-    for (const ver of ['Python314', 'Python313', 'Python312', 'Python311']) {
+    for (const ver of ['Python314', 'Python311', 'Python312', 'Python313']) {
         const roamingScripts = path_1.default.join(process.env.APPDATA || '', 'Python', ver, 'Scripts');
         const ytdlpExe = path_1.default.join(roamingScripts, 'yt-dlp.exe');
         if (fs_1.default.existsSync(ytdlpExe))

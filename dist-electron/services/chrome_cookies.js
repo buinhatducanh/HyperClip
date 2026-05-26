@@ -429,7 +429,7 @@ async function extractYouTubeCookiesFromPath(cookieDbPath, localStatePath) {
     if (!dbBuffer)
         return { cookies: null, rawSocs: null };
     try {
-        // __dirname = dist-electron/ in dev, <app>.asar/ in prod
+        // __dirname = dist-electron/services/ in dev → .. → dist-electron/, .. → project root
         // node_modules/sql.js lives at project root in dev, at app.asar.unpacked/node_modules in prod
         const sqlJsDist = electron_1.app.isPackaged
             ? path_1.default.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist')
