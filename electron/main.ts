@@ -528,6 +528,7 @@ async function autoDownloadFromWebSub(
     ensureStorageDirs()
 
     const settings = loadSettings()
+    const autoRenderEnabled = settings.autoRender === true
     const autoTrimLimit: number | 'full' = settings.defaultTrimLimit ?? 10
     const autoQuality = qualityOverride ?? settings.autoDownloadQuality ?? '720'
 
@@ -807,9 +808,28 @@ async function autoDownloadFromWebSub(
       workspaceId: ws.id,
     })
 
-    // Auto-render is DISABLED — removed per user request (2026-05-26)
-    // if (autoRenderEnabled && !ws.autoRenderAttempted) { ... }
-    devLog(`[Auto] Downloaded — ready (autoRender DISABLED)`)
+    // ── Auto-render trigger ───────────────────────────────────────────────────────
+    // Only triggers if: settings.autoRender=true AND no prior attempt on this workspace.
+    // autoRenderAttempted flag prevents infinite loops when render fails → retries.
+    // Uses user workspace settings (renderMetadata) if edited, otherwise global auto-render settings.
+    if (autoRenderEnabled && !ws.autoRenderAttempted) {
+      updateWorkspace(ws.id, { autoRenderAttempted: true })
+      const sourceVideo = updatedWs?.preScaledPath || updatedWs?.downloadedPath || preScaledPath || finalFilePath
+      if (!sourceVideo || !fs.existsSync(sourceVideo)) {
+        devLog(`[Auto] Render skipped — source file not found: ${sourceVideo}`)
+      } else {
+        const thumbPath = path.join(storagePath, `thumb_${ws.id}.jpg`)
+        const autoMetadata = buildAutoRenderMetadata(ws, sourceVideo, finalDuration, blurBgPath, thumbPath, settings)
+        devLog(`[Auto] Triggering render: ${realTitle}`)
+        renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve: () => {} })
+        const max = loadSettings().maxConcurrentRenders ?? 2
+        if (getPoolStatus().active < max) {
+          startNextQueuedRender()
+        }
+      }
+    } else {
+      devLog(`[Auto] Downloaded — ready (autoRender=${autoRenderEnabled}, attempted=${!!ws.autoRenderAttempted})`)
+    }
 
     // Only mark as seen AFTER successful download — so YouTube processing delay doesn't block retry
     markVideoSeen(channelId, videoId)
@@ -988,12 +1008,114 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
   }
 }
 
+/**
+ * Builds auto-render metadata for a workspace.
+ * Priority: user-edited workspace settings (renderMetadata) > global auto-render settings.
+ * "User-edited" = renderMetadata exists AND has overlays OR custom trim OR custom resolution.
+ */
+function buildAutoRenderMetadata(
+  ws: WorkspaceData,
+  sourceVideo: string,
+  duration: number,
+  blurBgPath: string,
+  thumbnailPath: string,
+  globalSettings: { autoRenderResolution?: string; autoRenderFPS?: number },
+): RenderMetadata {
+  const rm = ws.renderMetadata as RenderMetadata | null
+  const hasOverlays = rm?.overlays && rm.overlays.length > 0
+  const hasCustomTrim = rm && (rm.trim?.start ?? 0) > 0
+  const hasCustomRes = rm && rm.export_resolution && rm.export_resolution !== '1080x1920'
+  const hasUserSettings = hasOverlays || hasCustomTrim || hasCustomRes
+
+  if (rm && hasUserSettings) {
+    devLog(`[Auto] Using user settings for ${ws.id} (overlays=${hasOverlays}, trim=${hasCustomTrim}, res=${hasCustomRes})`)
+    return {
+      ...rm,
+      source_video: sourceVideo,
+      blur_background: blurBgPath || rm.blur_background,
+      backgroundType: blurBgPath ? 'blur' : (rm.backgroundType ?? 'image'),
+      backgroundImage: blurBgPath ? undefined : (rm.backgroundImage ?? thumbnailPath),
+    }
+  }
+
+  const autoRes = globalSettings.autoRenderResolution ?? '480x480'
+  const autoFps = globalSettings.autoRenderFPS ?? 30
+  devLog(`[Auto] Using global settings for ${ws.id}: ${autoRes} @ ${autoFps}fps`)
+  return {
+    workspace_id: ws.id,
+    source_video: sourceVideo,
+    export_resolution: autoRes,
+    video_speed: 1.0,
+    fps_target: autoFps,
+    overlays: [],
+    trim: { start: 0, end: duration },
+    codec: 'h264',
+    preset: 'p1',
+    tune: 'ull',
+    backgroundType: blurBgPath ? 'blur' : 'image',
+    backgroundColor: '#000000',
+    backgroundImage: blurBgPath ? undefined : thumbnailPath,
+    blur_background: blurBgPath,
+    isShort: false,
+  }
+}
+
 // ─── Auto-render catch-up on startup ────────────────────────────────────────────
 // Finds 'ready' workspaces where auto-render was never triggered (e.g., autoRender
 // was disabled at download time, or workspace was created before the feature existed).
 // Triggers auto-render for each one — so nothing slips through the cracks.
 function triggerAutoRenderForReadyWorkspaces(): void {
-  // Auto-render is DISABLED — removed per user request (2026-05-26)
+  const settings = loadSettings()
+  if (settings.autoRender !== true) return
+
+  const workspaces = getWorkspaces()
+  const storagePath = getVideoStoragePath()
+
+  for (const ws of workspaces) {
+    if (ws.status !== 'ready') continue
+    if ((ws as any).autoRenderAttempted === true) continue
+
+    const storedName = ws.downloadedPath || ''
+    let videoPath = storedName
+    if (storedName && !path.isAbsolute(storedName)) {
+      const candidates = [storagePath, getVideoStoragePath()]
+      for (const dir of candidates) {
+        const candidate = path.join(dir, storedName)
+        if (fs.existsSync(candidate)) { videoPath = candidate; break }
+      }
+    }
+    if (!videoPath || !fs.existsSync(videoPath)) {
+      devLog(`[AutoCatchup] Skipping ${ws.id} — file not found: ${videoPath || storedName}`)
+      continue
+    }
+
+    const { blurPath } = generateWorkspacePaths(ws.id)
+    const blurBgPath = ws.blurBackgroundPath || (fs.existsSync(blurPath) ? blurPath : '')
+
+    let thumbnailPath = ''
+    if (ws.thumbnail?.startsWith('local-video:///')) {
+      thumbnailPath = ws.thumbnail.replace('local-video:///', '').replace(/\//g, '\\')
+    } else {
+      const thumbCandidates = [
+        path.join(storagePath, `thumb_${ws.id}.jpg`),
+        path.join(getVideoStoragePath(), `thumb_${ws.id}.jpg`),
+        path.join('D:\\HyperClip-Data\\downloads', `thumb_${ws.id}.jpg`),
+      ]
+      for (const tc of thumbCandidates) {
+        if (fs.existsSync(tc)) { thumbnailPath = tc; break }
+      }
+    }
+
+    updateWorkspace(ws.id, { autoRenderAttempted: true } as any)
+
+    const autoMetadata = buildAutoRenderMetadata(ws, videoPath, ws.duration || 0, blurBgPath, thumbnailPath, settings)
+    devLog(`[AutoCatchup] Triggering render for ${ws.id} (${ws.videoTitle?.slice(0, 40)})`)
+    renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve: () => {} })
+    const max = loadSettings().maxConcurrentRenders ?? 2
+    if (getPoolStatus().active < max) {
+      startNextQueuedRender()
+    }
+  }
 }
 
 // ─── Scan existing downloaded files on startup ────────────────────────────────────

@@ -497,6 +497,7 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
         const storagePath = (0, ramdisk_js_1.getVideoStoragePath)();
         (0, ramdisk_js_1.ensureStorageDirs)();
         const settings = (0, ramdisk_js_1.loadSettings)();
+        const autoRenderEnabled = settings.autoRender === true;
         const autoTrimLimit = settings.defaultTrimLimit ?? 10;
         const autoQuality = qualityOverride ?? settings.autoDownloadQuality ?? '720';
         // Find the 'waiting' workspace created by enqueueBgDownload
@@ -766,9 +767,30 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
             subtitle: `${finalChannelName} • ${fileSizeMB} MB • ${downloadElapsed}s`,
             workspaceId: ws.id,
         });
-        // Auto-render is DISABLED — removed per user request (2026-05-26)
-        // if (autoRenderEnabled && !ws.autoRenderAttempted) { ... }
-        (0, unified_log_js_1.devLog)(`[Auto] Downloaded — ready (autoRender DISABLED)`);
+        // ── Auto-render trigger ───────────────────────────────────────────────────────
+        // Only triggers if: settings.autoRender=true AND no prior attempt on this workspace.
+        // autoRenderAttempted flag prevents infinite loops when render fails → retries.
+        // Uses user workspace settings (renderMetadata) if edited, otherwise global auto-render settings.
+        if (autoRenderEnabled && !ws.autoRenderAttempted) {
+            (0, store_js_1.updateWorkspace)(ws.id, { autoRenderAttempted: true });
+            const sourceVideo = updatedWs?.preScaledPath || updatedWs?.downloadedPath || preScaledPath || finalFilePath;
+            if (!sourceVideo || !fs_1.default.existsSync(sourceVideo)) {
+                (0, unified_log_js_1.devLog)(`[Auto] Render skipped — source file not found: ${sourceVideo}`);
+            }
+            else {
+                const thumbPath = path_1.default.join(storagePath, `thumb_${ws.id}.jpg`);
+                const autoMetadata = buildAutoRenderMetadata(ws, sourceVideo, finalDuration, blurBgPath, thumbPath, settings);
+                (0, unified_log_js_1.devLog)(`[Auto] Triggering render: ${realTitle}`);
+                renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve: () => { } });
+                const max = (0, ramdisk_js_1.loadSettings)().maxConcurrentRenders ?? 2;
+                if ((0, worker_pool_js_1.getPoolStatus)().active < max) {
+                    startNextQueuedRender();
+                }
+            }
+        }
+        else {
+            (0, unified_log_js_1.devLog)(`[Auto] Downloaded — ready (autoRender=${autoRenderEnabled}, attempted=${!!ws.autoRenderAttempted})`);
+        }
         // Only mark as seen AFTER successful download — so YouTube processing delay doesn't block retry
         (0, store_js_1.markVideoSeen)(channelId, videoId);
     }
@@ -946,12 +968,107 @@ async function doRetryAutoDownload(ws) {
         broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
     }
 }
+/**
+ * Builds auto-render metadata for a workspace.
+ * Priority: user-edited workspace settings (renderMetadata) > global auto-render settings.
+ * "User-edited" = renderMetadata exists AND has overlays OR custom trim OR custom resolution.
+ */
+function buildAutoRenderMetadata(ws, sourceVideo, duration, blurBgPath, thumbnailPath, globalSettings) {
+    const rm = ws.renderMetadata;
+    const hasOverlays = rm?.overlays && rm.overlays.length > 0;
+    const hasCustomTrim = rm && (rm.trim?.start ?? 0) > 0;
+    const hasCustomRes = rm && rm.export_resolution && rm.export_resolution !== '1080x1920';
+    const hasUserSettings = hasOverlays || hasCustomTrim || hasCustomRes;
+    if (rm && hasUserSettings) {
+        (0, unified_log_js_1.devLog)(`[Auto] Using user settings for ${ws.id} (overlays=${hasOverlays}, trim=${hasCustomTrim}, res=${hasCustomRes})`);
+        return {
+            ...rm,
+            source_video: sourceVideo,
+            blur_background: blurBgPath || rm.blur_background,
+            backgroundType: blurBgPath ? 'blur' : (rm.backgroundType ?? 'image'),
+            backgroundImage: blurBgPath ? undefined : (rm.backgroundImage ?? thumbnailPath),
+        };
+    }
+    const autoRes = globalSettings.autoRenderResolution ?? '480x480';
+    const autoFps = globalSettings.autoRenderFPS ?? 30;
+    (0, unified_log_js_1.devLog)(`[Auto] Using global settings for ${ws.id}: ${autoRes} @ ${autoFps}fps`);
+    return {
+        workspace_id: ws.id,
+        source_video: sourceVideo,
+        export_resolution: autoRes,
+        video_speed: 1.0,
+        fps_target: autoFps,
+        overlays: [],
+        trim: { start: 0, end: duration },
+        codec: 'h264',
+        preset: 'p1',
+        tune: 'ull',
+        backgroundType: blurBgPath ? 'blur' : 'image',
+        backgroundColor: '#000000',
+        backgroundImage: blurBgPath ? undefined : thumbnailPath,
+        blur_background: blurBgPath,
+        isShort: false,
+    };
+}
 // ─── Auto-render catch-up on startup ────────────────────────────────────────────
 // Finds 'ready' workspaces where auto-render was never triggered (e.g., autoRender
 // was disabled at download time, or workspace was created before the feature existed).
 // Triggers auto-render for each one — so nothing slips through the cracks.
 function triggerAutoRenderForReadyWorkspaces() {
-    // Auto-render is DISABLED — removed per user request (2026-05-26)
+    const settings = (0, ramdisk_js_1.loadSettings)();
+    if (settings.autoRender !== true)
+        return;
+    const workspaces = (0, store_js_1.getWorkspaces)();
+    const storagePath = (0, ramdisk_js_1.getVideoStoragePath)();
+    for (const ws of workspaces) {
+        if (ws.status !== 'ready')
+            continue;
+        if (ws.autoRenderAttempted === true)
+            continue;
+        const storedName = ws.downloadedPath || '';
+        let videoPath = storedName;
+        if (storedName && !path_1.default.isAbsolute(storedName)) {
+            const candidates = [storagePath, (0, ramdisk_js_1.getVideoStoragePath)()];
+            for (const dir of candidates) {
+                const candidate = path_1.default.join(dir, storedName);
+                if (fs_1.default.existsSync(candidate)) {
+                    videoPath = candidate;
+                    break;
+                }
+            }
+        }
+        if (!videoPath || !fs_1.default.existsSync(videoPath)) {
+            (0, unified_log_js_1.devLog)(`[AutoCatchup] Skipping ${ws.id} — file not found: ${videoPath || storedName}`);
+            continue;
+        }
+        const { blurPath } = (0, ramdisk_js_1.generateWorkspacePaths)(ws.id);
+        const blurBgPath = ws.blurBackgroundPath || (fs_1.default.existsSync(blurPath) ? blurPath : '');
+        let thumbnailPath = '';
+        if (ws.thumbnail?.startsWith('local-video:///')) {
+            thumbnailPath = ws.thumbnail.replace('local-video:///', '').replace(/\//g, '\\');
+        }
+        else {
+            const thumbCandidates = [
+                path_1.default.join(storagePath, `thumb_${ws.id}.jpg`),
+                path_1.default.join((0, ramdisk_js_1.getVideoStoragePath)(), `thumb_${ws.id}.jpg`),
+                path_1.default.join('D:\\HyperClip-Data\\downloads', `thumb_${ws.id}.jpg`),
+            ];
+            for (const tc of thumbCandidates) {
+                if (fs_1.default.existsSync(tc)) {
+                    thumbnailPath = tc;
+                    break;
+                }
+            }
+        }
+        (0, store_js_1.updateWorkspace)(ws.id, { autoRenderAttempted: true });
+        const autoMetadata = buildAutoRenderMetadata(ws, videoPath, ws.duration || 0, blurBgPath, thumbnailPath, settings);
+        (0, unified_log_js_1.devLog)(`[AutoCatchup] Triggering render for ${ws.id} (${ws.videoTitle?.slice(0, 40)})`);
+        renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve: () => { } });
+        const max = (0, ramdisk_js_1.loadSettings)().maxConcurrentRenders ?? 2;
+        if ((0, worker_pool_js_1.getPoolStatus)().active < max) {
+            startNextQueuedRender();
+        }
+    }
 }
 // ─── Scan existing downloaded files on startup ────────────────────────────────────
 // Finds any video files in the storage directory that were downloaded previously

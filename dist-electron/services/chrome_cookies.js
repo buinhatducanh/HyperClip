@@ -671,25 +671,10 @@ class ChromeSessionManager {
         // preventing DPAPI extraction), trigger background login to recover them.
         // This runs silently in the background — user can continue using the app
         // with the sessions that already have cookies.
-        const missing = this._sessions.filter(s => !s.cookies || !s.isLoggedIn);
-        if (missing.length > 0) {
-            (0, unified_log_js_1.devLog)(`[SessionManager] Starting background login recovery for ${missing.length} missing sessions...`);
-            for (let i = 0; i < missing.length; i++) {
-                const session = missing[i];
-                // Stagger logins 3s apart to avoid Chrome window conflicts
-                setTimeout(async () => {
-                    if (!session.cookies) {
-                        (0, unified_log_js_1.devLog)(`[SessionManager] Background login for profile ${session.profileId}...`);
-                        try {
-                            await this.openLoginWindow(session.profileId);
-                        }
-                        catch (e) {
-                            (0, unified_log_js_1.devLog)(`[SessionManager] Background login failed for profile ${session.profileId}: ${e}`);
-                        }
-                    }
-                }, i * 3000);
-            }
-        }
+        // NOTE: Background login recovery DISABLED at startup.
+        // Previously this opened Chrome windows for ALL missing sessions on every app launch,
+        // causing a flood of windows. Users should log in manually from Settings → Sessions tab.
+        // The login button in Settings triggers openLoginWindow() per-session on demand.
         // ─── Background cookie health monitoring ───────────────────────────────────
         // Tier 1: Every 10 min — refresh top-5 recently-used sessions (hot path)
         // Tier 2: Every 30 min — refresh ALL sessions (catch stale/expired cookies)
