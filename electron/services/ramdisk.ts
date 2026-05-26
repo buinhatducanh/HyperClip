@@ -79,7 +79,7 @@ export function loadSettings(): AppSettingsStore {
   _settings = _settings || {}
   
   // Default values for new settings
-  if (_settings.autoRenderResolution === undefined) _settings.autoRenderResolution = '480x480'
+  if (_settings.autoRenderResolution === undefined) _settings.autoRenderResolution = '1080p'
   if (_settings.autoRenderFPS === undefined) _settings.autoRenderFPS = 30
   if (_settings.downloadsCleanupDays === undefined) _settings.downloadsCleanupDays = 7
   if (_settings.defaultQuality === undefined) _settings.defaultQuality = 1080
