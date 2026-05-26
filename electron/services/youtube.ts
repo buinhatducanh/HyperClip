@@ -1021,20 +1021,15 @@ export async function probeVideoAvailability(
     })
   }
 
-  // Try web client first
-  const webResult = await tryClient('web')
-  if (webResult) {
-    // If web says private, try tv_embedded as fallback probe
-    if (webResult.isPrivate) {
-      const tvResult = await tryClient('tv_embedded')
-      if (tvResult) return tvResult
-      // tv_embedded also failed — return web's result
-      return webResult
-    }
-    return webResult
+  // Match the download order: tv_embedded first (bypasses EJS challenge),
+  // web second (fallback), ios third (last resort).
+  // web client with Chrome cookies triggers EJS challenge → "not found" false positive.
+  for (const client of ['tv_embedded', 'web', 'ios'] as const) {
+    const result = await tryClient(client)
+    if (result) return result
   }
 
-  // Probe failed entirely — return null (caller should attempt download with caution)
+  // All probes failed — return null (caller should attempt download with caution)
   return null
 }
 
