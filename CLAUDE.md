@@ -173,6 +173,8 @@ Luôn chạy `npx tsc --noEmit` sau khi sửa backend Electron. IDE diagnostics 
 
 ## Dead Code (không dùng, không xóa — chỉ để reference)
 
+- `src/app/components/DetailEditor.tsx` — standalone file, không import ở đâu (replaced by SettingsPanel)
+- `src/app/components/workspace/RenderQueueBar.tsx` — standalone file, không import ở đâu (integrated into Queue panel)
 - `src/app/components/LoginScreen.tsx` — standalone file, không import ở đâu
 - `src/app/components/ui/` — shadcn/ui library files (accordion, alert, card, dialog, etc.) — không import trong app code
 - `electron/services/websub.ts` — đã xóa khỏi codebase
