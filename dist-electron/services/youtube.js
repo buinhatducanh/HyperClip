@@ -854,6 +854,9 @@ async function probeVideoAvailability(videoUrl, ytCookiesFile) {
                         error: stderr.trim().slice(0, 300),
                     });
                 }
+                // Log unknown probe errors for debugging — helps diagnose false "not found" reports
+                const trimmed = stderr.trim().slice(0, 200);
+                (0, unified_log_js_1.devLog)(`[Probe] Unknown probe error (client=${client}): "${trimmed}"`);
                 // Unknown error — return null to signal "couldn't determine"
                 resolve(null);
             });
