@@ -98,6 +98,7 @@ export interface StoredChannel {
   channelId?: string
   avatarUrl?: string
   createdAt: string
+  paused?: boolean
 }
 
 // Empty default — user adds their own channels via onboarding
@@ -162,6 +163,26 @@ export function updateChannel(id: string, patch: Partial<Omit<StoredChannel, 'id
   saveChannels(channels)
   _invalidateChannelCache()
   return channels[idx]
+}
+
+export function pauseChannel(id: string): boolean {
+  const channels = loadChannels()
+  const idx = channels.findIndex(c => c.id === id)
+  if (idx === -1) return false
+  channels[idx].paused = true
+  saveChannels(channels)
+  _invalidateChannelCache()
+  return true
+}
+
+export function resumeChannel(id: string): boolean {
+  const channels = loadChannels()
+  const idx = channels.findIndex(c => c.id === id)
+  if (idx === -1) return false
+  channels[idx].paused = false
+  saveChannels(channels)
+  _invalidateChannelCache()
+  return true
 }
 
 export function removeChannel(id: string): boolean {

@@ -116,6 +116,8 @@ function registerWorkspaceHandlers(ipcMain) {
                 quality: retryQuality,
                 ytCookiesFile,
                 onProgress: (progress) => {
+                    (0, store_js_1.updateWorkspace)(id, { downloadProgress: progress.percent });
+                    (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(id));
                     (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
                         workspaceId: id,
                         percent: progress.percent,

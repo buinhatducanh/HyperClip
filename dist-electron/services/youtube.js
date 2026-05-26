@@ -23,6 +23,7 @@ const electron_1 = require("electron");
 const ffmpeg_paths_js_1 = require("./ffmpeg-paths.js");
 const ffmpeg_js_1 = require("./ffmpeg.js");
 const unified_log_js_1 = require("./unified_log.js");
+const system_js_1 = require("./system.js");
 // ─── HTTP helpers ───────────────────────────────────────────────────────────────
 function httpGet(url, timeout = 10000) {
     return new Promise((resolve, reject) => {
@@ -466,7 +467,7 @@ function buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, section
         args.push('--cookies', ytCookiesFile);
         console.log(`[yt-dlp] Using Chrome cookies: ${ytCookiesFile.split(/[/\\]/).pop()}`);
     }
-    args.push('-f', resolvedFormat, '--output', outputTemplate, '--no-playlist', '--newline', '--concurrent-fragments', '16', '--retries', '3', '--fragment-retries', '3', '--socket-timeout', '10', '--http-chunk-size', '10485760', '--download-sections', sectionArg);
+    args.push('-f', resolvedFormat, '--output', outputTemplate, '--no-playlist', '--newline', '--concurrent-fragments', String((0, system_js_1.getDownloadParams)().fragments), '--retries', '3', '--fragment-retries', '3', '--socket-timeout', '10', '--http-chunk-size', '10485760', '--download-sections', sectionArg);
     return args;
 }
 function makeSectionArg(startSec, endSec) {
@@ -1023,14 +1024,21 @@ async function downloadWithClient(opts) {
         `bestvideo[height<=${maxHeight}]+bestaudio`,
     ].join('/');
     console.log(`[Download] quality=${quality} maxHeight=${maxHeight}p selector=${formatSelector}`);
-    // Multi-instance: only for 1080p+ with enough free RAM AND video > 30s
+    // Multi-instance: parallel yt-dlp instances for 720p+ with enough free RAM
+    // Capped by machine tier via getDownloadParams().maxInstances
     const freeMemGB = os_1.default.freemem() / (1024 ** 3);
+    const tierMax = (0, system_js_1.getDownloadParams)().maxInstances;
     let instanceCount = 1;
-    if (maxInstances === 'auto' && freeMemGB >= 8 && maxHeight >= 1080) {
-        instanceCount = 2;
+    if (typeof maxInstances === 'number' && maxInstances > 1) {
+        instanceCount = Math.min(maxInstances, tierMax);
     }
-    else if (typeof maxInstances === 'number' && maxInstances > 1) {
-        instanceCount = Math.min(maxInstances, 4);
+    else if (maxInstances === 'auto' && freeMemGB >= 8) {
+        if (maxHeight >= 1080) {
+            instanceCount = Math.min(4, tierMax);
+        }
+        else if (maxHeight >= 720) {
+            instanceCount = Math.min(2, tierMax);
+        }
     }
     // ── Try section download first (fast) ──────────────────────────────────────
     const sectionArg = (() => {
@@ -1112,7 +1120,7 @@ async function spawnDownload(opts) {
         '--output', outputTemplate,
         '--no-playlist',
         '--newline',
-        '--concurrent-fragments', '16',
+        '--concurrent-fragments', String((0, system_js_1.getDownloadParams)().fragments),
         '--retries', '3',
         '--fragment-retries', '3',
         '--socket-timeout', '15',

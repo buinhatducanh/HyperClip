@@ -54,6 +54,7 @@ const DEFAULT_POLL_INTERVAL_MS = 2000 // 2 seconds — target < 20s detection la
 const MAX_VIDEOS_PER_POLL = 5
 const SEEN_IDS_CAP = 10000 // cap to prevent unbounded memory growth
 const SEEN_IDS_FILE = path.join(getChannelsDir(), 'seen-ids.json')
+const SEEN_IDS_WRITE_DELAY_MS = 5_000 // 5s — batch writes, avoid disk I/O every poll
 
 // ─── SeenVideoIds persistence ─────────────────────────────────────────────────
 
@@ -73,13 +74,20 @@ function loadSeenVideoIds(): Set<string> {
 
 /**
  * Persist seen video IDs to disk.
- * Called after every new detection to survive restarts.
+ * Debounced: writes are delayed by SEEN_IDS_WRITE_DELAY_MS (30s) to batch rapid changes.
+ * Uses fs.promises to avoid blocking the main thread.
  */
-function saveSeenVideoIds(ids: Set<string>): void {
-  try {
-    const arr = Array.from(ids)
-    fs.writeFileSync(SEEN_IDS_FILE, JSON.stringify(arr), 'utf-8')
-  } catch {}
+let _seenIdsSaveTimer: NodeJS.Timeout | null = null
+
+async function saveSeenVideoIds(ids: Set<string>): Promise<void> {
+  if (_seenIdsSaveTimer) return // already scheduled
+  _seenIdsSaveTimer = setTimeout(async () => {
+    _seenIdsSaveTimer = null
+    try {
+      const arr = Array.from(ids)
+      await fs.promises.writeFile(SEEN_IDS_FILE, JSON.stringify(arr), 'utf-8')
+    } catch {}
+  }, SEEN_IDS_WRITE_DELAY_MS)
 }
 
 // ─── Poller ─────────────────────────────────────────────────────────────────────
@@ -187,17 +195,17 @@ class YouTubePoller {
   }
 
   /** Manually add a video ID to the seen set (e.g., from existing workspaces) */
-  markSeen(videoId: string): void {
+  async markSeen(videoId: string): Promise<void> {
     this._seenVideoIds.add(videoId)
-    saveSeenVideoIds(this._seenVideoIds)
+    await saveSeenVideoIds(this._seenVideoIds)
   }
 
-  private _capSeenIds(): void {
+  private async _capSeenIds(): Promise<void> {
     // Cap at SEEN_IDS_CAP to prevent unbounded memory growth
     if (this._seenVideoIds.size > SEEN_IDS_CAP) {
       const arr = Array.from(this._seenVideoIds)
       this._seenVideoIds = new Set(arr.slice(-SEEN_IDS_CAP))
-      saveSeenVideoIds(this._seenVideoIds)
+      await saveSeenVideoIds(this._seenVideoIds)
     }
   }
 
@@ -315,9 +323,9 @@ class YouTubePoller {
       if (newVideos.length >= this._maxVideosPerPoll) break
     }
 
-    // Persist seen IDs after every detection — survives restarts
-    saveSeenVideoIds(this._seenVideoIds)
-    this._capSeenIds()
+    // Persist seen IDs after every detection — survives restarts (debounced, async)
+    await saveSeenVideoIds(this._seenVideoIds)
+    await this._capSeenIds()
 
     // Log alive status every 60 polls (~2 min at 2s/poll)
     this._pollsSinceLastLog++

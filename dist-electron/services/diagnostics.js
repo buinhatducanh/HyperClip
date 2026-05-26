@@ -48,10 +48,11 @@ const ramdisk_js_1 = require("./ramdisk.js");
 // yt-dlp: check resources/bundled (shipped with app) → node_modules/.bin → PATH
 function getYtdlpStatus() {
     const candidates = [];
-    // Bundled in resources/ — use process.resourcesPath (works for both dev + packaged)
+    // Bundled in resources/ — dev: app.getAppPath()/resources/yt-dlp/yt-dlp.exe
+    // packaged: process.resourcesPath/yt-dlp/yt-dlp.exe
     if (electron_1.app.isReady()) {
-        candidates.push(path_1.default.join(process.resourcesPath, 'yt-dlp', 'yt-dlp.exe'));
         candidates.push(path_1.default.join(electron_1.app.getAppPath(), 'resources', 'yt-dlp', 'yt-dlp.exe'));
+        candidates.push(path_1.default.join(process.resourcesPath || '', 'yt-dlp', 'yt-dlp.exe'));
     }
     // node_modules/.bin (dev + npm package)
     candidates.push(path_1.default.join(process.cwd(), 'node_modules', '.bin', 'yt-dlp.exe'));
@@ -79,7 +80,7 @@ function getYtdlpStatus() {
         }
         catch { }
     }
-    return { ok: false, path: '', error: 'yt-dlp not found. Download từ https://github.com/yt-dlp/yt-dlp/releases hoặc cài Python + pip install yt-dlp.' };
+    return { ok: false, path: '', error: 'yt-dlp not found. Chạy: npm run setup:ytdlp' };
 }
 // Check yt-dlp can execute (basic version check)
 async function getYtdlpVersion(ytdlpPath) {

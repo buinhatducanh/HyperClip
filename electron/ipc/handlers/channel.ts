@@ -186,4 +186,18 @@ export function registerChannelHandlers(ipcMain: IpcMain): void {
     refreshChannelCache()
     return results
   })
+
+  ipcMain.handle(IPC_CHANNELS.CHANNEL_PAUSE, async (_, id: string): Promise<boolean> => {
+    const { pauseChannel } = await import('../../services/store.js')
+    const result = pauseChannel(id)
+    refreshChannelCache()
+    return result
+  })
+
+  ipcMain.handle(IPC_CHANNELS.CHANNEL_RESUME, async (_, id: string): Promise<boolean> => {
+    const { resumeChannel } = await import('../../services/store.js')
+    const result = resumeChannel(id)
+    refreshChannelCache()
+    return result
+  })
 }

@@ -43,6 +43,8 @@ exports.IPC_CHANNELS = {
     CHANNEL_REMOVE: 'channel:remove',
     CHANNEL_UNSUBSCRIBE: 'channel:unsubscribe',
     CHANNEL_SYNCED_EVENT: 'channel:synced-event',
+    CHANNEL_PAUSE: 'channel:pause',
+    CHANNEL_RESUME: 'channel:resume',
     // Settings
     SETTINGS_GET: 'settings:get',
     SETTINGS_UPDATE: 'settings:update',

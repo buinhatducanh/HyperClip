@@ -50,6 +50,8 @@ const IPC = {
     CHANNEL_UPDATE: 'channel:update',
     CHANNEL_REMOVE: 'channel:remove',
     CHANNEL_UNSUBSCRIBE: 'channel:unsubscribe',
+    CHANNEL_PAUSE: 'channel:pause',
+    CHANNEL_RESUME: 'channel:resume',
     // Settings
     SETTINGS_GET: 'settings:get',
     SETTINGS_UPDATE: 'settings:update',
@@ -141,6 +143,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     updateChannel: (id, patch) => ipcRenderer.invoke(IPC.CHANNEL_UPDATE, id, patch),
     removeChannel: (id) => ipcRenderer.invoke(IPC.CHANNEL_REMOVE, id),
     unsubscribeChannel: (id) => ipcRenderer.invoke(IPC.CHANNEL_UNSUBSCRIBE, id),
+    pauseChannel: (id) => ipcRenderer.invoke(IPC.CHANNEL_PAUSE, id),
+    resumeChannel: (id) => ipcRenderer.invoke(IPC.CHANNEL_RESUME, id),
     // Workspaces
     getWorkspaces: () => ipcRenderer.invoke(IPC.WORKSPACE_LIST),
     getVideoFile: (workspaceId) => ipcRenderer.invoke(IPC.VIDEO_FILE, workspaceId),

@@ -126,6 +126,8 @@ interface PlaylistCacheEntry {
 const UPLOADS_CACHE_FILE = path.join(getChannelsDir(), 'uploads-cache.json')
 
 const _uploadsCache = new Map<string, PlaylistCacheEntry>()
+let _cacheSaveTimer: NodeJS.Timeout | null = null
+const _CACHE_WRITE_DELAY_MS = 5_000 // 5s — batch playlist ID resolutions
 
 function _loadCacheFromDisk(): void {
   try {
@@ -145,17 +147,26 @@ function _loadCacheFromDisk(): void {
   }
 }
 
-function _saveCacheToDisk(): void {
-  try {
-    const entries = Array.from(_uploadsCache.entries()).map(([channelId, entry]) => ({
-      channelId,
-      uploadsId: entry.uploadsId,
-      fetchedAt: entry.fetchedAt,
-    }))
-    fs.writeFileSync(UPLOADS_CACHE_FILE, JSON.stringify(entries, null, 2), 'utf-8')
-  } catch (e) {
-    console.warn('[SubFeed] Failed to persist uploads cache:', e)
-  }
+/**
+ * Persist uploads cache to disk.
+ * Debounced: writes are delayed by _CACHE_WRITE_DELAY_MS (30s) to batch changes.
+ * Uses fs.promises to avoid blocking the main thread.
+ */
+async function _saveCacheToDisk(): Promise<void> {
+  if (_cacheSaveTimer) return // already scheduled
+  _cacheSaveTimer = setTimeout(async () => {
+    _cacheSaveTimer = null
+    try {
+      const entries = Array.from(_uploadsCache.entries()).map(([channelId, entry]) => ({
+        channelId,
+        uploadsId: entry.uploadsId,
+        fetchedAt: entry.fetchedAt,
+      }))
+      await fs.promises.writeFile(UPLOADS_CACHE_FILE, JSON.stringify(entries, null, 2), 'utf-8')
+    } catch (e) {
+      console.warn('[SubFeed] Failed to persist uploads cache:', e)
+    }
+  }, _CACHE_WRITE_DELAY_MS)
 }
 
 _loadCacheFromDisk()
@@ -168,9 +179,9 @@ function getCachedUploadsId(channelId: string): string | null {
   return null
 }
 
-function setCachedUploadsId(channelId: string, uploadsId: string): void {
+async function setCachedUploadsId(channelId: string, uploadsId: string): Promise<void> {
   _uploadsCache.set(channelId, { uploadsId, fetchedAt: Date.now() })
-  _saveCacheToDisk()
+  await _saveCacheToDisk()
 }
 
 // ─── Per-Channel Fetch ─────────────────────────────────────────────────────────
@@ -227,7 +238,7 @@ async function fetchChannelWithOAuth(
       return { video: null, quotaError }
     }
     uploadsId = json.items[0].contentDetails?.relatedPlaylists?.uploads || null
-    if (uploadsId) setCachedUploadsId(channelId, uploadsId)
+    if (uploadsId) await setCachedUploadsId(channelId, uploadsId)
   }
 
   if (!uploadsId) return { video: null, quotaError: false }
@@ -240,7 +251,7 @@ async function fetchChannelWithOAuth(
   if (json.error) {
     if (isQuotaError) quotaError = true
     _uploadsCache.delete(channelId)
-    _saveCacheToDisk()
+    void _saveCacheToDisk() // fire-and-forget: stale entry removal doesn't need to block
     return { video: null, quotaError }
   }
 
@@ -402,7 +413,7 @@ export async function fetchSubscriptionFeed(
   const { seenVideoIds } = options
   const targetStop = MAX_VIDEOS_PER_POLL
 
-  const channels = getChannels()
+  const channels = getChannels().filter(c => !c.paused)
   if (channels.length === 0) return { videos: [], source: 'none' }
 
   const results: SubscriptionVideo[] = []

@@ -1,3 +1,7 @@
+# UTF-8 BOM + encoding so Vietnamese text renders correctly in GDI+
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$PSDefaultParameterValues['*:Encoding'] = 'utf8'
+
 param(
     [string]$Video,
     [string]$Blur,

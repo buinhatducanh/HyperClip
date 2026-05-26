@@ -499,7 +499,6 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
         const settings = (0, ramdisk_js_1.loadSettings)();
         const autoTrimLimit = settings.defaultTrimLimit ?? 10;
         const autoQuality = qualityOverride ?? settings.autoDownloadQuality ?? '720';
-        const autoRenderEnabled = settings.autoRender === true;
         // Find the 'waiting' workspace created by enqueueBgDownload
         let ws;
         if (workspaceId) {
@@ -546,6 +545,7 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
         if (preCheck) {
             if (preCheck.isPrivate) {
                 (0, unified_log_js_1.devLog)(`[Auto] Pre-check: video is PRIVATE — skipping download, marking as error`);
+                unified_log_js_1.opLog.error('download', `Private video skipped: ${title}`);
                 (0, store_js_1.markVideoSeen)(channelId, videoId);
                 (0, store_js_1.updateWorkspace)(ws.id, { status: 'error' });
                 broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
@@ -554,6 +554,7 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
             }
             if (preCheck.isNotFound) {
                 (0, unified_log_js_1.devLog)(`[Auto] Pre-check: video not found/deleted — skipping download, marking as error`);
+                unified_log_js_1.opLog.error('download', `Video unavailable: ${title}`);
                 (0, store_js_1.markVideoSeen)(channelId, videoId);
                 (0, store_js_1.updateWorkspace)(ws.id, { status: 'error' });
                 broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
@@ -598,6 +599,11 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
                 if (now - _dlLastBroadcastMs >= 500 || pctDelta >= 2 || progress.speed === 'processing') {
                     _dlLastBroadcastMs = now;
                     _dlLastPercent = progress.percent;
+                    // Update workspace store directly (main process) — ensures downloadProgress
+                    // is always persisted even if renderer status check has a race condition.
+                    // Speed/ETA sent via RENDER_PROGRESS_EVENT, handled by frontend.
+                    (0, store_js_1.updateWorkspace)(ws.id, { downloadProgress: progress.percent });
+                    broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
                     broadcast(channels_js_1.IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
                         workspaceId: ws.id,
                         percent: progress.percent,
@@ -694,6 +700,7 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
         // Short video check: if downloaded video < 60s, mark as error (YouTube Shorts)
         if (realDuration > 0 && realDuration < 60) {
             (0, unified_log_js_1.devLog)(`[Auto] Video too short (${realDuration}s < 60s) — skipping (YouTube Short)`);
+            unified_log_js_1.opLog.error('download', `Video too short (${realDuration}s < 60s): ${title}`);
             try {
                 fs_1.default.unlinkSync(result.filePath);
             }
@@ -759,53 +766,9 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
             subtitle: `${finalChannelName} • ${fileSizeMB} MB • ${downloadElapsed}s`,
             workspaceId: ws.id,
         });
-        // ── Auto-render trigger ───────────────────────────────────────────────────────
-        // Only triggers if: settings.autoRender=true AND no prior attempt on this workspace.
-        // autoRenderAttempted flag prevents infinite loops when render fails → retries.
-        // Uses updatedWs (resolved paths from store) to avoid "file not found" race condition.
-        if (autoRenderEnabled && !ws.autoRenderAttempted) {
-            (0, store_js_1.updateWorkspace)(ws.id, { autoRenderAttempted: true });
-            const autoRes = settings.autoRenderResolution ?? '480x480';
-            // source_video: prefer preScaledPath (already validated to exist above), fallback to downloadedPath
-            const sourceVideo = updatedWs?.preScaledPath || updatedWs?.downloadedPath || preScaledPath || finalFilePath;
-            // Only queue if the source file actually exists on disk
-            if (!sourceVideo || !fs_1.default.existsSync(sourceVideo)) {
-                (0, unified_log_js_1.devLog)(`[Auto] Render skipped — source file not found: ${sourceVideo}`);
-            }
-            else {
-                const autoMetadata = {
-                    workspace_id: ws.id,
-                    source_video: sourceVideo,
-                    export_resolution: autoRes,
-                    video_speed: 1.0,
-                    fps_target: settings.autoRenderFPS ?? 30,
-                    // Default "PART 1" title overlay — drawtext renders it at bottom of canvas.
-                    overlays: [{ type: 'title', content: 'PART 1', borderColor: '#00B4FF' }],
-                    trim: { start: 0, end: finalDuration },
-                    codec: 'h264',
-                    preset: 'p1',
-                    tune: 'ull',
-                    // Landscape (16:9) videos: use thumbnail as canvas background image.
-                    // Portrait (9:16) videos: blur_background is generated separately.
-                    // thumbPath is created at line 812 above — available at this point.
-                    backgroundType: blurBgPath ? 'blur' : 'image',
-                    backgroundColor: '#000000',
-                    backgroundImage: blurBgPath ? undefined : path_1.default.join(storagePath, `thumb_${ws.id}.jpg`),
-                    blur_background: blurBgPath,
-                    isShort: false,
-                };
-                (0, unified_log_js_1.devLog)(`[Auto] Triggering render: ${realTitle} @ ${autoRes}`);
-                // Push to render queue and start — same pattern as RENDER_START IPC handler
-                renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve: () => { } });
-                const max = (0, ramdisk_js_1.loadSettings)().maxConcurrentRenders ?? 2;
-                if ((0, worker_pool_js_1.getPoolStatus)().active < max) {
-                    startNextQueuedRender();
-                }
-            }
-        }
-        else {
-            (0, unified_log_js_1.devLog)(`[Auto] Downloaded — ready (autoRender=${autoRenderEnabled}, attempted=${!!ws.autoRenderAttempted})`);
-        }
+        // Auto-render is DISABLED — removed per user request (2026-05-26)
+        // if (autoRenderEnabled && !ws.autoRenderAttempted) { ... }
+        (0, unified_log_js_1.devLog)(`[Auto] Downloaded — ready (autoRender DISABLED)`);
         // Only mark as seen AFTER successful download — so YouTube processing delay doesn't block retry
         (0, store_js_1.markVideoSeen)(channelId, videoId);
     }
@@ -860,6 +823,8 @@ async function doRetryAutoDownload(ws) {
             if (now - _retryDlLastMs >= 500 || pctDelta >= 2) {
                 _retryDlLastMs = now;
                 _retryDlLastPct = progress.percent;
+                (0, store_js_1.updateWorkspace)(ws.id, { downloadProgress: progress.percent });
+                broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
                 broadcast(channels_js_1.IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
                     workspaceId: ws.id,
                     percent: progress.percent,
@@ -886,6 +851,7 @@ async function doRetryAutoDownload(ws) {
         // Skip 9:16 vertical videos — user only wants landscape 16:9 content
         if (aspect?.isShort) {
             (0, unified_log_js_1.devLog)(`[Retry] Skipping 9:16 vertical video: ${ws.videoTitle}`);
+            unified_log_js_1.opLog.error('download', `9:16 vertical video skipped: ${ws.videoTitle}`);
             try {
                 fs_1.default.unlinkSync(result.filePath);
             }
@@ -899,6 +865,7 @@ async function doRetryAutoDownload(ws) {
         // Short video check
         if (realDuration > 0 && realDuration < 60) {
             (0, unified_log_js_1.devLog)(`[Retry] Video too short (${realDuration}s < 60s) — skipping (YouTube Short)`);
+            unified_log_js_1.opLog.error('download', `Video too short (${realDuration}s < 60s): ${ws.videoTitle}`);
             try {
                 fs_1.default.unlinkSync(result.filePath);
             }
@@ -984,87 +951,7 @@ async function doRetryAutoDownload(ws) {
 // was disabled at download time, or workspace was created before the feature existed).
 // Triggers auto-render for each one — so nothing slips through the cracks.
 function triggerAutoRenderForReadyWorkspaces() {
-    const settings = (0, ramdisk_js_1.loadSettings)();
-    if (settings.autoRender !== true)
-        return;
-    const workspaces = (0, store_js_1.getWorkspaces)();
-    const storagePath = (0, ramdisk_js_1.getVideoStoragePath)();
-    for (const ws of workspaces) {
-        // Only process 'ready' workspaces without a prior auto-render attempt
-        if (ws.status !== 'ready')
-            continue;
-        if (ws.autoRenderAttempted === true)
-            continue;
-        // Resolve the downloaded file — stored as basename, reconstruct absolute path
-        const storedName = ws.downloadedPath || '';
-        let videoPath = storedName;
-        if (storedName && !path_1.default.isAbsolute(storedName)) {
-            const candidates = [storagePath, (0, ramdisk_js_1.getVideoStoragePath)()];
-            for (const dir of candidates) {
-                const candidate = path_1.default.join(dir, storedName);
-                if (fs_1.default.existsSync(candidate)) {
-                    videoPath = candidate;
-                    break;
-                }
-            }
-        }
-        if (!videoPath || !fs_1.default.existsSync(videoPath)) {
-            (0, unified_log_js_1.devLog)(`[AutoCatchup] Skipping ${ws.id} — file not found: ${videoPath || storedName}`);
-            continue;
-        }
-        // Get blur background if available
-        const { blurPath } = (0, ramdisk_js_1.generateWorkspacePaths)(ws.id);
-        const blurBgPath = ws.blurBackgroundPath || (fs_1.default.existsSync(blurPath) ? blurPath : '');
-        // Resolve thumbnail path: workspace.thumbnail is "local-video:///D:/path/to/thumb_xxx.jpg"
-        // Extract the filesystem path from this URI to find the actual thumbnail location.
-        // This is more reliable than reconstructing from storagePath (which may differ from
-        // the actual download directory on machines with multiple storage paths).
-        let thumbnailPath = '';
-        if (ws.thumbnail?.startsWith('local-video:///')) {
-            thumbnailPath = ws.thumbnail.replace('local-video:///', '').replace(/\//g, '\\');
-        }
-        else {
-            // Fallback: scan known dirs for thumb_{wsId}.jpg
-            const thumbCandidates = [
-                path_1.default.join(storagePath, `thumb_${ws.id}.jpg`),
-                path_1.default.join((0, ramdisk_js_1.getVideoStoragePath)(), `thumb_${ws.id}.jpg`),
-                path_1.default.join('D:\\HyperClip-Data\\downloads', `thumb_${ws.id}.jpg`),
-            ];
-            for (const tc of thumbCandidates) {
-                if (fs_1.default.existsSync(tc)) {
-                    thumbnailPath = tc;
-                    break;
-                }
-            }
-        }
-        const autoRes = settings.autoRenderResolution ?? '480x480';
-        const autoMetadata = {
-            workspace_id: ws.id,
-            source_video: videoPath,
-            export_resolution: autoRes,
-            video_speed: 1.0,
-            fps_target: settings.autoRenderFPS ?? 30,
-            overlays: [{ type: 'title', content: 'PART 1', borderColor: '#00B4FF' }],
-            trim: { start: 0, end: ws.duration || 0 },
-            codec: 'h264',
-            preset: 'p1',
-            tune: 'ull',
-            // Portrait (9:16): use blur bg. Landscape (16:9): use thumbnail.
-            backgroundType: blurBgPath ? 'blur' : 'image',
-            backgroundColor: '#000000',
-            backgroundImage: blurBgPath ? undefined : (thumbnailPath && fs_1.default.existsSync(thumbnailPath) ? thumbnailPath : undefined),
-            blur_background: blurBgPath,
-            isShort: ws.isShort ?? false,
-        };
-        // Mark as attempted FIRST to avoid double-trigger
-        (0, store_js_1.updateWorkspace)(ws.id, { autoRenderAttempted: true });
-        (0, unified_log_js_1.devLog)(`[AutoCatchup] Triggering render for ${ws.id} (${ws.videoTitle?.slice(0, 40)})`);
-        renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve: () => { } });
-        const max = (0, ramdisk_js_1.loadSettings)().maxConcurrentRenders ?? 2;
-        if ((0, worker_pool_js_1.getPoolStatus)().active < max) {
-            startNextQueuedRender();
-        }
-    }
+    // Auto-render is DISABLED — removed per user request (2026-05-26)
 }
 // ─── Scan existing downloaded files on startup ────────────────────────────────────
 // Finds any video files in the storage directory that were downloaded previously

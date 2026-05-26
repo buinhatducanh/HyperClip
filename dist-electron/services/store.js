@@ -8,6 +8,8 @@ exports.getChannels = getChannels;
 exports.getChannel = getChannel;
 exports.addChannel = addChannel;
 exports.updateChannel = updateChannel;
+exports.pauseChannel = pauseChannel;
+exports.resumeChannel = resumeChannel;
 exports.removeChannel = removeChannel;
 exports.getWorkspaces = getWorkspaces;
 exports.getWorkspace = getWorkspace;
@@ -169,6 +171,26 @@ function updateChannel(id, patch) {
     saveChannels(channels);
     _invalidateChannelCache();
     return channels[idx];
+}
+function pauseChannel(id) {
+    const channels = loadChannels();
+    const idx = channels.findIndex(c => c.id === id);
+    if (idx === -1)
+        return false;
+    channels[idx].paused = true;
+    saveChannels(channels);
+    _invalidateChannelCache();
+    return true;
+}
+function resumeChannel(id) {
+    const channels = loadChannels();
+    const idx = channels.findIndex(c => c.id === id);
+    if (idx === -1)
+        return false;
+    channels[idx].paused = false;
+    saveChannels(channels);
+    _invalidateChannelCache();
+    return true;
 }
 function removeChannel(id) {
     const channels = loadChannels();

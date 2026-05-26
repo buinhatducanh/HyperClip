@@ -365,33 +365,37 @@ function buildFilterComplex(opts) {
         // eslint-disable-next-line no-useless-assignment
         let videoChain2 = '';
         const cropXNum = Math.round((videoH * 16 / 9 - canvasW) / 2);
+        // Speed-adjusted trim duration: when speed > 1, input timestamps are compressed,
+        // so the same raw duration produces fewer output seconds.
+        const speedAdjust = speedFilter
+            ? (() => {
+                const m = speedFilter.match(/setpts=([\d.]+)\/([\d.]+)\*PTS/);
+                return m ? parseFloat(m[1]) / parseFloat(m[2]) : 1;
+            })()
+            : 1;
+        const adjustedDuration = trimDuration > 0 ? trimDuration * speedAdjust : 999999;
         if (cropXNum >= 0) {
             // Scale source to videoH tall (preserves aspect), then crop to canvasW wide.
             // e.g. canvas 1080x1920, videoH=960: scale 1920x1080 → 1707x960, crop 157 each side → 1080x960.
             const cropX = cropXNum;
-            // Frame rate: fps=30 BEFORE trim+setpts (like PS1 script).
-            // Order: fps→setpts (NOT setpts→fps). fps normalizes framerate first, setpts resets timestamps.
-            // NO select filter — causes 2x frame halving when combined with fps=30.
+            // Correct order: fps → setpts(speed) → trim → setpts(reset) → scale → crop
+            // Speed BEFORE trim: compresses timestamps so trim duration refers to output seconds.
             const fpsTag = fpsTarget ? `fps=${fpsTarget},` : '';
+            const speedTag = speedFilter ? `${speedFilter},` : '';
             const trimSection = (trimStart > 0 || trimDuration > 0)
-                ? `[0:v]${fpsTag}trim=start=${trimStart}:duration=${trimDuration > 0 ? trimDuration : 999999},setpts=PTS-STARTPTS,`
-                : `[0:v]${fpsTag}setpts=PTS-STARTPTS,`;
-            // cropY: center the video content vertically in the video zone.
-            // Shift by videoTop so video starts at row videoTop (below header zone).
+                ? `[0:v]${fpsTag}${speedTag}trim=start=${trimStart}:duration=${adjustedDuration},setpts=PTS-STARTPTS,`
+                : `[0:v]${fpsTag}${speedTag}setpts=PTS-STARTPTS,`;
             const cropY = videoTop;
-            videoChain2 = `${trimSection}${scale}=-2:${videoH}:flags=lanczos,crop=${canvasW}:${videoH}:${cropX}:${cropY}${speedFilter ? ',' + speedFilter : ''}[vid]`;
+            videoChain2 = `${trimSection}${scale}=-2:${videoH}:flags=lanczos,crop=${canvasW}:${videoH}:${cropX}:${cropY}[vid]`;
         }
         else {
-            // Source narrower than canvas aspect: scale to canvasW wide, crop excess height.
-            // e.g. canvas 1080x1920, videoH=960, canvasW=1080: cropY=(1080*9/16-960)/2 = -281 < 0
-            // → cropY < 0 means source is too tall for video zone → crop 0 top, center the video.
             const cropY = Math.round((canvasW * 9 / 16 - videoH) / 2) + videoTop;
-            // Frame rate: fps=30 BEFORE trim+setpts. NO select filter (2x halving bug).
             const fpsTag = fpsTarget ? `fps=${fpsTarget},` : '';
+            const speedTag = speedFilter ? `${speedFilter},` : '';
             const trimSection = (trimStart > 0 || trimDuration > 0)
-                ? `[0:v]${fpsTag}trim=start=${trimStart}:duration=${trimDuration > 0 ? trimDuration : 999999},setpts=PTS-STARTPTS,`
-                : `[0:v]${fpsTag}setpts=PTS-STARTPTS,`;
-            videoChain2 = `${trimSection}${scale}=${canvasW}:-2:flags=lanczos,crop=${canvasW}:${videoH}:0:${cropY >= 0 ? cropY : 0}${speedFilter ? ',' + speedFilter : ''}[vid]`;
+                ? `[0:v]${fpsTag}${speedTag}trim=start=${trimStart}:duration=${adjustedDuration},setpts=PTS-STARTPTS,`
+                : `[0:v]${fpsTag}${speedTag}setpts=PTS-STARTPTS,`;
+            videoChain2 = `${trimSection}${scale}=${canvasW}:-2:flags=lanczos,crop=${canvasW}:${videoH}:0:${cropY >= 0 ? cropY : 0}[vid]`;
         }
         // [1:v] thumbnail → FILL canvas (not fit within).
         // force_original_aspect_ratio=increase: scale up until canvas is covered.
@@ -456,10 +460,21 @@ function buildFilterComplex(opts) {
     const needsTrim = trimStart > 0 || trimDuration > 0;
     const fpsTag = fpsTarget ? `fps=${fpsTarget},` : '';
     // fps BEFORE trim+setpts: normalizes framerate first, then setpts resets timestamps to 0.
-    // No select filter: fps=30 already outputs correct 30fps by duplicating/dropping frames as needed.
+    // Speed-adjusted trim duration: when speed > 1, input timestamps are compressed,
+    // so the same raw duration produces fewer output seconds.
+    const speedAdjust = speedFilter
+        ? (() => {
+            const m = speedFilter.match(/setpts=([\d.]+)\/([\d.]+)\*PTS/);
+            return m ? parseFloat(m[1]) / parseFloat(m[2]) : 1;
+        })()
+        : 1;
+    const adjustedDuration = trimDuration > 0 ? trimDuration * speedAdjust : 999999;
+    // Correct filter order: fps → setpts(speed) → trim → setpts(reset) → scale → crop
+    // Speed BEFORE trim: compresses timestamps so trim duration refers to output seconds.
+    const speedTag = speedFilter ? `${speedFilter},` : '';
     const trimSection = needsTrim
-        ? `[0:v]${fpsTag}trim=start=${trimStart}:duration=${trimDuration > 0 ? trimDuration : 999999},setpts=PTS-STARTPTS[trimmed]; `
-        : `[0:v]${fpsTag}setpts=PTS-STARTPTS[trimmed]; `;
+        ? `[0:v]${fpsTag}${speedTag}trim=start=${trimStart}:duration=${adjustedDuration},setpts=PTS-STARTPTS[trimmed]; `
+        : `[0:v]${fpsTag}${speedTag}setpts=PTS-STARTPTS[trimmed]; `;
     // Video: fill canvas width, crop to videoH tall (bottomBarH gap left at bottom).
     // For 16:9 source → 9:16 canvas (1080x1920) with 64px bottom bar:
     //   scale=-2:videoH → source 1920x1080 → 1920x1472 (scales to target height, width auto)
@@ -468,8 +483,7 @@ function buildFilterComplex(opts) {
     //   Result: video covers rows headerH..(canvasH-bottomBarH-1), BG shows in header + bottom bar gap
     const scaledW = Math.round(videoH * 16 / 9);
     const cropX = Math.round((scaledW - canvasW) / 2);
-    const speedFps = speedFilter ? ',' + speedFilter : '';
-    const scaleChain = `${trimSection}[trimmed]${scale}=-2:${videoH}:flags=lanczos,crop=${canvasW}:${videoH}:${cropX}:0${speedFps}[vid]`;
+    const scaleChain = `${trimSection}[trimmed]${scale}=-2:${videoH}:flags=lanczos,crop=${canvasW}:${videoH}:${cropX}:0[vid]`;
     const videoChain = scaleChain;
     // Scale background to canvas — FILL canvas (not fit within).
     // BG shows through: header zone (top) + bottom bar gap (bottom).
@@ -732,7 +746,7 @@ async function preRenderOverlays(metadata, outputDir, workspaceId, gpuTier = 'so
     // If blur unavailable → solid accent color as background
     const bottomBarOverlayPath = path_1.default.join(outputDir, 'bottom_bar_overlay.png');
     const bbBgPath = path_1.default.join(os_1.default.tmpdir(), 'hc_bb_bg_' + Date.now() + '.png').replace(/\\/g, '/');
-    const bbFontSize = Math.max(36, Math.floor(bottomBarH * 0.45));
+    const bbFontSize = Math.max(28, Math.floor(bottomBarH * 0.25));
     const blurPath = metadata.blur_background;
     const runFf = (args) => new Promise((resolve) => {
         const ffmpegBin = (0, ffmpeg_paths_js_1.getFfmpegPath)();
@@ -742,7 +756,9 @@ async function preRenderOverlays(metadata, outputDir, workspaceId, gpuTier = 'so
         proc.stderr?.on('data', d => { se += d.toString(); });
         proc.on('close', code => resolve({ code: code ?? 1, stderr: se }));
     });
-    const bbPs1 = [
+    // UTF-8 BOM + encoding directive so GDI+ correctly renders Vietnamese diacritics
+    const bbPs1Enc = '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;$PSDefaultParameterValues[\'*<:Encoding\']=\'utf8\'';
+    const bbPs1Parts = [
         'Add-Type -AssemblyName System.Drawing',
         `$w=${canvasW};$h=${bottomBarH};$bg="${bbBgPath}";$out="${bottomBarOverlayPath.replace(/\\/g, '/')}"`,
         '$bmp=New-Object System.Drawing.Bitmap($w,$h)',
@@ -775,13 +791,15 @@ async function preRenderOverlays(metadata, outputDir, workspaceId, gpuTier = 'so
         '$bmp.Save($out,[System.Drawing.Imaging.ImageFormat]::Png)',
         '$bmp.Dispose()',
         'Write-Host OK',
-    ].join(';');
+    ];
+    const bbPs1 = bbPs1Enc + ';' + bbPs1Parts.join(';');
     // Step 1: FFmpeg creates background (blur scaled to bar size, or solid color)
     const ffBgPromise = (blurPath && fs_1.default.existsSync(blurPath))
         ? runFf(['-i', blurPath, '-vf', `scale=${canvasW}:${bottomBarH}:force_original_aspect_ratio=increase,crop=${canvasW}:${bottomBarH}:(ow-iw)/2:(oh-ih)/2`, '-y', bbBgPath])
         : runFf(['-f', 'lavfi', '-i', `color=c=${hex.substring(0, 6)}:s=${canvasW}x${bottomBarH}:d=0.01`, '-frames:v', '1', '-y', bbBgPath]);
     const bbPs1File = path_1.default.join(os_1.default.tmpdir(), 'hc_bb_' + Date.now() + '.ps1').replace(/\\/g, '/');
-    fs_1.default.writeFileSync(bbPs1File, bbPs1);
+    // UTF-8 BOM so PowerShell/GDI+ reads Vietnamese text correctly
+    fs_1.default.writeFileSync(bbPs1File, '﻿' + bbPs1, 'utf8');
     // ── LANDSCAPE mode: title overlay PNG (transparent bg, border+text) ──
     // eslint-disable-next-line no-useless-assignment
     let titleOverlayPath = null;
@@ -789,7 +807,8 @@ async function preRenderOverlays(metadata, outputDir, workspaceId, gpuTier = 'so
     const borderPx = Math.max(5, Math.floor(titleBarH * 0.02));
     const fontSize = Math.max(28, Math.floor(titleBarH * 0.28));
     titleOverlayPath = path_1.default.join(outputDir, 'title_overlay.png');
-    const titlePs1 = [
+    const titlePs1Enc = '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;$PSDefaultParameterValues[\'*<:Encoding\']=\'utf8\'';
+    const titlePs1Parts = [
         'Add-Type -AssemblyName System.Drawing',
         `$w=${canvasW};$h=${titleBarH};$b=${borderPx}`,
         '$bmp=New-Object System.Drawing.Bitmap($w,$h)',
@@ -809,9 +828,10 @@ async function preRenderOverlays(metadata, outputDir, workspaceId, gpuTier = 'so
         '$bmp.Save("' + titleOverlayPath.replace(/\\/g, '/') + '",[System.Drawing.Imaging.ImageFormat]::Png)',
         '$bmp.Dispose()',
         'Write-Host OK',
-    ].join(';');
+    ];
+    const titlePs1 = titlePs1Enc + ';' + titlePs1Parts.join(';');
     const titlePs1File = path_1.default.join(os_1.default.tmpdir(), 'hc_title_' + Date.now() + '.ps1').replace(/\\/g, '/');
-    fs_1.default.writeFileSync(titlePs1File, titlePs1);
+    fs_1.default.writeFileSync(titlePs1File, '﻿' + titlePs1, 'utf8');
     // Step 1: FFmpeg generates blur background for bottom bar
     const ffResult = await ffBgPromise;
     if (ffResult.code !== 0)
@@ -941,6 +961,32 @@ async function renderVideo(metadata, outputDir, onProgress, gpuTier = 'software'
     const trimStart = trim.start;
     const trimEnd = trim.end;
     const trimDuration = trimEnd - trimStart;
+    // Audio speed filter: when video speed != 1.0, audio must be sped up/down too.
+    // atempo: 0.5 to 2.0 range. For speed > 2.0, chain multiple atempo filters.
+    // e.g. speed=2.5 → 'atempo=2.0,atempo=1.25'; speed=4.0 → 'atempo=2.0,atempo=2.0'
+    const audioSpeedFilter = (() => {
+        if (!video_speed || video_speed === 1.0)
+            return null;
+        const s = video_speed;
+        if (s >= 0.5 && s <= 2.0)
+            return `atempo=${s}`;
+        if (s > 2.0) {
+            const factors = [];
+            let remaining = s;
+            while (remaining > 2.0) {
+                factors.push('2.0');
+                remaining /= 2.0;
+            }
+            if (remaining !== 1.0)
+                factors.push(remaining.toFixed(2));
+            return 'atempo=' + factors.join(',atempo=');
+        }
+        if (s < 0.5) {
+            // atempo minimum is 0.5. For slower speeds, use PTS stretch instead (audio desync acceptable for < 1.0)
+            return null;
+        }
+        return null;
+    })();
     // Speed-adjusted output duration: trim duration divided by speed multiplier.
     // e.g. 4:00 (240s) at 1.2x speed → 200s output.
     const duration = video_speed !== 1.0 ? trimDuration / video_speed : trimDuration;
@@ -959,7 +1005,9 @@ async function renderVideo(metadata, outputDir, onProgress, gpuTier = 'software'
     const overlayResult = await preRenderOverlays(metadata, outputDir, workspace_id, gpuTier);
     const bottomBarOverlayPath = overlayResult.bottomBarOverlayPath ?? undefined;
     const titleOverlayPath = overlayResult.titleOverlayPath ?? undefined;
-    // Build filter complex using the corrected SHORT/LANDSCAPE logic
+    // Build filter complex using the corrected SHORT/LANDSCAPE logic.
+    // Pass raw trimDuration (not speed-adjusted) — buildFilterComplex applies speed
+    // filter BEFORE trim, so it calculates the speed-adjusted duration internally.
     const filterComplex = buildFilterComplex({
         useCuda: getHwCaps().hasCudaFilters,
         headerOl,
@@ -978,7 +1026,7 @@ async function renderVideo(metadata, outputDir, onProgress, gpuTier = 'software'
         isShort: resolvedIsShort,
         fpsTarget: fps_target || 30,
         trimStart,
-        trimDuration: duration,
+        trimDuration: trimDuration,
         watermarkText: metadata.watermarkText,
     });
     // Determine which output label from the filter chain to use
@@ -1034,9 +1082,9 @@ async function renderVideo(metadata, outputDir, onProgress, gpuTier = 'software'
         ...((resolvedIsShort && bottomBarOverlayPath) || (!resolvedIsShort && titleOverlayPath)
             ? ['-i', quotePath((resolvedIsShort ? bottomBarOverlayPath : titleOverlayPath))]
             : []),
-        '-filter_complex', filterComplex,
+        '-filter_complex', filterComplex + (audioSpeedFilter ? `; [0:a?]${audioSpeedFilter}[audio]` : ''),
         '-map', mapOutput,
-        '-map', '0:a?',
+        '-map', audioSpeedFilter ? '[audio]' : '0:a?',
         '-c:v', nvencCodec,
         ...(isGpuAvailable ? getNvencParams(codec, false, gpuTier, canvasW, canvasH, metadata.preset) : ['-preset', 'ultrafast', '-crf', '20']),
         '-c:a', audioCodec,
@@ -1146,6 +1194,26 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
     const speedFilter = videoSpeed && videoSpeed !== 1.0
         ? 'setpts=' + (1 / videoSpeed) + '*PTS'
         : '';
+    // Audio speed filter: atempo can handle 0.5-2.0 range. For speed > 2.0, chain multiple.
+    const audioSpeedFilter = (() => {
+        if (!videoSpeed || videoSpeed === 1.0)
+            return null;
+        const s = videoSpeed;
+        if (s >= 0.5 && s <= 2.0)
+            return `atempo=${s}`;
+        if (s > 2.0) {
+            const factors = [];
+            let remaining = s;
+            while (remaining > 2.0) {
+                factors.push('2.0');
+                remaining /= 2.0;
+            }
+            if (remaining !== 1.0)
+                factors.push(remaining.toFixed(2));
+            return 'atempo=' + factors.join(',atempo=');
+        }
+        return null;
+    })();
     // Build background input based on type: blur (blurBg image), solid (lavfi color), image (image file)
     let bgInput;
     if (backgroundType === 'solid') {
@@ -1174,36 +1242,34 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
         // When pre-scaled and cropXNum < 0 (source narrower than canvas): source is already at
         // canvas width, just format+fps+crop.
         const cropXNum = Math.round((videoH * 16 / 9 - canvasW) / 2);
-        let videoSection;
+        // Speed-adjusted trim duration: when speed > 1, input timestamps are compressed,
+        // so the same raw duration produces fewer output seconds.
+        const speedAdjust = speedFilter
+            ? (() => {
+                const m = speedFilter.match(/setpts=([\d.]+)\/([\d.]+)\*PTS/);
+                return m ? parseFloat(m[1]) / parseFloat(m[2]) : 1;
+            })()
+            : 1;
+        const adjustedChunkDuration = trimDuration > 0 ? trimDuration * speedAdjust : 999999;
+        // Correct order: fps → setpts(speed) → trim → setpts(reset) → scale → crop
+        // Speed BEFORE trim: compresses timestamps so trim duration refers to output seconds.
+        const speedTag = speedFilter ? speedFilter.replace(',', '') + ',' : '';
         const trimPre = (trimStart > 0 || trimDuration > 0)
-            ? "trim=start=" + trimStart + ":duration=" + (trimDuration > 0 ? trimDuration : 999999) + ",fps=" + fpsTarget + ",setpts=PTS-STARTPTS,"
-            : "fps=" + fpsTarget + ",setpts=PTS-STARTPTS,";
+            ? "[0:v]fps=" + fpsTarget + "," + speedTag + "trim=start=" + trimStart + ":duration=" + adjustedChunkDuration + ",setpts=PTS-STARTPTS,"
+            : "fps=" + fpsTarget + "," + speedTag + "setpts=PTS-STARTPTS,";
+        let videoSection;
         if (cropXNum >= 0) {
             // Scale source to videoH tall (preserves aspect), crop horizontally to canvasW.
             // Shift crop by videoTop so video content starts at row videoTop (below header zone).
             const cropYChunked = videoTop;
-            if (speedFilter) {
-                videoSection = '[0:v]' + trimPre + scale + '=-2:' + videoH + sf + ',crop=' + canvasW + ':' + videoH + ':' + cropXNum + ':' + cropYChunked + '[scaled]; [scaled]' + speedFilter.replace(',', '') + '[vid]';
-            }
-            else {
-                videoSection = '[0:v]' + trimPre + scale + '=-2:' + videoH + sf + ',crop=' + canvasW + ':' + videoH + ':' + cropXNum + ':' + cropYChunked + '[vid]';
-            }
+            videoSection = '[0:v]' + trimPre + scale + '=-2:' + videoH + sf + ',crop=' + canvasW + ':' + videoH + ':' + cropXNum + ':' + cropYChunked + '[vid]';
         }
         else {
             // Source narrower than canvas: scale by width, crop excess height.
             // When pre-scaled: source is already at canvasW wide — skip scale, just format+crop.
             const cropY = Math.round((canvasW * 9 / 16 - videoH) / 2) + videoTop;
             if (isPreScaled) {
-                // Pre-scaled source is already canvasW wide — scale to cropY or pad to center.
-                if (speedFilter) {
-                    videoSection = '[0:v]' + trimPre + 'format=yuv420p,crop=' + canvasW + ':' + videoH + ':0:' + cropY + '[scaled]; [scaled]' + speedFilter.replace(',', '') + '[vid]';
-                }
-                else {
-                    videoSection = '[0:v]' + trimPre + 'format=yuv420p,crop=' + canvasW + ':' + videoH + ':0:' + cropY + '[vid]';
-                }
-            }
-            else if (speedFilter) {
-                videoSection = '[0:v]' + trimPre + scale + '=' + canvasW + ':-2' + sf + ',crop=' + canvasW + ':' + videoH + ':0:' + cropY + '[scaled]; [scaled]' + speedFilter.replace(',', '') + '[vid]';
+                videoSection = '[0:v]' + trimPre + 'format=yuv420p,crop=' + canvasW + ':' + videoH + ':0:' + cropY + '[vid]';
             }
             else {
                 videoSection = '[0:v]' + trimPre + scale + '=' + canvasW + ':-2' + sf + ',crop=' + canvasW + ':' + videoH + ':0:' + cropY + '[vid]';
@@ -1277,8 +1343,8 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
             ...(headerOlSrc ? ['-i', quotePath(headerOlSrc)] : ['-f', 'lavfi', '-i', 'color=black:s=2x2:d=1:r=1']),
             ...(titleOverlayPath ? ['-i', quotePath(titleOverlayPath)] : []),
             '-filter_threads', '16',
-            '-filter_complex', fixedFilterChain,
-            '-map', mapOutput, '-map', '0:a?',
+            '-filter_complex', fixedFilterChain + (audioSpeedFilter ? `; [0:a?]${audioSpeedFilter}[audio]` : ''),
+            '-map', mapOutput, '-map', audioSpeedFilter ? '[audio]' : '0:a?',
             '-c:v', nvencCodec,
             ...getNvencParams(codec, true, gpuTier, canvasW, canvasH),
             '-max_muxing_queue_size', '512',
@@ -1290,9 +1356,22 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
     // Build section array for SHORT mode with correct ordering:
     // Layout: header (top) → video (middle, bottom touches bar) → bottom bar (bottom)
     // Frame rate: fps=N (no select filter — causes 2x halving when combined with fps=N)
+    //
+    // Speed-adjusted trim duration: when speed > 1, input timestamps are compressed,
+    // so the same raw duration produces fewer output seconds.
+    const speedAdjust = speedFilter
+        ? (() => {
+            const m = speedFilter.match(/setpts=([\d.]+)\/([\d.]+)\*PTS/);
+            return m ? parseFloat(m[1]) / parseFloat(m[2]) : 1;
+        })()
+        : 1;
+    const adjustedChunkDuration = trimDuration > 0 ? trimDuration * speedAdjust : 999999;
+    // Correct order: fps → setpts(speed) → trim → setpts(reset) → scale → crop
+    // Speed BEFORE trim: compresses timestamps so trim duration refers to output seconds.
+    const speedTag = speedFilter ? speedFilter.replace(',', '') + ',' : '';
     const trimPre = (trimStart > 0 || trimDuration > 0)
-        ? 'trim=start=' + trimStart + ':duration=' + (trimDuration > 0 ? trimDuration : 999999) + ',fps=' + fpsTarget + ',setpts=PTS-STARTPTS,'
-        : 'fps=' + fpsTarget + ',setpts=PTS-STARTPTS,';
+        ? '[0:v]fps=' + fpsTarget + ',' + speedTag + 'trim=start=' + trimStart + ':duration=' + adjustedChunkDuration + ',setpts=PTS-STARTPTS,'
+        : '[0:v]fps=' + fpsTarget + ',' + speedTag + 'setpts=PTS-STARTPTS,';
     const sections = [];
     const hasHeader = !!headerOlSrc;
     const hasBottomBar = !!titleOverlayPath || !!titleOl?.content;
@@ -1301,13 +1380,13 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
     // Section 1: video — trim → fps → scale → crop to videoH tall
     // videoH = canvasH - headerH - bbH (bottomBarH gap left at bottom)
     if (isPreScaled) {
-        const sc = '[0:v]' + trimPre + 'format=yuv420p,crop=in_w:' + videoH + ':0:(in_h/2-' + videoH + '/2)';
-        sections.push(speedFilter ? sc + ',' + speedFilter + '[vid]' : sc + '[vid]');
+        const sc = trimPre + 'format=yuv420p,crop=in_w:' + videoH + ':0:(in_h/2-' + videoH + '/2)[vid]';
+        sections.push(sc);
     }
     else {
         // scale=-2:videoH → source 1920x1080 → 1920x1472; crop center canvasW columns
         // lanczos: better quality than bilinear for upscaling (720p→1080p) and downscaling
-        sections.push('[0:v]' + trimPre + scale + '=-2:' + videoH + ':flags=lanczos,crop=' + canvasW + ':' + videoH + ':(iw-' + canvasW + ')/2:0[vid]');
+        sections.push(trimPre + scale + '=-2:' + videoH + ':flags=lanczos,crop=' + canvasW + ':' + videoH + ':(iw-' + canvasW + ')/2:0[vid]');
     }
     // Section 2: background — FILL canvas.
     const bgFilter = backgroundType === 'solid'
@@ -1366,8 +1445,8 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
             : []),
         ...(isShort && hasBottomBar ? ['-i', quotePath(titleOverlayPath)] : []),
         '-filter_threads', '16',
-        '-filter_complex', filterChain,
-        '-map', finalLabel, '-map', '0:a?',
+        '-filter_complex', filterChain + (audioSpeedFilter ? `; [0:a?]${audioSpeedFilter}[audio]` : ''),
+        '-map', finalLabel, '-map', audioSpeedFilter ? '[audio]' : '0:a?',
         '-c:v', nvencCodec,
         ...getNvencParams(codec, true, gpuTier),
         '-max_muxing_queue_size', '512',
@@ -1590,13 +1669,15 @@ async function renderChunked(metadata, outputDir, config = {}, onProgress) {
         fs_1.default.mkdirSync(workspaceDir, { recursive: true });
     onProgress?.({ workspaceId: workspace_id, percent: 0, currentTime: 0, totalTime: 0, fps: 0, speed: '', bitrate: '', phase: 'split' });
     let splitPoints = [trimStart];
-    const targetChunks = Math.ceil(totalDuration / chunkDuration);
+    // Chunk splitting is based on RAW duration (input video), not speed-adjusted output duration.
+    // Each chunk's raw duration × speed = output duration.
+    const targetChunks = Math.ceil(rawTrimDuration / chunkDuration);
     // Smart keyframe detection: only for longer videos
-    const keyframes = totalDuration > 120
-        ? await findKeyframeSmart(source_video, totalDuration, targetChunks)
+    const keyframes = rawTrimDuration > 120
+        ? await findKeyframeSmart(source_video, rawTrimDuration, targetChunks)
         : [];
     if (keyframes.length > 2) {
-        const idealInterval = totalDuration / targetChunks;
+        const idealInterval = rawTrimDuration / targetChunks;
         let nextSplit = trimStart + idealInterval;
         for (const kf of keyframes) {
             if (kf >= nextSplit - 0.5 && kf <= nextSplit + 2) {
@@ -1609,7 +1690,7 @@ async function renderChunked(metadata, outputDir, config = {}, onProgress) {
     }
     else {
         for (let i = 1; i < targetChunks; i++) {
-            splitPoints.push(trimStart + i * (totalDuration / targetChunks));
+            splitPoints.push(trimStart + i * (rawTrimDuration / targetChunks));
         }
     }
     splitPoints.push(trimEnd);

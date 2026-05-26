@@ -30,6 +30,8 @@ export interface ElectronAPI {
   updateChannel: (id: string, patch: object) => Promise<unknown>
   removeChannel: (id: string) => Promise<unknown>
   unsubscribeChannel: (id: string) => Promise<{ success: boolean; error?: string }>
+  pauseChannel: (id: string) => Promise<boolean>
+  resumeChannel: (id: string) => Promise<boolean>
   getWorkspaces: () => Promise<unknown[]>
   updateWorkspace: (id: string, patch: object) => Promise<unknown>
   deleteWorkspace: (id: string) => Promise<unknown>

@@ -119,6 +119,8 @@ function apiGet(urlStr, token) {
 }
 const UPLOADS_CACHE_FILE = path_1.default.join((0, paths_js_1.getChannelsDir)(), 'uploads-cache.json');
 const _uploadsCache = new Map();
+let _cacheSaveTimer = null;
+const _CACHE_WRITE_DELAY_MS = 5_000; // 5s — batch playlist ID resolutions
 function _loadCacheFromDisk() {
     try {
         if (fs_1.default.existsSync(UPLOADS_CACHE_FILE)) {
@@ -137,18 +139,28 @@ function _loadCacheFromDisk() {
         console.warn('[SubFeed] Failed to load uploads cache:', e);
     }
 }
-function _saveCacheToDisk() {
-    try {
-        const entries = Array.from(_uploadsCache.entries()).map(([channelId, entry]) => ({
-            channelId,
-            uploadsId: entry.uploadsId,
-            fetchedAt: entry.fetchedAt,
-        }));
-        fs_1.default.writeFileSync(UPLOADS_CACHE_FILE, JSON.stringify(entries, null, 2), 'utf-8');
-    }
-    catch (e) {
-        console.warn('[SubFeed] Failed to persist uploads cache:', e);
-    }
+/**
+ * Persist uploads cache to disk.
+ * Debounced: writes are delayed by _CACHE_WRITE_DELAY_MS (30s) to batch changes.
+ * Uses fs.promises to avoid blocking the main thread.
+ */
+async function _saveCacheToDisk() {
+    if (_cacheSaveTimer)
+        return; // already scheduled
+    _cacheSaveTimer = setTimeout(async () => {
+        _cacheSaveTimer = null;
+        try {
+            const entries = Array.from(_uploadsCache.entries()).map(([channelId, entry]) => ({
+                channelId,
+                uploadsId: entry.uploadsId,
+                fetchedAt: entry.fetchedAt,
+            }));
+            await fs_1.default.promises.writeFile(UPLOADS_CACHE_FILE, JSON.stringify(entries, null, 2), 'utf-8');
+        }
+        catch (e) {
+            console.warn('[SubFeed] Failed to persist uploads cache:', e);
+        }
+    }, _CACHE_WRITE_DELAY_MS);
 }
 _loadCacheFromDisk();
 function getCachedUploadsId(channelId) {
@@ -158,9 +170,9 @@ function getCachedUploadsId(channelId) {
     }
     return null;
 }
-function setCachedUploadsId(channelId, uploadsId) {
+async function setCachedUploadsId(channelId, uploadsId) {
     _uploadsCache.set(channelId, { uploadsId, fetchedAt: Date.now() });
-    _saveCacheToDisk();
+    await _saveCacheToDisk();
 }
 // ─── Per-Channel Fetch ─────────────────────────────────────────────────────────
 async function fetchChannelWithRss(ch, seenVideoIds) {
@@ -205,7 +217,7 @@ async function fetchChannelWithOAuth(ch, token, projectId, seenVideoIds) {
         }
         uploadsId = json.items[0].contentDetails?.relatedPlaylists?.uploads || null;
         if (uploadsId)
-            setCachedUploadsId(channelId, uploadsId);
+            await setCachedUploadsId(channelId, uploadsId);
     }
     if (!uploadsId)
         return { video: null, quotaError: false };
@@ -214,7 +226,7 @@ async function fetchChannelWithOAuth(ch, token, projectId, seenVideoIds) {
         if (isQuotaError)
             quotaError = true;
         _uploadsCache.delete(channelId);
-        _saveCacheToDisk();
+        void _saveCacheToDisk(); // fire-and-forget: stale entry removal doesn't need to block
         return { video: null, quotaError };
     }
     if (!json.items?.length)
@@ -358,7 +370,7 @@ async function fetchChannelWithInnertube(ch, seenVideoIds) {
 async function fetchSubscriptionFeed(options = {}) {
     const { seenVideoIds } = options;
     const targetStop = MAX_VIDEOS_PER_POLL;
-    const channels = (0, store_js_1.getChannels)();
+    const channels = (0, store_js_1.getChannels)().filter(c => !c.paused);
     if (channels.length === 0)
         return { videos: [], source: 'none' };
     const results = [];

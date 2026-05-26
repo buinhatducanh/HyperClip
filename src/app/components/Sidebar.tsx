@@ -501,9 +501,7 @@ export function Sidebar({
                           confirmDanger: true,
                           onConfirm: async () => {
                             setConfirmDialog(null)
-                            await ipc.removeChannel(ch.id)
-                            showToast(`Đã xóa: ${ch.name}`)
-                            if ((window as any).__reloadChannels) (window as any).__reloadChannels()
+                            await useAppStore.getState().removeChannel(ch.id)
                           },
                         })
                       }}
@@ -790,6 +788,23 @@ export function Sidebar({
             {systemStats.gpuTemp}°C
           </span>
         </div>
+        {/* VRAM row */}
+        {systemStats.gpuMemoryTotal > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+            <span style={{ fontSize: 10, color: '#555', flexShrink: 0 }}>VRAM</span>
+            <div style={{ flex: 1, height: 2, background: '#1E1E1E', borderRadius: 1 }}>
+              <div style={{
+                width: `${Math.min(Math.round((1 - systemStats.gpuMemoryFree / systemStats.gpuMemoryTotal) * 100), 100)}%`,
+                height: '100%',
+                background: '#FFB800',
+                borderRadius: 1, transition: 'width 0.8s ease',
+              }} />
+            </div>
+            <span style={{ fontSize: 9, color: '#666', fontFamily: 'monospace', flexShrink: 0 }}>
+              {systemStats.gpuMemoryFree}/{systemStats.gpuMemoryTotal}MB
+            </span>
+          </div>
+        )}
         {/* RAM row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
           <span style={{ fontSize: 10, color: '#555', flexShrink: 0 }}>RAM</span>

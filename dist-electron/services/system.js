@@ -8,6 +8,8 @@ exports.detectSystemProfile = detectSystemProfile;
 exports.getSessionCount = getSessionCount;
 exports.getGpuLive = getGpuLive;
 exports.getEffectiveWorkers = getEffectiveWorkers;
+exports.getMachineTier = getMachineTier;
+exports.getDownloadParams = getDownloadParams;
 exports.collectSystemStats = collectSystemStats;
 exports.checkResourceAlert = checkResourceAlert;
 exports.getLastResourceAlert = getLastResourceAlert;
@@ -378,11 +380,59 @@ function getEffectiveWorkers(perWorkerMB = 600) {
     const vramCapWorkers = Math.floor(availableMB / actualBudget);
     return Math.max(2, Math.min(baseWorkers, vramCapWorkers));
 }
-// ─── CPU usage (tick delta with warmup) ───────────────────────────────────────
+let _cachedMachineTier = null;
+function getMachineTier() {
+    if (_cachedMachineTier)
+        return _cachedMachineTier;
+    const envTier = process.env.HYPERCLIP_MACHINE_TIER;
+    if (envTier && ['low', 'mid', 'high'].includes(envTier)) {
+        _cachedMachineTier = envTier;
+        return envTier;
+    }
+    const ramGB = os_1.default.totalmem() / (1024 ** 3);
+    const cores = os_1.default.cpus().length;
+    const gpuTier = detectGPUOnce().tier;
+    if (ramGB >= 32 && cores >= 8 && gpuTier === 'high') {
+        _cachedMachineTier = 'high';
+    }
+    else if (ramGB >= 16 && cores >= 4) {
+        _cachedMachineTier = 'mid';
+    }
+    else {
+        _cachedMachineTier = 'low';
+    }
+    return _cachedMachineTier;
+}
+let _cachedDownloadParams = null;
+function getDownloadParams() {
+    if (_cachedDownloadParams)
+        return _cachedDownloadParams;
+    const tier = getMachineTier();
+    switch (tier) {
+        case 'high':
+            _cachedDownloadParams = { fragments: 64, maxInstances: 4 };
+            break;
+        case 'mid':
+            _cachedDownloadParams = { fragments: 32, maxInstances: 2 };
+            break;
+        case 'low':
+            _cachedDownloadParams = { fragments: 16, maxInstances: 1 };
+            break;
+    }
+    return _cachedDownloadParams;
+}
+// ─── CPU usage (tick delta with warmup + TTL cache) ───────────────────────────────
 let _cpuLastTotal = 0;
 let _cpuLastIdle = 0;
 let _cpuFirstDone = false;
+let _cpuCache = null;
+let _cpuCacheTime = 0;
+const _CPU_CACHE_TTL_MS = 5000;
 function getCpuUsage() {
+    const now = Date.now();
+    if (_cpuCache && (now - _cpuCacheTime) < _CPU_CACHE_TTL_MS) {
+        return _cpuCache;
+    }
     const cpus = os_1.default.cpus();
     const cores = cpus.length;
     const model = cpus[0]?.model || 'Unknown CPU';
@@ -394,18 +444,23 @@ function getCpuUsage() {
         totalIdle += cpu.times.idle;
     }
     if (!_cpuFirstDone) {
-        // First call: prime the pump — don't show a meaningless spike
         _cpuLastTotal = totalTick;
         _cpuLastIdle = totalIdle;
         _cpuFirstDone = true;
-        return { name: model, cores, usage: 0 };
+        const result = { name: model, cores, usage: 0 };
+        _cpuCache = result;
+        _cpuCacheTime = now;
+        return result;
     }
     const idleDiff = totalIdle - _cpuLastIdle;
     const totalDiff = totalTick - _cpuLastTotal;
     _cpuLastTotal = totalTick;
     _cpuLastIdle = totalIdle;
     const usage = totalDiff > 0 ? Math.round((1 - idleDiff / totalDiff) * 100) : 0;
-    return { name: model, cores, usage: Math.max(0, Math.min(100, usage)) };
+    const result = { name: model, cores, usage: Math.max(0, Math.min(100, usage)) };
+    _cpuCache = result;
+    _cpuCacheTime = now;
+    return result;
 }
 // ─── Network IP (cache once) ─────────────────────────────────────────────────
 let _cachedIp = null;
