@@ -785,12 +785,12 @@ function DashboardContent() {
             />
           )}
         </div>
-      </div>
 
-      {/* Activity Log Bar */}
-      <ActivityLogBar
-        entries={[...activityMap.values()].reverse()}
-      />
+        {/* Activity Log (rightmost panel — vertical) */}
+        <ActivityLogBar
+          entries={[...activityMap.values()].reverse()}
+        />
+      </div>
 
       {/* Toast */}
       {toast && (
