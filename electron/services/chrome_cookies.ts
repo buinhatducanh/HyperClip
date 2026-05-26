@@ -470,11 +470,10 @@ const BASE_DELAY_MS = 1000
 if (!dbBuffer) return { cookies: null, rawSocs: null }
 
   try {
-    // __dirname = dist-electron/ in dev, <app>.asar/ in prod
-    // node_modules/sql.js lives at project root in dev, at app.asar.unpacked/node_modules in prod
+    // __dirname = dist-electron/ in dev → one .. = project root where node_modules/sql.js lives
     const sqlJsDist = app.isPackaged
       ? path.join(process.resourcesPath!, 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist')
-      : path.join(__dirname, '..', '..', 'node_modules', 'sql.js', 'dist')
+      : path.join(__dirname, '..', 'node_modules', 'sql.js', 'dist')
 
     devLog(`[Cookie] sql.js loading WASM from: ${sqlJsDist}`)
     const SqlJs = await initSqlJs({
