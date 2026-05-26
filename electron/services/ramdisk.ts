@@ -30,10 +30,14 @@ interface AppSettingsStore {
   autoRender?: boolean
   /** Title template for auto-rendered videos. Defaults to '' (use video title). Variables: {title}, {channel}, {date:YYYY-MM-DD}, {time:HH:MM} */
   autoRenderTitleTemplate?: string
-  /** Resolution for auto-render: '480x480' | '720x720' | '1080x1080'. Defaults to '480x480'. */
+  /** Resolution for auto-render: '1080p' | '720p' | '360p'. Defaults to '1080p'. */
   autoRenderResolution?: string
   /** FPS for auto-render: 30 | 60. Defaults to 30. */
   autoRenderFPS?: number
+  /** Number of parts to split video into for auto-render. 1 = no split. Defaults to 1. */
+  autoSplitParts?: number
+  /** Minutes per part for auto-render. 0 = use autoSplitParts instead. Defaults to 0. */
+  autoSplitMinutes?: number
   /** Auto-cleanup downloads older than N days. 0 = disabled. Defaults to 7. */
   downloadsCleanupDays?: number
   /** Detection poll interval in milliseconds. Defaults to 5000. */
