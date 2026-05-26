@@ -73,6 +73,7 @@ youtubei.js dùng **Innertube API** — API nội bộ của YouTube, không có
 - Sessions 2-30: HyperClip-Chrome-Profile-{2..30}
 - Mỗi session pre-warmed tại startup (5 sessions/batch)
 - Round-robin với 10s cooldown trên session lỗi
+- **Session suspension (2026-05-27):** Nếu session trả empty timestamp cho tất cả videos trong 5 poll liên tiếp (dấu hiệu LockupView format không tương thích), session bị suspend. Tự động thử lại sau 5 phút. Điều này ngăn session hỏng làm chậm detection pipeline.
 
 **Service:** `electron/services/innertube_client.ts` — InnertubeClientPool
 

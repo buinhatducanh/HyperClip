@@ -22,6 +22,7 @@ Renderer (Next.js) ←→ preload.ts (IPC bridge) ←→ Main (Electron)
 - Sessions: `D:\HyperClip-Data\chrome-profiles\profile-N\_hyperclip_cookies.json`
 - SOCS=CAI force-injected — no consent banner needed
 - 7-strategy video extraction: getVideos → getHome → getChannelVideos → browse /videos → getPlaylist → RSS → OAuth
+- **Session suspension (2026-05-27):** Nếu session trả empty timestamp cho tất cả videos trong 5 poll liên tiếp (LockupView format lạ), session bị suspend khỏi round-robin. Tự động thử lại sau 5 phút. Deep-string scan fallback để bắt time text ở path không xác định.
 
 ### Fallback: OAuth Data API v3
 - 30 GCP projects (~285k units/day distributed)
