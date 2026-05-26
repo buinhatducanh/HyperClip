@@ -866,15 +866,28 @@ async function probeVideoAvailability(videoUrl, ytCookiesFile) {
             });
         });
     };
-    // Match the download order: tv_embedded first (bypasses EJS challenge),
-    // web second (fallback), ios third (last resort).
-    // web client with Chrome cookies triggers EJS challenge → "not found" false positive.
-    for (const client of ['tv_embedded', 'web', 'ios']) {
+    // Probe web first — better indexing for new/recent videos.
+    // tv_embedded second — can fail on videos < ~1min old (not yet in HLS index).
+    // ios last resort. Falls back to download (downloadVideoStrategy) if probe inconclusive.
+    const clients = ['web', 'tv_embedded', 'ios'];
+    for (const client of clients) {
         const result = await tryClient(client);
-        if (result)
+        if (result && result.available)
             return result;
+        // For unavailable (private/not-found/rate-limited), continue trying other clients
+        // — we want a definitive answer before giving up.
+        if (result && (result.isPrivate || result.isRateLimited || result.isNotFound)) {
+            // Retry isNotFound once after a short delay (video may still be propagating)
+            if (result.isNotFound) {
+                await new Promise(r => setTimeout(r, 5000));
+                const retry = await tryClient(client);
+                if (retry && retry.available)
+                    return retry;
+            }
+            return result;
+        }
     }
-    // All probes failed — return null (caller should attempt download with caution)
+    // All probes inconclusive — return null (caller should attempt download with caution)
     return null;
 }
 /** Use ffprobe to get real video duration from a downloaded file. */
