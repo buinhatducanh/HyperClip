@@ -28,7 +28,7 @@ interface Props {
 type GroupStatus = 'ready' | 'rendering' | 'downloading' | 'waiting' | 'editing' | 'done' | 'error'
 type ActiveTab = 'pipeline' | 'rendered'
 
-const STATUS_ORDER: GroupStatus[] = ['ready', 'rendering', 'downloading', 'waiting', 'editing', 'done']
+const STATUS_ORDER: GroupStatus[] = ['ready', 'rendering', 'downloading', 'waiting', 'editing', 'done', 'error']
 
 const GROUP_CONFIG: Record<GroupStatus, { label: string; color: string; collapsible?: boolean }> = {
   ready:      { label: 'READY',      color: '#00FF88', collapsible: false },
@@ -37,6 +37,7 @@ const GROUP_CONFIG: Record<GroupStatus, { label: string; color: string; collapsi
   waiting:    { label: 'WAITING',    color: '#FFB800', collapsible: false },
   editing:    { label: 'EDITING',    color: '#7C3AED', collapsible: false },
   done:       { label: 'DONE',       color: '#444444', collapsible: true },
+  error:      { label: 'ERROR',      color: '#FF4444', collapsible: false },
 }
 
 function groupByStatus(workspaces: Workspace[]): Map<GroupStatus, Workspace[]> {

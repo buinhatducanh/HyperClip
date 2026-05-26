@@ -4,23 +4,20 @@ import { useState, useEffect, useRef, useCallback, Suspense, memo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { shallow } from 'zustand/shallow'
-// SHORT layout: HEADER(25%) | VIDEO(50%) | BOTTOM(25%)
-// Must match electron/services/ffmpeg.ts HEADER_PCT / BOTTOM_PCT constants.
-const BOTTOM_PCT = 0.25
 import { Sidebar } from './components/Sidebar'
 import { WorkspaceQueue } from './components/workspace/WorkspaceQueue'
-import { RenderQueueBar } from './components/workspace/RenderQueueBar'
-import { DetailEditor } from './components/DetailEditor'
 import { RenderedVideoDetail } from './components/RenderedVideoDetail'
 import { LoginScreen } from './components/LoginScreen'
 import { ConfirmationDialog } from './components/ConfirmationDialog'
 import { VideoCompareModal } from './components/VideoCompareModal'
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from './components/ui/resizable'
-import type { Channel, Video, SystemStats, EditorState } from './types'
+import { TopBar } from './components/TopBar'
+import { SettingsPanel } from './components/SettingsPanel'
+import { ActivityLogBar } from './components/ActivityLogBar'
+import type { Channel, SystemStats } from './types'
 import { useAppStore, type Workspace } from './lib/store'
 import { ipc } from './lib/ipc'
 import { type ActivityEntry, type ActivityType } from './components/ActivityLog'
-import { SkeletonQueue, SkeletonEditor, SkeletonChannelItem, SkeletonStyles } from './components/Skeleton'
+import { SkeletonQueue, SkeletonStyles } from './components/Skeleton'
 
 export const dynamic = 'force-dynamic'
 
@@ -78,7 +75,6 @@ function parseEtaSecs(eta: number | string | undefined | null): number | null {
 
 function fmtEta(secs: number | string | undefined | null): string {
   if (!secs) return ''
-  // Handle 'MM:SS' string format (yt-dlp / simulation output)
   if (typeof secs === 'string' && secs.includes(':')) {
     const parts = secs.split(':')
     if (parts.length === 2) {
@@ -90,7 +86,6 @@ function fmtEta(secs: number | string | undefined | null): string {
       return `~${m}m ${s}s`
     }
   }
-  // Handle numeric seconds
   const n = typeof secs === 'string' ? parseFloat(secs) : secs
   if (!n || n <= 0 || isNaN(n)) return ''
   if (n < 60) return `~${Math.round(n)}s`
@@ -110,17 +105,14 @@ export default function DashboardPage() {
 }
 
 function DashboardContent() {
-  // Individual selectors — each component only re-renders when its specific value changes.
-  // Using shallow for arrays/objects to prevent unnecessary re-renders.
   const workspaces = useAppStore(s => s.workspaces, shallow)
   const renderedVideos = useAppStore(s => s.renderedVideos, shallow)
   const channels = useAppStore(s => s.channels, shallow)
   const selectedWorkspaceId = useAppStore(s => s.selectedWorkspaceId)
   const systemStats = useAppStore(s => s.systemStats, shallow)
-  const editorState = useAppStore(s => s.editorState, shallow)
   const toast = useAppStore(s => s.toast)
   const settings = useAppStore(s => s.settings, shallow)
-  // Actions — always stable references (defined once in create())
+  // Actions
   const addWorkspace = useAppStore(s => s.addWorkspace)
   const updateWorkspace = useAppStore(s => s.updateWorkspace)
   const removeWorkspace = useAppStore(s => s.removeWorkspace)
@@ -132,11 +124,6 @@ function DashboardContent() {
   const updateSystemStats = useAppStore(s => s.updateSystemStats)
   const showToast = useAppStore(s => s.showToast)
   const addNotification = useAppStore(s => s.addNotification)
-  const updateEditorState = useAppStore(s => s.updateEditorState)
-  const resetEditorState = useAppStore(s => s.resetEditorState)
-  const undoEditor = useAppStore(s => s.undoEditor)
-  const redoEditor = useAppStore(s => s.redoEditor)
-  const addRenderedVideo = useAppStore(s => s.addRenderedVideo)
   const setSettings = useAppStore(s => s.setSettings)
 
   // ── Video compare modal ─────────────────────────────────────────────────────
@@ -149,7 +136,7 @@ function DashboardContent() {
     ? renderedVideos.find(v => v.workspaceId === compareWorkspaceId) ?? null
     : null
 
-  // Stable refs for IPC callbacks (avoids stale closures + re-registration on every render)
+  // Stable refs for IPC callbacks
   const updateWorkspaceRef = useRef(updateWorkspace)
   const addWorkspaceRef = useRef(addWorkspace)
   updateWorkspaceRef.current = updateWorkspace
@@ -164,58 +151,35 @@ function DashboardContent() {
     active: boolean; newVideoCount: number; lastError: string | null
   } | null>(null)
   const quotaToastShown = useRef(false)
-  const lastRenderCodec = useRef<string>('h264')
   const router = useRouter()
   const searchParams = useSearchParams()
-  // Sync channel selection to/from URL query param
   const syncChannelToUrl = useCallback((id: string | null) => {
     const url = new URL(window.location.href)
     if (id) url.searchParams.set('channel', id)
     else url.searchParams.delete('channel')
     window.history.replaceState(null, '', url.pathname + url.search)
   }, [])
-  // Read channel from URL on mount
   useEffect(() => {
     const ch = searchParams.get('channel')
     if (ch) setActiveChannelId(ch)
   }, [searchParams])
 
-  // Keyboard shortcuts for editor undo/redo
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
-        if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undoEditor() }
-        if (e.key === 'y' || e.key === 'Y') { e.preventDefault(); redoEditor() }
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [undoEditor, redoEditor])
-
-  const [renderQueueExpanded, setRenderQueueExpanded] = useState(false)
   const [keyHealth, setKeyHealth] = useState<{ exhausted: number; unauthorized: number }>({ exhausted: 0, unauthorized: 0 })
   const [selectedRenderedVideoId, setSelectedRenderedVideoId] = useState<string | null>(null)
   const [diagIssues, setDiagIssues] = useState<string[]>([])
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [isLoadingChannels, setIsLoadingChannels] = useState(true)
   const [onboardingDone, setOnboardingDone] = useState(false)
-  /** Activity log entries — deduped by workspaceId. Only one entry per video. */
   const [activityMap, setActivityMap] = useState<Map<string, ActivityEntry>>(new Map())
-  /** Confirmation dialog state for destructive actions */
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string; message: string; confirmLabel?: string; confirmDanger?: boolean; onConfirm: () => void
   } | null>(null)
 
   // ─── Activity: stable local ETA countdown ─────────────────────────────────────
-  /** Raw seconds remaining per workspace — decremented every second by interval. */
   const etaCountdownSec = useRef<Map<string, number>>(new Map())
-  /** Last ETA string we displayed — skip update if unchanged. */
   const lastEtaDisplayed = useRef<Map<string, string>>(new Map())
-  /** Last time we updated ETA display per workspace. */
   const lastEtaUpdateMs = useRef<Map<string, number>>(new Map())
-  /** Lightweight ETA display map — only updates when rounded value changes. */
   const [etaDisplay, setEtaDisplay] = useState<Map<string, string>>(new Map())
-  /** Ref to track latest etaDisplay for use inside setInterval (avoids stale closure). */
   const etaDisplayRef = useRef<Map<string, string>>(new Map())
 
   useEffect(() => {
@@ -223,11 +187,8 @@ function DashboardContent() {
   }, [etaDisplay])
 
   useEffect(() => {
-    // No dependency on etaDisplay — interval reads from ref, not closure.
-    // Only recreates on mount/unmount.
     const tid = setInterval(() => {
       const now = Date.now()
-      // Copy ref's current value (avoids stale closure without needing etaDisplay in deps)
       const currentDisplay = etaDisplayRef.current
       const newDisplay = new Map(currentDisplay)
       let changed = false
@@ -235,15 +196,11 @@ function DashboardContent() {
 
       etaCountdownSec.current.forEach((sec, wsId) => {
         if (sec <= 0) { expired.push(wsId); return }
-
         etaCountdownSec.current.set(wsId, sec - 1)
         const displaySec = sec - 1
         const display = displaySec <= 0 ? 'sắp xong…' : `còn ~${fmtEta(displaySec)}`
-
-        // Throttle: ≤10s → every 1s, ≤60s → every 5s, >60s → every 15s
         const lastUpdate = lastEtaUpdateMs.current.get(wsId) ?? 0
         const interval = displaySec <= 10 ? 1000 : displaySec <= 60 ? 5000 : 15000
-
         if (now - lastUpdate >= interval && lastEtaDisplayed.current.get(wsId) !== display) {
           lastEtaUpdateMs.current.set(wsId, now)
           lastEtaDisplayed.current.set(wsId, display)
@@ -251,7 +208,6 @@ function DashboardContent() {
           changed = true
         }
       })
-
       expired.forEach(id => {
         etaCountdownSec.current.delete(id)
         lastEtaDisplayed.current.delete(id)
@@ -259,13 +215,12 @@ function DashboardContent() {
         newDisplay.delete(id)
         changed = true
       })
-
       if (changed) setEtaDisplay(newDisplay)
     }, 1000)
     return () => clearInterval(tid)
   }, [])
 
-  // Fetch auth status on mount + listen for updates
+  // Fetch auth status
   useEffect(() => {
     ipc.getAuthStatus().then(setAuthStatus)
     const cleanupAuth = ipc.onAuthUpdate((status) => setAuthStatus(status as any))
@@ -277,7 +232,7 @@ function DashboardContent() {
     return () => { cleanupAuth(); cleanupCritical() }
   }, [showToast, addNotification, router])
 
-  // Redirect to onboarding if auth is ready but onboarding not complete
+  // Onboarding redirect
   useEffect(() => {
     if (!authStatus.isReady) return
     if (!onboardingDone) {
@@ -285,14 +240,11 @@ function DashboardContent() {
     }
   }, [authStatus.isReady, onboardingDone, router])
 
-  // Sync backend settings into Zustand store on startup — fixes UI showing stale defaults
-  // Redirect to onboarding if user hasn't completed setup yet
+  // Sync backend settings
   useEffect(() => {
     ipc.getSettings().then((backendSettings: any) => {
       if (backendSettings) {
         setSettings(backendSettings)
-        // Only show onboarding screen if backend explicitly says not complete
-        // undefined/null = default to NOT showing onboarding (assume already done)
         if (backendSettings.onboardingComplete === false) {
           setOnboardingDone(false)
         } else {
@@ -302,7 +254,7 @@ function DashboardContent() {
     })
   }, [setSettings])
 
-  // Fetch diagnostics on mount — for demo mode banner
+  // Diagnostics
   useEffect(() => {
     const fetchDiag = async () => {
       try {
@@ -313,7 +265,7 @@ function DashboardContent() {
     fetchDiag()
   }, [])
 
-  // Poll key health every 30s
+  // Key health
   useEffect(() => {
     const loadKeyHealth = () => {
       ipc.getKeys().then((keys: any) => {
@@ -327,7 +279,7 @@ function DashboardContent() {
     return () => clearInterval(t)
   }, [])
 
-  // Quota exceeded notification
+  // Quota exceeded
   useEffect(() => {
     if (authStatus.quotaExceeded && !quotaToastShown.current) {
       quotaToastShown.current = true
@@ -336,7 +288,7 @@ function DashboardContent() {
     }
   }, [authStatus.quotaExceeded, showToast, addNotification])
 
-  // Re-fetch channels when OAuth subscriptions synced
+  // Channels synced
   useEffect(() => {
     const cleanup = ipc.onChannelSynced(() => initChannels())
     return cleanup
@@ -358,7 +310,6 @@ function DashboardContent() {
         if (typeof patch.fileSize === 'number') patch.fileSize = formatFileSizeRaw(patch.fileSize)
         if (patch.downloadedAt) patch.downloadedAt = formatDateRaw(patch.downloadedAt)
         if (typeof patch.duration === 'number') patch.duration = formatDurationRaw(patch.duration)
-        // Skip if no meaningful fields changed (avoids unnecessary re-renders)
         const hasChange = Object.keys(patch).some(k => (existing as any)[k] !== (patch as any)[k])
         if (hasChange) updateWorkspaceRef.current(data.id, patch)
       } else {
@@ -398,7 +349,7 @@ function DashboardContent() {
     return () => clearInterval(interval)
   }, [])
 
-  // Activity feed — pipeline events (detected, downloading, downloaded, rendering, done)
+  // Activity feed
   useEffect(() => {
     const cleanup = ipc.onActivityEvent((entry) => {
       const aEntry: ActivityEntry = {
@@ -411,8 +362,6 @@ function DashboardContent() {
       }
       setActivityMap(prev => {
         const next = new Map(prev)
-        // Upsert by workspaceId — same workspaceId replaces the existing entry.
-        // Falls back to entry.id only if workspaceId is absent (for backward compat).
         const key = entry.workspaceId || entry.id || aEntry.id
         next.set(key, aEntry)
         return next
@@ -421,7 +370,7 @@ function DashboardContent() {
     return cleanup
   }, [])
 
-  // Auto-cleanup: remove terminal (done/error) entries older than 1 hour
+  // Auto-cleanup old activity entries
   useEffect(() => {
     const CLEANUP_MS = 60 * 60 * 1000
     const interval = setInterval(() => {
@@ -437,7 +386,7 @@ function DashboardContent() {
         }
         return changed ? next : prev
       })
-    }, 30_000) // check every 30s
+    }, 30_000)
     return () => clearInterval(interval)
   }, [])
 
@@ -450,26 +399,22 @@ function DashboardContent() {
     ]).then(() => setIsLoadingData(false))
   }, [initChannels, initWorkspaces, initRenderedVideos])
 
-  // Expose reload function so Sidebar can refresh channels after adding
+  // Expose reload function
   useEffect(() => {
     ;(window as any).__reloadChannels = () => initChannels()
     return () => { delete (window as any).__reloadChannels }
   }, [initChannels])
 
-  // Separate Maps for render vs download progress — avoids status race conditions.
-  // Status check at FLUSH time (not event time) ensures correct routing.
+  // Render/download progress batching
   const _pendingRender = useRef<Map<string, { percent: number; eta?: number | string }>>(new Map())
   const _pendingDownload = useRef<Map<string, { percent: number }>>(new Map())
   const _lastFlushMs = useRef<number>(0)
 
   useEffect(() => {
-    // Flush pending progress updates every 500ms (max 2 Zustand updates/sec)
     const flushInterval = setInterval(() => {
       const now = Date.now()
       if (now - _lastFlushMs.current < 450) return
       _lastFlushMs.current = now
-
-      // Route render progress
       _pendingRender.current.forEach((data, wsId) => {
         updateWorkspace(wsId, {
           renderProgress: data.percent,
@@ -477,10 +422,6 @@ function DashboardContent() {
         } as Partial<Workspace>)
       })
       _pendingRender.current.clear()
-
-      // Flush batched download progress — update regardless of current status.
-      // WorkspaceCard guards display with status === 'downloading', so this is safe.
-      // Main process also calls updateWorkspace directly, so this is a backup path.
       _pendingDownload.current.forEach((data, wsId) => {
         updateWorkspace(wsId, {
           downloadProgress: data.percent,
@@ -497,8 +438,6 @@ function DashboardContent() {
       if (current.status === 'rendering') {
         _pendingRender.current.set(p.workspaceId, { percent: p.percent, eta: p.eta })
       } else {
-        // Download progress: batch regardless of status (main process also updates directly).
-        // WorkspaceCard guards display with status === 'downloading', so safe to update here.
         if (p.speed === 'processing') {
           updateWorkspace(p.workspaceId, {
             downloadProgress: 99,
@@ -522,14 +461,12 @@ function DashboardContent() {
     return cleanup
   }, [])
 
-  // Auto-download: notification + audio + activity upsert — SINGLE listener (was duplicate)
+  // Auto-download
   useEffect(() => {
     const cleanup = ipc.onAutoDownload((data) => {
       const d = data as { videoId: string; title: string; channelName: string; workspaceId?: string }
-      // Toast
       addNotification({ type: 'autodownload', message: `${(d.channelName && d.channelName !== 'N/A') ? d.channelName : 'Unknown Channel'}: ${d.title}` })
       showToast(`Auto: ${d.title}`)
-      // Audio chime
       try {
         const ctx = new AudioContext()
         const notes = [523.25, 659.25, 783.99]
@@ -545,7 +482,6 @@ function DashboardContent() {
         })
         void ctx.resume()
       } catch {}
-      // Activity upsert
       if (d.workspaceId) {
         upsertActivity(d.workspaceId, 'detected', `Phát hiện video mới: ${d.title}`, undefined, false)
         etaCountdownSec.current.set(d.workspaceId, 60)
@@ -556,12 +492,11 @@ function DashboardContent() {
     return cleanup
   }, [showToast, addNotification])
 
-  // Render-complete → add rendered video to list via IPC event
+  // Render-complete → add rendered video
   useEffect(() => {
     const cleanup = window.electronAPI?.onRenderedAdd((video) => {
       const rv = video as { id: string; workspaceId?: string; videoTitle?: string; archivedPath?: string; thumbnail?: string; thumbnailData?: string; duration?: number; fileSize?: number; renderedAt?: string; codec?: string; quality?: number }
       if (rv?.id) {
-        // Prepend to the list (most recent first)
         useAppStore.setState((s) => ({ renderedVideos: [rv as any, ...s.renderedVideos] }))
       }
     })
@@ -569,11 +504,6 @@ function DashboardContent() {
   }, [])
 
   // ─── Activity feed ─────────────────────────────────────────────────────────────
-  /**
-   * Upsert an activity entry. Each workspaceId gets exactly ONE entry at a time.
-   * Terminal states (done, error): entry stays permanently.
-   * Non-terminal states: replaced when the same workspace progresses.
-   */
   function upsertActivity(
     workspaceId: string,
     type: ActivityType,
@@ -603,41 +533,29 @@ function DashboardContent() {
     })
   }
 
-
-  // Download / render progress: update activity and seed/refresh ETA countdown
+  // Download / render progress: update activity
   useEffect(() => {
     const cleanup = ipc.onRenderProgress((progress) => {
       const p = progress as { workspaceId: string; percent: number; eta?: number | string }
       if (!p.workspaceId) return
       const ws = useAppStore.getState().workspaces.find(w => w.id === p.workspaceId)
       if (!ws) return
-
-      // Seed or refresh ETA countdown from backend ETA
       const etaSecs = parseEtaSecs(p.eta)
       if (etaSecs !== null) {
         etaCountdownSec.current.set(p.workspaceId, etaSecs)
         lastEtaDisplayed.current.set(p.workspaceId, '')
         lastEtaUpdateMs.current.set(p.workspaceId, 0)
       }
-
       if (ws.status === 'downloading') {
-        upsertActivity(
-          p.workspaceId, 'downloading',
-          `Đang tải video về`,
-          `📁 ${ws.videoTitle}`,
-        )
+        upsertActivity(p.workspaceId, 'downloading', `Đang tải video về`, `📁 ${ws.videoTitle}`)
       } else if (ws.status === 'rendering') {
-        upsertActivity(
-          p.workspaceId, 'rendering',
-          `Đang xử lý video`,
-          `📁 ${ws.videoTitle}`,
-        )
+        upsertActivity(p.workspaceId, 'rendering', `Đang xử lý video`, `📁 ${ws.videoTitle}`)
       }
     })
     return cleanup
   }, [])
 
-  // Notifications: tải xong / render xong / lỗi
+  // Notifications
   useEffect(() => {
     const cleanup = ipc.onNotification((n) => {
       const notif = n as {
@@ -659,12 +577,7 @@ function DashboardContent() {
               ? `${(notif.fileSize / (1024 * 1024)).toFixed(0)}MB`
               : `${(notif.fileSize / 1024).toFixed(0)}KB`
             : null
-          upsertActivity(
-            notif.workspaceId, 'downloaded',
-            size ? `Tải video hoàn tất — ${size}` : `Tải video hoàn tất`,
-            `📁 ${title}`,
-            false,
-          )
+          upsertActivity(notif.workspaceId, 'downloaded', size ? `Tải video hoàn tất — ${size}` : `Tải video hoàn tất`, `📁 ${title}`, false)
           etaCountdownSec.current.delete(notif.workspaceId)
           lastEtaDisplayed.current.delete(notif.workspaceId)
           lastEtaUpdateMs.current.delete(notif.workspaceId)
@@ -675,28 +588,15 @@ function DashboardContent() {
             ? notif.outputPath.split(/[/\\]/).pop()
                 ?.replace(/_chunked_output\.mp4|_output\.mp4/, '.mp4')
             : null
-          upsertActivity(
-            notif.workspaceId, 'done',
-            fileName
-              ? `Xuất video thành công → ${fileName}`
-              : `Xuất video thành công`,
-            `📁 ${title}`,
-            true,
-          )
+          upsertActivity(notif.workspaceId, 'done', fileName ? `Xuất video thành công → ${fileName}` : `Xuất video thành công`, `📁 ${title}`, true)
           etaCountdownSec.current.delete(notif.workspaceId)
           lastEtaDisplayed.current.delete(notif.workspaceId)
           lastEtaUpdateMs.current.delete(notif.workspaceId)
           return
         }
       }
-
       if (notif.type === 'error') {
-        upsertActivity(
-          notif.workspaceId, 'error',
-          `Có lỗi xảy ra`,
-          notif.message.slice(0, 60),
-          true,
-        )
+        upsertActivity(notif.workspaceId, 'error', `Có lỗi xảy ra`, notif.message.slice(0, 60), true)
         etaCountdownSec.current.delete(notif.workspaceId)
         lastEtaDisplayed.current.delete(notif.workspaceId)
         lastEtaUpdateMs.current.delete(notif.workspaceId)
@@ -704,17 +604,6 @@ function DashboardContent() {
     })
     return cleanup
   }, [])
-
-  // Map workspaces to videos for DetailEditor
-  const videos: Video[] = workspaces.map((ws) => ({
-    id: ws.id, channelId: ws.channelId, title: ws.videoTitle, thumbnail: ws.thumbnail,
-    duration: ws.duration, downloadedAt: ws.downloadedAt,
-    status: ws.status === 'editing' ? 'new' : ws.status === 'done' ? 'done' : ws.status === 'rendering' ? 'rendering' : 'new',
-    renderProgress: ws.renderProgress, fileSize: ws.fileSize, downloadedPath: ws.downloadedPath,
-    isShort: ws.isShort,
-    videoResolution: ws.videoResolution,
-    downloadQuality: ws.downloadQuality,
-  }))
 
   const newCounts: Record<string, number> = {}
   channels.forEach((ch) => {
@@ -727,45 +616,16 @@ function DashboardContent() {
     setActiveChannelId(newId)
     syncChannelToUrl(newId)
     selectWorkspace(null)
-    resetEditorState()
   }
 
   const handleVideoSelect = (id: string) => {
     selectWorkspace(id)
-    setSelectedRenderedVideoId(null) // clear rendered selection when selecting a workspace
-    resetEditorState()
-    const ws = workspaces.find(w => w.id === id)
-    if (ws) {
-      updateEditorState({ exportQuality: ws.quality || 1080 })
-      // Clear previous formats immediately to avoid stale flash
-      updateWorkspace(id, { availableFormats: undefined })
-      // Probe YouTube available formats for quality validation UI
-      if (ws.videoId && ws.videoUrl) {
-        let settled = false // prevents fallback → probe race overwriting a valid result
-        const probeTimeout = setTimeout(() => {
-          settled = true // don't let slow probe overwrite fallback
-          // Slow probe (>3s) — show all options as fallback
-          updateWorkspace(id, { availableFormats: [360, 720, 1080] })
-        }, 3000)
-        ipc.getAvailableFormats(ws.videoId, ws.videoUrl).then(result => {
-          clearTimeout(probeTimeout)
-          if (result && result.heights.length > 0 && !settled) {
-            updateWorkspace(id, { availableFormats: result.heights })
-          }
-        }).catch(() => {
-          clearTimeout(probeTimeout)
-          // Probe failed — show all options as fallback so buttons always render.
-          // maxAllowedHeight in ControlsPanel caps by sourceHeight when known;
-          // without YouTube data we trust the user's downloadQuality setting to guide the cap.
-          updateWorkspace(id, { availableFormats: [360, 720, 1080] })
-        })
-      }
-    }
+    setSelectedRenderedVideoId(null)
   }
 
   const handleRenderedVideoSelect = (id: string | null) => {
     setSelectedRenderedVideoId(id)
-    if (id) selectWorkspace(null) // clear workspace selection when selecting rendered video
+    if (id) selectWorkspace(null)
   }
 
   const handleQuickAction = (action: 'open' | 'delete', id: string) => {
@@ -800,108 +660,6 @@ function DashboardContent() {
     else showToast(`Retry failed: ${result.error}`)
   }
 
-  const handleEditorChange = useCallback((patch: Partial<EditorState>) => {
-    // Use getState() inside callback to avoid closure dependencies on Zustand state.
-    // This keeps the callback reference stable across renders.
-    const { editorState: currentEditor, workspaces: allWorkspaces, selectedWorkspaceId: currentWsId, updateEditorState: updateEd, updateWorkspace: updateWs } = useAppStore.getState()
-
-    // Auto-upgrade to 720p when TikTok mode is toggled ON (false → true) and source is below 720p
-    if (patch.upscaleToTikTok === true && currentEditor.upscaleToTikTok === false) {
-      const ws = allWorkspaces.find(w => w.id === currentWsId)
-      const sourceHeight = ws?.videoResolution ? parseInt(ws.videoResolution.split('x')[1]) : (ws?.downloadQuality ? parseInt(ws.downloadQuality) : 0)
-      if (sourceHeight > 0 && sourceHeight < 720 && currentEditor.exportQuality < 720) {
-        patch = { ...patch, exportQuality: 720 as 1080 | 720 | 360 }
-        useAppStore.getState().showToast(`Upscale: 360p → 720p for TikTok`)
-      }
-    }
-    updateEd(patch)
-    if (patch.exportQuality !== undefined && currentWsId) {
-      updateWs(currentWsId, { quality: patch.exportQuality as 1080 | 720 | 360 })
-    }
-  }, [])
-
-  const handleRender = async () => {
-    if (!selectedWorkspaceId) return
-    lastRenderCodec.current = editorState.exportCodec
-    const ws = workspaces.find(w => w.id === selectedWorkspaceId)
-    if (!ws || !ws.downloadedPath) { showToast('Video not downloaded yet'); return }
-    if (editorState.backgroundType === 'blur' && !ws.blurBackgroundPath) {
-      // Fallback: render will use solid color if blur is not ready yet
-    }
-
-    const parseDur = (d: string): number => {
-      const parts = d.split(':').map(Number)
-      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
-      if (parts.length === 2) return parts[0] * 60 + parts[1]
-      return parseFloat(d) || 0
-    }
-    const totalSec = parseDur(ws.duration)
-    const trimStartSec = Math.round((editorState.trimStart / 100) * totalSec)
-    const trimEndSec = Math.round((editorState.trimEnd / 100) * totalSec)
-
-    const exportRes = editorState.exportQuality === 360 ? '360x640' : editorState.exportQuality === 720 ? '720x1280' : '1080x1920'
-    const canvasH = parseInt(exportRes.split('x')[1])
-    const bottomBarH = Math.floor(canvasH * BOTTOM_PCT)
-
-    const overlays: object[] = []
-    if (editorState.headerImageDiskPath) {
-      overlays.push({ type: 'header', src: editorState.headerImageDiskPath })
-    } else if (editorState.backgroundImageDiskPath) {
-      // Custom background image → use as header overlay
-      overlays.push({ type: 'header', src: editorState.backgroundImageDiskPath })
-    } else {
-      // No custom image → header overlay will be filled with thumbnail disk path in executeRenderJob
-      // Empty src signals "use thumbnail fallback" (executeRenderJob checks fs.existsSync(wsThumbPath))
-      overlays.push({ type: 'header', src: '' })
-    }
-    const isShort = ws.isShort !== false
-    // SHORT mode + bottom bar: title text goes to bottom bar, not as video overlay
-    if (editorState.titleText && !(isShort && editorState.bottomBarEnabled)) {
-      overlays.push({
-        type: 'title', content: editorState.titleText, shape: editorState.titleShape,
-        borderColor: editorState.titleBorderColor, bgColor: editorState.titleBgColor, fontSize: editorState.titleFontSize,
-      })
-    }
-    // SHORT mode: add title text to bottom bar if enabled
-    if (isShort && editorState.bottomBarEnabled && editorState.titleText) {
-      overlays.push({
-        type: 'title', content: editorState.titleText,
-        borderColor: editorState.bottomBarColor,
-      })
-    }
-
-    const metadata = {
-      workspace_id: ws.id, source_video: ws.downloadedPath,
-      export_resolution: exportRes,
-      video_speed: editorState.speedMultiplier, fps_target: editorState.exportFPS, overlays,
-      trim: { start: trimStartSec, end: trimEndSec },
-      codec: editorState.exportCodec, preset: editorState.exportPreset, tune: editorState.exportTune,
-      backgroundType: editorState.backgroundType, backgroundColor: editorState.backgroundColor,
-      backgroundImage: editorState.backgroundImageDiskPath || undefined,
-      blur_background: (editorState.backgroundType === 'blur' && ws.blurBackgroundPath) ? ws.blurBackgroundPath : '',
-      isShort,
-      vidHeightPct: editorState.vidHeightPct,
-      bottomBarH,
-      bottomBarColor: editorState.bottomBarColor,
-      bottomBarEnabled: editorState.bottomBarEnabled,
-      upscaleToTikTok: editorState.upscaleToTikTok,
-    }
-
-    updateWorkspace(ws.id, { status: 'rendering', renderProgress: 0 })
-    try {
-      const result = await ipc.startRender(ws.id, metadata) as { success: boolean; outputPath?: string; error?: string }
-      if (result && !result.success) {
-        updateWorkspace(ws.id, { status: 'ready', renderProgress: 0 })
-        addNotification({ type: 'error', message: `Render failed: ${result.error}` })
-        showToast(`Render failed: ${result.error}`)
-      }
-    } catch (err) {
-      updateWorkspace(ws.id, { status: 'ready', renderProgress: 0 })
-      addNotification({ type: 'error', message: `Render error: ${(err as Error).message}` })
-      showToast(`Render error: ${(err as Error).message}`)
-    }
-  }
-
   const handleSplit = async (workspaceId: string, partMinutes: number) => {
     showToast(`Đang tách video thành các phần...`)
     const result = await ipc.splitWorkspace(workspaceId, { partMinutes })
@@ -913,113 +671,20 @@ function DashboardContent() {
     }
   }
 
-  const handleExportChunked = async () => {
-    if (!selectedWorkspaceId) return
-    lastRenderCodec.current = editorState.exportCodec
-    const ws = workspaces.find(w => w.id === selectedWorkspaceId)
-    if (!ws || !ws.downloadedPath) { showToast('Video not downloaded yet'); return }
-    if (editorState.backgroundType === 'blur' && !ws.blurBackgroundPath) {
-      // Fallback: chunked render will use solid color if blur is not ready yet
-    }
-
-    const parseDur = (d: string): number => {
-      const parts = d.split(':').map(Number)
-      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
-      if (parts.length === 2) return parts[0] * 60 + parts[1]
-      return parseFloat(d) || 0
-    }
-    const totalSec = parseDur(ws.duration)
-    const trimStartSec = Math.round((editorState.trimStart / 100) * totalSec)
-    const trimEndSec = Math.round((editorState.trimEnd / 100) * totalSec)
-
-    const overlays: object[] = []
-    // Use disk path (FFmpeg-readable) not blob URL
-    if (editorState.headerImageDiskPath) {
-      overlays.push({ type: 'header', src: editorState.headerImageDiskPath })
-    } else if ((ws.isShort === false) && editorState.backgroundImageDiskPath) {
-      // Landscape: header overlay = custom thumbnail image
-      overlays.push({ type: 'header', src: editorState.backgroundImageDiskPath })
-    }
-    const isShort = ws.isShort !== false
-    // SHORT mode + bottom bar: title text goes to bottom bar, not as video overlay
-    if (editorState.titleText && !(isShort && editorState.bottomBarEnabled)) {
-      overlays.push({
-        type: 'title', content: editorState.titleText, shape: editorState.titleShape,
-        borderColor: editorState.titleBorderColor, bgColor: editorState.titleBgColor, fontSize: editorState.titleFontSize,
-      })
-    }
-    // SHORT mode: add title text to bottom bar if enabled
-    if (isShort && editorState.bottomBarEnabled && editorState.titleText) {
-      overlays.push({
-        type: 'title', content: editorState.titleText,
-        borderColor: editorState.bottomBarColor,
-      })
-    }
-
-    const exportRes = editorState.exportQuality === 360 ? '360x640' : editorState.exportQuality === 720 ? '720x1280' : '1080x1920'
-    const canvasH = parseInt(exportRes.split('x')[1])
-    const bottomBarH = Math.floor(canvasH * BOTTOM_PCT)
-
-    const metadata = {
-      workspace_id: ws.id, source_video: ws.downloadedPath,
-      export_resolution: exportRes,
-      video_speed: editorState.speedMultiplier, fps_target: editorState.exportFPS, overlays,
-      trim: { start: trimStartSec, end: trimEndSec },
-      codec: editorState.exportCodec, preset: editorState.exportPreset, tune: editorState.exportTune,
-      backgroundType: editorState.backgroundType, backgroundColor: editorState.backgroundColor,
-      backgroundImage: editorState.backgroundImageDiskPath || undefined,
-      blur_background: (editorState.backgroundType === 'blur' && ws.blurBackgroundPath) ? ws.blurBackgroundPath : '',
-      isShort,
-      vidHeightPct: editorState.vidHeightPct,
-      bottomBarH,
-      bottomBarColor: editorState.bottomBarColor,
-      bottomBarEnabled: editorState.bottomBarEnabled,
-      upscaleToTikTok: editorState.upscaleToTikTok,
-    }
-
-    updateWorkspace(ws.id, { status: 'rendering', renderProgress: 0 })
-    try {
-      const result = await ipc.startChunked(ws.id, metadata, { workers: 8, chunkDuration: 120, minChunkDuration: 10 })
-      if (result?.success) {
-        updateWorkspace(ws.id, { status: 'done', renderProgress: 100 })
-        addNotification({ type: 'success', message: `Render done: ${ws.videoTitle}` })
-        showToast('Chunked render complete')
-      } else {
-        updateWorkspace(ws.id, { status: 'ready', renderProgress: 0 })
-        addNotification({ type: 'error', message: `Chunked failed: ${result?.error}` })
-        showToast(`Chunked failed: ${result?.error}`)
-      }
-    } catch (err) {
-      updateWorkspace(ws.id, { status: 'ready', renderProgress: 0 })
-      addNotification({ type: 'error', message: `Chunked error: ${(err as Error).message}` })
-      showToast('Chunked error')
-    }
-  }
-
-  const handleCancelRender = (id: string) => {
-    ipc.cancelRender(id)
-    updateWorkspace(id, { status: 'ready', renderProgress: 0 })
-    showToast('Render cancelled')
-  }
-
   const handleLogout = async () => {
     await ipc.logout()
     setAuthStatus({ isReady: false, cookieCount: 0, loggedOut: true, accountName: '', oauthReady: false })
     showToast('Đã đăng xuất YouTube')
   }
 
-  const selectedVideo = videos.find((v) => v.id === selectedWorkspaceId) ?? null
-
-  // Skeleton: show when initial data is loading AND auth is ready
   const showSkeleton = isLoadingData && authStatus.isReady
 
-  // Filter workspaces by active channel
   const filteredWorkspaces = activeChannelId
     ? workspaces.filter(w => w.channelId === activeChannelId)
     : workspaces
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: '#0E0E0E', fontFamily: 'Inter, sans-serif', color: '#fff', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0E0E0E', fontFamily: 'Inter, sans-serif', color: '#fff', overflow: 'hidden' }}>
       {/* Login screen */}
       {!authStatus.isReady && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999 }}>
@@ -1041,84 +706,91 @@ function DashboardContent() {
         </div>
       )}
 
-      {/* Sidebar */}
-      <Sidebar
-        channels={channels}
-        isLoadingChannels={isLoadingChannels}
-        activeChannelId={activeChannelId || ''}
-        newCounts={newCounts}
-        onChannelSelect={handleChannelSelect}
-        systemStats={systemStats}
-        authStatus={authStatus}
-        pollerStatus={pollerStatus}
-        onLogout={handleLogout}
-        keyHealth={keyHealth}
+      {/* Top Bar */}
+      <TopBar
         settings={settings}
+        systemStats={systemStats}
         onSettingsChange={async (patch) => {
           setSettings(patch)
           await ipc.updateSettings(patch)
         }}
-        activityEntries={[...activityMap.values()].reverse()}
-        etaDisplay={etaDisplay}
       />
 
-      {/* Main: workspace queue + editor */}
-      <ResizablePanelGroup direction="horizontal" style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Workspace queue */}
-        <ResizablePanel defaultSize={15} minSize={10} maxSize={40} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid #1E1E1E' }}>
+      {/* Main 3-column area */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        {/* Sidebar */}
+        <Sidebar
+          channels={channels}
+          isLoadingChannels={isLoadingChannels}
+          activeChannelId={activeChannelId || ''}
+          newCounts={newCounts}
+          onChannelSelect={handleChannelSelect}
+          systemStats={systemStats}
+          authStatus={authStatus}
+          pollerStatus={pollerStatus}
+          onLogout={handleLogout}
+          keyHealth={keyHealth}
+        />
+
+        {/* Settings Panel (center) — or rendered video detail */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 400 }}>
+          {showSkeleton ? (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ color: '#444', fontSize: 11 }}>Loading...</div>
+            </div>
+          ) : selectedRenderedVideoId && renderedVideos.find(v => v.id === selectedRenderedVideoId) ? (
+            <div style={{ flex: 1, overflow: 'auto', padding: 20 }}>
+              <RenderedVideoDetail
+                video={renderedVideos.find(v => v.id === selectedRenderedVideoId)!}
+                onShowToast={showToast}
+              />
+            </div>
+          ) : (
+            <SettingsPanel
+              settings={settings}
+              systemStats={systemStats}
+              channels={channels}
+              workspaces={filteredWorkspaces}
+              renderedVideos={renderedVideos}
+            />
+          )}
+        </div>
+
+        {/* Video Queue (right panel) */}
+        <div style={{ width: 280, minWidth: 240, maxWidth: 400, display: 'flex', flexDirection: 'column', borderLeft: '1px solid #1E1E1E' }}>
           {showSkeleton ? (
             <SkeletonQueue />
           ) : (
             <WorkspaceQueue
-            workspaces={filteredWorkspaces}
-            renderedVideos={renderedVideos}
-            channels={channels}
-            selectedId={selectedWorkspaceId}
-            selectedRenderedId={selectedRenderedVideoId}
-            onSelect={(id) => handleVideoSelect(id)}
-            onSelectRendered={handleRenderedVideoSelect}
-            onQuickAction={handleQuickAction}
-            onRetry={handleRetry}
-            onRemoveRendered={(id) => {
-              if (selectedRenderedVideoId === id) setSelectedRenderedVideoId(null)
-              removeRenderedVideo(id)
-            }}
-            onShowToast={showToast}
-            onSplit={handleSplit}
-            trimLimitMinutes={settings.defaultTrimLimit as number}
-            onCompare={handleCompare}
-          />
-          )}
-        </ResizablePanel>
-
-        <ResizableHandle withHandle />
-
-        {/* Editor / Rendered detail */}
-        <ResizablePanel style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {showSkeleton ? (
-            <SkeletonEditor />
-          ) : selectedRenderedVideoId && renderedVideos.find(v => v.id === selectedRenderedVideoId) ? (
-            <RenderedVideoDetail
-              video={renderedVideos.find(v => v.id === selectedRenderedVideoId)!}
-              onShowToast={showToast}
-            />
-          ) : (
-            <DetailEditor
-              video={selectedVideo}
-              editorState={editorState}
-              onChange={handleEditorChange}
-              onRender={handleRender}
-              onExportChunked={handleExportChunked}
-              systemStats={systemStats}
+              workspaces={filteredWorkspaces}
+              renderedVideos={renderedVideos}
+              channels={channels}
+              selectedId={selectedWorkspaceId}
+              selectedRenderedId={selectedRenderedVideoId}
+              onSelect={(id) => handleVideoSelect(id)}
+              onSelectRendered={handleRenderedVideoSelect}
+              onQuickAction={handleQuickAction}
+              onRetry={handleRetry}
+              onRemoveRendered={(id) => {
+                if (selectedRenderedVideoId === id) setSelectedRenderedVideoId(null)
+                removeRenderedVideo(id)
+              }}
               onShowToast={showToast}
               onSplit={handleSplit}
-              settings={settings}
-              downloadQuality={selectedVideo?.downloadQuality}
-              availableFormats={selectedVideo?.availableFormats}
+              trimLimitMinutes={settings.defaultTrimLimit as number}
+              onCompare={handleCompare}
             />
           )}
-        </ResizablePanel>
-      </ResizablePanelGroup>
+        </div>
+      </div>
+
+      {/* Activity Log Bar */}
+      <ActivityLogBar
+        entries={[...activityMap.values()].reverse()}
+        etaDisplay={etaDisplay}
+        onCompare={handleCompare}
+        renderedWorkspaceIds={new Set(renderedVideos.map(v => v.workspaceId))}
+      />
 
       {/* Toast */}
       {toast && (
@@ -1136,23 +808,9 @@ function DashboardContent() {
         </div>
       )}
 
-      {/* Render queue bar */}
-      <RenderQueueBar
-        workspaces={workspaces}
-        isExpanded={renderQueueExpanded}
-        onToggle={() => setRenderQueueExpanded(v => !v)}
-        onCancel={handleCancelRender}
-        autoRenderEnabled={settings.autoRender}
-        onAutoRenderToggle={(enabled) => {
-          setSettings({ autoRender: enabled })
-          ipc.updateSettings({ autoRender: enabled })
-          showToast(enabled ? 'Auto-render ON — video sẽ tự render sau khi download' : 'Auto-render OFF')
-        }}
-      />
-
       <SkeletonStyles />
 
-      {/* Confirmation dialog for destructive actions */}
+      {/* Confirmation dialog */}
       <ConfirmationDialog
         open={confirmDialog !== null}
         title={confirmDialog?.title ?? ''}
