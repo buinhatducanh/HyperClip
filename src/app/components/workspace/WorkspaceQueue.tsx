@@ -25,7 +25,7 @@ interface Props {
   onCompare?: (workspaceId: string) => void
 }
 
-type GroupStatus = 'ready' | 'rendering' | 'downloading' | 'waiting' | 'editing' | 'done'
+type GroupStatus = 'ready' | 'rendering' | 'downloading' | 'waiting' | 'editing' | 'done' | 'error'
 type ActiveTab = 'pipeline' | 'rendered'
 
 const STATUS_ORDER: GroupStatus[] = ['ready', 'rendering', 'downloading', 'waiting', 'editing', 'done']
@@ -230,6 +230,45 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
           )}
         </button>
       </div>
+
+      {/* Filter tabs — compact pill style */}
+      {activeTab === 'pipeline' && workspaces.length > 0 && (
+        <div style={{
+          display: 'flex', gap: 4, padding: '3px 8px',
+          background: '#0D0D0D', borderBottom: '1px solid #161616',
+          flexShrink: 0, flexWrap: 'wrap',
+        }}>
+          {[
+            { key: 'all', label: 'ALL', color: '#888' },
+            { key: 'ready', label: 'READY', color: '#00FF88' },
+            { key: 'downloading', label: 'DL', color: '#00B4FF' },
+            { key: 'rendering', label: 'RENDER', color: '#7C3AED' },
+            { key: 'error', label: 'ERR', color: '#FF4444' },
+          ].map(tab => {
+            const count = tab.key === 'all'
+              ? filteredWorkspaces.length
+              : filteredWorkspaces.filter(w => w.status === tab.key).length
+            if (count === 0 && tab.key !== 'all') return null
+            const isActive = filterStatus === tab.key || (tab.key === 'all' && filterStatus === 'all')
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setFilterStatus(tab.key === 'all' ? 'all' : tab.key as GroupStatus)}
+                style={{
+                  height: 20, padding: '0 6px', border: 'none', borderRadius: 3,
+                  background: isActive ? `${tab.color}18` : 'transparent',
+                  color: isActive ? tab.color : '#444',
+                  fontSize: 9, fontWeight: 700, cursor: 'pointer', fontFamily: 'monospace',
+                  display: 'flex', alignItems: 'center', gap: 3,
+                }}
+              >
+                {tab.label}
+                <span style={{ fontSize: 8, opacity: 0.6 }}>{count}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {/* Filter bar — pipeline only */}
       {activeTab === 'pipeline' && workspaces.length > 0 && (
