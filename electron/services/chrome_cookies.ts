@@ -474,7 +474,7 @@ if (!dbBuffer) return { cookies: null, rawSocs: null }
     // node_modules/sql.js lives at project root in dev, at app.asar.unpacked/node_modules in prod
     const sqlJsDist = app.isPackaged
       ? path.join(process.resourcesPath!, 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist')
-      : path.join(__dirname, '..', 'node_modules', 'sql.js', 'dist')
+      : path.join(__dirname, '..', '..', 'node_modules', 'sql.js', 'dist')
 
     devLog(`[Cookie] sql.js loading WASM from: ${sqlJsDist}`)
     const SqlJs = await initSqlJs({

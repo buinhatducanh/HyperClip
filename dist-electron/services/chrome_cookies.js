@@ -429,10 +429,11 @@ async function extractYouTubeCookiesFromPath(cookieDbPath, localStatePath) {
     if (!dbBuffer)
         return { cookies: null, rawSocs: null };
     try {
-        // Use app.getAppPath() which works in both dev and packaged modes (ESM-compatible)
+        // __dirname = dist-electron/ in dev, <app>.asar/ in prod
+        // node_modules/sql.js lives at project root in dev, at app.asar.unpacked/node_modules in prod
         const sqlJsDist = electron_1.app.isPackaged
             ? path_1.default.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist')
-            : path_1.default.join(electron_1.app.getAppPath(), 'node_modules', 'sql.js', 'dist');
+            : path_1.default.join(__dirname, '..', '..', 'node_modules', 'sql.js', 'dist');
         (0, unified_log_js_1.devLog)(`[Cookie] sql.js loading WASM from: ${sqlJsDist}`);
         const SqlJs = await (0, sql_js_1.default)({
             locateFile: (f) => path_1.default.join(sqlJsDist, f),
