@@ -332,6 +332,7 @@ async function getChannelId(videoUrl) {
     return new Promise((resolve) => {
         const proc = (0, child_process_1.spawn)(ytdlp, [
             ...getJsRuntimeArgs(),
+            '--remote-components', 'ejs:github',
             '--flat-playlist',
             '--print', '%(channel_id)s',
             '--no-download',
@@ -371,6 +372,7 @@ async function getChannelInfo(url) {
         let stderr = '';
         const proc = (0, child_process_1.spawn)(ytdlp, [
             ...getJsRuntimeArgs(),
+            '--remote-components', 'ejs:github',
             '--dump-json',
             '--no-download',
             '--no-playlist',
@@ -413,6 +415,7 @@ async function getVideoInfo(videoUrl) {
         let stderr = '';
         const proc = (0, child_process_1.spawn)(ytdlp, [
             ...getJsRuntimeArgs(),
+            '--remote-components', 'ejs:github',
             '--dump-json',
             '--no-download',
             '--no-playlist',
@@ -796,6 +799,7 @@ async function probeVideoAvailability(videoUrl, ytCookiesFile) {
             const args = [
                 videoUrl,
                 ...getJsRuntimeArgs(),
+                '--remote-components', 'ejs:github',
                 '--extractor-args', `youtube:player_client=${client}`,
                 '--dump-json',
                 '--no-download',
@@ -839,7 +843,7 @@ async function probeVideoAvailability(videoUrl, ytCookiesFile) {
                     }
                 }
                 const isPrivate = err.includes('private video');
-                const isNotFound = err.includes('not available') || err.includes('video unavailable') || err.includes('video not found');
+                const isNotFound = err.includes('not available') || err.includes('video unavailable') || err.includes('video not found') || err.includes('no video formats found');
                 const isRateLimited = err.includes('429') || err.includes('too many requests');
                 const isProcessing = err.includes('processing') || err.includes('is being processed');
                 if (isPrivate || isNotFound || isRateLimited || isProcessing) {
@@ -866,15 +870,28 @@ async function probeVideoAvailability(videoUrl, ytCookiesFile) {
             });
         });
     };
-    // Match the download order: tv_embedded first (bypasses EJS challenge),
-    // web second (fallback), ios third (last resort).
-    // web client with Chrome cookies triggers EJS challenge → "not found" false positive.
-    for (const client of ['tv_embedded', 'web', 'ios']) {
+    // Probe web first — better indexing for new/recent videos.
+    // tv_embedded second — can fail on videos < ~1min old (not yet in HLS index).
+    // ios last resort. Falls back to download (downloadVideoStrategy) if probe inconclusive.
+    const clients = ['web', 'tv_embedded', 'ios'];
+    for (const client of clients) {
         const result = await tryClient(client);
-        if (result)
+        if (result && result.available)
             return result;
+        // For unavailable (private/not-found/rate-limited), continue trying other clients
+        // — we want a definitive answer before giving up.
+        if (result && (result.isPrivate || result.isRateLimited || result.isNotFound)) {
+            // Retry isNotFound once after a short delay (video may still be propagating)
+            if (result.isNotFound) {
+                await new Promise(r => setTimeout(r, 5000));
+                const retry = await tryClient(client);
+                if (retry && retry.available)
+                    return retry;
+            }
+            return result;
+        }
     }
-    // All probes failed — return null (caller should attempt download with caution)
+    // All probes inconclusive — return null (caller should attempt download with caution)
     return null;
 }
 /** Use ffprobe to get real video duration from a downloaded file. */
@@ -902,6 +919,7 @@ async function probeAvailableFormats(videoUrl, ytCookiesFile) {
             const args = [
                 videoUrl,
                 ...getJsRuntimeArgs(),
+                '--remote-components', 'ejs:github',
                 '--extractor-args', `youtube:player_client=${client}`,
                 '--dump-json',
                 '--no-download',
@@ -1051,6 +1069,8 @@ async function downloadWithClient(opts) {
         `bestvideo[height<=${maxHeight}][vcodec!="none"]+bestaudio`,
         `bestvideo[height<=${maxHeight}]+bestaudio[acodec=aac]`,
         `bestvideo[height<=${maxHeight}]+bestaudio`,
+        // Fallback for pre-muxed formats (e.g., format 18 for new videos without adaptive streams yet)
+        `18/best[height<=${maxHeight}]`,
     ].join('/');
     console.log(`[Download] quality=${quality} maxHeight=${maxHeight}p selector=${formatSelector}`);
     // Multi-instance: parallel yt-dlp instances for 720p+ with enough free RAM
@@ -1129,7 +1149,7 @@ function classifyError(error, stderr) {
     const combined = (error + ' ' + stderr).toLowerCase();
     return {
         isPrivate: combined.includes('private video') || combined.includes('sign in if you\'ve been granted access'),
-        isNotFound: combined.includes('not available') || combined.includes('video unavailable') || combined.includes('video not found') || combined.includes('removed by'),
+        isNotFound: combined.includes('not available') || combined.includes('video unavailable') || combined.includes('video not found') || combined.includes('removed by') || combined.includes('no video formats found'),
         isRateLimited: combined.includes('429') || combined.includes('too many requests') || combined.includes('rate limit'),
         isProcessing: combined.includes('processing') && combined.includes('video'),
     };
@@ -1145,6 +1165,7 @@ async function spawnDownload(opts) {
     const args = [
         videoUrl,
         ...getJsRuntimeArgs(),
+        '--remote-components', 'ejs:github',
         '--extractor-args', `youtube:player_client=${client}`,
         ...(ytCookiesFile ? ['--cookies', ytCookiesFile] : []),
         '-f', formatSelector,

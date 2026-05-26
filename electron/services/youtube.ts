@@ -416,6 +416,7 @@ export async function getChannelId(videoUrl: string): Promise<string | null> {
   return new Promise((resolve) => {
     const proc = spawn(ytdlp, [
       ...getJsRuntimeArgs(),
+      '--remote-components', 'ejs:github',
       '--flat-playlist',
       '--print', '%(channel_id)s',
       '--no-download',
@@ -464,6 +465,7 @@ export async function getChannelInfo(url: string): Promise<YtdlpChannelInfo | nu
 
     const proc = spawn(ytdlp, [
       ...getJsRuntimeArgs(),
+      '--remote-components', 'ejs:github',
       '--dump-json',
       '--no-download',
       '--no-playlist',
@@ -515,6 +517,7 @@ export async function getVideoInfo(videoUrl: string): Promise<YtdlpVideoInfo | n
 
     const proc = spawn(ytdlp, [
       ...getJsRuntimeArgs(),
+      '--remote-components', 'ejs:github',
       '--dump-json',
       '--no-download',
       '--no-playlist',
@@ -945,6 +948,7 @@ export async function probeVideoAvailability(
       const args = [
         videoUrl,
         ...getJsRuntimeArgs(),
+        '--remote-components', 'ejs:github',
         '--extractor-args', `youtube:player_client=${client}`,
         '--dump-json',
         '--no-download',
@@ -993,7 +997,7 @@ export async function probeVideoAvailability(
         }
 
         const isPrivate = err.includes('private video')
-        const isNotFound = err.includes('not available') || err.includes('video unavailable') || err.includes('video not found')
+        const isNotFound = err.includes('not available') || err.includes('video unavailable') || err.includes('video not found') || err.includes('no video formats found')
         const isRateLimited = err.includes('429') || err.includes('too many requests')
         const isProcessing = err.includes('processing') || err.includes('is being processed')
 
@@ -1025,15 +1029,28 @@ export async function probeVideoAvailability(
     })
   }
 
-  // Match the download order: tv_embedded first (bypasses EJS challenge),
-  // web second (fallback), ios third (last resort).
-  // web client with Chrome cookies triggers EJS challenge → "not found" false positive.
-  for (const client of ['tv_embedded', 'web', 'ios'] as const) {
+  // Probe web first — better indexing for new/recent videos.
+  // tv_embedded second — can fail on videos < ~1min old (not yet in HLS index).
+  // ios last resort. Falls back to download (downloadVideoStrategy) if probe inconclusive.
+  const clients: readonly ('web' | 'tv_embedded' | 'ios')[] = ['web', 'tv_embedded', 'ios']
+
+  for (const client of clients) {
     const result = await tryClient(client)
-    if (result) return result
+    if (result && result.available) return result
+    // For unavailable (private/not-found/rate-limited), continue trying other clients
+    // — we want a definitive answer before giving up.
+    if (result && (result.isPrivate || result.isRateLimited || result.isNotFound)) {
+      // Retry isNotFound once after a short delay (video may still be propagating)
+      if (result.isNotFound) {
+        await new Promise(r => setTimeout(r, 5000))
+        const retry = await tryClient(client)
+        if (retry && retry.available) return retry
+      }
+      return result
+    }
   }
 
-  // All probes failed — return null (caller should attempt download with caution)
+  // All probes inconclusive — return null (caller should attempt download with caution)
   return null
 }
 
@@ -1084,6 +1101,7 @@ export async function probeAvailableFormats(
       const args = [
         videoUrl,
         ...getJsRuntimeArgs(),
+        '--remote-components', 'ejs:github',
         '--extractor-args', `youtube:player_client=${client}`,
         '--dump-json',
         '--no-download',
@@ -1295,6 +1313,8 @@ async function downloadWithClient(opts: DownloadWithClientOpts): Promise<Downloa
     `bestvideo[height<=${maxHeight}][vcodec!="none"]+bestaudio`,
     `bestvideo[height<=${maxHeight}]+bestaudio[acodec=aac]`,
     `bestvideo[height<=${maxHeight}]+bestaudio`,
+    // Fallback for pre-muxed formats (e.g., format 18 for new videos without adaptive streams yet)
+    `18/best[height<=${maxHeight}]`,
   ].join('/')
   console.log(`[Download] quality=${quality} maxHeight=${maxHeight}p selector=${formatSelector}`)
 
@@ -1392,7 +1412,7 @@ function classifyError(error: string, stderr: string): { isPrivate: boolean; isN
   const combined = (error + ' ' + stderr).toLowerCase()
   return {
     isPrivate: combined.includes('private video') || combined.includes('sign in if you\'ve been granted access'),
-    isNotFound: combined.includes('not available') || combined.includes('video unavailable') || combined.includes('video not found') || combined.includes('removed by'),
+    isNotFound: combined.includes('not available') || combined.includes('video unavailable') || combined.includes('video not found') || combined.includes('removed by') || combined.includes('no video formats found'),
     isRateLimited: combined.includes('429') || combined.includes('too many requests') || combined.includes('rate limit'),
     isProcessing: combined.includes('processing') && combined.includes('video'),
   }
@@ -1411,6 +1431,7 @@ async function spawnDownload(opts: SpawnDownloadOpts): Promise<DownloadStrategyR
   const args: string[] = [
     videoUrl,
     ...getJsRuntimeArgs(),
+    '--remote-components', 'ejs:github',
     '--extractor-args', `youtube:player_client=${client}`,
     ...(ytCookiesFile ? ['--cookies', ytCookiesFile] : []),
     '-f', formatSelector,
