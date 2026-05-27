@@ -1,15 +1,20 @@
-import { colors, spacing, fontSize } from '../design-system/tokens'
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import type { ActivityEntry } from './ActivityLog'
+import { colors, spacing, fontSize } from '../design-system/tokens'
 
 interface Props {
   entries: ActivityEntry[]
   onClear?: () => void
 }
 
-function formatRelTime(ts: number): string {
+function fmtTimestamp(ts: number): string {
+  const d = new Date(ts)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`
+}
+
+function fmtRelTime(ts: number): string {
   const diff = (Date.now() - ts) / 1000
   if (diff < 5) return 'now'
   if (diff < 60) return `${Math.floor(diff)}s`
@@ -18,30 +23,20 @@ function formatRelTime(ts: number): string {
   return `${Math.floor(diff / 86400)}d`
 }
 
-const TYPE_CONFIG: Record<string, { icon: string; color: string }> = {
-  detected:   { icon: '●', color: colors.accent },
-  downloading:{ icon: '↓', color: colors.warning },
-  downloaded: { icon: '✓', color: colors.success },
-  rendering: { icon: '⚡', color: '#7C3AED' },
-  done:      { icon: '✓', color: colors.success },
-  error:     { icon: '✗', color: colors.error },
-  warning:   { icon: '⚠', color: colors.warning },
-}
-
-function StatChip({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 8, fontWeight: 700, letterSpacing: '0.06em' }}>
-      <span style={{ color: '#888' }}>{label}:</span>
-      <span style={{ color, fontFamily: 'monospace' }}>{value}</span>
-    </div>
-  )
+const TYPE_CONFIG: Record<string, { tag: string; color: string }> = {
+  detected:   { tag: 'DET', color: '#3B82F6' },
+  downloading:{ tag: 'DL',  color: '#F59E0B' },
+  downloaded: { tag: 'OK',  color: '#10B981' },
+  rendering:  { tag: 'RND', color: '#8B5CF6' },
+  done:       { tag: 'OK',  color: '#10B981' },
+  error:      { tag: 'ERR', color: '#EF4444' },
+  warning:    { tag: 'WRN', color: '#F59E0B' },
 }
 
 export function ActivityLogPanel({ entries, onClear }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevLenRef = useRef(0)
 
-  // Auto-scroll to bottom when new entries arrive
   useEffect(() => {
     if (entries.length > prevLenRef.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
@@ -49,7 +44,6 @@ export function ActivityLogPanel({ entries, onClear }: Props) {
     prevLenRef.current = entries.length
   }, [entries])
 
-  // Counts
   const counts = useMemo(() => ({
     det: entries.filter(e => e.type === 'detected').length,
     dl:  entries.filter(e => e.type === 'downloading').length,
@@ -57,77 +51,96 @@ export function ActivityLogPanel({ entries, onClear }: Props) {
     err: entries.filter(e => e.type === 'error').length,
   }), [entries])
 
-  const displayEntries = entries.slice(-80)
-
   return (
     <div style={{
-      height: 220, flexShrink: 0,
-      borderTop: '1px solid #E0E0E0',
-      background: colors.bg,
+      height: 300, flexShrink: 0,
+      background: '#1A1A1A',
       display: 'flex', flexDirection: 'column',
+      fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+      fontSize: 11,
+      borderTop: '1px solid #2A2A2A',
     }}>
-      {/* Header stats bar */}
+      {/* Header bar */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 12,
-        padding: '8px 14px',
-        borderBottom: '1px solid #E0E0E0',
-        flexShrink: 0,
+        display: 'flex', alignItems: 'center', gap: spacing.sm,
+        padding: '7px 12px',
+        borderBottom: '1px solid #2A2A2A',
+        background: '#1A1A1A',
+        flexShrink: 0, minHeight: 28,
       }}>
-        <span style={{ fontSize: 10, color: colors.accent, fontWeight: 700, letterSpacing: '0.06em', marginRight: 6 }}>ACT</span>
+        <span style={{ fontSize: 10, color: '#666', fontWeight: 600, letterSpacing: '0.05em' }}>
+          ╰ activity.log
+        </span>
 
-        <StatChip label="DET" value={counts.det} color="#00B4FF" />
-        <StatChip label="DL"  value={counts.dl}  color="#FFB800" />
-        <StatChip label="OK"  value={counts.ok}  color="#00FF88" />
-        {counts.err > 0 && <StatChip label="ERR" value={counts.err} color="#FF4444" />}
+        {counts.det > 0 && (
+          <span style={{ fontSize: 9, fontWeight: 700, color: '#3B82F6', background: '#3B82F615', padding: '1px 5px', borderRadius: 3 }}>
+            DET:{counts.det}
+          </span>
+        )}
+        {counts.dl > 0 && (
+          <span style={{ fontSize: 9, fontWeight: 700, color: '#F59E0B', background: '#F59E0B15', padding: '1px 5px', borderRadius: 3 }}>
+            DL:{counts.dl}
+          </span>
+        )}
+        {counts.ok > 0 && (
+          <span style={{ fontSize: 9, fontWeight: 700, color: '#10B981', background: '#10B98115', padding: '1px 5px', borderRadius: 3 }}>
+            OK:{counts.ok}
+          </span>
+        )}
+        {counts.err > 0 && (
+          <span style={{ fontSize: 9, fontWeight: 700, color: '#EF4444', background: '#EF444415', padding: '1px 5px', borderRadius: 3 }}>
+            ERR:{counts.err}
+          </span>
+        )}
 
         <div style={{ flex: 1 }} />
-
         {onClear && (
           <button
             onClick={onClear}
             style={{
-              fontSize: 10, fontWeight: 700, color: '#888', background: 'transparent',
-              border: 'none', cursor: 'pointer', letterSpacing: '0.06em', padding: '3px 8px',
+              fontSize: 10, color: '#555', background: 'transparent',
+              border: 'none', cursor: 'pointer', padding: 0,
             }}
-            onMouseEnter={e => (e.currentTarget.style.color = colors.error)}
-            onMouseLeave={e => (e.currentTarget.style.color = '#888')}
+            onMouseEnter={e => (e.currentTarget.style.color = '#EF4444')}
+            onMouseLeave={e => (e.currentTarget.style.color = '#555')}
           >
-            [Clear]
+            clear
           </button>
         )}
       </div>
 
-      {/* Entry list */}
+      {/* Log entries */}
       <div ref={scrollRef} style={{
         flex: 1, overflowY: 'auto',
-        padding: '6px 14px',
-        fontFamily: 'monospace', fontSize: 12, lineHeight: 1.8,
+        padding: '6px 12px',
+        lineHeight: 1.8,
       }}>
-        {displayEntries.length === 0 && (
-          <div style={{ color: '#999', padding: '6px 0' }}>No activity</div>
+        {entries.length === 0 && (
+          <div style={{ color: '#555', paddingTop: 4, fontSize: 11 }}>
+            ── no activity yet ──
+          </div>
         )}
-        {displayEntries.map(e => {
-          const cfg = TYPE_CONFIG[e.type] || TYPE_CONFIG.info
+        {entries.slice(-80).map(e => {
+          const meta = TYPE_CONFIG[e.type] || TYPE_CONFIG.detected
           return (
-            <div
-              key={e.id}
-              style={{
-                display: 'flex', alignItems: 'flex-start', gap: 8,
-                color: '#666', marginBottom: 2,
-                background: e.type === 'error' ? 'rgba(255,68,68,0.05)' : 'transparent',
-                borderRadius: 2, padding: '2px 3px',
-              }}
-            >
-              {/* Relative time */}
-              <span style={{ color: '#888', fontSize: 11, minWidth: 32, flexShrink: 0 }}>
-                {formatRelTime(e.timestamp)}
+            <div key={e.id} style={{
+              display: 'flex', gap: 8,
+            }}>
+              <span style={{ color: '#555', flexShrink: 0, minWidth: 56 }}>
+                [{fmtTimestamp(e.timestamp)}]
               </span>
-              {/* Icon */}
-              <span style={{ color: cfg.color, flexShrink: 0, fontSize: 12 }}>
-                {cfg.icon}
+              <span style={{
+                color: meta.color, fontWeight: 700, flexShrink: 0, minWidth: 26,
+              }}>
+                {meta.tag}
               </span>
-              {/* Message */}
-              <span style={{ color: '#777', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span style={{ color: '#555', flexShrink: 0, minWidth: 26 }}>
+                {fmtRelTime(e.timestamp)}
+              </span>
+              <span style={{
+                color: e.type === 'error' ? '#EF4444' : '#ccc',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
+              }}>
                 {e.message}
               </span>
             </div>
