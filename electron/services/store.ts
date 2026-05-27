@@ -267,6 +267,8 @@ export interface WorkspaceData {
   autoRenderAttempted?: boolean
   /** YouTube available video heights (e.g. [360, 720, 1080]) — for quality validation UI */
   availableFormats?: number[]
+  /** Pipeline metrics: download timing/speed, render timing/preset, etc. */
+  metrics?: Record<string, unknown>
 }
 
 interface Store {

@@ -107,6 +107,10 @@ function getMaxConcurrentDownloads(): number {
   if (settings.maxConcurrentDownloads && settings.maxConcurrentDownloads > 0) {
     return settings.maxConcurrentDownloads
   }
+  // Ultra preset (RTX 5080 16GB VRAM + 64GB RAM): zero-latency, max concurrency
+  if (settings.hardwareProfile?.vramGB === 16 && settings.hardwareProfile?.ramGB === 64) {
+    return 10
+  }
   const freeGB = os.freemem() / (1024 ** 3)
   const totalGB = os.totalmem() / (1024 ** 3)
   if (totalGB >= 48) return 3   // RTX 5080 64GB: 3 concurrent
@@ -352,7 +356,24 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
   }, gpuTier).then((result) => {
     const renderElapsed = ((Date.now() - renderStartMs) / 1000).toFixed(1)
     if (result.success) {
-      updateWorkspace(workspaceId, { status: 'done', renderProgress: 100, outputPath: result.outputPath || '' })
+      const ws2 = getWorkspace(workspaceId)
+      const existingMetrics = ((ws2 as any)?.metrics) || {}
+      const renderMetrics = {
+        renderMs: Date.now() - renderStartMs,
+        renderPreset: metadata.preset,
+        renderCodec: metadata.codec,
+        renderOutputResolution: metadata.export_resolution,
+        renderWorkers: gpuTier === 'high' ? 14 : gpuTier === 'mid' ? 6 : 2,
+        renderStartedAt: new Date(renderStartMs).toISOString(),
+        renderCompletedAt: new Date().toISOString(),
+      }
+      updateWorkspace(workspaceId, {
+        status: 'done',
+        renderProgress: 100,
+        outputPath: result.outputPath || '',
+        metrics: { ...existingMetrics, ...renderMetrics },
+      })
+
       sendNotification('success', `Done: ${workspace.videoTitle}`, workspaceId)
       broadcast(IPC_CHANNELS.ACTIVITY_EVENT, {
         id: workspaceId,
@@ -787,8 +808,21 @@ async function autoDownloadFromWebSub(
       blurBackgroundPath: blurBgPath,
       preScaledPath,
       downloadQuality: autoQuality,
+      metrics: {
+        downloadMs: Date.now() - downloadStartMs,
+        downloadSpeedMBs: parseFloat(downloadElapsed) > 0 && finalFileSize
+          ? parseFloat(((finalFileSize / 1024 / 1024) / parseFloat(downloadElapsed)).toFixed(1))
+          : undefined,
+        downloadFileSize: finalFileSize,
+        downloadQuality: autoQuality,
+        downloadResolution: aspect ? `${aspect.width}x${aspect.height}` : undefined,
+        downloadIsMultiInstance: parseInt(autoQuality) >= 1080,
+        downloadStartedAt: new Date(downloadStartMs).toISOString(),
+        downloadCompletedAt: new Date().toISOString(),
+        detectedAt: ws.detectedAt || new Date().toISOString(),
+      },
     })
-    broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, updatedWs)
+
     sendNotification('success', `Auto-ready: ${realTitle}`, ws.id)
     broadcast(IPC_CHANNELS.AUTO_DOWNLOAD_EVENT, { videoId, title: realTitle, channelName: finalChannelName, detectedAt: detectedAtNow })
     showWindowsToast('✅ Download xong!', `${realTitle}`)
