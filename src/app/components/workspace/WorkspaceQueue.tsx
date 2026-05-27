@@ -37,8 +37,8 @@ const GROUP_CONFIG: Record<GroupStatus, { label: string; color: string; collapsi
   rendering:  { label: 'RENDERING',  color: colors.error, collapsible: false },
   downloading: { label: 'DOWNLOAD',  color: colors.accent, collapsible: false },
   waiting:    { label: 'WAITING',    color: colors.warning, collapsible: false },
-  editing:    { label: 'EDITING',    color: '#7C3AED', collapsible: false },
-  done:       { label: 'DONE',       color: '#999999', collapsible: true },
+  editing:    { label: 'EDITING',    color: colors.accent, collapsible: false },
+  done:       { label: 'DONE',       color: colors.textSecondary, collapsible: true },
   error:      { label: 'ERROR',      color: colors.error, collapsible: false },
 }
 
@@ -69,21 +69,21 @@ const MemoizedGroupHeader = memo(function GroupHeader({
       style={{
         height: 26,
         background: colors.bg,
-        borderBottom: '1px solid #FFFFFF',
+        borderBottom: `1px solid ${colors.surface}`,
         cursor: cfg.collapsible ? 'pointer' : 'default',
         userSelect: 'none',
       }}
     >
       <span style={{ width: 5, height: 5, borderRadius: '50%', background: cfg.color, display: 'inline-block', marginRight: 6, boxShadow: `0 0 4px ${cfg.color}88` }} />
-      <span style={{ fontSize: 9, fontWeight: 700, color: '#999666', letterSpacing: '0.08em' }}>
+      <span style={{ fontSize: 9, fontWeight: 700, color: colors.textSecondary, letterSpacing: '0.08em' }}>
         {cfg.label}
       </span>
-      <span style={{ marginLeft: 5, fontSize: 9, fontFamily: 'monospace', color: '#999999' }}>
+      <span style={{ marginLeft: 5, fontSize: 9, fontFamily: 'monospace', color: colors.textSecondary }}>
         · {count}
       </span>
       {cfg.collapsible && (
         <svg
-          width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#999666" strokeWidth="2"
+          width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={colors.textSecondary} strokeWidth="2"
           style={{ marginLeft: 'auto', transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}
         >
           <polyline points="6 9 12 15 18 9" />
@@ -165,12 +165,12 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
             gap: 5,
             background: activeTab === 'pipeline' ? colors.bg : 'transparent',
             border: 'none',
-            borderBottom: activeTab === 'pipeline' ? '2px solid #00B4FF' : '2px solid transparent',
+            borderBottom: activeTab === 'pipeline' ? `2px solid ${colors.accent}` : '2px solid transparent',
             cursor: 'pointer',
             transition: 'all 0.15s',
           }}
         >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={activeTab === 'pipeline' ? colors.accent : '#999999'} strokeWidth="2">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={activeTab === 'pipeline' ? colors.accent : colors.textSecondary} strokeWidth="2">
             <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
             <line x1="3" y1="9" x2="21" y2="9" />
             <line x1="9" y1="21" x2="9" y2="9" />
@@ -178,7 +178,7 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
           <span style={{
             fontSize: 9,
             fontWeight: 800,
-            color: activeTab === 'pipeline' ? colors.accent : '#999999',
+            color: activeTab === 'pipeline' ? colors.accent : colors.textSecondary,
             letterSpacing: '0.1em',
           }}>
             PIPELINE
@@ -186,7 +186,7 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
           {totalActive > 0 && (
             <span style={{
               fontSize: 8,
-              color: '#999666',
+              color: colors.textSecondary,
               fontFamily: 'monospace',
             }}>
               {totalActive}
@@ -206,18 +206,18 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
             gap: 5,
             background: activeTab === 'rendered' ? colors.bg : 'transparent',
             border: 'none',
-            borderBottom: activeTab === 'rendered' ? '2px solid #00FF88' : '2px solid transparent',
+            borderBottom: activeTab === 'rendered' ? `2px solid ${colors.success}` : '2px solid transparent',
             cursor: 'pointer',
             transition: 'all 0.15s',
           }}
         >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={activeTab === 'rendered' ? colors.success : '#999999'} strokeWidth="2">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={activeTab === 'rendered' ? colors.success : colors.textSecondary} strokeWidth="2">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
           <span style={{
             fontSize: 9,
             fontWeight: 800,
-            color: activeTab === 'rendered' ? colors.success : '#999999',
+            color: activeTab === 'rendered' ? colors.success : colors.textSecondary,
             letterSpacing: '0.1em',
           }}>
             RENDERED
@@ -225,7 +225,7 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
           {renderedVideos.length > 0 && (
             <span style={{
               fontSize: 8,
-              color: '#999666',
+              color: colors.textSecondary,
               fontFamily: 'monospace',
             }}>
               {renderedVideos.length}
@@ -238,14 +238,14 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
       {activeTab === 'pipeline' && workspaces.length > 0 && (
         <div style={{
           display: 'flex', gap: 4, padding: '3px 8px',
-          background: colors.bg, borderBottom: '1px solid #E8E8E8',
+          background: colors.bg, borderBottom: `1px solid ${colors.border}`,
           flexShrink: 0, flexWrap: 'wrap',
         }}>
           {[
-            { key: 'all', label: 'ALL', color: '#999999' },
+            { key: 'all', label: 'ALL', color: colors.textSecondary },
             { key: 'ready', label: 'READY', color: colors.success },
             { key: 'downloading', label: 'DL', color: colors.accent },
-            { key: 'rendering', label: 'RENDER', color: '#7C3AED' },
+            { key: 'rendering', label: 'RENDER', color: colors.error },
             { key: 'error', label: 'ERR', color: colors.error },
           ].map(tab => {
             const count = tab.key === 'all'
@@ -260,7 +260,7 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
                 style={{
                   height: 20, padding: '0 6px', border: 'none', borderRadius: 3,
                   background: isActive ? `${tab.color}18` : 'transparent',
-                  color: isActive ? tab.color : '#999999',
+                  color: isActive ? tab.color : colors.textSecondary,
                   fontSize: 9, fontWeight: 700, cursor: 'pointer', fontFamily: 'monospace',
                   display: 'flex', alignItems: 'center', gap: 3,
                 }}
@@ -295,12 +295,12 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
               onChange={e => setSearchQuery(e.target.value)}
               style={{
                 width: '100%', height: 24, paddingLeft: 24, paddingRight: 6,
-                background: '#FFFFFF', border: '1px solid #777',
-                borderRadius: 3, fontSize: 10, color: '#999999',
+                background: colors.surface, border: `1px solid ${colors.textTertiary}`,
+                borderRadius: 3, fontSize: 10, color: colors.textSecondary,
                 outline: 'none', fontFamily: 'inherit',
               }}
-              onFocus={e => { e.target.style.borderColor = '#00B4FF44'; e.target.style.color = colors.text }}
-              onBlur={e => { e.target.style.borderColor = '#777'; e.target.style.color = '#999999' }}
+              onFocus={e => { e.target.style.borderColor = `${colors.accent}44`; e.target.style.color = colors.text }}
+              onBlur={e => { e.target.style.borderColor = `${colors.textTertiary}`; e.target.style.color = colors.textSecondary }}
             />
           </div>
 
@@ -310,8 +310,8 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
             onChange={e => setFilterStatus(e.target.value as GroupStatus | 'all')}
             style={{
               height: 24, padding: '0 4px',
-              background: '#FFFFFF', border: '1px solid #777',
-              borderRadius: 3, fontSize: 9, color: '#999999',
+              background: colors.surface, border: `1px solid ${colors.textTertiary}`,
+              borderRadius: 3, fontSize: 9, color: colors.textSecondary,
               outline: 'none', cursor: 'pointer', fontFamily: 'inherit',
             }}
           >
@@ -327,8 +327,8 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
             onChange={e => setFilterChannel(e.target.value)}
             style={{
               height: 24, padding: '0 4px',
-              background: '#FFFFFF', border: '1px solid #777',
-              borderRadius: 3, fontSize: 9, color: '#999999',
+              background: colors.surface, border: `1px solid ${colors.textTertiary}`,
+              borderRadius: 3, fontSize: 9, color: colors.textSecondary,
               outline: 'none', cursor: 'pointer', fontFamily: 'inherit',
             }}
           >
@@ -345,8 +345,8 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
               title="Xóa bộ lọc"
               style={{
                 height: 24, padding: '0 6px',
-                background: 'transparent', border: '1px solid #777',
-                borderRadius: 3, fontSize: 9, color: '#999666',
+                background: 'transparent', border: `1px solid ${colors.textTertiary}`,
+                borderRadius: 3, fontSize: 9, color: colors.textSecondary,
                 cursor: 'pointer', flexShrink: 0,
               }}
             >
@@ -370,7 +370,7 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
                   <path d="M15 10l4.553-2.276A1 1 0 0 1 21 8.618v6.764a1 1 0 0 1-1.447.894L15 14v-4z" />
                   <rect x="3" y="6" width="12" height="12" rx="2" ry="2" />
                 </svg>
-                <span style={{ fontSize: 11, color: '#999666', textAlign: 'center', lineHeight: 1.5 }}>
+                <span style={{ fontSize: 11, color: colors.textSecondary, textAlign: 'center', lineHeight: 1.5 }}>
                   Chưa có video nào<br />
                   <span style={{ color: colors.borderHover, fontSize: 10 }}>Thêm kênh trong Settings →</span>
                 </span>
@@ -384,7 +384,7 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
                   <circle cx="11" cy="11" r="8" />
                   <line x1="21" y1="21" x2="16.65" y2="16.65" />
                 </svg>
-                <span style={{ fontSize: 11, color: '#999666', textAlign: 'center', lineHeight: 1.5 }}>
+                <span style={{ fontSize: 11, color: colors.textSecondary, textAlign: 'center', lineHeight: 1.5 }}>
                   Không có kết quả<br />
                   <span style={{ color: colors.borderHover, fontSize: 10 }}>Thử đổi từ khóa hoặc bộ lọc</span>
                 </span>

@@ -7,19 +7,21 @@ interface CardProps {
   padding?: SpacingKey | number
   border?: boolean
   hover?: boolean
+  bg?: string
   className?: string
   style?: React.CSSProperties
 }
 
 export function Card({
   children, padding = 'lg', border = true, hover = false,
+  bg = colors.surface,
   className = '', style = {},
 }: CardProps) {
   return (
     <div
       className={className}
       style={{
-        background: colors.surface,
+        background: bg,
         borderRadius: 6,
         padding: px(padding),
         border: border ? `1px solid ${colors.border}` : 'none',

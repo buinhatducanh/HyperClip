@@ -28,9 +28,9 @@ const STATUS_CONFIG: Record<WorkspaceStatus, { label: string; color: string; dot
   waiting:    { label: 'WAITING',  color: colors.warning, dotColor: colors.warning },
   downloading: { label: 'DOWNLOAD', color: colors.accent, dotColor: colors.accent },
   ready:      { label: 'READY',    color: colors.success, dotColor: colors.success },
-  editing:    { label: 'EDITING',  color: '#7C3AED', dotColor: '#7C3AED' },
+  editing:    { label: 'EDITING',  color: colors.accent, dotColor: colors.accent },
   rendering:  { label: 'RENDERING', color: colors.error, dotColor: colors.error },
-  done:       { label: 'DONE',     color: '#777555', dotColor: '#777555' },
+  done:       { label: 'DONE',     color: colors.textSecondary, dotColor: colors.textSecondary },
   error:      { label: 'ERROR',    color: colors.error, dotColor: colors.error },
 }
 
@@ -143,7 +143,7 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
   const qBadgeColor = badgeQuality >= 1080 ? colors.success
     : badgeQuality >= 720 ? colors.accent
     : badgeQuality >= 480 ? colors.warning
-    : '#FF6633'
+    : colors.error
 
   // 16:9 thumbnail dimensions
   const thumbH = 72
@@ -175,9 +175,9 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
       <div
         className={`card-body-${workspace.id}`}
         style={{
-          background: isSelected ? '#0D1F2A' : (isHovered ? '#FFFFFF' : '#FFFFFF'),
+          background: isSelected ? colors.accent + '18' : (isHovered ? colors.surface : colors.surface),
           borderLeft: `3px solid ${isSelected ? colors.accent : 'transparent'}`,
-          borderBottom: '1px solid #E0E0E0',
+          borderBottom: `1px solid ${colors.border}`,
           padding: '10px 12px',
           cursor: 'pointer',
           transition: 'background 0.15s',
@@ -191,7 +191,7 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
         <div style={{
           width: thumbW, height: thumbH, flexShrink: 0,
           borderRadius: 4, overflow: 'hidden',
-          background: colors.bg, border: '1px solid #777',
+          background: colors.bg, border: `1px solid ${colors.textTertiary}`,
           position: 'relative',
         }}>
           {thumbSrc && !thumbFailed ? (
@@ -265,8 +265,8 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
               {/* Percentage badge — top-right of thumbnail */}
               <div style={{
                 position: 'absolute', top: 6, right: 6,
-                background: 'rgba(0,0,0,0.8)',
-                border: '1px solid #00B4FF66',
+                background: `${colors.text}CC`,
+                border: `${colors.accent}66`,
                 borderRadius: 4,
                 padding: '3px 8px',
                 backdropFilter: 'blur(4px)',
@@ -275,18 +275,18 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
                   <span style={{
                     fontSize: 16, fontWeight: 800,
-                    color: workspace.downloadSpeed === 'processing' ? '#a855f7' : colors.accent,
+                    color: colors.accent,
                     fontFamily: 'monospace', lineHeight: 1,
-                    textShadow: `0 0 8px ${workspace.downloadSpeed === 'processing' ? '#a855f7' : colors.accent}`,
+                    textShadow: `0 0 8px ${colors.accent}`,
                   }}>
                     {workspace.downloadSpeed === 'processing' ? '99%' : `${Math.round(workspace.downloadProgress || 0)}%`}
                   </span>
-                  <span style={{ fontSize: 9, color: workspace.downloadSpeed === 'processing' ? '#a855f788' : '#00B4FF88' }}>
+                  <span style={{ fontSize: 9, color: `${colors.accent}88` }}>
                     {workspace.downloadSpeed === 'processing' ? '● MERGE' : `↓ ${workspace.downloadSpeed || '...'}`}
                   </span>
                 </div>
                 {workspace.downloadEta && (
-                  <span style={{ fontSize: 9, color: '#a855f788', fontFamily: 'monospace' }}>
+                  <span style={{ fontSize: 9, color: `${colors.accent}88`, fontFamily: 'monospace' }}>
                     {workspace.downloadEta}
                   </span>
                 )}
@@ -294,15 +294,13 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
               {/* Progress bar — full width at bottom */}
               <div style={{
                 position: 'absolute', bottom: 0, left: 0, right: 0,
-                height: 3, background: 'rgba(0,0,0,0.7)',
+                height: 3, background: `${colors.text}B3`,
               }}>
                 <div style={{
                   height: '100%',
                   width: `${workspace.downloadProgress || 0}%`,
-                  background: workspace.downloadSpeed === 'processing'
-                    ? 'linear-gradient(90deg, #7c3aed, #a855f7)'
-                    : 'linear-gradient(90deg, #0088cc, #00B4FF)',
-                  boxShadow: `0 0 8px ${workspace.downloadSpeed === 'processing' ? '#a855f7' : colors.accent}`,
+                  background: `linear-gradient(90deg, ${colors.accent}, ${colors.accent})`,
+                  boxShadow: `0 0 8px ${colors.accent}`,
                   transition: 'width 0.5s ease',
                 }} />
               </div>
@@ -361,26 +359,26 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
                 position: 'absolute',
                 top: '100%', right: 0,
                 marginTop: 4,
-                background: '#1a1a1a',
-                border: '1px solid #999',
+                background: colors.text,
+                border: `1px solid ${colors.border}`,
                 borderRadius: 4,
                 padding: '8px 12px',
                 zIndex: 100,
                 minWidth: 160,
-                boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
+                boxShadow: `0 4px 12px ${colors.text}99`,
                 whiteSpace: 'nowrap',
               }}>
                 {/* Download config row */}
-                <div style={{ fontSize: 9, color: '#777', letterSpacing: '0.06em', marginBottom: 4 }}>CONFIG</div>
-                <div style={{ fontSize: 13, color: dlQualityNum > 0 ? qBadgeColor : '#999', fontWeight: 800, fontFamily: 'monospace' }}>
+                <div style={{ fontSize: 9, color: colors.textTertiary, letterSpacing: '0.06em', marginBottom: 4 }}>CONFIG</div>
+                <div style={{ fontSize: 13, color: dlQualityNum > 0 ? qBadgeColor : colors.textSecondary, fontWeight: 800, fontFamily: 'monospace' }}>
                   {dlQualityNum > 0 ? `${dlQualityNum}p` : '—'}
                 </div>
 
                 {/* Source row */}
                 {sourceHeight > 0 && (
                   <>
-                    <div style={{ fontSize: 9, color: '#777', letterSpacing: '0.06em', marginTop: 8, marginBottom: 4 }}>SOURCE</div>
-                    <div style={{ fontSize: 13, color: '#999', fontFamily: 'monospace', fontWeight: 700 }}>
+                    <div style={{ fontSize: 9, color: colors.textTertiary, letterSpacing: '0.06em', marginTop: 8, marginBottom: 4 }}>SOURCE</div>
+                    <div style={{ fontSize: 13, color: colors.textSecondary, fontFamily: 'monospace', fontWeight: 700 }}>
                       {workspace.videoResolution}
                     </div>
                   </>
@@ -410,7 +408,7 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
               flexShrink: 0,
             }} />
             <span style={{
-              fontSize: 11, color: '#999', fontWeight: 600,
+              fontSize: 11, color: colors.textSecondary, fontWeight: 600,
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               letterSpacing: '0.02em',
             }}>
@@ -420,7 +418,7 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
 
           {/* Title */}
           <div style={{
-            fontSize: 12, color: isSelected ? '#FFFFFF' : '#999',
+            fontSize: 12, color: isSelected ? colors.text : colors.textSecondary,
             fontWeight: isSelected ? 500 : 400,
             lineHeight: 1.35,
             overflow: 'hidden', display: '-webkit-box',
@@ -432,7 +430,7 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
           {/* Metadata row */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 14 }}>
             {workspace.videoResolution && !workspace.downloadQuality && (
-              <span style={{ fontSize: 10, color: '#777', fontFamily: 'monospace', flexShrink: 0 }}>
+              <span style={{ fontSize: 10, color: colors.textTertiary, fontFamily: 'monospace', flexShrink: 0 }}>
                 {workspace.videoResolution}
               </span>
             )}
@@ -447,7 +445,7 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
               </span>
             )}
             {workspace.fileSize && workspace.fileSize !== '0 B' && (
-              <span style={{ fontSize: 10, color: '#777', fontFamily: 'monospace', flexShrink: 0 }}>
+              <span style={{ fontSize: 10, color: colors.textTertiary, fontFamily: 'monospace', flexShrink: 0 }}>
                 {workspace.fileSize}
               </span>
             )}
@@ -458,18 +456,18 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0 }}>
-                  <path d="M5 1v5M5 6l-2 2M5 6l2 2" stroke={workspace.downloadSpeed === 'processing' ? '#a855f7' : colors.accent} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M2 8h6" stroke={workspace.downloadSpeed === 'processing' ? '#a855f7' : colors.accent} strokeWidth="1.2" strokeLinecap="round"/>
+                  <path d="M5 1v5M5 6l-2 2M5 6l2 2" stroke={colors.accent} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M2 8h6" stroke={colors.accent} strokeWidth="1.2" strokeLinecap="round"/>
                 </svg>
                 <span style={{
-                  fontSize: 11, color: workspace.downloadSpeed === 'processing' ? '#a855f7' : colors.accent,
+                  fontSize: 11, color: colors.accent,
                   fontFamily: 'monospace', fontWeight: 700, minWidth: 60,
                 }}>
                   {workspace.downloadSpeed === 'processing' ? 'Merging…' : (workspace.downloadSpeed || 'starting...')}
                 </span>
               </div>
               <span style={{
-                fontSize: 11, color: workspace.downloadSpeed === 'processing' ? '#a855f7' : colors.accent,
+                fontSize: 11, color: colors.accent,
                 fontFamily: 'monospace', fontWeight: 600, minWidth: 56, textAlign: 'right',
               }}>
                 {workspace.downloadEta
@@ -486,11 +484,11 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
                 <span style={{ fontSize: 10, color: colors.error, fontFamily: 'monospace' }}>RENDERING</span>
                 <span style={{ fontSize: 10, color: colors.error, fontFamily: 'monospace', fontWeight: 700 }}>{workspace.renderProgress}%</span>
               </div>
-              <div style={{ height: 3, background: '#1a1a1a', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{ height: 3, background: colors.text, borderRadius: 2, overflow: 'hidden' }}>
                 <div style={{
                   width: `${workspace.renderProgress}%`, height: '100%',
                   background: colors.error,
-                  boxShadow: '0 0 6px #FF4444',
+                  boxShadow: `0 0 6px ${colors.error}`,
                   transition: 'width 0.4s ease',
                 }} />
               </div>
@@ -508,7 +506,7 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
           display: 'flex', gap: 10, alignItems: 'center',
           paddingTop: 8, paddingLeft: 12, paddingRight: 12,
           paddingBottom: 8,
-          borderBottom: '1px solid #E0E0E0',
+          borderBottom: `1px solid ${colors.border}`,
           opacity: isHovered ? 1 : 0.5, transition: 'opacity 0.15s',
           pointerEvents: 'auto',
         }}
@@ -518,16 +516,16 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
             <button
               data-action-area="1"
               style={{ fontSize: 11, fontWeight: 600, color: colors.accent, background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.06em', padding: '2px 0', pointerEvents: 'auto' }}
-              onMouseEnter={e => (e.currentTarget.style.color = '#00D4FF')}
+              onMouseEnter={e => (e.currentTarget.style.color = colors.accent)}
               onMouseLeave={e => (e.currentTarget.style.color = colors.accent)}
             >
               CHI TIẾT
             </button>
             <button
               data-action-area="1"
-              style={{ fontSize: 11, fontWeight: 600, color: '#777', background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0', pointerEvents: 'auto' }}
+              style={{ fontSize: 11, fontWeight: 600, color: colors.textTertiary, background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0', pointerEvents: 'auto' }}
               onMouseEnter={e => (e.currentTarget.style.color = colors.error)}
-              onMouseLeave={e => (e.currentTarget.style.color = '#777')}
+              onMouseLeave={e => (e.currentTarget.style.color = colors.textTertiary)}
             >
               XÓA
             </button>
@@ -536,9 +534,9 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
         {showRetry && (
           <button
             data-action-area="1"
-            style={{ fontSize: 11, fontWeight: 600, color: '#999', background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0', pointerEvents: 'auto' }}
+            style={{ fontSize: 11, fontWeight: 600, color: colors.textSecondary, background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0', pointerEvents: 'auto' }}
             onMouseEnter={e => (e.currentTarget.style.color = colors.warning)}
-            onMouseLeave={e => (e.currentTarget.style.color = '#999')}
+            onMouseLeave={e => (e.currentTarget.style.color = colors.textSecondary)}
           >
             THỬ LẠI
           </button>
@@ -546,9 +544,9 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
         {showSplit && (
           <button
             data-action-area="1"
-            style={{ fontSize: 11, fontWeight: 600, color: '#999', background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0', pointerEvents: 'auto' }}
+            style={{ fontSize: 11, fontWeight: 600, color: colors.textSecondary, background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0', pointerEvents: 'auto' }}
             onMouseEnter={e => (e.currentTarget.style.color = colors.success)}
-            onMouseLeave={e => (e.currentTarget.style.color = '#999')}
+            onMouseLeave={e => (e.currentTarget.style.color = colors.textSecondary)}
           >
             TÁCH
           </button>

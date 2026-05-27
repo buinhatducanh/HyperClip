@@ -104,13 +104,13 @@ input[type='color']::-webkit-color-swatch {
 /* ====================== */
 
 :focus-visible {
-  outline: 2px solid #00B4FF;
+  outline: 2px solid #3B82F6;
   outline-offset: 2px;
 }
 
 button:focus-visible,
 [role='button']:focus-visible {
-  outline: 2px solid #00B4FF;
+  outline: 2px solid #3B82F6;
   outline-offset: 2px;
 }
 

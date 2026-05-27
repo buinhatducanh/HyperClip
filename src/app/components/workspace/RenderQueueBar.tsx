@@ -68,7 +68,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
           style={{
             fontSize: 9,
             fontWeight: 800,
-            color: '#777',
+            color: colors.textTertiary,
             letterSpacing: '0.1em',
             marginRight: 12,
           }}
@@ -89,11 +89,11 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
               borderRadius: 3,
               border: 'none',
               cursor: 'pointer',
-              background: autoRenderEnabled ? '#00FF8822' : colors.text,
-              color: autoRenderEnabled ? colors.success : '#999',
+              background: autoRenderEnabled ? `${colors.success}22` : colors.text,
+              color: autoRenderEnabled ? colors.success : colors.textSecondary,
               borderWidth: 1,
               borderStyle: 'solid',
-              borderColor: autoRenderEnabled ? '#00FF8844' : '#777',
+              borderColor: autoRenderEnabled ? `${colors.success}44` : colors.textTertiary,
               transition: 'all 0.15s',
             }}
           >
@@ -109,7 +109,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
               fontSize: 9,
               fontWeight: 700,
               color: colors.error,
-              background: '#FF444415',
+              background: '${colors.error}15',
               border: '1px solid #FF444422',
               borderRadius: 2,
               padding: '1px 6px',
@@ -126,9 +126,9 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
             style={{
               fontSize: 9,
               fontWeight: 700,
-              color: '#999',
+              color: colors.textSecondary,
               background: colors.text,
-              border: '1px solid #777',
+              border: `1px solid ${colors.textTertiary}`,
               borderRadius: 2,
               padding: '1px 6px',
               marginRight: 6,
@@ -146,7 +146,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
               marginLeft: 'auto',
               fontSize: 9,
               fontFamily: 'monospace',
-              color: '#999',
+              color: colors.textSecondary,
             }}
           >
             {rendering.length} rendering · {queued.length} queued · {avgProgress}% avg
@@ -159,7 +159,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
           height="12"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#999"
+          stroke={colors.textSecondary}
           strokeWidth="2"
           style={{
             marginLeft: 8,
@@ -176,7 +176,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
         <div className="flex flex-col gap-2 px-4 py-3">
           {rendering.map((ws) => (
             <div key={ws.id} className="flex items-center gap-3">
-              <div style={{ width: 120, fontSize: 9, color: '#777', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ width: 120, fontSize: 9, color: colors.textTertiary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {ws.videoTitle}
               </div>
               <div style={{ flex: 1, height: 3, background: colors.text, borderRadius: 1.5 }}>
@@ -199,7 +199,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
                   title="Cancel render"
                   style={{
                     width: 18, height: 18, borderRadius: 2, border: 'none',
-                    background: '#FF444420', color: colors.error, cursor: 'pointer',
+                    background: '${colors.error}20', color: colors.error, cursor: 'pointer',
                     fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center',
                     flexShrink: 0,
                   }}
@@ -209,7 +209,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
           ))}
           {queued.map((ws) => (
             <div key={ws.id} className="flex items-center gap-3">
-              <div style={{ width: 120, fontSize: 9, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ width: 120, fontSize: 9, color: colors.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {ws.videoTitle}
               </div>
               <div style={{ flex: 1, height: 3, background: colors.text, borderRadius: 1.5 }}>
@@ -217,12 +217,12 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
                   style={{
                     width: '2px',
                     height: '100%',
-                    background: '#999',
+                    background: colors.textSecondary,
                     borderRadius: 1.5,
                   }}
                 />
               </div>
-              <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#999', minWidth: 32, textAlign: 'right' }}>
+              <span style={{ fontSize: 9, fontFamily: 'monospace', color: colors.textSecondary, minWidth: 32, textAlign: 'right' }}>
                 QUEUED
               </span>
             </div>

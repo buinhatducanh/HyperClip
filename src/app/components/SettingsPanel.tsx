@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { colors, spacing, fontSize } from '../design-system/tokens'
+import { Card as SharedCard } from '../design-system/Card'
 import type { Channel, SystemStats } from '../types'
 import type { AppSettings, HardwareProfile } from '../lib/store'
 import { ipc } from '../lib/ipc'
@@ -77,10 +78,10 @@ function HardwareProfileCard({ currentProfile }: { currentProfile: HardwareProfi
   useEffect(() => { load() }, [load])
 
   if (!data) return (
-    <Card>
+    <SettingsCard>
       <SectionLabel>HARDWARE PROFILE</SectionLabel>
       <div style={{ fontSize: 10, color: colors.textSecondary }}>Loading...</div>
-    </Card>
+    </SettingsCard>
   )
 
   const activePreset = data.presets.find(p => p.id === data.active)
@@ -101,7 +102,7 @@ function HardwareProfileCard({ currentProfile }: { currentProfile: HardwareProfi
   }
 
   return (
-    <Card>
+    <SettingsCard>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
         <span style={{ fontSize: 10, fontWeight: 700, color: colors.accent, flex: 1 }}>HARDWARE PROFILE</span>
         {activePreset && (
@@ -166,14 +167,15 @@ function HardwareProfileCard({ currentProfile }: { currentProfile: HardwareProfi
           <span style={{ color: colors.textSecondary }}>Sessions:</span> <span style={{ color: colors.warning }}>{display.sessions}</span>
         </div>
       )}
-    </Card>
+    </SettingsCard>
   )
 }
 
-function Card({ children }: { children: React.ReactNode }) {
+/** Card wrapper using shared Card with SettingsPanel's original bg + spacing */
+function SettingsCard({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ margin: '4px 6px 2px', background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 4, padding: 8 }}>
-      {children}
+    <div style={{ margin: '4px 6px 2px' }}>
+      <SharedCard bg={colors.bg} padding={8}>{children}</SharedCard>
     </div>
   )
 }
@@ -210,7 +212,7 @@ function BtnGroup({ options, value, onChange }: {
 
 function AutoRenderCard({ s, onChange }: { s: AppSettings; onChange: (p: Partial<AppSettings>) => void }) {
   return (
-    <Card>
+    <SettingsCard>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
         <span style={{ fontSize: 10, fontWeight: 700, color: colors.success, flex: 1 }}>AUTO RENDER</span>
         <Toggle value={s.autoRender} onChange={v => onChange({ autoRender: v })} />
@@ -261,7 +263,7 @@ function AutoRenderCard({ s, onChange }: { s: AppSettings; onChange: (p: Partial
           }}
         />
       </div>
-    </Card>
+    </SettingsCard>
   )
 }
 
@@ -271,7 +273,7 @@ function AutoRenderCard({ s, onChange }: { s: AppSettings; onChange: (p: Partial
 
 function DownloadCard({ s, onChange }: { s: AppSettings; onChange: (p: Partial<AppSettings>) => void }) {
   return (
-    <Card>
+    <SettingsCard>
       <SectionLabel>DOWNLOAD</SectionLabel>
 
       <div style={{ marginBottom: 4 }}>
@@ -304,7 +306,7 @@ function DownloadCard({ s, onChange }: { s: AppSettings; onChange: (p: Partial<A
           <BtnGroup options={[{ label: '2', value: 2 }, { label: '4', value: 4 }, { label: '8', value: 8 }]} value={s.maxConcurrentRenders} onChange={v => onChange({ maxConcurrentRenders: v as number })} />
         </div>
       </div>
-    </Card>
+    </SettingsCard>
   )
 }
 
@@ -332,7 +334,7 @@ function ChannelOverrideCard({ channels }: { channels: Channel[] }) {
   const hasOverride = !!chSettings && Object.keys(chSettings).length > 0
 
   return (
-    <Card>
+    <SettingsCard>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
         <span style={{ fontSize: 10, fontWeight: 700, color: colors.warning, flex: 1 }}>CHANNEL OVERRIDE</span>
         <select value={channel.id} onChange={e => setChannelId(e.target.value)} style={{
@@ -372,7 +374,7 @@ function ChannelOverrideCard({ channels }: { channels: Channel[] }) {
           width: '100%', height: 24, background: colors.surface, border: `1px solid ${colors.error}22`, borderRadius: 2, fontSize: 8, color: colors.error, cursor: 'pointer',
         }}>Reset to global</button>
       )}
-    </Card>
+    </SettingsCard>
   )
 }
 
@@ -395,7 +397,7 @@ function StorageCard({ s, onChange }: { s: AppSettings; onChange: (p: Partial<Ap
   const usedPct = freeGB + usedMB / 1024 > 0 ? Math.round((usedMB / 1024) / (freeGB + usedMB / 1024) * 100) : 0
 
   return (
-    <Card>
+    <SettingsCard>
       <SectionLabel>STORAGE</SectionLabel>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
         <div style={{ flex: 1, height: 5, background: colors.surface, borderRadius: 2 }}>
@@ -435,7 +437,7 @@ function StorageCard({ s, onChange }: { s: AppSettings; onChange: (p: Partial<Ap
           <option value={30}>30 ngày</option>
         </select>
       </div>
-    </Card>
+    </SettingsCard>
   )
 }
 
@@ -460,7 +462,7 @@ function DetectionCard() {
   const healthPct = sessionStatus?.health?.healthPct ?? 0
 
   return (
-    <Card>
+    <SettingsCard>
       <SectionLabel>DETECTION</SectionLabel>
       <div style={{ fontSize: 9, color: colors.textSecondary, lineHeight: 1.7 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -474,7 +476,7 @@ function DetectionCard() {
         </div>
         <div style={{ marginTop: 2 }}>Poll: {pollerStatus?.active ? 'active' : 'paused'} · {pollerStatus?.lastError ? '⚠ lỗi' : '0 lỗi'}</div>
       </div>
-    </Card>
+    </SettingsCard>
   )
 }
 
@@ -484,7 +486,7 @@ function DetectionCard() {
 
 function SystemCard({ systemStats }: { systemStats: SystemStats }) {
   return (
-    <Card>
+    <SettingsCard>
       <SectionLabel>SYSTEM</SectionLabel>
       <div style={{ fontSize: 9, color: colors.textSecondary, lineHeight: 1.7 }}>
         <div>GPU: <span style={{ color: colors.textSecondary }}>{systemStats.gpuName || 'N/A'} · {systemStats.gpuTemp || 0}°C · {systemStats.gpuUsage || 0}%</span></div>
@@ -492,7 +494,7 @@ function SystemCard({ systemStats }: { systemStats: SystemStats }) {
         <div>RAM: <span style={{ color: colors.textSecondary }}>{Math.round(systemStats.ramUsed || 0)} / {Math.round(systemStats.ramTotal || 0)} GB</span></div>
         <div>Workers: <span style={{ color: colors.accent, fontWeight: 600 }}>{systemStats.activeWorkers || 0}</span> / {systemStats.maxChunkWorkers || 8} · NVENC</div>
       </div>
-    </Card>
+    </SettingsCard>
   )
 }
 
