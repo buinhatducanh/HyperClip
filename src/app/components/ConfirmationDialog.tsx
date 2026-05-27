@@ -1,6 +1,5 @@
 'use client'
 import { colors, spacing, fontSize } from '../design-system/tokens'
-'use client'
 
 interface ConfirmationDialogProps {
   open: boolean

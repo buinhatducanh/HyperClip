@@ -1,5 +1,5 @@
-import { colors, spacing, fontSize } from '../../design-system/tokens'
 'use client'
+import { colors, spacing, fontSize } from '../../design-system/tokens'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { ipc } from '../../lib/ipc'

@@ -1,5 +1,5 @@
-import { colors, spacing, fontSize } from '../design-system/tokens'
 'use client'
+import { colors, spacing, fontSize } from '../design-system/tokens'
 
 import { useMemo } from 'react'
 import type { RenderedVideo } from '../types'

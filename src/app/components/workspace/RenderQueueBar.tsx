@@ -1,6 +1,5 @@
 'use client'
 import { colors, spacing, fontSize } from '../../design-system/tokens'
-'use client'
 
 import { useState } from 'react'
 import type { Workspace } from '../../lib/store'

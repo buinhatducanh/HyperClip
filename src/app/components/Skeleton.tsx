@@ -1,6 +1,5 @@
 'use client'
 import { colors, spacing, fontSize } from '../design-system/tokens'
-'use client'
 
 // ─── Skeleton Pulse Animation (injected once via global style) ───────────────────
 // App already has @keyframes in globals.css; add shimmer there if needed.

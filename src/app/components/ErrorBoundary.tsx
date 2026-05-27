@@ -1,5 +1,5 @@
-import { colors, spacing, fontSize } from '../design-system/tokens'
 'use client'
+import { colors, spacing, fontSize } from '../design-system/tokens'
 import React, { Component, type ErrorInfo, type ReactNode } from 'react'
 
 interface Props { children: ReactNode }
