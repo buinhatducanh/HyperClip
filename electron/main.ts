@@ -1095,6 +1095,8 @@ function buildAutoRenderMetadata(
     backgroundImage: blurBgPath ? undefined : thumbnailPath,
     blur_background: blurBgPath,
     isShort: false,
+    audioCodec: 'libopus',
+    audioBitrate: '128k',
   }
 }
 

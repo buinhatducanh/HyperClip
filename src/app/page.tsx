@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { shallow } from 'zustand/shallow'
@@ -13,6 +13,7 @@ import { VideoCompareModal } from './components/VideoCompareModal'
 import { TopBar } from './components/TopBar'
 import { SettingsPanel } from './components/SettingsPanel'
 import { ActivityLogPanel } from './components/ActivityLogPanel'
+import { VideoDetailPanel } from './components/VideoDetailPanel'
 import type { Channel, SystemStats } from './types'
 import { useAppStore, type Workspace } from './lib/store'
 import { ipc } from './lib/ipc'
@@ -121,6 +122,10 @@ function DashboardContent() {
   const initRenderedVideos = useAppStore(s => s.initRenderedVideos)
   const removeRenderedVideo = useAppStore(s => s.removeRenderedVideo)
   const selectWorkspace = useAppStore(s => s.selectWorkspace)
+  const selectedWorkspace = useMemo(() => {
+    if (!selectedWorkspaceId) return null
+    return workspaces.find(w => w.id === selectedWorkspaceId) || null
+  }, [selectedWorkspaceId, workspaces])
   const updateSystemStats = useAppStore(s => s.updateSystemStats)
   const showToast = useAppStore(s => s.showToast)
   const addNotification = useAppStore(s => s.addNotification)
@@ -679,6 +684,16 @@ function DashboardContent() {
     }
   }
 
+  const handleOpenFolder = async (id: string) => {
+    const ws = workspaces.find(w => w.id === id)
+    if (!ws?.downloadedPath) {
+      showToast('File chưa được tải về')
+      return
+    }
+    const folderPath = ws.downloadedPath.replace(/[/\\][^/\\]*$/, '')
+    await ipc.openFolder(folderPath)
+  }
+
   const handleRetry = async (id: string) => {
     showToast('Retrying download...')
     const result = await ipc.retryWorkspace(id) as { success: boolean; error?: string }
@@ -771,6 +786,11 @@ function DashboardContent() {
                 onShowToast={showToast}
               />
             </div>
+          ) : selectedWorkspaceId ? (
+            <VideoDetailPanel
+              workspace={selectedWorkspace}
+              onClose={() => selectWorkspace(null)}
+            />
           ) : (
             <SettingsPanel
               settings={settings}
@@ -810,6 +830,7 @@ function DashboardContent() {
                 onSplit={handleSplit}
                 trimLimitMinutes={settings.defaultTrimLimit as number}
                 onCompare={handleCompare}
+                onOpenFolder={handleOpenFolder}
               />
             )}
           </div>
@@ -828,9 +849,9 @@ function DashboardContent() {
           background: '#1A1A1A',
           border: '1px solid #2A2A2A',
           borderLeft: '3px solid #00B4FF',
-          borderRadius: 4, padding: '10px 16px',
-          fontSize: 12, color: '#ccc', zIndex: 9999,
-          maxWidth: 320,
+          borderRadius: 4, padding: '12px 18px',
+          fontSize: 14, color: '#ccc', zIndex: 9999,
+          maxWidth: 360,
           animation: 'toastIn 0.2s ease',
         }}>
           {toast}
@@ -861,10 +882,10 @@ function DashboardContent() {
 
       <style>{`
         * { box-sizing: border-box; }
-        ::-webkit-scrollbar { width: 3px; height: 3px; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
-        ::-webkit-scrollbar-thumb:hover { background: #333; }
+        ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
         input[type=range] { -webkit-appearance: none; appearance: none; background: transparent; }
         input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; }
         textarea { box-sizing: border-box; }
