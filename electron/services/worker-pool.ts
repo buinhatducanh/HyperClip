@@ -177,7 +177,7 @@ function getChunkPool(): WorkerPool {
     // Env override: explicit control
     const envMax = parseInt(process.env.HYPERCLIP_MAX_CHUNK_WORKERS || '', 10)
     const envOverride = !isNaN(envMax) && envMax > 0
-    const effective = envOverride ? envMax : Math.min(getEffectiveWorkers(), 4) // cap at 4 max
+    const effective = envOverride ? envMax : getEffectiveWorkers()
     _chunkPool = new WorkerPool(effective)
     devLog(`[WorkerPool] Chunk pool initialized: ${effective} workers (GPU: ${caps.gpuName}, encoder: ${caps.encoder}, base=${caps.maxChunkWorkers})`)
   }
