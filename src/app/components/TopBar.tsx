@@ -1,10 +1,10 @@
 'use client'
-import { colors, spacing, fontSize } from '../design-system/tokens'
 
 import { useState, useEffect } from 'react'
 import { ipc } from '../lib/ipc'
 import type { SystemStats } from '../types'
 import type { AppSettings } from '../lib/store'
+import { colors, spacing, fontSize } from '../design-system/tokens'
 
 interface Props {
   settings: AppSettings
@@ -17,6 +17,14 @@ interface HardwareProfileInfo {
   presets: Array<{ id: string; label: string; vramGB: number; ramGB: number }>
 }
 
+function MiniBar({ pct, color }: { pct: number; color: string }) {
+  return (
+    <div style={{ width: 30, height: 3, background: colors.border, borderRadius: 2, overflow: 'hidden', flexShrink: 0 }}>
+      <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', background: color, borderRadius: 2, transition: 'width 0.3s' }} />
+    </div>
+  )
+}
+
 export function TopBar({ settings, systemStats, onSettingsChange }: Props) {
   const gpuPct = Math.min(systemStats.gpuUsage ?? 0, 100)
   const ramPct = systemStats.ramTotal > 0
@@ -25,9 +33,7 @@ export function TopBar({ settings, systemStats, onSettingsChange }: Props) {
   const [hwProfile, setHwProfile] = useState<HardwareProfileInfo | null>(null)
 
   useEffect(() => {
-    ipc.getHardwareProfile().then((d) => {
-      setHwProfile(d as HardwareProfileInfo)
-    }).catch(() => {})
+    ipc.getHardwareProfile().then((d) => setHwProfile(d as HardwareProfileInfo)).catch(() => {})
     const t = setInterval(() => {
       ipc.getHardwareProfile().then((d) => setHwProfile(d as HardwareProfileInfo)).catch(() => {})
     }, 30000)
@@ -36,77 +42,94 @@ export function TopBar({ settings, systemStats, onSettingsChange }: Props) {
 
   const activePreset = hwProfile?.presets.find(p => p.id === hwProfile.active)
 
-  const partsLabel = (settings as any).autoSplitParts > 1
-    ? `${(settings as any).autoSplitParts}p`
-    : (settings as any).autoSplitMinutes > 0
-      ? `${(settings as any).autoSplitMinutes}m/p`
-      : 'no split'
+  const vramPct = systemStats.gpuMemoryTotal > 0
+    ? Math.round(((systemStats.gpuMemoryTotal - (systemStats.gpuMemoryFree ?? 0)) / systemStats.gpuMemoryTotal) * 100)
+    : 0
 
   return (
     <div style={{
-      height: 40, background: '#0D0D0D', borderBottom: '1px solid #222',
-      display: 'flex', alignItems: 'center', padding: '0 16px', gap: 12, flexShrink: 0,
+      height: 40,
+      background: colors.surface,
+      borderBottom: `1px solid ${colors.border}`,
+      display: 'flex', alignItems: 'center',
+      padding: `0 ${spacing.lg}px`,
+      gap: spacing.md,
+      flexShrink: 0,
     }}>
-      <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', letterSpacing: '0.06em' }}>HyperClip</span>
-      <div style={{ width: 1, height: 16, background: '#222' }} />
+      {/* Brand */}
+      <span style={{ fontSize: fontSize.sm, fontWeight: 700, color: colors.accent, letterSpacing: '0.03em' }}>
+        HyperClip
+      </span>
 
-      {/* Download quality */}
-      <span style={{ fontSize: 10, color: '#888', fontWeight: 600 }}>DOWNLOAD</span>
+      <div style={{ width: 1, height: 14, background: colors.border }} />
+
+      {/* Download quality badge */}
+      <span style={{ fontSize: 10, fontWeight: 700, color: colors.textSecondary }}>
+        DL
+      </span>
       <span style={{
-        background: '#00FF8820', color: colors.success, padding: '3px 8px', borderRadius: 3,
-        fontSize: 10, border: '1px solid #00FF8844',
+        background: `${colors.success}18`,
+        color: colors.success, padding: '2px 6px', borderRadius: 3,
+        fontSize: 10, fontWeight: 700, border: `1px solid ${colors.success}44`,
       }}>
         {settings.autoDownloadQuality || '720'}p
       </span>
-      <span style={{ fontSize: 10, color: '#555' }}>
-        Trim {settings.defaultTrimLimit === 'full' ? 'FULL' : `${settings.defaultTrimLimit}m`}
-      </span>
 
-      <div style={{ width: 1, height: 16, background: '#222' }} />
+      <div style={{ width: 1, height: 14, background: colors.border }} />
 
       {/* Auto-render toggle */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontSize: 10, color: '#888', fontWeight: 600 }}>AUTO RENDER</span>
-        <div
-          onClick={() => {
-            const newVal = !settings.autoRender
-            onSettingsChange({ autoRender: newVal })
-            ipc.updateSettings({ autoRender: newVal })
-          }}
-          style={{
-            width: 36, height: 18, cursor: 'pointer',
-            background: settings.autoRender ? colors.success : colors.text,
-            border: `1px solid ${settings.autoRender ? '#00FF8866' : '#333'}`,
-            borderRadius: 9, position: 'relative', transition: 'background 0.15s',
-          }}
-        >
-          <div style={{
-            width: 14, height: 14, background: settings.autoRender ? '#000' : '#555',
-            borderRadius: '50%', position: 'absolute', top: 2,
-            left: settings.autoRender ? 'unset' : 2, right: settings.autoRender ? 2 : 'unset',
-            transition: 'all 0.15s',
-          }} />
-        </div>
+      <span style={{ fontSize: 10, color: colors.textSecondary, fontWeight: 600 }}>RENDER</span>
+      <div
+        onClick={() => {
+          const newVal = !settings.autoRender
+          onSettingsChange({ autoRender: newVal })
+          ipc.updateSettings({ autoRender: newVal })
+        }}
+        style={{
+          width: 30, height: 16, cursor: 'pointer',
+          background: settings.autoRender ? colors.success : colors.border,
+          borderRadius: 8, position: 'relative', transition: 'background 0.15s',
+        }}
+      >
+        <div style={{
+          width: 12, height: 12, background: '#FFFFFF',
+          borderRadius: '50%', position: 'absolute', top: 2,
+          left: settings.autoRender ? 16 : 2,
+          transition: 'left 0.15s',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+        }} />
       </div>
-      <span style={{ fontSize: 10, color: '#555' }}>
-        {activePreset ? `${activePreset.label}` : 'Auto'}
-      </span>
-      <span style={{ fontSize: 10, color: '#444' }}>·</span>
-      <span style={{ fontSize: 10, color: '#555' }}>
-        {settings.autoRenderResolution || '1080p'}·{settings.autoRenderFPS || 30}fps·{partsLabel}
-      </span>
+
+      {activePreset ? (
+        <span style={{
+          fontSize: 9, fontWeight: 700, color: colors.accent,
+          background: `${colors.accent}12`, padding: '2px 6px', borderRadius: 3,
+        }}>
+          {activePreset.label}
+        </span>
+      ) : (
+        <span style={{ fontSize: 9, color: colors.textTertiary }}>auto</span>
+      )}
 
       <div style={{ flex: 1 }} />
 
-      {/* System health mini */}
-      <span style={{ fontSize: 10, color: '#555' }}>GPU {systemStats.gpuTemp || 0}°</span>
-      <div style={{ width: 40, height: 4, background: '#222', borderRadius: 2 }}>
-        <div style={{ width: `${gpuPct}%`, height: '100%', background: gpuPct > 90 ? colors.error : colors.success, borderRadius: 2 }} />
-      </div>
-      <span style={{ fontSize: 10, color: '#555' }}>RAM {Math.round(systemStats.ramUsed || 0)}/{Math.round(systemStats.ramTotal || 64)}G</span>
-      <div style={{ width: 40, height: 4, background: '#222', borderRadius: 2 }}>
-        <div style={{ width: `${ramPct}%`, height: '100%', background: ramPct > 80 ? colors.error : colors.accent, borderRadius: 2 }} />
-      </div>
+      {/* GPU */}
+      <span style={{ fontSize: 9, fontFamily: 'monospace', color: colors.textSecondary, minWidth: 36 }}>
+        GPU {gpuPct}%
+      </span>
+      <MiniBar pct={gpuPct} color={gpuPct > 90 ? colors.error : colors.accent} />
+
+      {/* VRAM */}
+      <span style={{ fontSize: 9, fontFamily: 'monospace', color: colors.textSecondary, minWidth: 36 }}>
+        VRAM {vramPct}%
+      </span>
+      <MiniBar pct={vramPct} color={vramPct > 90 ? colors.error : colors.accent} />
+
+      {/* RAM */}
+      <span style={{ fontSize: 9, fontFamily: 'monospace', color: colors.textSecondary, minWidth: 36 }}>
+        RAM {ramPct}%
+      </span>
+      <MiniBar pct={ramPct} color={ramPct > 80 ? colors.error : colors.success} />
     </div>
   )
 }
