@@ -1,0 +1,143 @@
+<h2>Full Redesign — Design Spec</h2>
+<p class="subtitle">Tổng hợp spec sau brainstorming — check và approve để bắt đầu implement</p>
+
+<div class="section">
+  <h3>1. Layout 3-Column Refined</h3>
+  <div class="pros-cons" style="grid-template-columns: 1fr 1fr 1fr;">
+    <div class="pros" style="width:auto;">
+      <h4>Sidebar (220px)</h4>
+      <ul>
+        <li>Icon nav bar (collapsed — 60px) + expanded khi hover</li>
+        <li>Channel list với avatar + badge</li>
+        <li>DetectionStatusBar ở bottom</li>
+      </ul>
+    </div>
+    <div class="pros" style="width:auto;">
+      <h4>Center (flex)</h4>
+      <ul>
+        <li>TopBar hệ thống (stats, toggle)</li>
+        <li>Detail/Editor panel khi click video</li>
+        <li>Hoặc SettingsPanel mặc định</li>
+      </ul>
+    </div>
+    <div class="pros" style="width:auto;">
+      <h4>Right Panel (280px)</h4>
+      <ul>
+        <li>WorkspaceQueue với tabs</li>
+        <li>Bottom: ActivityLog terminal style</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>2. Design Tokens</h3>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;">
+    <div style="flex:1;min-width:200px;background:#fff;border-radius:8px;padding:16px;border:1px solid #eee;">
+      <div style="font-size:11px;font-weight:600;color:#888;margin-bottom:12px;">COLORS</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:16px;height:16px;border-radius:4px;background:#F5F5F5;border:1px solid #eee;"></div>
+          <span style="font-size:12px;">Bg: #F5F5F5</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:16px;height:16px;border-radius:4px;background:#FFFFFF;border:1px solid #eee;"></div>
+          <span style="font-size:12px;">Surface: #FFFFFF</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:16px;height:16px;border-radius:4px;background:#E0E0E0;"></div>
+          <span style="font-size:12px;">Border: #E0E0E0</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:16px;height:16px;border-radius:4px;background:#10B981;"></div>
+          <span style="font-size:12px;">Success: #10B981</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:16px;height:16px;border-radius:4px;background:#3B82F6;"></div>
+          <span style="font-size:12px;">Info: #3B82F6</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:16px;height:16px;border-radius:4px;background:#EF4444;"></div>
+          <span style="font-size:12px;">Error: #EF4444</span>
+        </div>
+      </div>
+    </div>
+    <div style="flex:1;min-width:200px;background:#fff;border-radius:8px;padding:16px;border:1px solid #eee;">
+      <div style="font-size:11px;font-weight:600;color:#888;margin-bottom:12px;">SPACING (4px base)</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <div style="font-size:12px;">xs: 4px</div>
+        <div style="font-size:12px;">sm: 8px</div>
+        <div style="font-size:12px;">md: 12px</div>
+        <div style="font-size:12px;">lg: 16px</div>
+        <div style="font-size:12px;">xl: 24px</div>
+        <div style="font-size:12px;">2xl: 32px</div>
+      </div>
+    </div>
+    <div style="flex:1;min-width:200px;background:#fff;border-radius:8px;padding:16px;border:1px solid #eee;">
+      <div style="font-size:11px;font-weight:600;color:#888;margin-bottom:12px;">TYPOGRAPHY</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <div style="font-size:10px;">xs: 10px (label, timestamp)</div>
+        <div style="font-size:12px;">sm: 12px (body, card title)</div>
+        <div style="font-size:14px;">md: 14px (section heading)</div>
+        <div style="font-size:16px;">lg: 16px (panel title)</div>
+        <div style="font-size:13px;font-weight:700;">fw: 600/700 (label bold)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>3. Component Architecture</h3>
+  <div class="mockup">
+    <div class="mockup-body" style="padding:20px;font-family:monospace;font-size:12px;line-height:1.8;">
+      <span style="color:#888;">src/app/</span><br/>
+      ├─ <span style="color:#3B82F6;">design-system/</span><br/>
+      │  ├─ <span style="color:#10B981;">tokens.ts</span>      <span style="color:#888;">// CSS variables → constants</span><br/>
+      │  ├─ <span style="color:#10B981;">Card.tsx</span>        <span style="color:#888;">// Surface container</span><br/>
+      │  ├─ <span style="color:#10B981;">Badge.tsx</span>       <span style="color:#888;">// Status badge</span><br/>
+      │  ├─ <span style="color:#10B981;">Button.tsx</span>      <span style="color:#888;">// Unified button</span><br/>
+      │  ├─ <span style="color:#10B981;">Timeline.tsx</span>    <span style="color:#888;">// Activity timeline</span><br/>
+      │  └─ <span style="color:#10B981;">Section.tsx</span>     <span style="color:#888;">// Section header + content</span><br/>
+      ├─ <span style="color:#FFB800;">components/</span><br/>
+      │  ├─ <span style="color:#aaa;">Sidebar.tsx</span>       <span style="color:#888;">// Rewrite</span><br/>
+      │  ├─ <span style="color:#aaa;">TopBar.tsx</span>        <span style="color:#888;">// Rewrite</span><br/>
+      │  ├─ <span style="color:#aaa;">ActivityLogPanel.tsx</span> <span style="color:#888;">// Terminal style</span><br/>
+      │  └─ <span style="color:#aaa;">...</span><br/>
+      └─ <span style="color:#888;">(giữ nguyên lib/, types)</span>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>4. Thứ tự implement</h3>
+  <div class="options" style="gap:8px;">
+    <div class="option" style="cursor:default;border-color:#3B82F6;background:#3B82F608;">
+      <div class="content">
+        <h3>Phase 1: Design System</h3>
+        <p>tokens.ts → Card, Badge, Button, Section → xóa inline styles</p>
+      </div>
+    </div>
+    <div class="option" style="cursor:default;border-color:#3B82F6;background:#3B82F608;">
+      <div class="content">
+        <h3>Phase 2: Layout Rewrite</h3>
+        <p>Sidebar (icon nav), TopBar, page.tsx layout mới</p>
+      </div>
+    </div>
+    <div class="option" style="cursor:default;border-color:#3B82F6;background:#3B82F608;">
+      <div class="content">
+        <h3>Phase 3: Queue + Log</h3>
+        <p>WorkspaceQueue làm đẹp, ActivityLog terminal style</p>
+      </div>
+    </div>
+    <div class="option" style="cursor:default;border-color:#3B82F6;background:#3B82F608;">
+      <div class="content">
+        <h3>Phase 4: Detail Panel</h3>
+        <p>VideoDetailPanel, SettingsPanel gọn gàng hơn</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="text-align:center;padding:16px;background:#3B82F608;border-radius:8px;border:1px solid #3B82F620;">
+  <p style="font-size:13px;color:#1A1A1A;margin:0;">Nếu OK, tôi sẽ viết spec document + implementation plan chi tiết</p>
+</div>

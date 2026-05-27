@@ -807,7 +807,7 @@ function DashboardContent() {
         </div>
 
         {/* Right panel: WorkspaceQueue (flex) + ActivityLogPanel (bottom bar) */}
-        <div style={{ width: 280, minWidth: 240, maxWidth: 400, display: 'flex', flexDirection: 'column', borderLeft: '1px solid ' + colors.border }}>
+        <div style={{ width: 300, minWidth: 240, maxWidth: 400, display: 'flex', flexDirection: 'column', borderLeft: `1px solid ${colors.border}` }}>
           {/* Queue — scrollable */}
           <div style={{ flex: 1, overflow: 'auto' }}>
             {showSkeleton ? (

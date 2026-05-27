@@ -1,8 +1,8 @@
 'use client'
-import { colors, spacing, fontSize } from '../../design-system/tokens'
-'use client'
 
 import { useState, useEffect, memo } from 'react'
+import { colors, spacing, fontSize } from '../../design-system/tokens'
+import { Badge } from '../../design-system/Badge'
 import type { Workspace } from '../../lib/store'
 import { ipc } from '../../lib/ipc'
 
@@ -227,31 +227,14 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
           )}
 
           {/* Status badge — top-left */}
-          <div style={{
-            position: 'absolute', top: 4, left: 4,
-          }}>
-            <div style={{
-              fontSize: 10, fontWeight: 800, color: cfg.color,
-              background: `${cfg.color}18`,
-              border: `1px solid ${cfg.color}55`,
-              borderRadius: 2, padding: '3px 7px',
-              letterSpacing: '0.04em',
-              display: 'flex', alignItems: 'center', gap: 4,
-              backdropFilter: 'blur(4px)',
-              boxShadow: (status === 'downloading' || status === 'rendering')
-                ? `0 0 8px ${cfg.color}44, 0 0 2px ${cfg.color}22`
-                : 'none',
-            }}>
-              <span style={{
-                width: 5, height: 5, borderRadius: '50%',
-                background: cfg.dotColor,
-                boxShadow: `0 0 6px ${cfg.dotColor}`,
-                flexShrink: 0,
-                animation: (status === 'downloading' || status === 'rendering')
-                  ? 'pulse 1.5s ease-in-out infinite' : undefined,
-              }} />
-              {cfg.label}
-            </div>
+          <div style={{ position: 'absolute', top: 4, left: 4 }}>
+            <Badge
+              label={cfg.label}
+              color={cfg.color}
+              dot
+              pulse={status === 'downloading' || status === 'rendering'}
+              size="sm"
+            />
           </div>
 
           {/* Duration — bottom-right */}

@@ -53,15 +53,6 @@
   --spacing-xl: 24px;
   --spacing-xxl: 32px;
 }
-
-.dark {
-  --background: #121212;
-  --foreground: #ffffff;
-  --border: #1e1e1e;
-  --ring: #404040;
-}
-
-/* ====================== */
 /* Custom Scrollbar         */
 /* ====================== */
 

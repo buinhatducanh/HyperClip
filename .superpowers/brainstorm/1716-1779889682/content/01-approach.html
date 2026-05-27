@@ -1,0 +1,59 @@
+<h2>HyperClip — Redesign UI</h2>
+<p class="subtitle">Phân tích vấn đề hiện tại và định hướng thiết kế mới</p>
+
+<div class="section">
+  <h3>Vấn đề hiện tại</h3>
+  <div class="pros-cons">
+    <div class="cons">
+      <h4>⚠️ Inline styles</h4>
+      <ul>
+        <li>100% component dùng <code>style={{}}</code> — zero design system</li>
+        <li>Không color tokens, không spacing scale</li>
+        <li>Theme switch cần sửa từng file</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>⚠️ Visual thiếu cấu trúc</h4>
+      <ul>
+        <li>Card bg #FFFFFF trên nền #F5F5F5 — thiếu depth</li>
+        <li>Border #E0E0E0 quá nhạt — khó thấy ranh giới</li>
+        <li>Status colors chói trên nền sáng</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>⚠️ Typography hỗn loạn</h4>
+      <ul>
+        <li>8 cấp font-size không có logic</li>
+        <li>Spacing tùy tiện (padding 8, 10, 12, 14, 16)</li>
+        <li>Thiếu hierarchy giữa sections</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Hướng tiếp cận</h3>
+  <div class="options">
+    <div class="option" data-choice="minimal" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content">
+        <h3>Minimal Refine</h3>
+        <p>Giữ nguyên layout, chỉ chuẩn hóa color tokens + spacing + borders. Dùng Tailwind classes thay inline styles cho file chính. Ít rủi ro, nhanh (2-3 sessions).</p>
+      </div>
+    </div>
+    <div class="option" data-choice="systematic" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content">
+        <h3>Design System</h3>
+        <p>Xây dựng CSS variables đầy đủ (colors, spacing, typography, shadows) + utility components (Card, Badge, Button). Chuyển dần component quan trọng nhất. Trung bình (4-6 sessions).</p>
+      </div>
+    </div>
+    <div class="option" data-choice="full" onclick="toggleSelect(this)">
+      <div class="letter">C</div>
+      <div class="content">
+        <h3>Full Redesign</h3>
+        <p>Làm lại toàn bộ UI: layout mới, design system, component library, animations. Component nào xấu viết lại từ đầu. Tốn thời gian nhất (8-12 sessions) nhưng kết quả đẹp nhất.</p>
+      </div>
+    </div>
+  </div>
+</div>
