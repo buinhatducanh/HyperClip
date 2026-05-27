@@ -1333,64 +1333,77 @@ async function downloadWithClient(opts: DownloadWithClientOpts): Promise<Downloa
     }
   }
 
-  // ── Try section download first (fast) ──────────────────────────────────────
-  const sectionArg = (() => {
-    if (typeof trimLimit !== 'number' || trimLimit <= 0) return null
-    const totalSeconds = trimLimit * 60
-    const hh = String(Math.floor(totalSeconds / 3600)).padStart(2, '0')
-    const mm = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0')
-    const ss = String(totalSeconds % 60).padStart(2, '0')
-    return `*00:00:00-${hh}:${mm}:${ss}`
-  })()
+  // ── Start simulated progress to prevent 0% stuck bar ──────────────────────────
+  // yt-dlp with tv_embedded + concurrent-fragments often doesn't emit % output
+  // until the very end. Simulation runs until real progress arrives.
+  const estimatedSec = typeof trimLimit === 'number' && trimLimit > 0 ? trimLimit * 60 : 120
+  const trimLimitSec = typeof trimLimit === 'number' ? trimLimit * 60 : 0
+  const _stopSim = _simulateDownloadProgress(workspaceId, onProgress, estimatedSec, quality, trimLimitSec)
+  let _realProgressReceived = false
+  const _wrappedOnProgress = (p: DownloadProgress) => {
+    if (p.percent > 0 && !_realProgressReceived) {
+      _realProgressReceived = true
+      _stopSim()
+    }
+    onProgress?.(p)
+  }
 
-  if (sectionArg && instanceCount > 1) {
-    // For multi-instance: use trimLimit duration, but verify video is long enough AFTER download
-    // by checking the file size. If file is suspiciously small (< 100KB per 10s), skip multi.
+  try {
+    // ── Try section download first (fast) ──────────────────────────────────────
+    const sectionArg = (() => {
+      if (typeof trimLimit !== 'number' || trimLimit <= 0) return null
+      const totalSeconds = trimLimit * 60
+      const hh = String(Math.floor(totalSeconds / 3600)).padStart(2, '0')
+      const mm = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0')
+      const ss = String(totalSeconds % 60).padStart(2, '0')
+      return `*00:00:00-${hh}:${mm}:${ss}`
+    })()
+
+    if (sectionArg && instanceCount > 1) {
+      // For multi-instance: use trimLimit duration, but verify video is long enough AFTER download
+      const result = await spawnDownload({
+        workspaceId, videoUrl, outputDir, formatSelector, client, ytCookiesFile,
+        extraArgs: ['--download-sections', sectionArg],
+        instanceCount, sectionArg, maxInstances, quality, onProgress: _wrappedOnProgress,
+      })
+
+      if (result.success) {
+        const actualDuration = await probeActualDuration(result.filePath!)
+        if (actualDuration > 0 && actualDuration < 30) {
+          devLog(`[Download] Section succeeded but video is only ${actualDuration}s — multi-instance wasted, continuing`)
+        }
+        return result
+      }
+
+      // Section failed — classify error
+      const classified = classifyError(result.error || '', result.stderr || '')
+      if (classified.isNotFound) return { ...result, ...classified }
+      if (classified.isRateLimited) return { ...result, ...classified }
+      if (classified.isProcessing) return { ...result, ...classified }
+
+      const sfErr = result.error?.includes('yt-dlp code') && result.stderr
+        ? result.error + ' | ' + result.stderr.trim().split('\n').slice(0, 2).join(' | ')
+        : result.error
+      devLog(`[Download] Section failed: ${sfErr?.slice(0, 120)} — falling back to full`)
+    }
+
+    // ── Full download ────────────────────────────────────────────────────────
     const result = await spawnDownload({
       workspaceId, videoUrl, outputDir, formatSelector, client, ytCookiesFile,
-      extraArgs: ['--download-sections', sectionArg],
-      instanceCount, sectionArg, maxInstances, quality, onProgress,
+      extraArgs: [],
+      instanceCount: 1, sectionArg: null, maxInstances: 1, quality, onProgress: _wrappedOnProgress,
     })
 
     if (result.success) {
-      // Verify actual duration with ffprobe
       const actualDuration = await probeActualDuration(result.filePath!)
-      if (actualDuration > 0 && actualDuration < 30) {
-        devLog(`[Download] Section succeeded but video is only ${actualDuration}s — multi-instance wasted, continuing`)
-      }
-      return result
+      return { ...result, duration: actualDuration > 0 ? actualDuration : result.duration }
     }
 
-    // Section failed — classify error
     const classified = classifyError(result.error || '', result.stderr || '')
-    if (classified.isNotFound) return { ...result, ...classified }
-    if (classified.isRateLimited) return { ...result, ...classified }
-    if (classified.isProcessing) return { ...result, ...classified }
-
-    // For private/error: try full download below
-    const sfErr = result.error?.includes('yt-dlp code') && result.stderr
-      ? result.error + ' | ' + result.stderr.trim().split('\n').slice(0, 2).join(' | ')
-      : result.error
-    devLog(`[Download] Section failed: ${sfErr?.slice(0, 120)} — falling back to full`)
+    return { ...result, ...classified }
+  } finally {
+    if (!_realProgressReceived) _stopSim()
   }
-
-  // ── Full download ────────────────────────────────────────────────────────
-  // Never use --download-sections here — the section download already handled trimming.
-  // Using --download-sections on the full path can cause yt-dlp to fail on certain videos
-  // (e.g., Shorts, specific HLS streams) even when the full video is downloadable.
-  const result = await spawnDownload({
-    workspaceId, videoUrl, outputDir, formatSelector, client, ytCookiesFile,
-    extraArgs: [],
-    instanceCount: 1, sectionArg: null, maxInstances: 1, quality, onProgress,
-  })
-
-  if (result.success) {
-    const actualDuration = await probeActualDuration(result.filePath!)
-    return { ...result, duration: actualDuration > 0 ? actualDuration : result.duration }
-  }
-
-  const classified = classifyError(result.error || '', result.stderr || '')
-  return { ...result, ...classified }
 }
 
 interface SpawnDownloadOpts {
