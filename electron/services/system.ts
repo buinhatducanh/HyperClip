@@ -324,6 +324,7 @@ export function detectSystemProfile(): { isLaptop: boolean; sessionCount: number
       devLog(`[SystemProfile] Using preset sessions=${preset.sessions} (${preset.label})`)
       return { isLaptop: false, sessionCount: _cachedSessionCount }
     }
+    devLog(`[SystemProfile] hardwareProfile (${settings.hardwareProfile.vramGB}/${settings.hardwareProfile.ramGB}) không match preset — fallback auto-detect`)
   }
   // Env override: explicit control for deployment
   const envCount = parseInt(process.env.HYPERCLIP_SESSION_COUNT || '', 10)
