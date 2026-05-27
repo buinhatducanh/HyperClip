@@ -572,13 +572,13 @@ function getNvencParams(codec, isChunked, gpuTier = 'software', canvasW = 0, can
         }
     }
     // GPU-aware preset selection:
-    //   RTX 5080 (high): p1 for chunked (speed), p3 for single (quality)
+    //   RTX 5080 (high): p1 for both chunked and single (speed)
     //   RTX 3060 (mid):  p2 for chunked, p3 for single
     //   others (low):   p3 for both
     // User preset (from editor) takes priority — only use tier default if not set.
     const preset = userPreset || (isChunked
         ? (isHighTier ? 'p1' : isMidTier ? 'p2' : 'p3')
-        : 'p3');
+        : (isHighTier ? 'p1' : 'p3'));
     // CQ tuning: RTX 5080 uses balanced CQ (quality vs file size)
     //   Chunked: speed focus → slightly higher CQ (smaller files, fast encode)
     //   Single-pass: quality focus → lower CQ (better quality)
@@ -590,7 +590,7 @@ function getNvencParams(codec, isChunked, gpuTier = 'software', canvasW = 0, can
     //        'hq'  = high quality for single-pass
     const tune = isChunked
         ? (isHighTier ? 'ull' : isMidTier ? 'll' : 'll')
-        : 'hq';
+        : (isHighTier ? 'ull' : 'hq');
     // Bitrate cap based on output resolution — portrait upscaling needs more bitrate.
     // Target: ~3 Mbps for 360p, ~6 Mbps for 720p, ~12 Mbps for 1080p.
     // VBR HQ mode respects both max bitrate AND CQ quality target.
@@ -936,7 +936,7 @@ async function findKeyframeSmart(videoPath, totalDuration, targetCount) {
 }
 // ─── Main render ───────────────────────────────────────────────────────────────
 async function renderVideo(metadata, outputDir, onProgress, gpuTier = 'software') {
-    const { workspace_id, source_video, export_resolution, video_speed, fps_target, overlays, trim, codec = 'h264', backgroundType = 'blur', backgroundColor = '#000000', backgroundImage, blur_background, vidHeightPct = 50, audioCodec = 'aac', audioBitrate = '192k', } = metadata;
+    const { workspace_id, source_video, export_resolution, video_speed, fps_target, overlays, trim, codec = 'h264', backgroundType = 'blur', backgroundColor = '#000000', backgroundImage, blur_background, vidHeightPct = 50, audioCodec = gpuTier === 'high' ? 'libopus' : 'aac', audioBitrate = '192k', } = metadata;
     const [outW, outH] = export_resolution.split('x').map(Number);
     if (!outW || !outH) {
         return { success: false, workspaceId: workspace_id, error: 'Invalid resolution' };

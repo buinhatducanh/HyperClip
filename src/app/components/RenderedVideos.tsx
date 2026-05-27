@@ -115,8 +115,8 @@ export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowT
           </svg>
         </div>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 11, color: '#444', marginBottom: 4 }}>Chưa có video đã render</div>
-          <div style={{ fontSize: 9, color: '#2A2A2A' }}>Video sẽ xuất hiện ở đây sau khi render xong</div>
+          <div style={{ fontSize: 11, color: '#999', marginBottom: 4 }}>Chưa có video đã render</div>
+          <div style={{ fontSize: 9, color: '#D0D0D0' }}>Video sẽ xuất hiện ở đây sau khi render xong</div>
         </div>
       </div>
     )
@@ -137,7 +137,7 @@ export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowT
               gap: 10,
               padding: '8px 12px',
               cursor: 'pointer',
-              borderBottom: '1px solid #161616',
+              borderBottom: '1px solid #FFFFFF',
               background: isSelected ? 'rgba(0, 255, 136, 0.05)' : 'transparent',
               borderLeft: isSelected ? '2px solid #00FF88' : '2px solid transparent',
               transition: 'all 0.12s',
@@ -154,7 +154,7 @@ export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowT
               width: 48, height: 48, borderRadius: 4,
               background: '#1A1A1A',
               flexShrink: 0, overflow: 'hidden',
-              border: isSelected ? '1px solid #00FF8833' : '1px solid #222',
+              border: isSelected ? '1px solid #00FF8833' : '1px solid #777',
               position: 'relative',
             }}>
               {thumbSrc ? (
@@ -169,7 +169,7 @@ export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowT
                   width: '100%', height: '100%',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="1.5">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="1.5">
                     <polygon points="5 3 19 12 5 21 5 3" />
                   </svg>
                 </div>
@@ -179,7 +179,7 @@ export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowT
                 position: 'absolute', bottom: 2, right: 2,
                 background: 'rgba(0,0,0,0.8)',
                 borderRadius: 2, padding: '1px 3px',
-                fontSize: 7, fontWeight: 700, color: '#ccc',
+                fontSize: 7, fontWeight: 700, color: '#999',
                 fontFamily: 'monospace',
               }}>
                 {formatDuration(video.duration)}
@@ -190,14 +190,14 @@ export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowT
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{
                 fontSize: 10, fontWeight: 600,
-                color: isSelected ? '#fff' : '#999',
+                color: isSelected ? '#FFFFFF' : '#999',
                 overflow: 'hidden', textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap', lineHeight: 1.3,
               }}>
                 {video.videoTitle || 'Untitled'}
               </div>
               <div style={{
-                fontSize: 8, color: '#555',
+                fontSize: 8, color: '#777',
                 overflow: 'hidden', textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap', marginTop: 2,
               }}>
@@ -228,7 +228,7 @@ export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowT
                 {/* File size */}
                 <span style={{
                   fontSize: 7, fontWeight: 600,
-                  color: '#666', fontFamily: 'monospace',
+                  color: '#999', fontFamily: 'monospace',
                 }}>
                   {video.fileSize}
                 </span>

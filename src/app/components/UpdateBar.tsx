@@ -45,10 +45,10 @@ export function UpdateBar() {
   return (
     <div style={{
       position: 'fixed', bottom: 16, right: 16,
-      background: '#1a1a1a', border: '1px solid #2a2a2a',
+      background: '#FFFFFF', border: '1px solid #E0E0E0',
       borderRadius: 12, padding: '12px 16px',
       minWidth: 280, maxWidth: 360,
-      boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
       fontFamily: 'Inter, system-ui, sans-serif',
       zIndex: 9999,
     }}>
@@ -58,7 +58,7 @@ export function UpdateBar() {
           width: 8, height: 8, borderRadius: '50%',
           background: '#00FF88',
         }} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A' }}>
           Cập nhật mới
         </span>
         {update.version && (
@@ -75,14 +75,14 @@ export function UpdateBar() {
       {update.downloading && (
         <div style={{ marginBottom: 8 }}>
           <div style={{
-            height: 4, background: '#2a2a2a', borderRadius: 2, overflow: 'hidden',
+            height: 4, background: '#E0E0E0', borderRadius: 2, overflow: 'hidden',
           }}>
             <div style={{
               height: '100%', background: '#00B4FF', borderRadius: 2,
               width: `${update.progress}%`, transition: 'width 0.3s',
             }} />
           </div>
-          <div style={{ fontSize: 11, color: '#666', marginTop: 4, textAlign: 'right' }}>
+          <div style={{ fontSize: 11, color: '#888', marginTop: 4, textAlign: 'right' }}>
             {update.progress}% đã tải
           </div>
         </div>
@@ -90,7 +90,7 @@ export function UpdateBar() {
 
       {/* Ready to install */}
       {update.ready && (
-        <p style={{ fontSize: 12, color: '#888', margin: '0 0 8px' }}>
+        <p style={{ fontSize: 12, color: '#666', margin: '0 0 8px' }}>
           Đã tải xong. Khởi động lại để cập nhật.
         </p>
       )}
@@ -103,7 +103,7 @@ export function UpdateBar() {
             style={{
               flex: 1, padding: '8px 16px',
               background: '#00B4FF', border: 'none', borderRadius: 6,
-              fontSize: 13, fontWeight: 600, color: '#000', cursor: 'pointer',
+              fontSize: 13, fontWeight: 600, color: '#FFFFFF', cursor: 'pointer',
             }}
           >
             Tải cập nhật
@@ -115,7 +115,7 @@ export function UpdateBar() {
             style={{
               flex: 1, padding: '8px 16px',
               background: '#00FF88', border: 'none', borderRadius: 6,
-              fontSize: 13, fontWeight: 600, color: '#000', cursor: 'pointer',
+              fontSize: 13, fontWeight: 600, color: '#FFFFFF', cursor: 'pointer',
             }}
           >
             Khởi động lại ngay

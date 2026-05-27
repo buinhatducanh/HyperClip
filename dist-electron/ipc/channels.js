@@ -27,6 +27,7 @@ exports.IPC_CHANNELS = {
     SYSTEM_OPEN_FOLDER: 'system:openFolder',
     SYSTEM_OPEN_URL: 'system:openUrl',
     SYSTEM_RESOURCE_ALERT: 'system:resource-alert',
+    SYSTEM_HARDWARE_PROFILE: 'system:hardware-profile',
     // Notification
     NOTIFICATION_EVENT: 'notification',
     // Auto-download

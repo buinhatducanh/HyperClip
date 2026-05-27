@@ -64,10 +64,10 @@ function AddProjectForm({ onClose, onAdded }: { onClose: () => void; onAdded: ()
   }
 
   const rowStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 10 }
-  const labelStyle = { fontSize: 9, color: '#555', letterSpacing: '0.05em', fontWeight: 600 }
+  const labelStyle = { fontSize: 9, color: '#777', letterSpacing: '0.05em', fontWeight: 600 }
   const inputStyle = {
-    width: '100%', height: 30, background: '#0a0a0a', border: '1px solid #222',
-    borderRadius: 3, color: '#ddd', fontSize: 10, paddingLeft: 8, outline: 'none',
+    width: '100%', height: 30, background: '#F0F0F0', border: '1px solid #D0D0D0',
+    borderRadius: 3, color: '#888', fontSize: 10, paddingLeft: 8, outline: 'none',
     fontFamily: 'monospace', boxSizing: 'border-box' as const,
   }
 
@@ -77,17 +77,17 @@ function AddProjectForm({ onClose, onAdded }: { onClose: () => void; onAdded: ()
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
     }}>
       <form onSubmit={handleSubmit} style={{
-        background: '#111', border: '1px solid #222', borderRadius: 8,
+        background: '#F5F5F5', border: '1px solid #D0D0D0', borderRadius: 8,
         padding: 24, width: 440, maxWidth: '90vw',
       }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.06em', marginBottom: 16 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#E0E0E0', letterSpacing: '0.06em', marginBottom: 16 }}>
           THÊM GOOGLE PROJECT
         </div>
 
         <div style={rowStyle}>
           <div style={labelStyle}>PROJECT ID</div>
           <input autoFocus value={projectId} onChange={e => setProjectId(e.target.value)} placeholder="proj-01, my-project-2, ..." style={inputStyle} />
-          <div style={{ fontSize: 8, color: '#333' }}>Identifier duy nhất cho project này. Dùng để pair OAuth + API Key.</div>
+          <div style={{ fontSize: 8, color: '#888' }}>Identifier duy nhất cho project này. Dùng để pair OAuth + API Key.</div>
         </div>
 
         <div style={rowStyle}>
@@ -116,7 +116,7 @@ function AddProjectForm({ onClose, onAdded }: { onClose: () => void; onAdded: ()
 
         <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
           <button type="submit" disabled={loading} style={{
-            flex: 1, height: 34, background: loading ? '#1a3a5a' : '#00B4FF',
+            flex: 1, height: 34, background: loading ? '#F0F8FF' : '#00B4FF',
             border: 'none', borderRadius: 4, fontSize: 10, fontWeight: 700, color: '#000',
             cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1,
           }}>
@@ -124,8 +124,8 @@ function AddProjectForm({ onClose, onAdded }: { onClose: () => void; onAdded: ()
           </button>
           <button type="button" onClick={onClose} style={{
             height: 34, paddingLeft: 16, paddingRight: 16,
-            background: 'transparent', border: '1px solid #333', borderRadius: 4,
-            fontSize: 10, color: '#666', cursor: 'pointer',
+            background: 'transparent', border: '1px solid #888', borderRadius: 4,
+            fontSize: 10, color: '#888', cursor: 'pointer',
           }}>
             HỦY
           </button>
@@ -150,7 +150,7 @@ const ProjectCard = React.memo(function ProjectCard({ project, onRefresh }: { pr
     no_oauth: '#FFB800',
   }
 
-  const sc = statusColor[project.status] || '#444'
+  const sc = statusColor[project.status] || '#888'
   const oauthPct = Math.min(project.quotaTotal > 0 ? Math.round((project.usedToday / project.quotaTotal) * 100) : 0, 100)
 
   // Show exhausted/warning on OAuth card even when hasToken=true
@@ -171,7 +171,7 @@ const ProjectCard = React.memo(function ProjectCard({ project, onRefresh }: { pr
     return '#FF6644'
   })()
 
-  const apiSc = statusColor[project.apiKeyStatus] || '#444'
+  const apiSc = statusColor[project.apiKeyStatus] || '#888'
 
   const handleRemove = async () => {
     await ipc.removeProject(project.projectId)
@@ -228,8 +228,8 @@ const ProjectCard = React.memo(function ProjectCard({ project, onRefresh }: { pr
 
   return (
     <div style={{
-      background: project.status === 'exhausted' ? '#1a0808' : '#0d0d0d',
-      border: `1px solid ${project.status === 'exhausted' ? '#FF444444' : project.status === 'no_oauth' ? '#FFB80022' : '#1a1a1a'}`,
+      background: project.status === 'exhausted' ? '#FFF0F0' : '#F5F5F5',
+      border: `1px solid ${project.status === 'exhausted' ? '#FF444444' : project.status === 'no_oauth' ? '#FFB80022' : '#E0E0E0'}`,
       borderRadius: 6, padding: '14px', marginBottom: 10,
       transition: 'border-color 0.3s, background 0.3s',
     }}>
@@ -240,7 +240,7 @@ const ProjectCard = React.memo(function ProjectCard({ project, onRefresh }: { pr
             width: 8, height: 8, borderRadius: '50%', background: sc,
             boxShadow: `0 0 4px ${sc}66`,
           }} />
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#ccc' }}>{project.projectId}</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#888' }}>{project.projectId}</span>
           {project.status !== 'healthy' && (
             <div style={{
               padding: '1px 6px', borderRadius: 3, border: `1px solid ${sc}44`,
@@ -252,10 +252,10 @@ const ProjectCard = React.memo(function ProjectCard({ project, onRefresh }: { pr
           )}
         </div>
         <div className="flex items-center gap-2">
-          <span style={{ fontSize: 8, color: '#333', fontFamily: 'monospace' }}>
+          <span style={{ fontSize: 8, color: '#888', fontFamily: 'monospace' }}>
             {(project.usedToday / 1000).toFixed(1)}k / {(project.quotaTotal / 1000).toFixed(0)}k
           </span>
-          <div style={{ width: 60, height: 3, background: '#1a1a1a', borderRadius: 1 }}>
+          <div style={{ width: 60, height: 3, background: '#E0E0E0', borderRadius: 1 }}>
             <div style={{
               width: `${Math.min(oauthPct, 100)}%`, height: '100%',
               background: oauthPct > 80 ? '#FFB800' : '#00FF88', borderRadius: 1,
@@ -268,12 +268,12 @@ const ProjectCard = React.memo(function ProjectCard({ project, onRefresh }: { pr
       {/* OAuth + API Key rows */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
         {/* OAuth */}
-        <div style={{ flex: 1, background: '#0a0a0a', border: `1px solid ${oauthColor}22`, borderRadius: 4, padding: '8px 10px' }}>
-          <div style={{ fontSize: 8, color: '#555', letterSpacing: '0.05em', fontWeight: 700, marginBottom: 4 }}>OAUTH</div>
+        <div style={{ flex: 1, background: '#F0F0F0', border: `1px solid ${oauthColor}22`, borderRadius: 4, padding: '8px 10px' }}>
+          <div style={{ fontSize: 8, color: '#777', letterSpacing: '0.05em', fontWeight: 700, marginBottom: 4 }}>OAUTH</div>
           <div style={{ fontSize: 10, color: oauthColor }}>
             {oauthLabel}
             {project.tokenExpiry && project.status !== 'exhausted' && (
-              <div style={{ fontSize: 8, color: '#444', marginTop: 2 }}>expires {new Date(project.tokenExpiry).toLocaleTimeString()}</div>
+              <div style={{ fontSize: 8, color: '#888', marginTop: 2 }}>expires {new Date(project.tokenExpiry).toLocaleTimeString()}</div>
             )}
           </div>
           {project.status === 'exhausted' && (
@@ -281,12 +281,12 @@ const ProjectCard = React.memo(function ProjectCard({ project, onRefresh }: { pr
           )}
         </div>
         {/* API Key */}
-        <div style={{ flex: 1, background: '#0a0a0a', border: `1px solid ${apiSc}22`, borderRadius: 4, padding: '8px 10px' }}>
-          <div style={{ fontSize: 8, color: '#555', letterSpacing: '0.05em', fontWeight: 700, marginBottom: 4 }}>API KEY</div>
+        <div style={{ flex: 1, background: '#F0F0F0', border: `1px solid ${apiSc}22`, borderRadius: 4, padding: '8px 10px' }}>
+          <div style={{ fontSize: 8, color: '#777', letterSpacing: '0.05em', fontWeight: 700, marginBottom: 4 }}>API KEY</div>
           {project.apiKey ? (
             <div style={{ fontSize: 10, color: apiSc }}>
               {project.apiKey.slice(0, 10)}…
-              <div style={{ fontSize: 8, color: '#444', marginTop: 2 }}>
+              <div style={{ fontSize: 8, color: '#888', marginTop: 2 }}>
                 {project.apiKeyName || project.projectId} · {(project.apiKeyUsed / 1000).toFixed(1)}k
                 {project.apiKeyStatus === 'exhausted' && <span style={{ color: '#FF4444' }}> ⚠ exhausted</span>}
                 {project.apiKeyStatus === 'unauthorized' && <span style={{ color: '#FF6644' }}> ✗ unauthorized</span>}
@@ -335,11 +335,11 @@ const ProjectCard = React.memo(function ProjectCard({ project, onRefresh }: { pr
           onClick={() => setShowRemove(true)}
           style={{
             height: 26, paddingLeft: 10, paddingRight: 10,
-            background: 'transparent', border: '1px solid #2a2a2a', borderRadius: 3,
-            fontSize: 9, color: '#555', cursor: 'pointer',
+            background: 'transparent', border: '1px solid #D0D0D0', borderRadius: 3,
+            fontSize: 9, color: '#777', cursor: 'pointer',
           }}
           onMouseEnter={e => { e.currentTarget.style.color = '#FF4444'; e.currentTarget.style.borderColor = '#FF4444' }}
-          onMouseLeave={e => { e.currentTarget.style.color = '#555'; e.currentTarget.style.borderColor = '#2a2a2a' }}
+          onMouseLeave={e => { e.currentTarget.style.color = '#777'; e.currentTarget.style.borderColor = '#D0D0D0' }}
         >✕ Xóa</button>
       </div>
 
@@ -347,14 +347,14 @@ const ProjectCard = React.memo(function ProjectCard({ project, onRefresh }: { pr
       {showRemove && (
         <div style={{
           marginTop: 8, padding: '8px 10px',
-          background: '#1a0808', border: '1px solid #3a1a1a',
+          background: '#FFF0F0', border: '1px solid #FFE0E0',
           borderRadius: 3, display: 'flex', alignItems: 'center', gap: 8,
         }}>
           <span style={{ fontSize: 9, color: '#FF6644', flex: 1 }}>
             Xóa project này? OAuth + API key sẽ ngừng hoạt động.
           </span>
-          <button onClick={handleRemove} style={{ height: 22, paddingLeft: 8, paddingRight: 8, background: '#aa2222', border: 'none', borderRadius: 3, color: '#fff', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>Xóa</button>
-          <button onClick={() => setShowRemove(false)} style={{ height: 22, paddingLeft: 8, paddingRight: 8, background: 'transparent', border: '1px solid #333', borderRadius: 3, color: '#666', fontSize: 9, cursor: 'pointer' }}>Hủy</button>
+          <button onClick={handleRemove} style={{ height: 22, paddingLeft: 8, paddingRight: 8, background: '#CC3333', border: 'none', borderRadius: 3, color: '#E0E0E0', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>Xóa</button>
+          <button onClick={() => setShowRemove(false)} style={{ height: 22, paddingLeft: 8, paddingRight: 8, background: 'transparent', border: '1px solid #888', borderRadius: 3, color: '#888', fontSize: 9, cursor: 'pointer' }}>Hủy</button>
         </div>
       )}
     </div>
@@ -527,12 +527,12 @@ export function ProjectsSection() {
       {/* Full-width header */}
       <div style={{
         padding: '14px 20px',
-        background: '#0B0B0B',
-        borderBottom: '1px solid #1A1A1A',
+        background: '#F5F5F5',
+        borderBottom: '1px solid #E0E0E0',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 800, color: '#fff', letterSpacing: '0.1em' }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: '#E0E0E0', letterSpacing: '0.1em' }}>
             {projects.length >= 100 ? '200 PROJECTS' : 'OAUTH PROJECTS'}
           </div>
           {projects.length > 0 && (
@@ -540,8 +540,8 @@ export function ProjectsSection() {
               {totalPct}% quota used
             </div>
           )}
-          <div style={{ width: 1, height: 12, background: '#222' }} />
-          <span style={{ fontSize: 8, color: '#333' }}>refresh {refreshTime}</span>
+          <div style={{ width: 1, height: 12, background: '#D0D0D0' }} />
+          <span style={{ fontSize: 8, color: '#888' }}>refresh {refreshTime}</span>
           {loading && <span style={{ fontSize: 8, color: '#00FF8844' }}>● loading...</span>}
         </div>
         <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
@@ -598,7 +598,7 @@ export function ProjectsSection() {
             <button
               onClick={() => setGroupByGmail(v => !v)}
               title={groupByGmail ? 'Ungroup by Gmail' : 'Group by Gmail'}
-              style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: groupByGmail ? '#00B4FF22' : 'transparent', border: `1px solid ${groupByGmail ? '#00B4FF44' : '#333'}`, borderRadius: 4, fontSize: 8, fontWeight: 700, color: groupByGmail ? '#00B4FF' : '#555', cursor: 'pointer', letterSpacing: '0.05em', transition: 'all 0.15s' }}>
+              style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: groupByGmail ? '#00B4FF22' : 'transparent', border: `1px solid ${groupByGmail ? '#00B4FF44' : '#888'}`, borderRadius: 4, fontSize: 8, fontWeight: 700, color: groupByGmail ? '#00B4FF' : '#777', cursor: 'pointer', letterSpacing: '0.05em', transition: 'all 0.15s' }}>
               GROUP: {groupByGmail ? 'GMAIL' : 'ALL'}
             </button>
           )}
@@ -607,9 +607,9 @@ export function ProjectsSection() {
 
       {/* Add form */}
       {showAdd && (
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid #141414', background: '#0A0A0A' }}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #E0E0E0', background: '#F0F0F0' }}>
           <div style={{
-            background: '#0A0A0A', border: '1px solid #1E1E1E',
+            background: '#F0F0F0', border: '1px solid #E0E0E0',
             borderRadius: 8, padding: '16px',
           }}>
             <AddProjectForm onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); load() }} />
@@ -621,8 +621,8 @@ export function ProjectsSection() {
       {(rateLimitedProjects > 0 || exhaustedProjects > 0 || noOauthProjects > 0 || unauthorizedProjects > 0) && (
         <div style={{
           padding: '10px 20px',
-          background: '#1a0808',
-          borderBottom: '1px solid #2a1010',
+          background: '#FFF0F0',
+          borderBottom: '1px solid #FFE0E0',
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FF4444', flexShrink: 0, boxShadow: '0 0 6px #FF444488' }} />
@@ -640,13 +640,13 @@ export function ProjectsSection() {
       )}
 
       {/* Stats row — consistent with ApiKeysSection */}
-      <div style={{ display: 'flex', gap: 8, padding: '12px 20px', borderBottom: '1px solid #141414', background: '#0C0C0C' }}>
+      <div style={{ display: 'flex', gap: 8, padding: '12px 20px', borderBottom: '1px solid #E0E0E0', background: '#F0F0F0' }}>
         <StatCard
           label="TOTAL"
           value={String(projects.length)}
           sub="projects"
-          color="#ccc"
-          icon={<div style={{ width: 6, height: 6, borderRadius: 1, background: '#444' }} />}
+          color="#888"
+          icon={<div style={{ width: 6, height: 6, borderRadius: 1, background: '#888' }} />}
         />
         <StatCard
           label="HEALTHY"
@@ -659,29 +659,29 @@ export function ProjectsSection() {
           label="WARNING"
           value={String(warningProjects)}
           sub="75-90% quota"
-          color={warningProjects > 0 ? '#FFB800' : '#2a2a2a'}
-          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: warningProjects > 0 ? '#FFB800' : '#2a2a2a' }} />}
+          color={warningProjects > 0 ? '#FFB800' : '#D0D0D0'}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: warningProjects > 0 ? '#FFB800' : '#D0D0D0' }} />}
         />
         <StatCard
           label="RATE LIMITED"
           value={String(rateLimitedProjects)}
           sub="10+ errors"
-          color={rateLimitedProjects > 0 ? '#FFB800' : '#2a2a2a'}
-          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: rateLimitedProjects > 0 ? '#FFB800' : '#2a2a2a' }} />}
+          color={rateLimitedProjects > 0 ? '#FFB800' : '#D0D0D0'}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: rateLimitedProjects > 0 ? '#FFB800' : '#D0D0D0' }} />}
         />
         <StatCard
           label="EXHAUSTED"
           value={String(exhaustedProjects)}
           sub="needs reset"
-          color={exhaustedProjects > 0 ? '#FF4444' : '#2a2a2a'}
-          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: exhaustedProjects > 0 ? '#FF4444' : '#2a2a2a' }} />}
+          color={exhaustedProjects > 0 ? '#FF4444' : '#D0D0D0'}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: exhaustedProjects > 0 ? '#FF4444' : '#D0D0D0' }} />}
         />
         <StatCard
           label="NO OAUTH"
           value={String(noOauthProjects)}
           sub="not authorized"
-          color={noOauthProjects > 0 ? '#FFB800' : '#2a2a2a'}
-          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: noOauthProjects > 0 ? '#FFB800' : '#2a2a2a' }} />}
+          color={noOauthProjects > 0 ? '#FFB800' : '#D0D0D0'}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: noOauthProjects > 0 ? '#FFB800' : '#D0D0D0' }} />}
         />
         {unauthorizedProjects > 0 && (
           <StatCard
@@ -703,8 +703,8 @@ export function ProjectsSection() {
 
       {/* Per-project quota distribution chart */}
       {projects.length > 0 && (
-        <div style={{ padding: '12px 20px', background: '#0D0D0D', borderBottom: '1px solid #141414' }}>
-          <div style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 8 }}>PROJECT QUOTA DISTRIBUTION</div>
+        <div style={{ padding: '12px 20px', background: '#F5F5F5', borderBottom: '1px solid #E0E0E0' }}>
+          <div style={{ fontSize: 8, color: '#AAA', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 8 }}>PROJECT QUOTA DISTRIBUTION</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {projects
               .sort((a, b) => (b.usedToday ?? 0) - (a.usedToday ?? 0))
@@ -712,28 +712,28 @@ export function ProjectsSection() {
                 const pct = p.quotaTotal > 0 ? Math.round((p.usedToday / p.quotaTotal) * 100) : 0
                 const isExhausted = p.status === 'exhausted'
                 const isRateLimited = p.status === 'rate_limited'
-                const barColor = isExhausted ? '#FF4444' : isRateLimited ? '#FFB800' : pct >= 90 ? '#FF4444' : pct >= 75 ? '#FFB800' : pct > 0 ? '#00FF88' : '#2a2a2a'
+                const barColor = isExhausted ? '#FF4444' : isRateLimited ? '#FFB800' : pct >= 90 ? '#FF4444' : pct >= 75 ? '#FFB800' : pct > 0 ? '#00FF88' : '#D0D0D0'
                 return (
                   <div key={p.projectId} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div style={{
-                      minWidth: 100, fontSize: 9, color: isExhausted ? '#FF4444' : isRateLimited ? '#FFB800' : '#555',
+                      minWidth: 100, fontSize: 9, color: isExhausted ? '#FF4444' : isRateLimited ? '#FFB800' : '#777',
                       fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>
                       {(isExhausted || isRateLimited) && <span style={{ color: isExhausted ? '#FF4444' : '#FFB800', marginRight: 3 }}>⚠</span>}
                       {p.projectId}
                     </div>
-                    <div style={{ flex: 1, height: 12, background: '#141414', borderRadius: 2, position: 'relative' }}>
+                    <div style={{ flex: 1, height: 12, background: '#E0E0E0', borderRadius: 2, position: 'relative' }}>
                       <div style={{
                         width: `${pct}%`, height: '100%', background: barColor,
                         borderRadius: 2, transition: 'width 0.5s',
                         boxShadow: pct > 0 ? `0 0 4px ${barColor}44` : 'none',
                       }} />
-                      <div style={{ position: 'absolute', top: 0, left: '75%', width: 1, height: '100%', background: '#333' }} />
-                      <div style={{ position: 'absolute', top: 0, left: '90%', width: 1, height: '100%', background: '#555' }} />
+                      <div style={{ position: 'absolute', top: 0, left: '75%', width: 1, height: '100%', background: '#888' }} />
+                      <div style={{ position: 'absolute', top: 0, left: '90%', width: 1, height: '100%', background: '#777' }} />
                     </div>
-                    <div style={{ minWidth: 170, fontSize: 8, color: '#333', fontFamily: 'monospace', textAlign: 'right' }}>
+                    <div style={{ minWidth: 170, fontSize: 8, color: '#888', fontFamily: 'monospace', textAlign: 'right' }}>
                       <span style={{ color: barColor }}>{p.usedToday.toLocaleString()}</span>
-                      <span style={{ color: '#2a2a2a' }}>/</span>
+                      <span style={{ color: '#D0D0D0' }}>/</span>
                       <span>{p.quotaTotal.toLocaleString()}</span>
                       {p.errors > 0 && (
                         <span style={{ color: '#FF4444', marginLeft: 4 }}>{p.errors}err</span>
@@ -744,14 +744,14 @@ export function ProjectsSection() {
               })}
           </div>
           <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-            <span style={{ fontSize: 7, color: '#2a2a2a' }}>| 75%</span>
-            <span style={{ fontSize: 7, color: '#333' }}>| 90%</span>
+            <span style={{ fontSize: 7, color: '#D0D0D0' }}>| 75%</span>
+            <span style={{ fontSize: 7, color: '#888' }}>| 90%</span>
           </div>
         </div>
       )}
 
       {/* Filter tabs */}
-      <div style={{ display: 'flex', gap: 2, padding: '8px 20px', borderBottom: '1px solid #141414', background: '#0C0C0C' }}>
+      <div style={{ display: 'flex', gap: 2, padding: '8px 20px', borderBottom: '1px solid #E0E0E0', background: '#F0F0F0' }}>
         {(['all', 'healthy', 'warning', 'rate_limited', 'exhausted', 'no_oauth'] as const).map(f => {
           const isActive = filter === f
           const tabColors: Record<string, string> = { all: '#888', healthy: '#00FF88', warning: '#FFB800', rate_limited: '#FFB800', exhausted: '#FF4444', no_oauth: '#FFB800' }
@@ -761,10 +761,10 @@ export function ProjectsSection() {
               onClick={() => setFilter(f)}
               style={{
                 height: 24, paddingLeft: 10, paddingRight: 10,
-                background: isActive ? '#141414' : 'transparent',
-                border: `1px solid ${isActive ? '#222' : 'transparent'}`,
+                background: isActive ? '#E0E0E0' : 'transparent',
+                border: `1px solid ${isActive ? '#D0D0D0' : 'transparent'}`,
                 borderRadius: 4, cursor: 'pointer', fontSize: 8, fontWeight: 700,
-                color: isActive ? tabColors[f] : '#444',
+                color: isActive ? tabColors[f] : '#888',
                 letterSpacing: '0.08em', transition: 'all 0.15s',
               }}
             >
@@ -775,19 +775,19 @@ export function ProjectsSection() {
       </div>
 
       {/* Info row */}
-      <div style={{ padding: '8px 20px', fontSize: 9, color: '#444', lineHeight: '15px', background: '#0B0B0B', borderBottom: '1px solid #141414' }}>
+      <div style={{ padding: '8px 20px', fontSize: 9, color: '#888', lineHeight: '15px', background: '#F5F5F5', borderBottom: '1px solid #E0E0E0' }}>
         Mỗi project = OAuth + API Key = 10,000 units/ngày. Thêm project để tăng quota polling. Quota reset mỗi 24h (midnight PT).
       </div>
 
       {/* Project list */}
-      <div style={{ padding: '14px 20px', background: '#0A0A0A' }}>
+      <div style={{ padding: '14px 20px', background: '#F0F0F0' }}>
         {loading && projects.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <div style={{ fontSize: 10, color: '#333' }}>Đang tải...</div>
+            <div style={{ fontSize: 10, color: '#888' }}>Đang tải...</div>
           </div>
         ) : filteredProjects.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <div style={{ fontSize: 10, color: '#2a2a2a', marginBottom: 8 }}>
+            <div style={{ fontSize: 10, color: '#D0D0D0', marginBottom: 8 }}>
               {filter !== 'all' ? `Không có project ở trạng thái "${filter}"` : 'Chưa có project nào. Thêm Google Cloud project để bắt đầu.'}
             </div>
             {filter === 'all' && (
@@ -819,14 +819,14 @@ export function ProjectsSection() {
                   })}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
-                    padding: '6px 10px', background: '#111', border: '1px solid #1a1a1a',
+                    padding: '6px 10px', background: '#F5F5F5', border: '1px solid #E0E0E0',
                     borderRadius: 4, marginBottom: collapsed ? 0 : 8,
                   }}>
-                  <span style={{ fontSize: 10, color: collapsed ? '#444' : '#00B4FF', transition: 'all 0.15s' }}>{collapsed ? '▶' : '▼'}</span>
-                  <span style={{ fontSize: 9, fontWeight: 700, color: collapsed ? '#444' : '#ccc', letterSpacing: '0.06em', fontFamily: 'monospace' }}>{gmail}</span>
-                  <span style={{ fontSize: 8, color: '#333' }}>({gHealthy}/{gTotal} healthy)</span>
+                  <span style={{ fontSize: 10, color: collapsed ? '#888' : '#00B4FF', transition: 'all 0.15s' }}>{collapsed ? '▶' : '▼'}</span>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: collapsed ? '#888' : '#888', letterSpacing: '0.06em', fontFamily: 'monospace' }}>{gmail}</span>
+                  <span style={{ fontSize: 8, color: '#888' }}>({gHealthy}/{gTotal} healthy)</span>
                   <div style={{ flex: 1 }} />
-                  <span style={{ fontSize: 8, color: '#333' }}>{gprojects.length} projects</span>
+                  <span style={{ fontSize: 8, color: '#888' }}>{gprojects.length} projects</span>
                 </div>
                 {!collapsed && (
                   <div style={{

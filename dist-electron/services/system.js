@@ -8,6 +8,7 @@ exports.detectSystemProfile = detectSystemProfile;
 exports.getSessionCount = getSessionCount;
 exports.getGpuLive = getGpuLive;
 exports.getEffectiveWorkers = getEffectiveWorkers;
+exports.getHardwareProfileInfo = getHardwareProfileInfo;
 exports.getMachineTier = getMachineTier;
 exports.getDownloadParams = getDownloadParams;
 exports.collectSystemStats = collectSystemStats;
@@ -290,6 +291,17 @@ function detectSystemProfile() {
     if (_cachedSessionCount !== null) {
         return { isLaptop: _cachedSessionCount === 15, sessionCount: _cachedSessionCount };
     }
+    // Check hardware preset first
+    const settings = (0, ramdisk_js_1.loadSettings)();
+    if (settings.hardwareProfile) {
+        const preset = PRESETS.find(p => p.vramGB === settings.hardwareProfile.vramGB && p.ramGB === settings.hardwareProfile.ramGB);
+        if (preset) {
+            _cachedSessionCount = preset.sessions;
+            (0, unified_log_js_1.devLog)(`[SystemProfile] Using preset sessions=${preset.sessions} (${preset.label})`);
+            return { isLaptop: false, sessionCount: _cachedSessionCount };
+        }
+        (0, unified_log_js_1.devLog)(`[SystemProfile] hardwareProfile (${settings.hardwareProfile.vramGB}/${settings.hardwareProfile.ramGB}) không match preset — fallback auto-detect`);
+    }
     // Env override: explicit control for deployment
     const envCount = parseInt(process.env.HYPERCLIP_SESSION_COUNT || '', 10);
     if (!isNaN(envCount) && envCount > 0) {
@@ -358,7 +370,7 @@ function getGpuLive() {
     getVramInfo(); // populate cache if stale
     return _cachedGpuLive ?? { total: 0, free: 0, used: 0, gpuUsage: 0, gpuTemp: 0 };
 }
-// Get effective worker count based on available VRAM.
+// Get effective worker count based on available VRAM or preset settings.
 // Per-session VRAM budget (1920x1080 canvas, H.265 encode + NVDEC decode + filter):
 //   - NVDEC decode: ~150MB
 //   - libavfilter (scale + pad + overlay): ~200MB
@@ -366,6 +378,14 @@ function getGpuLive() {
 //   - Total: ~600MB per worker (conservative)
 // Safety reserve: 2GB for OS + driver + UI (up from 4GB — RTX 5080 has 16GB)
 function getEffectiveWorkers(perWorkerMB = 600) {
+    // Check preset settings first
+    const profile = (0, ramdisk_js_1.loadSettings)().hardwareProfile;
+    if (profile) {
+        const preset = PRESETS.find(p => p.vramGB === profile.vramGB && p.ramGB === profile.ramGB);
+        if (preset)
+            return preset.chunkWorkers;
+    }
+    // Fallback to auto-detection
     const gpu = detectGPUOnce();
     const baseWorkers = gpu.maxChunkWorkers;
     const vram = getVramInfo();
@@ -379,6 +399,29 @@ function getEffectiveWorkers(perWorkerMB = 600) {
         return Math.max(2, Math.floor(baseWorkers * 0.25));
     const vramCapWorkers = Math.floor(availableMB / actualBudget);
     return Math.max(2, Math.min(baseWorkers, vramCapWorkers));
+}
+const PRESETS = [
+    { id: 'ultra', label: 'Ultra', vramGB: 16, ramGB: 64, downloadInstances: 6, renderWorkers: 6, chunkWorkers: 14, sessions: 10 },
+    { id: 'high', label: 'High', vramGB: 12, ramGB: 48, downloadInstances: 2, renderWorkers: 3, chunkWorkers: 6, sessions: 8 },
+    { id: 'medium', label: 'Medium', vramGB: 8, ramGB: 32, downloadInstances: 2, renderWorkers: 2, chunkWorkers: 4, sessions: 6 },
+    { id: 'low', label: 'Low', vramGB: 6, ramGB: 24, downloadInstances: 1, renderWorkers: 2, chunkWorkers: 2, sessions: 4 },
+    { id: 'minimal', label: 'Minimal', vramGB: 4, ramGB: 16, downloadInstances: 1, renderWorkers: 1, chunkWorkers: 1, sessions: 2 },
+];
+function getHardwareProfileInfo() {
+    const gpu = detectGPUOnce();
+    const detectedRamGB = Math.round(os_1.default.totalmem() / (1024 ** 3));
+    const activeProfile = (0, ramdisk_js_1.loadSettings)().hardwareProfile;
+    const active = activeProfile
+        ? PRESETS.find(p => p.vramGB === activeProfile.vramGB && p.ramGB === activeProfile.ramGB)?.id ?? null
+        : null;
+    return {
+        detected: { vramGB: Math.round(gpu.memory / 1024), ramGB: detectedRamGB, gpuName: gpu.gpuName },
+        presets: PRESETS.map(p => ({
+            ...p,
+            available: p.vramGB <= Math.round(gpu.memory / 1024) && p.ramGB <= detectedRamGB,
+        })),
+        active,
+    };
 }
 let _cachedMachineTier = null;
 function getMachineTier() {
@@ -405,6 +448,13 @@ function getMachineTier() {
 }
 let _cachedDownloadParams = null;
 function getDownloadParams() {
+    const profile = (0, ramdisk_js_1.loadSettings)().hardwareProfile;
+    if (profile) {
+        const preset = PRESETS.find(p => p.vramGB === profile.vramGB && p.ramGB === profile.ramGB);
+        if (preset) {
+            return { fragments: preset.chunkWorkers * 8, maxInstances: preset.downloadInstances };
+        }
+    }
     if (_cachedDownloadParams)
         return _cachedDownloadParams;
     const tier = getMachineTier();
@@ -419,7 +469,7 @@ function getDownloadParams() {
             _cachedDownloadParams = { fragments: 16, maxInstances: 1 };
             break;
     }
-    return _cachedDownloadParams;
+    return _cachedDownloadParams ?? { fragments: 16, maxInstances: 1 };
 }
 // ─── CPU usage (tick delta with warmup + TTL cache) ───────────────────────────────
 let _cpuLastTotal = 0;

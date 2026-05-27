@@ -17,7 +17,12 @@ function registerSettingsHandlers(ipcMain) {
     });
     ipcMain.handle(channels_js_1.IPC_CHANNELS.SETTINGS_UPDATE, (_, patch) => {
         const settings = (0, ramdisk_js_1.loadSettings)();
-        (0, ramdisk_js_1.saveSettings)({ ...settings, ...patch });
+        const patchToSave = { ...patch };
+        // Clear hardwareProfile when set to null
+        if (patch.hardwareProfile === null) {
+            delete settings.hardwareProfile;
+        }
+        (0, ramdisk_js_1.saveSettings)({ ...settings, ...patchToSave });
         // Apply poller interval change immediately if poller is running
         if (patch.pollIntervalMs !== undefined) {
             const poller = (0, youtube_poller_js_1.getYouTubePoller)();

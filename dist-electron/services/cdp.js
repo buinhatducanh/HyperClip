@@ -10,6 +10,39 @@
  * CDP WebSocket endpoint: ws://localhost:{port}/devtools/browser/{browser-id}
  * JSON endpoint for targets:  http://localhost:{port}/json
  */
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -195,7 +228,7 @@ function loginInBackground(profileId) {
         const result = await cdpOpenChromeForLogin(profileId);
         if (result.cookies) {
             // Persist cookies so extractYouTubeCookies() picks them up on next read
-            const { getSessionManager } = await import('./chrome_cookies.js');
+            const { getSessionManager } = await Promise.resolve().then(() => __importStar(require('./chrome_cookies.js')));
             try {
                 const sm = getSessionManager();
                 const session = sm.getSessions().find(s => s.profileId === profileId);
@@ -208,7 +241,7 @@ function loginInBackground(profileId) {
                 }
                 const idx = parseInt(profileId, 10);
                 const isDefaultChrome = !isNaN(idx) && idx === 1;
-                const { getDefaultChromeProfileDir, getHyperClipProfileDir } = await import('./chrome_cookies.js');
+                const { getDefaultChromeProfileDir, getHyperClipProfileDir } = await Promise.resolve().then(() => __importStar(require('./chrome_cookies.js')));
                 const profileDir = isDefaultChrome
                     ? getDefaultChromeProfileDir()
                     : getHyperClipProfileDir(profileId);
@@ -224,7 +257,7 @@ function loginInBackground(profileId) {
                 (0, unified_log_js_1.devLog)(`[CDP] Background: cookies persisted for profile ${profileId}`);
                 // Rebuild Innertube client so the session becomes usable immediately
                 try {
-                    const { getInnertubePool } = await import('./innertube_client.js');
+                    const { getInnertubePool } = await Promise.resolve().then(() => __importStar(require('./innertube_client.js')));
                     const pool = await getInnertubePool();
                     const ok = await pool.refreshClient(profileId);
                     (0, unified_log_js_1.devLog)(`[CDP] Background: Innertube client ${ok ? 'rebuilt OK' : 'rebuild failed'} for profile ${profileId}`);

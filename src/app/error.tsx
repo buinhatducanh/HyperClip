@@ -7,7 +7,7 @@
  */
 export default function ErrorPage({ error }: { error: Error }) {
   return (
-    <div style={{ padding: '40px', color: '#fff', background: '#121212', minHeight: '100vh', fontFamily: 'sans-serif' }}>
+    <div style={{ padding: '40px', color: '#1A1A1A', background: '#F5F5F5', minHeight: '100vh', fontFamily: 'sans-serif' }}>
       <h1 style={{ color: '#ff4444' }}>Error</h1>
       <pre style={{ color: '#888', fontSize: '12px' }}>{error?.message || 'Unknown error'}</pre>
     </div>

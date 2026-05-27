@@ -16,6 +16,9 @@ function registerSystemHandlers(ipcMain) {
         const alert = (0, system_js_1.checkResourceAlert)();
         return (0, system_js_1.getLastResourceAlert)();
     });
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.SYSTEM_HARDWARE_PROFILE, async () => {
+        return (0, system_js_1.getHardwareProfileInfo)();
+    });
     ipcMain.handle(channels_js_1.IPC_CHANNELS.SYSTEM_OPEN_FOLDER, async (_, folderPath) => {
         await electron_1.shell.openPath(folderPath);
         return { success: true };

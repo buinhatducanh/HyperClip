@@ -34,7 +34,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false)
 
   const sc: Record<string, string> = { healthy: '#00FF88', warning: '#FFB800', error: '#FF6644', exhausted: '#FF4444', unauthorized: '#FF6644' }
-  const color = sc[k.status] || '#444'
+  const color = sc[k.status] || '#888'
   const pct = k.quotaPercent
   const remaining = Math.max(0, k.quotaTotal - k.usedToday)
 
@@ -53,8 +53,8 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
 
   return (
     <div style={{
-      background: wasJustReset ? '#00FF8808' : k.status === 'exhausted' ? '#1a0808' : k.status === 'unauthorized' ? '#1a0a08' : '#0D0D0D',
-      border: `1px solid ${wasJustReset ? '#00FF8833' : isActive ? '#00B4FF44' : k.status === 'exhausted' ? '#FF444444' : '#181818'}`,
+      background: wasJustReset ? '#00FF8808' : k.status === 'exhausted' ? '#FFF0F0' : k.status === 'unauthorized' ? '#FFF5EE' : '#F5F5F5',
+      border: `1px solid ${wasJustReset ? '#00FF8833' : isActive ? '#00B4FF44' : k.status === 'exhausted' ? '#FF444444' : '#FFFFFF'}`,
       borderRadius: 8, padding: '14px',
       transition: 'border-color 0.5s, background 0.5s',
       display: 'flex', flexDirection: 'column', gap: 10,
@@ -76,7 +76,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{
-            fontSize: 13, fontWeight: 700, color: '#ccc',
+            fontSize: 13, fontWeight: 700, color: '#888',
             fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             display: 'flex', alignItems: 'center', gap: 6,
           }}>
@@ -87,7 +87,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
               </span>
             )}
           </div>
-          <div style={{ fontSize: 8, color: '#3A3A3A', fontFamily: 'monospace', marginTop: 2 }}>
+          <div style={{ fontSize: 8, color: '#AAA', fontFamily: 'monospace', marginTop: 2 }}>
             {k.projectId} · {k.key ? k.key.slice(0, 12) + '…' : '•'.repeat(12) + '…'}
           </div>
         </div>
@@ -103,7 +103,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
 
       {/* Per-key quota — large prominent display */}
       <div style={{
-        background: '#0a0a0a', border: '1px solid #141414',
+        background: '#F0F0F0', border: '1px solid #E0E0E0',
         borderRadius: 6, padding: '10px 12px',
       }}>
         {/* Main quota bar */}
@@ -112,10 +112,10 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
             <span style={{ fontSize: 18, fontWeight: 800, color, fontFamily: 'monospace' }}>
               {remaining.toLocaleString()}
             </span>
-            <span style={{ fontSize: 9, color: '#555' }}>remaining</span>
+            <span style={{ fontSize: 9, color: '#777' }}>remaining</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-            <span style={{ fontSize: 9, color: '#444', fontFamily: 'monospace' }}>
+            <span style={{ fontSize: 9, color: '#888', fontFamily: 'monospace' }}>
               {k.usedToday.toLocaleString()} used
             </span>
             <span style={{ fontSize: 11, fontWeight: 700, color, fontFamily: 'monospace' }}>
@@ -125,7 +125,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
         </div>
         {/* Progress bar */}
         <div style={{
-          height: 14, background: '#141414', borderRadius: 3, overflow: 'hidden',
+          height: 14, background: '#E0E0E0', borderRadius: 3, overflow: 'hidden',
           position: 'relative',
         }}>
           <div style={{
@@ -133,15 +133,15 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
             borderRadius: 3, transition: 'width 0.5s',
             boxShadow: `0 0 8px ${color}44`,
           }} />
-          <div style={{ position: 'absolute', top: 0, left: '75%', width: 1, height: '100%', background: '#2a2a2a' }} />
-          <div style={{ position: 'absolute', top: 0, left: '90%', width: 1, height: '100%', background: '#444' }} />
+          <div style={{ position: 'absolute', top: 0, left: '75%', width: 1, height: '100%', background: '#D0D0D0' }} />
+          <div style={{ position: 'absolute', top: 0, left: '90%', width: 1, height: '100%', background: '#888' }} />
         </div>
         {/* Sub info */}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-          <span style={{ fontSize: 8, color: '#2a2a2a', fontFamily: 'monospace' }}>
-            0 <span style={{ color: '#333' }}>|</span> {Math.round(MAX_UNITS_PER_PROJECT * 0.75).toLocaleString()} <span style={{ color: '#333' }}>|</span> {(MAX_UNITS_PER_PROJECT * 0.9).toLocaleString()} <span style={{ color: '#333' }}>|</span> 9,500
+          <span style={{ fontSize: 8, color: '#D0D0D0', fontFamily: 'monospace' }}>
+            0 <span style={{ color: '#888' }}>|</span> {Math.round(MAX_UNITS_PER_PROJECT * 0.75).toLocaleString()} <span style={{ color: '#888' }}>|</span> {(MAX_UNITS_PER_PROJECT * 0.9).toLocaleString()} <span style={{ color: '#888' }}>|</span> 9,500
           </span>
-          <span style={{ fontSize: 8, color: '#333', fontFamily: 'monospace' }}>
+          <span style={{ fontSize: 8, color: '#888', fontFamily: 'monospace' }}>
             10,000 units/day
           </span>
         </div>
@@ -149,7 +149,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
 
       {/* Usage timeline */}
       <div>
-        <div style={{ fontSize: 8, color: '#2A2A2A', letterSpacing: '0.08em', marginBottom: 4, fontWeight: 700 }}>USAGE TIMELINE (24H PT)</div>
+        <div style={{ fontSize: 8, color: '#D0D0D0', letterSpacing: '0.08em', marginBottom: 4, fontWeight: 700 }}>USAGE TIMELINE (24H PT)</div>
         <UsageTimeline events={events} />
       </div>
 
@@ -160,7 +160,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
             <span style={{ fontSize: 8, color: '#FF6644' }}>⚠ {k.errors} errors</span>
           </div>
         )}
-        <span style={{ fontSize: 8, color: '#3A3A3A', fontFamily: 'monospace' }}>
+        <span style={{ fontSize: 8, color: '#AAA', fontFamily: 'monospace' }}>
           last used {formatTimeAgo(k.lastUsed)}
         </span>
         {k.lastReset && (
@@ -168,7 +168,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
             ↺ reset {formatTimeAgo(k.lastReset)}
           </span>
         )}
-        <span style={{ fontSize: 8, color: '#222', marginLeft: 'auto', fontFamily: 'monospace' }}>
+        <span style={{ fontSize: 8, color: '#D0D0D0', marginLeft: 'auto', fontFamily: 'monospace' }}>
           next reset {formatNextReset(k.nextReset)}
         </span>
       </div>
@@ -226,16 +226,16 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
       ) : (
         <div style={{
           padding: '8px 10px',
-          background: '#1a0808', border: '1px solid #FF444433',
+          background: '#FFF0F0', border: '1px solid #FF444433',
           borderRadius: 4, display: 'flex', alignItems: 'center', gap: 8,
         }}>
           <span style={{ fontSize: 9, color: '#FF6644', flex: 1 }}>
             Xóa key này? Không thể hoàn tác.
           </span>
-          <button onClick={handleRemove} style={{ height: 24, paddingLeft: 10, paddingRight: 10, background: '#aa2222', border: 'none', borderRadius: 3, color: '#fff', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>
+          <button onClick={handleRemove} style={{ height: 24, paddingLeft: 10, paddingRight: 10, background: '#CC3333', border: 'none', borderRadius: 3, color: '#E0E0E0', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>
             Xóa
           </button>
-          <button onClick={() => setShowRemoveConfirm(false)} style={{ height: 24, paddingLeft: 10, paddingRight: 10, background: 'transparent', border: '1px solid #333', borderRadius: 3, color: '#555', fontSize: 9, cursor: 'pointer' }}>
+          <button onClick={() => setShowRemoveConfirm(false)} style={{ height: 24, paddingLeft: 10, paddingRight: 10, background: 'transparent', border: '1px solid #888', borderRadius: 3, color: '#777', fontSize: 9, cursor: 'pointer' }}>
             Hủy
           </button>
         </div>
@@ -274,26 +274,26 @@ function AddKeyForm({ onClose, onAdded }: { onClose: () => void; onAdded: () => 
 
   return (
     <div style={{
-      background: '#0A0A0A', border: '1px solid #1E1E1E',
+      background: '#F0F0F0', border: '1px solid #E0E0E0',
       borderRadius: 8, padding: '16px',
     }}>
-      <div style={{ fontSize: 9, fontWeight: 800, color: '#444', letterSpacing: '0.12em', marginBottom: 12 }}>THÊM API KEY MỚI</div>
+      <div style={{ fontSize: 9, fontWeight: 800, color: '#888', letterSpacing: '0.12em', marginBottom: 12 }}>THÊM API KEY MỚI</div>
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <input
           autoFocus value={newKey} onChange={e => setNewKey(e.target.value)}
           placeholder="AIzaSy..."
-          style={{ width: '100%', height: 32, background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: 4, paddingLeft: 10, fontSize: 11, color: '#ccc', outline: 'none', fontFamily: 'monospace', boxSizing: 'border-box' }}
+          style={{ width: '100%', height: 32, background: '#F5F5F5', border: '1px solid #D0D0D0', borderRadius: 4, paddingLeft: 10, fontSize: 11, color: '#888', outline: 'none', fontFamily: 'monospace', boxSizing: 'border-box' }}
         />
         <div style={{ display: 'flex', gap: 8 }}>
           <input
             value={newProjectId} onChange={e => setNewProjectId(e.target.value)}
             placeholder="proj-01"
-            style={{ flex: 1, height: 32, background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: 4, paddingLeft: 10, fontSize: 10, color: '#ccc', outline: 'none', fontFamily: 'monospace' }}
+            style={{ flex: 1, height: 32, background: '#F5F5F5', border: '1px solid #D0D0D0', borderRadius: 4, paddingLeft: 10, fontSize: 10, color: '#888', outline: 'none', fontFamily: 'monospace' }}
           />
           <input
             value={newKeyName} onChange={e => setNewKeyName(e.target.value)}
             placeholder="Tên key (tùy chọn)"
-            style={{ flex: 2, height: 32, background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: 4, paddingLeft: 10, fontSize: 10, color: '#ccc', outline: 'none' }}
+            style={{ flex: 2, height: 32, background: '#F5F5F5', border: '1px solid #D0D0D0', borderRadius: 4, paddingLeft: 10, fontSize: 10, color: '#888', outline: 'none' }}
           />
         </div>
         {addError && <div style={{ fontSize: 9, color: '#FF6644' }}>{addError}</div>}
@@ -301,7 +301,7 @@ function AddKeyForm({ onClose, onAdded }: { onClose: () => void; onAdded: () => 
           <button type="submit" disabled={adding} style={{ flex: 1, height: 30, background: '#00B4FF', border: 'none', borderRadius: 4, fontSize: 10, fontWeight: 700, color: '#000', cursor: adding ? 'not-allowed' : 'pointer', opacity: adding ? 0.6 : 1 }}>
             {adding ? '...' : 'Thêm Key'}
           </button>
-          <button type="button" onClick={onClose} style={{ height: 30, paddingLeft: 14, paddingRight: 14, background: 'transparent', border: '1px solid #2a2a2a', borderRadius: 4, fontSize: 10, color: '#555', cursor: 'pointer' }}>
+          <button type="button" onClick={onClose} style={{ height: 30, paddingLeft: 14, paddingRight: 14, background: 'transparent', border: '1px solid #D0D0D0', borderRadius: 4, fontSize: 10, color: '#777', cursor: 'pointer' }}>
             Hủy
           </button>
         </div>
@@ -467,14 +467,14 @@ export default function ApiKeysSection() {
       {/* Full-width header */}
       <div style={{
         padding: '14px 20px',
-        background: '#0B0B0B',
-        borderBottom: '1px solid #1A1A1A',
+        background: '#F5F5F5',
+        borderBottom: '1px solid #E0E0E0',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 800, color: '#fff', letterSpacing: '0.1em' }}>API KEY MANAGEMENT</div>
-          <div style={{ width: 1, height: 12, background: '#222' }} />
-          <span style={{ fontSize: 8, color: '#333' }}>last refresh {refreshTime}</span>
+          <div style={{ fontSize: 11, fontWeight: 800, color: '#E0E0E0', letterSpacing: '0.1em' }}>API KEY MANAGEMENT</div>
+          <div style={{ width: 1, height: 12, background: '#D0D0D0' }} />
+          <span style={{ fontSize: 8, color: '#888' }}>last refresh {refreshTime}</span>
           {loading && <span style={{ fontSize: 8, color: '#00B4FF44' }}>● polling...</span>}
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -525,7 +525,7 @@ export default function ApiKeysSection() {
 
       {/* Add form */}
       {showAddForm && (
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid #141414', background: '#0A0A0A' }}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #E0E0E0', background: '#F0F0F0' }}>
           <AddKeyForm onClose={() => setShowAddForm(false)} onAdded={() => { setShowAddForm(false); load() }} />
         </div>
       )}
@@ -534,8 +534,8 @@ export default function ApiKeysSection() {
       {(exhaustedKeys > 0 || unauthorizedKeys > 0) && (
         <div style={{
           padding: '10px 20px',
-          background: '#1a0808',
-          borderBottom: '1px solid #2a1010',
+          background: '#FFF0F0',
+          borderBottom: '1px solid #FFE0E0',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           gap: 12,
         }}>
@@ -566,13 +566,13 @@ export default function ApiKeysSection() {
       )}
 
       {/* Stats row */}
-      <div style={{ display: 'flex', gap: 8, padding: '12px 20px', borderBottom: '1px solid #141414', background: '#0C0C0C' }}>
+      <div style={{ display: 'flex', gap: 8, padding: '12px 20px', borderBottom: '1px solid #E0E0E0', background: '#F0F0F0' }}>
         <StatCard
           label="TOTAL KEYS"
           value={String(totalKeys)}
           sub={`${totalKeys > 0 ? Math.round(totalUsed / totalKeys) : 0} units/key avg`}
-          color="#ccc"
-          icon={<div style={{ width: 6, height: 6, borderRadius: 1, background: '#444' }} />}
+          color="#888"
+          icon={<div style={{ width: 6, height: 6, borderRadius: 1, background: '#888' }} />}
         />
         <StatCard
           label="HEALTHY"
@@ -585,32 +585,32 @@ export default function ApiKeysSection() {
           label="WARNING"
           value={String(warningKeys)}
           sub="75-90% quota"
-          color={warningKeys > 0 ? '#FFB800' : '#2a2a2a'}
-          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: warningKeys > 0 ? '#FFB800' : '#2a2a2a' }} />}
+          color={warningKeys > 0 ? '#FFB800' : '#D0D0D0'}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: warningKeys > 0 ? '#FFB800' : '#D0D0D0' }} />}
         />
         <StatCard
           label="EXHAUSTED"
           value={String(exhaustedKeys)}
           sub="needs reset"
-          color={exhaustedKeys > 0 ? '#FF4444' : '#2a2a2a'}
-          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: exhaustedKeys > 0 ? '#FF4444' : '#2a2a2a' }} />}
+          color={exhaustedKeys > 0 ? '#FF4444' : '#D0D0D0'}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: exhaustedKeys > 0 ? '#FF4444' : '#D0D0D0' }} />}
         />
         <StatCard
           label="UNAUTHORIZED"
           value={String(unauthorizedKeys)}
           sub="invalid keys"
-          color={unauthorizedKeys > 0 ? '#FF6644' : '#2a2a2a'}
-          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: unauthorizedKeys > 0 ? '#FF6644' : '#2a2a2a' }} />}
+          color={unauthorizedKeys > 0 ? '#FF6644' : '#D0D0D0'}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: unauthorizedKeys > 0 ? '#FF6644' : '#D0D0D0' }} />}
         />
         <StatCard
           label="NEXT RESET"
           value={formatNextReset(nextReset)}
           sub="midnight PT"
-          color="#555"
+          color="#777"
           icon={
             <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
-              <circle cx="5" cy="5" r="4" stroke="#333" strokeWidth="1" />
-              <path d="M5 2 L5 5 L7 5" stroke="#333" strokeWidth="1" strokeLinecap="round" />
+              <circle cx="5" cy="5" r="4" stroke="#888" strokeWidth="1" />
+              <path d="M5 2 L5 5 L7 5" stroke="#888" strokeWidth="1" strokeLinecap="round" />
             </svg>
           }
         />
@@ -618,21 +618,21 @@ export default function ApiKeysSection() {
 
       {/* Per-key quota distribution chart */}
       {dedupedKeys.length > 0 && useMemo(() => (
-        <div style={{ padding: '12px 20px', background: '#0D0D0D', borderBottom: '1px solid #141414' }}>
-          <div style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 8 }}>KEY QUOTA DISTRIBUTION</div>
+        <div style={{ padding: '12px 20px', background: '#F5F5F5', borderBottom: '1px solid #E0E0E0' }}>
+          <div style={{ fontSize: 8, color: '#AAA', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 8 }}>KEY QUOTA DISTRIBUTION</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {dedupedKeys
               .sort((a, b) => (b.usedToday ?? 0) - (a.usedToday ?? 0))
               .map(k => {
                 const pct = k.quotaPercent
-                const barColor = pct >= QUOTA_BAR_EXHAUSTED_PCT ? '#FF4444' : pct >= QUOTA_BAR_WARN_PCT ? '#FFB800' : pct > 0 ? '#00B4FF' : '#2a2a2a'
+                const barColor = pct >= QUOTA_BAR_EXHAUSTED_PCT ? '#FF4444' : pct >= QUOTA_BAR_WARN_PCT ? '#FFB800' : pct > 0 ? '#00B4FF' : '#D0D0D0'
                 const remaining = Math.max(0, k.quotaTotal - k.usedToday)
                 const isRecent = isKeyActive(k.lastUsed)
                 return (
                   <div key={k.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     {/* Key label */}
                     <div style={{
-                      minWidth: 100, fontSize: 9, color: isRecent ? '#00B4FF' : '#555',
+                      minWidth: 100, fontSize: 9, color: isRecent ? '#00B4FF' : '#777',
                       fontFamily: 'monospace', fontWeight: isRecent ? 700 : 400,
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>
@@ -640,22 +640,22 @@ export default function ApiKeysSection() {
                       {k.name}
                     </div>
                     {/* Used bar */}
-                    <div style={{ flex: 1, height: 12, background: '#141414', borderRadius: 2, position: 'relative' }}>
+                    <div style={{ flex: 1, height: 12, background: '#E0E0E0', borderRadius: 2, position: 'relative' }}>
                       <div style={{
                         width: `${pct}%`, height: '100%', background: barColor,
                         borderRadius: 2, transition: 'width 0.5s',
                         boxShadow: pct > 0 ? `0 0 4px ${barColor}44` : 'none',
                       }} />
                       {/* 75% and 90% markers */}
-                      <div style={{ position: 'absolute', top: 0, left: '75%', width: 1, height: '100%', background: '#333' }} />
-                      <div style={{ position: 'absolute', top: 0, left: '90%', width: 1, height: '100%', background: '#555' }} />
+                      <div style={{ position: 'absolute', top: 0, left: '75%', width: 1, height: '100%', background: '#888' }} />
+                      <div style={{ position: 'absolute', top: 0, left: '90%', width: 1, height: '100%', background: '#777' }} />
                     </div>
                     {/* Stats */}
-                    <div style={{ minWidth: 140, fontSize: 8, color: '#333', fontFamily: 'monospace', textAlign: 'right' }}>
+                    <div style={{ minWidth: 140, fontSize: 8, color: '#888', fontFamily: 'monospace', textAlign: 'right' }}>
                       <span style={{ color: barColor }}>{k.usedToday.toLocaleString()}</span>
-                      <span style={{ color: '#2a2a2a' }}>/</span>
+                      <span style={{ color: '#D0D0D0' }}>/</span>
                       <span>{k.quotaTotal.toLocaleString()}</span>
-                      <span style={{ color: '#222', marginLeft: 4 }}>{remaining.toLocaleString()} left</span>
+                      <span style={{ color: '#D0D0D0', marginLeft: 4 }}>{remaining.toLocaleString()} left</span>
                     </div>
                   </div>
                 )
@@ -663,15 +663,15 @@ export default function ApiKeysSection() {
           </div>
           {/* Legend */}
           <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-            <span style={{ fontSize: 7, color: '#333' }}>● ACTIVE = used in last 30s</span>
-            <span style={{ fontSize: 7, color: '#2a2a2a' }}>| 75%</span>
-            <span style={{ fontSize: 7, color: '#333' }}>| 90%</span>
+            <span style={{ fontSize: 7, color: '#888' }}>● ACTIVE = used in last 30s</span>
+            <span style={{ fontSize: 7, color: '#D0D0D0' }}>| 75%</span>
+            <span style={{ fontSize: 7, color: '#888' }}>| 90%</span>
           </div>
         </div>
       ), [dedupedKeys, isKeyActive])}
 
             {/* Filter tabs */}
-      <div style={{ display: 'flex', gap: 2, padding: '8px 20px', borderBottom: '1px solid #141414', background: '#0C0C0C' }}>
+      <div style={{ display: 'flex', gap: 2, padding: '8px 20px', borderBottom: '1px solid #E0E0E0', background: '#F0F0F0' }}>
         {(['all', 'healthy', 'warning', 'exhausted', 'unauthorized'] as const).map(f => {
           const isActive = filter === f
           const count = filterCounts[f]
@@ -682,10 +682,10 @@ export default function ApiKeysSection() {
               onClick={() => setFilter(f)}
               style={{
                 height: 24, paddingLeft: 10, paddingRight: 10,
-                background: isActive ? '#141414' : 'transparent',
-                border: `1px solid ${isActive ? '#222' : 'transparent'}`,
+                background: isActive ? '#E0E0E0' : 'transparent',
+                border: `1px solid ${isActive ? '#D0D0D0' : 'transparent'}`,
                 borderRadius: 4, cursor: 'pointer', fontSize: 8, fontWeight: 700,
-                color: isActive ? tabColors[f] : '#444',
+                color: isActive ? tabColors[f] : '#888',
                 letterSpacing: '0.08em', transition: 'all 0.15s',
               }}
             >
@@ -696,14 +696,14 @@ export default function ApiKeysSection() {
       </div>
 
       {/* Keys grid */}
-      <div style={{ padding: '14px 20px', background: '#0A0A0A' }}>
+      <div style={{ padding: '14px 20px', background: '#F0F0F0' }}>
         {loading && keys.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <div style={{ fontSize: 10, color: '#333' }}>Đang tải...</div>
+            <div style={{ fontSize: 10, color: '#888' }}>Đang tải...</div>
           </div>
         ) : filteredKeys.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <div style={{ fontSize: 10, color: '#2a2a2a', marginBottom: 8 }}>
+            <div style={{ fontSize: 10, color: '#D0D0D0', marginBottom: 8 }}>
               {filter !== 'all' ? `Không có key nào ở trạng thái "${filter}"` : 'Chưa có API key nào'}
             </div>
             {filter === 'all' && (

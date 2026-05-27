@@ -27,7 +27,7 @@ export function ConfirmationDialog({
     <div
       style={{
         position: 'fixed', inset: 0,
-        background: 'rgba(0,0,0,0.7)',
+        background: 'rgba(0,0,0,0.25)',
         backdropFilter: 'blur(4px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         zIndex: 1000,
@@ -36,8 +36,8 @@ export function ConfirmationDialog({
       onClick={(e) => { if (e.target === e.currentTarget) onCancel() }}
     >
       <div style={{
-        background: '#141414',
-        border: '1px solid #222',
+        background: '#FFFFFF',
+        border: '1px solid #E0E0E0',
         borderRadius: 4,
         padding: '20px 24px',
         maxWidth: 360,
@@ -46,7 +46,7 @@ export function ConfirmationDialog({
       }}>
         {/* Title */}
         <div style={{
-          fontSize: 13, fontWeight: 700, color: confirmDanger ? '#FF4444' : '#fff',
+          fontSize: 13, fontWeight: 700, color: confirmDanger ? '#FF4444' : '#1A1A1A',
           marginBottom: 10,
         }}>
           {title}
@@ -54,7 +54,7 @@ export function ConfirmationDialog({
 
         {/* Message */}
         <div style={{
-          fontSize: 12, color: '#888', lineHeight: 1.6,
+          fontSize: 12, color: '#666', lineHeight: 1.6,
           marginBottom: 20, whiteSpace: 'pre-line',
         }}>
           {message}
@@ -66,10 +66,10 @@ export function ConfirmationDialog({
             onClick={onCancel}
             style={{
               height: 32, padding: '0 16px',
-              background: '#1A1A1A',
-              border: '1px solid #2a2a2a',
+              background: '#F0F0F0',
+              border: '1px solid #D0D0D0',
               borderRadius: 3,
-              fontSize: 11, fontWeight: 600, color: '#666',
+              fontSize: 11, fontWeight: 600, color: '#555',
               cursor: 'pointer',
             }}
           >

@@ -35,9 +35,9 @@ function AvatarWithFallback({ url, name, color }: { url: string; name: string; c
   if (failed || !url) {
     return (
       <div style={{
-        width: 24, height: 24, borderRadius: '50%',
+        width: 28, height: 28, borderRadius: '50%',
         background: `${color}22`, border: `1px solid ${color}44`,
-        fontSize: 10, fontWeight: 700, color,
+        fontSize: 11, fontWeight: 700, color,
         display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
       }}>
         {name.charAt(0)}
@@ -48,9 +48,9 @@ function AvatarWithFallback({ url, name, color }: { url: string; name: string; c
     <img
       src={url}
       alt={name}
-      width={24}
-      height={24}
-      style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: `1px solid ${color}44` }}
+      width={28}
+      height={28}
+      style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: `1px solid ${color}44` }}
       onError={handleError}
     />
   )
@@ -112,13 +112,13 @@ export function Sidebar({
   return (
     <div
       style={{
-        width: 140, display: 'flex', flexDirection: 'column', height: '100%',
+        width: 180, display: 'flex', flexDirection: 'column', height: '100%',
         background: '#161616', borderRight: '1px solid #1E1E1E', flexShrink: 0,
         overflow: 'hidden',
       }}
     >
       {/* Brand bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px', height: 32, borderBottom: '1px solid #1E1E1E', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px', height: 40, borderBottom: '1px solid #1E1E1E', flexShrink: 0 }}>
         {/* HyperClip logo: 3D play button */}
         <svg width="16" height="16" viewBox="0 0 512 512" style={{ flexShrink: 0 }}>
           <defs>
@@ -146,7 +146,7 @@ export function Sidebar({
           <polygon points="220,174 342,246 220,318" fill="#00FF88"/>
           <text x="256" y="471" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="38" fontWeight="800" fill="#00B4FF" opacity="0.65" letterSpacing="8">HC</text>
         </svg>
-        <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', letterSpacing: '0.06em', flex: 1 }}>HyperClip</span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#fff', letterSpacing: '0.06em', flex: 1 }}>HyperClip</span>
         {keyHealth && (keyHealth.exhausted > 0 || keyHealth.unauthorized > 0) && (
           <div
             onClick={() => { window.location.href = '/settings' }}
@@ -177,7 +177,7 @@ export function Sidebar({
       {/* Channel list */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {/* Add Channel bar — always visible */}
-        <div style={{ padding: '6px 8px', borderBottom: '1px solid #1A1A1A', flexShrink: 0 }}>
+        <div style={{ padding: '8px 10px', borderBottom: '1px solid #1A1A1A', flexShrink: 0 }}>
           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
             <input
               id="add-channel-input"
@@ -189,10 +189,10 @@ export function Sidebar({
                 if (e.key === 'Enter' && !addingChannel && channelInput.trim()) handleAddChannel()
               }}
               style={{
-                flex: 1, height: 22, padding: '0 6px',
+                flex: 1, height: 28, padding: '0 8px',
                 background: '#0D0D0D', border: channelError ? '1px solid #FF4444' : '1px solid #222',
                 borderRadius: 4, color: '#fff',
-                fontSize: 9, fontFamily: 'monospace',
+                fontSize: 11, fontFamily: 'monospace',
                 outline: 'none',
               }}
             />
@@ -201,11 +201,11 @@ export function Sidebar({
               disabled={addingChannel || !channelInput.trim()}
               title="Add channel"
               style={{
-                width: 22, height: 22, flexShrink: 0,
+                width: 28, height: 28, flexShrink: 0,
                 background: addingChannel ? '#1A3A1A' : channelInput.trim() ? '#00B4FF' : '#1A1A1A',
                 border: 'none', borderRadius: 4,
                 color: addingChannel ? '#00FF88' : channelInput.trim() ? '#000' : '#333',
-                fontSize: 13, fontWeight: 700, cursor: addingChannel ? 'default' : 'pointer',
+                fontSize: 14, fontWeight: 700, cursor: addingChannel ? 'default' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}
             >
@@ -213,7 +213,7 @@ export function Sidebar({
             </button>
           </div>
           {channelError && (
-            <div style={{ fontSize: 9, color: '#FF4444', marginTop: 2, lineHeight: 1.3 }}>
+            <div style={{ fontSize: 10, color: '#FF4444', marginTop: 3, lineHeight: 1.3 }}>
               {channelError}
             </div>
           )}
@@ -224,12 +224,12 @@ export function Sidebar({
           {isLoadingChannels ? (
             Array.from({ length: 6 }).map((_, i) => <SkeletonChannelItem key={i} />)
           ) : channels.length === 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '20px 12px' }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#222" strokeWidth="1.5">
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '24px 12px' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#222" strokeWidth="1.5">
                 <path d="M15 10l4.553-2.276A1 1 0 0 1 21 8.618v6.764a1 1 0 0 1-1.447.894L15 14v-4z" />
                 <rect x="3" y="6" width="12" height="12" rx="2" ry="2" />
               </svg>
-              <span style={{ fontSize: 9, color: '#2A2A2A', textAlign: 'center', lineHeight: 1.5 }}>
+              <span style={{ fontSize: 11, color: '#2A2A2A', textAlign: 'center', lineHeight: 1.5 }}>
                 Paste a YouTube channel URL<br />or @username above
               </span>
             </div>
@@ -243,8 +243,8 @@ export function Sidebar({
                   <div
                     onClick={() => onChannelSelect(ch.channelId || ch.id)}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: 6,
-                      padding: '6px 10px',
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '8px 12px',
                       background: isActiveCh ? 'rgba(0,180,255,0.07)' : 'transparent',
                       borderLeft: isActiveCh ? '2px solid #00B4FF' : '2px solid transparent',
                       cursor: 'pointer',
@@ -257,9 +257,9 @@ export function Sidebar({
                       <AvatarWithFallback url={ch.avatarUrl} name={ch.name} color={ch.avatarColor} />
                     ) : (
                       <div style={{
-                        width: 20, height: 20, borderRadius: '50%',
+                        width: 24, height: 24, borderRadius: '50%',
                         background: `${ch.avatarColor}22`, border: `1px solid ${ch.avatarColor}44`,
-                        fontSize: 9, fontWeight: 700, color: ch.avatarColor,
+                        fontSize: 11, fontWeight: 700, color: ch.avatarColor,
                         display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                       }}>
                         {ch.name.charAt(0)}
@@ -269,7 +269,7 @@ export function Sidebar({
                     {/* Name */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{
-                        fontSize: 10, color: ch.paused ? '#555' : isActiveCh ? '#fff' : '#888',
+                        fontSize: 12, color: ch.paused ? '#555' : isActiveCh ? '#fff' : '#888',
                         fontWeight: isActiveCh ? 600 : 400,
                         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                       }}>
@@ -280,9 +280,9 @@ export function Sidebar({
                     {/* New count badge */}
                     {count > 0 && (
                       <div style={{
-                        minWidth: 14, height: 14, borderRadius: 7,
-                        background: '#00B4FF', fontSize: 7, fontWeight: 800, color: '#000',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px', flexShrink: 0,
+                        minWidth: 16, height: 16, borderRadius: 8,
+                        background: '#00B4FF', fontSize: 9, fontWeight: 800, color: '#000',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', flexShrink: 0,
                       }}>
                         {count}
                       </div>
@@ -303,9 +303,9 @@ export function Sidebar({
                       }}
                       title={ch.paused ? `Tiếp tục ${ch.name}` : `Tạm dừng ${ch.name}`}
                       style={{
-                        width: 16, height: 16, flexShrink: 0, opacity: 0,
+                        width: 18, height: 18, flexShrink: 0, opacity: 0,
                         background: 'transparent', border: 'none', borderRadius: 3,
-                        color: '#555', cursor: 'pointer', fontSize: 9,
+                        color: '#555', cursor: 'pointer', fontSize: 11,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}
                       onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = '#FFB800' }}
@@ -331,9 +331,9 @@ export function Sidebar({
                       }}
                       title={`Xóa "${ch.name}"`}
                       style={{
-                        width: 16, height: 16, flexShrink: 0, opacity: 0,
+                        width: 18, height: 18, flexShrink: 0, opacity: 0,
                         background: 'transparent', border: 'none', borderRadius: 3,
-                        color: '#555', cursor: 'pointer', fontSize: 12,
+                        color: '#555', cursor: 'pointer', fontSize: 14,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}
                       onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = '#FF4444' }}

@@ -6,7 +6,7 @@
 import type { IpcMain } from 'electron'
 import { shell } from 'electron'
 import { IPC_CHANNELS } from '../channels.js'
-import { collectSystemStats, checkResourceAlert, getLastResourceAlert, type SystemStats, type ResourceAlert } from '../../services/system.js'
+import { collectSystemStats, checkResourceAlert, getLastResourceAlert, getHardwareProfileInfo, type SystemStats, type ResourceAlert } from '../../services/system.js'
 
 export function registerSystemHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(IPC_CHANNELS.SYSTEM_STATS, async (): Promise<SystemStats> => {
@@ -16,6 +16,10 @@ export function registerSystemHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(IPC_CHANNELS.SYSTEM_RESOURCE_ALERT, async (): Promise<ResourceAlert> => {
     const alert = checkResourceAlert()
     return getLastResourceAlert()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.SYSTEM_HARDWARE_PROFILE, async () => {
+    return getHardwareProfileInfo()
   })
 
   ipcMain.handle(IPC_CHANNELS.SYSTEM_OPEN_FOLDER, async (_, folderPath: string) => {

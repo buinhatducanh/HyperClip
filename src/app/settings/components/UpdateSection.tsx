@@ -145,17 +145,17 @@ export function UpdateSection() {
     }}>
       {/* Header */}
       <div style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: 14, fontWeight: 800, color: '#fff', letterSpacing: '0.1em', marginBottom: 6 }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: '#E0E0E0', letterSpacing: '0.1em', marginBottom: 6 }}>
           🔄 CẬP NHẬT
         </div>
-        <div style={{ fontSize: 10, color: '#333' }}>
-          Phiên bản hiện tại: <span style={{ color: '#555', fontFamily: 'monospace' }}>v{currentVersion}</span>
+        <div style={{ fontSize: 10, color: '#888' }}>
+          Phiên bản hiện tại: <span style={{ color: '#777', fontFamily: 'monospace' }}>v{currentVersion}</span>
         </div>
       </div>
 
       {/* Check for updates */}
       <div style={{
-        background: '#0D0D0D', border: '1px solid #141414',
+        background: '#F5F5F5', border: '1px solid #E0E0E0',
         borderRadius: 8, padding: 20,
         marginBottom: 16,
       }}>
@@ -164,7 +164,7 @@ export function UpdateSection() {
             <div style={{ fontSize: 11, fontWeight: 700, color: '#888', marginBottom: 2 }}>
               Kiểm tra cập nhật
             </div>
-            <div style={{ fontSize: 9, color: '#333' }}>
+            <div style={{ fontSize: 9, color: '#888' }}>
               Tự động kiểm tra mỗi 6 giờ
             </div>
           </div>
@@ -173,9 +173,9 @@ export function UpdateSection() {
             disabled={checking}
             style={{
               height: 32, paddingLeft: 16, paddingRight: 16,
-              background: checking ? '#1a1a1a' : '#141414',
-              border: `1px solid ${checking ? '#222' : '#00FF8844'}`,
-              borderRadius: 6, color: checking ? '#444' : '#00FF88',
+              background: checking ? '#E0E0E0' : '#E0E0E0',
+              border: `1px solid ${checking ? '#D0D0D0' : '#00FF8844'}`,
+              borderRadius: 6, color: checking ? '#888' : '#00FF88',
               fontSize: 9, fontWeight: 700, cursor: checking ? 'not-allowed' : 'pointer',
               letterSpacing: '0.05em',
             }}
@@ -216,10 +216,10 @@ export function UpdateSection() {
 
             {updateInfo?.releaseNotes && (
               <div style={{
-                padding: '8px 10px', background: '#0a0a0a',
+                padding: '8px 10px', background: '#F0F0F0',
                 borderRadius: 4, marginBottom: 12, maxHeight: 120, overflowY: 'auto',
               }}>
-                <div style={{ fontSize: 8, color: '#333', fontFamily: 'monospace', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                <div style={{ fontSize: 8, color: '#888', fontFamily: 'monospace', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
                   {updateInfo.releaseNotes}
                 </div>
               </div>
@@ -229,16 +229,16 @@ export function UpdateSection() {
             {downloading && (
               <div style={{ marginBottom: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontSize: 8, color: '#333' }}>Đang tải xuống...</span>
+                  <span style={{ fontSize: 8, color: '#888' }}>Đang tải xuống...</span>
                   <span style={{ fontSize: 8, color: '#00FF88', fontFamily: 'monospace' }}>{progress}%</span>
                 </div>
-                <div style={{ height: 3, background: '#1a1a1a', borderRadius: 2 }}>
+                <div style={{ height: 3, background: '#E0E0E0', borderRadius: 2 }}>
                   <div style={{
                     height: 3, background: '#00FF88', borderRadius: 2,
                     width: `${progress}%`, transition: 'width 0.3s ease',
                   }} />
                 </div>
-                <div style={{ fontSize: 8, color: '#2a2a2a', marginTop: 4 }}>
+                <div style={{ fontSize: 8, color: '#D0D0D0', marginTop: 4 }}>
                   {updateInfo?.downloadSize ? `Kích thước: ${formatSize(updateInfo.downloadSize)}` : ''}
                 </div>
               </div>
@@ -286,10 +286,10 @@ export function UpdateSection() {
         {/* No update */}
         {!isUpdateAvailable && !checking && !error && (
           <div style={{
-            padding: '10px 14px', background: '#0a0a0a',
-            border: '1px solid #141414', borderRadius: 6,
+            padding: '10px 14px', background: '#F0F0F0',
+            border: '1px solid #E0E0E0', borderRadius: 6,
           }}>
-            <div style={{ fontSize: 9, color: '#333', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ fontSize: 9, color: '#888', display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ color: '#00FF88' }}>✓</span>
               <span>Đã cài bản mới nhất (v{currentVersion})</span>
             </div>
@@ -299,13 +299,13 @@ export function UpdateSection() {
 
       {/* Info box */}
       <div style={{
-        padding: '12px 14px', background: '#0D0D0D',
-        border: '1px solid #141414', borderRadius: 6,
-        borderLeft: '3px solid #333',
+        padding: '12px 14px', background: '#F5F5F5',
+        border: '1px solid #E0E0E0', borderRadius: 6,
+        borderLeft: '3px solid #888',
       }}>
-        <div style={{ fontSize: 8, fontWeight: 700, color: '#444', marginBottom: 6 }}>CÁCH HOẠT ĐỘNG</div>
-        <div style={{ fontSize: 8, color: '#2a2a2a', lineHeight: 2 }}>
-          1. Khi bạn push git tag mới (vd: <code style={{ color: '#555' }}>git tag v1.2.0 && git push origin v1.2.0</code>), CI sẽ build tự động<br />
+        <div style={{ fontSize: 8, fontWeight: 700, color: '#888', marginBottom: 6 }}>CÁCH HOẠT ĐỘNG</div>
+        <div style={{ fontSize: 8, color: '#D0D0D0', lineHeight: 2 }}>
+          1. Khi bạn push git tag mới (vd: <code style={{ color: '#777' }}>git tag v1.2.0 && git push origin v1.2.0</code>), CI sẽ build tự động<br />
           2. App của khách tự kiểm tra GitHub Releases mỗi 6 giờ<br />
           3. Khách nhấn "Tải bản mới" → "Cài đặt & khởi động lại"<br />
           4. App tải portable zip → extract → swap files → tự khởi động lại

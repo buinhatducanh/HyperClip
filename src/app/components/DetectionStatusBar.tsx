@@ -133,14 +133,14 @@ export function DetectionStatusBar() {
       onClick={() => { window.location.href = '/settings' }}
       title={hasWarning ? warning : `Detection: ${source} · ${sessionLabel} sessions · ${formatAgo(ps?.lastPollAt)} ago`}
       style={{
-        padding: '0 10px',
-        height: 38,
+        padding: '0 12px',
+        height: 46,
         display: 'flex',
         alignItems: 'center',
-        gap: 6,
-        borderTop: `1px solid ${hasWarning ? warnColor + '44' : isHealthy ? '#1A1A1A' : sourceColor + '44'}`,
-        borderBottom: '1px solid #181818',
-        background: hasWarning ? warnColor + '0a' : '#0a0a0a',
+        gap: 8,
+        borderTop: `1px solid ${hasWarning ? warnColor + '44' : isHealthy ? '#E0E0E0' : sourceColor + '44'}`,
+        borderBottom: '1px solid #E0E0E0',
+        background: hasWarning ? warnColor + '08' : '#F5F5F5',
         cursor: 'pointer',
         flexShrink: 0,
         overflow: 'hidden',
@@ -149,39 +149,39 @@ export function DetectionStatusBar() {
     >
       {/* Source badge */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 4,
+        display: 'flex', alignItems: 'center', gap: 6,
         background: sourceColor + '15',
         border: `1px solid ${sourceColor}44`,
-        borderRadius: 3, padding: '1px 5px',
+        borderRadius: 4, padding: '2px 8px',
         flexShrink: 0,
       }}>
         <div style={{
-          width: 4, height: 4, borderRadius: '50%',
+          width: 6, height: 6, borderRadius: '50%',
           background: sourceColor,
-          boxShadow: `0 0 3px ${sourceColor}`,
+          boxShadow: `0 0 4px ${sourceColor}`,
           animation: source === 'Backoff' ? 'pulse 1.5s infinite' : undefined,
         }} />
-        <span style={{ fontSize: 8, fontWeight: 700, color: sourceColor, letterSpacing: '0.04em' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: sourceColor, letterSpacing: '0.04em' }}>
           {source}
         </span>
       </div>
 
       {/* Sessions */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
-        <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke={sessionColor} strokeWidth="2">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={sessionColor} strokeWidth="2">
           <circle cx="12" cy="8" r="4" />
           <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
         </svg>
-        <span style={{ fontSize: 8, color: sessionColor, fontWeight: 600, whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 11, color: sessionColor, fontWeight: 600, whiteSpace: 'nowrap' }}>
           {sessionLabel}
         </span>
       </div>
 
       {/* OAuth quota */}
       {oauthTotal > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-          <span style={{ fontSize: 8, color: '#555' }}>·</span>
-          <span style={{ fontSize: 8, color: oauthHealthy === 0 ? '#FF4444' : oauthHealthy < oauthTotal ? '#FFB800' : '#555' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+          <span style={{ fontSize: 11, color: '#555' }}>·</span>
+          <span style={{ fontSize: 11, color: oauthHealthy === 0 ? '#FF4444' : oauthHealthy < oauthTotal ? '#FFB800' : '#999' }}>
             {oauthHealthy}/{oauthTotal} OAuth
           </span>
         </div>
@@ -190,27 +190,27 @@ export function DetectionStatusBar() {
       {/* Warning — shrinks to fill middle space; timing/arrow anchor right via marginLeft:auto in the container below */}
       {hasWarning && (
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 3,
+          display: 'flex', alignItems: 'center', gap: 4,
           background: warnColor + '15',
           border: `1px solid ${warnColor}33`,
-          borderRadius: 3, padding: '1px 4px',
+          borderRadius: 4, padding: '2px 6px',
           flex: 1,
           overflow: 'hidden',
           minWidth: 0,
           maxWidth: '100%',
         }}>
-          <span style={{ fontSize: 8, fontWeight: 600, color: warnColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: warnColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             ⚠ {shortWarning}
           </span>
         </div>
       )}
 
       {/* Timing + arrow — marginLeft:auto keeps them anchored to the right edge */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0, marginLeft: 'auto' }}>
-        <span style={{ fontSize: 8, color: '#444', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 'auto' }}>
+        <span style={{ fontSize: 11, color: '#777', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
           {formatAgo(ps?.lastPollAt)} / {intervalSec}s
         </span>
-        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#2a2a2a" strokeWidth="2">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#ccc" strokeWidth="2">
           <path d="M9 18l6-6-6-6" />
         </svg>
       </div>

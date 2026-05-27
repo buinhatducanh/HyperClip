@@ -28,8 +28,8 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
         bottom: 0,
         left: 220, // sidebar width
         right: 0,
-        background: '#0D0D0D',
-        borderTop: '1px solid #1E1E1E',
+        background: '#F5F5F5',
+        borderTop: '1px solid #E0E0E0',
         zIndex: 100,
         transition: 'height 0.2s',
         height: isExpanded ? 120 : 40,
@@ -67,7 +67,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
           style={{
             fontSize: 9,
             fontWeight: 800,
-            color: '#555',
+            color: '#777',
             letterSpacing: '0.1em',
             marginRight: 12,
           }}
@@ -89,10 +89,10 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
               border: 'none',
               cursor: 'pointer',
               background: autoRenderEnabled ? '#00FF8822' : '#1A1A1A',
-              color: autoRenderEnabled ? '#00FF88' : '#333',
+              color: autoRenderEnabled ? '#00FF88' : '#999',
               borderWidth: 1,
               borderStyle: 'solid',
-              borderColor: autoRenderEnabled ? '#00FF8844' : '#222',
+              borderColor: autoRenderEnabled ? '#00FF8844' : '#777',
               transition: 'all 0.15s',
             }}
           >
@@ -125,9 +125,9 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
             style={{
               fontSize: 9,
               fontWeight: 700,
-              color: '#444',
+              color: '#999',
               background: '#1A1A1A',
-              border: '1px solid #222',
+              border: '1px solid #777',
               borderRadius: 2,
               padding: '1px 6px',
               marginRight: 6,
@@ -145,7 +145,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
               marginLeft: 'auto',
               fontSize: 9,
               fontFamily: 'monospace',
-              color: '#333',
+              color: '#999',
             }}
           >
             {rendering.length} rendering · {queued.length} queued · {avgProgress}% avg
@@ -158,7 +158,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
           height="12"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#333"
+          stroke="#999"
           strokeWidth="2"
           style={{
             marginLeft: 8,
@@ -175,7 +175,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
         <div className="flex flex-col gap-2 px-4 py-3">
           {rendering.map((ws) => (
             <div key={ws.id} className="flex items-center gap-3">
-              <div style={{ width: 120, fontSize: 9, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ width: 120, fontSize: 9, color: '#777', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {ws.videoTitle}
               </div>
               <div style={{ flex: 1, height: 3, background: '#1A1A1A', borderRadius: 1.5 }}>
@@ -208,7 +208,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
           ))}
           {queued.map((ws) => (
             <div key={ws.id} className="flex items-center gap-3">
-              <div style={{ width: 120, fontSize: 9, color: '#444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ width: 120, fontSize: 9, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {ws.videoTitle}
               </div>
               <div style={{ flex: 1, height: 3, background: '#1A1A1A', borderRadius: 1.5 }}>
@@ -216,12 +216,12 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
                   style={{
                     width: '2px',
                     height: '100%',
-                    background: '#333',
+                    background: '#999',
                     borderRadius: 1.5,
                   }}
                 />
               </div>
-              <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#444', minWidth: 32, textAlign: 'right' }}>
+              <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#999', minWidth: 32, textAlign: 'right' }}>
                 QUEUED
               </span>
             </div>

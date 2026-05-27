@@ -117,8 +117,8 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       <div style={{
-        background: '#141414',
-        border: '1px solid #222',
+        background: '#FFFFFF',
+        border: '1px solid #D0D0D0',
         borderRadius: 4,
         padding: '20px 24px',
         width: 480,
@@ -130,10 +130,10 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#fff', marginBottom: 2 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A', marginBottom: 2 }}>
               Split Video
             </div>
-            <div style={{ fontSize: 11, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 340 }}>
+            <div style={{ fontSize: 11, color: '#777', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 340 }}>
               {workspaceTitle} ({formatTime(videoDuration)})
             </div>
           </div>
@@ -141,7 +141,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
             onClick={onClose}
             style={{
               width: 24, height: 24, background: 'transparent', border: 'none',
-              color: '#555', cursor: 'pointer', fontSize: 16, display: 'flex',
+              color: '#777', cursor: 'pointer', fontSize: 16, display: 'flex',
               alignItems: 'center', justifyContent: 'center',
             }}
           >
@@ -178,7 +178,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
         {/* Auto mode */}
         {mode === 'auto' && (
           <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 11, color: '#666', marginBottom: 8 }}>
+            <div style={{ fontSize: 11, color: '#999', marginBottom: 8 }}>
               Mỗi part dài:
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -204,15 +204,15 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
         {/* Manual mode */}
         {mode === 'manual' && (
           <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 11, color: '#666', marginBottom: 8 }}>
+            <div style={{ fontSize: 11, color: '#999', marginBottom: 8 }}>
               Click vào timeline để thêm split point:
             </div>
             {/* Timeline */}
             <div
               onClick={handleTimelineClick}
               style={{
-                height: 36, background: '#1A1A1A', borderRadius: 3,
-                position: 'relative', cursor: 'crosshair', border: '1px solid #2a2a2a',
+                height: 36, background: '#FFFFFF', borderRadius: 3,
+                position: 'relative', cursor: 'crosshair', border: '1px solid #D0D0D0',
                 marginBottom: 8, overflow: 'hidden',
               }}
             >
@@ -229,7 +229,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
                       justifyContent: 'center',
                     }}
                   >
-                    <span style={{ fontSize: 8, color: '#555', fontFamily: 'monospace' }}>
+                    <span style={{ fontSize: 8, color: '#777', fontFamily: 'monospace' }}>
                       P{part.index}
                     </span>
                   </div>
@@ -256,14 +256,14 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {intervals.map(t => (
                 <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ flex: 1, fontSize: 10, color: '#666', fontFamily: 'monospace' }}>
+                  <div style={{ flex: 1, fontSize: 10, color: '#999', fontFamily: 'monospace' }}>
                     {formatTime(t)}
                   </div>
                   <button
                     onClick={() => handleRemoveInterval(t)}
                     style={{
-                      width: 18, height: 18, background: 'transparent', border: '1px solid #2a2a2a',
-                      borderRadius: 3, color: '#555', cursor: 'pointer', fontSize: 12,
+                      width: 18, height: 18, background: 'transparent', border: '1px solid #D0D0D0',
+                      borderRadius: 3, color: '#777', cursor: 'pointer', fontSize: 12,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}
                   >
@@ -272,7 +272,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
                 </div>
               ))}
               {intervals.length === 0 && (
-                <div style={{ fontSize: 10, color: '#333', textAlign: 'center', padding: 8 }}>
+                <div style={{ fontSize: 10, color: '#666', textAlign: 'center', padding: 8 }}>
                   Click timeline để thêm split point
                 </div>
               )}
@@ -283,16 +283,16 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
         {/* Parts preview */}
         {preview && (
           <div style={{
-            background: '#0D0D0D', border: '1px solid #1A1A1A',
+            background: '#F5F5F5', border: '1px solid #E0E0E0',
             borderRadius: 3, padding: 12, marginBottom: 16,
           }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#555', letterSpacing: '0.08em', marginBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#777', letterSpacing: '0.08em', marginBottom: 8 }}>
               {numParts} PARTS
             </div>
             {preview.map(part => (
               <div key={part.index} style={{
                 display: 'flex', alignItems: 'center', gap: 8,
-                padding: '4px 0', borderBottom: '1px solid #1A1A1A',
+                padding: '4px 0', borderBottom: '1px solid #E0E0E0',
               }}>
                 <div style={{
                   width: 20, height: 20, borderRadius: 3, background: '#00B4FF20',
@@ -302,7 +302,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
                   {part.index}
                 </div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 10, color: '#888' }}>
+                  <div style={{ fontSize: 10, color: '#999' }}>
                     {formatTime(part.start)} — {formatTime(part.end)}
                   </div>
                 </div>
@@ -343,8 +343,8 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
           onClick={() => setAutoRender(v => !v)}
           style={{
             display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
-            marginBottom: 16, padding: '8px 10px', background: '#1A1A1A',
-            borderRadius: 3, border: '1px solid #2a2a2a',
+            marginBottom: 16, padding: '8px 10px', background: '#FFFFFF',
+            borderRadius: 3, border: '1px solid #D0D0D0',
           }}
         >
           <div style={{
@@ -355,7 +355,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
           }}>
             {autoRender && <svg width="8" height="8" viewBox="0 0 8 8"><path d="M1 4l2 2 4-4" stroke="#000" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
           </div>
-          <span style={{ fontSize: 11, color: '#888' }}>
+          <span style={{ fontSize: 11, color: '#999' }}>
             Auto-render tất cả parts sau khi split
           </span>
         </div>
@@ -366,8 +366,8 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
             onClick={onClose}
             style={{
               height: 32, padding: '0 16px',
-              background: '#1A1A1A', border: '1px solid #2a2a2a',
-              borderRadius: 3, fontSize: 11, fontWeight: 600, color: '#666',
+              background: '#FFFFFF', border: '1px solid #D0D0D0',
+              borderRadius: 3, fontSize: 11, fontWeight: 600, color: '#999',
               cursor: 'pointer',
             }}
           >
@@ -381,7 +381,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
               background: canSplit ? '#00B4FF' : '#1A1A1A',
               border: `1px solid ${canSplit ? '#00B4FF' : '#2a2a2a'}`,
               borderRadius: 3, fontSize: 11, fontWeight: 700,
-              color: canSplit ? '#000' : '#333',
+              color: canSplit ? '#000' : '#666',
               cursor: canSplit ? 'pointer' : 'not-allowed',
               opacity: loading ? 0.6 : 1,
             }}

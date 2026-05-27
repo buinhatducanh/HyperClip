@@ -65,6 +65,8 @@ interface AppSettingsStore {
   onboardingComplete?: boolean
   /** When true, closing the main window quits the app. When false, minimizes to tray (default). */
   quitOnClose?: boolean
+  /** Hardware preset: user-selected performance profile. */
+  hardwareProfile?: { vramGB: number; ramGB: number } | null
 }
 
 let _settings: AppSettingsStore | null = null

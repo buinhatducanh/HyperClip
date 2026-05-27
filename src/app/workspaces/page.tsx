@@ -45,19 +45,19 @@ export default function WorkspacesPage() {
     ready: '#00FF88',
     editing: '#7C3AED',
     rendering: '#FF4444',
-    done: '#444444',
+    done: '#999444',
   }
 
   return (
     <div
-      style={{ height: '100vh', background: '#0E0E0E', fontFamily: 'Inter, sans-serif', color: '#fff', display: 'flex', flexDirection: 'column' }}
+      style={{ height: '100vh', background: '#F5F5F5', fontFamily: 'Inter, sans-serif', color: '#1A1A1A', display: 'flex', flexDirection: 'column' }}
     >
       {/* Header */}
       <div
         style={{
           height: 48,
-          background: '#0D0D0D',
-          borderBottom: '1px solid #1E1E1E',
+          background: '#F5F5F5',
+          borderBottom: '1px solid #E0E0E0',
           display: 'flex',
           alignItems: 'center',
           paddingLeft: 20,
@@ -66,19 +66,19 @@ export default function WorkspacesPage() {
           flexShrink: 0,
         }}
       >
-        <Link href="/" style={{ fontSize: 10, color: '#444', textDecoration: 'none', fontWeight: 600, letterSpacing: '0.08em' }}>
+        <Link href="/" style={{ fontSize: 10, color: '#999', textDecoration: 'none', fontWeight: 600, letterSpacing: '0.08em' }}>
           ← BACK
         </Link>
-        <div style={{ width: 1, height: 12, background: '#222' }} />
-        <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.06em' }}>WORKSPACES</span>
-        <span style={{ fontSize: 9, color: '#444', fontFamily: 'monospace' }}>{workspaces.length} total</span>
+        <div style={{ width: 1, height: 12, background: '#777' }} />
+        <span style={{ fontSize: 11, fontWeight: 700, color: '#1A1A1A', letterSpacing: '0.06em' }}>WORKSPACES</span>
+        <span style={{ fontSize: 9, color: '#999', fontFamily: 'monospace' }}>{workspaces.length} total</span>
       </div>
 
       {/* Toolbar */}
       <div
         style={{
           height: 40,
-          background: '#121212',
+          background: '#F5F5F5',
           borderBottom: '1px solid #1A1A1A',
           display: 'flex',
           alignItems: 'center',
@@ -102,7 +102,7 @@ export default function WorkspacesPage() {
               borderRadius: 3,
               fontSize: 9,
               fontWeight: 700,
-              color: filter === f ? '#00B4FF' : '#444',
+              color: filter === f ? '#00B4FF' : '#999',
               cursor: 'pointer',
               letterSpacing: '0.06em',
             }}
@@ -129,7 +129,7 @@ export default function WorkspacesPage() {
       <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
         {filtered.length === 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8 }}>
-            <span style={{ fontSize: 11, color: '#333' }}>No workspaces</span>
+            <span style={{ fontSize: 11, color: '#999' }}>No workspaces</span>
             <Link href="/" style={{ fontSize: 10, color: '#00B4FF', textDecoration: 'none' }}>
               Go to Dashboard →
             </Link>
@@ -139,7 +139,7 @@ export default function WorkspacesPage() {
             <thead>
               <tr style={{ borderBottom: '1px solid #1A1A1A' }}>
                 {['TITLE', 'CHANNEL', 'STATUS', 'SIZE', 'DURATION', 'ACTIONS'].map((h) => (
-                  <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 8, fontWeight: 700, color: '#333', letterSpacing: '0.1em' }}>
+                  <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 8, fontWeight: 700, color: '#999', letterSpacing: '0.1em' }}>
                     {h}
                   </th>
                 ))}
@@ -149,8 +149,8 @@ export default function WorkspacesPage() {
               {filtered.map((ws) => (
                 <tr
                   key={ws.id}
-                  style={{ borderBottom: '1px solid #161616', transition: 'background 0.1s' }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = '#141414' }}
+                  style={{ borderBottom: '1px solid #FFFFFF', transition: 'background 0.1s' }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = '#FFFFFF' }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
                 >
                   {/* Title */}
@@ -159,9 +159,9 @@ export default function WorkspacesPage() {
                       <img
                         src={ws.thumbnail || 'https://via.placeholder.com/56x32/111/333'}
                         alt=""
-                        style={{ width: 56, height: 32, borderRadius: 3, objectFit: 'cover', flexShrink: 0, border: '1px solid #222' }}
+                        style={{ width: 56, height: 32, borderRadius: 3, objectFit: 'cover', flexShrink: 0, border: '1px solid #777' }}
                       />
-                      <span style={{ fontSize: 11, color: '#ccc', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                      <span style={{ fontSize: 11, color: '#999', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                         {ws.videoTitle}
                       </span>
                     </div>
@@ -171,7 +171,7 @@ export default function WorkspacesPage() {
                   <td style={{ padding: '10px 12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <div style={{ width: 6, height: 6, borderRadius: 1, background: ws.channelColor }} />
-                      <span style={{ fontSize: 10, color: '#555' }}>{ws.channelName}</span>
+                      <span style={{ fontSize: 10, color: '#777' }}>{ws.channelName}</span>
                     </div>
                   </td>
 
@@ -197,12 +197,12 @@ export default function WorkspacesPage() {
 
                   {/* Size */}
                   <td style={{ padding: '10px 12px' }}>
-                    <span style={{ fontSize: 10, color: '#444', fontFamily: 'monospace' }}>{ws.fileSize}</span>
+                    <span style={{ fontSize: 10, color: '#999', fontFamily: 'monospace' }}>{ws.fileSize}</span>
                   </td>
 
                   {/* Duration */}
                   <td style={{ padding: '10px 12px' }}>
-                    <span style={{ fontSize: 10, color: '#444', fontFamily: 'monospace' }}>{ws.duration}</span>
+                    <span style={{ fontSize: 10, color: '#999', fontFamily: 'monospace' }}>{ws.duration}</span>
                   </td>
 
                   {/* Actions */}
@@ -267,7 +267,7 @@ export default function WorkspacesPage() {
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #1A1A1A; border-radius: 2px; }
+        ::-webkit-scrollbar-thumb { background: #E0E0E0; border-radius: 2px; }
       `}</style>
     </div>
   )

@@ -16,7 +16,7 @@ function Shimmer({ width = '100%', height = 14, radius = 3, style = {} }: {
         width,
         height,
         borderRadius: radius,
-        background: '#1A1A1A',
+        background: '#E0E0E0',
         animation: 'skeletonPulse 1.6s ease-in-out infinite',
         ...style,
       }}
@@ -30,7 +30,7 @@ export function SkeletonCard() {
   return (
     <div style={{
       display: 'flex', gap: 8, padding: '8px 12px',
-      borderBottom: '1px solid #141414',
+      borderBottom: '1px solid #E0E0E0',
       transition: 'background 0.1s',
     }}>
       {/* Thumbnail */}
@@ -57,8 +57,8 @@ export function SkeletonQueue() {
       {/* Group header */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 6,
-        padding: '6px 12px', background: '#0F0F0F',
-        borderBottom: '1px solid #181818',
+        padding: '6px 12px', background: '#F0F0F0',
+        borderBottom: '1px solid #E0E0E0',
       }}>
         <Shimmer width={6} height={6} radius={3} />
         <Shimmer width={48} height={10} radius={2} />
@@ -91,17 +91,17 @@ export function SkeletonChannelItem() {
 
 export function SkeletonEditor() {
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#121212' }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#F5F5F5' }}>
       {/* Header bar */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         paddingLeft: 16, paddingRight: 16, height: 40,
-        borderBottom: '1px solid #1A1A1A', background: '#0D0D0D', flexShrink: 0,
+        borderBottom: '1px solid #E0E0E0', background: '#F5F5F5', flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <Shimmer width={8} height={8} radius={2} />
           <Shimmer width={40} height={10} radius={2} />
-          <div style={{ width: 1, height: 10, background: '#222' }} />
+          <div style={{ width: 1, height: 10, background: '#D0D0D0' }} />
           <Shimmer width={180} height={11} radius={2} />
         </div>
       </div>
@@ -111,31 +111,31 @@ export function SkeletonEditor() {
         {/* Canvas area */}
         <div style={{
           flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden',
-          background: '#0A0A0A', alignItems: 'center', justifyContent: 'center', gap: 12,
+          background: '#F0F0F0', alignItems: 'center', justifyContent: 'center', gap: 12,
         }}>
           {/* 9:16 video skeleton */}
           <div style={{
             width: '100%', maxWidth: 300, aspectRatio: '9/16',
-            background: '#0D0D0D', borderRadius: 3,
-            border: '1px solid #1A1A1A',
+            background: '#F5F5F5', borderRadius: 3,
+            border: '1px solid #E0E0E0',
             display: 'flex', flexDirection: 'column', overflow: 'hidden',
           }}>
             {/* Header zone */}
-            <div style={{ flex: '0 0 20%', background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ flex: '0 0 20%', background: '#EBEBEB', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Shimmer width={40} height={12} radius={3} />
             </div>
             {/* Video zone */}
-            <div style={{ flex: '0 0 60%', background: '#0A0A0A', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ flex: '0 0 60%', background: '#F0F0F0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {/* Spinner */}
               <div style={{
                 width: 32, height: 32, borderRadius: '50%',
-                border: '2px solid rgba(255,255,255,0.1)',
+                border: '2px solid rgba(0,0,0,0.08)',
                 borderTopColor: '#00B4FF',
                 animation: 'spin 0.8s linear infinite',
               }} />
             </div>
             {/* Title zone */}
-            <div style={{ flex: '0 0 20%', background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ flex: '0 0 20%', background: '#EBEBEB', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Shimmer width={80} height={12} radius={3} />
             </div>
           </div>
@@ -144,11 +144,11 @@ export function SkeletonEditor() {
         </div>
 
         {/* Controls panel */}
-        <div style={{ width: 280, borderLeft: '1px solid #1A1A1A', background: '#111', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ width: 280, borderLeft: '1px solid #E0E0E0', background: '#F5F5F5', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ flex: 1, overflow: 'hidden', padding: '0 12px' }}>
             {/* Section headers + content */}
             {['TRIM', 'TITLE', 'SPEED', 'BACKGROUND'].map((label, i) => (
-              <div key={label} style={{ borderBottom: '1px solid #1A1A1A' }}>
+              <div key={label} style={{ borderBottom: '1px solid #D0D0D0' }}>
                 {/* Header */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 0' }}>
                   <Shimmer width={11} height={11} radius={2} />
@@ -194,7 +194,7 @@ export function SkeletonEditor() {
             ))}
           </div>
           {/* Export button */}
-          <div style={{ padding: 12, borderTop: '1px solid #1A1A1A' }}>
+          <div style={{ padding: 12, borderTop: '1px solid #E0E0E0' }}>
             <Shimmer width="100%" height={40} radius={3} />
           </div>
         </div>

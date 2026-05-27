@@ -99,7 +99,7 @@ function fmtEta(secs: number | string | undefined | null): string {
 
 export default function DashboardPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-screen bg-[#121212]"><div className="text-[#00B4FF] text-sm">Loading...</div></div>}>
+    <Suspense fallback={<div className="flex items-center justify-center h-screen bg-[#F5F5F5]"><div className="text-[#00B4FF] text-sm">Loading...</div></div>}>
       <DashboardContent />
     </Suspense>
   )
@@ -725,7 +725,7 @@ function DashboardContent() {
     : workspaces
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0E0E0E', fontFamily: 'Inter, sans-serif', color: '#fff', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#F5F5F5', fontFamily: 'Inter, sans-serif', color: '#1A1A1A', overflow: 'hidden' }}>
       {/* Login screen */}
       {!authStatus.isReady && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999 }}>
@@ -846,11 +846,11 @@ function DashboardContent() {
       {toast && (
         <div style={{
           position: 'fixed', bottom: 24, right: 24,
-          background: '#1A1A1A',
-          border: '1px solid #2A2A2A',
+          background: '#FFFFFF',
+          border: '1px solid #E0E0E0',
           borderLeft: '3px solid #00B4FF',
           borderRadius: 4, padding: '12px 18px',
-          fontSize: 14, color: '#ccc', zIndex: 9999,
+          fontSize: 14, color: '#555', zIndex: 9999,
           maxWidth: 360,
           animation: 'toastIn 0.2s ease',
         }}>
@@ -884,8 +884,8 @@ function DashboardContent() {
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+        ::-webkit-scrollbar-thumb { background: #c0c0c0; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a0a0a0; }
         input[type=range] { -webkit-appearance: none; appearance: none; background: transparent; }
         input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; }
         textarea { box-sizing: border-box; }

@@ -38,9 +38,15 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
     videoMinDurationSec?: number
     videoMaxDurationSec?: number
     quitOnClose?: boolean
+    hardwareProfile?: { vramGB: number; ramGB: number } | null
   }) => {
     const settings = loadSettings()
-    saveSettings({ ...settings, ...patch })
+    const patchToSave = { ...patch }
+    // Clear hardwareProfile when set to null
+    if (patch.hardwareProfile === null) {
+      delete (settings as any).hardwareProfile
+    }
+    saveSettings({ ...settings, ...patchToSave })
 
     // Apply poller interval change immediately if poller is running
     if (patch.pollIntervalMs !== undefined) {

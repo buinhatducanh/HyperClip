@@ -30,7 +30,7 @@ const TYPE_CONFIG: Record<string, { icon: string; color: string }> = {
 function StatChip({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 8, fontWeight: 700, letterSpacing: '0.06em' }}>
-      <span style={{ color: '#555' }}>{label}:</span>
+      <span style={{ color: '#888' }}>{label}:</span>
       <span style={{ color, fontFamily: 'monospace' }}>{value}</span>
     </div>
   )
@@ -60,19 +60,19 @@ export function ActivityLogPanel({ entries, onClear }: Props) {
 
   return (
     <div style={{
-      height: 180, flexShrink: 0,
-      borderTop: '1px solid #1E1E1E',
-      background: '#0D0D0D',
+      height: 220, flexShrink: 0,
+      borderTop: '1px solid #E0E0E0',
+      background: '#F5F5F5',
       display: 'flex', flexDirection: 'column',
     }}>
       {/* Header stats bar */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        padding: '6px 12px',
-        borderBottom: '1px solid #1A1A1A',
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '8px 14px',
+        borderBottom: '1px solid #E0E0E0',
         flexShrink: 0,
       }}>
-        <span style={{ fontSize: 8, color: '#00B4FF', fontWeight: 700, letterSpacing: '0.06em', marginRight: 4 }}>ACT</span>
+        <span style={{ fontSize: 10, color: '#00B4FF', fontWeight: 700, letterSpacing: '0.06em', marginRight: 6 }}>ACT</span>
 
         <StatChip label="DET" value={counts.det} color="#00B4FF" />
         <StatChip label="DL"  value={counts.dl}  color="#FFB800" />
@@ -85,11 +85,11 @@ export function ActivityLogPanel({ entries, onClear }: Props) {
           <button
             onClick={onClear}
             style={{
-              fontSize: 8, fontWeight: 700, color: '#555', background: 'transparent',
-              border: 'none', cursor: 'pointer', letterSpacing: '0.06em', padding: '2px 6px',
+              fontSize: 10, fontWeight: 700, color: '#888', background: 'transparent',
+              border: 'none', cursor: 'pointer', letterSpacing: '0.06em', padding: '3px 8px',
             }}
             onMouseEnter={e => (e.currentTarget.style.color = '#FF4444')}
-            onMouseLeave={e => (e.currentTarget.style.color = '#555')}
+            onMouseLeave={e => (e.currentTarget.style.color = '#888')}
           >
             [Clear]
           </button>
@@ -99,11 +99,11 @@ export function ActivityLogPanel({ entries, onClear }: Props) {
       {/* Entry list */}
       <div ref={scrollRef} style={{
         flex: 1, overflowY: 'auto',
-        padding: '4px 12px',
-        fontFamily: 'monospace', fontSize: 10, lineHeight: 1.7,
+        padding: '6px 14px',
+        fontFamily: 'monospace', fontSize: 12, lineHeight: 1.8,
       }}>
         {displayEntries.length === 0 && (
-          <div style={{ color: '#333', padding: '4px 0' }}>No activity</div>
+          <div style={{ color: '#999', padding: '6px 0' }}>No activity</div>
         )}
         {displayEntries.map(e => {
           const cfg = TYPE_CONFIG[e.type] || TYPE_CONFIG.info
@@ -111,22 +111,22 @@ export function ActivityLogPanel({ entries, onClear }: Props) {
             <div
               key={e.id}
               style={{
-                display: 'flex', alignItems: 'flex-start', gap: 6,
-                color: '#aaa', marginBottom: 1,
+                display: 'flex', alignItems: 'flex-start', gap: 8,
+                color: '#666', marginBottom: 2,
                 background: e.type === 'error' ? 'rgba(255,68,68,0.05)' : 'transparent',
-                borderRadius: 2, padding: '1px 2px',
+                borderRadius: 2, padding: '2px 3px',
               }}
             >
               {/* Relative time */}
-              <span style={{ color: '#555', fontSize: 9, minWidth: 28, flexShrink: 0 }}>
+              <span style={{ color: '#888', fontSize: 11, minWidth: 32, flexShrink: 0 }}>
                 {formatRelTime(e.timestamp)}
               </span>
               {/* Icon */}
-              <span style={{ color: cfg.color, flexShrink: 0, fontSize: 10 }}>
+              <span style={{ color: cfg.color, flexShrink: 0, fontSize: 12 }}>
                 {cfg.icon}
               </span>
               {/* Message */}
-              <span style={{ color: '#ccc', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span style={{ color: '#777', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {e.message}
               </span>
             </div>

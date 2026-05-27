@@ -26,8 +26,8 @@ const LEVEL_COLORS: Record<string, string> = {
   error: '#FF5555',
   warn: '#FFB800',
   success: '#00FF88',
-  info: '#888888',
-  debug: '#444444',
+  info: '#888999',
+  debug: '#888444',
 }
 
 const LEVEL_BG: Record<string, string> = {
@@ -244,7 +244,7 @@ export function LogsSection() {
         <span style={{ fontSize: 9, color, flex: 1, paddingTop: 1, fontFamily: 'monospace' }}>
           {entry.message}
           {entry.detail && (
-            <span style={{ color: '#333', fontSize: 8 }}> — {entry.detail}</span>
+            <span style={{ color: '#888', fontSize: 8 }}> — {entry.detail}</span>
           )}
         </span>
       </div>
@@ -258,11 +258,11 @@ export function LogsSection() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', letterSpacing: '0.1em' }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#E0E0E0', letterSpacing: '0.1em' }}>
             <span style={{ color: '#00FF88', marginRight: 6 }}>▶</span>
             CONSOLE
           </div>
-          <div style={{ fontSize: 8, color: '#333', fontFamily: 'monospace', marginTop: 2 }}>
+          <div style={{ fontSize: 8, color: '#888', fontFamily: 'monospace', marginTop: 2 }}>
             {logDir || 'Đang khởi tạo...'}
           </div>
         </div>
@@ -270,11 +270,11 @@ export function LogsSection() {
           {/* Disk usage */}
           {diskUsage && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 4 }}>
-              <span style={{ fontSize: 9, color: '#333' }}>Disk:</span>
-              <span style={{ fontSize: 9, fontFamily: 'monospace', color: diskUsage.totalBytes > 10 * 1024 * 1024 ? '#FFB800' : '#555' }}>
+              <span style={{ fontSize: 9, color: '#888' }}>Disk:</span>
+              <span style={{ fontSize: 9, fontFamily: 'monospace', color: diskUsage.totalBytes > 10 * 1024 * 1024 ? '#FFB800' : '#777' }}>
                 {formatSize(diskUsage.totalBytes)}
               </span>
-              <span style={{ fontSize: 9, color: '#222' }}>({diskUsage.fileCount} files)</span>
+              <span style={{ fontSize: 9, color: '#D0D0D0' }}>({diskUsage.fileCount} files)</span>
             </div>
           )}
 
@@ -285,9 +285,9 @@ export function LogsSection() {
             title="Sao chép tất cả dòng hiển thị vào clipboard"
             style={{
               height: 28, paddingLeft: 10, paddingRight: 10,
-              background: copied ? '#003318' : copyError ? '#330000' : '#141414',
-              border: `1px solid ${copied ? '#00FF8866' : copyError ? '#FF555566' : '#1a1a1a'}`,
-              borderRadius: 4, color: copied ? '#00FF88' : copyError ? '#FF5555' : '#444',
+              background: copied ? '#E0FFE8' : copyError ? '#FFE0E0' : '#E0E0E0',
+              border: `1px solid ${copied ? '#00FF8866' : copyError ? '#FF555566' : '#E0E0E0'}`,
+              borderRadius: 4, color: copied ? '#00FF88' : copyError ? '#FF5555' : '#888',
               fontSize: 8, fontWeight: 700, cursor: filteredLogs.length === 0 ? 'not-allowed' : 'pointer',
               minWidth: 70,
             }}>
@@ -301,8 +301,8 @@ export function LogsSection() {
             title="Mở thư mục chứa file log"
             style={{
               height: 28, paddingLeft: 10, paddingRight: 10,
-              background: '#141414', border: '1px solid #1a1a1a',
-              borderRadius: 4, color: logDir ? '#444' : '#222',
+              background: '#E0E0E0', border: '1px solid #E0E0E0',
+              borderRadius: 4, color: logDir ? '#888' : '#D0D0D0',
               fontSize: 8, fontWeight: 700, cursor: logDir ? 'pointer' : 'not-allowed',
             }}>
             📁 MỞ THƯ MỤC
@@ -310,16 +310,16 @@ export function LogsSection() {
 
           <button onClick={() => setRefreshKey(k => k + 1)} style={{
             height: 28, paddingLeft: 10, paddingRight: 10,
-            background: '#141414', border: '1px solid #1a1a1a',
-            borderRadius: 4, color: '#444', fontSize: 8, fontWeight: 700,
+            background: '#E0E0E0', border: '1px solid #E0E0E0',
+            borderRadius: 4, color: '#888', fontSize: 8, fontWeight: 700,
             cursor: 'pointer',
           }}>↻</button>
 
           <button onClick={handleCleanup} disabled={cleaningUp} style={{
             height: 28, paddingLeft: 10, paddingRight: 10,
-            background: cleaningUp ? '#1a1200' : '#0d0d0d',
-            border: `1px solid ${cleaningUp ? '#333' : '#222'}`,
-            borderRadius: 4, color: cleaningUp ? '#444' : '#555',
+            background: cleaningUp ? '#FFFDE0' : '#F5F5F5',
+            border: `1px solid ${cleaningUp ? '#888' : '#D0D0D0'}`,
+            borderRadius: 4, color: cleaningUp ? '#888' : '#777',
             fontSize: 8, fontWeight: 700, cursor: cleaningUp ? 'not-allowed' : 'pointer',
           }}>
             {cleaningUp ? '...' : '🗑'}
@@ -327,9 +327,9 @@ export function LogsSection() {
 
           <button onClick={handleExport} disabled={exporting} style={{
             height: 28, paddingLeft: 14, paddingRight: 14,
-            background: exporting ? '#1a1200' : '#1a1400',
-            border: `1px solid ${exporting ? '#333' : '#FF6B35'}`,
-            borderRadius: 4, color: exporting ? '#444' : '#FF6B35',
+            background: exporting ? '#FFFDE0' : '#FFFDE0',
+            border: `1px solid ${exporting ? '#888' : '#FF6B35'}`,
+            borderRadius: 4, color: exporting ? '#888' : '#FF6B35',
             fontSize: 9, fontWeight: 700, cursor: exporting ? 'not-allowed' : 'pointer',
           }}>
             {exporting ? '...' : '📦 XUẤT ZIP'}
@@ -342,9 +342,9 @@ export function LogsSection() {
         {(['operation', 'files'] as const).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={{
             padding: '5px 14px',
-            background: activeTab === tab ? '#1a1a1a' : 'transparent',
-            border: `1px solid ${activeTab === tab ? '#333' : '#1a1a1a'}`,
-            borderRadius: 4, color: activeTab === tab ? '#888' : '#333',
+            background: activeTab === tab ? '#E0E0E0' : 'transparent',
+            border: `1px solid ${activeTab === tab ? '#888' : '#E0E0E0'}`,
+            borderRadius: 4, color: activeTab === tab ? '#888' : '#888',
             fontSize: 9, fontWeight: 700, cursor: 'pointer',
             letterSpacing: '0.05em',
           }}>
@@ -365,9 +365,9 @@ export function LogsSection() {
                 <button key={lvl} onClick={() => setFilterLevel(lvl)} style={{
                   height: 22, paddingLeft: 8, paddingRight: 8,
                   background: filterLevel === lvl ? (LEVEL_COLORS[lvl] || '#888') + '22' : 'transparent',
-                  border: `1px solid ${filterLevel === lvl ? (LEVEL_COLORS[lvl] || '#888') + '55' : '#1a1a1a'}`,
+                  border: `1px solid ${filterLevel === lvl ? (LEVEL_COLORS[lvl] || '#888') + '55' : '#E0E0E0'}`,
                   borderRadius: 3, fontSize: 8, fontWeight: 700,
-                  color: filterLevel === lvl ? (LEVEL_COLORS[lvl] || '#888') : '#333',
+                  color: filterLevel === lvl ? (LEVEL_COLORS[lvl] || '#888') : '#888',
                   cursor: 'pointer',
                 }}>
                   {lvl === 'all' ? 'TẤT CẢ' : lvl.toUpperCase()}
@@ -381,9 +381,9 @@ export function LogsSection() {
                 <button key={cat} onClick={() => setFilterCategory(cat)} style={{
                   height: 22, paddingLeft: 8, paddingRight: 8,
                   background: filterCategory === cat ? '#00B4FF18' : 'transparent',
-                  border: `1px solid ${filterCategory === cat ? '#00B4FF44' : '#1a1a1a'}`,
+                  border: `1px solid ${filterCategory === cat ? '#00B4FF44' : '#E0E0E0'}`,
                   borderRadius: 3, fontSize: 8, fontWeight: 700,
-                  color: filterCategory === cat ? '#00B4FF' : '#333',
+                  color: filterCategory === cat ? '#00B4FF' : '#888',
                   cursor: 'pointer',
                 }}>
                   {cat === 'all' ? 'TẤT CẢ' : CATEGORY_LABELS[cat] || cat}
@@ -393,7 +393,7 @@ export function LogsSection() {
 
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
               {/* Line count */}
-              <span style={{ fontSize: 8, color: '#2a2a2a', paddingTop: 4, fontFamily: 'monospace' }}>
+              <span style={{ fontSize: 8, color: '#D0D0D0', paddingTop: 4, fontFamily: 'monospace' }}>
                 {filteredLogs.length} / {opLogs.length} dòng
                 {opLogs.length >= MAX_LINES && <span style={{ color: '#FFB800' }}> (max {MAX_LINES})</span>}
               </span>
@@ -401,18 +401,18 @@ export function LogsSection() {
               <button onClick={() => setAutoScroll(v => !v)} style={{
                 height: 22, paddingLeft: 8, paddingRight: 8,
                 background: autoScroll ? '#00B4FF18' : 'transparent',
-                border: `1px solid ${autoScroll ? '#00B4FF44' : '#1a1a1a'}`,
+                border: `1px solid ${autoScroll ? '#00B4FF44' : '#E0E0E0'}`,
                 borderRadius: 3, fontSize: 8, fontWeight: 700,
-                color: autoScroll ? '#00B4FF' : '#333',
+                color: autoScroll ? '#00B4FF' : '#888',
                 cursor: 'pointer',
               }}>
                 Auto {autoScroll ? 'ON' : 'OFF'}
               </button>
               <button onClick={() => { ipc.clearOpLogs().catch(() => {}); setOpLogs([]) }} style={{
                 height: 22, paddingLeft: 8, paddingRight: 8,
-                background: 'transparent', border: '1px solid #1a1a1a',
+                background: 'transparent', border: '1px solid #E0E0E0',
                 borderRadius: 3, fontSize: 8, fontWeight: 700,
-                color: '#333', cursor: 'pointer',
+                color: '#888', cursor: 'pointer',
               }}>
                 Xóa
               </button>
@@ -422,12 +422,12 @@ export function LogsSection() {
           {/* Log list */}
           <div style={{
             flex: 1, overflowY: 'auto',
-            background: '#080808', border: '1px solid #141414',
+            background: '#F0F0F0', border: '1px solid #E0E0E0',
             borderRadius: 6, padding: 6,
           }}>
             {filteredLogs.length === 0 ? (
               <div style={{
-                fontSize: 9, color: '#222', textAlign: 'center', padding: '32px 0',
+                fontSize: 9, color: '#D0D0D0', textAlign: 'center', padding: '32px 0',
                 fontFamily: 'monospace',
               }}>
                 {opLogs.length === 0
@@ -447,30 +447,30 @@ export function LogsSection() {
         <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '220px 1fr', gap: 10, overflow: 'hidden' }}>
           {/* File list */}
           <div style={{
-            background: '#0D0D0D', border: '1px solid #141414',
+            background: '#F5F5F5', border: '1px solid #E0E0E0',
             borderRadius: 6, overflow: 'auto', padding: 8,
           }}>
-            <div style={{ fontSize: 8, color: '#333', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 8, padding: '0 4px' }}>
+            <div style={{ fontSize: 8, color: '#888', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 8, padding: '0 4px' }}>
               FILES ({logFiles.length})
             </div>
             {loadingFiles ? (
-              <div style={{ fontSize: 9, color: '#2a2a2a', padding: '16px 0', textAlign: 'center' }}>Đang đọc...</div>
+              <div style={{ fontSize: 9, color: '#D0D0D0', padding: '16px 0', textAlign: 'center' }}>Đang đọc...</div>
             ) : logFiles.length === 0 ? (
-              <div style={{ fontSize: 9, color: '#2a2a2a', padding: '16px 0', textAlign: 'center' }}>
+              <div style={{ fontSize: 9, color: '#D0D0D0', padding: '16px 0', textAlign: 'center' }}>
                 Không có file log.
               </div>
             ) : (
               logFiles.map(file => (
                 <button key={file.name} onClick={() => { setSelectedFile(file.name) }} style={{
                   display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px',
-                  background: selectedFile === file.name ? '#1a1a1a' : 'transparent',
-                  border: selectedFile === file.name ? '1px solid #333' : '1px solid transparent',
+                  background: selectedFile === file.name ? '#E0E0E0' : 'transparent',
+                  border: selectedFile === file.name ? '1px solid #888' : '1px solid transparent',
                   borderRadius: 4, cursor: 'pointer', marginBottom: 2,
                 }}>
-                  <div style={{ fontSize: 9, color: selectedFile === file.name ? '#FF6B35' : '#666', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                  <div style={{ fontSize: 9, color: selectedFile === file.name ? '#FF6B35' : '#888', fontFamily: 'monospace', wordBreak: 'break-all' }}>
                     {file.name}
                   </div>
-                  <div style={{ fontSize: 8, color: '#333', marginTop: 2 }}>
+                  <div style={{ fontSize: 8, color: '#888', marginTop: 2 }}>
                     {formatSize(file.size)} · {formatDate(file.mtime)}
                   </div>
                 </button>
@@ -480,16 +480,16 @@ export function LogsSection() {
 
           {/* File content */}
           <div style={{
-            background: '#0D0D0D', border: '1px solid #141414',
+            background: '#F5F5F5', border: '1px solid #E0E0E0',
             borderRadius: 6, overflow: 'hidden', display: 'flex', flexDirection: 'column',
           }}>
             <div style={{
-              padding: '8px 12px', borderBottom: '1px solid #141414',
+              padding: '8px 12px', borderBottom: '1px solid #E0E0E0',
               display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
             }}>
-              <span style={{ fontSize: 9, color: '#555', fontFamily: 'monospace' }}>{selectedFile || '—'}</span>
+              <span style={{ fontSize: 9, color: '#777', fontFamily: 'monospace' }}>{selectedFile || '—'}</span>
               {selectedFile && (
-                <span style={{ fontSize: 8, color: '#333' }}>
+                <span style={{ fontSize: 8, color: '#888' }}>
                   {formatSize(logFiles.find(f => f.name === selectedFile)?.size || 0)}
                 </span>
               )}
@@ -499,19 +499,19 @@ export function LogsSection() {
               fontSize: 9, color: '#777', fontFamily: 'Consolas, monospace',
               lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-all',
             }}>
-              {fileContent || <span style={{ color: '#2a2a2a' }}>— empty —</span>}
+              {fileContent || <span style={{ color: '#D0D0D0' }}>— empty —</span>}
             </pre>
           </div>
         </div>
       )}
 
       {/* Help */}
-      <div style={{ padding: '8px 12px', background: '#0D0D0D', borderRadius: 6, borderLeft: '3px solid #333', flexShrink: 0 }}>
-        <div style={{ fontSize: 8, fontWeight: 700, color: '#444', marginBottom: 4 }}>BÁO LỖI CHO DEV</div>
-        <div style={{ fontSize: 8, color: '#2a2a2a', lineHeight: 1.8 }}>
-          1. Nhấn <strong style={{ color: '#555' }}>COPY</strong> để sao chép logs<br />
+      <div style={{ padding: '8px 12px', background: '#F5F5F5', borderRadius: 6, borderLeft: '3px solid #888', flexShrink: 0 }}>
+        <div style={{ fontSize: 8, fontWeight: 700, color: '#888', marginBottom: 4 }}>BÁO LỖI CHO DEV</div>
+        <div style={{ fontSize: 8, color: '#D0D0D0', lineHeight: 1.8 }}>
+          1. Nhấn <strong style={{ color: '#777' }}>COPY</strong> để sao chép logs<br />
           2. Dán vào Zalo/Telegram kèm mô tả lỗi<br />
-          3. Hoặc nhấn <strong style={{ color: '#555' }}>MỞ THƯ MỤC</strong> → gửi file log
+          3. Hoặc nhấn <strong style={{ color: '#777' }}>MỞ THƯ MỤC</strong> → gửi file log
         </div>
       </div>
     </div>

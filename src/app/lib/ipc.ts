@@ -38,6 +38,7 @@ type ElectronAPI = {
   cancelRender: (workspaceId: string) => Promise<unknown>
   getSystemStats: () => Promise<unknown>
   getResourceAlert: () => Promise<unknown>
+  getHardwareProfile: () => Promise<unknown>
   openFolder: (folderPath: string) => Promise<unknown>
   openUrl: (url: string) => Promise<unknown>
   onSystemStats: (callback: (stats: object) => void) => () => void
@@ -50,7 +51,7 @@ type ElectronAPI = {
   onAuthUpdate: (callback: (status: object) => void) => () => void
   onCookieCritical: (callback: (errorMsg: string) => void) => () => void
   onChannelSynced: (callback: () => void) => () => void
-  getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; autoSplitParts?: number; autoSplitMinutes?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number }>
+  getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; autoSplitParts?: number; autoSplitMinutes?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number; hardwareProfile?: { vramGB: number; ramGB: number } }>
   updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; autoSplitParts?: number; autoSplitMinutes?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number; quitOnClose?: boolean }) => Promise<void>
   getAuthStatus: () => Promise<{ isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean; cookieCritical?: boolean; cookieError?: string }>
   logout: () => Promise<{ success: boolean }>
@@ -213,6 +214,9 @@ export const ipc = {
   async getResourceAlert() {
     return window.electronAPI?.getResourceAlert()
   },
+  async getHardwareProfile() {
+    return window.electronAPI?.getHardwareProfile()
+  },
   async openFolder(folderPath: string) {
     return window.electronAPI?.openFolder(folderPath)
   },
@@ -250,9 +254,9 @@ export const ipc = {
     return window.electronAPI?.onChannelSynced(callback) ?? (() => {})
   },
   async getSettings() {
-    return window.electronAPI?.getSettings() ?? { videoStoragePath: undefined, outputPath: undefined, defaultTrimLimit: undefined, defaultQuality: undefined, autoDownloadQuality: undefined, autoDownloadEnabled: undefined, autoRender: undefined, autoRenderResolution: undefined, autoRenderFPS: undefined, downloadsCleanupDays: undefined, renderedOutputPath: undefined, pollIntervalMs: undefined, maxConcurrentRenders: undefined, proxyEnabled: undefined, proxyHost: undefined, proxyPort: undefined, proxyUsername: undefined, proxyPassword: undefined, maxConcurrentDownloads: undefined, videoMinDurationSec: undefined, videoMaxDurationSec: undefined, autoSplitParts: undefined, autoSplitMinutes: undefined }
+    return window.electronAPI?.getSettings() ?? { videoStoragePath: undefined, outputPath: undefined, defaultTrimLimit: undefined, defaultQuality: undefined, autoDownloadQuality: undefined, autoDownloadEnabled: undefined, autoRender: undefined, autoRenderResolution: undefined, autoRenderFPS: undefined, downloadsCleanupDays: undefined, renderedOutputPath: undefined, pollIntervalMs: undefined, maxConcurrentRenders: undefined, proxyEnabled: undefined, proxyHost: undefined, proxyPort: undefined, proxyUsername: undefined, proxyPassword: undefined, maxConcurrentDownloads: undefined, videoMinDurationSec: undefined, videoMaxDurationSec: undefined, autoSplitParts: undefined, autoSplitMinutes: undefined, hardwareProfile: undefined }
   },
-  async updateSettings(patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; autoSplitParts?: number; autoSplitMinutes?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number; proxyEnabled?: boolean; proxyHost?: string; proxyPort?: number; proxyUsername?: string; proxyPassword?: string; maxConcurrentDownloads?: number; videoMinDurationSec?: number; videoMaxDurationSec?: number; quitOnClose?: boolean }) {
+  async updateSettings(patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; autoSplitParts?: number; autoSplitMinutes?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number; proxyEnabled?: boolean; proxyHost?: string; proxyPort?: number; proxyUsername?: string; proxyPassword?: string; maxConcurrentDownloads?: number; videoMinDurationSec?: number; videoMaxDurationSec?: number; quitOnClose?: boolean; hardwareProfile?: { vramGB: number; ramGB: number } | null }) {
     return window.electronAPI?.updateSettings(patch)
   },
   async getAuthStatus() {

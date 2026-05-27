@@ -101,8 +101,8 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
       case 'healthy': return '#00FF88'
       case 'warning': return '#FF6B35'
       case 'exhausted': case 'rate_limited': return '#FF4444'
-      case 'unauthorized': case 'no_oauth': return '#888'
-      default: return '#555'
+      case 'unauthorized': case 'no_oauth': return '#999'
+      default: return '#777'
     }
   }
 
@@ -115,13 +115,13 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
     <div style={{ maxWidth: 640 }}>
       {/* Explanation */}
       <div style={{ marginBottom: 24 }}>
-        <p style={{ fontSize: 13, color: '#888', lineHeight: 1.7, margin: '0 0 16px 0' }}>
-          <strong style={{ color: '#fff' }}>GCP Projects</strong> là lớp dự phòng cho detection.
-          Khi <strong style={{ color: '#fff' }}>Innertube</strong> (Chrome sessions) gặp sự cố,
+        <p style={{ fontSize: 13, color: '#999', lineHeight: 1.7, margin: '0 0 16px 0' }}>
+          <strong style={{ color: '#1A1A1A' }}>GCP Projects</strong> là lớp dự phòng cho detection.
+          Khi <strong style={{ color: '#1A1A1A' }}>Innertube</strong> (Chrome sessions) gặp sự cố,
           HyperClip tự động chuyển sang dùng YouTube Data API với quota từ các projects này.
         </p>
-        <p style={{ fontSize: 12, color: '#555', lineHeight: 1.6, margin: 0 }}>
-          Mỗi project cung cấp <strong style={{ color: '#666' }}>10,000 units/ngày</strong>.
+        <p style={{ fontSize: 12, color: '#777', lineHeight: 1.6, margin: 0 }}>
+          Mỗi project cung cấp <strong style={{ color: '#999' }}>10,000 units/ngày</strong>.
           200 projects = 2 triệu units/ngày — đủ cho ~100 kênh.
         </p>
       </div>
@@ -129,24 +129,24 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
       {/* Status summary */}
       {projects.length > 0 && (
         <div style={{
-          background: '#0D0D0D', border: '1px solid #1A1A1A',
+          background: '#F5F5F5', border: '1px solid #1A1A1A',
           borderRadius: 12, padding: '16px 20px',
           marginBottom: 24,
           display: 'flex', gap: 24,
         }}>
           <div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#fff' }}>{projects.length}</div>
-            <div style={{ fontSize: 10, color: '#555' }}>Projects</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#1A1A1A' }}>{projects.length}</div>
+            <div style={{ fontSize: 10, color: '#777' }}>Projects</div>
           </div>
           <div>
             <div style={{ fontSize: 20, fontWeight: 800, color: '#00FF88' }}>{healthyCount}</div>
-            <div style={{ fontSize: 10, color: '#555' }}>Healthy</div>
+            <div style={{ fontSize: 10, color: '#777' }}>Healthy</div>
           </div>
           <div>
             <div style={{ fontSize: 20, fontWeight: 800, color: '#00B4FF' }}>
               {projects.reduce((s, p) => s + (p.quotaTotal - p.usedToday), 0).toLocaleString()}
             </div>
-            <div style={{ fontSize: 10, color: '#555' }}>Units/day</div>
+            <div style={{ fontSize: 10, color: '#777' }}>Units/day</div>
           </div>
         </div>
       )}
@@ -154,7 +154,7 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
       {/* Project list */}
       {projects.length > 0 && (
         <div style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#1A1A1A', marginBottom: 10 }}>
             GCP Projects của bạn
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -162,7 +162,7 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
               <div
                 key={p.projectId}
                 style={{
-                  background: '#0D0D0D', border: '1px solid #1A1A1A',
+                  background: '#F5F5F5', border: '1px solid #1A1A1A',
                   borderRadius: 8, padding: '10px 14px',
                   display: 'flex', alignItems: 'center', gap: 10,
                 }}
@@ -173,20 +173,20 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
                 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
-                    fontSize: 11, fontWeight: 600, color: '#fff',
+                    fontSize: 11, fontWeight: 600, color: '#1A1A1A',
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   }}>
                     {p.projectId}
                   </div>
-                  <div style={{ fontSize: 9, color: '#555', marginTop: 2 }}>
+                  <div style={{ fontSize: 9, color: '#777', marginTop: 2 }}>
                     {p.gmailAccount}
                   </div>
                 </div>
                 {p.quotaTotal > 0 && (
                   <div style={{ width: 80 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                      <span style={{ fontSize: 9, color: '#555' }}>{p.usedToday.toLocaleString()}</span>
-                      <span style={{ fontSize: 9, color: '#555' }}>{p.quotaTotal.toLocaleString()}</span>
+                      <span style={{ fontSize: 9, color: '#777' }}>{p.usedToday.toLocaleString()}</span>
+                      <span style={{ fontSize: 9, color: '#777' }}>{p.quotaTotal.toLocaleString()}</span>
                     </div>
                     <div style={{ height: 3, background: '#1A1A1A', borderRadius: 2 }}>
                       <div style={{
@@ -204,9 +204,9 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
                       disabled={reauthorizing === p.projectId}
                       style={{
                         height: 24, padding: '0 10px',
-                        background: '#1A1A1A', border: '1px solid #2A2A2A',
+                        background: '#1A1A1A', border: '1px solid #D0D0D0',
                         borderRadius: 4, fontSize: 9, fontWeight: 600,
-                        color: '#888', cursor: 'pointer',
+                        color: '#999', cursor: 'pointer',
                       }}
                     >
                       {reauthorizing === p.projectId ? '...' : 'Authorize'}
@@ -218,7 +218,7 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
                       height: 24, width: 24, padding: 0,
                       background: 'transparent', border: '1px solid #1A1A1A',
                       borderRadius: 4, fontSize: 12,
-                      color: '#333', cursor: 'pointer',
+                      color: '#999', cursor: 'pointer',
                     }}
                   >
                     ×
@@ -237,19 +237,19 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
             onClick={() => setShowAddForm(true)}
             style={{
               height: 36, padding: '0 16px',
-              background: '#1A1A1A', border: '1px dashed #2A2A2A',
+              background: '#1A1A1A', border: '1px dashed #D0D0D0',
               borderRadius: 8, fontSize: 11, fontWeight: 600,
-              color: '#888', cursor: 'pointer',
+              color: '#999', cursor: 'pointer',
             }}
           >
             + Thêm GCP Project
           </button>
         ) : (
           <div style={{
-            background: '#0D0D0D', border: '1px solid #2A2A2A',
+            background: '#F5F5F5', border: '1px solid #D0D0D0',
             borderRadius: 10, padding: '16px 20px',
           }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#1A1A1A', marginBottom: 14 }}>
               Thêm GCP Project
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
@@ -299,7 +299,7 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
                   background: adding ? '#005577' : '#00B4FF',
                   border: 'none', borderRadius: 6,
                   fontSize: 11, fontWeight: 700,
-                  color: '#fff', cursor: adding ? 'not-allowed' : 'pointer',
+                  color: '#1A1A1A', cursor: adding ? 'not-allowed' : 'pointer',
                 }}
               >
                 {adding ? 'Đang thêm...' : 'Thêm Project'}
@@ -308,9 +308,9 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
                 onClick={() => { setShowAddForm(false); setAddError(''); setAddSuccess(false) }}
                 style={{
                   height: 32, padding: '0 16px',
-                  background: 'transparent', border: '1px solid #2A2A2A',
+                  background: 'transparent', border: '1px solid #D0D0D0',
                   borderRadius: 6, fontSize: 11,
-                  color: '#555', cursor: 'pointer',
+                  color: '#777', cursor: 'pointer',
                 }}
               >
                 Hủy
@@ -322,13 +322,13 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
 
       {/* Info */}
       <div style={{
-        background: '#0D0D0D', border: '1px solid #1A1A1A',
+        background: '#F5F5F5', border: '1px solid #1A1A1A',
         borderRadius: 8, padding: '12px 16px', marginBottom: 32,
         display: 'flex', gap: 10, alignItems: 'flex-start',
       }}>
-        <div style={{ fontSize: 14, color: '#444', flexShrink: 0, marginTop: 1 }}>💡</div>
-        <div style={{ fontSize: 11, color: '#444', lineHeight: 1.6 }}>
-          <strong style={{ color: '#555' }}>Có thể bỏ qua bước này</strong> nếu Chrome sessions đã hoạt động tốt.
+        <div style={{ fontSize: 14, color: '#999', flexShrink: 0, marginTop: 1 }}>💡</div>
+        <div style={{ fontSize: 11, color: '#999', lineHeight: 1.6 }}>
+          <strong style={{ color: '#777' }}>Có thể bỏ qua bước này</strong> nếu Chrome sessions đã hoạt động tốt.
           GCP Projects chỉ cần thiết khi bạn cần monitoring 24/7 với khả năng chịu lỗi cao.
         </div>
       </div>
@@ -339,9 +339,9 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
           onClick={onBack}
           style={{
             height: 40, padding: '0 20px',
-            background: 'transparent', border: '1px solid #2A2A2A',
+            background: 'transparent', border: '1px solid #D0D0D0',
             borderRadius: 8, fontSize: 12, fontWeight: 600,
-            color: '#555', cursor: 'pointer',
+            color: '#777', cursor: 'pointer',
           }}
         >
           ← Quay lại
@@ -351,9 +351,9 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
             onClick={onSkip}
             style={{
               height: 40, padding: '0 20px',
-              background: 'transparent', border: '1px solid #2A2A2A',
+              background: 'transparent', border: '1px solid #D0D0D0',
               borderRadius: 8, fontSize: 12, fontWeight: 600,
-              color: '#555', cursor: 'pointer',
+              color: '#777', cursor: 'pointer',
             }}
           >
             Bỏ qua bước này
@@ -364,7 +364,7 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
               height: 40, padding: '0 24px',
               background: '#00B4FF', border: 'none',
               borderRadius: 8, fontSize: 12, fontWeight: 700,
-              color: '#fff', cursor: 'pointer',
+              color: '#1A1A1A', cursor: 'pointer',
             }}
           >
             Tiếp tục →
@@ -377,7 +377,7 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
 
 const inputStyle: React.CSSProperties = {
   width: '100%', height: 36,
-  background: '#0A0A0A', border: '1px solid #2A2A2A',
+  background: '#F0F0F0', border: '1px solid #D0D0D0',
   borderRadius: 6, padding: '0 12px',
-  fontSize: 11, color: '#fff', outline: 'none',
+  fontSize: 11, color: '#1A1A1A', outline: 'none',
 }

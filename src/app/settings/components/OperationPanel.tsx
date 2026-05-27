@@ -215,11 +215,11 @@ export function OperationPanel() {
 
   // ─── Styles ────────────────────────────────────────────────────────────────────
   const s = {
-    card: { background: '#0D0D0D', border: '1px solid #1a1a1a', borderRadius: 8, padding: '14px 16px', marginBottom: 12 },
-    label: { fontSize: 9, fontWeight: 800, color: '#444', letterSpacing: '0.1em', marginBottom: 10, display: 'block' },
+    card: { background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 8, padding: '14px 16px', marginBottom: 12 },
+    label: { fontSize: 9, fontWeight: 800, color: '#888', letterSpacing: '0.1em', marginBottom: 10, display: 'block' },
     input: {
-      width: '100%', height: 30, background: '#0a0a0a', border: '1px solid #222',
-      borderRadius: 4, color: '#ddd', fontSize: 10, paddingLeft: 10, outline: 'none',
+      width: '100%', height: 30, background: '#F0F0F0', border: '1px solid #D0D0D0',
+      borderRadius: 4, color: '#888', fontSize: 10, paddingLeft: 10, outline: 'none',
       boxSizing: 'border-box' as const,
     },
     btn: (color: string, bg: string, border: string) => ({
@@ -236,11 +236,11 @@ export function OperationPanel() {
       {/* ── HEADER ──────────────────────────────────────────────────────────────── */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '12px 16px', background: '#0D0D0D', border: '1px solid #1a1a1a', borderRadius: 8,
+        padding: '12px 16px', background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 8,
       }}>
         <div>
-          <div style={{ fontSize: 12, fontWeight: 800, color: '#fff', letterSpacing: '0.08em' }}>OPERATION CENTER</div>
-          <div style={{ fontSize: 9, color: '#333', marginTop: 2 }}>HyperClip MMO — RTX 5080 Edition</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#E0E0E0', letterSpacing: '0.08em' }}>OPERATION CENTER</div>
+          <div style={{ fontSize: 9, color: '#888', marginTop: 2 }}>HyperClip MMO — RTX 5080 Edition</div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <div style={{
@@ -264,47 +264,47 @@ export function OperationPanel() {
       {/* ── SYSTEM STATUS STRIP ─────────────────────────────────────────────────── */}
       <div style={{
         display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10,
-        padding: '12px 16px', background: '#0D0D0D', border: '1px solid #1a1a1a', borderRadius: 8,
+        padding: '12px 16px', background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 8,
       }}>
         {/* Channels */}
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 20, fontWeight: 800, color: '#00B4FF', lineHeight: 1 }}>{channels.length}</div>
-          <div style={{ fontSize: 8, color: '#444', letterSpacing: '0.08em', marginTop: 4 }}>KÊNH ĐANG QUÉT</div>
+          <div style={{ fontSize: 8, color: '#888', letterSpacing: '0.08em', marginTop: 4 }}>KÊNH ĐANG QUÉT</div>
         </div>
         {/* Sessions — explanation: sessions = Chrome browsers scanning channels */}
         <div style={{ textAlign: 'center' }} title={`${totalSessions} Chrome browsers — dùng để quét YouTube cho tất cả channels`}>
           <div style={{ fontSize: 20, fontWeight: 800, color: consentedCount > 0 ? '#00FF88' : '#FF4444', lineHeight: 1 }}>
             {consentedCount}/{totalSessions}
           </div>
-          <div style={{ fontSize: 8, color: '#444', letterSpacing: '0.08em', marginTop: 4 }}>SESSION ⚡ CHANNEL</div>
+          <div style={{ fontSize: 8, color: '#888', letterSpacing: '0.08em', marginTop: 4 }}>SESSION ⚡ CHANNEL</div>
         </div>
         {/* Innertube */}
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 20, fontWeight: 800, color: innertubeStatus.color, lineHeight: 1 }}>
             {innertubeStatus.label}
           </div>
-          <div style={{ fontSize: 8, color: '#444', letterSpacing: '0.08em', marginTop: 4 }}>INNERTUBE API</div>
+          <div style={{ fontSize: 8, color: '#888', letterSpacing: '0.08em', marginTop: 4 }}>INNERTUBE API</div>
         </div>
         {/* OAuth */}
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 20, fontWeight: 800, color: healthyProjects > 0 ? '#00FF88' : '#333', lineHeight: 1 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: healthyProjects > 0 ? '#00FF88' : '#888', lineHeight: 1 }}>
             {healthyProjects}/{totalProjects}
           </div>
-          <div style={{ fontSize: 8, color: '#444', letterSpacing: '0.08em', marginTop: 4 }}>OAUTH PROJECTS</div>
+          <div style={{ fontSize: 8, color: '#888', letterSpacing: '0.08em', marginTop: 4 }}>OAUTH PROJECTS</div>
         </div>
         {/* GPU */}
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 10, fontWeight: 800, color: '#00FF88', lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {gpuName.replace('NVIDIA ', '').replace('GeForce ', '').replace('RTX ', 'RTX ')}
           </div>
-          <div style={{ fontSize: 8, color: '#444', letterSpacing: '0.08em', marginTop: 4 }}>GPU</div>
+          <div style={{ fontSize: 8, color: '#888', letterSpacing: '0.08em', marginTop: 4 }}>GPU</div>
         </div>
         {/* RAM */}
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 20, fontWeight: 800, color: ramPct > 80 ? '#FF6644' : ramPct > 60 ? '#FFB800' : '#00FF88', lineHeight: 1 }}>
             {ramPct}%
           </div>
-          <div style={{ fontSize: 8, color: '#444', letterSpacing: '0.08em', marginTop: 4 }}>RAM</div>
+          <div style={{ fontSize: 8, color: '#888', letterSpacing: '0.08em', marginTop: 4 }}>RAM</div>
         </div>
       </div>
 
@@ -317,38 +317,38 @@ export function OperationPanel() {
           {/* Channel Manager */}
           {/* Sessions ↔ Channels explanation */}
           <div style={{
-            padding: '8px 12px', background: '#0d0d0d', border: '1px solid #1a1a1a',
-            borderRadius: 6, fontSize: 8, color: '#444', lineHeight: '14px',
+            padding: '8px 12px', background: '#F5F5F5', border: '1px solid #E0E0E0',
+            borderRadius: 6, fontSize: 8, color: '#888', lineHeight: '14px',
           }}>
             <span style={{ color: '#00B4FF' }}>⚡</span>{' '}
-            <span style={{ color: '#666' }}>
+            <span style={{ color: '#888' }}>
               <b style={{ color: '#888' }}>Sessions</b> = Chrome browsers để quét YouTube.{' '}
               {totalSessions > 0
                 ? `${consentedCount}/${totalSessions} sẵn sàng`
                 : 'Chưa có sessions'}
               {' — tự động dựa trên RAM.'}
             </span>{' '}
-            <span style={{ color: '#444' }}>
+            <span style={{ color: '#888' }}>
               <b style={{ color: '#888' }}>Channels</b> = kênh YouTube cần theo dõi.{' '}
               {channels.length > 0
                 ? `${channels.length} kênh đang quét`
                 : 'Chưa có kênh nào'}.
             </span>{' '}
-            <span style={{ color: '#333' }}>
+            <span style={{ color: '#888' }}>
               Nhiều channels → dùng chung sessions, không cần thêm sessions.
             </span>
           </div>
           <div style={s.card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <span style={{ fontSize: 10, fontWeight: 800, color: '#555', letterSpacing: '0.1em' }}>QUẢN LÝ KÊNH</span>
+              <span style={{ fontSize: 10, fontWeight: 800, color: '#777', letterSpacing: '0.1em' }}>QUẢN LÝ KÊNH</span>
               <div style={{ display: 'flex', gap: 4 }}>
                 <button onClick={handleRefreshChannels} style={{
-                  fontSize: 8, background: 'transparent', border: '1px solid #222', borderRadius: 3,
-                  color: '#555', cursor: 'pointer', padding: '2px 8px',
+                  fontSize: 8, background: 'transparent', border: '1px solid #D0D0D0', borderRadius: 3,
+                  color: '#777', cursor: 'pointer', padding: '2px 8px',
                 }}>⟳ Sync</button>
                 <button onClick={() => setSelectedChannelId(null)} style={{
-                  fontSize: 8, background: 'transparent', border: '1px solid #222', borderRadius: 3,
-                  color: '#555', cursor: 'pointer', padding: '2px 8px',
+                  fontSize: 8, background: 'transparent', border: '1px solid #D0D0D0', borderRadius: 3,
+                  color: '#777', cursor: 'pointer', padding: '2px 8px',
                 }}>↺ Reset</button>
               </div>
             </div>
@@ -360,7 +360,7 @@ export function OperationPanel() {
             {/* Channel list */}
             <div style={{ maxHeight: 180, overflowY: 'auto', marginBottom: 8 }}>
               {filteredChannels.length === 0 ? (
-                <div style={{ fontSize: 9, color: '#2a2a2a', textAlign: 'center', padding: '20px 0' }}>
+                <div style={{ fontSize: 9, color: '#D0D0D0', textAlign: 'center', padding: '20px 0' }}>
                   Chưa có kênh nào.
                 </div>
               ) : filteredChannels.map(ch => (
@@ -383,11 +383,11 @@ export function OperationPanel() {
                   </div>
                   {/* Info */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 10, color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                    <div style={{ fontSize: 10, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>
                       {ch.name || ch.handle || ch.id}
                     </div>
                     {ch.handle && (
-                      <div style={{ fontSize: 8, color: '#444' }}>@{ch.handle}</div>
+                      <div style={{ fontSize: 8, color: '#888' }}>@{ch.handle}</div>
                     )}
                   </div>
                   {/* Delete */}
@@ -402,17 +402,17 @@ export function OperationPanel() {
             </div>
 
             {/* Bulk import */}
-            <div style={{ fontSize: 8, color: '#333', marginBottom: 4 }}>NHẬP HÀNG LOẠT (mỗi dòng 1 link)</div>
+            <div style={{ fontSize: 8, color: '#888', marginBottom: 4 }}>NHẬP HÀNG LOẠT (mỗi dòng 1 link)</div>
             <textarea value={bulkImportText} onChange={e => setBulkImportText(e.target.value)}
               placeholder="https://www.youtube.com/@channel1&#10;https://www.youtube.com/@channel2"
               style={{
-                width: '100%', height: 56, background: '#0a0a0a', border: '1px solid #222',
-                borderRadius: 4, color: '#ccc', fontSize: 9, padding: '6px 10px',
+                width: '100%', height: 56, background: '#F0F0F0', border: '1px solid #D0D0D0',
+                borderRadius: 4, color: '#888', fontSize: 9, padding: '6px 10px',
                 resize: 'vertical', outline: 'none', fontFamily: 'monospace', boxSizing: 'border-box' as const,
               }} />
             <button onClick={handleBulkImport} disabled={bulkImporting || !bulkImportText.trim()} style={{
               width: '100%', height: 28, marginTop: 6,
-              background: bulkImporting ? '#1a3a1a' : '#00FF8811',
+              background: bulkImporting ? '#F0FFF0' : '#00FF8811',
               border: '1px solid #00FF8844', borderRadius: 4,
               fontSize: 9, fontWeight: 800, color: '#00FF88', cursor: 'pointer',
               opacity: (bulkImporting || !bulkImportText.trim()) ? 0.4 : 1,
@@ -426,7 +426,7 @@ export function OperationPanel() {
                 {bulkResults.map((r, i) => (
                   <div key={i} style={{ color: r.success ? '#00FF88' : '#FF4444', padding: '1px 0', display: 'flex', gap: 4 }}>
                     <span>{r.success ? '✓' : '✗'}</span>
-                    <span style={{ color: '#666', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.url}</span>
+                    <span style={{ color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.url}</span>
                     {r.error && <span style={{ color: '#FF4444' }}>— {r.error}</span>}
                   </div>
                 ))}
@@ -438,30 +438,30 @@ export function OperationPanel() {
           <div style={s.card}>
             <span style={s.label}>THÔNG SỐ QUÉT</span>
             <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 8, color: '#333', marginBottom: 4 }}>KHOẢNG CÁCH QUÉT</div>
+              <div style={{ fontSize: 8, color: '#888', marginBottom: 4 }}>KHOẢNG CÁCH QUÉT</div>
               <div style={{ display: 'flex', gap: 4 }}>
                 {[5, 10, 30, 60].map(sec => (
                   <button key={sec} onClick={() => setPollInterval(sec)} style={{
                     flex: 1, height: 26,
                     background: pollInterval === sec ? '#00B4FF18' : 'transparent',
-                    border: `1px solid ${pollInterval === sec ? '#00B4FF' : '#222'}`,
+                    border: `1px solid ${pollInterval === sec ? '#00B4FF' : '#D0D0D0'}`,
                     borderRadius: 4, fontSize: 10, fontWeight: 700,
-                    color: pollInterval === sec ? '#00B4FF' : '#444',
+                    color: pollInterval === sec ? '#00B4FF' : '#888',
                     cursor: 'pointer',
                   }}>{sec}s</button>
                 ))}
               </div>
             </div>
             <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 8, color: '#333', marginBottom: 4 }}>LUỒNG TẢI ĐỒNG THỜI</div>
+              <div style={{ fontSize: 8, color: '#888', marginBottom: 4 }}>LUỒNG TẢI ĐỒNG THỜI</div>
               <div style={{ display: 'flex', gap: 4 }}>
                 {[1, 2, 3, 4].map(n => (
                   <button key={n} onClick={() => setMaxConcurrentDl(n)} style={{
                     flex: 1, height: 26,
                     background: maxConcurrentDl === n ? '#00FF8818' : 'transparent',
-                    border: `1px solid ${maxConcurrentDl === n ? '#00FF88' : '#222'}`,
+                    border: `1px solid ${maxConcurrentDl === n ? '#00FF88' : '#D0D0D0'}`,
                     borderRadius: 4, fontSize: 10, fontWeight: 700,
-                    color: maxConcurrentDl === n ? '#00FF88' : '#444',
+                    color: maxConcurrentDl === n ? '#00FF88' : '#888',
                     cursor: 'pointer',
                   }}>{n}</button>
                 ))}
@@ -485,37 +485,37 @@ export function OperationPanel() {
                 ipc.updateSettings({ proxyEnabled: next })
               }} style={{
                 width: 36, height: 18, borderRadius: 9, border: 'none', cursor: 'pointer',
-                background: proxyEnabled ? '#00FF88' : '#333',
+                background: proxyEnabled ? '#00FF88' : '#888',
                 transition: 'background 0.2s', position: 'relative', flexShrink: 0,
               }}>
                 <div style={{
                   position: 'absolute', top: 1, left: proxyEnabled ? 18 : 1,
-                  width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                  width: 16, height: 16, borderRadius: '50%', background: '#E0E0E0',
                   transition: 'left 0.2s',
                 }} />
               </button>
-              <span style={{ fontSize: 9, color: '#666' }}>Bật Proxy</span>
+              <span style={{ fontSize: 9, color: '#888' }}>Bật Proxy</span>
               {proxyStatus === 'ok' && <span style={{ fontSize: 8, color: '#00FF88', marginLeft: 'auto' }}>● Kết nối</span>}
               {proxyStatus === 'fail' && <span style={{ fontSize: 8, color: '#FF4444', marginLeft: 'auto' }}>● Thất bại</span>}
               {proxyStatus === 'testing' && <span style={{ fontSize: 8, color: '#FFB800', marginLeft: 'auto' }}>● Đang kiểm tra...</span>}
             </div>
             <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
               <div style={{ flex: 2 }}>
-                <div style={{ fontSize: 8, color: '#333', marginBottom: 3 }}>HOST</div>
+                <div style={{ fontSize: 8, color: '#888', marginBottom: 3 }}>HOST</div>
                 <input value={proxyHost} onChange={e => setProxyHost(e.target.value)} placeholder="proxy.example.com" style={s.input} />
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 8, color: '#333', marginBottom: 3 }}>PORT</div>
+                <div style={{ fontSize: 8, color: '#888', marginBottom: 3 }}>PORT</div>
                 <input type="number" value={proxyPort} onChange={e => setProxyPort(Number(e.target.value))} placeholder="8080" style={s.input} />
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 8, color: '#333', marginBottom: 3 }}>USER</div>
+                <div style={{ fontSize: 8, color: '#888', marginBottom: 3 }}>USER</div>
                 <input value={proxyUser} onChange={e => setProxyUser(e.target.value)} placeholder="user" style={s.input} />
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 8, color: '#333', marginBottom: 3 }}>PASS</div>
+                <div style={{ fontSize: 8, color: '#888', marginBottom: 3 }}>PASS</div>
                 <input type="password" value={proxyPass} onChange={e => setProxyPass(e.target.value)} placeholder="••••" style={s.input} />
               </div>
             </div>
@@ -539,34 +539,34 @@ export function OperationPanel() {
           {/* Live Logs — Simplified for non-tech users */}
           <div style={s.card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <span style={{ fontSize: 10, fontWeight: 800, color: '#555', letterSpacing: '0.1em' }}>NHẬT KÝ HOẠT ĐỘNG</span>
+              <span style={{ fontSize: 10, fontWeight: 800, color: '#777', letterSpacing: '0.1em' }}>NHẬT KÝ HOẠT ĐỘNG</span>
               <div style={{ display: 'flex', gap: 4 }}>
                 <button onClick={handleClearLogs} style={{
-                  fontSize: 8, background: 'transparent', border: '1px solid #222', borderRadius: 3,
-                  color: '#444', cursor: 'pointer', padding: '2px 8px',
+                  fontSize: 8, background: 'transparent', border: '1px solid #D0D0D0', borderRadius: 3,
+                  color: '#888', cursor: 'pointer', padding: '2px 8px',
                 }}>Xóa</button>
                 <button onClick={() => setLogsAutoScroll(v => !v)} style={{
                   fontSize: 8, background: logsAutoScroll ? '#00B4FF15' : 'transparent',
-                  border: `1px solid ${logsAutoScroll ? '#00B4FF44' : '#222'}`,
-                  borderRadius: 3, color: logsAutoScroll ? '#00B4FF' : '#444',
+                  border: `1px solid ${logsAutoScroll ? '#00B4FF44' : '#D0D0D0'}`,
+                  borderRadius: 3, color: logsAutoScroll ? '#00B4FF' : '#888',
                   cursor: 'pointer', padding: '2px 8px',
                 }}>Auto {logsAutoScroll ? 'ON' : 'OFF'}</button>
               </div>
             </div>
             <div style={{
               maxHeight: 320, overflowY: 'auto',
-              background: '#080808', border: '1px solid #141414',
+              background: '#F0F0F0', border: '1px solid #E0E0E0',
               borderRadius: 6, padding: '8px 10px',
             }}>
               {opLogs.length === 0 ? (
-                <div style={{ fontSize: 9, color: '#222', textAlign: 'center', padding: '24px 0' }}>
+                <div style={{ fontSize: 9, color: '#D0D0D0', textAlign: 'center', padding: '24px 0' }}>
                   Chưa có hoạt động. Poller đang quét sẽ hiển thị tại đây.
                 </div>
               ) : opLogs.map(entry => {
                 const dotColor = entry.level === 'error' ? '#FF4444'
                   : entry.level === 'warn' ? '#FFB800'
                   : entry.level === 'success' ? '#00FF88'
-                  : '#555'
+                  : '#777'
                 const msgColor = entry.level === 'error' ? '#FF8888'
                   : entry.level === 'warn' ? '#FFD080'
                   : entry.level === 'success' ? '#88FFBB'
@@ -576,7 +576,7 @@ export function OperationPanel() {
                   <div key={entry.id} style={{
                     display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 5, lineHeight: 1.4,
                   }}>
-                    <span style={{ fontSize: 8, color: '#2a2a2a', fontFamily: 'monospace', flexShrink: 0 }}>{time}</span>
+                    <span style={{ fontSize: 8, color: '#D0D0D0', fontFamily: 'monospace', flexShrink: 0 }}>{time}</span>
                     <span style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor, flexShrink: 0, marginTop: 2 }} />
                     <span style={{ fontSize: 9, color: msgColor }}>{entry.message}</span>
                   </div>
@@ -590,7 +590,7 @@ export function OperationPanel() {
           <div style={s.card}>
             <span style={s.label}>BỘ LỌC VIDEO</span>
             <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 8, color: '#333', marginBottom: 4 }}>THỜI LƯỢNG</div>
+              <div style={{ fontSize: 8, color: '#888', marginBottom: 4 }}>THỜI LƯỢNG</div>
               <div style={{ display: 'flex', gap: 4 }}>
                 {([['all', 'Tất cả'], ['short', 'Short (<3p)'], ['long', 'Dài (>3p)']] as const).map(([val, label]) => (
                   <button key={val} onClick={() => {
@@ -604,16 +604,16 @@ export function OperationPanel() {
                   }} style={{
                     flex: 1, height: 26,
                     background: durationMode === val ? '#00B4FF18' : 'transparent',
-                    border: `1px solid ${durationMode === val ? '#00B4FF' : '#222'}`,
+                    border: `1px solid ${durationMode === val ? '#00B4FF' : '#D0D0D0'}`,
                     borderRadius: 4, fontSize: 9, fontWeight: 700,
-                    color: durationMode === val ? '#00B4FF' : '#444',
+                    color: durationMode === val ? '#00B4FF' : '#888',
                     cursor: 'pointer',
                   }}>{label}</button>
                 ))}
               </div>
             </div>
             <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 8, color: '#333', marginBottom: 4 }}>GIỚI HẠN TỐI ĐA (PHÚT) — 0 = không giới hạn</div>
+              <div style={{ fontSize: 8, color: '#888', marginBottom: 4 }}>GIỚI HẠN TỐI ĐA (PHÚT) — 0 = không giới hạn</div>
               <input type="number" min={0} value={maxDurationMin}
                 onChange={e => setMaxDurationMin(Number(e.target.value))} style={s.input} />
             </div>
@@ -632,14 +632,14 @@ export function OperationPanel() {
                 {sessionStatus.sessions.slice(0, 6).map((sess: any) => (
                   <div key={sess.profileId} style={{
                     display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '4px 6px', background: '#0a0a0a', borderRadius: 4,
+                    padding: '4px 6px', background: '#F0F0F0', borderRadius: 4,
                     border: `1px solid ${sess.isConsented ? '#00FF8822' : '#FF444422'}`,
                   }}>
                     <span style={{
                       width: 6, height: 6, borderRadius: '50%',
                       background: sess.isConsented ? '#00FF88' : sess.isLoggedIn ? '#FFB800' : '#FF4444',
                     }} />
-                    <span style={{ fontSize: 9, color: '#666', flex: 1 }}>{sess.profileName}</span>
+                    <span style={{ fontSize: 9, color: '#888', flex: 1 }}>{sess.profileName}</span>
                     {sess.error && <span style={{ fontSize: 8, color: '#FF6644' }}>{sess.error.slice(0, 30)}</span>}
                   </div>
                 ))}

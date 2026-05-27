@@ -4,6 +4,39 @@
  * Channels: WORKSPACE_LIST, WORKSPACE_SET_ACTIVE, WORKSPACE_UPDATE,
  *           FORMATS_GET, WORKSPACE_DELETE, WORKSPACE_RETRY, WORKSPACE_REGENERATE_BLUR
  */
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -36,7 +69,7 @@ function registerWorkspaceHandlers(ipcMain) {
     });
     // ── Available formats probe ─────────────────────────────────────────────────
     ipcMain.handle(channels_js_1.IPC_CHANNELS.FORMATS_GET, async (_, videoId, videoUrl) => {
-        const { getYtCookiesFile } = await import('../../services/po_token.js');
+        const { getYtCookiesFile } = await Promise.resolve().then(() => __importStar(require('../../services/po_token.js')));
         const ytCookiesFile = await getYtCookiesFile();
         const result = await (0, youtube_js_1.probeAvailableFormats)(videoUrl, ytCookiesFile);
         if (result) {
@@ -72,7 +105,7 @@ function registerWorkspaceHandlers(ipcMain) {
         const retryQuality = settings.autoDownloadQuality ?? '720';
         const retryTrimLimit = ws.trimLimit || 10;
         (0, unified_log_js_1.devLog)(`[WORKSPACE_RETRY] quality=${retryQuality}p trimLimit=${retryTrimLimit}m (user config: quality=${settings.autoDownloadQuality}p)`);
-        const { getYtCookiesFile } = await import('../../services/po_token.js');
+        const { getYtCookiesFile } = await Promise.resolve().then(() => __importStar(require('../../services/po_token.js')));
         const ytCookiesFile = await getYtCookiesFile();
         try {
             const result = await (0, youtube_js_1.downloadVideo)({

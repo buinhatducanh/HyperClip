@@ -60,7 +60,7 @@ export default function SessionsSection() {
               background: consented.length > 0 ? '#00FF88' : '#FF4444',
               boxShadow: `0 0 4px ${consented.length > 0 ? '#00FF88' : '#FF4444'}66`,
             }} />
-            <span style={{ fontSize: 9, color: '#555', fontFamily: 'monospace' }}>
+            <span style={{ fontSize: 9, color: '#777', fontFamily: 'monospace' }}>
               {status.consentedCount}/{status.sessionCount} sessions sẵn sàng
               {consented.length > 0 && ' · đang quét channels'}
             </span>
@@ -70,18 +70,18 @@ export default function SessionsSection() {
             disabled={refreshing}
             style={{
               height: 22, paddingLeft: 8, paddingRight: 8,
-              background: 'transparent', border: '1px solid #2a2a2a', borderRadius: 3,
-              cursor: refreshing ? 'not-allowed' : 'pointer', color: '#555', fontSize: 9, fontWeight: 600,
+              background: 'transparent', border: '1px solid #D0D0D0', borderRadius: 3,
+              cursor: refreshing ? 'not-allowed' : 'pointer', color: '#777', fontSize: 9, fontWeight: 600,
               opacity: refreshing ? 0.5 : 1,
             }}
-            onMouseEnter={e => { if (!refreshing) { e.currentTarget.style.background = '#1a1a1a'; e.currentTarget.style.color = '#888' } }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#555' }}
+            onMouseEnter={e => { if (!refreshing) { e.currentTarget.style.background = '#E0E0E0'; e.currentTarget.style.color = '#888' } }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#777' }}
           >{refreshing ? 'Refreshing...' : '↻ Refresh all'}</button>
         </div>
       )}
 
       {/* Info */}
-      <div style={{ padding: '0 14px 12px', fontSize: 9, color: '#444', lineHeight: '14px' }}>
+      <div style={{ padding: '0 14px 12px', fontSize: 9, color: '#888', lineHeight: '14px' }}>
         <b style={{ color: '#888' }}>Sessions</b> = Chrome browsers để quét YouTube cho <b style={{ color: '#888' }}>tất cả channels</b>.
         Không cần thêm sessions khi thêm kênh — sessions chia sẻ cho mọi channels.
         <br />
@@ -91,16 +91,16 @@ export default function SessionsSection() {
       </div>
 
       {loading ? (
-        <div style={{ fontSize: 10, color: '#444', textAlign: 'center', padding: '16px' }}>Đang tải sessions...</div>
+        <div style={{ fontSize: 10, color: '#888', textAlign: 'center', padding: '16px' }}>Đang tải sessions...</div>
       ) : (
         <div style={{ padding: '0 14px 14px' }}>
           {/* Summary */}
           <div style={{
-            padding: '8px 12px', background: '#0a0a0a', border: '1px solid #1a1a1a',
-            borderRadius: 6, fontSize: 8, color: '#444', lineHeight: '14px', marginBottom: 12,
+            padding: '8px 12px', background: '#F0F0F0', border: '1px solid #E0E0E0',
+            borderRadius: 6, fontSize: 8, color: '#888', lineHeight: '14px', marginBottom: 12,
           }}>
             <span style={{ color: '#00B4FF' }}>⚡</span>{' '}
-            <span style={{ color: '#666' }}>
+            <span style={{ color: '#888' }}>
               <b style={{ color: '#888' }}>{status.consentedCount}/{status.sessionCount} sessions</b> sẵn sàng để quét YouTube cho tất cả channels.{' '}
               {consented.length > 0
                 ? 'Innertube API hoạt động.'
@@ -112,12 +112,12 @@ export default function SessionsSection() {
 
           {consented.length > 0 && (
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 8, color: '#333', letterSpacing: '0.08em', marginBottom: 6, fontWeight: 700 }}>READY ({consented.length})</div>
+              <div style={{ fontSize: 8, color: '#888', letterSpacing: '0.08em', marginBottom: 6, fontWeight: 700 }}>READY ({consented.length})</div>
               {consented.map(s => {
                 const isStale = s.refreshFailCount > 2;
                 return (
                   <div key={s.profileId} style={{
-                    background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 4,
+                    background: '#F0F0F0', border: '1px solid #E0E0E0', borderRadius: 4,
                     padding: '6px 10px', marginBottom: 5, display: 'flex', alignItems: 'center', gap: 8,
                   }}>
                     <div style={{ width: 6, height: 6, borderRadius: '50%', background: isStale ? '#FFB800' : '#00FF88', flexShrink: 0 }} title={isStale ? "Needs refresh" : "Healthy"}/>
@@ -127,7 +127,7 @@ export default function SessionsSection() {
                         {s.refreshFailCount}x fail
                       </span>
                     )}
-                    <span style={{ fontSize: 8, color: '#333', fontFamily: 'monospace' }}>
+                    <span style={{ fontSize: 8, color: '#888', fontFamily: 'monospace' }}>
                       {s.usedToday}x
                     </span>
                   </div>
@@ -142,7 +142,7 @@ export default function SessionsSection() {
               <div style={{ fontSize: 8, color: '#FFB800', letterSpacing: '0.08em', marginBottom: 6, fontWeight: 700 }}>NEEDS ACCEPT TERMS ({notConsented.length})</div>
               {notConsented.map(s => (
                 <div key={s.profileId} style={{
-                  background: '#1a1500', border: '1px solid #3a2a00', borderRadius: 4,
+                  background: '#FFFDE0', border: '1px solid #FFE0A0', borderRadius: 4,
                   padding: '6px 10px', marginBottom: 5, display: 'flex', alignItems: 'center', gap: 8,
                 }}>
                   <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#FFB800', flexShrink: 0 }} />
@@ -166,7 +166,7 @@ export default function SessionsSection() {
           {/* Not logged in — show all in grid */}
           {notLoggedIn.length > 0 && (
             <div>
-              <div style={{ fontSize: 8, color: '#333', letterSpacing: '0.08em', marginBottom: 6, fontWeight: 700 }}>
+              <div style={{ fontSize: 8, color: '#888', letterSpacing: '0.08em', marginBottom: 6, fontWeight: 700 }}>
                 NEEDS LOGIN ({notLoggedIn.length})
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 6 }}>
@@ -176,14 +176,14 @@ export default function SessionsSection() {
                     onClick={() => handleOpenLogin(s.profileId)}
                     title={s.error || 'Open Chrome and log in to YouTube'}
                     style={{
-                      background: '#0d0d0d', border: '1px solid #222', borderRadius: 6,
+                      background: '#F5F5F5', border: '1px solid #D0D0D0', borderRadius: 6,
                       padding: '12px', textAlign: 'left', cursor: 'pointer',
                       display: 'flex', flexDirection: 'column', gap: 4,
                     }}
                     onMouseEnter={e => { e.currentTarget.style.borderColor = '#FF664466'; e.currentTarget.style.background = '#1a0a0a' }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = '#222'; e.currentTarget.style.background = '#0d0d0d' }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = '#D0D0D0'; e.currentTarget.style.background = '#F5F5F5' }}
                   >
-                    <span style={{ fontSize: 10, color: '#666', fontWeight: 600 }}>{s.profileName}</span>
+                    <span style={{ fontSize: 10, color: '#888', fontWeight: 600 }}>{s.profileName}</span>
                     <span style={{ fontSize: 9, color: '#FF6644' }}>Mở Chrome & Đăng nhập YouTube</span>
                   </button>
                 ))}
@@ -193,8 +193,8 @@ export default function SessionsSection() {
 
           {status?.sessionCount === 0 && (
             <div style={{ textAlign: 'center', padding: '24px' }}>
-              <div style={{ fontSize: 10, color: '#333', marginBottom: 8 }}>Chưa khởi tạo Chrome profiles.</div>
-              <div style={{ fontSize: 9, color: '#2a2a2a' }}>Khởi động lại app để tạo sessions. Sessions = Chrome browsers quét YouTube cho tất cả channels.</div>
+              <div style={{ fontSize: 10, color: '#888', marginBottom: 8 }}>Chưa khởi tạo Chrome profiles.</div>
+              <div style={{ fontSize: 9, color: '#D0D0D0' }}>Khởi động lại app để tạo sessions. Sessions = Chrome browsers quét YouTube cho tất cả channels.</div>
             </div>
           )}
         </div>

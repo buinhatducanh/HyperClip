@@ -38,6 +38,7 @@ const IPC = {
     SYSTEM_OPEN_FOLDER: 'system:openFolder',
     SYSTEM_OPEN_URL: 'system:openUrl',
     SYSTEM_RESOURCE_ALERT: 'system:resource-alert',
+    SYSTEM_HARDWARE_PROFILE: 'system:hardware-profile',
     // Notification
     NOTIFICATION_EVENT: 'notification',
     // Auto-download
@@ -167,6 +168,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // System
     getSystemStats: () => ipcRenderer.invoke(IPC.SYSTEM_STATS),
     getResourceAlert: () => ipcRenderer.invoke(IPC.SYSTEM_RESOURCE_ALERT),
+    getHardwareProfile: () => ipcRenderer.invoke(IPC.SYSTEM_HARDWARE_PROFILE),
     openFolder: (folderPath) => ipcRenderer.invoke(IPC.SYSTEM_OPEN_FOLDER, folderPath),
     openUrl: (url) => ipcRenderer.invoke(IPC.SYSTEM_OPEN_URL, url),
     // Events (renderer listens — return cleanup functions)

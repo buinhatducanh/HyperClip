@@ -15,8 +15,8 @@
 
   body {
     font-family: 'Inter', sans-serif;
-    background: #121212;
-    color: #ffffff;
+    background: #F5F5F5;
+    color: #1A1A1A;
   }
 
   html {
@@ -47,18 +47,18 @@
 /* ====================== */
 
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #222;
-  border-radius: 2px;
+  background: #c0c0c0;
+  border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #333;
+  background: #a0a0a0;
 }
 
 /* ====================== */

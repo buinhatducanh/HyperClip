@@ -18,6 +18,12 @@ const makeMockProc = () => {
             handlers[event].push(fn);
             return proc;
         },
+        once: (event, fn) => {
+            if (!handlers[event])
+                handlers[event] = [];
+            handlers[event].push(fn);
+            return proc;
+        },
         emit: (event, ...args) => {
             handlers[event]?.forEach(fn => fn(...args));
         },

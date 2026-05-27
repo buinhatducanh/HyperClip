@@ -162,7 +162,7 @@ export function ChannelsStep({ onComplete, onSkip, onBack }: ChannelsStepProps) 
           style={{
             padding: '8px 16px', background: 'transparent', border: 'none',
             borderBottom: '2px solid #00B4FF', fontSize: 12, fontWeight: 600,
-            color: '#fff', cursor: 'pointer',
+            color: '#1A1A1A', cursor: 'pointer',
           }}
         >
           Thêm từng kênh
@@ -171,7 +171,7 @@ export function ChannelsStep({ onComplete, onSkip, onBack }: ChannelsStepProps) 
 
       {/* Single channel input */}
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 12, color: '#555', marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: '#777', marginBottom: 8 }}>
           Nhập URL kênh YouTube — @handle, /channel/UC..., /c/..., hoặc /user/...
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
@@ -183,10 +183,10 @@ export function ChannelsStep({ onComplete, onSkip, onBack }: ChannelsStepProps) 
             placeholder="youtube.com/@channel hoặc @handle"
             style={{
               flex: 1, height: 40,
-              background: '#0D0D0D',
-              border: addError ? '1px solid #FF4444' : '1px solid #2A2A2A',
+              background: '#F5F5F5',
+              border: addError ? '1px solid #FF4444' : '1px solid #D0D0D0',
               borderRadius: 8, padding: '0 14px',
-              fontSize: 12, color: '#fff', outline: 'none',
+              fontSize: 12, color: '#1A1A1A', outline: 'none',
             }}
           />
           <button
@@ -195,9 +195,9 @@ export function ChannelsStep({ onComplete, onSkip, onBack }: ChannelsStepProps) 
             title="Xem thông tin kênh"
             style={{
               height: 40, padding: '0 14px',
-              background: '#1A1A1A', border: '1px solid #2A2A2A',
+              background: '#1A1A1A', border: '1px solid #D0D0D0',
               borderRadius: 8, fontSize: 11, fontWeight: 600,
-              color: loading || !inputUrl.trim() ? '#333' : '#888',
+              color: loading || !inputUrl.trim() ? '#999' : '#999',
               cursor: loading || !inputUrl.trim() ? 'not-allowed' : 'pointer',
             }}
           >
@@ -211,7 +211,7 @@ export function ChannelsStep({ onComplete, onSkip, onBack }: ChannelsStepProps) 
               background: adding ? '#005577' : '#00B4FF',
               border: 'none', borderRadius: 8,
               fontSize: 12, fontWeight: 700,
-              color: '#fff', cursor: adding || !inputUrl.trim() ? 'not-allowed' : 'pointer',
+              color: '#1A1A1A', cursor: adding || !inputUrl.trim() ? 'not-allowed' : 'pointer',
             }}
           >
             {adding ? 'Đang thêm...' : 'Thêm kênh'}
@@ -240,7 +240,7 @@ export function ChannelsStep({ onComplete, onSkip, onBack }: ChannelsStepProps) 
 
       {/* Bulk add */}
       <div style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: 12, color: '#555', marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: '#777', marginBottom: 8 }}>
           Thêm nhiều kênh cùng lúc (mỗi URL một dòng)
         </div>
         <textarea
@@ -250,9 +250,9 @@ export function ChannelsStep({ onComplete, onSkip, onBack }: ChannelsStepProps) 
           rows={4}
           style={{
             width: '100%', boxSizing: 'border-box',
-            background: '#0D0D0D', border: '1px solid #2A2A2A',
+            background: '#F5F5F5', border: '1px solid #D0D0D0',
             borderRadius: 8, padding: '10px 14px',
-            fontSize: 11, fontFamily: 'monospace', color: '#fff',
+            fontSize: 11, fontFamily: 'monospace', color: '#1A1A1A',
             outline: 'none', resize: 'vertical', marginBottom: 8,
           }}
         />
@@ -262,9 +262,9 @@ export function ChannelsStep({ onComplete, onSkip, onBack }: ChannelsStepProps) 
           style={{
             padding: '8px 20px',
             background: bulkAdding ? '#005577' : '#1A1A1A',
-            border: '1px solid #2A2A2A',
+            border: '1px solid #D0D0D0',
             borderRadius: 8, fontSize: 12, fontWeight: 600,
-            color: bulkAdding || !bulkUrls.trim() ? '#333' : '#fff',
+            color: bulkAdding || !bulkUrls.trim() ? '#999' : '#1A1A1A',
             cursor: bulkAdding || !bulkUrls.trim() ? 'not-allowed' : 'pointer',
           }}
         >
@@ -278,7 +278,7 @@ export function ChannelsStep({ onComplete, onSkip, onBack }: ChannelsStepProps) 
                 <span style={{ color: r.success ? '#00FF88' : '#FF6B6B', width: 14 }}>
                   {r.success ? '✓' : '✗'}
                 </span>
-                <span style={{ color: '#888', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ color: '#999', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {r.url}
                 </span>
                 {r.error && <span style={{ color: '#FF6B6B', fontSize: 10 }}>{r.error}</span>}
@@ -291,7 +291,7 @@ export function ChannelsStep({ onComplete, onSkip, onBack }: ChannelsStepProps) 
       {/* Channel list */}
       {channels.length > 0 && (
         <div style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: 12, color: '#555', marginBottom: 8 }}>
+          <div style={{ fontSize: 12, color: '#777', marginBottom: 8 }}>
             Đã thêm ({channels.length})
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -300,24 +300,24 @@ export function ChannelsStep({ onComplete, onSkip, onBack }: ChannelsStepProps) 
                 key={ch.id}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10,
-                  background: '#0D0D0D', border: '1px solid #1A1A1A',
+                  background: '#F5F5F5', border: '1px solid #1A1A1A',
                   borderRadius: 8, padding: '8px 12px',
                 }}
               >
                 <div style={{
                   width: 28, height: 28, borderRadius: '50%',
-                  background: ch.avatarColor || '#333',
+                  background: ch.avatarColor || '#999',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0,
+                  fontSize: 11, fontWeight: 700, color: '#1A1A1A', flexShrink: 0,
                 }}>
                   {ch.name.charAt(0).toUpperCase()}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#1A1A1A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {ch.name}
                   </div>
                   {ch.handle && (
-                    <div style={{ fontSize: 10, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontSize: 10, color: '#777', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {ch.handle}
                     </div>
                   )}
@@ -326,7 +326,7 @@ export function ChannelsStep({ onComplete, onSkip, onBack }: ChannelsStepProps) 
                   onClick={() => handleRemove(ch.id)}
                   style={{
                     background: 'transparent', border: 'none',
-                    color: '#555', cursor: 'pointer', fontSize: 16,
+                    color: '#777', cursor: 'pointer', fontSize: 16,
                     padding: '0 4px', lineHeight: 1,
                   }}
                   title="Xóa kênh"
@@ -343,14 +343,14 @@ export function ChannelsStep({ onComplete, onSkip, onBack }: ChannelsStepProps) 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
         <button
           onClick={onBack}
-          style={{ background: 'transparent', border: 'none', fontSize: 11, color: '#555', cursor: 'pointer' }}
+          style={{ background: 'transparent', border: 'none', fontSize: 11, color: '#777', cursor: 'pointer' }}
         >
           ← Quay lại
         </button>
         <div style={{ display: 'flex', gap: 12 }}>
           <button
             onClick={onSkip}
-            style={{ background: 'transparent', border: 'none', fontSize: 11, color: '#555', cursor: 'pointer' }}
+            style={{ background: 'transparent', border: 'none', fontSize: 11, color: '#777', cursor: 'pointer' }}
           >
             Bỏ qua bước này
           </button>
@@ -362,7 +362,7 @@ export function ChannelsStep({ onComplete, onSkip, onBack }: ChannelsStepProps) 
               background: canProceed ? '#00B4FF' : '#1A1A1A',
               border: 'none', borderRadius: 8,
               fontSize: 12, fontWeight: 700,
-              color: canProceed ? '#000' : '#333',
+              color: canProceed ? '#000' : '#999',
               cursor: canProceed ? 'pointer' : 'not-allowed',
             }}
           >
