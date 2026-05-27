@@ -2,7 +2,7 @@ import os from 'os'
 import path from 'path'
 import fs from 'fs'
 import { execSync } from 'child_process'
-import { getRamDiskInfo, getAutoRamDiskSize } from './ramdisk.js'
+import { getRamDiskInfo, getAutoRamDiskSize, loadSettings } from './ramdisk.js'
 import { getPoolStatus } from './worker-pool.js'
 import { getFfmpegPath } from './ffmpeg-paths.js'
 import { devLog } from './unified_log.js'
@@ -315,6 +315,16 @@ export function detectSystemProfile(): { isLaptop: boolean; sessionCount: number
     return { isLaptop: _cachedSessionCount === 15, sessionCount: _cachedSessionCount }
   }
 
+  // Check hardware preset first
+  const settings = loadSettings()
+  if (settings.hardwareProfile) {
+    const preset = PRESETS.find(p => p.vramGB === settings.hardwareProfile!.vramGB && p.ramGB === settings.hardwareProfile!.ramGB)
+    if (preset) {
+      _cachedSessionCount = preset.sessions
+      devLog(`[SystemProfile] Using preset sessions=${preset.sessions} (${preset.label})`)
+      return { isLaptop: false, sessionCount: _cachedSessionCount }
+    }
+  }
   // Env override: explicit control for deployment
   const envCount = parseInt(process.env.HYPERCLIP_SESSION_COUNT || '', 10)
   if (!isNaN(envCount) && envCount > 0) {
@@ -404,7 +414,7 @@ export function getGpuLive(): GpuLiveData {
   return _cachedGpuLive ?? { total: 0, free: 0, used: 0, gpuUsage: 0, gpuTemp: 0 }
 }
 
-// Get effective worker count based on available VRAM.
+// Get effective worker count based on available VRAM or preset settings.
 // Per-session VRAM budget (1920x1080 canvas, H.265 encode + NVDEC decode + filter):
 //   - NVDEC decode: ~150MB
 //   - libavfilter (scale + pad + overlay): ~200MB
@@ -412,6 +422,13 @@ export function getGpuLive(): GpuLiveData {
 //   - Total: ~600MB per worker (conservative)
 // Safety reserve: 2GB for OS + driver + UI (up from 4GB — RTX 5080 has 16GB)
 export function getEffectiveWorkers(perWorkerMB = 600): number {
+  // Check preset settings first
+  const profile = loadSettings().hardwareProfile
+  if (profile) {
+    const preset = PRESETS.find(p => p.vramGB === profile.vramGB && p.ramGB === profile.ramGB)
+    if (preset) return preset.chunkWorkers
+  }
+  // Fallback to auto-detection
   const gpu = detectGPUOnce()
   const baseWorkers = gpu.maxChunkWorkers
   const vram = getVramInfo()
@@ -431,6 +448,51 @@ export function getEffectiveWorkers(perWorkerMB = 600): number {
 // ─── Machine tier & adaptive download params ──────────────────────────────────────
 
 export type MachineTier = 'low' | 'mid' | 'high'
+
+// ─── Hardware Preset Definitions ─────────────────────────────────────────────────
+
+interface PresetDef {
+  id: string
+  label: string
+  vramGB: number
+  ramGB: number
+  downloadInstances: number
+  renderWorkers: number
+  chunkWorkers: number
+  sessions: number
+}
+
+const PRESETS: PresetDef[] = [
+  { id: 'ultra',   label: 'Ultra',   vramGB: 16, ramGB: 64, downloadInstances: 6, renderWorkers: 6, chunkWorkers: 14, sessions: 10 },
+  { id: 'high',   label: 'High',     vramGB: 12, ramGB: 48, downloadInstances: 2, renderWorkers: 3, chunkWorkers: 6,  sessions: 8  },
+  { id: 'medium', label: 'Medium',   vramGB: 8,  ramGB: 32, downloadInstances: 2, renderWorkers: 2, chunkWorkers: 4,  sessions: 6  },
+  { id: 'low',    label: 'Low',      vramGB: 6,  ramGB: 24, downloadInstances: 1, renderWorkers: 2, chunkWorkers: 2,  sessions: 4  },
+  { id: 'minimal',label: 'Minimal',  vramGB: 4,  ramGB: 16, downloadInstances: 1, renderWorkers: 1, chunkWorkers: 1,  sessions: 2  },
+]
+
+export interface HardwareProfileInfo {
+  detected: { vramGB: number; ramGB: number; gpuName: string }
+  presets: Array<PresetDef & { available: boolean }>
+  active: string | null
+}
+
+export function getHardwareProfileInfo(): HardwareProfileInfo {
+  const gpu = detectGPUOnce()
+  const detectedRamGB = Math.round(os.totalmem() / (1024 ** 3))
+  const activeProfile = loadSettings().hardwareProfile
+  const active = activeProfile
+    ? PRESETS.find(p => p.vramGB === activeProfile.vramGB && p.ramGB === activeProfile.ramGB)?.id ?? null
+    : null
+
+  return {
+    detected: { vramGB: Math.round(gpu.memory / 1024), ramGB: detectedRamGB, gpuName: gpu.gpuName },
+    presets: PRESETS.map(p => ({
+      ...p,
+      available: p.vramGB <= Math.round(gpu.memory / 1024) && p.ramGB <= detectedRamGB,
+    })),
+    active,
+  }
+}
 
 let _cachedMachineTier: MachineTier | null = null
 
@@ -466,6 +528,13 @@ export interface DownloadParams {
 let _cachedDownloadParams: DownloadParams | null = null
 
 export function getDownloadParams(): DownloadParams {
+  const profile = loadSettings().hardwareProfile
+  if (profile) {
+    const preset = PRESETS.find(p => p.vramGB === profile.vramGB && p.ramGB === profile.ramGB)
+    if (preset) {
+      return { fragments: preset.chunkWorkers * 8, maxInstances: preset.downloadInstances }
+    }
+  }
   if (_cachedDownloadParams) return _cachedDownloadParams
 
   const tier = getMachineTier()
@@ -474,7 +543,7 @@ export function getDownloadParams(): DownloadParams {
     case 'mid':  _cachedDownloadParams = { fragments: 32, maxInstances: 2 }; break
     case 'low':  _cachedDownloadParams = { fragments: 16, maxInstances: 1 }; break
   }
-  return _cachedDownloadParams
+  return _cachedDownloadParams ?? { fragments: 16, maxInstances: 1 }
 }
 
 // ─── CPU usage (tick delta with warmup + TTL cache) ───────────────────────────────
