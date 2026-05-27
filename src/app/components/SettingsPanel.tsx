@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { colors, spacing, fontSize } from '../design-system/tokens'
 import type { Channel, SystemStats } from '../types'
 import type { AppSettings, HardwareProfile } from '../lib/store'
 import { ipc } from '../lib/ipc'
@@ -40,13 +41,13 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
       onClick={() => onChange(!value)}
       style={{
         width: 28, height: 12, cursor: 'pointer', flexShrink: 0,
-        background: value ? '#00FF88' : '#1A1A1A',
-        border: `1px solid ${value ? '#00FF8866' : '#333'}`,
+        background: value ? colors.success : colors.text,
+        border: `1px solid ${value ? colors.success + '66' : colors.textSecondary}`,
         borderRadius: 6, position: 'relative', transition: 'background 0.15s',
       }}
     >
       <div style={{
-        width: 10, height: 10, background: value ? '#000' : '#777',
+        width: 10, height: 10, background: value ? colors.text : colors.textSecondary,
         borderRadius: '50%', position: 'absolute', top: 1,
         left: value ? 'unset' : 1, right: value ? 2 : 'unset',
         transition: 'all 0.15s',
@@ -56,7 +57,7 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 10, fontWeight: 700, color: '#999', marginBottom: 4 }}>{children}</div>
+  return <div style={{ fontSize: 10, fontWeight: 700, color: colors.textSecondary, marginBottom: 4 }}>{children}</div>
 }
 
 // ─── Hardware Profile Card ───────────────────────────────────────────────────────
@@ -78,7 +79,7 @@ function HardwareProfileCard({ currentProfile }: { currentProfile: HardwareProfi
   if (!data) return (
     <Card>
       <SectionLabel>HARDWARE PROFILE</SectionLabel>
-      <div style={{ fontSize: 10, color: '#777' }}>Loading...</div>
+      <div style={{ fontSize: 10, color: colors.textSecondary }}>Loading...</div>
     </Card>
   )
 
@@ -102,21 +103,21 @@ function HardwareProfileCard({ currentProfile }: { currentProfile: HardwareProfi
   return (
     <Card>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-        <span style={{ fontSize: 10, fontWeight: 700, color: '#00B4FF', flex: 1 }}>HARDWARE PROFILE</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: colors.accent, flex: 1 }}>HARDWARE PROFILE</span>
         {activePreset && (
-          <span style={{ fontSize: 9, color: '#00FF88', fontFamily: 'monospace', fontWeight: 700 }}>
+          <span style={{ fontSize: 9, color: colors.success, fontFamily: 'monospace', fontWeight: 700 }}>
             ● {activePreset.label}
           </span>
         )}
         {!data.active && (
-          <span style={{ fontSize: 9, color: '#777', fontFamily: 'monospace' }}>
+          <span style={{ fontSize: 9, color: colors.textSecondary, fontFamily: 'monospace' }}>
             ● Auto
           </span>
         )}
       </div>
 
       {/* Detected hardware */}
-      <div style={{ fontSize: 9, color: '#777', marginBottom: 8, fontFamily: 'monospace' }}>
+      <div style={{ fontSize: 9, color: colors.textSecondary, marginBottom: 8, fontFamily: 'monospace' }}>
         {data.detected.gpuName} · {data.detected.vramGB}GB VRAM · {data.detected.ramGB}GB RAM
       </div>
 
@@ -135,13 +136,13 @@ function HardwareProfileCard({ currentProfile }: { currentProfile: HardwareProfi
               style={{
                 height: 30,
                 padding: '0 10px',
-                border: `1px solid ${isActive ? '#00B4FF' : preset.available ? '#222' : '#1a1a1a'}`,
+                border: `1px solid ${isActive ? colors.accent : preset.available ? colors.border : colors.text}`,
                 borderRadius: 4,
                 fontSize: 9,
                 fontWeight: 700,
                 cursor: preset.available ? 'pointer' : 'not-allowed',
-                background: isActive ? '#00B4FF20' : preset.available ? '#161616' : '#0f0f0f',
-                color: !preset.available ? '#333' : isActive ? '#00B4FF' : '#555',
+                background: isActive ? colors.accent + '20' : preset.available ? colors.surface : colors.surfaceHover,
+                color: !preset.available ? colors.textSecondary : isActive ? colors.accent : colors.textSecondary,
                 letterSpacing: '0.04em',
                 fontFamily: 'monospace',
                 transition: 'all 0.15s',
@@ -157,12 +158,12 @@ function HardwareProfileCard({ currentProfile }: { currentProfile: HardwareProfi
 
       {/* Stats display */}
       {display && (
-        <div style={{ fontSize: 9, color: '#777', fontFamily: 'monospace', lineHeight: 1.8 }}>
-          <span style={{ color: '#999' }}>Workers:</span> <span style={{ color: '#00FF88' }}>{display.chunkWorkers}</span>
+        <div style={{ fontSize: 9, color: colors.textSecondary, fontFamily: 'monospace', lineHeight: 1.8 }}>
+          <span style={{ color: colors.textSecondary }}>Workers:</span> <span style={{ color: colors.success }}>{display.chunkWorkers}</span>
           {' · '}
-          <span style={{ color: '#999' }}>DL:</span> <span style={{ color: '#00B4FF' }}>{display.downloadInstances}</span>
+          <span style={{ color: colors.textSecondary }}>DL:</span> <span style={{ color: colors.accent }}>{display.downloadInstances}</span>
           {' · '}
-          <span style={{ color: '#999' }}>Sessions:</span> <span style={{ color: '#FFB800' }}>{display.sessions}</span>
+          <span style={{ color: colors.textSecondary }}>Sessions:</span> <span style={{ color: colors.warning }}>{display.sessions}</span>
         </div>
       )}
     </Card>
@@ -171,7 +172,7 @@ function HardwareProfileCard({ currentProfile }: { currentProfile: HardwareProfi
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ margin: '4px 6px 2px', background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 4, padding: 8 }}>
+    <div style={{ margin: '4px 6px 2px', background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 4, padding: 8 }}>
       {children}
     </div>
   )
@@ -189,10 +190,10 @@ function BtnGroup({ options, value, onChange }: {
         return (
           <button key={String(opt.value)} onClick={() => onChange(opt.value)} style={{
             flex: 1, height: 26, cursor: 'pointer',
-            background: active ? '#00B4FF20' : '#1A1A1A',
-            border: `1px solid ${active ? '#00B4FF44' : '#222'}`,
+            background: active ? colors.accent + '20' : colors.text,
+            border: `1px solid ${active ? colors.accent + '44' : colors.border}`,
             borderRadius: 2, fontSize: 9, fontWeight: 700,
-            color: active ? '#00B4FF' : '#555',
+            color: active ? colors.accent : colors.textSecondary,
             fontFamily: 'monospace', transition: 'all 0.1s',
           }}>
             {opt.label}
@@ -211,7 +212,7 @@ function AutoRenderCard({ s, onChange }: { s: AppSettings; onChange: (p: Partial
   return (
     <Card>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-        <span style={{ fontSize: 10, fontWeight: 700, color: '#00FF88', flex: 1 }}>AUTO RENDER</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: colors.success, flex: 1 }}>AUTO RENDER</span>
         <Toggle value={s.autoRender} onChange={v => onChange({ autoRender: v })} />
       </div>
 
@@ -255,8 +256,8 @@ function AutoRenderCard({ s, onChange }: { s: AppSettings; onChange: (p: Partial
         <SectionLabel>Title template</SectionLabel>
         <input type="text" value={s.autoRenderTitleTemplate} onChange={e => onChange({ autoRenderTitleTemplate: e.target.value } as any)}
           placeholder='{title} - {channel}' style={{
-            width: '100%', height: 26, background: '#F0F0F0', border: '1px solid #D0D0D0',
-            borderRadius: 2, color: '#00B4FF', fontSize: 9, fontFamily: 'monospace', padding: '0 8px', outline: 'none',
+            width: '100%', height: 26, background: colors.bg, border: `1px solid ${colors.border}`,
+            borderRadius: 2, color: colors.accent, fontSize: 9, fontFamily: 'monospace', padding: '0 8px', outline: 'none',
           }}
         />
       </div>
@@ -283,13 +284,13 @@ function DownloadCard({ s, onChange }: { s: AppSettings; onChange: (p: Partial<A
       </div>
 
       <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 4 }}>
-        <span style={{ fontSize: 9, color: '#777', whiteSpace: 'nowrap' }}>Trim</span>
-        <div style={{ flex: 1, background: '#F0F0F0', border: '1px solid #D0D0D0', borderRadius: 2, padding: '2px 6px', fontSize: 9, color: '#00B4FF', fontFamily: 'monospace' }}>
+        <span style={{ fontSize: 9, color: colors.textSecondary, whiteSpace: 'nowrap' }}>Trim</span>
+        <div style={{ flex: 1, background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 2, padding: '2px 6px', fontSize: 9, color: colors.accent, fontFamily: 'monospace' }}>
           {s.defaultTrimLimit === 'full' ? 'FULL' : `${s.defaultTrimLimit} phút`}
         </div>
         <button onClick={() => onChange({ defaultTrimLimit: s.defaultTrimLimit === 'full' ? 10 : 'full' })} style={{
-          padding: '3px 8px', background: '#FFFFFF', border: '1px solid #D0D0D0', borderRadius: 2, fontSize: 8,
-          color: s.defaultTrimLimit === 'full' ? '#00B4FF' : '#555', cursor: 'pointer', fontWeight: s.defaultTrimLimit === 'full' ? 700 : 400,
+          padding: '3px 8px', background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 2, fontSize: 8,
+          color: s.defaultTrimLimit === 'full' ? colors.accent : colors.textSecondary, cursor: 'pointer', fontWeight: s.defaultTrimLimit === 'full' ? 700 : 400,
         }}>FULL</button>
       </div>
 
@@ -333,13 +334,13 @@ function ChannelOverrideCard({ channels }: { channels: Channel[] }) {
   return (
     <Card>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-        <span style={{ fontSize: 10, fontWeight: 700, color: '#FFB800', flex: 1 }}>CHANNEL OVERRIDE</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: colors.warning, flex: 1 }}>CHANNEL OVERRIDE</span>
         <select value={channel.id} onChange={e => setChannelId(e.target.value)} style={{
-          height: 24, background: '#FFFFFF', border: '1px solid #D0D0D0', borderRadius: 2, color: '#999', fontSize: 9, fontFamily: 'monospace', cursor: 'pointer',
+          height: 24, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 2, color: colors.textSecondary, fontSize: 9, fontFamily: 'monospace', cursor: 'pointer',
         }}>
           {channels.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        {hasOverride && <span style={{ fontSize: 9, color: '#FFB800', background: '#FFB80015', padding: '1px 4px', borderRadius: 2, border: '1px solid #FFB80044' }}>override</span>}
+        {hasOverride && <span style={{ fontSize: 9, color: colors.warning, background: colors.warning + '15', padding: '1px 4px', borderRadius: 2, border: `1px solid ${colors.warning}44` }}>override</span>}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 4 }}>
@@ -355,20 +356,20 @@ function ChannelOverrideCard({ channels }: { channels: Channel[] }) {
 
       <div style={{ display: 'flex', gap: 2, marginBottom: 4 }}>
         <button onClick={() => handleOverride({ autoSplit: true, splitMinutes: 3 })} style={{
-          flex: 1, height: 24, background: chSettings?.autoSplit ? '#00B4FF20' : '#1A1A1A',
-          border: `1px solid ${chSettings?.autoSplit ? '#00B4FF44' : '#222'}`, borderRadius: 2, fontSize: 8, cursor: 'pointer',
-          color: chSettings?.autoSplit ? '#00B4FF' : '#555', fontWeight: 700,
+          flex: 1, height: 24, background: chSettings?.autoSplit ? colors.accent + '20' : colors.text,
+          border: `1px solid ${chSettings?.autoSplit ? colors.accent + '44' : colors.border}`, borderRadius: 2, fontSize: 8, cursor: 'pointer',
+          color: chSettings?.autoSplit ? colors.accent : colors.textSecondary, fontWeight: 700,
         }}>Auto-split</button>
         <button onClick={() => handleOverride({ autoSplit: false })} style={{
-          flex: 1, height: 24, background: chSettings?.autoSplit === false ? '#00B4FF20' : '#1A1A1A',
-          border: `1px solid ${chSettings?.autoSplit === false ? '#00B4FF44' : '#222'}`, borderRadius: 2, fontSize: 8, cursor: 'pointer',
-          color: chSettings?.autoSplit === false ? '#00B4FF' : '#555',
+          flex: 1, height: 24, background: chSettings?.autoSplit === false ? colors.accent + '20' : colors.text,
+          border: `1px solid ${chSettings?.autoSplit === false ? colors.accent + '44' : colors.border}`, borderRadius: 2, fontSize: 8, cursor: 'pointer',
+          color: chSettings?.autoSplit === false ? colors.accent : colors.textSecondary,
         }}>No split</button>
       </div>
 
       {hasOverride && (
         <button onClick={() => { useAppStore.getState().updateChannel(channel.id, { settings: undefined as any }); ipc.updateChannel(channel.id, { settings: undefined }) }} style={{
-          width: '100%', height: 24, background: '#FFFFFF', border: '1px solid #FF444422', borderRadius: 2, fontSize: 8, color: '#FF4444', cursor: 'pointer',
+          width: '100%', height: 24, background: colors.surface, border: `1px solid ${colors.error}22`, borderRadius: 2, fontSize: 8, color: colors.error, cursor: 'pointer',
         }}>Reset to global</button>
       )}
     </Card>
@@ -397,36 +398,36 @@ function StorageCard({ s, onChange }: { s: AppSettings; onChange: (p: Partial<Ap
     <Card>
       <SectionLabel>STORAGE</SectionLabel>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-        <div style={{ flex: 1, height: 5, background: '#FFFFFF', borderRadius: 2 }}>
-          <div style={{ width: `${Math.min(usedPct, 100)}%`, height: '100%', background: usedPct > 80 ? '#FF4444' : '#00B4FF', borderRadius: 2 }} />
+        <div style={{ flex: 1, height: 5, background: colors.surface, borderRadius: 2 }}>
+          <div style={{ width: `${Math.min(usedPct, 100)}%`, height: '100%', background: usedPct > 80 ? colors.error : colors.accent, borderRadius: 2 }} />
         </div>
-        <span style={{ fontSize: 9, color: '#00B4FF66', fontFamily: 'monospace' }}>{usedMB}MB / {freeGB}GB free</span>
+        <span style={{ fontSize: 9, color: colors.accent + '66', fontFamily: 'monospace' }}>{usedMB}MB / {freeGB}GB free</span>
       </div>
 
       <div style={{ marginBottom: 3 }}>
-        <div style={{ fontSize: 9, color: '#777', marginBottom: 1 }}>Video path</div>
+        <div style={{ fontSize: 9, color: colors.textSecondary, marginBottom: 1 }}>Video path</div>
         <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-          <div style={{ flex: 1, background: '#F0F0F0', border: '1px solid #D0D0D0', borderRadius: 2, padding: '2px 5px', fontSize: 9, color: '#888', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.videoStoragePath || '(default)'}</div>
-          <button onClick={async () => { const r = await ipc.pickFolder(s.videoStoragePath); if (r?.path) { onChange({ videoStoragePath: r.path } as any); ipc.updateSettings({ videoStoragePath: r.path }) } }} style={{ padding: '2px 5px', background: '#FFFFFF', border: '1px solid #D0D0D0', borderRadius: 2, fontSize: 9, color: '#777', cursor: 'pointer', flexShrink: 0 }}>📁</button>
+          <div style={{ flex: 1, background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 2, padding: '2px 5px', fontSize: 9, color: colors.textSecondary, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.videoStoragePath || '(default)'}</div>
+          <button onClick={async () => { const r = await ipc.pickFolder(s.videoStoragePath); if (r?.path) { onChange({ videoStoragePath: r.path } as any); ipc.updateSettings({ videoStoragePath: r.path }) } }} style={{ padding: '2px 5px', background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 2, fontSize: 9, color: colors.textSecondary, cursor: 'pointer', flexShrink: 0 }}>📁</button>
         </div>
       </div>
 
       <div style={{ marginBottom: 4 }}>
-        <div style={{ fontSize: 9, color: '#777', marginBottom: 1 }}>Output path</div>
+        <div style={{ fontSize: 9, color: colors.textSecondary, marginBottom: 1 }}>Output path</div>
         <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-          <div style={{ flex: 1, background: '#F0F0F0', border: '1px solid #D0D0D0', borderRadius: 2, padding: '2px 5px', fontSize: 9, color: '#888', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.outputPath || '(default)'}</div>
-          <button onClick={async () => { const r = await ipc.pickFolder(s.outputPath); if (r?.path) { onChange({ outputPath: r.path } as any); ipc.updateSettings({ outputPath: r.path }) } }} style={{ padding: '2px 5px', background: '#FFFFFF', border: '1px solid #D0D0D0', borderRadius: 2, fontSize: 9, color: '#777', cursor: 'pointer', flexShrink: 0 }}>📁</button>
+          <div style={{ flex: 1, background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 2, padding: '2px 5px', fontSize: 9, color: colors.textSecondary, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.outputPath || '(default)'}</div>
+          <button onClick={async () => { const r = await ipc.pickFolder(s.outputPath); if (r?.path) { onChange({ outputPath: r.path } as any); ipc.updateSettings({ outputPath: r.path }) } }} style={{ padding: '2px 5px', background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 2, fontSize: 9, color: colors.textSecondary, cursor: 'pointer', flexShrink: 0 }}>📁</button>
         </div>
       </div>
 
       <div style={{ display: 'flex', gap: 2, marginBottom: 4 }}>
-        <button onClick={() => storageStats?.downloadPath && ipc.openFolder(storageStats.downloadPath)} style={{ flex: 1, height: 24, background: '#FFFFFF', border: '1px solid #D0D0D0', borderRadius: 2, fontSize: 8, color: '#777', cursor: 'pointer' }}>Mở thư mục</button>
-        <button onClick={async () => { const r = await ipc.clearDownloads(); if (r.success) showToast(`Freed ${r.freedMB}MB`) }} style={{ flex: 1, height: 24, background: '#FFFFFF', border: '1px solid #FF444422', borderRadius: 2, fontSize: 8, color: '#FF4444', cursor: 'pointer' }}>Xóa cache</button>
+        <button onClick={() => storageStats?.downloadPath && ipc.openFolder(storageStats.downloadPath)} style={{ flex: 1, height: 24, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 2, fontSize: 8, color: colors.textSecondary, cursor: 'pointer' }}>Mở thư mục</button>
+        <button onClick={async () => { const r = await ipc.clearDownloads(); if (r.success) showToast(`Freed ${r.freedMB}MB`) }} style={{ flex: 1, height: 24, background: colors.surface, border: `1px solid ${colors.error}22`, borderRadius: 2, fontSize: 8, color: colors.error, cursor: 'pointer' }}>Xóa cache</button>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        <span style={{ fontSize: 9, color: '#777' }}>Tự động xóa sau</span>
-        <select value={s.downloadsCleanupDays} onChange={e => onChange({ downloadsCleanupDays: Number(e.target.value) } as any)} style={{ height: 24, flex: 1, background: '#FFFFFF', border: '1px solid #D0D0D0', borderRadius: 2, color: '#00B4FF', fontSize: 9, fontFamily: 'monospace', cursor: 'pointer' }}>
+        <span style={{ fontSize: 9, color: colors.textSecondary }}>Tự động xóa sau</span>
+        <select value={s.downloadsCleanupDays} onChange={e => onChange({ downloadsCleanupDays: Number(e.target.value) } as any)} style={{ height: 24, flex: 1, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 2, color: colors.accent, fontSize: 9, fontFamily: 'monospace', cursor: 'pointer' }}>
           <option value={0}>Không</option>
           <option value={3}>3 ngày</option>
           <option value={7}>7 ngày</option>
@@ -461,15 +462,15 @@ function DetectionCard() {
   return (
     <Card>
       <SectionLabel>DETECTION</SectionLabel>
-      <div style={{ fontSize: 9, color: '#777', lineHeight: 1.7 }}>
+      <div style={{ fontSize: 9, color: colors.textSecondary, lineHeight: 1.7 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ width: 5, height: 5, borderRadius: '50%', background: consented > 0 ? '#00FF88' : '#333', flexShrink: 0 }} />
-          Innertube: <span style={{ color: consented > 0 ? '#00FF88' : '#555', fontWeight: 600 }}>{consented}/{sessionStatus?.sessionCount ?? 0}</span> sessions
-          {innertubeDegraded && <span style={{ color: '#FFB800', fontSize: 9, background: '#FFB80020', padding: '1px 5px', borderRadius: 2 }}>DEGRADED</span>}
+          <span style={{ width: 5, height: 5, borderRadius: '50%', background: consented > 0 ? colors.success : colors.textSecondary, flexShrink: 0 }} />
+          Innertube: <span style={{ color: consented > 0 ? colors.success : colors.textSecondary, fontWeight: 600 }}>{consented}/{sessionStatus?.sessionCount ?? 0}</span> sessions
+          {innertubeDegraded && <span style={{ color: colors.warning, fontSize: 9, background: colors.warning + '20', padding: '1px 5px', borderRadius: 2 }}>DEGRADED</span>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ width: 5, height: 5, borderRadius: '50%', background: healthPct >= 50 ? '#00FF88' : healthPct > 0 ? '#FFB800' : '#333', flexShrink: 0 }} />
-          Session health: <span style={{ color: healthPct >= 50 ? '#00FF88' : '#FFB800', fontWeight: 600 }}>{healthPct}%</span>
+          <span style={{ width: 5, height: 5, borderRadius: '50%', background: healthPct >= 50 ? colors.success : healthPct > 0 ? colors.warning : colors.textSecondary, flexShrink: 0 }} />
+          Session health: <span style={{ color: healthPct >= 50 ? colors.success : colors.warning, fontWeight: 600 }}>{healthPct}%</span>
         </div>
         <div style={{ marginTop: 2 }}>Poll: {pollerStatus?.active ? 'active' : 'paused'} · {pollerStatus?.lastError ? '⚠ lỗi' : '0 lỗi'}</div>
       </div>
@@ -485,11 +486,11 @@ function SystemCard({ systemStats }: { systemStats: SystemStats }) {
   return (
     <Card>
       <SectionLabel>SYSTEM</SectionLabel>
-      <div style={{ fontSize: 9, color: '#777', lineHeight: 1.7 }}>
-        <div>GPU: <span style={{ color: '#999' }}>{systemStats.gpuName || 'N/A'} · {systemStats.gpuTemp || 0}°C · {systemStats.gpuUsage || 0}%</span></div>
-        <div>CPU: <span style={{ color: '#999' }}>{systemStats.cpuName || 'N/A'} · {systemStats.cpuUsage || 0}%</span></div>
-        <div>RAM: <span style={{ color: '#999' }}>{Math.round(systemStats.ramUsed || 0)} / {Math.round(systemStats.ramTotal || 0)} GB</span></div>
-        <div>Workers: <span style={{ color: '#00B4FF', fontWeight: 600 }}>{systemStats.activeWorkers || 0}</span> / {systemStats.maxChunkWorkers || 8} · NVENC</div>
+      <div style={{ fontSize: 9, color: colors.textSecondary, lineHeight: 1.7 }}>
+        <div>GPU: <span style={{ color: colors.textSecondary }}>{systemStats.gpuName || 'N/A'} · {systemStats.gpuTemp || 0}°C · {systemStats.gpuUsage || 0}%</span></div>
+        <div>CPU: <span style={{ color: colors.textSecondary }}>{systemStats.cpuName || 'N/A'} · {systemStats.cpuUsage || 0}%</span></div>
+        <div>RAM: <span style={{ color: colors.textSecondary }}>{Math.round(systemStats.ramUsed || 0)} / {Math.round(systemStats.ramTotal || 0)} GB</span></div>
+        <div>Workers: <span style={{ color: colors.accent, fontWeight: 600 }}>{systemStats.activeWorkers || 0}</span> / {systemStats.maxChunkWorkers || 8} · NVENC</div>
       </div>
     </Card>
   )
@@ -501,15 +502,15 @@ function SystemCard({ systemStats }: { systemStats: SystemStats }) {
 
 export function SettingsPanel({ settings, systemStats, channels, onSettingsChange }: Props) {
   return (
-    <div style={{ flex: 1, background: '#F5F5F5', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ flex: 1, background: colors.bg, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Header bar */}
-      <div style={{ fontSize: 10, color: '#777', fontWeight: 700, padding: '6px 12px', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F5F5F5' }}>
+      <div style={{ fontSize: 10, color: colors.textSecondary, fontWeight: 700, padding: '6px 12px', borderBottom: `1px solid ${colors.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: colors.bg }}>
         <span style={{ letterSpacing: 1 }}>SETTINGS</span>
         <div style={{ display: 'flex', gap: 4 }}>
-          <a href="/settings?tab=sessions" style={{ padding: '2px 6px', border: '1px solid #D0D0D0', borderRadius: 2, fontSize: 9, color: '#777', textDecoration: 'none' }}>Sessions</a>
-          <a href="/settings?tab=projects" style={{ padding: '2px 6px', border: '1px solid #D0D0D0', borderRadius: 2, fontSize: 9, color: '#777', textDecoration: 'none' }}>Projects</a>
-          <a href="/settings?tab=keys" style={{ padding: '2px 6px', border: '1px solid #D0D0D0', borderRadius: 2, fontSize: 9, color: '#777', textDecoration: 'none' }}>Keys</a>
-          <a href="/settings?tab=diag" style={{ padding: '2px 6px', border: '1px solid #FF444422', borderRadius: 2, fontSize: 9, color: '#FF444466', textDecoration: 'none' }}>Diag</a>
+          <a href="/settings?tab=sessions" style={{ padding: '2px 6px', border: `1px solid ${colors.border}`, borderRadius: 2, fontSize: 9, color: colors.textSecondary, textDecoration: 'none' }}>Sessions</a>
+          <a href="/settings?tab=projects" style={{ padding: '2px 6px', border: `1px solid ${colors.border}`, borderRadius: 2, fontSize: 9, color: colors.textSecondary, textDecoration: 'none' }}>Projects</a>
+          <a href="/settings?tab=keys" style={{ padding: '2px 6px', border: `1px solid ${colors.border}`, borderRadius: 2, fontSize: 9, color: colors.textSecondary, textDecoration: 'none' }}>Keys</a>
+          <a href="/settings?tab=diag" style={{ padding: '2px 6px', border: `1px solid ${colors.error}22`, borderRadius: 2, fontSize: 9, color: colors.error + '66', textDecoration: 'none' }}>Diag</a>
         </div>
       </div>
 

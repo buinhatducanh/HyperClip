@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useRef, useState, useEffect, useCallback } from 'react'
+import { colors, spacing, fontSize } from '../design-system/tokens'
 import type { Video, EditorState, SystemStats } from '../types'
 import { ipc } from '../lib/ipc'
 import { SkeletonEditor } from './Skeleton'
@@ -39,7 +40,7 @@ function parseDuration(d: string | number): number {
 
 // ─── SVG Icons ───────────────────────────────────────────────────────────────────
 
-function IconScissors({ size = 12, color = '#777' }: { size?: number; color?: string }) {
+function IconScissors({ size = 12, color = colors.textSecondary }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="6" cy="6" r="3" />
@@ -51,7 +52,7 @@ function IconScissors({ size = 12, color = '#777' }: { size?: number; color?: st
   )
 }
 
-function IconImage({ size = 12, color = '#777' }: { size?: number; color?: string }) {
+function IconImage({ size = 12, color = colors.textSecondary }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
@@ -61,7 +62,7 @@ function IconImage({ size = 12, color = '#777' }: { size?: number; color?: strin
   )
 }
 
-function IconType({ size = 12, color = '#777' }: { size?: number; color?: string }) {
+function IconType({ size = 12, color = colors.textSecondary }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="4 7 4 4 20 4 20 7" />
@@ -71,7 +72,7 @@ function IconType({ size = 12, color = '#777' }: { size?: number; color?: string
   )
 }
 
-function IconZap({ size = 12, color = '#777' }: { size?: number; color?: string }) {
+function IconZap({ size = 12, color = colors.textSecondary }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={color} stroke="none">
       <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
@@ -79,7 +80,7 @@ function IconZap({ size = 12, color = '#777' }: { size?: number; color?: string 
   )
 }
 
-function IconPalette({ size = 12, color = '#777' }: { size?: number; color?: string }) {
+function IconPalette({ size = 12, color = colors.textSecondary }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="10" />
@@ -90,7 +91,7 @@ function IconPalette({ size = 12, color = '#777' }: { size?: number; color?: str
   )
 }
 
-function IconBarBottom({ size = 12, color = '#777' }: { size?: number; color?: string }) {
+function IconBarBottom({ size = 12, color = colors.textSecondary }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -99,7 +100,7 @@ function IconBarBottom({ size = 12, color = '#777' }: { size?: number; color?: s
   )
 }
 
-function IconPlay({ size = 18, color = '#1A1A1A' }: { size?: number; color?: string }) {
+function IconPlay({ size = 18, color = colors.text }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
       <polygon points="5 3 19 12 5 21 5 3" />
@@ -107,7 +108,7 @@ function IconPlay({ size = 18, color = '#1A1A1A' }: { size?: number; color?: str
   )
 }
 
-function IconPause({ size = 18, color = '#1A1A1A' }: { size?: number; color?: string }) {
+function IconPause({ size = 18, color = colors.text }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
       <rect x="6" y="4" width="4" height="16" rx="1" />
@@ -116,7 +117,7 @@ function IconPause({ size = 18, color = '#1A1A1A' }: { size?: number; color?: st
   )
 }
 
-function IconRewind({ size = 16, color = '#1A1A1A' }: { size?: number; color?: string }) {
+function IconRewind({ size = 16, color = colors.text }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
       <polygon points="11 19 2 12 11 5 11 19" fill={color} />
@@ -125,7 +126,7 @@ function IconRewind({ size = 16, color = '#1A1A1A' }: { size?: number; color?: s
   )
 }
 
-function IconForward({ size = 16, color = '#1A1A1A' }: { size?: number; color?: string }) {
+function IconForward({ size = 16, color = colors.text }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
       <polygon points="13 19 22 12 13 5 13 19" fill={color} />
@@ -134,7 +135,7 @@ function IconForward({ size = 16, color = '#1A1A1A' }: { size?: number; color?: 
   )
 }
 
-function IconVolume({ size = 14, muted = false, color = '#1A1A1A' }: { size?: number; muted?: boolean; color?: string }) {
+function IconVolume({ size = 14, muted = false, color = colors.text }: { size?: number; muted?: boolean; color?: string }) {
   if (muted) {
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
@@ -152,7 +153,7 @@ function IconVolume({ size = 14, muted = false, color = '#1A1A1A' }: { size?: nu
   )
 }
 
-function IconRefresh({ size = 12, color = '#777' }: { size?: number; color?: string }) {
+function IconRefresh({ size = 12, color = colors.textSecondary }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
       <polyline points="1 4 1 10 7 10" />
@@ -161,7 +162,7 @@ function IconRefresh({ size = 12, color = '#777' }: { size?: number; color?: str
   )
 }
 
-function IconX({ size = 14, color = '#777' }: { size?: number; color?: string }) {
+function IconX({ size = 14, color = colors.textSecondary }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
       <line x1="18" y1="6" x2="6" y2="18" />
@@ -170,7 +171,7 @@ function IconX({ size = 14, color = '#777' }: { size?: number; color?: string })
   )
 }
 
-function IconUpload({ size = 12, color = '#777' }: { size?: number; color?: string }) {
+function IconUpload({ size = 12, color = colors.textSecondary }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -180,7 +181,7 @@ function IconUpload({ size = 12, color = '#777' }: { size?: number; color?: stri
   )
 }
 
-function IconChevronRight({ size = 12, color = '#666' }: { size?: number; color?: string }) {
+function IconChevronRight({ size = 12, color = colors.textSecondary }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
       <polyline points="9 18 15 12 9 6" />
@@ -188,7 +189,7 @@ function IconChevronRight({ size = 12, color = '#666' }: { size?: number; color?
   )
 }
 
-function IconChevronLeft({ size = 12, color = '#666' }: { size?: number; color?: string }) {
+function IconChevronLeft({ size = 12, color = colors.textSecondary }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
       <polyline points="15 18 9 12 15 6" />
@@ -200,14 +201,14 @@ function IconChevronLeft({ size = 12, color = '#666' }: { size?: number; color?:
 
 function EmptyState() {
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: '#F0F0F0' }}>
-      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#E0E0E0" strokeWidth="1.5">
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: colors.bg }}>
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={colors.border} strokeWidth="1.5">
         <polygon points="5 3 19 12 5 21 5 3" />
       </svg>
-      <div style={{ fontSize: 12, color: '#666', fontWeight: 500 }}>Chọn video để chỉnh sửa</div>
-      <div style={{ fontSize: 10, color: '#777', lineHeight: 1.6, textAlign: 'center' }}>
+      <div style={{ fontSize: 12, color: colors.textSecondary, fontWeight: 500 }}>Chọn video để chỉnh sửa</div>
+      <div style={{ fontSize: 10, color: colors.textSecondary, lineHeight: 1.6, textAlign: 'center' }}>
         Danh sách video ở panel bên trái<br />
-        <span style={{ color: '#1A1A1A' }}>Kênh mới sẽ xuất hiện tự động trong vài phút</span>
+        <span style={{ color: colors.text }}>Kênh mới sẽ xuất hiện tự động trong vài phút</span>
       </div>
     </div>
   )
@@ -226,19 +227,19 @@ const TrimSection = React.memo(function TrimSection({ start, end, duration, curr
     <div style={{ padding: '10px 0 8px' }}>
       {/* Dual handle slider */}
       <div style={{ position: 'relative', height: 20, marginBottom: 6 }}>
-        <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', left: 0, right: 0, height: 4, background: '#FFFFFF', borderRadius: 2 }} />
-        <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', left: `${start}%`, width: `${end - start}%`, height: 4, background: '#00B4FF', borderRadius: 2 }} />
+        <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', left: 0, right: 0, height: 4, background: colors.surface, borderRadius: 2 }} />
+        <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', left: `${start}%`, width: `${end - start}%`, height: 4, background: colors.accent, borderRadius: 2 }} />
         {/* Playback position indicator */}
         {playbackPct > 0 && (
           <div style={{
             position: 'absolute', top: '50%', left: `${Math.min(playbackPct, 100)}%`,
             transform: 'translate(-50%, -50%)', width: 2, height: 12,
-            background: '#FF4444', borderRadius: 1, zIndex: 3, pointerEvents: 'none',
+            background: colors.error, borderRadius: 1, zIndex: 3, pointerEvents: 'none',
           }} />
         )}
         {/* Start handle */}
         <div
-          style={{ position: 'absolute', top: '50%', left: `${start}%`, transform: 'translate(-50%, -50%)', width: 12, height: 12, borderRadius: '50%', background: '#fff', border: '2px solid #00B4FF', cursor: 'ew-resize', zIndex: 2 }}
+          style={{ position: 'absolute', top: '50%', left: `${start}%`, transform: 'translate(-50%, -50%)', width: 12, height: 12, borderRadius: '50%', background: colors.surface, border: `2px solid ${colors.accent}`, cursor: 'ew-resize', zIndex: 2 }}
           onMouseDown={(e) => {
             e.stopPropagation(); e.preventDefault()
             const container = e.currentTarget.parentElement!
@@ -253,7 +254,7 @@ const TrimSection = React.memo(function TrimSection({ start, end, duration, curr
         />
         {/* End handle */}
         <div
-          style={{ position: 'absolute', top: '50%', left: `${end}%`, transform: 'translate(-50%, -50%)', width: 12, height: 12, borderRadius: '50%', background: '#fff', border: '2px solid #00B4FF', cursor: 'ew-resize', zIndex: 2 }}
+          style={{ position: 'absolute', top: '50%', left: `${end}%`, transform: 'translate(-50%, -50%)', width: 12, height: 12, borderRadius: '50%', background: colors.surface, border: `2px solid ${colors.accent}`, cursor: 'ew-resize', zIndex: 2 }}
           onMouseDown={(e) => {
             e.stopPropagation(); e.preventDefault()
             const container = e.currentTarget.parentElement!
@@ -270,38 +271,38 @@ const TrimSection = React.memo(function TrimSection({ start, end, duration, curr
       {/* Time chips */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontSize: 10, color: '#888', fontWeight: 600 }}>IN</span>
-          <span style={{ fontSize: 11, color: '#888', fontFamily: 'monospace', fontWeight: 600 }}>{fmtTime(startSec)}</span>
+          <span style={{ fontSize: 10, color: colors.textSecondary, fontWeight: 600 }}>IN</span>
+          <span style={{ fontSize: 11, color: colors.textSecondary, fontFamily: 'monospace', fontWeight: 600 }}>{fmtTime(startSec)}</span>
         </div>
-        <span style={{ fontSize: 11, color: '#00B4FF', fontFamily: 'monospace', fontWeight: 700 }}>{fmtTime(selectedSec)}</span>
+        <span style={{ fontSize: 11, color: colors.accent, fontFamily: 'monospace', fontWeight: 700 }}>{fmtTime(selectedSec)}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontSize: 11, color: '#888', fontFamily: 'monospace', fontWeight: 600 }}>{fmtTime(endSec)}</span>
-          <span style={{ fontSize: 10, color: '#888', fontWeight: 600 }}>OUT</span>
+          <span style={{ fontSize: 11, color: colors.textSecondary, fontFamily: 'monospace', fontWeight: 600 }}>{fmtTime(endSec)}</span>
+          <span style={{ fontSize: 10, color: colors.textSecondary, fontWeight: 600 }}>OUT</span>
         </div>
       </div>
       {/* Sped-up duration */}
       {speedMultiplier !== 1.0 && (
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-          padding: '5px 8px', background: '#00FF8808', border: '1px solid #00FF8820', borderRadius: 3,
+          padding: '5px 8px', background: colors.success + '08', border: `1px solid ${colors.success}20`, borderRadius: 3,
         }}>
-          <span style={{ fontSize: 9, color: '#888', fontWeight: 600 }}>OUTPUT</span>
-          <span style={{ fontSize: 13, fontWeight: 800, color: '#00FF88', fontFamily: 'monospace' }}>
+          <span style={{ fontSize: 9, color: colors.textSecondary, fontWeight: 600 }}>OUTPUT</span>
+          <span style={{ fontSize: 13, fontWeight: 800, color: colors.success, fontFamily: 'monospace' }}>
             {fmtTime(spedUpSec)}
           </span>
           <span style={{ fontSize: 9, color: '#00FF8866', fontWeight: 600 }}>
             @{speedMultiplier.toFixed(1)}x
           </span>
-          <span style={{ fontSize: 9, color: '#666' }}>
+          <span style={{ fontSize: 9, color: colors.textSecondary }}>
             ({Math.round(spedUpSec)}s)
           </span>
         </div>
       )}
       {/* Total duration */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
-        <span style={{ fontSize: 9, color: '#D0D0D0' }}>TỔNG: {fmtTime(duration)}</span>
+        <span style={{ fontSize: 9, color: colors.textTertiary }}>TỔNG: {fmtTime(duration)}</span>
         {speedMultiplier !== 1.0 && (
-          <span style={{ fontSize: 9, color: '#777' }}>SPEED → OUTPUT</span>
+          <span style={{ fontSize: 9, color: colors.textSecondary }}>SPEED → OUTPUT</span>
         )}
       </div>
     </div>
@@ -313,9 +314,9 @@ const TrimSection = React.memo(function TrimSection({ start, end, duration, curr
 function SplitIcon() {
   return (
     <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-      <line x1="4" y1="1" x2="4" y2="11" stroke="#777" strokeWidth="1.5" strokeLinecap="round"/>
-      <line x1="8" y1="1" x2="8" y2="11" stroke="#777" strokeWidth="1.5" strokeLinecap="round"/>
-      <line x1="1" y1="6" x2="11" y2="6" stroke="#777" strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="4" y1="1" x2="4" y2="11" stroke={colors.textSecondary} strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="8" y1="1" x2="8" y2="11" stroke={colors.textSecondary} strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="1" y1="6" x2="11" y2="6" stroke={colors.textSecondary} strokeWidth="1.5" strokeLinecap="round"/>
     </svg>
   )
 }
@@ -380,10 +381,10 @@ const SplitSection = React.memo(function SplitSection({ videoDuration, trimLimit
           onClick={() => setSplitMode('count')}
           style={{
             flex: 1, height: 26,
-            background: splitMode === 'count' ? '#00B4FF15' : '#1A1A1A',
-            border: `1px solid ${splitMode === 'count' ? '#00B4FF' : '#222'}`,
+            background: splitMode === 'count' ? colors.accent + '15' : colors.text,
+            border: `1px solid ${splitMode === 'count' ? colors.accent : colors.border}`,
             borderRadius: 3, fontSize: 9, fontWeight: 700,
-            color: splitMode === 'count' ? '#00B4FF' : '#555',
+            color: splitMode === 'count' ? colors.accent : colors.textSecondary,
             cursor: 'pointer',
           }}
         >
@@ -393,10 +394,10 @@ const SplitSection = React.memo(function SplitSection({ videoDuration, trimLimit
           onClick={() => setSplitMode('duration')}
           style={{
             flex: 1, height: 26,
-            background: splitMode === 'duration' ? '#00B4FF15' : '#1A1A1A',
-            border: `1px solid ${splitMode === 'duration' ? '#00B4FF' : '#222'}`,
+            background: splitMode === 'duration' ? colors.accent + '15' : colors.text,
+            border: `1px solid ${splitMode === 'duration' ? colors.accent : colors.border}`,
             borderRadius: 3, fontSize: 9, fontWeight: 700,
-            color: splitMode === 'duration' ? '#00B4FF' : '#555',
+            color: splitMode === 'duration' ? colors.accent : colors.textSecondary,
             cursor: 'pointer',
           }}
         >
@@ -412,18 +413,18 @@ const SplitSection = React.memo(function SplitSection({ videoDuration, trimLimit
               type="range"
               min={2} max={maxParts} value={numParts}
               onChange={(e) => setNumParts(Number(e.target.value))}
-              style={{ flex: 1, accentColor: '#00B4FF', cursor: 'pointer' }}
+              style={{ flex: 1, accentColor: colors.accent, cursor: 'pointer' }}
             />
-            <span style={{ fontSize: 13, fontWeight: 800, color: '#00B4FF', fontFamily: 'monospace', minWidth: 24, textAlign: 'right' }}>
+            <span style={{ fontSize: 13, fontWeight: 800, color: colors.accent, fontFamily: 'monospace', minWidth: 24, textAlign: 'right' }}>
               {numParts}
             </span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 9, color: '#666' }}>
+            <span style={{ fontSize: 9, color: colors.textSecondary }}>
               Mỗi phần: {fmtDuration(Math.ceil(videoDuration / numParts))}
             </span>
             {speed !== 1.0 && (
-              <span style={{ fontSize: 9, fontWeight: 700, color: '#00FF88' }}>
+              <span style={{ fontSize: 9, fontWeight: 700, color: colors.success }}>
                 → OUTPUT: {fmtDuration(Math.ceil(videoDuration / numParts / speed))}
               </span>
             )}
@@ -440,16 +441,16 @@ const SplitSection = React.memo(function SplitSection({ videoDuration, trimLimit
               min={1} max={Math.floor(videoDuration / 60)} value={customPartMin}
               onChange={(e) => setCustomPartMin(Math.max(1, Number(e.target.value)))}
               style={{
-                width: 52, height: 26, background: '#FFFFFF', border: '1px solid #D0D0D0',
-                borderRadius: 3, color: '#00B4FF', fontSize: 12, fontWeight: 700,
+                width: 52, height: 26, background: colors.surface, border: `1px solid ${colors.border}`,
+                borderRadius: 3, color: colors.accent, fontSize: 12, fontWeight: 700,
                 fontFamily: 'monospace', textAlign: 'center', outline: 'none',
               }}
             />
-            <span style={{ fontSize: 9, color: '#888' }}>phút / phần</span>
-            <span style={{ fontSize: 9, color: '#666', marginLeft: 'auto' }}>
+            <span style={{ fontSize: 9, color: colors.textSecondary }}>phút / phần</span>
+            <span style={{ fontSize: 9, color: colors.textSecondary, marginLeft: 'auto' }}>
               {Math.ceil(videoDuration / customPartMin / 60)} phần
               {speed !== 1.0 && (
-                <span style={{ color: '#00FF88', fontWeight: 700 }}>
+                <span style={{ color: colors.success, fontWeight: 700 }}>
                   {' '}→ {fmtDuration(Math.ceil(videoDuration / speed))} out
                 </span>
               )}
@@ -461,17 +462,17 @@ const SplitSection = React.memo(function SplitSection({ videoDuration, trimLimit
       {/* Total output summary */}
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: '5px 8px', background: '#FFFFFF', borderRadius: 3, marginBottom: 6,
-        border: '1px solid #D0D0D0',
+        padding: '5px 8px', background: colors.surface, borderRadius: 3, marginBottom: 6,
+        border: `1px solid ${colors.border}`,
       }}>
-        <span style={{ fontSize: 9, color: '#888', fontWeight: 600 }}>TỔNG OUTPUT</span>
+        <span style={{ fontSize: 9, color: colors.textSecondary, fontWeight: 600 }}>TỔNG OUTPUT</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {speed !== 1.0 && (
-            <span style={{ fontSize: 9, color: '#777', textDecoration: 'line-through' }}>
+            <span style={{ fontSize: 9, color: colors.textSecondary, textDecoration: 'line-through' }}>
               {fmtDuration(videoDuration)}
             </span>
           )}
-          <span style={{ fontSize: 13, fontWeight: 800, color: '#00FF88', fontFamily: 'monospace' }}>
+          <span style={{ fontSize: 13, fontWeight: 800, color: colors.success, fontFamily: 'monospace' }}>
             {fmtDuration(videoDuration / speed)}
           </span>
           {speed !== 1.0 && (
@@ -484,10 +485,10 @@ const SplitSection = React.memo(function SplitSection({ videoDuration, trimLimit
 
       {/* Timeline preview */}
       <div style={{ marginBottom: 8 }}>
-        <div style={{ height: 20, background: '#FFFFFF', borderRadius: 3, position: 'relative', overflow: 'hidden' }}>
+        <div style={{ height: 20, background: colors.surface, borderRadius: 3, position: 'relative', overflow: 'hidden' }}>
           {parts.map((p, i) => {
-            const colors = ['#00B4FF', '#00FF88', '#FFB800', '#FF6B35', '#7C3AED']
-            const color = colors[i % colors.length]
+            const timelineColors = [colors.accent, colors.success, colors.warning, '#FF6B35', '#7C3AED']
+            const color = timelineColors[i % timelineColors.length]
             const left = (p.start / videoDuration) * 100
             const width = ((p.end - p.start) / videoDuration) * 100
             return (
@@ -507,8 +508,8 @@ const SplitSection = React.memo(function SplitSection({ videoDuration, trimLimit
         </div>
         {/* Time labels */}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3 }}>
-          <span style={{ fontSize: 8, color: '#666', fontFamily: 'monospace' }}>0:00</span>
-          <span style={{ fontSize: 8, color: '#666', fontFamily: 'monospace' }}>{fmtTime(videoDuration)}</span>
+          <span style={{ fontSize: 8, color: colors.textSecondary, fontFamily: 'monospace' }}>0:00</span>
+          <span style={{ fontSize: 8, color: colors.textSecondary, fontFamily: 'monospace' }}>{fmtTime(videoDuration)}</span>
         </div>
       </div>
 
@@ -520,26 +521,26 @@ const SplitSection = React.memo(function SplitSection({ videoDuration, trimLimit
           return (
             <div key={p.index} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '4px 0', borderBottom: '1px solid #E0E0E0',
+              padding: '4px 0', borderBottom: `1px solid ${colors.border}`,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{
                   width: 16, height: 16, borderRadius: 3, fontSize: 7, fontWeight: 800,
-                  background: '#00B4FF22', color: '#00B4FF', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: colors.accent + '22', color: colors.accent, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
                   {p.index}
                 </span>
-                <span style={{ fontSize: 9, color: '#777', fontFamily: 'monospace' }}>
+                <span style={{ fontSize: 9, color: colors.textSecondary, fontFamily: 'monospace' }}>
                   {fmtTime(p.start)} – {fmtTime(p.end)}
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 {speed !== 1.0 && (
-                  <span style={{ fontSize: 8, color: '#666', textDecoration: 'line-through' }}>
+                  <span style={{ fontSize: 8, color: colors.textSecondary, textDecoration: 'line-through' }}>
                     {fmtDuration(origDur)}
                   </span>
                 )}
-                <span style={{ fontSize: 9, fontWeight: 700, color: '#00FF88', fontFamily: 'monospace' }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: colors.success, fontFamily: 'monospace' }}>
                   {fmtDuration(outDur)}
                 </span>
               </div>
@@ -554,9 +555,9 @@ const SplitSection = React.memo(function SplitSection({ videoDuration, trimLimit
         disabled={isSplitting}
         style={{
           width: '100%', height: 30,
-          background: isSplitting ? '#00B4FF22' : '#00B4FF15',
-          border: '1px solid #00B4FF44',
-          borderRadius: 3, fontSize: 10, fontWeight: 800, color: '#00B4FF',
+          background: isSplitting ? colors.accent + '22' : colors.accent + '15',
+          border: `1px solid ${colors.accent}44`,
+          borderRadius: 3, fontSize: 10, fontWeight: 800, color: colors.accent,
           cursor: isSplitting ? 'default' : 'pointer', letterSpacing: '0.06em',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
         }}
@@ -564,16 +565,16 @@ const SplitSection = React.memo(function SplitSection({ videoDuration, trimLimit
         {isSplitting ? (
           <>
             <svg width="10" height="10" viewBox="0 0 10 10" style={{ animation: 'spin 1s linear infinite' }}>
-              <circle cx="5" cy="5" r="4" stroke="#00B4FF44" strokeWidth="1.5" fill="none"/>
-              <path d="M5 1 A4 4 0 0 1 9 5" stroke="#00B4FF" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+              <circle cx="5" cy="5" r="4" stroke={colors.accent + '44'} strokeWidth="1.5" fill="none"/>
+              <path d="M5 1 A4 4 0 0 1 9 5" stroke={colors.accent} strokeWidth="1.5" fill="none" strokeLinecap="round"/>
             </svg>
             ĐANG TÁCH...
           </>
         ) : (
           <>
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-              <line x1="3" y1="1" x2="3" y2="9" stroke="#00B4FF" strokeWidth="1.5" strokeLinecap="round"/>
-              <line x1="7" y1="1" x2="7" y2="9" stroke="#00B4FF" strokeWidth="1.5" strokeLinecap="round"/>
+              <line x1="3" y1="1" x2="3" y2="9" stroke={colors.accent} strokeWidth="1.5" strokeLinecap="round"/>
+              <line x1="7" y1="1" x2="7" y2="9" stroke={colors.accent} strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
             TÁCH {parts.length} PHẦN
           </>
@@ -609,31 +610,31 @@ const HeaderSection = React.memo(function HeaderSection({ headerImageUrl, header
           onClick={() => headerFileRef.current?.click()}
           style={{
             flex: 1, height: 30,
-            background: headerImageUrl ? '#00B4FF15' : '#1A1A1A',
-            border: `1px solid ${headerImageUrl ? '#00B4FF' : '#222'}`,
+            background: headerImageUrl ? colors.accent + '15' : colors.text,
+            border: `1px solid ${headerImageUrl ? colors.accent : colors.border}`,
             borderRadius: 3, fontSize: 10, fontWeight: 700,
-            color: headerImageUrl ? '#00B4FF' : '#555',
+            color: headerImageUrl ? colors.accent : colors.textSecondary,
             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
             transition: 'all 0.15s',
           }}
         >
-          <IconUpload size={10} color={headerImageUrl ? '#00B4FF' : '#555'} />
+          <IconUpload size={10} color={headerImageUrl ? colors.accent : colors.textSecondary} />
           {headerImageUrl ? 'HEADER' : 'ADD HEADER'}
         </button>
         {headerImageUrl && (
           <button
             onClick={() => onChange({ headerImageUrl: null, headerImageDiskPath: null })}
-            style={{ width: 30, height: 30, background: 'transparent', border: '1px solid #FF444422', borderRadius: 3, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            style={{ width: 30, height: 30, background: 'transparent', border: `1px solid ${colors.error}22`, borderRadius: 3, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
-            <IconX size={12} color="#FF4444" />
+            <IconX size={12} color={colors.error} />
           </button>
         )}
       </div>
       {headerImageUrl && (
         <div style={{ marginTop: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-            <span style={{ fontSize: 10, color: '#888' }}>POSITION</span>
-            <span style={{ fontSize: 10, color: '#777', fontFamily: 'monospace' }}>
+            <span style={{ fontSize: 10, color: colors.textSecondary }}>POSITION</span>
+            <span style={{ fontSize: 10, color: colors.textSecondary, fontFamily: 'monospace' }}>
               {headerImageOffsetY < 33 ? 'TOP' : headerImageOffsetY < 66 ? 'CENTER' : 'BOTTOM'}
             </span>
           </div>
@@ -669,8 +670,8 @@ const TitleSection = React.memo(function TitleSection({ titleText, titleShape, t
         placeholder="Nhập tiêu đề..."
         rows={2}
         style={{
-          width: '100%', background: '#F8F8F8', borderWidth: 1, borderStyle: 'solid', borderColor: '#E0E0E0',
-          borderRadius: 3, color: '#666', fontSize: 11, padding: '6px 8px',
+          width: '100%', background: colors.bg, borderWidth: 1, borderStyle: 'solid', borderColor: colors.border,
+          borderRadius: 3, color: colors.textSecondary, fontSize: 11, padding: '6px 8px',
           resize: 'none', outline: 'none', fontFamily: 'Inter', lineHeight: 1.3,
         }}
       />
@@ -681,7 +682,7 @@ const TitleSection = React.memo(function TitleSection({ titleText, titleShape, t
           const active = titleShape === s.id
           return (
             <button key={s.id} onClick={() => onChange({ titleShape: s.id } as any)}
-              style={{ flex: 1, height: 26, fontSize: 11, cursor: 'pointer', background: active ? '#00B4FF15' : '#1A1A1A', borderWidth: 1, borderStyle: 'solid', borderColor: active ? '#00B4FF' : '#222', borderRadius: 3, color: active ? '#00B4FF' : '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}
+              style={{ flex: 1, height: 26, fontSize: 11, cursor: 'pointer', background: active ? colors.accent + '15' : colors.text, borderWidth: 1, borderStyle: 'solid', borderColor: active ? colors.accent : colors.border, borderRadius: 3, color: active ? colors.accent : colors.textSecondary, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}
               title={s.title}
             >
               <span style={{ fontSize: 10 }}>{s.label}</span>
@@ -693,21 +694,21 @@ const TitleSection = React.memo(function TitleSection({ titleText, titleShape, t
       {/* Colors + Font size */}
       <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 10, color: '#888', marginBottom: 3 }}>VIỀN</div>
-          <div style={{ position: 'relative', height: 24, borderRadius: 2, background: titleBorderColor, border: '1px solid #D0D0D0', overflow: 'hidden' }}>
+          <div style={{ fontSize: 10, color: colors.textSecondary, marginBottom: 3 }}>VIỀN</div>
+          <div style={{ position: 'relative', height: 24, borderRadius: 2, background: titleBorderColor, border: `1px solid ${colors.border}`, overflow: 'hidden' }}>
             <input type="color" value={titleBorderColor} onChange={(e) => onChange({ titleBorderColor: e.target.value })} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
           </div>
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 10, color: '#888', marginBottom: 3 }}>NỀN</div>
-          <div style={{ position: 'relative', height: 24, borderRadius: 2, background: titleBgColor.startsWith('rgba') ? '#000' : titleBgColor, border: '1px solid #D0D0D0', overflow: 'hidden' }}>
+          <div style={{ fontSize: 10, color: colors.textSecondary, marginBottom: 3 }}>NỀN</div>
+          <div style={{ position: 'relative', height: 24, borderRadius: 2, background: titleBgColor.startsWith('rgba') ? '#000' : titleBgColor, border: `1px solid ${colors.border}`, overflow: 'hidden' }}>
             <input type="color" value={titleBgColor.startsWith('rgba') ? '#000000' : titleBgColor} onChange={(e) => onChange({ titleBgColor: e.target.value })} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
           </div>
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 10, color: '#888', marginBottom: 3 }}>CỠ</div>
-          <div style={{ height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#FFFFFF', border: '1px solid #D0D0D0', borderRadius: 2 }}>
-            <span style={{ fontSize: 11, color: '#888', fontFamily: 'monospace', fontWeight: 700 }}>{titleFontSize}</span>
+          <div style={{ fontSize: 10, color: colors.textSecondary, marginBottom: 3 }}>CỠ</div>
+          <div style={{ height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 2 }}>
+            <span style={{ fontSize: 11, color: colors.textSecondary, fontFamily: 'monospace', fontWeight: 700 }}>{titleFontSize}</span>
           </div>
         </div>
       </div>
@@ -717,7 +718,7 @@ const TitleSection = React.memo(function TitleSection({ titleText, titleShape, t
       />
 
       {/* Bottom bar toggle (SHORT only) */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, paddingTop: 10, borderTop: '1px solid #E0E0E0' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${colors.border}` }}>
         <input
           type="checkbox"
           id="bb-enabled"
@@ -725,12 +726,12 @@ const TitleSection = React.memo(function TitleSection({ titleText, titleShape, t
           onChange={(e) => {
             onChange({ bottomBarEnabled: e.target.checked })
             if (e.target.checked && !titleText) {
-              onChange({ titleText: 'PART 1', bottomBarColor: '#000000' })
+              onChange({ titleText: 'PART 1', bottomBarColor: colors.text })
             }
           }}
-          style={{ accentColor: '#00B4FF', width: 14, height: 14, cursor: 'pointer' }}
+          style={{ accentColor: colors.accent, width: 14, height: 14, cursor: 'pointer' }}
         />
-        <label htmlFor="bb-enabled" style={{ fontSize: 11, color: '#888', cursor: 'pointer', flex: 1 }}>
+        <label htmlFor="bb-enabled" style={{ fontSize: 11, color: colors.textSecondary, cursor: 'pointer', flex: 1 }}>
           Bottom bar (SHORT only)
         </label>
       </div>
@@ -739,7 +740,7 @@ const TitleSection = React.memo(function TitleSection({ titleText, titleShape, t
         <>
           {/* Color + Info row */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-            <div style={{ position: 'relative', height: 24, width: 60, borderRadius: 2, background: bottomBarColor, border: '1px solid #D0D0D0', overflow: 'hidden', flexShrink: 0 }}>
+            <div style={{ position: 'relative', height: 24, width: 60, borderRadius: 2, background: bottomBarColor, border: `1px solid ${colors.border}`, overflow: 'hidden', flexShrink: 0 }}>
               <input
                 type="color"
                 value={bottomBarColor}
@@ -747,7 +748,7 @@ const TitleSection = React.memo(function TitleSection({ titleText, titleShape, t
                 style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }}
               />
             </div>
-            <span style={{ fontSize: 10, color: '#777' }}>
+            <span style={{ fontSize: 10, color: colors.textSecondary }}>
               Bar color — text is auto white
             </span>
           </div>
@@ -792,17 +793,17 @@ const SpeedSection = React.memo(function SpeedSection({ speedMultiplier, onChang
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         <button
           onClick={() => onChange({ speedMultiplier: Math.max(1.0, +(speedMultiplier - 0.1).toFixed(1)) })}
-          style={{ width: 28, height: 28, background: '#FFFFFF', border: '1px solid #D0D0D0', borderRadius: 3, color: '#777', fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{ width: 28, height: 28, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 3, color: colors.textSecondary, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         >
           <span>−</span>
         </button>
         <div style={{ flex: 1, textAlign: 'center' }}>
-          <span style={{ fontSize: 22, fontWeight: 800, color: '#00FF88', fontFamily: 'monospace' }}>{fmt(speedMultiplier)}</span>
-          <span style={{ fontSize: 11, color: '#777', marginLeft: 2 }}>x</span>
+          <span style={{ fontSize: 22, fontWeight: 800, color: colors.success, fontFamily: 'monospace' }}>{fmt(speedMultiplier)}</span>
+          <span style={{ fontSize: 11, color: colors.textSecondary, marginLeft: 2 }}>x</span>
         </div>
         <button
           onClick={() => onChange({ speedMultiplier: Math.min(2.0, +(speedMultiplier + 0.1).toFixed(1)) })}
-          style={{ width: 28, height: 28, background: '#FFFFFF', border: '1px solid #D0D0D0', borderRadius: 3, color: '#777', fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{ width: 28, height: 28, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 3, color: colors.textSecondary, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         >
           <span>+</span>
         </button>
@@ -819,9 +820,9 @@ const SpeedSection = React.memo(function SpeedSection({ speedMultiplier, onChang
           return (
             <button key={v} onClick={() => onChange({ speedMultiplier: v })}
               style={{
-                flex: 1, height: 22, background: active ? '#00FF8820' : '#1A1A1A',
-                border: `1px solid ${active ? '#00FF88' : '#222'}`, borderRadius: 3,
-                fontSize: 10, fontWeight: 700, color: active ? '#00FF88' : '#555',
+                flex: 1, height: 22, background: active ? colors.success + '20' : colors.text,
+                border: `1px solid ${active ? colors.success : colors.border}`, borderRadius: 3,
+                fontSize: 10, fontWeight: 700, color: active ? colors.success : colors.textSecondary,
                 cursor: 'pointer', fontFamily: 'monospace',
               }}
             >
@@ -835,21 +836,21 @@ const SpeedSection = React.memo(function SpeedSection({ speedMultiplier, onChang
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           marginTop: 8, padding: '6px 8px',
-          background: '#00FF8808', border: '1px solid #00FF8820', borderRadius: 3,
+          background: colors.success + '08', border: `1px solid ${colors.success}20`, borderRadius: 3,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ fontSize: 9, color: '#888', fontWeight: 600 }}>TRIM OUT</span>
+            <span style={{ fontSize: 9, color: colors.textSecondary, fontWeight: 600 }}>TRIM OUT</span>
             {selectedSec > 0 && (
-              <span style={{ fontSize: 9, color: '#666', textDecoration: 'line-through' }}>
+              <span style={{ fontSize: 9, color: colors.textSecondary, textDecoration: 'line-through' }}>
                 {fmtTime(selectedSec)}
               </span>
             )}
             {selectedSec > 0 ? (
-              <span style={{ fontSize: 12, fontWeight: 800, color: '#00FF88', fontFamily: 'monospace' }}>
+              <span style={{ fontSize: 12, fontWeight: 800, color: colors.success, fontFamily: 'monospace' }}>
                 {fmtTime(spedUpSec)}
               </span>
             ) : (
-              <span style={{ fontSize: 12, fontWeight: 800, color: '#00FF88', fontFamily: 'monospace' }}>
+              <span style={{ fontSize: 12, fontWeight: 800, color: colors.success, fontFamily: 'monospace' }}>
                 {fmtTime(totalSpedUp)}
               </span>
             )}
@@ -899,10 +900,10 @@ const BackgroundSection = React.memo(function BackgroundSection({ backgroundType
             <button key={t} onClick={() => onChange({ backgroundType: t })}
               style={{
                 flex: 1, height: 26,
-                background: active ? '#00B4FF15' : '#1A1A1A',
-                border: `1px solid ${active ? '#00B4FF' : '#222'}`,
+                background: active ? colors.accent + '15' : colors.text,
+                border: `1px solid ${active ? colors.accent : colors.border}`,
                 borderRadius: 3, fontSize: 10, fontWeight: 700,
-                color: active ? '#00B4FF' : '#555',
+                color: active ? colors.accent : colors.textSecondary,
                 cursor: 'pointer', letterSpacing: '0.04em',
               }}
             >
@@ -914,7 +915,7 @@ const BackgroundSection = React.memo(function BackgroundSection({ backgroundType
 
       {/* Solid color */}
       {backgroundType === 'solid' && (
-        <div style={{ position: 'relative', height: 28, borderRadius: 3, background: backgroundColor, border: '1px solid #D0D0D0', overflow: 'hidden' }}>
+        <div style={{ position: 'relative', height: 28, borderRadius: 3, background: backgroundColor, border: `1px solid ${colors.border}`, overflow: 'hidden' }}>
           <input type="color" value={backgroundColor}
             onChange={(e) => onChange({ backgroundColor: e.target.value })}
             style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }}
@@ -936,9 +937,9 @@ const BackgroundSection = React.memo(function BackgroundSection({ backgroundType
               onShowToast?.(`Blur failed: ${result?.error || 'Unknown error'}`)
             }
           }}
-          style={{ width: '100%', height: 28, background: '#FFFFFF', border: '1px solid #D0D0D0', borderRadius: 3, color: '#777', fontSize: 10, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+          style={{ width: '100%', height: 28, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 3, color: colors.textSecondary, fontSize: 10, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
           onMouseEnter={e => { e.currentTarget.style.borderColor = '#00B4FF44'; e.currentTarget.style.color = '#00B4FF' }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = '#D0D0D0'; e.currentTarget.style.color = '#777' }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = '#D0D0D0'; e.currentTarget.style.color = colors.textSecondary }}
         >
           <IconRefresh size={10} color="currentColor" />
           REGENERATE
@@ -953,7 +954,7 @@ const BackgroundSection = React.memo(function BackgroundSection({ backgroundType
       )}
       {backgroundType === 'image' && (
         <button onClick={() => bgImageFileRef.current?.click()}
-          style={{ width: '100%', height: 28, background: '#FFFFFF', border: '1px solid dashed #D0D0D0', borderRadius: 3, color: '#888', fontSize: 10, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+          style={{ width: '100%', height: 28, background: colors.surface, border: '1px dashed ' + colors.border, borderRadius: 3, color: colors.textSecondary, fontSize: 10, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
         >
           <IconUpload size={10} color="currentColor" />
           UPLOAD {editorIsShort ? 'IMAGE' : 'THUMB'}
@@ -967,14 +968,14 @@ const BackgroundSection = React.memo(function BackgroundSection({ backgroundType
             onChange={handleImageUpload}
           />
           <button onClick={() => thumbImageFileRef.current?.click()}
-            style={{ width: '100%', height: 28, marginTop: 6, background: '#FFFFFF', border: '1px solid #D0D0D0', borderRadius: 3, color: '#777', fontSize: 10, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+            style={{ width: '100%', height: 28, marginTop: 6, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 3, color: colors.textSecondary, fontSize: 10, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
           >
             <IconUpload size={10} color="currentColor" />
             {backgroundImageUrl ? 'CHANGE THUMB' : 'ADD THUMBNAIL'}
           </button>
           {backgroundImageUrl && (
             <button onClick={() => onChange({ backgroundImageUrl: null, backgroundImageDiskPath: null })}
-              style={{ width: '100%', height: 22, marginTop: 4, background: 'transparent', border: '1px solid #FF444422', borderRadius: 3, color: '#FF4444', fontSize: 9, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              style={{ width: '100%', height: 22, marginTop: 4, background: 'transparent', border: `1px solid ${colors.error}22`, borderRadius: 3, color: colors.error, fontSize: 9, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               REMOVE THUMB
             </button>
@@ -983,20 +984,20 @@ const BackgroundSection = React.memo(function BackgroundSection({ backgroundType
           {/* Video height slider for landscape */}
           <div style={{ marginTop: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-              <span style={{ fontSize: 10, color: '#888', fontWeight: 700 }}>VIDEO</span>
-              <span style={{ fontSize: 10, color: '#777', fontFamily: 'monospace' }}>{vidHeightPct}%</span>
+              <span style={{ fontSize: 10, color: colors.textSecondary, fontWeight: 700 }}>VIDEO</span>
+              <span style={{ fontSize: 10, color: colors.textSecondary, fontFamily: 'monospace' }}>{vidHeightPct}%</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 8, color: '#D0D0D0', flexShrink: 0 }}>30</span>
+              <span style={{ fontSize: 8, color: colors.textTertiary, flexShrink: 0 }}>30</span>
               <input type="range" min={30} max={85} value={vidHeightPct}
                 onChange={(e) => onChange({ vidHeightPct: +e.target.value })}
                 style={{ flex: 1, height: 3 }}
               />
-              <span style={{ fontSize: 8, color: '#D0D0D0', flexShrink: 0 }}>85</span>
+              <span style={{ fontSize: 8, color: colors.textTertiary, flexShrink: 0 }}>85</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
-              <span style={{ fontSize: 8, color: '#D0D0D0' }}>video nhỏ</span>
-              <span style={{ fontSize: 8, color: '#D0D0D0' }}>video lớn</span>
+              <span style={{ fontSize: 8, color: colors.textTertiary }}>video nhỏ</span>
+              <span style={{ fontSize: 8, color: colors.textTertiary }}>video lớn</span>
             </div>
           </div>
         </>
@@ -1207,7 +1208,7 @@ const CanvasArea = React.memo(function CanvasArea({ video, editorState, onChange
   return (
     <div
       ref={containerRef}
-      style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#F0F0F0', position: 'relative' }}
+      style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: colors.bg, position: 'relative' }}
       onMouseMove={() => setShowControls(true)}
     >
       {/* Centered canvas container */}
@@ -1217,23 +1218,23 @@ const CanvasArea = React.memo(function CanvasArea({ video, editorState, onChange
             style={{
               width: canvasW,
               height: canvasH,
-              background: isDark ? '#000' : '#FFF',
+              background: isDark ? colors.text : colors.surface,
               borderRadius: 3,
               display: 'flex', flexDirection: 'column',
               position: 'relative', overflow: 'hidden',
-              boxShadow: '0 20px 80px rgba(0,0,0,0.2), 0 0 0 1px #E0E0E0',
+              boxShadow: '0 20px 80px rgba(0,0,0,0.2), 0 0 0 1px ' + colors.border,
             }}
           >
             {/* Zone 1: Header Image (short) / Thumbnail (landscape) */}
             <div
               style={{
                 width: '100%', height: `${(headerH / NATIVE_H) * 100}%`,
-                background: isDark ? '#050505' : '#F0F0F0',
+                background: isDark ? colors.text : colors.bg,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 overflow: 'hidden', flexShrink: 0,
                 cursor: headerDragY !== null ? 'grabbing' : 'ns-resize',
                 position: 'relative',
-                borderBottom: '1px solid #E0E0E0',
+                borderBottom: `1px solid ${colors.border}`,
               }}
               onMouseDown={(e) => {
                 const rect = e.currentTarget.parentElement!.getBoundingClientRect()
@@ -1264,8 +1265,8 @@ const CanvasArea = React.memo(function CanvasArea({ video, editorState, onChange
                   />
                 ) : (
                   <div style={{ textAlign: 'center', opacity: 0.06 }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#777" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                    <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.12em', marginTop: 3, color: '#888' }}>HEADER</div>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.textSecondary} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                    <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.12em', marginTop: 3, color: colors.textSecondary }}>HEADER</div>
                   </div>
                 )
               ) : (
@@ -1281,14 +1282,14 @@ const CanvasArea = React.memo(function CanvasArea({ video, editorState, onChange
                   }}
                 />
               )}
-              {isShort && <div style={{ position: 'absolute', bottom: -3, left: '50%', transform: 'translateX(-50%)', width: 24, height: 5, background: '#00B4FF', borderRadius: 3, opacity: 0.6, cursor: 'ns-resize' }} />}
+              {isShort && <div style={{ position: 'absolute', bottom: -3, left: '50%', transform: 'translateX(-50%)', width: 24, height: 5, background: colors.accent, borderRadius: 3, opacity: 0.6, cursor: 'ns-resize' }} />}
             </div>
 
             {/* Zone 2: Video */}
             <div
               style={{
                 width: '100%', height: `${(videoH / NATIVE_H) * 100}%`,
-                background: '#000', position: 'relative',
+                background: colors.text, position: 'relative',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 cursor: 'pointer', flexShrink: 0,
               }}
@@ -1343,7 +1344,7 @@ const CanvasArea = React.memo(function CanvasArea({ video, editorState, onChange
               {/* Spinner */}
               {showSpinner && (
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <div style={{ width: 28, height: 28, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.15)', borderTopColor: '#00B4FF', animation: 'spin 0.8s linear infinite' }} />
+                  <div style={{ width: 28, height: 28, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.15)', borderTopColor: colors.accent, animation: 'spin 0.8s linear infinite' }} />
                 </div>
               )}
 
@@ -1358,20 +1359,20 @@ const CanvasArea = React.memo(function CanvasArea({ video, editorState, onChange
 
               {/* Error / status badge */}
               {(videoError || videoNotAvailable) && (
-                <div style={{ position: 'absolute', bottom: 4, left: 4, right: 4, padding: '2px 6px', borderRadius: 2, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', fontSize: 8, color: videoError ? '#FF4444' : '#FFB800', fontWeight: 700, textAlign: 'center', letterSpacing: '0.08em' }}>
+                <div style={{ position: 'absolute', bottom: 4, left: 4, right: 4, padding: '2px 6px', borderRadius: 2, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', fontSize: 8, color: videoError ? colors.error : colors.warning, fontWeight: 700, textAlign: 'center', letterSpacing: '0.08em' }}>
                   {videoError ? 'VIDEO ERROR' : video.status === 'rendering' ? 'ĐANG RENDER...' : 'PREVIEW UNAVAILABLE'}
                 </div>
               )}
 
               {/* Speed badge */}
               {isReady && editorState.speedMultiplier !== 1.0 && (
-                <div style={{ position: 'absolute', top: 4, right: 4, padding: '2px 5px', borderRadius: 2, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', fontSize: 8, fontWeight: 700, color: '#00FF88', fontFamily: 'monospace' }}>
+                <div style={{ position: 'absolute', top: 4, right: 4, padding: '2px 5px', borderRadius: 2, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', fontSize: 8, fontWeight: 700, color: colors.success, fontFamily: 'monospace' }}>
                   {editorState.speedMultiplier.toFixed(1)}x
                 </div>
               )}
 
               {/* Zone label */}
-              <div style={{ position: 'absolute', bottom: 3, right: 4, fontSize: 7, color: '#666', fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.05em' }}>
+              <div style={{ position: 'absolute', bottom: 3, right: 4, fontSize: 7, color: colors.textSecondary, fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.05em' }}>
                 VIDEO
               </div>
             </div>
@@ -1379,12 +1380,12 @@ const CanvasArea = React.memo(function CanvasArea({ video, editorState, onChange
             {/* Zone 3: Bottom bar (short + enabled) / Title overlay (landscape or short + disabled) */}
             <div style={{
               width: '100%', height: `${(titleH / NATIVE_H) * 100}%`,
-              background: isDark ? '#000' : '#FFF',
+              background: isDark ? colors.text : colors.surface,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexShrink: 0, position: 'relative',
               overflow: 'hidden',
             }}>
-              <div style={{ position: 'absolute', top: 3, left: 4, fontSize: 7, color: '#666', fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.05em' }}>
+              <div style={{ position: 'absolute', top: 3, left: 4, fontSize: 7, color: colors.textSecondary, fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.05em' }}>
                 {isShort && editorState.bottomBarEnabled ? 'BOTTOM BAR' : (isShort ? 'TITLE' : 'PART')}
               </div>
 
@@ -1410,7 +1411,7 @@ const CanvasArea = React.memo(function CanvasArea({ video, editorState, onChange
                       }}
                     />
                   ) : (
-                    <div style={{ position: 'absolute', inset: 0, background: editorState.bottomBarColor || '#000' }} />
+                    <div style={{ position: 'absolute', inset: 0, background: editorState.bottomBarColor || colors.text }} />
                   )}
                   {/* Gradient overlay: dark at top → transparent at bottom (top 60%) */}
                   <div style={{
@@ -1425,7 +1426,7 @@ const CanvasArea = React.memo(function CanvasArea({ video, editorState, onChange
                   }}>
                     <span style={{
                       fontSize: Math.round(bottomBarH * 0.45),
-                      fontWeight: 700, color: '#1A1A1A', textAlign: 'center', lineHeight: 1.2,
+                      fontWeight: 700, color: colors.text, textAlign: 'center', lineHeight: 1.2,
                     }}>
                       {editorState.titleText || 'PART 1'}
                     </span>
@@ -1438,7 +1439,7 @@ const CanvasArea = React.memo(function CanvasArea({ video, editorState, onChange
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
                   {editorState.titleText ? (
-                    <span style={{ fontSize: Math.min(editorState.titleFontSize, maxTitleFont), fontWeight: 700, color: '#1A1A1A', textAlign: 'center', lineHeight: 1.2, wordBreak: 'break-word', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
+                    <span style={{ fontSize: Math.min(editorState.titleFontSize, maxTitleFont), fontWeight: 700, color: colors.text, textAlign: 'center', lineHeight: 1.2, wordBreak: 'break-word', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
                       {editorState.titleText}
                     </span>
                   ) : (
@@ -1481,11 +1482,11 @@ const CanvasArea = React.memo(function CanvasArea({ video, editorState, onChange
                 >
                   <div style={{ position: 'absolute', inset: 0, top: '50%', transform: 'translateY(-50%)', height: 3, background: 'rgba(255,255,255,0.2)', borderRadius: 2 }}>
                     <div style={{ position: 'absolute', left: `${editorState.trimStart}%`, width: `${editorState.trimEnd - editorState.trimStart}%`, height: '100%', background: 'rgba(255,255,136,0.2)', borderRadius: 2 }} />
-                    <div style={{ height: '100%', width: `${progress}%`, background: '#FF0000', borderRadius: 2, transition: 'width 0.1s linear' }} />
+                    <div style={{ height: '100%', width: `${progress}%`, background: colors.error, borderRadius: 2, transition: 'width 0.1s linear' }} />
                   </div>
-                  <div style={{ position: 'absolute', top: '50%', transform: 'translate(-50%, -50%)', left: `${progress}%`, width: 8, height: 8, borderRadius: '50%', background: '#FF0000' }} />
-                  <div style={{ position: 'absolute', left: `${editorState.trimStart}%`, top: '50%', transform: 'translate(-50%, -50%)', width: 2, height: 7, background: '#00FF88', borderRadius: 1 }} />
-                  <div style={{ position: 'absolute', left: `${editorState.trimEnd}%`, top: '50%', transform: 'translate(-50%, -50%)', width: 2, height: 7, background: '#00FF88', borderRadius: 1 }} />
+                  <div style={{ position: 'absolute', top: '50%', transform: 'translate(-50%, -50%)', left: `${progress}%`, width: 8, height: 8, borderRadius: '50%', background: colors.error }} />
+                  <div style={{ position: 'absolute', left: `${editorState.trimStart}%`, top: '50%', transform: 'translate(-50%, -50%)', width: 2, height: 7, background: colors.success, borderRadius: 1 }} />
+                  <div style={{ position: 'absolute', left: `${editorState.trimEnd}%`, top: '50%', transform: 'translate(-50%, -50%)', width: 2, height: 7, background: colors.success, borderRadius: 1 }} />
                 </div>
 
                 {/* Controls row */}
@@ -1502,7 +1503,7 @@ const CanvasArea = React.memo(function CanvasArea({ video, editorState, onChange
                     style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
                     <IconForward size={16} />
                   </button>
-                  <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#1A1A1A', opacity: 0.9, minWidth: 80, flexShrink: 0 }}>
+                  <span style={{ fontSize: 10, fontFamily: 'monospace', color: colors.text, opacity: 0.9, minWidth: 80, flexShrink: 0 }}>
                     {fmtTime(currentTime)} / {fmtTime(videoDuration)}
                   </span>
                   <div style={{ flex: 1 }} />
@@ -1519,7 +1520,7 @@ const CanvasArea = React.memo(function CanvasArea({ video, editorState, onChange
                       if (videoRef.current) videoRef.current.volume = v
                     }}
                     onClick={(e) => e.stopPropagation()}
-                    style={{ width: 44, accentColor: '#FF0000', flexShrink: 0 }}
+                    style={{ width: 44, accentColor: colors.error, flexShrink: 0 }}
                   />
                 </div>
               </div>
@@ -1530,7 +1531,7 @@ const CanvasArea = React.memo(function CanvasArea({ video, editorState, onChange
 
       {/* Dimension badge — show actual export resolution */}
       <div style={{ position: 'absolute', bottom: 20, left: 16, display: 'flex', gap: 6, alignItems: 'center' }}>
-        <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: editorState.exportQuality === 1080 ? '#00FF88' : editorState.exportQuality === 720 ? '#FFB800' : '#555' }}>
+        <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: editorState.exportQuality === 1080 ? colors.success : editorState.exportQuality === 720 ? colors.warning : colors.textSecondary }}>
           {quality}×{Math.round(quality * 16 / 9)}
         </span>
       </div>
@@ -1548,8 +1549,8 @@ const CanvasArea = React.memo(function CanvasArea({ video, editorState, onChange
           ['M', 'mute'],
         ].map(([key, desc]) => (
           <span key={key as string} style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-            <kbd style={{ fontSize: 7, fontFamily: 'monospace', color: '#D0D0D0', background: '#FFFFFF', padding: '0 3px', borderRadius: 2, border: '1px solid #D0D0D0' }}>{key}</kbd>
-            <span style={{ fontSize: 7, color: '#D0D0D0' }}>{desc}</span>
+            <kbd style={{ fontSize: 7, fontFamily: 'monospace', color: colors.textTertiary, background: colors.surface, padding: '0 3px', borderRadius: 2, border: `1px solid ${colors.border}` }}>{key}</kbd>
+            <span style={{ fontSize: 7, color: colors.textTertiary }}>{desc}</span>
           </span>
         ))}
       </div>
@@ -1618,12 +1619,12 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
     }
   }, [availableFormats])
   return (
-    <div style={{ width: 280, borderLeft: '1px solid #E0E0E0', display: 'flex', flexDirection: 'column', background: '#F5F5F5' }}>
+    <div style={{ width: 280, borderLeft: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column', background: colors.bg }}>
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 12px' }} className="scrollbar">
 
         {/* TRIM */}
-        <SectionHeader icon={<IconScissors size={11} color="#555" />} label="TRIM" isExpanded={is('trim')} onToggle={() => toggle('trim')} />
+        <SectionHeader icon={<IconScissors size={11} color={colors.textSecondary} />} label="TRIM" isExpanded={is('trim')} onToggle={() => toggle('trim')} />
         {is('trim') && (
           <TrimSection
             start={editorState.trimStart}
@@ -1653,7 +1654,7 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
         {/* HEADER IMAGE (short mode only) */}
         {editorIsShort && (
           <>
-            <SectionHeader icon={<IconImage size={11} color="#555" />} label="HEADER" isExpanded={is('header')} onToggle={() => toggle('header')} />
+            <SectionHeader icon={<IconImage size={11} color={colors.textSecondary} />} label="HEADER" isExpanded={is('header')} onToggle={() => toggle('header')} />
             {is('header') && (
               <HeaderSection
                 headerImageUrl={editorState.headerImageUrl}
@@ -1666,7 +1667,7 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
         )}
 
         {/* TITLE (merged: title overlay + bottom bar) */}
-        <SectionHeader icon={<IconType size={11} color="#555" />} label="TITLE" isExpanded={is('title')} onToggle={() => toggle('title')} />
+        <SectionHeader icon={<IconType size={11} color={colors.textSecondary} />} label="TITLE" isExpanded={is('title')} onToggle={() => toggle('title')} />
         {is('title') && (
           <TitleSection
             titleText={editorState.titleText}
@@ -1681,7 +1682,7 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
         )}
 
         {/* SPEED */}
-        <SectionHeader icon={<IconZap size={11} color="#555" />} label="SPEED" isExpanded={is('speed')} onToggle={() => toggle('speed')} />
+        <SectionHeader icon={<IconZap size={11} color={colors.textSecondary} />} label="SPEED" isExpanded={is('speed')} onToggle={() => toggle('speed')} />
         {is('speed') && (
           <SpeedSection
             speedMultiplier={editorState.speedMultiplier}
@@ -1693,7 +1694,7 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
         )}
 
         {/* BACKGROUND */}
-        <SectionHeader icon={<IconPalette size={11} color="#555" />} label="BACKGROUND" isExpanded={is('bg')} onToggle={() => toggle('bg')} />
+        <SectionHeader icon={<IconPalette size={11} color={colors.textSecondary} />} label="BACKGROUND" isExpanded={is('bg')} onToggle={() => toggle('bg')} />
         {is('bg') && (
           <BackgroundSection
             backgroundType={editorState.backgroundType}
@@ -1709,7 +1710,7 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
         )}
 
         {/* CANVAS */}
-        <SectionHeader icon={<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#777" strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>} label="CANVAS" isExpanded={is('canvas')} onToggle={() => toggle('canvas')} />
+        <SectionHeader icon={<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={colors.textSecondary} strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>} label="CANVAS" isExpanded={is('canvas')} onToggle={() => toggle('canvas')} />
         {is('canvas') && (
           <div style={{ padding: '10px 0 8px' }}>
             <div style={{ display: 'flex', gap: 4 }}>
@@ -1717,8 +1718,8 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
                 const active = editorState.canvasBg === bg
                 return (
                   <button key={bg} onClick={() => onChange({ canvasBg: bg })}
-                    style={{ flex: 1, height: 28, fontSize: 9, fontWeight: 700, cursor: 'pointer', background: active ? '#00B4FF15' : '#1A1A1A', borderWidth: 1, borderStyle: 'solid', borderColor: active ? '#00B4FF' : '#222', borderRadius: 3, color: active ? '#00B4FF' : '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-                    <div style={{ width: 8, height: 8, background: bg === 'black' ? '#000' : '#FFF', borderWidth: 1, borderStyle: 'solid', borderColor: '#666', borderRadius: 1 }} />
+                    style={{ flex: 1, height: 28, fontSize: 9, fontWeight: 700, cursor: 'pointer', background: active ? colors.accent + '15' : colors.text, borderWidth: 1, borderStyle: 'solid', borderColor: active ? colors.accent : colors.border, borderRadius: 3, color: active ? colors.accent : colors.textSecondary, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                    <div style={{ width: 8, height: 8, background: bg === 'black' ? colors.text : colors.surface, borderWidth: 1, borderStyle: 'solid', borderColor: colors.textSecondary, borderRadius: 1 }} />
                     {bg === 'black' ? 'TỐI' : 'SÁNG'}
                   </button>
                 )
@@ -1732,19 +1733,19 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
       </div>
 
       {/* Sticky export section */}
-      <div style={{ padding: '10px 12px', borderTop: '1px solid #E0E0E0', background: '#F5F5F5', flexShrink: 0 }}>
+      <div style={{ padding: '10px 12px', borderTop: `1px solid ${colors.border}`, background: colors.bg, flexShrink: 0 }}>
         {/* Row 1: SPEED + QUALITY + FPS */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
           {/* Speed — compact selector */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-            <span style={{ fontSize: 8, color: '#888', letterSpacing: '0.06em' }}>SPD</span>
+            <span style={{ fontSize: 8, color: colors.textSecondary, letterSpacing: '0.06em' }}>SPD</span>
             <select
               value={editorState.speedMultiplier}
               onChange={e => onChange({ speedMultiplier: parseFloat(e.target.value) })}
               style={{
-                height: 22, background: '#FFFFFF',
-                border: '1px solid #D0D0D0', borderRadius: 2,
-                color: editorState.speedMultiplier !== 1.0 ? '#00FF88' : '#555',
+                height: 22, background: colors.surface,
+                border: `1px solid ${colors.border}`, borderRadius: 2,
+                color: editorState.speedMultiplier !== 1.0 ? colors.success : colors.textSecondary,
                 fontSize: 9, fontFamily: 'monospace', fontWeight: 700,
                 cursor: 'pointer', padding: '0 4px',
               }}
@@ -1756,7 +1757,7 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
           </div>
 
           {/* Separator */}
-          <div style={{ width: 1, height: 16, background: '#FFFFFF' }} />
+          <div style={{ width: 1, height: 16, background: colors.surface }} />
 
           {/* Quality buttons */}
           <div style={{ display: 'flex', gap: 3 }}>
@@ -1769,10 +1770,10 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
                   onClick={() => !hidden && onChange({ exportQuality: q as 1080 | 720 | 360 })}
                   style={{
                     height: 22, padding: '0 8px',
-                    background: active ? '#00B4FF' : '#1A1A1A',
-                    border: `1px solid ${active ? '#00B4FF' : '#222'}`,
+                    background: active ? colors.accent : colors.text,
+                    border: `1px solid ${active ? colors.accent : colors.border}`,
                     borderRadius: 2, fontSize: 10, fontWeight: 700,
-                    color: hidden ? '#555' : (active ? '#000' : '#888'),
+                    color: hidden ? colors.textSecondary : (active ? colors.text : colors.textSecondary),
                     cursor: hidden ? 'default' : 'pointer',
                     fontFamily: 'monospace',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1785,7 +1786,7 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
           </div>
 
           {/* Separator */}
-          <div style={{ width: 1, height: 16, background: '#FFFFFF' }} />
+          <div style={{ width: 1, height: 16, background: colors.surface }} />
 
           {/* FPS */}
           <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
@@ -1797,10 +1798,10 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
                   onClick={() => !isRendering && onChange({ exportFPS: fps })}
                   style={{
                     height: 22, padding: '0 8px',
-                    background: active ? '#00FF8820' : '#1A1A1A',
-                    border: `1px solid ${active ? '#00FF8844' : '#222'}`,
+                    background: active ? colors.success + '20' : colors.text,
+                    border: `1px solid ${active ? colors.success + '44' : colors.border}`,
                     borderRadius: 2, fontSize: 9, fontWeight: 700,
-                    color: active ? '#00FF88' : '#444',
+                    color: active ? colors.success : colors.textSecondary,
                     cursor: isRendering ? 'not-allowed' : 'pointer',
                     fontFamily: 'monospace',
                   }}
@@ -1814,16 +1815,16 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
           {/* GPU MAX toggle */}
           {onExportChunked && (
             <>
-              <div style={{ width: 1, height: 16, background: '#FFFFFF' }} />
+              <div style={{ width: 1, height: 16, background: colors.surface }} />
               <button
                 onClick={() => !isRendering && onChange({ enableChunked: !editorState.enableChunked })}
                 disabled={isRendering}
                 style={{
                   height: 22, padding: '0 8px',
-                  background: editorState.enableChunked ? '#00FF8820' : '#1A1A1A',
-                  border: `1px solid ${editorState.enableChunked ? '#00FF88' : '#222'}`,
+                  background: editorState.enableChunked ? colors.success + '20' : colors.text,
+                  border: `1px solid ${editorState.enableChunked ? colors.success : colors.border}`,
                   borderRadius: 2, fontSize: 9, fontWeight: 700,
-                  color: editorState.enableChunked ? '#00FF88' : '#444',
+                  color: editorState.enableChunked ? colors.success : colors.textSecondary,
                   cursor: isRendering ? 'not-allowed' : 'pointer',
                   fontFamily: 'monospace', letterSpacing: '0.04em',
                 }}
@@ -1836,27 +1837,27 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
 
         {/* Upscaling warning — shows source resolution */}
         {sourceHeight > 0 && editorState.exportQuality > sourceHeight && (
-          <div style={{ fontSize: 9, color: '#FFB800', marginBottom: 6 }}>
+          <div style={{ fontSize: 9, color: colors.warning, marginBottom: 6 }}>
             ⚠ Upscale: source was {sourceHeight}p
           </div>
         )}
 
         {/* TikTok upscale toggle — only when source is below 720p */}
         {sourceHeight > 0 && sourceHeight < 720 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, padding: '4px 8px', background: editorState.upscaleToTikTok ? '#00FF8815' : '#1A1A1A', borderRadius: 3, border: `1px solid ${editorState.upscaleToTikTok ? '#00FF8844' : '#222'}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, padding: '4px 8px', background: editorState.upscaleToTikTok ? colors.success + '15' : colors.text, borderRadius: 3, border: `1px solid ${editorState.upscaleToTikTok ? colors.success + '44' : colors.border}` }}>
             <input
               type="checkbox"
               id="upscale-tiktok"
               checked={editorState.upscaleToTikTok}
               onChange={(e) => onChange({ upscaleToTikTok: e.target.checked })}
-              style={{ accentColor: '#00FF88', width: 13, height: 13, cursor: 'pointer', flexShrink: 0 }}
+              style={{ accentColor: colors.success, width: 13, height: 13, cursor: 'pointer', flexShrink: 0 }}
             />
             <label htmlFor="upscale-tiktok" style={{ fontSize: 9, cursor: 'pointer', flex: 1 }}>
-              <span style={{ color: editorState.upscaleToTikTok ? '#00FF88' : '#555', fontWeight: 700 }}>TikTok 720p</span>
-              <span style={{ color: '#666', marginLeft: 4 }}>— force 720p output</span>
+              <span style={{ color: editorState.upscaleToTikTok ? colors.success : colors.textSecondary, fontWeight: 700 }}>TikTok 720p</span>
+              <span style={{ color: colors.textSecondary, marginLeft: 4 }}>— force 720p output</span>
             </label>
             {editorState.upscaleToTikTok && (
-              <span style={{ fontSize: 8, fontWeight: 800, color: '#00FF88', fontFamily: 'monospace', background: '#00FF8820', padding: '1px 5px', borderRadius: 2, letterSpacing: '0.06em' }}>
+              <span style={{ fontSize: 8, fontWeight: 800, color: colors.success, fontFamily: 'monospace', background: colors.success + '20', padding: '1px 5px', borderRadius: 2, letterSpacing: '0.06em' }}>
                 UP
               </span>
             )}
@@ -1865,7 +1866,7 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
 
         {/* Source resolution — small hint */}
         {sourceHeight > 0 && (
-          <div style={{ fontSize: 8, color: '#D0D0D0', marginBottom: 6, fontFamily: 'monospace' }}>
+          <div style={{ fontSize: 8, color: colors.textTertiary, marginBottom: 6, fontFamily: 'monospace' }}>
             SRC {sourceHeight}p · {editorState.exportQuality}p export
           </div>
         )}
@@ -1877,13 +1878,13 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
           style={{
             width: '100%', height: 40,
             background: isRendering
-              ? '#FF444430'
+              ? colors.error + '30'
               : editorState.enableChunked
                 ? '#7C3AED'
-                : '#00B4FF',
+                : colors.accent,
             borderWidth: 0, borderRadius: 3,
             fontSize: 11, fontWeight: 800,
-            color: isRendering ? '#FF4444' : '#fff',
+            color: isRendering ? colors.error : colors.surface,
             cursor: isRendering ? 'not-allowed' : 'pointer',
             letterSpacing: '0.06em',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -1891,7 +1892,7 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
         >
           {isRendering ? (
             <>
-              <div style={{ width: 10, height: 10, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#FF4444', animation: 'spin 1s linear infinite' }} />
+              <div style={{ width: 10, height: 10, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.2)', borderTopColor: colors.error, animation: 'spin 1s linear infinite' }} />
               {renderProgress !== undefined ? `${renderProgress}%` : 'RENDERING...'}
             </>
           ) : (
@@ -1903,7 +1904,7 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
             </>
           )}
         </button>
-        <div style={{ fontSize: 8, color: '#D0D0D0', textAlign: 'center', letterSpacing: '0.04em', marginTop: 4 }}>
+        <div style={{ fontSize: 8, color: colors.textTertiary, textAlign: 'center', letterSpacing: '0.04em', marginTop: 4 }}>
           NVENC · {systemStats?.gpuName || 'GPU'}
         </div>
       </div>
@@ -1920,15 +1921,15 @@ const SectionHeader = React.memo(function SectionHeader({ icon, label, isExpande
       title={isExpanded ? 'Collapse' : 'Expand'}
       style={{
         width: '100%', display: 'flex', alignItems: 'center', gap: 6, padding: '8px 0',
-        background: 'transparent', border: 'none', borderBottom: '1px solid #E0E0E0',
+        background: 'transparent', border: 'none', borderBottom: `1px solid ${colors.border}`,
         cursor: 'pointer', textAlign: 'left',
       }}
     >
       {icon}
-      <span style={{ flex: 1, fontSize: 10, fontWeight: 800, color: '#888', letterSpacing: '0.1em' }}>{label}</span>
+      <span style={{ flex: 1, fontSize: 10, fontWeight: 800, color: colors.textSecondary, letterSpacing: '0.1em' }}>{label}</span>
       <svg
         width="10" height="10" viewBox="0 0 10 10" fill="none"
-        stroke="#666" strokeWidth="1.5" strokeLinecap="round"
+        stroke={colors.textSecondary} strokeWidth="1.5" strokeLinecap="round"
         style={{ transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.2s', flexShrink: 0 }}
       >
         <polyline points="2,3 5,7 8,3" />
@@ -1957,33 +1958,33 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
   const totalSec = parseDuration(video.duration || 0)
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#F5F5F5' }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: colors.bg }}>
       {/* Header bar — minimal: title + mode + time */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         paddingLeft: 16, paddingRight: 16, height: 36,
-        borderBottom: '1px solid #E0E0E0', background: '#F5F5F5', flexShrink: 0,
+        borderBottom: `1px solid ${colors.border}`, background: colors.bg, flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 7, height: 7, background: '#00B4FF', borderRadius: 2, flexShrink: 0 }} />
-          <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.12em', color: '#777' }}>EDITOR</span>
-          <div style={{ width: 1, height: 10, background: '#D0D0D0' }} />
-          <span style={{ fontSize: 11, color: '#888', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ width: 7, height: 7, background: colors.accent, borderRadius: 2, flexShrink: 0 }} />
+          <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.12em', color: colors.textSecondary }}>EDITOR</span>
+          <div style={{ width: 1, height: 10, background: colors.textTertiary }} />
+          <span style={{ fontSize: 11, color: colors.textSecondary, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {video.title}
           </span>
-          <div style={{ width: 1, height: 10, background: '#D0D0D0' }} />
+          <div style={{ width: 1, height: 10, background: colors.textTertiary }} />
           <span style={{
             fontSize: 8, fontWeight: 700, letterSpacing: '0.06em',
             padding: '1px 5px',
-            background: editorIsShort ? '#FFB80015' : '#00B4FF15',
-            border: `1px solid ${editorIsShort ? '#FFB80040' : '#00B4FF40'}`,
-            borderRadius: 2, color: editorIsShort ? '#FFB800' : '#00B4FF',
+            background: editorIsShort ? colors.warning + '15' : colors.accent + '15',
+            border: `1px solid ${editorIsShort ? colors.warning + '40' : colors.accent + '40'}`,
+            borderRadius: 2, color: editorIsShort ? colors.warning : colors.accent,
           }}>
             {editorIsShort ? 'SHORT' : 'VIDEO'}
           </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'monospace', fontSize: 9, color: '#888' }}>
-          <span style={{ color: '#777' }}>{fmtTime(currentTime)} / {fmtTime(totalSec)}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'monospace', fontSize: 9, color: colors.textSecondary }}>
+          <span style={{ color: colors.textSecondary }}>{fmtTime(currentTime)} / {fmtTime(totalSec)}</span>
         </div>
       </div>
 
@@ -2016,8 +2017,8 @@ export function DetailEditor({ video, editorState, onChange, onRender, onExportC
       <style>{`
         .scrollbar::-webkit-scrollbar { width: 3px; }
         .scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .scrollbar::-webkit-scrollbar-thumb { background: #D0D0D0; border-radius: 2px; }
-        .scrollbar::-webkit-scrollbar-thumb:hover { background: #666; }
+        .scrollbar::-webkit-scrollbar-thumb { background: colors.textTertiary; border-radius: 2px; }
+        .scrollbar::-webkit-scrollbar-thumb:hover { background: colors.textSecondary; }
       `}</style>
     </div>
   )

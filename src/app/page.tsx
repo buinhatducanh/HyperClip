@@ -19,6 +19,7 @@ import { useAppStore, type Workspace } from './lib/store'
 import { ipc } from './lib/ipc'
 import { type ActivityEntry, type ActivityType } from './components/ActivityLog'
 import { SkeletonQueue, SkeletonStyles } from './components/Skeleton'
+import { colors, spacing, fontSize } from './design-system/tokens'
 
 export const dynamic = 'force-dynamic'
 
@@ -99,7 +100,7 @@ function fmtEta(secs: number | string | undefined | null): string {
 
 export default function DashboardPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-screen bg-[#F5F5F5]"><div className="text-[#00B4FF] text-sm">Loading...</div></div>}>
+    <Suspense fallback={<div className="flex items-center justify-center h-screen bg-[${colors.bg}]"><div className="text-[${colors.accent}] text-sm">Loading...</div></div>}>
       <DashboardContent />
     </Suspense>
   )
@@ -350,7 +351,7 @@ function DashboardContent() {
       } else {
         const formatted: Workspace = {
           id: data.id, channelId: data.channelId || '', channelName: (data.channelName && data.channelName !== 'N/A') ? data.channelName : 'Unknown Channel',
-          channelColor: data.channelColor || '#00B4FF', videoTitle: data.videoTitle || 'Unknown',
+          channelColor: data.channelColor || colors.accent, videoTitle: data.videoTitle || 'Unknown',
           thumbnail: data.thumbnail || '', duration: formatDurationRaw(data.duration),
           downloadedAt: data.downloadedAt ? formatDateRaw(data.downloadedAt) : '',
           status: data.status || 'new', renderProgress: data.renderProgress,
@@ -725,7 +726,7 @@ function DashboardContent() {
     : workspaces
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#F5F5F5', fontFamily: 'Inter, sans-serif', color: '#1A1A1A', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: colors.bg, fontFamily: 'Inter, sans-serif', color: colors.text, overflow: 'hidden' }}>
       {/* Login screen */}
       {!authStatus.isReady && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999 }}>
@@ -737,7 +738,7 @@ function DashboardContent() {
       {diagIssues.length > 0 && authStatus.isReady && (
         <div style={{
           position: 'fixed', top: authStatus.accountName === 'Demo Mode' ? 28 : 0, left: 0, right: 0, zIndex: 100,
-          background: '#FF444422', borderBottom: '1px solid #FF444444',
+          background: colors.error + '22', borderBottom: '1px solid ' + colors.error + '44',
           padding: '4px 16px', display: 'flex', alignItems: 'center', gap: 8,
           fontSize: 9, color: '#FF6666',
         }}>
@@ -777,7 +778,7 @@ function DashboardContent() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 400 }}>
           {showSkeleton ? (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <div style={{ color: '#444', fontSize: 11 }}>Loading...</div>
+              <div style={{ color: colors.textSecondary, fontSize: 11 }}>Loading...</div>
             </div>
           ) : selectedRenderedVideoId && renderedVideos.find(v => v.id === selectedRenderedVideoId) ? (
             <div style={{ flex: 1, overflow: 'auto', padding: 20 }}>
@@ -806,7 +807,7 @@ function DashboardContent() {
         </div>
 
         {/* Right panel: WorkspaceQueue (flex) + ActivityLogPanel (bottom bar) */}
-        <div style={{ width: 280, minWidth: 240, maxWidth: 400, display: 'flex', flexDirection: 'column', borderLeft: '1px solid #1E1E1E' }}>
+        <div style={{ width: 280, minWidth: 240, maxWidth: 400, display: 'flex', flexDirection: 'column', borderLeft: '1px solid ' + colors.border }}>
           {/* Queue — scrollable */}
           <div style={{ flex: 1, overflow: 'auto' }}>
             {showSkeleton ? (
@@ -846,9 +847,9 @@ function DashboardContent() {
       {toast && (
         <div style={{
           position: 'fixed', bottom: 24, right: 24,
-          background: '#FFFFFF',
-          border: '1px solid #E0E0E0',
-          borderLeft: '3px solid #00B4FF',
+          background: colors.surface,
+          border: '1px solid ' + colors.border,
+          borderLeft: '3px solid ' + colors.accent,
           borderRadius: 4, padding: '12px 18px',
           fontSize: 14, color: '#555', zIndex: 9999,
           maxWidth: 360,

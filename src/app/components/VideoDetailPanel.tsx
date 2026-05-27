@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
+import { colors, spacing, fontSize } from '../design-system/tokens'
 import type { Workspace, WorkspaceMetrics } from '../lib/store'
 
 function formatMs(ms: number | undefined): string {
@@ -20,9 +21,9 @@ function formatBytes(bytes: number | undefined): string {
 
 function MetricRow({ label, value, suffix, color }: { label: string; value: string | number; suffix?: string; color?: string }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0', fontSize: 9, fontFamily: 'monospace', borderBottom: '1px solid #E0E0E0' }}>
-      <span style={{ color: '#999' }}>{label}</span>
-      <span style={{ color: color || '#00B4FF', fontWeight: 600 }}>{value}{suffix ? ` ${suffix}` : ''}</span>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0', fontSize: 9, fontFamily: 'monospace', borderBottom: `1px solid ${colors.border}` }}>
+      <span style={{ color: colors.textSecondary }}>{label}</span>
+      <span style={{ color: color || colors.accent, fontWeight: 600 }}>{value}{suffix ? ` ${suffix}` : ''}</span>
     </div>
   )
 }
@@ -43,9 +44,9 @@ function TimelineRow({ label, timestamp }: { label: string; timestamp?: string }
     ? new Date(timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : '-'
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8, fontFamily: 'monospace', padding: '1px 0', color: '#777' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8, fontFamily: 'monospace', padding: '1px 0', color: colors.textSecondary }}>
       <span>{label}</span>
-      <span style={{ color: '#999' }}>{timeStr}</span>
+      <span style={{ color: colors.textSecondary }}>{timeStr}</span>
     </div>
   )
 }
@@ -70,11 +71,11 @@ export function VideoDetailPanel({ workspace, onClose }: Props) {
   if (!workspace) return null
 
   return (
-    <div style={{ flex: 1, background: '#F5F5F5', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ flex: 1, background: colors.bg, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Header */}
-      <div style={{ fontSize: 8, color: '#777', fontWeight: 700, padding: '5px 10px', borderBottom: '1px solid #D0D0D0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F5F5F5' }}>
+      <div style={{ fontSize: 8, color: colors.textSecondary, fontWeight: 700, padding: '5px 10px', borderBottom: `1px solid ${colors.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: colors.bg }}>
         <span style={{ letterSpacing: 1 }}>VIDEO DETAIL</span>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#777', cursor: 'pointer', fontSize: 10, padding: '0 4px' }}>X</button>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: colors.textSecondary, cursor: 'pointer', fontSize: 10, padding: '0 4px' }}>X</button>
       </div>
 
       {/* Scrollable content */}
@@ -84,24 +85,24 @@ export function VideoDetailPanel({ workspace, onClose }: Props) {
           {workspace.thumbnail && (
             <img src={workspace.thumbnail} alt='' style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', borderRadius: 4, marginBottom: 6 }} />
           )}
-          <div style={{ fontSize: 9, fontWeight: 700, color: '#999', marginBottom: 2, lineHeight: 1.4 }}>{workspace.videoTitle}</div>
-          <div style={{ fontSize: 8, color: '#777' }}>{workspace.channelName}</div>
+          <div style={{ fontSize: 9, fontWeight: 700, color: colors.textSecondary, marginBottom: 2, lineHeight: 1.4 }}>{workspace.videoTitle}</div>
+          <div style={{ fontSize: 8, color: colors.textSecondary }}>{workspace.channelName}</div>
         </div>
 
         {/* DOWNLOAD METRICS */}
-        <Section title='DOWNLOAD' color='#00B4FF'>
-          <MetricRow label='Thoi gian' value={formatMs(m?.downloadMs)} color='#00FF88' />
+        <Section title='DOWNLOAD' color={colors.accent}>
+          <MetricRow label='Thoi gian' value={formatMs(m?.downloadMs)} color={colors.success} />
           <MetricRow label='Toc do' value={downloadSpeed || '-'} suffix='MB/s' />
           <MetricRow label='Kich thuoc' value={formatBytes((m?.downloadFileSize || Number(workspace.fileSize) || 0))} />
           <MetricRow label='Chat luong' value={m?.downloadQuality || workspace.downloadQuality || '-'} suffix='p' />
           <MetricRow label='Nguon' value={m?.downloadResolution || workspace.videoResolution || '-'} />
-          <MetricRow label='Multi-Instance' value={m?.downloadIsMultiInstance ? 'Co' : 'Khong'} color={m?.downloadIsMultiInstance ? '#00FF88' : '#555'} />
+          <MetricRow label='Multi-Instance' value={m?.downloadIsMultiInstance ? 'Co' : 'Khong'} color={m?.downloadIsMultiInstance ? colors.success : colors.textSecondary} />
         </Section>
 
         {/* RENDER METRICS */}
-        <Section title='RENDER' color='#00FF88'>
-          <MetricRow label='Thoi gian' value={formatMs(m?.renderMs)} color='#00FF88' />
-          {m?.renderFps ? <MetricRow label='Encode FPS' value={m.renderFps.toFixed(1)} color='#FFB800' /> : null}
+        <Section title='RENDER' color={colors.success}>
+          <MetricRow label='Thoi gian' value={formatMs(m?.renderMs)} color={colors.success} />
+          {m?.renderFps ? <MetricRow label='Encode FPS' value={m.renderFps.toFixed(1)} color={colors.warning} /> : null}
           {m?.renderChunks ? <MetricRow label='So chunk' value={m.renderChunks} /> : null}
           <MetricRow label='Workers' value={m?.renderWorkers || '-'} />
           <MetricRow label='Preset' value={m?.renderPreset || '-'} />
@@ -110,24 +111,24 @@ export function VideoDetailPanel({ workspace, onClose }: Props) {
         </Section>
 
         {/* SYSTEM */}
-        <Section title='SYSTEM' color='#FFB800'>
-          {m?.systemGpuLoad != null ? <MetricRow label='GPU su dung' value={`${m.systemGpuLoad}%`} color='#FF6B6B' /> : null}
+        <Section title='SYSTEM' color={colors.warning}>
+          {m?.systemGpuLoad != null ? <MetricRow label='GPU su dung' value={`${m.systemGpuLoad}%`} color={colors.error} /> : null}
           {m?.systemVramUsed != null ? <MetricRow label='VRAM dung' value={`${m.systemVramUsed} MB`} /> : null}
           {m?.systemRamUsed != null ? <MetricRow label='RAM dung' value={`${m.systemRamUsed} GB`} /> : null}
         </Section>
 
         {/* E2E TIMELINE */}
-        <Section title='E2E TIMELINE' color='#888'>
-          <div style={{ fontSize: 8, fontFamily: 'monospace', color: '#777', lineHeight: 1.8 }}>
+        <Section title='E2E TIMELINE' color={colors.textSecondary}>
+          <div style={{ fontSize: 8, fontFamily: 'monospace', color: colors.textSecondary, lineHeight: 1.8 }}>
             <div style={{ display: 'flex', gap: 8 }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, paddingTop: 4 }}>
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00B4FF' }} />
-                <div style={{ width: 1, height: 20, background: '#D0D0D0' }} />
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00B4FF' }} />
-                <div style={{ width: 1, height: 20, background: '#D0D0D0' }} />
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00B4FF' }} />
-                <div style={{ width: 1, height: 20, background: '#D0D0D0' }} />
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: workspace.status === 'done' ? '#00FF88' : '#444' }} />
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: colors.accent }} />
+                <div style={{ width: 1, height: 20, background: colors.textTertiary }} />
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: colors.accent }} />
+                <div style={{ width: 1, height: 20, background: colors.textTertiary }} />
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: colors.accent }} />
+                <div style={{ width: 1, height: 20, background: colors.textTertiary }} />
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: workspace.status === 'done' ? colors.success : colors.textSecondary }} />
               </div>
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <TimelineRow label='Phat hien' timestamp={m?.detectedAt} />
@@ -138,9 +139,9 @@ export function VideoDetailPanel({ workspace, onClose }: Props) {
             </div>
           </div>
           {(m?.detectedAt && m?.renderCompletedAt) ? (
-            <div style={{ marginTop: 4, padding: '4px 6px', background: '#F0F0F0', borderRadius: 2, border: '1px solid #D0D0D0', display: 'flex', justifyContent: 'space-between', fontSize: 8, fontFamily: 'monospace' }}>
-              <span style={{ color: '#777' }}>TONG</span>
-              <span style={{ color: '#00FF88', fontWeight: 700 }}>
+            <div style={{ marginTop: 4, padding: '4px 6px', background: colors.bg, borderRadius: 2, border: `1px solid ${colors.border}`, display: 'flex', justifyContent: 'space-between', fontSize: 8, fontFamily: 'monospace' }}>
+              <span style={{ color: colors.textSecondary }}>TONG</span>
+              <span style={{ color: colors.success, fontWeight: 700 }}>
                 {formatMs(new Date(m.renderCompletedAt).getTime() - new Date(m.detectedAt).getTime())}
               </span>
             </div>
@@ -148,7 +149,7 @@ export function VideoDetailPanel({ workspace, onClose }: Props) {
         </Section>
 
         {/* Raw info */}
-        <Section title='RAW INFO' color='#888'>
+        <Section title='RAW INFO' color={colors.textSecondary}>
           <MetricRow label='ID' value={workspace.id.slice(0, 12)} />
           <MetricRow label='Video ID' value={workspace.videoId || '-'} />
           <MetricRow label='Status' value={workspace.status} />
