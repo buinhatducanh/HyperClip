@@ -2,6 +2,30 @@ export type VideoStatus = 'new' | 'rendering' | 'done';
 export type CanvasBg = 'black' | 'white';
 export type TitleShape = 'rounded' | 'square' | 'diamond';
 
+// ─── Hardware Preset System ─────────────────────────────────────────────────────
+
+export interface HardwarePreset {
+  id: string
+  label: string
+  vramGB: number
+  ramGB: number
+  downloadInstances: number
+  renderWorkers: number
+  chunkWorkers: number
+  sessions: number
+  available: boolean
+}
+
+export interface HardwareProfileInfo {
+  detected: {
+    vramGB: number
+    ramGB: number
+    gpuName: string
+  }
+  presets: HardwarePreset[]
+  active: string | null
+}
+
 export interface UpdateStatus {
   available: boolean
   version?: string

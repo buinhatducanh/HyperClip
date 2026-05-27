@@ -14,6 +14,54 @@ export interface AppNotification {
   read: boolean
 }
 
+export interface WorkspaceMetrics {
+  /** Wall-clock download time in ms */
+  downloadMs?: number
+  /** Average download speed in MB/s */
+  downloadSpeedMBs?: number
+  /** Downloaded file size in bytes */
+  downloadFileSize?: number
+  /** Quality setting used ('360'|'480'|'720'|'1080') */
+  downloadQuality?: string
+  /** Source resolution (e.g. '1920x1080') */
+  downloadResolution?: string
+  /** Whether multi-instance section download was used */
+  downloadIsMultiInstance?: boolean
+
+  /** Wall-clock render time in ms */
+  renderMs?: number
+  /** Average encode fps recorded during render */
+  renderFps?: number
+  /** Number of chunk workers used (chunked encoding only) */
+  renderWorkers?: number
+  /** NVENC preset used ('p1'|'p2'|'p3') */
+  renderPreset?: string
+  /** Encode codec ('h264'|'hevc') */
+  renderCodec?: string
+  /** Number of chunks in chunked encoding */
+  renderChunks?: number
+  /** Output render resolution (e.g. '1080x1920') */
+  renderOutputResolution?: string
+
+  /** GPU utilization peak % during render */
+  systemGpuLoad?: number
+  /** VRAM used in MB during render */
+  systemVramUsed?: number
+  /** System RAM used in GB during render */
+  systemRamUsed?: number
+
+  /** ISO timestamp — when video was first detected */
+  detectedAt?: string
+  /** ISO timestamp — when download started */
+  downloadStartedAt?: string
+  /** ISO timestamp — when download completed */
+  downloadCompletedAt?: string
+  /** ISO timestamp — when render started */
+  renderStartedAt?: string
+  /** ISO timestamp — when render completed */
+  renderCompletedAt?: string
+}
+
 export interface Workspace {
   id: string
   channelId: string
@@ -73,6 +121,13 @@ export interface Workspace {
   downloadPriority?: number
   /** Render queue position — lower = higher priority. Updated by user dragging. */
   renderPriority?: number
+  /** Performance metrics collected during download + render */
+  metrics?: WorkspaceMetrics
+}
+
+export interface HardwareProfile {
+  vramGB: number
+  ramGB: number
 }
 
 export interface AppSettings {
@@ -104,6 +159,8 @@ export interface AppSettings {
   videoMaxDurationSec: number
   onboardingComplete?: boolean
   quitOnClose: boolean
+  // Hardware preset
+  hardwareProfile?: HardwareProfile
 }
 
 export interface AppStore {
@@ -171,6 +228,7 @@ export interface AppStore {
   setSettings: (patch: Partial<AppSettings>) => void
   showToast: (msg: string) => void
   setInitialLoading: (loading: boolean) => void
+  setHardwareProfile: (profile: HardwareProfile | undefined) => void
 
   // Actions — Editor
   updateEditorState: (patch: Partial<EditorState>) => void
@@ -504,6 +562,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setRenderQueueExpanded: (expanded) => set({ renderQueueExpanded: expanded }),
   setSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
   setInitialLoading: (loading: boolean) => set({ isInitialLoading: loading }),
+  setHardwareProfile: (profile) =>
+    set((s) => ({ settings: { ...s.settings, hardwareProfile: profile } })),
 
   showToast: (msg) => {
     set({ toast: msg })
