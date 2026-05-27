@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../../design-system/tokens'
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -58,7 +59,7 @@ export function ChromeSetupStep({ onComplete, onSkip }: ChromeSetupStepProps) {
       {/* Explanation */}
       <div style={{ marginBottom: 32 }}>
         <p style={{ fontSize: 13, color: '#999', lineHeight: 1.7, margin: '0 0 16px 0' }}>
-          HyperClip sử dụng <strong style={{ color: '#1A1A1A' }}>Chrome sessions</strong> để theo dõi video mới
+          HyperClip sử dụng <strong style={{ color: colors.text }}>Chrome sessions</strong> để theo dõi video mới
           từ kênh YouTube đã đăng ký — không tốn quota API.
         </p>
         <p style={{ fontSize: 12, color: '#777', lineHeight: 1.6, margin: 0 }}>
@@ -69,8 +70,8 @@ export function ChromeSetupStep({ onComplete, onSkip }: ChromeSetupStepProps) {
 
       {/* Status card */}
       <div style={{
-        background: '#F5F5F5',
-        border: `1px solid ${isReady ? '#00FF8833' : '#D0D0D0'}`,
+        background: colors.bg,
+        border: `1px solid ${isReady ? '#00FF8833' : colors.borderHover}`,
         borderRadius: 12,
         padding: '20px 24px',
         marginBottom: 24,
@@ -79,14 +80,14 @@ export function ChromeSetupStep({ onComplete, onSkip }: ChromeSetupStepProps) {
           <div style={{
             width: 40, height: 40, borderRadius: '50%',
             background: isReady ? '#00FF8822' : '#FF6B3522',
-            border: `2px solid ${isReady ? '#00FF88' : '#FF6B35'}`,
+            border: `2px solid ${isReady ? colors.success : '#FF6B35'}`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 16,
           }}>
             {isReady ? '✓' : '!'}
           </div>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: isReady ? '#00FF88' : '#FF6B35' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: isReady ? colors.success : '#FF6B35' }}>
               {loading ? 'Đang kiểm tra...' : isReady ? 'Sessions đã sẵn sàng' : 'Cần đăng nhập Chrome'}
             </div>
             <div style={{ fontSize: 11, color: '#777', marginTop: 2 }}>
@@ -105,15 +106,15 @@ export function ChromeSetupStep({ onComplete, onSkip }: ChromeSetupStepProps) {
                   display: 'flex', alignItems: 'center', gap: 6,
                   padding: '5px 10px',
                   borderRadius: 6,
-                  background: s.isConsented ? '#00FF8815' : '#1A1A1A',
-                  border: `1px solid ${s.isConsented ? '#00FF8844' : '#D0D0D0'}`,
+                  background: s.isConsented ? '#00FF8815' : colors.text,
+                  border: `1px solid ${s.isConsented ? '#00FF8844' : colors.borderHover}`,
                   fontSize: 10,
-                  color: s.isConsented ? '#00FF88' : '#777',
+                  color: s.isConsented ? colors.success : '#777',
                 }}
               >
                 <div style={{
                   width: 5, height: 5, borderRadius: '50%',
-                  background: s.isConsented ? '#00FF88' : '#D0D0D0',
+                  background: s.isConsented ? colors.success : colors.borderHover,
                 }} />
                 {s.profileName.replace('HyperClip-', '')}
               </div>
@@ -128,14 +129,14 @@ export function ChromeSetupStep({ onComplete, onSkip }: ChromeSetupStepProps) {
             disabled={refreshing}
             style={{
               height: 32, padding: '0 16px',
-              background: '#1A1A1A', border: '1px solid #D0D0D0',
+              background: colors.text, border: '1px solid #D0D0D0',
               borderRadius: 6, fontSize: 11, fontWeight: 600,
               color: '#999', cursor: 'pointer',
               display: 'flex', alignItems: 'center', gap: 6,
             }}
           >
             {refreshing ? (
-              <div style={{ width: 12, height: 12, borderRadius: '50%', border: '2px solid #999', borderTopColor: '#00B4FF', animation: 'spin 1s linear infinite' }} />
+              <div style={{ width: 12, height: 12, borderRadius: '50%', border: '2px solid #999', borderTopColor: colors.accent, animation: 'spin 1s linear infinite' }} />
             ) : (
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                 <path d="M10 6a4 4 0 1 1-1.17-2.83" stroke="#999" strokeWidth="1.5" strokeLinecap="round" />
@@ -150,9 +151,9 @@ export function ChromeSetupStep({ onComplete, onSkip }: ChromeSetupStepProps) {
               onClick={() => handleOpenLogin('default')}
               style={{
                 height: 32, padding: '0 16px',
-                background: '#00B4FF', border: 'none',
+                background: colors.accent, border: 'none',
                 borderRadius: 6, fontSize: 11, fontWeight: 700,
-                color: '#1A1A1A', cursor: 'pointer',
+                color: colors.text, cursor: 'pointer',
               }}
             >
               Mở Chrome để đăng nhập
@@ -164,13 +165,13 @@ export function ChromeSetupStep({ onComplete, onSkip }: ChromeSetupStepProps) {
       {/* Instructions for not-ready state */}
       {!isReady && !loading && (
         <div style={{
-          background: '#F5F5F5',
+          background: colors.bg,
           border: '1px solid #1A1A1A',
           borderRadius: 10,
           padding: '16px 20px',
           marginBottom: 24,
         }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#1A1A1A', marginBottom: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: colors.text, marginBottom: 10 }}>
             Cách setup Chrome cho HyperClip:
           </div>
           <ol style={{ margin: 0, padding: '0 0 0 18px', fontSize: 11, color: '#999', lineHeight: 2 }}>
@@ -186,7 +187,7 @@ export function ChromeSetupStep({ onComplete, onSkip }: ChromeSetupStepProps) {
 
       {/* Info box */}
       <div style={{
-        background: '#F5F5F5',
+        background: colors.bg,
         border: '1px solid #1A1A1A',
         borderRadius: 8,
         padding: '12px 16px',
@@ -218,7 +219,7 @@ export function ChromeSetupStep({ onComplete, onSkip }: ChromeSetupStepProps) {
           disabled={!isReady}
           style={{
             height: 40, padding: '0 24px',
-            background: isReady ? '#00B4FF' : '#1A1A1A',
+            background: isReady ? colors.accent : colors.text,
             border: 'none',
             borderRadius: 8, fontSize: 12, fontWeight: 700,
             color: isReady ? '#FFFFFF' : '#999',

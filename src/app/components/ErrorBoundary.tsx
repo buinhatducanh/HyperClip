@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../design-system/tokens'
 'use client'
 import React, { Component, type ErrorInfo, type ReactNode } from 'react'
 
@@ -34,7 +35,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <button
             onClick={() => window.location.reload()}
             style={{
-              marginTop: 8, padding: '8px 20px', background: '#00B4FF', color: '#fff',
+              marginTop: 8, padding: '8px 20px', background: colors.accent, color: '#fff',
               border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 13,
             }}
           >

@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../design-system/tokens'
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
@@ -97,13 +98,13 @@ export default function OnboardingPage() {
     return (
       <div style={{
         position: 'fixed', inset: 0,
-        background: '#F0F0F0',
+        background: colors.bg,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
         <div style={{
           width: 40, height: 40, borderRadius: '50%',
           border: '3px solid #E0E0E0',
-          borderTopColor: '#00B4FF',
+          borderTopColor: colors.accent,
           animation: 'spin 1s linear infinite',
         }} />
       </div>
@@ -122,15 +123,15 @@ export default function OnboardingPage() {
 
       <div style={{
         position: 'fixed', inset: 0,
-        background: '#F0F0F0',
+        background: colors.bg,
         display: 'flex',
         fontFamily: 'Inter, sans-serif',
-        color: '#1A1A1A',
+        color: colors.text,
       }}>
         {/* Left panel — branding + progress */}
         <div style={{
           width: 280,
-          background: '#F5F5F5',
+          background: colors.bg,
           borderRight: '1px solid #E0E0E0',
           display: 'flex',
           flexDirection: 'column',
@@ -148,14 +149,14 @@ export default function OnboardingPage() {
                 <path d="M10 8l6 4-6 4V8z" fill="white" />
               </svg>
             </div>
-            <span style={{ fontSize: 16, fontWeight: 800, color: '#1A1A1A', letterSpacing: '-0.02em' }}>
+            <span style={{ fontSize: 16, fontWeight: 800, color: colors.text, letterSpacing: '-0.02em' }}>
               HyperClip
             </span>
           </div>
 
           {/* Welcome text */}
           <div style={{ marginBottom: 40 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A', marginBottom: 6 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: colors.text, marginBottom: 6 }}>
               Setup Wizard
             </div>
             <div style={{ fontSize: 11, color: '#999', lineHeight: 1.6 }}>
@@ -191,11 +192,11 @@ export default function OnboardingPage() {
                   <div style={{
                     width: 24, height: 24,
                     borderRadius: '50%',
-                    border: `2px solid ${isDone ? '#00FF88' : isCurrent ? '#00B4FF' : '#D0D0D0'}`,
+                    border: `2px solid ${isDone ? colors.success : isCurrent ? colors.accent : colors.borderHover}`,
                     background: isDone ? '#00FF8822' : 'transparent',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 10, fontWeight: 700,
-                    color: isDone ? '#00FF88' : isCurrent ? '#00B4FF' : '#999',
+                    color: isDone ? colors.success : isCurrent ? colors.accent : '#999',
                     flexShrink: 0,
                     transition: 'all 0.2s',
                   }}>
@@ -216,7 +217,7 @@ export default function OnboardingPage() {
                       {s.label}
                     </div>
                     <div style={{
-                      fontSize: 9, color: isActive ? '#777' : '#D0D0D0',
+                      fontSize: 9, color: isActive ? '#777' : colors.borderHover,
                       marginTop: 1,
                     }}>
                       {s.desc}
@@ -259,7 +260,7 @@ export default function OnboardingPage() {
               <div style={{ fontSize: 11, color: '#777', marginBottom: 2 }}>
                 Bước {currentStep + 1} / {STEPS.length}
               </div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#1A1A1A' }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: colors.text }}>
                 {step.label}
               </div>
             </div>
@@ -272,7 +273,7 @@ export default function OnboardingPage() {
                     width: i === currentStep ? 24 : 6,
                     height: 6,
                     borderRadius: 3,
-                    background: i < currentStep ? '#00FF88' : i === currentStep ? '#00B4FF' : '#D0D0D0',
+                    background: i < currentStep ? colors.success : i === currentStep ? colors.accent : colors.borderHover,
                     transition: 'all 0.3s',
                   }}
                 />

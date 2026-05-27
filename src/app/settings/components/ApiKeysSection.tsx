@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../../design-system/tokens'
 'use client'
 
 import React, { useState, useEffect, useMemo } from 'react'
@@ -33,7 +34,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
   const [removing, setRemoving] = useState(false)
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false)
 
-  const sc: Record<string, string> = { healthy: '#00FF88', warning: '#FFB800', error: '#FF6644', exhausted: '#FF4444', unauthorized: '#FF6644' }
+  const sc: Record<string, string> = { healthy: colors.success, warning: colors.warning, error: '#FF6644', exhausted: colors.error, unauthorized: '#FF6644' }
   const color = sc[k.status] || '#888'
   const pct = k.quotaPercent
   const remaining = Math.max(0, k.quotaTotal - k.usedToday)
@@ -53,7 +54,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
 
   return (
     <div style={{
-      background: wasJustReset ? '#00FF8808' : k.status === 'exhausted' ? '#FFF0F0' : k.status === 'unauthorized' ? '#FFF5EE' : '#F5F5F5',
+      background: wasJustReset ? '#00FF8808' : k.status === 'exhausted' ? '#FFF0F0' : k.status === 'unauthorized' ? '#FFF5EE' : colors.bg,
       border: `1px solid ${wasJustReset ? '#00FF8833' : isActive ? '#00B4FF44' : k.status === 'exhausted' ? '#FF444444' : '#FFFFFF'}`,
       borderRadius: 8, padding: '14px',
       transition: 'border-color 0.5s, background 0.5s',
@@ -68,7 +69,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
           }} />
           {isActive && (
             <div style={{
-              width: 6, height: 6, borderRadius: '50%', background: '#00B4FF',
+              width: 6, height: 6, borderRadius: '50%', background: colors.accent,
               boxShadow: '0 0 4px #00B4FF',
               animation: 'pulse 2s infinite',
             }} />
@@ -82,7 +83,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
           }}>
             {k.name}
             {isActive && (
-              <span style={{ fontSize: 8, fontWeight: 700, color: '#00B4FF', background: '#00B4FF14', border: '1px solid #00B4FF44', borderRadius: 2, padding: '1px 4px', letterSpacing: '0.06em', flexShrink: 0 }}>
+              <span style={{ fontSize: 8, fontWeight: 700, color: colors.accent, background: '#00B4FF14', border: '1px solid #00B4FF44', borderRadius: 2, padding: '1px 4px', letterSpacing: '0.06em', flexShrink: 0 }}>
                 ACTIVE
               </span>
             )}
@@ -103,7 +104,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
 
       {/* Per-key quota — large prominent display */}
       <div style={{
-        background: '#F0F0F0', border: '1px solid #E0E0E0',
+        background: colors.bg, border: '1px solid #E0E0E0',
         borderRadius: 6, padding: '10px 12px',
       }}>
         {/* Main quota bar */}
@@ -125,7 +126,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
         </div>
         {/* Progress bar */}
         <div style={{
-          height: 14, background: '#E0E0E0', borderRadius: 3, overflow: 'hidden',
+          height: 14, background: colors.border, borderRadius: 3, overflow: 'hidden',
           position: 'relative',
         }}>
           <div style={{
@@ -133,12 +134,12 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
             borderRadius: 3, transition: 'width 0.5s',
             boxShadow: `0 0 8px ${color}44`,
           }} />
-          <div style={{ position: 'absolute', top: 0, left: '75%', width: 1, height: '100%', background: '#D0D0D0' }} />
+          <div style={{ position: 'absolute', top: 0, left: '75%', width: 1, height: '100%', background: colors.borderHover }} />
           <div style={{ position: 'absolute', top: 0, left: '90%', width: 1, height: '100%', background: '#888' }} />
         </div>
         {/* Sub info */}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-          <span style={{ fontSize: 8, color: '#D0D0D0', fontFamily: 'monospace' }}>
+          <span style={{ fontSize: 8, color: colors.borderHover, fontFamily: 'monospace' }}>
             0 <span style={{ color: '#888' }}>|</span> {Math.round(MAX_UNITS_PER_PROJECT * 0.75).toLocaleString()} <span style={{ color: '#888' }}>|</span> {(MAX_UNITS_PER_PROJECT * 0.9).toLocaleString()} <span style={{ color: '#888' }}>|</span> 9,500
           </span>
           <span style={{ fontSize: 8, color: '#888', fontFamily: 'monospace' }}>
@@ -149,7 +150,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
 
       {/* Usage timeline */}
       <div>
-        <div style={{ fontSize: 8, color: '#D0D0D0', letterSpacing: '0.08em', marginBottom: 4, fontWeight: 700 }}>USAGE TIMELINE (24H PT)</div>
+        <div style={{ fontSize: 8, color: colors.borderHover, letterSpacing: '0.08em', marginBottom: 4, fontWeight: 700 }}>USAGE TIMELINE (24H PT)</div>
         <UsageTimeline events={events} />
       </div>
 
@@ -168,7 +169,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
             ↺ reset {formatTimeAgo(k.lastReset)}
           </span>
         )}
-        <span style={{ fontSize: 8, color: '#D0D0D0', marginLeft: 'auto', fontFamily: 'monospace' }}>
+        <span style={{ fontSize: 8, color: colors.borderHover, marginLeft: 'auto', fontFamily: 'monospace' }}>
           next reset {formatNextReset(k.nextReset)}
         </span>
       </div>
@@ -182,8 +183,8 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
             style={{
               height: 28, paddingLeft: 10, paddingRight: 10,
               background: resetting ? '#00FF8820' : 'transparent',
-              border: `1px solid ${resetting ? '#00FF88' : '#00FF8844'}`,
-              borderRadius: 4, fontSize: 9, fontWeight: 700, color: '#00FF88',
+              border: `1px solid ${resetting ? colors.success : '#00FF8844'}`,
+              borderRadius: 4, fontSize: 9, fontWeight: 700, color: colors.success,
               cursor: resetting ? 'default' : 'pointer', opacity: resetting ? 0.8 : 1,
               transition: 'all 0.2s',
             }}
@@ -198,7 +199,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
               flex: 1, height: 28,
               background: 'transparent',
               border: '1px solid #00B4FF44',
-              borderRadius: 4, fontSize: 9, fontWeight: 700, color: '#00B4FF',
+              borderRadius: 4, fontSize: 9, fontWeight: 700, color: colors.accent,
               cursor: 'pointer', opacity: k.status === 'unauthorized' ? 1 : 0.7,
               transition: 'all 0.2s',
             }}
@@ -217,7 +218,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
               cursor: 'pointer', opacity: 0.7,
               transition: 'all 0.15s',
             }}
-            onMouseEnter={e => { e.currentTarget.style.color = '#FF4444'; e.currentTarget.style.opacity = '1'; e.currentTarget.style.borderColor = '#FF4444' }}
+            onMouseEnter={e => { e.currentTarget.style.color = colors.error; e.currentTarget.style.opacity = '1'; e.currentTarget.style.borderColor = colors.error }}
             onMouseLeave={e => { e.currentTarget.style.color = '#FF444466'; e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.borderColor = '#FF444444' }}
           >
             ✕
@@ -232,7 +233,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
           <span style={{ fontSize: 9, color: '#FF6644', flex: 1 }}>
             Xóa key này? Không thể hoàn tác.
           </span>
-          <button onClick={handleRemove} style={{ height: 24, paddingLeft: 10, paddingRight: 10, background: '#CC3333', border: 'none', borderRadius: 3, color: '#E0E0E0', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>
+          <button onClick={handleRemove} style={{ height: 24, paddingLeft: 10, paddingRight: 10, background: '#CC3333', border: 'none', borderRadius: 3, color: colors.border, fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>
             Xóa
           </button>
           <button onClick={() => setShowRemoveConfirm(false)} style={{ height: 24, paddingLeft: 10, paddingRight: 10, background: 'transparent', border: '1px solid #888', borderRadius: 3, color: '#777', fontSize: 9, cursor: 'pointer' }}>
@@ -274,7 +275,7 @@ function AddKeyForm({ onClose, onAdded }: { onClose: () => void; onAdded: () => 
 
   return (
     <div style={{
-      background: '#F0F0F0', border: '1px solid #E0E0E0',
+      background: colors.bg, border: '1px solid #E0E0E0',
       borderRadius: 8, padding: '16px',
     }}>
       <div style={{ fontSize: 9, fontWeight: 800, color: '#888', letterSpacing: '0.12em', marginBottom: 12 }}>THÊM API KEY MỚI</div>
@@ -282,23 +283,23 @@ function AddKeyForm({ onClose, onAdded }: { onClose: () => void; onAdded: () => 
         <input
           autoFocus value={newKey} onChange={e => setNewKey(e.target.value)}
           placeholder="AIzaSy..."
-          style={{ width: '100%', height: 32, background: '#F5F5F5', border: '1px solid #D0D0D0', borderRadius: 4, paddingLeft: 10, fontSize: 11, color: '#888', outline: 'none', fontFamily: 'monospace', boxSizing: 'border-box' }}
+          style={{ width: '100%', height: 32, background: colors.bg, border: '1px solid #D0D0D0', borderRadius: 4, paddingLeft: 10, fontSize: 11, color: '#888', outline: 'none', fontFamily: 'monospace', boxSizing: 'border-box' }}
         />
         <div style={{ display: 'flex', gap: 8 }}>
           <input
             value={newProjectId} onChange={e => setNewProjectId(e.target.value)}
             placeholder="proj-01"
-            style={{ flex: 1, height: 32, background: '#F5F5F5', border: '1px solid #D0D0D0', borderRadius: 4, paddingLeft: 10, fontSize: 10, color: '#888', outline: 'none', fontFamily: 'monospace' }}
+            style={{ flex: 1, height: 32, background: colors.bg, border: '1px solid #D0D0D0', borderRadius: 4, paddingLeft: 10, fontSize: 10, color: '#888', outline: 'none', fontFamily: 'monospace' }}
           />
           <input
             value={newKeyName} onChange={e => setNewKeyName(e.target.value)}
             placeholder="Tên key (tùy chọn)"
-            style={{ flex: 2, height: 32, background: '#F5F5F5', border: '1px solid #D0D0D0', borderRadius: 4, paddingLeft: 10, fontSize: 10, color: '#888', outline: 'none' }}
+            style={{ flex: 2, height: 32, background: colors.bg, border: '1px solid #D0D0D0', borderRadius: 4, paddingLeft: 10, fontSize: 10, color: '#888', outline: 'none' }}
           />
         </div>
         {addError && <div style={{ fontSize: 9, color: '#FF6644' }}>{addError}</div>}
         <div style={{ display: 'flex', gap: 8 }}>
-          <button type="submit" disabled={adding} style={{ flex: 1, height: 30, background: '#00B4FF', border: 'none', borderRadius: 4, fontSize: 10, fontWeight: 700, color: '#000', cursor: adding ? 'not-allowed' : 'pointer', opacity: adding ? 0.6 : 1 }}>
+          <button type="submit" disabled={adding} style={{ flex: 1, height: 30, background: colors.accent, border: 'none', borderRadius: 4, fontSize: 10, fontWeight: 700, color: '#000', cursor: adding ? 'not-allowed' : 'pointer', opacity: adding ? 0.6 : 1 }}>
             {adding ? '...' : 'Thêm Key'}
           </button>
           <button type="button" onClick={onClose} style={{ height: 30, paddingLeft: 14, paddingRight: 14, background: 'transparent', border: '1px solid #D0D0D0', borderRadius: 4, fontSize: 10, color: '#777', cursor: 'pointer' }}>
@@ -467,13 +468,13 @@ export default function ApiKeysSection() {
       {/* Full-width header */}
       <div style={{
         padding: '14px 20px',
-        background: '#F5F5F5',
+        background: colors.bg,
         borderBottom: '1px solid #E0E0E0',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 800, color: '#E0E0E0', letterSpacing: '0.1em' }}>API KEY MANAGEMENT</div>
-          <div style={{ width: 1, height: 12, background: '#D0D0D0' }} />
+          <div style={{ fontSize: 11, fontWeight: 800, color: colors.border, letterSpacing: '0.1em' }}>API KEY MANAGEMENT</div>
+          <div style={{ width: 1, height: 12, background: colors.borderHover }} />
           <span style={{ fontSize: 8, color: '#888' }}>last refresh {refreshTime}</span>
           {loading && <span style={{ fontSize: 8, color: '#00B4FF44' }}>● polling...</span>}
         </div>
@@ -485,7 +486,7 @@ export default function ApiKeysSection() {
               height: 26, paddingLeft: 10, paddingRight: 10,
               background: testingAll ? '#00B4FF14' : 'transparent',
               border: '1px solid #00B4FF44', borderRadius: 4,
-              fontSize: 8, fontWeight: 700, color: testingAll ? '#00B4FF88' : '#00B4FF',
+              fontSize: 8, fontWeight: 700, color: testingAll ? '#00B4FF88' : colors.accent,
               cursor: testingAll ? 'not-allowed' : 'pointer', letterSpacing: '0.06em',
               transition: 'all 0.15s',
               opacity: testingAll ? 0.7 : 1,
@@ -503,7 +504,7 @@ export default function ApiKeysSection() {
               fontSize: 8, fontWeight: 700, color: '#FFB80066', cursor: 'pointer', letterSpacing: '0.06em',
               transition: 'all 0.15s',
             }}
-            onMouseEnter={e => { e.currentTarget.style.color = '#FFB800'; e.currentTarget.style.borderColor = '#FFB80066' }}
+            onMouseEnter={e => { e.currentTarget.style.color = colors.warning; e.currentTarget.style.borderColor = '#FFB80066' }}
             onMouseLeave={e => { e.currentTarget.style.color = '#FFB80066'; e.currentTarget.style.borderColor = '#FFB80033' }}
           >
             ↺ RESET ALL
@@ -514,7 +515,7 @@ export default function ApiKeysSection() {
               height: 26, paddingLeft: 10, paddingRight: 10,
               background: showAddForm ? '#00B4FF22' : 'transparent',
               border: `1px solid ${showAddForm ? '#00B4FF66' : '#00B4FF33'}`, borderRadius: 4,
-              fontSize: 8, fontWeight: 700, color: '#00B4FF', cursor: 'pointer',
+              fontSize: 8, fontWeight: 700, color: colors.accent, cursor: 'pointer',
               transition: 'all 0.15s',
             }}
           >
@@ -525,7 +526,7 @@ export default function ApiKeysSection() {
 
       {/* Add form */}
       {showAddForm && (
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid #E0E0E0', background: '#F0F0F0' }}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #E0E0E0', background: colors.bg }}>
           <AddKeyForm onClose={() => setShowAddForm(false)} onAdded={() => { setShowAddForm(false); load() }} />
         </div>
       )}
@@ -540,7 +541,7 @@ export default function ApiKeysSection() {
           gap: 12,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FF4444', flexShrink: 0, boxShadow: '0 0 6px #FF444488' }} />
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: colors.error, flexShrink: 0, boxShadow: '0 0 6px #FF444488' }} />
             <span style={{ fontSize: 10, color: '#FF6644', fontWeight: 700 }}>
               {exhaustedKeys > 0 && `${exhaustedKeys} key${exhaustedKeys > 1 ? 's' : ''} quá tải quota`}
               {exhaustedKeys > 0 && unauthorizedKeys > 0 && ' · '}
@@ -566,7 +567,7 @@ export default function ApiKeysSection() {
       )}
 
       {/* Stats row */}
-      <div style={{ display: 'flex', gap: 8, padding: '12px 20px', borderBottom: '1px solid #E0E0E0', background: '#F0F0F0' }}>
+      <div style={{ display: 'flex', gap: 8, padding: '12px 20px', borderBottom: '1px solid #E0E0E0', background: colors.bg }}>
         <StatCard
           label="TOTAL KEYS"
           value={String(totalKeys)}
@@ -579,28 +580,28 @@ export default function ApiKeysSection() {
           value={`${healthyKeys}/${totalKeys}`}
           sub="keys available"
           color="#00FF88"
-          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00FF88' }} />}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: colors.success }} />}
         />
         <StatCard
           label="WARNING"
           value={String(warningKeys)}
           sub="75-90% quota"
-          color={warningKeys > 0 ? '#FFB800' : '#D0D0D0'}
-          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: warningKeys > 0 ? '#FFB800' : '#D0D0D0' }} />}
+          color={warningKeys > 0 ? colors.warning : colors.borderHover}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: warningKeys > 0 ? colors.warning : colors.borderHover }} />}
         />
         <StatCard
           label="EXHAUSTED"
           value={String(exhaustedKeys)}
           sub="needs reset"
-          color={exhaustedKeys > 0 ? '#FF4444' : '#D0D0D0'}
-          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: exhaustedKeys > 0 ? '#FF4444' : '#D0D0D0' }} />}
+          color={exhaustedKeys > 0 ? colors.error : colors.borderHover}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: exhaustedKeys > 0 ? colors.error : colors.borderHover }} />}
         />
         <StatCard
           label="UNAUTHORIZED"
           value={String(unauthorizedKeys)}
           sub="invalid keys"
-          color={unauthorizedKeys > 0 ? '#FF6644' : '#D0D0D0'}
-          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: unauthorizedKeys > 0 ? '#FF6644' : '#D0D0D0' }} />}
+          color={unauthorizedKeys > 0 ? '#FF6644' : colors.borderHover}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: unauthorizedKeys > 0 ? '#FF6644' : colors.borderHover }} />}
         />
         <StatCard
           label="NEXT RESET"
@@ -618,29 +619,29 @@ export default function ApiKeysSection() {
 
       {/* Per-key quota distribution chart */}
       {dedupedKeys.length > 0 && useMemo(() => (
-        <div style={{ padding: '12px 20px', background: '#F5F5F5', borderBottom: '1px solid #E0E0E0' }}>
+        <div style={{ padding: '12px 20px', background: colors.bg, borderBottom: '1px solid #E0E0E0' }}>
           <div style={{ fontSize: 8, color: '#AAA', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 8 }}>KEY QUOTA DISTRIBUTION</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {dedupedKeys
               .sort((a, b) => (b.usedToday ?? 0) - (a.usedToday ?? 0))
               .map(k => {
                 const pct = k.quotaPercent
-                const barColor = pct >= QUOTA_BAR_EXHAUSTED_PCT ? '#FF4444' : pct >= QUOTA_BAR_WARN_PCT ? '#FFB800' : pct > 0 ? '#00B4FF' : '#D0D0D0'
+                const barColor = pct >= QUOTA_BAR_EXHAUSTED_PCT ? colors.error : pct >= QUOTA_BAR_WARN_PCT ? colors.warning : pct > 0 ? colors.accent : colors.borderHover
                 const remaining = Math.max(0, k.quotaTotal - k.usedToday)
                 const isRecent = isKeyActive(k.lastUsed)
                 return (
                   <div key={k.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     {/* Key label */}
                     <div style={{
-                      minWidth: 100, fontSize: 9, color: isRecent ? '#00B4FF' : '#777',
+                      minWidth: 100, fontSize: 9, color: isRecent ? colors.accent : '#777',
                       fontFamily: 'monospace', fontWeight: isRecent ? 700 : 400,
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>
-                      {isRecent && <span style={{ color: '#00B4FF', marginRight: 3 }}>●</span>}
+                      {isRecent && <span style={{ color: colors.accent, marginRight: 3 }}>●</span>}
                       {k.name}
                     </div>
                     {/* Used bar */}
-                    <div style={{ flex: 1, height: 12, background: '#E0E0E0', borderRadius: 2, position: 'relative' }}>
+                    <div style={{ flex: 1, height: 12, background: colors.border, borderRadius: 2, position: 'relative' }}>
                       <div style={{
                         width: `${pct}%`, height: '100%', background: barColor,
                         borderRadius: 2, transition: 'width 0.5s',
@@ -653,9 +654,9 @@ export default function ApiKeysSection() {
                     {/* Stats */}
                     <div style={{ minWidth: 140, fontSize: 8, color: '#888', fontFamily: 'monospace', textAlign: 'right' }}>
                       <span style={{ color: barColor }}>{k.usedToday.toLocaleString()}</span>
-                      <span style={{ color: '#D0D0D0' }}>/</span>
+                      <span style={{ color: colors.borderHover }}>/</span>
                       <span>{k.quotaTotal.toLocaleString()}</span>
-                      <span style={{ color: '#D0D0D0', marginLeft: 4 }}>{remaining.toLocaleString()} left</span>
+                      <span style={{ color: colors.borderHover, marginLeft: 4 }}>{remaining.toLocaleString()} left</span>
                     </div>
                   </div>
                 )
@@ -664,26 +665,26 @@ export default function ApiKeysSection() {
           {/* Legend */}
           <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
             <span style={{ fontSize: 7, color: '#888' }}>● ACTIVE = used in last 30s</span>
-            <span style={{ fontSize: 7, color: '#D0D0D0' }}>| 75%</span>
+            <span style={{ fontSize: 7, color: colors.borderHover }}>| 75%</span>
             <span style={{ fontSize: 7, color: '#888' }}>| 90%</span>
           </div>
         </div>
       ), [dedupedKeys, isKeyActive])}
 
             {/* Filter tabs */}
-      <div style={{ display: 'flex', gap: 2, padding: '8px 20px', borderBottom: '1px solid #E0E0E0', background: '#F0F0F0' }}>
+      <div style={{ display: 'flex', gap: 2, padding: '8px 20px', borderBottom: '1px solid #E0E0E0', background: colors.bg }}>
         {(['all', 'healthy', 'warning', 'exhausted', 'unauthorized'] as const).map(f => {
           const isActive = filter === f
           const count = filterCounts[f]
-          const tabColors: Record<string, string> = { all: '#888', healthy: '#00FF88', warning: '#FFB800', exhausted: '#FF4444', unauthorized: '#FF6644' }
+          const tabColors: Record<string, string> = { all: '#888', healthy: colors.success, warning: colors.warning, exhausted: colors.error, unauthorized: '#FF6644' }
           return (
             <button
               key={f}
               onClick={() => setFilter(f)}
               style={{
                 height: 24, paddingLeft: 10, paddingRight: 10,
-                background: isActive ? '#E0E0E0' : 'transparent',
-                border: `1px solid ${isActive ? '#D0D0D0' : 'transparent'}`,
+                background: isActive ? colors.border : 'transparent',
+                border: `1px solid ${isActive ? colors.borderHover : 'transparent'}`,
                 borderRadius: 4, cursor: 'pointer', fontSize: 8, fontWeight: 700,
                 color: isActive ? tabColors[f] : '#888',
                 letterSpacing: '0.08em', transition: 'all 0.15s',
@@ -696,14 +697,14 @@ export default function ApiKeysSection() {
       </div>
 
       {/* Keys grid */}
-      <div style={{ padding: '14px 20px', background: '#F0F0F0' }}>
+      <div style={{ padding: '14px 20px', background: colors.bg }}>
         {loading && keys.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
             <div style={{ fontSize: 10, color: '#888' }}>Đang tải...</div>
           </div>
         ) : filteredKeys.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <div style={{ fontSize: 10, color: '#D0D0D0', marginBottom: 8 }}>
+            <div style={{ fontSize: 10, color: colors.borderHover, marginBottom: 8 }}>
               {filter !== 'all' ? `Không có key nào ở trạng thái "${filter}"` : 'Chưa có API key nào'}
             </div>
             {filter === 'all' && (
@@ -712,7 +713,7 @@ export default function ApiKeysSection() {
                 style={{
                   height: 28, paddingLeft: 14, paddingRight: 14,
                   background: '#00B4FF22', border: '1px solid #00B4FF44', borderRadius: 4,
-                  fontSize: 9, fontWeight: 700, color: '#00B4FF', cursor: 'pointer',
+                  fontSize: 9, fontWeight: 700, color: colors.accent, cursor: 'pointer',
                 }}
               >
                 + Thêm API Key đầu tiên

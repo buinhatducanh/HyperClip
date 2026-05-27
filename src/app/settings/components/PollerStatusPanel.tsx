@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../../design-system/tokens'
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
@@ -87,7 +88,7 @@ export function PollerStatusPanel() {
   const totalQuotaPercent = totalProjects > 0
     ? Math.round(((projectStatus as any[])?.reduce((sum: number, p: any) => sum + (p.usedToday ?? 0), 0) ?? 0) / (totalProjects * QUOTA_PER_PROJECT) * 100)
     : 0
-  const quotaColor = totalQuotaRemaining < 1000 ? '#FF4444' : totalQuotaRemaining < 5000 ? '#FFB800' : '#00FF88'
+  const quotaColor = totalQuotaRemaining < 1000 ? colors.error : totalQuotaRemaining < 5000 ? colors.warning : colors.success
   const quotaLabel = totalQuotaRemaining < 1000 ? '🔴 CRITICAL' : totalQuotaRemaining < 5000 ? '🟡 WARNING' : '🟢 OK'
 
   // Phase 5: Session health — from sessionStatus.health breakdown if available
@@ -97,8 +98,8 @@ export function PollerStatusPanel() {
   
   const health = sessionStatus?.health
   const sessionHealthPct = health?.healthPct ?? (totalSessions > 0 ? Math.round((consentedCount / totalSessions) * 100) : 0)
-  const sessionHealthColor = health ? (health.level === 'healthy' ? '#00FF88' : health.level === 'degraded' ? '#FFB800' : '#FF4444') 
-    : (sessionHealthPct >= 50 ? '#00FF88' : sessionHealthPct >= 20 ? '#FFB800' : '#FF4444')
+  const sessionHealthColor = health ? (health.level === 'healthy' ? colors.success : health.level === 'degraded' ? colors.warning : colors.error) 
+    : (sessionHealthPct >= 50 ? colors.success : sessionHealthPct >= 20 ? colors.warning : colors.error)
   const sessionHealthLabel = health ? (health.level === 'healthy' ? '🟢 HEALTHY' : health.level === 'degraded' ? '🟡 DEGRADED' : '🔴 CRITICAL')
     : (sessionHealthPct >= 50 ? '🟢 HEALTHY' : sessionHealthPct >= 20 ? '🟡 DEGRADED' : '🔴 CRITICAL')
   
@@ -149,16 +150,16 @@ export function PollerStatusPanel() {
       statusLabel = `BACKED OFF — ${backoffMin}m until midnight PT`
       statusIcon = '✗'
     } else if (!hasInnertube) {
-      bannerColor = '#FFB800'; bannerBg = '#1a1500'; bannerBorder = '#FFB80044'
+      bannerColor = colors.warning; bannerBg = '#1a1500'; bannerBorder = '#FFB80044'
       statusLabel = `BACKED OFF — ${backoffMin}m (OAuth fallback active)`
       statusIcon = '⚠'
     } else {
-      bannerColor = '#FFB800'; bannerBg = '#1a1500'; bannerBorder = '#FFB80044'
+      bannerColor = colors.warning; bannerBg = '#1a1500'; bannerBorder = '#FFB80044'
       statusLabel = `BACKED OFF — ${backoffMin}m (Innertube active after recovery)`
       statusIcon = '⚠'
     }
   } else {
-    bannerColor = '#00FF88'; bannerBg = '#0a1a0a'; bannerBorder = '#00FF8844'
+    bannerColor = colors.success; bannerBg = '#0a1a0a'; bannerBorder = '#00FF8844'
     statusLabel = 'RUNNING'
     statusIcon = '●'
   }
@@ -201,11 +202,11 @@ export function PollerStatusPanel() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {/* Innertube */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: hasInnertube ? '#00FF88' : '#FF4444' }}>
+            <span style={{ fontSize: 12, color: hasInnertube ? colors.success : colors.error }}>
               {hasInnertube ? '✓' : '✗'}
             </span>
             <span style={{ fontSize: 10, color: '#888', width: 160 }}>Innertube Sessions</span>
-            <span style={{ fontSize: 9, color: hasInnertube ? '#00FF88' : '#444', fontFamily: 'monospace' }}>
+            <span style={{ fontSize: 9, color: hasInnertube ? colors.success : '#444', fontFamily: 'monospace' }}>
               {consented}/{totalSessions} consented
             </span>
             <span style={{ fontSize: 9, color: '#333' }}>
@@ -234,7 +235,7 @@ export function PollerStatusPanel() {
                 fontSize: 9,
                 fontWeight: 700,
                 letterSpacing: '0.06em',
-                color: hasInnertube ? '#00FF88' : hasOAuth ? '#FFB800' : '#FF4444',
+                color: hasInnertube ? colors.success : hasOAuth ? colors.warning : colors.error,
               }}>
                 {hasInnertube ? 'PRIMARY' : hasOAuth ? 'FALLBACK' : 'NO SOURCE'}
               </div>
@@ -242,7 +243,7 @@ export function PollerStatusPanel() {
                 DETECTION PATH
               </span>
               {innertubeDegraded && (
-                <span style={{ fontSize: 8, color: '#FFB800', background: '#FFB80020', border: '1px solid #FFB80044', borderRadius: 3, padding: '1px 5px' }}>
+                <span style={{ fontSize: 8, color: colors.warning, background: '#FFB80020', border: '1px solid #FFB80044', borderRadius: 3, padding: '1px 5px' }}>
                   DEGRADED
                 </span>
               )}
@@ -257,9 +258,9 @@ export function PollerStatusPanel() {
             <div style={{ display: 'flex', gap: 16 }}>
               {/* Innertube */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{ width: 5, height: 5, borderRadius: '50%', background: hasInnertube ? '#00FF88' : '#333' }} />
+                <div style={{ width: 5, height: 5, borderRadius: '50%', background: hasInnertube ? colors.success : '#333' }} />
                 <span style={{ fontSize: 9, color: '#666' }}>Innertube</span>
-                <span style={{ fontSize: 9, fontFamily: 'monospace', color: hasInnertube ? '#00FF88' : '#444' }}>
+                <span style={{ fontSize: 9, fontFamily: 'monospace', color: hasInnertube ? colors.success : '#444' }}>
                   {consented}/{totalSessions} sessions
                 </span>
                 {needsConsent && (
@@ -269,9 +270,9 @@ export function PollerStatusPanel() {
 
               {/* OAuth */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{ width: 5, height: 5, borderRadius: '50%', background: hasOAuth ? '#00FF88' : '#333' }} />
+                <div style={{ width: 5, height: 5, borderRadius: '50%', background: hasOAuth ? colors.success : '#333' }} />
                 <span style={{ fontSize: 9, color: '#666' }}>OAuth</span>
-                <span style={{ fontSize: 9, fontFamily: 'monospace', color: hasOAuth ? '#00FF88' : '#444' }}>
+                <span style={{ fontSize: 9, fontFamily: 'monospace', color: hasOAuth ? colors.success : '#444' }}>
                   {healthyProjects}/{totalProjects} projects
                 </span>
                 {hasOAuth && (
@@ -291,12 +292,12 @@ export function PollerStatusPanel() {
                   </span>
                 )}
                 {hasExpiredSessions && (
-                  <span style={{ fontSize: 8, color: '#FFB800' }}>
+                  <span style={{ fontSize: 8, color: colors.warning }}>
                     ⚠ {hasExpiredSessions} session(s) lost cookies since last run
                   </span>
                 )}
                 {!needsConsent && sessionHealthPct < 50 && (
-                  <span style={{ fontSize: 8, color: '#FFB800' }}>
+                  <span style={{ fontSize: 8, color: colors.warning }}>
                     ⚠ Session health {sessionHealthPct}% — consider refreshing Chrome sessions
                   </span>
                 )}
@@ -306,11 +307,11 @@ export function PollerStatusPanel() {
 
           {/* OAuth */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: hasOAuth ? '#00FF88' : '#FF6644' }}>
+            <span style={{ fontSize: 12, color: hasOAuth ? colors.success : '#FF6644' }}>
               {hasOAuth ? '✓' : '✗'}
             </span>
             <span style={{ fontSize: 10, color: '#888', width: 160 }}>OAuth Projects</span>
-            <span style={{ fontSize: 9, color: hasOAuth ? '#00FF88' : '#444', fontFamily: 'monospace' }}>
+            <span style={{ fontSize: 9, color: hasOAuth ? colors.success : '#444', fontFamily: 'monospace' }}>
               {healthyProjects}/{totalProjects} healthy
             </span>
             <span style={{ fontSize: 9, color: '#333' }}>
@@ -320,11 +321,11 @@ export function PollerStatusPanel() {
 
           {/* API Keys */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: totalKeys > 0 ? '#00B4FF' : '#333' }}>
+            <span style={{ fontSize: 12, color: totalKeys > 0 ? colors.accent : '#333' }}>
               {totalKeys > 0 ? '●' : '○'}
             </span>
             <span style={{ fontSize: 10, color: '#888', width: 160 }}>API Keys</span>
-            <span style={{ fontSize: 9, color: totalKeys > 0 ? '#00B4FF' : '#333', fontFamily: 'monospace' }}>
+            <span style={{ fontSize: 9, color: totalKeys > 0 ? colors.accent : '#333', fontFamily: 'monospace' }}>
               {totalKeys} key{totalKeys !== 1 ? 's' : ''}
             </span>
             <span style={{ fontSize: 9, color: '#333' }}>
@@ -352,7 +353,7 @@ export function PollerStatusPanel() {
             background: '#1a0808', border: '1px solid #FF444444',
             borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10,
           }}>
-            <span style={{ fontSize: 11, color: '#FF4444' }}>🚨</span>
+            <span style={{ fontSize: 11, color: colors.error }}>🚨</span>
             <span style={{ fontSize: 10, color: '#888' }}>
               OAuth quota gần hết ({totalQuotaRemaining.toLocaleString()} units còn lại). Thêm GCP project trong tab OAUTH PROJECTS trước khi quota hết.
             </span>
@@ -373,7 +374,7 @@ export function PollerStatusPanel() {
                 onClick={handleResume}
                 style={{
                   background: 'none', border: 'none', cursor: 'pointer',
-                  fontSize: 10, fontWeight: 700, color: '#00B4FF', padding: 0,
+                  fontSize: 10, fontWeight: 700, color: colors.accent, padding: 0,
                 }}
               >
                 FORCE RESUME
@@ -390,7 +391,7 @@ export function PollerStatusPanel() {
             background: '#1a1500', border: '1px solid #FFB80044',
             borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10,
           }}>
-            <span style={{ fontSize: 11, color: '#FFB800' }}>⚠</span>
+            <span style={{ fontSize: 11, color: colors.warning }}>⚠</span>
             <span style={{ fontSize: 10, color: '#888' }}>
               OAuth đang active (có quota limit/ngày). Hệ thống vẫn hoạt động tốt.
             </span>
@@ -405,7 +406,7 @@ export function PollerStatusPanel() {
             border: `1px solid ${innertubeDegraded ? '#FFB80044' : '#00FF8844'}`,
             borderRadius: 4, display: 'flex', alignItems: 'center', gap: 10,
           }}>
-            <span style={{ fontSize: 11, color: innertubeDegraded ? '#FFB800' : '#00FF88' }}>
+            <span style={{ fontSize: 11, color: innertubeDegraded ? colors.warning : colors.success }}>
               {innertubeDegraded ? '⚠' : '✓'}
             </span>
             <span style={{ fontSize: 10, color: innertubeDegraded ? '#888' : '#666' }}>
@@ -449,8 +450,8 @@ export function PollerStatusPanel() {
           borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 10,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 11, color: '#FF4444' }}>⚠</span>
-            <span style={{ fontSize: 10, fontWeight: 700, color: '#FF4444', letterSpacing: '0.06em' }}>
+            <span style={{ fontSize: 11, color: colors.error }}>⚠</span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: colors.error, letterSpacing: '0.06em' }}>
               SESSION EXPIRED
             </span>
           </div>
@@ -486,7 +487,7 @@ export function PollerStatusPanel() {
                 onMouseLeave={e => { e.currentTarget.style.borderColor = '#FF444444'; e.currentTarget.style.background = '#0a0a0a' }}
               >
                 <span style={{ fontSize: 10, color: '#ccc', fontWeight: 600 }}>{s.profileName}</span>
-                <span style={{ fontSize: 9, color: '#FF4444' }}>Mở Chrome</span>
+                <span style={{ fontSize: 9, color: colors.error }}>Mở Chrome</span>
               </button>
             ))}
           </div>
@@ -501,7 +502,7 @@ export function PollerStatusPanel() {
           borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#00FF88', letterSpacing: '0.06em', marginBottom: 4 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: colors.success, letterSpacing: '0.06em', marginBottom: 4 }}>
               QUICK SETUP: CLONE SESSION 1
             </div>
             <div style={{ fontSize: 9, color: '#888', lineHeight: '14px' }}>
@@ -515,7 +516,7 @@ export function PollerStatusPanel() {
               height: 32, paddingLeft: 16, paddingRight: 16,
               background: '#00FF8811', border: '1px solid #00FF8844',
               borderRadius: 4, cursor: cloning ? 'not-allowed' : 'pointer',
-              fontSize: 10, fontWeight: 800, color: '#00FF88',
+              fontSize: 10, fontWeight: 800, color: colors.success,
               letterSpacing: '0.04em', transition: 'all 0.15s',
             }}
             onMouseEnter={e => { if (!cloning) { e.currentTarget.style.background = '#00FF8822'; e.currentTarget.style.borderColor = '#00FF8866' } }}
@@ -534,8 +535,8 @@ export function PollerStatusPanel() {
           borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 6,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 11, color: '#FFB800' }}>⚠</span>
-            <span style={{ fontSize: 10, fontWeight: 700, color: '#FFB800', letterSpacing: '0.06em' }}>
+            <span style={{ fontSize: 11, color: colors.warning }}>⚠</span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: colors.warning, letterSpacing: '0.06em' }}>
               SESSION HEALTH: {sessionHealthPct}% READY
             </span>
             <span style={{ fontSize: 9, color: sessionHealthColor }}>{sessionHealthLabel}</span>
@@ -561,7 +562,7 @@ export function PollerStatusPanel() {
           onMouseEnter={e => { e.currentTarget.style.background = '#0d1f15'; e.currentTarget.style.borderColor = '#00FF8866' }}
           onMouseLeave={e => { e.currentTarget.style.background = '#0d1520'; e.currentTarget.style.borderColor = '#00FF8844' }}
         >
-          <div style={{ fontSize: 10, fontWeight: 800, color: '#00FF88', letterSpacing: '0.08em', marginBottom: 4 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, color: colors.success, letterSpacing: '0.08em', marginBottom: 4 }}>
             GOOGLE PROJECTS — THÊM OAuth
           </div>
           <div style={{ fontSize: 9, color: '#666', lineHeight: '14px' }}>

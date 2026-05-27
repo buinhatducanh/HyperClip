@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../design-system/tokens'
 'use client'
 
 import { useState, useMemo } from 'react'
@@ -34,7 +35,7 @@ interface Props {
 type LogTab = 'activity' | 'errors' | 'system'
 
 const LEVEL_COLORS: Record<string, string> = {
-  success: '#00FF88', info: '#888', warning: '#FFB800', error: '#FF4444', render: '#7C3AED', debug: '#555',
+  success: colors.success, info: '#888', warning: colors.warning, error: colors.error, render: '#7C3AED', debug: '#555',
 }
 const LEVEL_ICONS: Record<string, string> = {
   success: '✓', info: '●', warning: '⚠', error: '✗', render: '⚡', debug: '○',
@@ -48,9 +49,9 @@ export function ActivityLogBar({ entries, etaDisplay, systemStatus }: Props) {
   const { gpuTemp = 0, gpuUsage = 0, freeGB = 0 } = systemStatus || {}
   const oauthUsed = systemStatus?.oauthQuota?.used ?? 0
   const oauthTotal = systemStatus?.oauthQuota?.total ?? 0
-  const diskColor = freeGB > 10 ? '#00FF88' : freeGB > 5 ? '#FFB800' : '#FF4444'
-  const innertubeColor = innertubeReady !== undefined ? (innertubeReady > 0 ? '#00FF88' : '#FF4444') : '#555'
-  const oauthColor = oauthTotal > 0 ? (oauthUsed / oauthTotal < 0.8 ? '#00FF88' : oauthUsed / oauthTotal < 0.95 ? '#FFB800' : '#FF4444') : '#555'
+  const diskColor = freeGB > 10 ? colors.success : freeGB > 5 ? colors.warning : colors.error
+  const innertubeColor = innertubeReady !== undefined ? (innertubeReady > 0 ? colors.success : colors.error) : '#555'
+  const oauthColor = oauthTotal > 0 ? (oauthUsed / oauthTotal < 0.8 ? colors.success : oauthUsed / oauthTotal < 0.95 ? colors.warning : colors.error) : '#555'
 
   return (
     <div style={{
@@ -70,7 +71,7 @@ export function ActivityLogBar({ entries, etaDisplay, systemStatus }: Props) {
               flex: 1, fontSize: 7, fontWeight: 700, cursor: 'pointer', height: 18,
               background: tab === t ? 'rgba(0,180,255,0.08)' : 'transparent',
               border: tab === t ? '1px solid #00B4FF44' : '1px solid transparent',
-              borderRadius: 2, color: tab === t ? '#00B4FF' : '#555',
+              borderRadius: 2, color: tab === t ? colors.accent : '#555',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3,
               fontFamily: 'monospace', letterSpacing: '0.04em',
             }}
@@ -78,7 +79,7 @@ export function ActivityLogBar({ entries, etaDisplay, systemStatus }: Props) {
             {t === 'errors' ? (
               <>ERR{errorCount > 0 && (
                 <span style={{
-                  width: 14, height: 14, background: '#FF4444', borderRadius: '50%',
+                  width: 14, height: 14, background: colors.error, borderRadius: '50%',
                   fontSize: 6, fontWeight: 700, color: '#fff',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
@@ -98,14 +99,14 @@ export function ActivityLogBar({ entries, etaDisplay, systemStatus }: Props) {
         {tab === 'system' ? (
           <div style={{ color: '#555', fontSize: 7 }}>
             <div style={{ marginBottom: 6 }}>
-              <div style={{ color: '#00B4FF', fontSize: 6, fontWeight: 700, marginBottom: 2 }}>DETECTION</div>
+              <div style={{ color: colors.accent, fontSize: 6, fontWeight: 700, marginBottom: 2 }}>DETECTION</div>
               <div>⬤ Innertube <span style={{ color: innertubeColor }}>{innertubeReady !== undefined ? `${innertubeReady}/${innertubeTotal ?? '?'}` : '?'}</span></div>
               <div>⬤ OAuth <span style={{ color: oauthColor }}>{oauthTotal > 0 ? `${oauthUsed}/${oauthTotal}` : 'N/A'}</span></div>
-              <div>⬤ Poll: <span style={{ color: pollActive ? '#00FF88' : '#555' }}>{pollActive ? `active · ${pollInterval}s` : 'paused'}</span></div>
+              <div>⬤ Poll: <span style={{ color: pollActive ? colors.success : '#555' }}>{pollActive ? `active · ${pollInterval}s` : 'paused'}</span></div>
             </div>
             <div>
               <div style={{ color: '#7C3AED', fontSize: 6, fontWeight: 700, marginBottom: 2 }}>RENDER</div>
-              <div>GPU: {gpuTemp > 0 ? `${gpuTemp}°C` : 'N/A'} · <span style={{ color: gpuUsage > 0 ? '#00FF88' : '#555' }}>{gpuUsage}%</span></div>
+              <div>GPU: {gpuTemp > 0 ? `${gpuTemp}°C` : 'N/A'} · <span style={{ color: gpuUsage > 0 ? colors.success : '#555' }}>{gpuUsage}%</span></div>
               <div>Disk: <span style={{ color: diskColor }}>{freeGB > 0 ? `${freeGB.toFixed(0)}GB free` : 'N/A'}</span></div>
             </div>
           </div>
@@ -115,7 +116,7 @@ export function ActivityLogBar({ entries, etaDisplay, systemStatus }: Props) {
           ) : (
             entries.filter(e => e.level === 'error' || e.type === 'error').slice(0, 30).map(e => (
               <div key={e.id} style={{ color: '#FF6B6B', wordBreak: 'break-word', marginBottom: 3 }}>
-                <span style={{ color: '#FF4444' }}>[{new Date(e.timestamp).toLocaleTimeString()}]</span>
+                <span style={{ color: colors.error }}>[{new Date(e.timestamp).toLocaleTimeString()}]</span>
                 <br/>{e.message}
               </div>
             ))
@@ -133,7 +134,7 @@ export function ActivityLogBar({ entries, etaDisplay, systemStatus }: Props) {
               const eta = e.workspaceId ? etaDisplay?.get(e.workspaceId) : undefined
               return (
                 <div key={e.id} style={{
-                  color: '#aaa', marginBottom: 3, lineHeight: 1.4,
+                  color: colors.textTertiary, marginBottom: 3, lineHeight: 1.4,
                   wordBreak: 'break-word',
                 }}>
                   <span style={{ color }}>[{time}]</span>
@@ -155,7 +156,7 @@ export function ActivityLogBar({ entries, etaDisplay, systemStatus }: Props) {
         {[
           { label: 'Innertube', color: innertubeColor },
           { label: 'OAuth', color: oauthColor },
-          { label: 'GPU', color: gpuTemp > 0 ? '#00FF88' : '#555' },
+          { label: 'GPU', color: gpuTemp > 0 ? colors.success : '#555' },
           { label: 'Disk', color: diskColor },
         ].map(dot => (
           <span key={dot.label} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>

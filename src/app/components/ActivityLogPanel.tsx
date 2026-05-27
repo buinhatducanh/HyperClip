@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../design-system/tokens'
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
@@ -18,13 +19,13 @@ function formatRelTime(ts: number): string {
 }
 
 const TYPE_CONFIG: Record<string, { icon: string; color: string }> = {
-  detected:   { icon: '●', color: '#00B4FF' },
-  downloading:{ icon: '↓', color: '#FFB800' },
-  downloaded: { icon: '✓', color: '#00FF88' },
+  detected:   { icon: '●', color: colors.accent },
+  downloading:{ icon: '↓', color: colors.warning },
+  downloaded: { icon: '✓', color: colors.success },
   rendering: { icon: '⚡', color: '#7C3AED' },
-  done:      { icon: '✓', color: '#00FF88' },
-  error:     { icon: '✗', color: '#FF4444' },
-  warning:   { icon: '⚠', color: '#FFB800' },
+  done:      { icon: '✓', color: colors.success },
+  error:     { icon: '✗', color: colors.error },
+  warning:   { icon: '⚠', color: colors.warning },
 }
 
 function StatChip({ label, value, color }: { label: string; value: number; color: string }) {
@@ -62,7 +63,7 @@ export function ActivityLogPanel({ entries, onClear }: Props) {
     <div style={{
       height: 220, flexShrink: 0,
       borderTop: '1px solid #E0E0E0',
-      background: '#F5F5F5',
+      background: colors.bg,
       display: 'flex', flexDirection: 'column',
     }}>
       {/* Header stats bar */}
@@ -72,7 +73,7 @@ export function ActivityLogPanel({ entries, onClear }: Props) {
         borderBottom: '1px solid #E0E0E0',
         flexShrink: 0,
       }}>
-        <span style={{ fontSize: 10, color: '#00B4FF', fontWeight: 700, letterSpacing: '0.06em', marginRight: 6 }}>ACT</span>
+        <span style={{ fontSize: 10, color: colors.accent, fontWeight: 700, letterSpacing: '0.06em', marginRight: 6 }}>ACT</span>
 
         <StatChip label="DET" value={counts.det} color="#00B4FF" />
         <StatChip label="DL"  value={counts.dl}  color="#FFB800" />
@@ -88,7 +89,7 @@ export function ActivityLogPanel({ entries, onClear }: Props) {
               fontSize: 10, fontWeight: 700, color: '#888', background: 'transparent',
               border: 'none', cursor: 'pointer', letterSpacing: '0.06em', padding: '3px 8px',
             }}
-            onMouseEnter={e => (e.currentTarget.style.color = '#FF4444')}
+            onMouseEnter={e => (e.currentTarget.style.color = colors.error)}
             onMouseLeave={e => (e.currentTarget.style.color = '#888')}
           >
             [Clear]

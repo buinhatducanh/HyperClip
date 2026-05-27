@@ -1,4 +1,6 @@
 'use client'
+import { colors, spacing, fontSize } from '../../design-system/tokens'
+'use client'
 
 import { useState, useMemo, memo } from 'react'
 import type { Workspace } from '../../lib/store'
@@ -32,13 +34,13 @@ type ActiveTab = 'pipeline' | 'rendered'
 const STATUS_ORDER: GroupStatus[] = ['ready', 'rendering', 'downloading', 'waiting', 'editing', 'done', 'error']
 
 const GROUP_CONFIG: Record<GroupStatus, { label: string; color: string; collapsible?: boolean }> = {
-  ready:      { label: 'READY',      color: '#00FF88', collapsible: false },
-  rendering:  { label: 'RENDERING',  color: '#FF4444', collapsible: false },
-  downloading: { label: 'DOWNLOAD',  color: '#00B4FF', collapsible: false },
-  waiting:    { label: 'WAITING',    color: '#FFB800', collapsible: false },
+  ready:      { label: 'READY',      color: colors.success, collapsible: false },
+  rendering:  { label: 'RENDERING',  color: colors.error, collapsible: false },
+  downloading: { label: 'DOWNLOAD',  color: colors.accent, collapsible: false },
+  waiting:    { label: 'WAITING',    color: colors.warning, collapsible: false },
   editing:    { label: 'EDITING',    color: '#7C3AED', collapsible: false },
   done:       { label: 'DONE',       color: '#999999', collapsible: true },
-  error:      { label: 'ERROR',      color: '#FF4444', collapsible: false },
+  error:      { label: 'ERROR',      color: colors.error, collapsible: false },
 }
 
 function groupByStatus(workspaces: Workspace[]): Map<GroupStatus, Workspace[]> {
@@ -67,7 +69,7 @@ const MemoizedGroupHeader = memo(function GroupHeader({
       className="flex items-center px-4 shrink-0"
       style={{
         height: 26,
-        background: '#F0F0F0',
+        background: colors.bg,
         borderBottom: '1px solid #FFFFFF',
         cursor: cfg.collapsible ? 'pointer' : 'default',
         userSelect: 'none',
@@ -141,13 +143,13 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
   const totalDone = filteredWorkspaces.filter(w => w.status === 'done').length
 
   return (
-    <div className="flex flex-col h-full" style={{ background: '#F5F5F5' }}>
+    <div className="flex flex-col h-full" style={{ background: colors.bg }}>
       {/* Tab header */}
       <div
         style={{
           display: 'flex',
           alignItems: 'stretch',
-          background: '#F0F0F0',
+          background: colors.bg,
           borderBottom: '1px solid #E0E0E0',
           flexShrink: 0,
         }}
@@ -162,14 +164,14 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
             alignItems: 'center',
             justifyContent: 'center',
             gap: 5,
-            background: activeTab === 'pipeline' ? '#F5F5F5' : 'transparent',
+            background: activeTab === 'pipeline' ? colors.bg : 'transparent',
             border: 'none',
             borderBottom: activeTab === 'pipeline' ? '2px solid #00B4FF' : '2px solid transparent',
             cursor: 'pointer',
             transition: 'all 0.15s',
           }}
         >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={activeTab === 'pipeline' ? '#00B4FF' : '#999999'} strokeWidth="2">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={activeTab === 'pipeline' ? colors.accent : '#999999'} strokeWidth="2">
             <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
             <line x1="3" y1="9" x2="21" y2="9" />
             <line x1="9" y1="21" x2="9" y2="9" />
@@ -177,7 +179,7 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
           <span style={{
             fontSize: 9,
             fontWeight: 800,
-            color: activeTab === 'pipeline' ? '#00B4FF' : '#999999',
+            color: activeTab === 'pipeline' ? colors.accent : '#999999',
             letterSpacing: '0.1em',
           }}>
             PIPELINE
@@ -203,20 +205,20 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
             alignItems: 'center',
             justifyContent: 'center',
             gap: 5,
-            background: activeTab === 'rendered' ? '#F5F5F5' : 'transparent',
+            background: activeTab === 'rendered' ? colors.bg : 'transparent',
             border: 'none',
             borderBottom: activeTab === 'rendered' ? '2px solid #00FF88' : '2px solid transparent',
             cursor: 'pointer',
             transition: 'all 0.15s',
           }}
         >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={activeTab === 'rendered' ? '#00FF88' : '#999999'} strokeWidth="2">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={activeTab === 'rendered' ? colors.success : '#999999'} strokeWidth="2">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
           <span style={{
             fontSize: 9,
             fontWeight: 800,
-            color: activeTab === 'rendered' ? '#00FF88' : '#999999',
+            color: activeTab === 'rendered' ? colors.success : '#999999',
             letterSpacing: '0.1em',
           }}>
             RENDERED
@@ -237,15 +239,15 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
       {activeTab === 'pipeline' && workspaces.length > 0 && (
         <div style={{
           display: 'flex', gap: 4, padding: '3px 8px',
-          background: '#F0F0F0', borderBottom: '1px solid #E8E8E8',
+          background: colors.bg, borderBottom: '1px solid #E8E8E8',
           flexShrink: 0, flexWrap: 'wrap',
         }}>
           {[
             { key: 'all', label: 'ALL', color: '#999999' },
-            { key: 'ready', label: 'READY', color: '#00FF88' },
-            { key: 'downloading', label: 'DL', color: '#00B4FF' },
+            { key: 'ready', label: 'READY', color: colors.success },
+            { key: 'downloading', label: 'DL', color: colors.accent },
             { key: 'rendering', label: 'RENDER', color: '#7C3AED' },
-            { key: 'error', label: 'ERR', color: '#FF4444' },
+            { key: 'error', label: 'ERR', color: colors.error },
           ].map(tab => {
             const count = tab.key === 'all'
               ? filteredWorkspaces.length
@@ -276,7 +278,7 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
       {activeTab === 'pipeline' && workspaces.length > 0 && (
         <div style={{
           display: 'flex', gap: 6, padding: '6px 10px',
-          background: '#F0F0F0',
+          background: colors.bg,
           borderBottom: '1px solid #E8E8E8',
           flexShrink: 0,
         }}>
@@ -298,7 +300,7 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
                 borderRadius: 3, fontSize: 10, color: '#999999',
                 outline: 'none', fontFamily: 'inherit',
               }}
-              onFocus={e => { e.target.style.borderColor = '#00B4FF44'; e.target.style.color = '#1A1A1A' }}
+              onFocus={e => { e.target.style.borderColor = '#00B4FF44'; e.target.style.color = colors.text }}
               onBlur={e => { e.target.style.borderColor = '#777'; e.target.style.color = '#999999' }}
             />
           </div>
@@ -371,7 +373,7 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
                 </svg>
                 <span style={{ fontSize: 11, color: '#999666', textAlign: 'center', lineHeight: 1.5 }}>
                   Chưa có video nào<br />
-                  <span style={{ color: '#D0D0D0', fontSize: 10 }}>Thêm kênh trong Settings →</span>
+                  <span style={{ color: colors.borderHover, fontSize: 10 }}>Thêm kênh trong Settings →</span>
                 </span>
               </div>
             ) : filteredWorkspaces.length === 0 ? (
@@ -385,7 +387,7 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
                 </svg>
                 <span style={{ fontSize: 11, color: '#999666', textAlign: 'center', lineHeight: 1.5 }}>
                   Không có kết quả<br />
-                  <span style={{ color: '#D0D0D0', fontSize: 10 }}>Thử đổi từ khóa hoặc bộ lọc</span>
+                  <span style={{ color: colors.borderHover, fontSize: 10 }}>Thử đổi từ khóa hoặc bộ lọc</span>
                 </span>
               </div>
             ) : (

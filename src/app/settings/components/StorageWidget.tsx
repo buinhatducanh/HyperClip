@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../../design-system/tokens'
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
@@ -31,7 +32,7 @@ function PathRow({ label, value, onChange, needsRestart }: { label: string; valu
         <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>
           {label}
           {needsRestart && (
-            <span style={{ marginLeft: 6, fontSize: 8, color: '#FFB800', fontWeight: 700, letterSpacing: '0.06em' }}>RESTART</span>
+            <span style={{ marginLeft: 6, fontSize: 8, color: colors.warning, fontWeight: 700, letterSpacing: '0.06em' }}>RESTART</span>
           )}
         </div>
         <div style={{ fontSize: 9, color: '#444', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={value}>
@@ -41,14 +42,14 @@ function PathRow({ label, value, onChange, needsRestart }: { label: string; valu
       <div style={{ display: 'flex', gap: 6, flexShrink: 0, marginLeft: 12 }}>
         <button
           onClick={() => ipc.openFolder(value)}
-          style={{ height: 28, paddingLeft: 8, paddingRight: 8, background: '#1A1A1A', border: '1px solid #222', borderRadius: 3, fontSize: 9, fontWeight: 600, color: '#555', cursor: 'pointer' }}
+          style={{ height: 28, paddingLeft: 8, paddingRight: 8, background: colors.text, border: '1px solid #222', borderRadius: 3, fontSize: 9, fontWeight: 600, color: '#555', cursor: 'pointer' }}
         >OPEN</button>
         <button
           onClick={async () => {
             const result = await ipc.pickFolder(value)
             if (result) onChange(result.path)
           }}
-          style={{ height: 28, paddingLeft: 8, paddingRight: 8, background: '#1A1A1A', border: '1px solid #00B4FF44', borderRadius: 3, fontSize: 9, fontWeight: 700, color: '#00B4FF', cursor: 'pointer', letterSpacing: '0.04em' }}
+          style={{ height: 28, paddingLeft: 8, paddingRight: 8, background: colors.text, border: '1px solid #00B4FF44', borderRadius: 3, fontSize: 9, fontWeight: 700, color: colors.accent, cursor: 'pointer', letterSpacing: '0.04em' }}
         >CHANGE</button>
       </div>
     </div>
@@ -67,11 +68,11 @@ function QualityPicker({ value, options, onChange, label }: {
           style={{
             padding: '4px 10px',
             background: value === q ? '#00B4FF18' : '#0d0d0d',
-            border: `1px solid ${value === q ? '#00B4FF' : '#222'}`,
+            border: `1px solid ${value === q ? colors.accent : '#222'}`,
             borderRadius: 3,
             fontSize: 10,
             fontWeight: value === q ? 700 : 400,
-            color: value === q ? '#00B4FF' : '#444',
+            color: value === q ? colors.accent : '#444',
             cursor: 'pointer',
             letterSpacing: '0.04em',
           }}
@@ -86,7 +87,7 @@ function QualityPicker({ value, options, onChange, label }: {
 function ToggleSwitch({ value, onChange, onColor, offColor }: {
   value: boolean; onChange: (v: boolean) => void; onColor?: string; offColor?: string
 }) {
-  const on = onColor ?? '#00FF88'
+  const on = onColor ?? colors.success
   const off = offColor ?? '#333'
   return (
     <button
@@ -356,7 +357,7 @@ export function StorageWidget() {
       {/* Disk space warning */}
       {isLowDisk && (
         <div style={{ margin: '8px 14px', padding: '8px 10px', background: '#FF440015', border: '1px solid #FF4444', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 10, color: '#FF4444', fontWeight: 700 }}>LOW DISK</span>
+          <span style={{ fontSize: 10, color: colors.error, fontWeight: 700 }}>LOW DISK</span>
           <span style={{ fontSize: 10, color: '#FF6666' }}>{freeGB.toFixed(1)} GB free on downloads drive</span>
         </div>
       )}
@@ -393,11 +394,11 @@ export function StorageWidget() {
               style={{
                 padding: '4px 10px',
                 background: !trimIsFull && dlTrimLimit === limit && !trimCustomValue ? '#00B4FF18' : '#0d0d0d',
-                border: `1px solid ${!trimIsFull && dlTrimLimit === limit && !trimCustomValue ? '#00B4FF' : '#222'}`,
+                border: `1px solid ${!trimIsFull && dlTrimLimit === limit && !trimCustomValue ? colors.accent : '#222'}`,
                 borderRadius: 3,
                 fontSize: 10,
                 fontWeight: !trimIsFull && dlTrimLimit === limit && !trimCustomValue ? 700 : 400,
-                color: !trimIsFull && dlTrimLimit === limit && !trimCustomValue ? '#00B4FF' : '#444',
+                color: !trimIsFull && dlTrimLimit === limit && !trimCustomValue ? colors.accent : '#444',
                 cursor: 'pointer',
                 letterSpacing: '0.04em',
               }}
@@ -410,11 +411,11 @@ export function StorageWidget() {
             style={{
               padding: '4px 10px',
               background: trimIsFull ? '#00B4FF18' : '#0d0d0d',
-              border: `1px solid ${trimIsFull ? '#00B4FF' : '#222'}`,
+              border: `1px solid ${trimIsFull ? colors.accent : '#222'}`,
               borderRadius: 3,
               fontSize: 10,
               fontWeight: trimIsFull ? 700 : 400,
-              color: trimIsFull ? '#00B4FF' : '#444',
+              color: trimIsFull ? colors.accent : '#444',
               cursor: 'pointer',
               letterSpacing: '0.04em',
             }}
@@ -452,7 +453,7 @@ export function StorageWidget() {
               style={{
                 width: 48, height: 26,
                 background: trimCustomValue ? '#00B4FF18' : '#111',
-                border: `1px solid ${trimInputError ? '#FF6644' : trimCustomValue ? '#00B4FF' : '#222'}`,
+                border: `1px solid ${trimInputError ? '#FF6644' : trimCustomValue ? colors.accent : '#222'}`,
                 borderRadius: 3,
                 fontSize: 11, color: '#fff', fontFamily: 'monospace',
                 textAlign: 'right', paddingRight: 22,
@@ -473,9 +474,9 @@ export function StorageWidget() {
             style={{
               height: 26, paddingLeft: 10, paddingRight: 10,
               background: trimCustomValue ? '#00B4FF18' : '#111',
-              border: `1px solid ${trimCustomValue ? '#00B4FF' : '#222'}`,
+              border: `1px solid ${trimCustomValue ? colors.accent : '#222'}`,
               borderRadius: 3, fontSize: 9, fontWeight: 700,
-              color: trimCustomValue ? '#00B4FF' : '#333',
+              color: trimCustomValue ? colors.accent : '#333',
               cursor: trimCustomValue ? 'pointer' : 'not-allowed',
               letterSpacing: '0.04em',
             }}
@@ -510,11 +511,11 @@ export function StorageWidget() {
               style={{
                 padding: '4px 8px',
                 background: pollInterval === sec ? '#00B4FF18' : '#0d0d0d',
-                border: `1px solid ${pollInterval === sec ? '#00B4FF' : '#222'}`,
+                border: `1px solid ${pollInterval === sec ? colors.accent : '#222'}`,
                 borderRadius: 3,
                 fontSize: 10,
                 fontWeight: pollInterval === sec ? 700 : 400,
-                color: pollInterval === sec ? '#00B4FF' : '#444',
+                color: pollInterval === sec ? colors.accent : '#444',
                 cursor: 'pointer',
                 letterSpacing: '0.04em',
               }}
@@ -609,7 +610,7 @@ export function StorageWidget() {
             background: clearingDl ? '#111' : '#FF444415',
             border: '1px solid #FF444444',
             borderRadius: 4, cursor: clearingDl || stats.downloads === 0 ? 'not-allowed' : 'pointer',
-            fontSize: 9, fontWeight: 700, color: '#FF4444',
+            fontSize: 9, fontWeight: 700, color: colors.error,
             opacity: stats.downloads === 0 ? 0.3 : 1,
             letterSpacing: '0.06em',
           }}
@@ -632,7 +633,7 @@ export function StorageWidget() {
             background: clearingBlr ? '#111' : '#FF444415',
             border: '1px solid #FF444444',
             borderRadius: 4, cursor: clearingBlr || stats.blur === 0 ? 'not-allowed' : 'pointer',
-            fontSize: 9, fontWeight: 700, color: '#FF4444',
+            fontSize: 9, fontWeight: 700, color: colors.error,
             opacity: stats.blur === 0 ? 0.3 : 1,
             letterSpacing: '0.06em',
           }}

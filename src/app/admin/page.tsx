@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../design-system/tokens'
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
@@ -139,22 +140,22 @@ export default function AdminPage() {
 
   function getStatus(l: License) {
     if (l.isExpired) return { label: `EXPIRED`, color: '#ff6b6b', bg: 'rgba(255,107,107,0.15)' }
-    if (!l.expiresAt) return { label: 'UNLIMITED', color: '#00B4FF', bg: 'rgba(0,180,255,0.15)' }
-    return { label: `ACTIVE (${l.daysLeft}d)`, color: '#00FF88', bg: 'rgba(0,255,136,0.15)' }
+    if (!l.expiresAt) return { label: 'UNLIMITED', color: colors.accent, bg: 'rgba(0,180,255,0.15)' }
+    return { label: `ACTIVE (${l.daysLeft}d)`, color: colors.success, bg: 'rgba(0,255,136,0.15)' }
   }
 
   if (!loggedIn) {
     return (
       <div style={{
-        minHeight: '100vh', background: '#F5F5F5',
+        minHeight: '100vh', background: colors.bg,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontFamily: 'Inter, system-ui, sans-serif',
       }}>
         <div style={{
-          background: '#F5F5F5', border: '1px solid #1a1a1a',
+          background: colors.bg, border: '1px solid #1a1a1a',
           borderRadius: 12, padding: '40px 48px', width: 360,
         }}>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#1A1A1A', marginBottom: 4, textAlign: 'center' }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: colors.text, marginBottom: 4, textAlign: 'center' }}>
             HyperClip Admin
           </div>
           <div style={{ fontSize: 12, color: '#777', marginBottom: 28, textAlign: 'center' }}>
@@ -169,9 +170,9 @@ export default function AdminPage() {
               autoFocus
               style={{
                 width: '100%', boxSizing: 'border-box',
-                background: '#F0F0F0', border: `1px solid ${error ? '#ff4444' : '#2a2a2a'}`,
+                background: colors.bg, border: `1px solid ${error ? '#ff4444' : '#2a2a2a'}`,
                 borderRadius: 8, padding: '12px 16px',
-                fontSize: 14, color: '#1A1A1A', outline: 'none', marginBottom: 12,
+                fontSize: 14, color: colors.text, outline: 'none', marginBottom: 12,
               }}
             />
             {error && (
@@ -181,7 +182,7 @@ export default function AdminPage() {
               type="submit"
               style={{
                 width: '100%', padding: '12px',
-                background: '#00B4FF', border: 'none', borderRadius: 8,
+                background: colors.accent, border: 'none', borderRadius: 8,
                 fontSize: 14, fontWeight: 600, color: '#000', cursor: 'pointer',
               }}
             >
@@ -202,14 +203,14 @@ export default function AdminPage() {
 
   return (
     <div style={{
-      minHeight: '100vh', background: '#F5F5F5',
+      minHeight: '100vh', background: colors.bg,
       fontFamily: 'Inter, system-ui, sans-serif', color: '#e0e0e0',
       padding: '24px 32px',
     }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
         <div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: '#1A1A1A' }}>HyperClip Admin</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: colors.text }}>HyperClip Admin</div>
           <div style={{ fontSize: 12, color: '#777' }}>Admin API: {base || '/api/admin/licenses'}</div>
         </div>
         <div style={{ display: 'flex', gap: 12 }}>
@@ -228,11 +229,11 @@ export default function AdminPage() {
       <div style={{ display: 'flex', gap: 16, marginBottom: 28 }}>
         {[
           { label: 'Tổng Keys', value: licenses.length, color: '#999' },
-          { label: 'Đang hoạt động', value: activeCount, color: '#00FF88' },
+          { label: 'Đang hoạt động', value: activeCount, color: colors.success },
           { label: 'Hết hạn / Thu hồi', value: expiredCount, color: '#ff6b6b' },
         ].map(s => (
           <div key={s.label} style={{
-            background: '#F5F5F5', border: '1px solid #1a1a1a',
+            background: colors.bg, border: '1px solid #1a1a1a',
             borderRadius: 10, padding: '16px 24px', minWidth: 140,
           }}>
             <div style={{ fontSize: 28, fontWeight: 700, color: s.color }}>{s.value}</div>
@@ -244,10 +245,10 @@ export default function AdminPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 24 }}>
         {/* License table */}
         <div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#1A1A1A', marginBottom: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 12 }}>
             Danh sách License ({licenses.length})
           </div>
-          <div style={{ background: '#F5F5F5', border: '1px solid #1a1a1a', borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ background: colors.bg, border: '1px solid #1a1a1a', borderRadius: 10, overflow: 'hidden' }}>
             {loading ? (
               <div style={{ padding: 40, textAlign: 'center', color: '#777' }}>Đang tải...</div>
             ) : licenses.length === 0 ? (
@@ -267,7 +268,7 @@ export default function AdminPage() {
                     return (
                       <tr key={l.keyId} style={{ borderBottom: '1px solid #F5F5F5', opacity: l.isExpired ? 0.5 : 1 }}>
                         <td style={{ padding: '10px 12px' }}>
-                          <div style={{ fontFamily: 'monospace', color: l.key.startsWith('DEMO') ? '#00FF88' : '#00B4FF', fontWeight: 600, fontSize: 11 }}>{l.key}</div>
+                          <div style={{ fontFamily: 'monospace', color: l.key.startsWith('DEMO') ? colors.success : colors.accent, fontWeight: 600, fontSize: 11 }}>{l.key}</div>
                           <div style={{ fontSize: 10, color: '#999', fontFamily: 'monospace' }}>{l.keyId}</div>
                         </td>
                         <td style={{ padding: '10px 12px', fontFamily: 'monospace', color: '#999', fontSize: 10 }}>{l.machineIdShort || '—'}</td>
@@ -305,11 +306,11 @@ export default function AdminPage() {
 
         {/* Create demo key form */}
         <div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#1A1A1A', marginBottom: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 12 }}>
             Tạo Demo Key (max 2 ngày)
           </div>
           <form onSubmit={handleCreateDemo} style={{
-            background: '#F5F5F5', border: '1px solid #1a1a1a',
+            background: colors.bg, border: '1px solid #1a1a1a',
             borderRadius: 10, padding: 20,
           }}>
             <div style={{ marginBottom: 16 }}>
@@ -324,8 +325,8 @@ export default function AdminPage() {
                     onClick={() => setNewDays(d)}
                     style={{
                       flex: 1, padding: '10px',
-                      background: newDays === d ? '#00B4FF' : '#1a1a1a',
-                      border: `1px solid ${newDays === d ? '#00B4FF' : '#2a2a2a'}`,
+                      background: newDays === d ? colors.accent : '#1a1a1a',
+                      border: `1px solid ${newDays === d ? colors.accent : '#2a2a2a'}`,
                       borderRadius: 6, fontSize: 14, fontWeight: 700,
                       color: newDays === d ? '#000' : '#999', cursor: 'pointer',
                     }}
@@ -347,9 +348,9 @@ export default function AdminPage() {
                 maxLength={8}
                 style={{
                   width: '100%', boxSizing: 'border-box',
-                  background: '#F0F0F0', border: '1px solid #2a2a2a',
+                  background: colors.bg, border: '1px solid #2a2a2a',
                   borderRadius: 6, padding: '10px 12px',
-                  fontSize: 13, fontFamily: 'monospace', color: '#1A1A1A', outline: 'none',
+                  fontSize: 13, fontFamily: 'monospace', color: colors.text, outline: 'none',
                 }}
               />
               <div style={{ fontSize: 10, color: '#999', marginTop: 4 }}>
@@ -367,9 +368,9 @@ export default function AdminPage() {
                 placeholder="Bind key to one machine only"
                 style={{
                   width: '100%', boxSizing: 'border-box',
-                  background: '#F0F0F0', border: '1px solid #2a2a2a',
+                  background: colors.bg, border: '1px solid #2a2a2a',
                   borderRadius: 6, padding: '10px 12px',
-                  fontSize: 12, fontFamily: 'monospace', color: '#1A1A1A', outline: 'none',
+                  fontSize: 12, fontFamily: 'monospace', color: colors.text, outline: 'none',
                 }}
               />
             </div>
@@ -379,7 +380,7 @@ export default function AdminPage() {
               disabled={creating}
               style={{
                 width: '100%', padding: '12px',
-                background: creating ? '#1a2a3a' : '#00B4FF',
+                background: creating ? '#1a2a3a' : colors.accent,
                 border: 'none', borderRadius: 6,
                 fontSize: 13, fontWeight: 700, color: '#000', cursor: creating ? 'not-allowed' : 'pointer',
               }}
@@ -392,7 +393,7 @@ export default function AdminPage() {
                 marginTop: 12, padding: '10px 12px', borderRadius: 6, fontSize: 12,
                 background: createResult.success ? 'rgba(0,255,136,0.1)' : 'rgba(255,68,68,0.1)',
                 border: `1px solid ${createResult.success ? 'rgba(0,255,136,0.3)' : 'rgba(255,68,68,0.3)'}`,
-                color: createResult.success ? '#00FF88' : '#ff6b6b',
+                color: createResult.success ? colors.success : '#ff6b6b',
               }}>
                 {createResult.success ? (
                   <>

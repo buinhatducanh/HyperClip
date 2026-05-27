@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../design-system/tokens'
 'use client'
 
 import { useMemo } from 'react'
@@ -111,14 +112,14 @@ function DiffRow({ label, value, unit, good }: { label: string; value: string; u
       <span style={{
         flex: 1,
         fontSize: 13, fontFamily: 'monospace', fontWeight: 800,
-        color: good ? '#00FF88' : '#FF5252',
+        color: good ? colors.success : '#FF5252',
         letterSpacing: '0.02em',
       }}>
         {value}{unit && <span style={{ fontSize: 10, fontWeight: 400, marginLeft: 3, color: good ? '#00FF8888' : '#FF525288' }}>{unit}</span>}
       </span>
       <span style={{
         fontSize: 9, fontWeight: 700,
-        color: good ? '#00FF88' : '#FF5252',
+        color: good ? colors.success : '#FF5252',
         background: good ? '#00FF8812' : '#FF525212',
         border: `1px solid ${good ? '#00FF8830' : '#FF525230'}`,
         borderRadius: 3, padding: '2px 7px', letterSpacing: '0.04em',
@@ -155,7 +156,7 @@ function FormatsBadge({ heights }: { heights: number[] }) {
       {heights.map(h => (
         <span key={h} style={{
           fontSize: 9, fontWeight: 700, fontFamily: 'monospace',
-          color: h >= 1080 ? '#00FF88' : h >= 720 ? '#00B4FF' : '#FFB800',
+          color: h >= 1080 ? colors.success : h >= 720 ? colors.accent : colors.warning,
           background: h >= 1080 ? '#00FF8812' : h >= 720 ? '#00B4FF12' : '#FFB80012',
           border: `1px solid ${h >= 1080 ? '#00FF8830' : h >= 720 ? '#00B4FF30' : '#FFB80030'}`,
           borderRadius: 3, padding: '1px 6px',
@@ -246,7 +247,7 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
 
       {/* Modal */}
       <div style={{
-        background: '#F0F0F0',
+        background: colors.bg,
         border: '1px solid #D0D0D0',
         borderRadius: 10,
         width: '100%',
@@ -294,7 +295,7 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
               color: '#888', fontSize: 16, lineHeight: 1, padding: '2px 4px',
               flexShrink: 0,
             }}
-            onMouseEnter={e => (e.currentTarget.style.color = '#1A1A1A')}
+            onMouseEnter={e => (e.currentTarget.style.color = colors.text)}
             onMouseLeave={e => (e.currentTarget.style.color = '#888')}
           >
             ✕
@@ -347,7 +348,7 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
         {/* ── Diff analysis ── */}
         <div style={{ padding: '12px 20px' }}>
           <div style={{
-            fontSize: 8, fontWeight: 800, color: '#D0D0D0',
+            fontSize: 8, fontWeight: 800, color: colors.borderHover,
             letterSpacing: '0.1em', textTransform: 'uppercase',
             marginBottom: 8, paddingBottom: 6,
             borderBottom: '1px solid #E0E0E0',
@@ -406,7 +407,7 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
               YouTube (adaptive) → MP4 (H.264/AAC)
             </span>
             <span style={{
-              fontSize: 9, fontWeight: 700, color: '#00FF88',
+              fontSize: 9, fontWeight: 700, color: colors.success,
               background: '#00FF8812', border: '1px solid #00FF8830',
               borderRadius: 3, padding: '2px 7px', letterSpacing: '0.04em',
             }}>
@@ -439,10 +440,10 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
           <div style={{
             padding: '10px 20px',
             borderTop: '1px solid #E0E0E0',
-            background: '#F0F0F0',
+            background: colors.bg,
             borderRadius: '0 0 10px 10px',
           }}>
-            <div style={{ fontSize: 8, color: '#D0D0D0', fontWeight: 800, letterSpacing: '0.1em', marginBottom: 4 }}>
+            <div style={{ fontSize: 8, color: colors.borderHover, fontWeight: 800, letterSpacing: '0.1em', marginBottom: 4 }}>
               OUTPUT PATH
             </div>
             <div style={{

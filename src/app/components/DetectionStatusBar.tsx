@@ -1,4 +1,6 @@
 'use client'
+import { colors, spacing, fontSize } from '../design-system/tokens'
+'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { ipc } from '../lib/ipc'
@@ -71,38 +73,38 @@ export function DetectionStatusBar() {
 
   // Source determination
   let source: string = 'Innertube'
-  let sourceColor: string = '#00FF88'
+  let sourceColor: string = colors.success
   if (backoffMin > 0) {
-    source = 'Backoff'; sourceColor = '#FF4444'
+    source = 'Backoff'; sourceColor = colors.error
   } else if (consentedCount === 0 && oauthTotal > 0 && oauthHealthy > 0) {
-    source = 'OAuth'; sourceColor = '#FFB800'
+    source = 'OAuth'; sourceColor = colors.warning
   } else if (sessionCount === 0 && oauthTotal > 0) {
-    source = oauthHealthy > 0 ? 'OAuth only' : 'No auth'; sourceColor = oauthHealthy > 0 ? '#FFB800' : '#444'
+    source = oauthHealthy > 0 ? 'OAuth only' : 'No auth'; sourceColor = oauthHealthy > 0 ? colors.warning : '#444'
   }
 
   // Warning text
   let warning = ''
-  let warnColor = '#FFB800'
+  let warnColor: string = colors.warning
   if (backoffMin > 0) {
     warning = `Backoff ${backoffMin}m — ${!ps?.hasInnertube && !ps?.hasOAuth ? 'All sources dead' : !ps?.hasInnertube ? 'Innertube down' : oauthHealthy === 0 ? 'OAuth exhausted' : 'Waiting...'}`
-    warnColor = '#FF4444'
+    warnColor = colors.error
   } else if (oauthHealthy === 0 && oauthTotal > 0) {
     warning = 'OAuth exhausted — add GCP project'
-    warnColor = '#FF4444'
+    warnColor = colors.error
   } else if (consentedCount === 0 && loggedInCount === 0 && sessionCount > 0) {
     warning = 'No session login — open Chrome to restore'
-    warnColor = '#FFB800'
+    warnColor = colors.warning
   } else if (consentedCount === 0 && loggedInCount > 0) {
     warning = 'Accept consent in Chrome'
-    warnColor = '#FFB800'
+    warnColor = colors.warning
   } else if (degraded) {
     warning = 'Innertube degraded — health check running'
-    warnColor = '#FFB800'
+    warnColor = colors.warning
   }
 
   // Session label
   const sessionHealthPct = sessionCount > 0 ? Math.round((consentedCount / sessionCount) * 100) : 0
-  const sessionColor = sessionHealthPct >= 60 ? '#00FF88' : sessionHealthPct >= 20 ? '#FFB800' : '#FF4444'
+  const sessionColor = sessionHealthPct >= 60 ? colors.success : sessionHealthPct >= 20 ? colors.warning : colors.error
   const sessionLabel = sessionCount === 0
     ? 'no sessions'
     : sessionHealthPct >= 60
@@ -138,9 +140,9 @@ export function DetectionStatusBar() {
         display: 'flex',
         alignItems: 'center',
         gap: 8,
-        borderTop: `1px solid ${hasWarning ? warnColor + '44' : isHealthy ? '#E0E0E0' : sourceColor + '44'}`,
+        borderTop: `1px solid ${hasWarning ? warnColor + '44' : isHealthy ? colors.border : sourceColor + '44'}`,
         borderBottom: '1px solid #E0E0E0',
-        background: hasWarning ? warnColor + '08' : '#F5F5F5',
+        background: hasWarning ? warnColor + '08' : colors.bg,
         cursor: 'pointer',
         flexShrink: 0,
         overflow: 'hidden',
@@ -181,7 +183,7 @@ export function DetectionStatusBar() {
       {oauthTotal > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
           <span style={{ fontSize: 11, color: '#555' }}>·</span>
-          <span style={{ fontSize: 11, color: oauthHealthy === 0 ? '#FF4444' : oauthHealthy < oauthTotal ? '#FFB800' : '#999' }}>
+          <span style={{ fontSize: 11, color: oauthHealthy === 0 ? colors.error : oauthHealthy < oauthTotal ? colors.warning : '#999' }}>
             {oauthHealthy}/{oauthTotal} OAuth
           </span>
         </div>

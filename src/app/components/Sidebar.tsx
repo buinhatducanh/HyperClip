@@ -1,4 +1,5 @@
 'use client'
+import { colors, spacing, fontSize } from '../design-system/tokens'
 
 import { useState, useCallback, useMemo } from 'react'
 import type { Channel, SystemStats } from '../types'
@@ -153,7 +154,7 @@ export function Sidebar({
             title={`${keyHealth.exhausted} exhausted, ${keyHealth.unauthorized} unauthorized`}
             style={{
               minWidth: 16, height: 16, borderRadius: 8,
-              background: '#FF4444',
+              background: colors.error,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               padding: '0 4px', flexShrink: 0, cursor: 'pointer',
             }}
@@ -202,9 +203,9 @@ export function Sidebar({
               title="Add channel"
               style={{
                 width: 28, height: 28, flexShrink: 0,
-                background: addingChannel ? '#1A3A1A' : channelInput.trim() ? '#00B4FF' : '#1A1A1A',
+                background: addingChannel ? '#1A3A1A' : channelInput.trim() ? colors.accent : colors.text,
                 border: 'none', borderRadius: 4,
-                color: addingChannel ? '#00FF88' : channelInput.trim() ? '#000' : '#333',
+                color: addingChannel ? colors.success : channelInput.trim() ? '#000' : '#333',
                 fontSize: 14, fontWeight: 700, cursor: addingChannel ? 'default' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}
@@ -213,7 +214,7 @@ export function Sidebar({
             </button>
           </div>
           {channelError && (
-            <div style={{ fontSize: 10, color: '#FF4444', marginTop: 3, lineHeight: 1.3 }}>
+            <div style={{ fontSize: 10, color: colors.error, marginTop: 3, lineHeight: 1.3 }}>
               {channelError}
             </div>
           )}
@@ -249,7 +250,7 @@ export function Sidebar({
                       borderLeft: isActiveCh ? '2px solid #00B4FF' : '2px solid transparent',
                       cursor: 'pointer',
                     }}
-                    onMouseEnter={e => { if (!isActiveCh) e.currentTarget.style.background = '#1A1A1A' }}
+                    onMouseEnter={e => { if (!isActiveCh) e.currentTarget.style.background = colors.text }}
                     onMouseLeave={e => { if (!isActiveCh) e.currentTarget.style.background = 'transparent' }}
                   >
                     {/* Avatar */}
@@ -281,7 +282,7 @@ export function Sidebar({
                     {count > 0 && (
                       <div style={{
                         minWidth: 16, height: 16, borderRadius: 8,
-                        background: '#00B4FF', fontSize: 9, fontWeight: 800, color: '#000',
+                        background: colors.accent, fontSize: 9, fontWeight: 800, color: '#000',
                         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', flexShrink: 0,
                       }}>
                         {count}
@@ -308,7 +309,7 @@ export function Sidebar({
                         color: '#555', cursor: 'pointer', fontSize: 11,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}
-                      onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = '#FFB800' }}
+                      onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = colors.warning }}
                       onMouseLeave={e => { e.currentTarget.style.opacity = '0'; e.currentTarget.style.color = '#555' }}
                     >
                       {ch.paused ? '▶' : '⏸'}
@@ -336,7 +337,7 @@ export function Sidebar({
                         color: '#555', cursor: 'pointer', fontSize: 14,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}
-                      onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = '#FF4444' }}
+                      onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = colors.error }}
                       onMouseLeave={e => { e.currentTarget.style.opacity = '0'; e.currentTarget.style.color = '#555' }}
                     >
                       ×

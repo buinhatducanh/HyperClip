@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../design-system/tokens'
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -40,23 +41,23 @@ export default function WorkspacesPage() {
   }
 
   const statusColor: Record<string, string> = {
-    waiting: '#FFB800',
-    downloading: '#00B4FF',
-    ready: '#00FF88',
+    waiting: colors.warning,
+    downloading: colors.accent,
+    ready: colors.success,
     editing: '#7C3AED',
-    rendering: '#FF4444',
+    rendering: colors.error,
     done: '#999444',
   }
 
   return (
     <div
-      style={{ height: '100vh', background: '#F5F5F5', fontFamily: 'Inter, sans-serif', color: '#1A1A1A', display: 'flex', flexDirection: 'column' }}
+      style={{ height: '100vh', background: colors.bg, fontFamily: 'Inter, sans-serif', color: colors.text, display: 'flex', flexDirection: 'column' }}
     >
       {/* Header */}
       <div
         style={{
           height: 48,
-          background: '#F5F5F5',
+          background: colors.bg,
           borderBottom: '1px solid #E0E0E0',
           display: 'flex',
           alignItems: 'center',
@@ -70,7 +71,7 @@ export default function WorkspacesPage() {
           ← BACK
         </Link>
         <div style={{ width: 1, height: 12, background: '#777' }} />
-        <span style={{ fontSize: 11, fontWeight: 700, color: '#1A1A1A', letterSpacing: '0.06em' }}>WORKSPACES</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: colors.text, letterSpacing: '0.06em' }}>WORKSPACES</span>
         <span style={{ fontSize: 9, color: '#999', fontFamily: 'monospace' }}>{workspaces.length} total</span>
       </div>
 
@@ -78,7 +79,7 @@ export default function WorkspacesPage() {
       <div
         style={{
           height: 40,
-          background: '#F5F5F5',
+          background: colors.bg,
           borderBottom: '1px solid #1A1A1A',
           display: 'flex',
           alignItems: 'center',
@@ -102,7 +103,7 @@ export default function WorkspacesPage() {
               borderRadius: 3,
               fontSize: 9,
               fontWeight: 700,
-              color: filter === f ? '#00B4FF' : '#999',
+              color: filter === f ? colors.accent : '#999',
               cursor: 'pointer',
               letterSpacing: '0.06em',
             }}
@@ -130,7 +131,7 @@ export default function WorkspacesPage() {
         {filtered.length === 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8 }}>
             <span style={{ fontSize: 11, color: '#999' }}>No workspaces</span>
-            <Link href="/" style={{ fontSize: 10, color: '#00B4FF', textDecoration: 'none' }}>
+            <Link href="/" style={{ fontSize: 10, color: colors.accent, textDecoration: 'none' }}>
               Go to Dashboard →
             </Link>
           </div>
@@ -214,7 +215,7 @@ export default function WorkspacesPage() {
                           style={{
                             fontSize: 9,
                             fontWeight: 600,
-                            color: '#00FF88',
+                            color: colors.success,
                             background: 'transparent',
                             border: 'none',
                             cursor: 'pointer',
@@ -230,7 +231,7 @@ export default function WorkspacesPage() {
                         style={{
                           fontSize: 9,
                           fontWeight: 600,
-                          color: '#00B4FF',
+                          color: colors.accent,
                           background: 'transparent',
                           border: 'none',
                           cursor: 'pointer',

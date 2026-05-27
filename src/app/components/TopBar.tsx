@@ -1,4 +1,5 @@
 'use client'
+import { colors, spacing, fontSize } from '../design-system/tokens'
 
 import { useState, useEffect } from 'react'
 import { ipc } from '../lib/ipc'
@@ -52,7 +53,7 @@ export function TopBar({ settings, systemStats, onSettingsChange }: Props) {
       {/* Download quality */}
       <span style={{ fontSize: 10, color: '#888', fontWeight: 600 }}>DOWNLOAD</span>
       <span style={{
-        background: '#00FF8820', color: '#00FF88', padding: '3px 8px', borderRadius: 3,
+        background: '#00FF8820', color: colors.success, padding: '3px 8px', borderRadius: 3,
         fontSize: 10, border: '1px solid #00FF8844',
       }}>
         {settings.autoDownloadQuality || '720'}p
@@ -74,7 +75,7 @@ export function TopBar({ settings, systemStats, onSettingsChange }: Props) {
           }}
           style={{
             width: 36, height: 18, cursor: 'pointer',
-            background: settings.autoRender ? '#00FF88' : '#1A1A1A',
+            background: settings.autoRender ? colors.success : colors.text,
             border: `1px solid ${settings.autoRender ? '#00FF8866' : '#333'}`,
             borderRadius: 9, position: 'relative', transition: 'background 0.15s',
           }}
@@ -100,11 +101,11 @@ export function TopBar({ settings, systemStats, onSettingsChange }: Props) {
       {/* System health mini */}
       <span style={{ fontSize: 10, color: '#555' }}>GPU {systemStats.gpuTemp || 0}°</span>
       <div style={{ width: 40, height: 4, background: '#222', borderRadius: 2 }}>
-        <div style={{ width: `${gpuPct}%`, height: '100%', background: gpuPct > 90 ? '#FF4444' : '#00FF88', borderRadius: 2 }} />
+        <div style={{ width: `${gpuPct}%`, height: '100%', background: gpuPct > 90 ? colors.error : colors.success, borderRadius: 2 }} />
       </div>
       <span style={{ fontSize: 10, color: '#555' }}>RAM {Math.round(systemStats.ramUsed || 0)}/{Math.round(systemStats.ramTotal || 64)}G</span>
       <div style={{ width: 40, height: 4, background: '#222', borderRadius: 2 }}>
-        <div style={{ width: `${ramPct}%`, height: '100%', background: ramPct > 80 ? '#FF4444' : '#00B4FF', borderRadius: 2 }} />
+        <div style={{ width: `${ramPct}%`, height: '100%', background: ramPct > 80 ? colors.error : colors.accent, borderRadius: 2 }} />
       </div>
     </div>
   )

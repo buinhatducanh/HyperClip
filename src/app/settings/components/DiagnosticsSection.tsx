@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../../design-system/tokens'
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
@@ -93,7 +94,7 @@ export function DiagnosticsSection() {
             background: diag.overall.ready ? '#00FF8811' : '#FF6B3511',
             border: `1px solid ${diag.overall.ready ? '#00FF8844' : '#FF6B3544'}`,
           }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: diag.overall.ready ? '#00FF88' : '#FF6B35' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: diag.overall.ready ? colors.success : '#FF6B35' }}>
               {diag.overall.ready ? '✓ READY — All prerequisites met' : '✗ ISSUES FOUND — Fix before use'}
             </div>
           </div>

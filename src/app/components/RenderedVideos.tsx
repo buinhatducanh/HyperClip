@@ -1,4 +1,6 @@
 'use client'
+import { colors, spacing, fontSize } from '../design-system/tokens'
+'use client'
 
 import { useState, useEffect } from 'react'
 import type { RenderedVideo } from '../types'
@@ -116,7 +118,7 @@ export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowT
         </div>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 11, color: '#999', marginBottom: 4 }}>Chưa có video đã render</div>
-          <div style={{ fontSize: 9, color: '#D0D0D0' }}>Video sẽ xuất hiện ở đây sau khi render xong</div>
+          <div style={{ fontSize: 9, color: colors.borderHover }}>Video sẽ xuất hiện ở đây sau khi render xong</div>
         </div>
       </div>
     )
@@ -143,7 +145,7 @@ export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowT
               transition: 'all 0.12s',
             }}
             onMouseEnter={e => {
-              if (!isSelected) (e.currentTarget as HTMLElement).style.background = '#1A1A1A'
+              if (!isSelected) (e.currentTarget as HTMLElement).style.background = colors.text
             }}
             onMouseLeave={e => {
               if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'transparent'
@@ -152,7 +154,7 @@ export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowT
             {/* Thumbnail */}
             <div style={{
               width: 48, height: 48, borderRadius: 4,
-              background: '#1A1A1A',
+              background: colors.text,
               flexShrink: 0, overflow: 'hidden',
               border: isSelected ? '1px solid #00FF8833' : '1px solid #777',
               position: 'relative',
@@ -208,7 +210,7 @@ export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowT
                 {/* Quality */}
                 <span style={{
                   fontSize: 7, fontWeight: 700,
-                  color: '#00B4FF', background: '#00B4FF12',
+                  color: colors.accent, background: '#00B4FF12',
                   border: '1px solid #00B4FF22',
                   borderRadius: 2, padding: '1px 4px',
                   fontFamily: 'monospace',
@@ -236,7 +238,7 @@ export function RenderedVideos({ videos, selectedId, onSelect, onRemove, onShowT
                 {video.renderDurationMs != null && video.renderDurationMs > 0 && (
                   <span style={{
                     fontSize: 7, fontWeight: 700,
-                    color: '#00FF88', background: '#00FF8812',
+                    color: colors.success, background: '#00FF8812',
                     border: '1px solid #00FF8822',
                     borderRadius: 2, padding: '1px 4px',
                     fontFamily: 'monospace',

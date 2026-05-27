@@ -1,4 +1,5 @@
 'use client'
+import { colors, spacing, fontSize } from '../design-system/tokens'
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
@@ -26,7 +27,7 @@ function Spinner({ style, size }: { style?: React.CSSProperties; size?: number }
     <div style={{
       width: s, height: s, borderRadius: '50%',
       border: `${Math.max(2, Math.round(s * 0.075))}px solid #E0E0E0`,
-      borderTopColor: '#00B4FF',
+      borderTopColor: colors.accent,
       animation: 'spin 1s linear infinite',
       ...style,
     }} />
@@ -84,7 +85,7 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
 
       <div style={{
         position: 'fixed', inset: 0,
-        background: '#F0F0F0',
+        background: colors.bg,
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
         zIndex: 9999,
@@ -106,7 +107,7 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
         </div>
 
         {/* App name */}
-        <div style={{ fontSize: 28, fontWeight: 800, color: '#1A1A1A', letterSpacing: '-0.02em', marginBottom: 4 }}>
+        <div style={{ fontSize: 28, fontWeight: 800, color: colors.text, letterSpacing: '-0.02em', marginBottom: 4 }}>
           HyperClip
         </div>
         <div style={{ fontSize: 11, color: '#888', fontWeight: 500, letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 48 }}>
@@ -116,7 +117,7 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
         {/* Waiting state — OAuth in progress, browser open */}
         {!status.oauthReady && !status.quotaExceeded && (
           <div style={{
-            background: '#F5F5F5', border: '1px solid #E0E0E0',
+            background: colors.bg, border: '1px solid #E0E0E0',
             borderRadius: 12, padding: '28px 40px',
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
             minWidth: 320, maxWidth: 400,
@@ -140,12 +141,12 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
               <>
                 <Spinner />
                 <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 13, color: '#1A1A1A', fontWeight: 600, marginBottom: 6 }}>
+                  <div style={{ fontSize: 13, color: colors.text, fontWeight: 600, marginBottom: 6 }}>
                     Đang đợi đăng nhập
                   </div>
                   <div style={{ fontSize: 11, color: '#777', lineHeight: 1.6 }}>
                     Cửa sổ Chrome đã mở.{' '}
-                    <span style={{ color: '#00B4FF' }}>Đăng nhập Google</span> để tiếp tục.
+                    <span style={{ color: colors.accent }}>Đăng nhập Google</span> để tiếp tục.
                   </div>
                 </div>
               </>
@@ -153,13 +154,13 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
             {/* Animated dots — hidden when there's an error */}
             {!loginError && (
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#00B4FF', animation: 'blink 1.4s ease-in-out infinite' }} />
-              <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#00B4FF', animation: 'blink 1.4s ease-in-out 0.2s infinite' }} />
-              <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#00B4FF', animation: 'blink 1.4s ease-in-out 0.4s infinite' }} />
+              <div style={{ width: 5, height: 5, borderRadius: '50%', background: colors.accent, animation: 'blink 1.4s ease-in-out infinite' }} />
+              <div style={{ width: 5, height: 5, borderRadius: '50%', background: colors.accent, animation: 'blink 1.4s ease-in-out 0.2s infinite' }} />
+              <div style={{ width: 5, height: 5, borderRadius: '50%', background: colors.accent, animation: 'blink 1.4s ease-in-out 0.4s infinite' }} />
               {/* P1: Chrome window badge — shown immediately after login click */}
               {showChromeBadge && (
                 <div style={{
-                  fontSize: 9, color: '#00B4FF',
+                  fontSize: 9, color: colors.accent,
                   background: 'rgba(0,180,255,0.08)',
                   border: '1px solid rgba(0,180,255,0.2)',
                   borderRadius: 4, padding: '2px 6px',
@@ -183,7 +184,7 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
             )}
 
             {/* Divider */}
-            <div style={{ width: '100%', height: 1, background: '#E0E0E0' }} />
+            <div style={{ width: '100%', height: 1, background: colors.border }} />
 
             {/* Settings shortcut — lets user set OAuth credentials while login screen is open */}
             <div style={{ display: 'flex', justifyContent: 'center' }}>
@@ -213,10 +214,10 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
                 disabled={isLoggingIn}
                 style={{
                   width: '100%', height: 36,
-                  background: isLoggingIn ? '#007ABF' : '#00B4FF',
+                  background: isLoggingIn ? '#007ABF' : colors.accent,
                   border: 'none',
                   borderRadius: 6, fontSize: 12, fontWeight: 700,
-                  color: '#1A1A1A',
+                  color: colors.text,
                   cursor: isLoggingIn ? 'default' : 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                   opacity: isLoggingIn ? 0.8 : 1,
@@ -253,7 +254,7 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
         {/* Quota exceeded — user is logged in but API quota hit */}
         {status.quotaExceeded && (
           <div style={{
-            background: '#F5F5F5', border: '1px solid #D0D0D0',
+            background: colors.bg, border: '1px solid #D0D0D0',
             borderRadius: 12, padding: '28px 40px',
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
             minWidth: 320, maxWidth: 440,
@@ -268,14 +269,14 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
 
             {status.accountName && (
               <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 14, color: '#1A1A1A', fontWeight: 600, marginBottom: 2 }}>
+                <div style={{ fontSize: 14, color: colors.text, fontWeight: 600, marginBottom: 2 }}>
                   {status.accountName}
                 </div>
-                <div style={{ fontSize: 10, color: '#00FF88' }}>Đã đăng nhập thành công</div>
+                <div style={{ fontSize: 10, color: colors.success }}>Đã đăng nhập thành công</div>
               </div>
             )}
 
-            <div style={{ width: '100%', height: 1, background: '#E0E0E0' }} />
+            <div style={{ width: '100%', height: 1, background: colors.border }} />
 
             {/* Warning */}
             <div style={{ textAlign: 'center' }}>
@@ -294,7 +295,7 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
                 onClick={handleRetry}
                 style={{
                   width: '100%', height: 32,
-                  background: '#E0E0E0', border: '1px solid #D0D0D0',
+                  background: colors.border, border: '1px solid #D0D0D0',
                   borderRadius: 6, fontSize: 11, fontWeight: 600,
                   color: '#888', cursor: 'pointer',
                 }}
@@ -331,14 +332,14 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
         {/* Initializing — fetching account info from YouTube API after tokens loaded */}
         {!status.isReady && status.oauthReady && !status.quotaExceeded && !status.accountName && (
           <div style={{
-            background: '#F5F5F5', border: '1px solid #E0E0E0',
+            background: colors.bg, border: '1px solid #E0E0E0',
             borderRadius: 12, padding: '28px 40px',
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
             minWidth: 320, maxWidth: 400,
           }}>
             <Spinner />
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 13, color: '#1A1A1A', fontWeight: 600, marginBottom: 4 }}>
+              <div style={{ fontSize: 13, color: colors.text, fontWeight: 600, marginBottom: 4 }}>
                 Đang khởi tạo...
               </div>
               <div style={{ fontSize: 11, color: '#777', animation: 'pulse 2s ease-in-out infinite' }}>
@@ -351,17 +352,17 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
         {/* Account known but not yet isReady — brief transition state, resolves on next auth update */}
         {!status.isReady && !status.oauthReady && !status.quotaExceeded && status.accountName && (
           <div style={{
-            background: '#F5F5F5', border: '1px solid #E0E0E0',
+            background: colors.bg, border: '1px solid #E0E0E0',
             borderRadius: 12, padding: '28px 40px',
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
             minWidth: 320, maxWidth: 400,
           }}>
             <Spinner />
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 14, color: '#1A1A1A', fontWeight: 600, marginBottom: 2 }}>
+              <div style={{ fontSize: 14, color: colors.text, fontWeight: 600, marginBottom: 2 }}>
                 {status.accountName}
               </div>
-              <div style={{ fontSize: 10, color: '#00FF88' }}>Đã đăng nhập thành công</div>
+              <div style={{ fontSize: 10, color: colors.success }}>Đã đăng nhập thành công</div>
               <div style={{ fontSize: 11, color: '#777', marginTop: 8, animation: 'pulse 2s ease-in-out infinite' }}>
                 Đang đồng bộ...
               </div>

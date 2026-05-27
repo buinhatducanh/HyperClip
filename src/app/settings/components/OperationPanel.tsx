@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../../design-system/tokens'
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
@@ -201,24 +202,24 @@ export function OperationPanel() {
 
   // Poller badge
   const pollerBadge = (() => {
-    if (!pollerStatus?.active) return { label: 'TẠM DỪNG', color: '#FFB800', bg: '#FFB80011', border: '#FFB80044' }
+    if (!pollerStatus?.active) return { label: 'TẠM DỪNG', color: colors.warning, bg: '#FFB80011', border: '#FFB80044' }
     if (pollerStatus.exhaustedUntil && pollerStatus.exhaustedUntil > Date.now()) return { label: 'CHỜ BACKOFF', color: '#FF6644', bg: '#FF664411', border: '#FF664444' }
-    return { label: 'ĐANG QUÉT', color: '#00FF88', bg: '#00FF8811', border: '#00FF8844' }
+    return { label: 'ĐANG QUÉT', color: colors.success, bg: '#00FF8811', border: '#00FF8844' }
   })()
 
   // Innertube status
   const innertubeStatus = (() => {
-    if (consentedCount === 0) return { label: 'OFFLINE', color: '#FF4444' }
-    if (consentedCount < totalSessions * 0.5) return { label: 'DEGRADED', color: '#FFB800' }
-    return { label: 'HOẠT ĐỘNG', color: '#00FF88' }
+    if (consentedCount === 0) return { label: 'OFFLINE', color: colors.error }
+    if (consentedCount < totalSessions * 0.5) return { label: 'DEGRADED', color: colors.warning }
+    return { label: 'HOẠT ĐỘNG', color: colors.success }
   })()
 
   // ─── Styles ────────────────────────────────────────────────────────────────────
   const s = {
-    card: { background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 8, padding: '14px 16px', marginBottom: 12 },
+    card: { background: colors.bg, border: '1px solid #E0E0E0', borderRadius: 8, padding: '14px 16px', marginBottom: 12 },
     label: { fontSize: 9, fontWeight: 800, color: '#888', letterSpacing: '0.1em', marginBottom: 10, display: 'block' },
     input: {
-      width: '100%', height: 30, background: '#F0F0F0', border: '1px solid #D0D0D0',
+      width: '100%', height: 30, background: colors.bg, border: '1px solid #D0D0D0',
       borderRadius: 4, color: '#888', fontSize: 10, paddingLeft: 10, outline: 'none',
       boxSizing: 'border-box' as const,
     },
@@ -236,10 +237,10 @@ export function OperationPanel() {
       {/* ── HEADER ──────────────────────────────────────────────────────────────── */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '12px 16px', background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 8,
+        padding: '12px 16px', background: colors.bg, border: '1px solid #E0E0E0', borderRadius: 8,
       }}>
         <div>
-          <div style={{ fontSize: 12, fontWeight: 800, color: '#E0E0E0', letterSpacing: '0.08em' }}>OPERATION CENTER</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: colors.border, letterSpacing: '0.08em' }}>OPERATION CENTER</div>
           <div style={{ fontSize: 9, color: '#888', marginTop: 2 }}>HyperClip MMO — RTX 5080 Edition</div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -251,11 +252,11 @@ export function OperationPanel() {
             ● {pollerBadge.label}
           </div>
           <button onClick={handleStartPoller} disabled={!!pollerStatus?.active}
-            style={{ ...s.btn('#00FF88', '#00FF8811', '#00FF8844'), opacity: pollerStatus?.active ? 0.4 : 1 }}>
+            style={{ ...s.btn(colors.success, '#00FF8811', '#00FF8844'), opacity: pollerStatus?.active ? 0.4 : 1 }}>
             ▶ BẮT ĐẦU
           </button>
           <button onClick={handleStopPoller} disabled={!pollerStatus?.active}
-            style={{ ...s.btn('#FF4444', '#FF444411', '#FF444444'), opacity: !pollerStatus?.active ? 0.4 : 1 }}>
+            style={{ ...s.btn(colors.error, '#FF444411', '#FF444444'), opacity: !pollerStatus?.active ? 0.4 : 1 }}>
             ■ DỪNG
           </button>
         </div>
@@ -264,16 +265,16 @@ export function OperationPanel() {
       {/* ── SYSTEM STATUS STRIP ─────────────────────────────────────────────────── */}
       <div style={{
         display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10,
-        padding: '12px 16px', background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 8,
+        padding: '12px 16px', background: colors.bg, border: '1px solid #E0E0E0', borderRadius: 8,
       }}>
         {/* Channels */}
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 20, fontWeight: 800, color: '#00B4FF', lineHeight: 1 }}>{channels.length}</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: colors.accent, lineHeight: 1 }}>{channels.length}</div>
           <div style={{ fontSize: 8, color: '#888', letterSpacing: '0.08em', marginTop: 4 }}>KÊNH ĐANG QUÉT</div>
         </div>
         {/* Sessions — explanation: sessions = Chrome browsers scanning channels */}
         <div style={{ textAlign: 'center' }} title={`${totalSessions} Chrome browsers — dùng để quét YouTube cho tất cả channels`}>
-          <div style={{ fontSize: 20, fontWeight: 800, color: consentedCount > 0 ? '#00FF88' : '#FF4444', lineHeight: 1 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: consentedCount > 0 ? colors.success : colors.error, lineHeight: 1 }}>
             {consentedCount}/{totalSessions}
           </div>
           <div style={{ fontSize: 8, color: '#888', letterSpacing: '0.08em', marginTop: 4 }}>SESSION ⚡ CHANNEL</div>
@@ -287,21 +288,21 @@ export function OperationPanel() {
         </div>
         {/* OAuth */}
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 20, fontWeight: 800, color: healthyProjects > 0 ? '#00FF88' : '#888', lineHeight: 1 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: healthyProjects > 0 ? colors.success : '#888', lineHeight: 1 }}>
             {healthyProjects}/{totalProjects}
           </div>
           <div style={{ fontSize: 8, color: '#888', letterSpacing: '0.08em', marginTop: 4 }}>OAUTH PROJECTS</div>
         </div>
         {/* GPU */}
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 10, fontWeight: 800, color: '#00FF88', lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: 10, fontWeight: 800, color: colors.success, lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {gpuName.replace('NVIDIA ', '').replace('GeForce ', '').replace('RTX ', 'RTX ')}
           </div>
           <div style={{ fontSize: 8, color: '#888', letterSpacing: '0.08em', marginTop: 4 }}>GPU</div>
         </div>
         {/* RAM */}
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 20, fontWeight: 800, color: ramPct > 80 ? '#FF6644' : ramPct > 60 ? '#FFB800' : '#00FF88', lineHeight: 1 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: ramPct > 80 ? '#FF6644' : ramPct > 60 ? colors.warning : colors.success, lineHeight: 1 }}>
             {ramPct}%
           </div>
           <div style={{ fontSize: 8, color: '#888', letterSpacing: '0.08em', marginTop: 4 }}>RAM</div>
@@ -317,10 +318,10 @@ export function OperationPanel() {
           {/* Channel Manager */}
           {/* Sessions ↔ Channels explanation */}
           <div style={{
-            padding: '8px 12px', background: '#F5F5F5', border: '1px solid #E0E0E0',
+            padding: '8px 12px', background: colors.bg, border: '1px solid #E0E0E0',
             borderRadius: 6, fontSize: 8, color: '#888', lineHeight: '14px',
           }}>
-            <span style={{ color: '#00B4FF' }}>⚡</span>{' '}
+            <span style={{ color: colors.accent }}>⚡</span>{' '}
             <span style={{ color: '#888' }}>
               <b style={{ color: '#888' }}>Sessions</b> = Chrome browsers để quét YouTube.{' '}
               {totalSessions > 0
@@ -360,7 +361,7 @@ export function OperationPanel() {
             {/* Channel list */}
             <div style={{ maxHeight: 180, overflowY: 'auto', marginBottom: 8 }}>
               {filteredChannels.length === 0 ? (
-                <div style={{ fontSize: 9, color: '#D0D0D0', textAlign: 'center', padding: '20px 0' }}>
+                <div style={{ fontSize: 9, color: colors.borderHover, textAlign: 'center', padding: '20px 0' }}>
                   Chưa có kênh nào.
                 </div>
               ) : filteredChannels.map(ch => (
@@ -374,7 +375,7 @@ export function OperationPanel() {
                   {/* Avatar dot */}
                   <div style={{
                     width: 28, height: 28, borderRadius: '50%',
-                    background: ch.avatarColor || '#00B4FF',
+                    background: ch.avatarColor || colors.accent,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 11, fontWeight: 800, color: '#000',
                     flexShrink: 0,
@@ -394,7 +395,7 @@ export function OperationPanel() {
                   {selectedChannelId === ch.id && (
                     <button onClick={(e) => { e.stopPropagation(); handleDeleteChannel(ch.id) }} style={{
                       fontSize: 8, background: '#FF444411', border: '1px solid #FF444444',
-                      borderRadius: 3, color: '#FF4444', cursor: 'pointer', padding: '2px 8px',
+                      borderRadius: 3, color: colors.error, cursor: 'pointer', padding: '2px 8px',
                     }}>✕ Xóa</button>
                   )}
                 </div>
@@ -406,7 +407,7 @@ export function OperationPanel() {
             <textarea value={bulkImportText} onChange={e => setBulkImportText(e.target.value)}
               placeholder="https://www.youtube.com/@channel1&#10;https://www.youtube.com/@channel2"
               style={{
-                width: '100%', height: 56, background: '#F0F0F0', border: '1px solid #D0D0D0',
+                width: '100%', height: 56, background: colors.bg, border: '1px solid #D0D0D0',
                 borderRadius: 4, color: '#888', fontSize: 9, padding: '6px 10px',
                 resize: 'vertical', outline: 'none', fontFamily: 'monospace', boxSizing: 'border-box' as const,
               }} />
@@ -414,7 +415,7 @@ export function OperationPanel() {
               width: '100%', height: 28, marginTop: 6,
               background: bulkImporting ? '#F0FFF0' : '#00FF8811',
               border: '1px solid #00FF8844', borderRadius: 4,
-              fontSize: 9, fontWeight: 800, color: '#00FF88', cursor: 'pointer',
+              fontSize: 9, fontWeight: 800, color: colors.success, cursor: 'pointer',
               opacity: (bulkImporting || !bulkImportText.trim()) ? 0.4 : 1,
             }}>
               {bulkImporting ? 'ĐANG THÊM...' : `THÊM ${bulkImportText.split('\n').filter(Boolean).length} KÊNH`}
@@ -424,10 +425,10 @@ export function OperationPanel() {
             {bulkResults.length > 0 && (
               <div style={{ marginTop: 6, fontSize: 8 }}>
                 {bulkResults.map((r, i) => (
-                  <div key={i} style={{ color: r.success ? '#00FF88' : '#FF4444', padding: '1px 0', display: 'flex', gap: 4 }}>
+                  <div key={i} style={{ color: r.success ? colors.success : colors.error, padding: '1px 0', display: 'flex', gap: 4 }}>
                     <span>{r.success ? '✓' : '✗'}</span>
                     <span style={{ color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.url}</span>
-                    {r.error && <span style={{ color: '#FF4444' }}>— {r.error}</span>}
+                    {r.error && <span style={{ color: colors.error }}>— {r.error}</span>}
                   </div>
                 ))}
               </div>
@@ -444,9 +445,9 @@ export function OperationPanel() {
                   <button key={sec} onClick={() => setPollInterval(sec)} style={{
                     flex: 1, height: 26,
                     background: pollInterval === sec ? '#00B4FF18' : 'transparent',
-                    border: `1px solid ${pollInterval === sec ? '#00B4FF' : '#D0D0D0'}`,
+                    border: `1px solid ${pollInterval === sec ? colors.accent : colors.borderHover}`,
                     borderRadius: 4, fontSize: 10, fontWeight: 700,
-                    color: pollInterval === sec ? '#00B4FF' : '#888',
+                    color: pollInterval === sec ? colors.accent : '#888',
                     cursor: 'pointer',
                   }}>{sec}s</button>
                 ))}
@@ -459,9 +460,9 @@ export function OperationPanel() {
                   <button key={n} onClick={() => setMaxConcurrentDl(n)} style={{
                     flex: 1, height: 26,
                     background: maxConcurrentDl === n ? '#00FF8818' : 'transparent',
-                    border: `1px solid ${maxConcurrentDl === n ? '#00FF88' : '#D0D0D0'}`,
+                    border: `1px solid ${maxConcurrentDl === n ? colors.success : colors.borderHover}`,
                     borderRadius: 4, fontSize: 10, fontWeight: 700,
-                    color: maxConcurrentDl === n ? '#00FF88' : '#888',
+                    color: maxConcurrentDl === n ? colors.success : '#888',
                     cursor: 'pointer',
                   }}>{n}</button>
                 ))}
@@ -470,7 +471,7 @@ export function OperationPanel() {
             <button onClick={handleSaveScanParams} style={{
               width: '100%', height: 28,
               background: '#00FF8811', border: '1px solid #00FF8844',
-              borderRadius: 4, fontSize: 9, fontWeight: 800, color: '#00FF88', cursor: 'pointer',
+              borderRadius: 4, fontSize: 9, fontWeight: 800, color: colors.success, cursor: 'pointer',
             }}>LƯU THÔNG SỐ</button>
           </div>
 
@@ -485,19 +486,19 @@ export function OperationPanel() {
                 ipc.updateSettings({ proxyEnabled: next })
               }} style={{
                 width: 36, height: 18, borderRadius: 9, border: 'none', cursor: 'pointer',
-                background: proxyEnabled ? '#00FF88' : '#888',
+                background: proxyEnabled ? colors.success : '#888',
                 transition: 'background 0.2s', position: 'relative', flexShrink: 0,
               }}>
                 <div style={{
                   position: 'absolute', top: 1, left: proxyEnabled ? 18 : 1,
-                  width: 16, height: 16, borderRadius: '50%', background: '#E0E0E0',
+                  width: 16, height: 16, borderRadius: '50%', background: colors.border,
                   transition: 'left 0.2s',
                 }} />
               </button>
               <span style={{ fontSize: 9, color: '#888' }}>Bật Proxy</span>
-              {proxyStatus === 'ok' && <span style={{ fontSize: 8, color: '#00FF88', marginLeft: 'auto' }}>● Kết nối</span>}
-              {proxyStatus === 'fail' && <span style={{ fontSize: 8, color: '#FF4444', marginLeft: 'auto' }}>● Thất bại</span>}
-              {proxyStatus === 'testing' && <span style={{ fontSize: 8, color: '#FFB800', marginLeft: 'auto' }}>● Đang kiểm tra...</span>}
+              {proxyStatus === 'ok' && <span style={{ fontSize: 8, color: colors.success, marginLeft: 'auto' }}>● Kết nối</span>}
+              {proxyStatus === 'fail' && <span style={{ fontSize: 8, color: colors.error, marginLeft: 'auto' }}>● Thất bại</span>}
+              {proxyStatus === 'testing' && <span style={{ fontSize: 8, color: colors.warning, marginLeft: 'auto' }}>● Đang kiểm tra...</span>}
             </div>
             <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
               <div style={{ flex: 2 }}>
@@ -522,12 +523,12 @@ export function OperationPanel() {
             <div style={{ display: 'flex', gap: 6 }}>
               <button onClick={handleProxyTest} disabled={proxyTesting} style={{
                 flex: 1, height: 26, background: '#FFB80011', border: '1px solid #FFB80044',
-                borderRadius: 4, fontSize: 9, fontWeight: 700, color: '#FFB800', cursor: 'pointer',
+                borderRadius: 4, fontSize: 9, fontWeight: 700, color: colors.warning, cursor: 'pointer',
                 opacity: proxyTesting ? 0.5 : 1,
               }}>{proxyTesting ? 'TESTING...' : 'TEST'}</button>
               <button onClick={handleSaveProxySettings} style={{
                 flex: 1, height: 26, background: '#00FF8811', border: '1px solid #00FF8844',
-                borderRadius: 4, fontSize: 9, fontWeight: 700, color: '#00FF88', cursor: 'pointer',
+                borderRadius: 4, fontSize: 9, fontWeight: 700, color: colors.success, cursor: 'pointer',
               }}>LƯU</button>
             </div>
           </div>
@@ -547,25 +548,25 @@ export function OperationPanel() {
                 }}>Xóa</button>
                 <button onClick={() => setLogsAutoScroll(v => !v)} style={{
                   fontSize: 8, background: logsAutoScroll ? '#00B4FF15' : 'transparent',
-                  border: `1px solid ${logsAutoScroll ? '#00B4FF44' : '#D0D0D0'}`,
-                  borderRadius: 3, color: logsAutoScroll ? '#00B4FF' : '#888',
+                  border: `1px solid ${logsAutoScroll ? '#00B4FF44' : colors.borderHover}`,
+                  borderRadius: 3, color: logsAutoScroll ? colors.accent : '#888',
                   cursor: 'pointer', padding: '2px 8px',
                 }}>Auto {logsAutoScroll ? 'ON' : 'OFF'}</button>
               </div>
             </div>
             <div style={{
               maxHeight: 320, overflowY: 'auto',
-              background: '#F0F0F0', border: '1px solid #E0E0E0',
+              background: colors.bg, border: '1px solid #E0E0E0',
               borderRadius: 6, padding: '8px 10px',
             }}>
               {opLogs.length === 0 ? (
-                <div style={{ fontSize: 9, color: '#D0D0D0', textAlign: 'center', padding: '24px 0' }}>
+                <div style={{ fontSize: 9, color: colors.borderHover, textAlign: 'center', padding: '24px 0' }}>
                   Chưa có hoạt động. Poller đang quét sẽ hiển thị tại đây.
                 </div>
               ) : opLogs.map(entry => {
-                const dotColor = entry.level === 'error' ? '#FF4444'
-                  : entry.level === 'warn' ? '#FFB800'
-                  : entry.level === 'success' ? '#00FF88'
+                const dotColor = entry.level === 'error' ? colors.error
+                  : entry.level === 'warn' ? colors.warning
+                  : entry.level === 'success' ? colors.success
                   : '#777'
                 const msgColor = entry.level === 'error' ? '#FF8888'
                   : entry.level === 'warn' ? '#FFD080'
@@ -576,7 +577,7 @@ export function OperationPanel() {
                   <div key={entry.id} style={{
                     display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 5, lineHeight: 1.4,
                   }}>
-                    <span style={{ fontSize: 8, color: '#D0D0D0', fontFamily: 'monospace', flexShrink: 0 }}>{time}</span>
+                    <span style={{ fontSize: 8, color: colors.borderHover, fontFamily: 'monospace', flexShrink: 0 }}>{time}</span>
                     <span style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor, flexShrink: 0, marginTop: 2 }} />
                     <span style={{ fontSize: 9, color: msgColor }}>{entry.message}</span>
                   </div>
@@ -604,9 +605,9 @@ export function OperationPanel() {
                   }} style={{
                     flex: 1, height: 26,
                     background: durationMode === val ? '#00B4FF18' : 'transparent',
-                    border: `1px solid ${durationMode === val ? '#00B4FF' : '#D0D0D0'}`,
+                    border: `1px solid ${durationMode === val ? colors.accent : colors.borderHover}`,
                     borderRadius: 4, fontSize: 9, fontWeight: 700,
-                    color: durationMode === val ? '#00B4FF' : '#888',
+                    color: durationMode === val ? colors.accent : '#888',
                     cursor: 'pointer',
                   }}>{label}</button>
                 ))}
@@ -620,7 +621,7 @@ export function OperationPanel() {
             <button onClick={handleSaveVideoFilters} style={{
               width: '100%', height: 28,
               background: '#00FF8811', border: '1px solid #00FF8844',
-              borderRadius: 4, fontSize: 9, fontWeight: 800, color: '#00FF88', cursor: 'pointer',
+              borderRadius: 4, fontSize: 9, fontWeight: 800, color: colors.success, cursor: 'pointer',
             }}>ÁP DỤNG BỘ LỌC</button>
           </div>
 
@@ -632,12 +633,12 @@ export function OperationPanel() {
                 {sessionStatus.sessions.slice(0, 6).map((sess: any) => (
                   <div key={sess.profileId} style={{
                     display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '4px 6px', background: '#F0F0F0', borderRadius: 4,
+                    padding: '4px 6px', background: colors.bg, borderRadius: 4,
                     border: `1px solid ${sess.isConsented ? '#00FF8822' : '#FF444422'}`,
                   }}>
                     <span style={{
                       width: 6, height: 6, borderRadius: '50%',
-                      background: sess.isConsented ? '#00FF88' : sess.isLoggedIn ? '#FFB800' : '#FF4444',
+                      background: sess.isConsented ? colors.success : sess.isLoggedIn ? colors.warning : colors.error,
                     }} />
                     <span style={{ fontSize: 9, color: '#888', flex: 1 }}>{sess.profileName}</span>
                     {sess.error && <span style={{ fontSize: 8, color: '#FF6644' }}>{sess.error.slice(0, 30)}</span>}

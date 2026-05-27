@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../../design-system/tokens'
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
@@ -66,7 +67,7 @@ function AddProjectForm({ onClose, onAdded }: { onClose: () => void; onAdded: ()
   const rowStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 10 }
   const labelStyle = { fontSize: 9, color: '#777', letterSpacing: '0.05em', fontWeight: 600 }
   const inputStyle = {
-    width: '100%', height: 30, background: '#F0F0F0', border: '1px solid #D0D0D0',
+    width: '100%', height: 30, background: colors.bg, border: '1px solid #D0D0D0',
     borderRadius: 3, color: '#888', fontSize: 10, paddingLeft: 8, outline: 'none',
     fontFamily: 'monospace', boxSizing: 'border-box' as const,
   }
@@ -77,10 +78,10 @@ function AddProjectForm({ onClose, onAdded }: { onClose: () => void; onAdded: ()
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
     }}>
       <form onSubmit={handleSubmit} style={{
-        background: '#F5F5F5', border: '1px solid #D0D0D0', borderRadius: 8,
+        background: colors.bg, border: '1px solid #D0D0D0', borderRadius: 8,
         padding: 24, width: 440, maxWidth: '90vw',
       }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: '#E0E0E0', letterSpacing: '0.06em', marginBottom: 16 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: colors.border, letterSpacing: '0.06em', marginBottom: 16 }}>
           THÊM GOOGLE PROJECT
         </div>
 
@@ -116,7 +117,7 @@ function AddProjectForm({ onClose, onAdded }: { onClose: () => void; onAdded: ()
 
         <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
           <button type="submit" disabled={loading} style={{
-            flex: 1, height: 34, background: loading ? '#F0F8FF' : '#00B4FF',
+            flex: 1, height: 34, background: loading ? '#F0F8FF' : colors.accent,
             border: 'none', borderRadius: 4, fontSize: 10, fontWeight: 700, color: '#000',
             cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1,
           }}>
@@ -141,13 +142,13 @@ const ProjectCard = React.memo(function ProjectCard({ project, onRefresh }: { pr
   const [repairing, setRepairing] = useState(false)
 
   const statusColor: Record<string, string> = {
-    healthy: '#00FF88',
-    warning: '#FFB800',
-    rate_limited: '#FFB800',
+    healthy: colors.success,
+    warning: colors.warning,
+    rate_limited: colors.warning,
     error: '#FF6644',
-    exhausted: '#FF4444',
+    exhausted: colors.error,
     unauthorized: '#FF6644',
-    no_oauth: '#FFB800',
+    no_oauth: colors.warning,
   }
 
   const sc = statusColor[project.status] || '#888'
@@ -166,8 +167,8 @@ const ProjectCard = React.memo(function ProjectCard({ project, onRefresh }: { pr
 
   const oauthColor = (() => {
     if (project.status === 'exhausted' || project.status === 'unauthorized') return '#FF6644'
-    if (project.status === 'rate_limited' || project.status === 'warning') return '#FFB800'
-    if (project.hasToken) return '#00FF88'
+    if (project.status === 'rate_limited' || project.status === 'warning') return colors.warning
+    if (project.hasToken) return colors.success
     return '#FF6644'
   })()
 
@@ -228,8 +229,8 @@ const ProjectCard = React.memo(function ProjectCard({ project, onRefresh }: { pr
 
   return (
     <div style={{
-      background: project.status === 'exhausted' ? '#FFF0F0' : '#F5F5F5',
-      border: `1px solid ${project.status === 'exhausted' ? '#FF444444' : project.status === 'no_oauth' ? '#FFB80022' : '#E0E0E0'}`,
+      background: project.status === 'exhausted' ? '#FFF0F0' : colors.bg,
+      border: `1px solid ${project.status === 'exhausted' ? '#FF444444' : project.status === 'no_oauth' ? '#FFB80022' : colors.border}`,
       borderRadius: 6, padding: '14px', marginBottom: 10,
       transition: 'border-color 0.3s, background 0.3s',
     }}>
@@ -255,10 +256,10 @@ const ProjectCard = React.memo(function ProjectCard({ project, onRefresh }: { pr
           <span style={{ fontSize: 8, color: '#888', fontFamily: 'monospace' }}>
             {(project.usedToday / 1000).toFixed(1)}k / {(project.quotaTotal / 1000).toFixed(0)}k
           </span>
-          <div style={{ width: 60, height: 3, background: '#E0E0E0', borderRadius: 1 }}>
+          <div style={{ width: 60, height: 3, background: colors.border, borderRadius: 1 }}>
             <div style={{
               width: `${Math.min(oauthPct, 100)}%`, height: '100%',
-              background: oauthPct > 80 ? '#FFB800' : '#00FF88', borderRadius: 1,
+              background: oauthPct > 80 ? colors.warning : colors.success, borderRadius: 1,
               transition: 'width 0.8s ease',
             }} />
           </div>
@@ -268,7 +269,7 @@ const ProjectCard = React.memo(function ProjectCard({ project, onRefresh }: { pr
       {/* OAuth + API Key rows */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
         {/* OAuth */}
-        <div style={{ flex: 1, background: '#F0F0F0', border: `1px solid ${oauthColor}22`, borderRadius: 4, padding: '8px 10px' }}>
+        <div style={{ flex: 1, background: colors.bg, border: `1px solid ${oauthColor}22`, borderRadius: 4, padding: '8px 10px' }}>
           <div style={{ fontSize: 8, color: '#777', letterSpacing: '0.05em', fontWeight: 700, marginBottom: 4 }}>OAUTH</div>
           <div style={{ fontSize: 10, color: oauthColor }}>
             {oauthLabel}
@@ -281,14 +282,14 @@ const ProjectCard = React.memo(function ProjectCard({ project, onRefresh }: { pr
           )}
         </div>
         {/* API Key */}
-        <div style={{ flex: 1, background: '#F0F0F0', border: `1px solid ${apiSc}22`, borderRadius: 4, padding: '8px 10px' }}>
+        <div style={{ flex: 1, background: colors.bg, border: `1px solid ${apiSc}22`, borderRadius: 4, padding: '8px 10px' }}>
           <div style={{ fontSize: 8, color: '#777', letterSpacing: '0.05em', fontWeight: 700, marginBottom: 4 }}>API KEY</div>
           {project.apiKey ? (
             <div style={{ fontSize: 10, color: apiSc }}>
               {project.apiKey.slice(0, 10)}…
               <div style={{ fontSize: 8, color: '#888', marginTop: 2 }}>
                 {project.apiKeyName || project.projectId} · {(project.apiKeyUsed / 1000).toFixed(1)}k
-                {project.apiKeyStatus === 'exhausted' && <span style={{ color: '#FF4444' }}> ⚠ exhausted</span>}
+                {project.apiKeyStatus === 'exhausted' && <span style={{ color: colors.error }}> ⚠ exhausted</span>}
                 {project.apiKeyStatus === 'unauthorized' && <span style={{ color: '#FF6644' }}> ✗ unauthorized</span>}
               </div>
             </div>
@@ -338,8 +339,8 @@ const ProjectCard = React.memo(function ProjectCard({ project, onRefresh }: { pr
             background: 'transparent', border: '1px solid #D0D0D0', borderRadius: 3,
             fontSize: 9, color: '#777', cursor: 'pointer',
           }}
-          onMouseEnter={e => { e.currentTarget.style.color = '#FF4444'; e.currentTarget.style.borderColor = '#FF4444' }}
-          onMouseLeave={e => { e.currentTarget.style.color = '#777'; e.currentTarget.style.borderColor = '#D0D0D0' }}
+          onMouseEnter={e => { e.currentTarget.style.color = colors.error; e.currentTarget.style.borderColor = colors.error }}
+          onMouseLeave={e => { e.currentTarget.style.color = '#777'; e.currentTarget.style.borderColor = colors.borderHover }}
         >✕ Xóa</button>
       </div>
 
@@ -353,7 +354,7 @@ const ProjectCard = React.memo(function ProjectCard({ project, onRefresh }: { pr
           <span style={{ fontSize: 9, color: '#FF6644', flex: 1 }}>
             Xóa project này? OAuth + API key sẽ ngừng hoạt động.
           </span>
-          <button onClick={handleRemove} style={{ height: 22, paddingLeft: 8, paddingRight: 8, background: '#CC3333', border: 'none', borderRadius: 3, color: '#E0E0E0', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>Xóa</button>
+          <button onClick={handleRemove} style={{ height: 22, paddingLeft: 8, paddingRight: 8, background: '#CC3333', border: 'none', borderRadius: 3, color: colors.border, fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>Xóa</button>
           <button onClick={() => setShowRemove(false)} style={{ height: 22, paddingLeft: 8, paddingRight: 8, background: 'transparent', border: '1px solid #888', borderRadius: 3, color: '#888', fontSize: 9, cursor: 'pointer' }}>Hủy</button>
         </div>
       )}
@@ -527,30 +528,30 @@ export function ProjectsSection() {
       {/* Full-width header */}
       <div style={{
         padding: '14px 20px',
-        background: '#F5F5F5',
+        background: colors.bg,
         borderBottom: '1px solid #E0E0E0',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 800, color: '#E0E0E0', letterSpacing: '0.1em' }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: colors.border, letterSpacing: '0.1em' }}>
             {projects.length >= 100 ? '200 PROJECTS' : 'OAUTH PROJECTS'}
           </div>
           {projects.length > 0 && (
-            <div style={{ fontSize: 8, color: '#00B4FF', background: '#00B4FF11', border: '1px solid #00B4FF22', borderRadius: 3, padding: '1px 6px' }}>
+            <div style={{ fontSize: 8, color: colors.accent, background: '#00B4FF11', border: '1px solid #00B4FF22', borderRadius: 3, padding: '1px 6px' }}>
               {totalPct}% quota used
             </div>
           )}
-          <div style={{ width: 1, height: 12, background: '#D0D0D0' }} />
+          <div style={{ width: 1, height: 12, background: colors.borderHover }} />
           <span style={{ fontSize: 8, color: '#888' }}>refresh {refreshTime}</span>
           {loading && <span style={{ fontSize: 8, color: '#00FF8844' }}>● loading...</span>}
         </div>
         <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-          <button onClick={handleBulkImportCSV} style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: 'transparent', border: '1px solid #00B4FF33', borderRadius: 4, fontSize: 8, fontWeight: 700, color: '#00B4FF', cursor: 'pointer', letterSpacing: '0.05em', transition: 'all 0.15s' }}
+          <button onClick={handleBulkImportCSV} style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: 'transparent', border: '1px solid #00B4FF33', borderRadius: 4, fontSize: 8, fontWeight: 700, color: colors.accent, cursor: 'pointer', letterSpacing: '0.05em', transition: 'all 0.15s' }}
             onMouseEnter={e => { e.currentTarget.style.background = '#00B4FF15' }}
             onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
             CSV IMPORT
           </button>
-          <button onClick={handleAutoAssignChannels} style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: 'transparent', border: '1px solid #00FF8844', borderRadius: 4, fontSize: 8, fontWeight: 700, color: '#00FF88', cursor: 'pointer', letterSpacing: '0.05em', transition: 'all 0.15s' }}
+          <button onClick={handleAutoAssignChannels} style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: 'transparent', border: '1px solid #00FF8844', borderRadius: 4, fontSize: 8, fontWeight: 700, color: colors.success, cursor: 'pointer', letterSpacing: '0.05em', transition: 'all 0.15s' }}
             onMouseEnter={e => { e.currentTarget.style.background = '#00FF8815' }}
             onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
             AUTO-ASSIGN
@@ -558,12 +559,12 @@ export function ProjectsSection() {
           <button onClick={handleResetAll} disabled={projects.length === 0} style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: 'transparent', border: '1px solid #FF664422', borderRadius: 4, fontSize: 8, fontWeight: 700, color: '#FF6644', cursor: projects.length === 0 ? 'not-allowed' : 'pointer', opacity: projects.length === 0 ? 0.4 : 1, letterSpacing: '0.05em', transition: 'all 0.15s' }}>
             RESET ALL
           </button>
-          <button onClick={handleSyncChannels} disabled={syncing} style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: 'transparent', border: '1px solid #00FF8844', borderRadius: 4, fontSize: 8, fontWeight: 700, color: '#00FF88', cursor: syncing ? 'not-allowed' : 'pointer', opacity: syncing ? 0.5 : 1, letterSpacing: '0.05em', transition: 'all 0.15s' }}
+          <button onClick={handleSyncChannels} disabled={syncing} style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: 'transparent', border: '1px solid #00FF8844', borderRadius: 4, fontSize: 8, fontWeight: 700, color: colors.success, cursor: syncing ? 'not-allowed' : 'pointer', opacity: syncing ? 0.5 : 1, letterSpacing: '0.05em', transition: 'all 0.15s' }}
             onMouseEnter={e => { if (!syncing) { e.currentTarget.style.background = '#00FF8822' } }}
             onMouseLeave={e => { if (!syncing) { e.currentTarget.style.background = 'transparent' } }}>
             {syncing ? '...' : 'SYNC'}
           </button>
-          <button onClick={() => setShowAdd(v => !v)} style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: showAdd ? '#00B4FF22' : 'transparent', border: `1px solid ${showAdd ? '#00B4FF66' : '#00B4FF33'}`, borderRadius: 4, fontSize: 8, fontWeight: 700, color: '#00B4FF', cursor: 'pointer', transition: 'all 0.15s' }}>
+          <button onClick={() => setShowAdd(v => !v)} style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: showAdd ? '#00B4FF22' : 'transparent', border: `1px solid ${showAdd ? '#00B4FF66' : '#00B4FF33'}`, borderRadius: 4, fontSize: 8, fontWeight: 700, color: colors.accent, cursor: 'pointer', transition: 'all 0.15s' }}>
             + ADD
           </button>
           {(exhaustedProjects > 0 || rateLimitedProjects > 0 || noOauthProjects > 0 || unauthorizedProjects > 0) && (
@@ -598,7 +599,7 @@ export function ProjectsSection() {
             <button
               onClick={() => setGroupByGmail(v => !v)}
               title={groupByGmail ? 'Ungroup by Gmail' : 'Group by Gmail'}
-              style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: groupByGmail ? '#00B4FF22' : 'transparent', border: `1px solid ${groupByGmail ? '#00B4FF44' : '#888'}`, borderRadius: 4, fontSize: 8, fontWeight: 700, color: groupByGmail ? '#00B4FF' : '#777', cursor: 'pointer', letterSpacing: '0.05em', transition: 'all 0.15s' }}>
+              style={{ height: 26, paddingLeft: 8, paddingRight: 8, background: groupByGmail ? '#00B4FF22' : 'transparent', border: `1px solid ${groupByGmail ? '#00B4FF44' : '#888'}`, borderRadius: 4, fontSize: 8, fontWeight: 700, color: groupByGmail ? colors.accent : '#777', cursor: 'pointer', letterSpacing: '0.05em', transition: 'all 0.15s' }}>
               GROUP: {groupByGmail ? 'GMAIL' : 'ALL'}
             </button>
           )}
@@ -607,9 +608,9 @@ export function ProjectsSection() {
 
       {/* Add form */}
       {showAdd && (
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid #E0E0E0', background: '#F0F0F0' }}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #E0E0E0', background: colors.bg }}>
           <div style={{
-            background: '#F0F0F0', border: '1px solid #E0E0E0',
+            background: colors.bg, border: '1px solid #E0E0E0',
             borderRadius: 8, padding: '16px',
           }}>
             <AddProjectForm onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); load() }} />
@@ -625,7 +626,7 @@ export function ProjectsSection() {
           borderBottom: '1px solid #FFE0E0',
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FF4444', flexShrink: 0, boxShadow: '0 0 6px #FF444488' }} />
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: colors.error, flexShrink: 0, boxShadow: '0 0 6px #FF444488' }} />
           <span style={{ fontSize: 10, color: '#FF6644', fontWeight: 700 }}>
             {rateLimitedProjects > 0 && `${rateLimitedProjects} project${rateLimitedProjects > 1 ? 's' : ''} rate limited (10+ errors)`}
             {rateLimitedProjects > 0 && exhaustedProjects > 0 && ' · '}
@@ -640,7 +641,7 @@ export function ProjectsSection() {
       )}
 
       {/* Stats row — consistent with ApiKeysSection */}
-      <div style={{ display: 'flex', gap: 8, padding: '12px 20px', borderBottom: '1px solid #E0E0E0', background: '#F0F0F0' }}>
+      <div style={{ display: 'flex', gap: 8, padding: '12px 20px', borderBottom: '1px solid #E0E0E0', background: colors.bg }}>
         <StatCard
           label="TOTAL"
           value={String(projects.length)}
@@ -653,35 +654,35 @@ export function ProjectsSection() {
           value={`${healthyProjects}/${projects.length}`}
           sub="authorized"
           color="#00FF88"
-          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00FF88' }} />}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: colors.success }} />}
         />
         <StatCard
           label="WARNING"
           value={String(warningProjects)}
           sub="75-90% quota"
-          color={warningProjects > 0 ? '#FFB800' : '#D0D0D0'}
-          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: warningProjects > 0 ? '#FFB800' : '#D0D0D0' }} />}
+          color={warningProjects > 0 ? colors.warning : colors.borderHover}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: warningProjects > 0 ? colors.warning : colors.borderHover }} />}
         />
         <StatCard
           label="RATE LIMITED"
           value={String(rateLimitedProjects)}
           sub="10+ errors"
-          color={rateLimitedProjects > 0 ? '#FFB800' : '#D0D0D0'}
-          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: rateLimitedProjects > 0 ? '#FFB800' : '#D0D0D0' }} />}
+          color={rateLimitedProjects > 0 ? colors.warning : colors.borderHover}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: rateLimitedProjects > 0 ? colors.warning : colors.borderHover }} />}
         />
         <StatCard
           label="EXHAUSTED"
           value={String(exhaustedProjects)}
           sub="needs reset"
-          color={exhaustedProjects > 0 ? '#FF4444' : '#D0D0D0'}
-          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: exhaustedProjects > 0 ? '#FF4444' : '#D0D0D0' }} />}
+          color={exhaustedProjects > 0 ? colors.error : colors.borderHover}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: exhaustedProjects > 0 ? colors.error : colors.borderHover }} />}
         />
         <StatCard
           label="NO OAUTH"
           value={String(noOauthProjects)}
           sub="not authorized"
-          color={noOauthProjects > 0 ? '#FFB800' : '#D0D0D0'}
-          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: noOauthProjects > 0 ? '#FFB800' : '#D0D0D0' }} />}
+          color={noOauthProjects > 0 ? colors.warning : colors.borderHover}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: noOauthProjects > 0 ? colors.warning : colors.borderHover }} />}
         />
         {unauthorizedProjects > 0 && (
           <StatCard
@@ -696,14 +697,14 @@ export function ProjectsSection() {
           label="OVERALL QUOTA"
           value={`${totalPct}%`}
           sub={`${(totalUsed / 1000).toFixed(1)}k / ${(totalQuota / 1000).toFixed(0)}k`}
-          color={totalPct > 80 ? '#FFB800' : '#00FF88'}
-          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: totalPct > 80 ? '#FFB800' : '#00FF88' }} />}
+          color={totalPct > 80 ? colors.warning : colors.success}
+          icon={<div style={{ width: 6, height: 6, borderRadius: '50%', background: totalPct > 80 ? colors.warning : colors.success }} />}
         />
       </div>
 
       {/* Per-project quota distribution chart */}
       {projects.length > 0 && (
-        <div style={{ padding: '12px 20px', background: '#F5F5F5', borderBottom: '1px solid #E0E0E0' }}>
+        <div style={{ padding: '12px 20px', background: colors.bg, borderBottom: '1px solid #E0E0E0' }}>
           <div style={{ fontSize: 8, color: '#AAA', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 8 }}>PROJECT QUOTA DISTRIBUTION</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {projects
@@ -712,17 +713,17 @@ export function ProjectsSection() {
                 const pct = p.quotaTotal > 0 ? Math.round((p.usedToday / p.quotaTotal) * 100) : 0
                 const isExhausted = p.status === 'exhausted'
                 const isRateLimited = p.status === 'rate_limited'
-                const barColor = isExhausted ? '#FF4444' : isRateLimited ? '#FFB800' : pct >= 90 ? '#FF4444' : pct >= 75 ? '#FFB800' : pct > 0 ? '#00FF88' : '#D0D0D0'
+                const barColor = isExhausted ? colors.error : isRateLimited ? colors.warning : pct >= 90 ? colors.error : pct >= 75 ? colors.warning : pct > 0 ? colors.success : colors.borderHover
                 return (
                   <div key={p.projectId} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div style={{
-                      minWidth: 100, fontSize: 9, color: isExhausted ? '#FF4444' : isRateLimited ? '#FFB800' : '#777',
+                      minWidth: 100, fontSize: 9, color: isExhausted ? colors.error : isRateLimited ? colors.warning : '#777',
                       fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>
-                      {(isExhausted || isRateLimited) && <span style={{ color: isExhausted ? '#FF4444' : '#FFB800', marginRight: 3 }}>⚠</span>}
+                      {(isExhausted || isRateLimited) && <span style={{ color: isExhausted ? colors.error : colors.warning, marginRight: 3 }}>⚠</span>}
                       {p.projectId}
                     </div>
-                    <div style={{ flex: 1, height: 12, background: '#E0E0E0', borderRadius: 2, position: 'relative' }}>
+                    <div style={{ flex: 1, height: 12, background: colors.border, borderRadius: 2, position: 'relative' }}>
                       <div style={{
                         width: `${pct}%`, height: '100%', background: barColor,
                         borderRadius: 2, transition: 'width 0.5s',
@@ -733,10 +734,10 @@ export function ProjectsSection() {
                     </div>
                     <div style={{ minWidth: 170, fontSize: 8, color: '#888', fontFamily: 'monospace', textAlign: 'right' }}>
                       <span style={{ color: barColor }}>{p.usedToday.toLocaleString()}</span>
-                      <span style={{ color: '#D0D0D0' }}>/</span>
+                      <span style={{ color: colors.borderHover }}>/</span>
                       <span>{p.quotaTotal.toLocaleString()}</span>
                       {p.errors > 0 && (
-                        <span style={{ color: '#FF4444', marginLeft: 4 }}>{p.errors}err</span>
+                        <span style={{ color: colors.error, marginLeft: 4 }}>{p.errors}err</span>
                       )}
                     </div>
                   </div>
@@ -744,25 +745,25 @@ export function ProjectsSection() {
               })}
           </div>
           <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-            <span style={{ fontSize: 7, color: '#D0D0D0' }}>| 75%</span>
+            <span style={{ fontSize: 7, color: colors.borderHover }}>| 75%</span>
             <span style={{ fontSize: 7, color: '#888' }}>| 90%</span>
           </div>
         </div>
       )}
 
       {/* Filter tabs */}
-      <div style={{ display: 'flex', gap: 2, padding: '8px 20px', borderBottom: '1px solid #E0E0E0', background: '#F0F0F0' }}>
+      <div style={{ display: 'flex', gap: 2, padding: '8px 20px', borderBottom: '1px solid #E0E0E0', background: colors.bg }}>
         {(['all', 'healthy', 'warning', 'rate_limited', 'exhausted', 'no_oauth'] as const).map(f => {
           const isActive = filter === f
-          const tabColors: Record<string, string> = { all: '#888', healthy: '#00FF88', warning: '#FFB800', rate_limited: '#FFB800', exhausted: '#FF4444', no_oauth: '#FFB800' }
+          const tabColors: Record<string, string> = { all: '#888', healthy: colors.success, warning: colors.warning, rate_limited: colors.warning, exhausted: colors.error, no_oauth: colors.warning }
           return (
             <button
               key={f}
               onClick={() => setFilter(f)}
               style={{
                 height: 24, paddingLeft: 10, paddingRight: 10,
-                background: isActive ? '#E0E0E0' : 'transparent',
-                border: `1px solid ${isActive ? '#D0D0D0' : 'transparent'}`,
+                background: isActive ? colors.border : 'transparent',
+                border: `1px solid ${isActive ? colors.borderHover : 'transparent'}`,
                 borderRadius: 4, cursor: 'pointer', fontSize: 8, fontWeight: 700,
                 color: isActive ? tabColors[f] : '#888',
                 letterSpacing: '0.08em', transition: 'all 0.15s',
@@ -775,19 +776,19 @@ export function ProjectsSection() {
       </div>
 
       {/* Info row */}
-      <div style={{ padding: '8px 20px', fontSize: 9, color: '#888', lineHeight: '15px', background: '#F5F5F5', borderBottom: '1px solid #E0E0E0' }}>
+      <div style={{ padding: '8px 20px', fontSize: 9, color: '#888', lineHeight: '15px', background: colors.bg, borderBottom: '1px solid #E0E0E0' }}>
         Mỗi project = OAuth + API Key = 10,000 units/ngày. Thêm project để tăng quota polling. Quota reset mỗi 24h (midnight PT).
       </div>
 
       {/* Project list */}
-      <div style={{ padding: '14px 20px', background: '#F0F0F0' }}>
+      <div style={{ padding: '14px 20px', background: colors.bg }}>
         {loading && projects.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
             <div style={{ fontSize: 10, color: '#888' }}>Đang tải...</div>
           </div>
         ) : filteredProjects.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <div style={{ fontSize: 10, color: '#D0D0D0', marginBottom: 8 }}>
+            <div style={{ fontSize: 10, color: colors.borderHover, marginBottom: 8 }}>
               {filter !== 'all' ? `Không có project ở trạng thái "${filter}"` : 'Chưa có project nào. Thêm Google Cloud project để bắt đầu.'}
             </div>
             {filter === 'all' && (
@@ -796,7 +797,7 @@ export function ProjectsSection() {
                 style={{
                   height: 28, paddingLeft: 14, paddingRight: 14,
                   background: '#00B4FF22', border: '1px solid #00B4FF44', borderRadius: 4,
-                  fontSize: 9, fontWeight: 700, color: '#00B4FF', cursor: 'pointer',
+                  fontSize: 9, fontWeight: 700, color: colors.accent, cursor: 'pointer',
                 }}
               >
                 + Thêm Project đầu tiên
@@ -819,10 +820,10 @@ export function ProjectsSection() {
                   })}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
-                    padding: '6px 10px', background: '#F5F5F5', border: '1px solid #E0E0E0',
+                    padding: '6px 10px', background: colors.bg, border: '1px solid #E0E0E0',
                     borderRadius: 4, marginBottom: collapsed ? 0 : 8,
                   }}>
-                  <span style={{ fontSize: 10, color: collapsed ? '#888' : '#00B4FF', transition: 'all 0.15s' }}>{collapsed ? '▶' : '▼'}</span>
+                  <span style={{ fontSize: 10, color: collapsed ? '#888' : colors.accent, transition: 'all 0.15s' }}>{collapsed ? '▶' : '▼'}</span>
                   <span style={{ fontSize: 9, fontWeight: 700, color: collapsed ? '#888' : '#888', letterSpacing: '0.06em', fontFamily: 'monospace' }}>{gmail}</span>
                   <span style={{ fontSize: 8, color: '#888' }}>({gHealthy}/{gTotal} healthy)</span>
                   <div style={{ flex: 1 }} />

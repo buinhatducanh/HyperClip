@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../../design-system/tokens'
 'use client'
 
 import React, { useState, useEffect } from 'react'
@@ -57,8 +58,8 @@ export default function SessionsSection() {
           <div className="flex items-center gap-2">
             <div style={{
               width: 5, height: 5, borderRadius: '50%',
-              background: consented.length > 0 ? '#00FF88' : '#FF4444',
-              boxShadow: `0 0 4px ${consented.length > 0 ? '#00FF88' : '#FF4444'}66`,
+              background: consented.length > 0 ? colors.success : colors.error,
+              boxShadow: `0 0 4px ${consented.length > 0 ? colors.success : colors.error}66`,
             }} />
             <span style={{ fontSize: 9, color: '#777', fontFamily: 'monospace' }}>
               {status.consentedCount}/{status.sessionCount} sessions sẵn sàng
@@ -74,7 +75,7 @@ export default function SessionsSection() {
               cursor: refreshing ? 'not-allowed' : 'pointer', color: '#777', fontSize: 9, fontWeight: 600,
               opacity: refreshing ? 0.5 : 1,
             }}
-            onMouseEnter={e => { if (!refreshing) { e.currentTarget.style.background = '#E0E0E0'; e.currentTarget.style.color = '#888' } }}
+            onMouseEnter={e => { if (!refreshing) { e.currentTarget.style.background = colors.border; e.currentTarget.style.color = '#888' } }}
             onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#777' }}
           >{refreshing ? 'Refreshing...' : '↻ Refresh all'}</button>
         </div>
@@ -96,10 +97,10 @@ export default function SessionsSection() {
         <div style={{ padding: '0 14px 14px' }}>
           {/* Summary */}
           <div style={{
-            padding: '8px 12px', background: '#F0F0F0', border: '1px solid #E0E0E0',
+            padding: '8px 12px', background: colors.bg, border: '1px solid #E0E0E0',
             borderRadius: 6, fontSize: 8, color: '#888', lineHeight: '14px', marginBottom: 12,
           }}>
-            <span style={{ color: '#00B4FF' }}>⚡</span>{' '}
+            <span style={{ color: colors.accent }}>⚡</span>{' '}
             <span style={{ color: '#888' }}>
               <b style={{ color: '#888' }}>{status.consentedCount}/{status.sessionCount} sessions</b> sẵn sàng để quét YouTube cho tất cả channels.{' '}
               {consented.length > 0
@@ -117,13 +118,13 @@ export default function SessionsSection() {
                 const isStale = s.refreshFailCount > 2;
                 return (
                   <div key={s.profileId} style={{
-                    background: '#F0F0F0', border: '1px solid #E0E0E0', borderRadius: 4,
+                    background: colors.bg, border: '1px solid #E0E0E0', borderRadius: 4,
                     padding: '6px 10px', marginBottom: 5, display: 'flex', alignItems: 'center', gap: 8,
                   }}>
-                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: isStale ? '#FFB800' : '#00FF88', flexShrink: 0 }} title={isStale ? "Needs refresh" : "Healthy"}/>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: isStale ? colors.warning : colors.success, flexShrink: 0 }} title={isStale ? "Needs refresh" : "Healthy"}/>
                     <span style={{ fontSize: 10, color: '#888', flex: 1 }}>{s.profileName}</span>
                     {s.refreshFailCount > 0 && (
-                      <span style={{ fontSize: 7, color: '#FFB800', fontFamily: 'monospace', marginRight: 8 }}>
+                      <span style={{ fontSize: 7, color: colors.warning, fontFamily: 'monospace', marginRight: 8 }}>
                         {s.refreshFailCount}x fail
                       </span>
                     )}
@@ -139,13 +140,13 @@ export default function SessionsSection() {
           {/* Not consented (cookies but terms not accepted) */}
           {notConsented.length > 0 && (
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 8, color: '#FFB800', letterSpacing: '0.08em', marginBottom: 6, fontWeight: 700 }}>NEEDS ACCEPT TERMS ({notConsented.length})</div>
+              <div style={{ fontSize: 8, color: colors.warning, letterSpacing: '0.08em', marginBottom: 6, fontWeight: 700 }}>NEEDS ACCEPT TERMS ({notConsented.length})</div>
               {notConsented.map(s => (
                 <div key={s.profileId} style={{
                   background: '#FFFDE0', border: '1px solid #FFE0A0', borderRadius: 4,
                   padding: '6px 10px', marginBottom: 5, display: 'flex', alignItems: 'center', gap: 8,
                 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#FFB800', flexShrink: 0 }} />
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: colors.warning, flexShrink: 0 }} />
                   <span style={{ fontSize: 10, color: '#888', flex: 1 }}>{s.profileName}</span>
                   <button
                     onClick={() => handleOpenLogin(s.profileId)}
@@ -153,7 +154,7 @@ export default function SessionsSection() {
                       height: 22, paddingLeft: 8, paddingRight: 8,
                       background: '#FFB80022', border: '1px solid #FFB80044',
                       borderRadius: 3, cursor: 'pointer',
-                      fontSize: 8, fontWeight: 700, color: '#FFB800',
+                      fontSize: 8, fontWeight: 700, color: colors.warning,
                     }}
                   >
                     Mở YouTube
@@ -176,12 +177,12 @@ export default function SessionsSection() {
                     onClick={() => handleOpenLogin(s.profileId)}
                     title={s.error || 'Open Chrome and log in to YouTube'}
                     style={{
-                      background: '#F5F5F5', border: '1px solid #D0D0D0', borderRadius: 6,
+                      background: colors.bg, border: '1px solid #D0D0D0', borderRadius: 6,
                       padding: '12px', textAlign: 'left', cursor: 'pointer',
                       display: 'flex', flexDirection: 'column', gap: 4,
                     }}
                     onMouseEnter={e => { e.currentTarget.style.borderColor = '#FF664466'; e.currentTarget.style.background = '#1a0a0a' }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = '#D0D0D0'; e.currentTarget.style.background = '#F5F5F5' }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = colors.borderHover; e.currentTarget.style.background = colors.bg }}
                   >
                     <span style={{ fontSize: 10, color: '#888', fontWeight: 600 }}>{s.profileName}</span>
                     <span style={{ fontSize: 9, color: '#FF6644' }}>Mở Chrome & Đăng nhập YouTube</span>
@@ -194,7 +195,7 @@ export default function SessionsSection() {
           {status?.sessionCount === 0 && (
             <div style={{ textAlign: 'center', padding: '24px' }}>
               <div style={{ fontSize: 10, color: '#888', marginBottom: 8 }}>Chưa khởi tạo Chrome profiles.</div>
-              <div style={{ fontSize: 9, color: '#D0D0D0' }}>Khởi động lại app để tạo sessions. Sessions = Chrome browsers quét YouTube cho tất cả channels.</div>
+              <div style={{ fontSize: 9, color: colors.borderHover }}>Khởi động lại app để tạo sessions. Sessions = Chrome browsers quét YouTube cho tất cả channels.</div>
             </div>
           )}
         </div>

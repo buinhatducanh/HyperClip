@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../../design-system/tokens'
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -98,9 +99,9 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
 
   const statusColor = (status: string) => {
     switch (status) {
-      case 'healthy': return '#00FF88'
+      case 'healthy': return colors.success
       case 'warning': return '#FF6B35'
-      case 'exhausted': case 'rate_limited': return '#FF4444'
+      case 'exhausted': case 'rate_limited': return colors.error
       case 'unauthorized': case 'no_oauth': return '#999'
       default: return '#777'
     }
@@ -116,8 +117,8 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
       {/* Explanation */}
       <div style={{ marginBottom: 24 }}>
         <p style={{ fontSize: 13, color: '#999', lineHeight: 1.7, margin: '0 0 16px 0' }}>
-          <strong style={{ color: '#1A1A1A' }}>GCP Projects</strong> là lớp dự phòng cho detection.
-          Khi <strong style={{ color: '#1A1A1A' }}>Innertube</strong> (Chrome sessions) gặp sự cố,
+          <strong style={{ color: colors.text }}>GCP Projects</strong> là lớp dự phòng cho detection.
+          Khi <strong style={{ color: colors.text }}>Innertube</strong> (Chrome sessions) gặp sự cố,
           HyperClip tự động chuyển sang dùng YouTube Data API với quota từ các projects này.
         </p>
         <p style={{ fontSize: 12, color: '#777', lineHeight: 1.6, margin: 0 }}>
@@ -129,21 +130,21 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
       {/* Status summary */}
       {projects.length > 0 && (
         <div style={{
-          background: '#F5F5F5', border: '1px solid #1A1A1A',
+          background: colors.bg, border: '1px solid #1A1A1A',
           borderRadius: 12, padding: '16px 20px',
           marginBottom: 24,
           display: 'flex', gap: 24,
         }}>
           <div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#1A1A1A' }}>{projects.length}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: colors.text }}>{projects.length}</div>
             <div style={{ fontSize: 10, color: '#777' }}>Projects</div>
           </div>
           <div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#00FF88' }}>{healthyCount}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: colors.success }}>{healthyCount}</div>
             <div style={{ fontSize: 10, color: '#777' }}>Healthy</div>
           </div>
           <div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#00B4FF' }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: colors.accent }}>
               {projects.reduce((s, p) => s + (p.quotaTotal - p.usedToday), 0).toLocaleString()}
             </div>
             <div style={{ fontSize: 10, color: '#777' }}>Units/day</div>
@@ -154,7 +155,7 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
       {/* Project list */}
       {projects.length > 0 && (
         <div style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#1A1A1A', marginBottom: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: colors.text, marginBottom: 10 }}>
             GCP Projects của bạn
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -162,7 +163,7 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
               <div
                 key={p.projectId}
                 style={{
-                  background: '#F5F5F5', border: '1px solid #1A1A1A',
+                  background: colors.bg, border: '1px solid #1A1A1A',
                   borderRadius: 8, padding: '10px 14px',
                   display: 'flex', alignItems: 'center', gap: 10,
                 }}
@@ -173,7 +174,7 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
                 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
-                    fontSize: 11, fontWeight: 600, color: '#1A1A1A',
+                    fontSize: 11, fontWeight: 600, color: colors.text,
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   }}>
                     {p.projectId}
@@ -188,10 +189,10 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
                       <span style={{ fontSize: 9, color: '#777' }}>{p.usedToday.toLocaleString()}</span>
                       <span style={{ fontSize: 9, color: '#777' }}>{p.quotaTotal.toLocaleString()}</span>
                     </div>
-                    <div style={{ height: 3, background: '#1A1A1A', borderRadius: 2 }}>
+                    <div style={{ height: 3, background: colors.text, borderRadius: 2 }}>
                       <div style={{
                         width: `${quotaPercent(p)}%`, height: '100%',
-                        background: quotaPercent(p) > 80 ? '#FF4444' : quotaPercent(p) > 50 ? '#FF6B35' : '#00FF88',
+                        background: quotaPercent(p) > 80 ? colors.error : quotaPercent(p) > 50 ? '#FF6B35' : colors.success,
                         borderRadius: 2,
                       }} />
                     </div>
@@ -204,7 +205,7 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
                       disabled={reauthorizing === p.projectId}
                       style={{
                         height: 24, padding: '0 10px',
-                        background: '#1A1A1A', border: '1px solid #D0D0D0',
+                        background: colors.text, border: '1px solid #D0D0D0',
                         borderRadius: 4, fontSize: 9, fontWeight: 600,
                         color: '#999', cursor: 'pointer',
                       }}
@@ -237,7 +238,7 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
             onClick={() => setShowAddForm(true)}
             style={{
               height: 36, padding: '0 16px',
-              background: '#1A1A1A', border: '1px dashed #D0D0D0',
+              background: colors.text, border: '1px dashed #D0D0D0',
               borderRadius: 8, fontSize: 11, fontWeight: 600,
               color: '#999', cursor: 'pointer',
             }}
@@ -246,10 +247,10 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
           </button>
         ) : (
           <div style={{
-            background: '#F5F5F5', border: '1px solid #D0D0D0',
+            background: colors.bg, border: '1px solid #D0D0D0',
             borderRadius: 10, padding: '16px 20px',
           }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#1A1A1A', marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: colors.text, marginBottom: 14 }}>
               Thêm GCP Project
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
@@ -288,7 +289,7 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
               <div style={{ fontSize: 11, color: '#FF6B6B', marginBottom: 10 }}>{addError}</div>
             )}
             {addSuccess && (
-              <div style={{ fontSize: 11, color: '#00FF88', marginBottom: 10 }}>✓ Project đã được thêm</div>
+              <div style={{ fontSize: 11, color: colors.success, marginBottom: 10 }}>✓ Project đã được thêm</div>
             )}
             <div style={{ display: 'flex', gap: 8 }}>
               <button
@@ -296,10 +297,10 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
                 disabled={adding}
                 style={{
                   height: 32, padding: '0 16px',
-                  background: adding ? '#005577' : '#00B4FF',
+                  background: adding ? '#005577' : colors.accent,
                   border: 'none', borderRadius: 6,
                   fontSize: 11, fontWeight: 700,
-                  color: '#1A1A1A', cursor: adding ? 'not-allowed' : 'pointer',
+                  color: colors.text, cursor: adding ? 'not-allowed' : 'pointer',
                 }}
               >
                 {adding ? 'Đang thêm...' : 'Thêm Project'}
@@ -322,7 +323,7 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
 
       {/* Info */}
       <div style={{
-        background: '#F5F5F5', border: '1px solid #1A1A1A',
+        background: colors.bg, border: '1px solid #1A1A1A',
         borderRadius: 8, padding: '12px 16px', marginBottom: 32,
         display: 'flex', gap: 10, alignItems: 'flex-start',
       }}>
@@ -362,9 +363,9 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
             onClick={onComplete}
             style={{
               height: 40, padding: '0 24px',
-              background: '#00B4FF', border: 'none',
+              background: colors.accent, border: 'none',
               borderRadius: 8, fontSize: 12, fontWeight: 700,
-              color: '#1A1A1A', cursor: 'pointer',
+              color: colors.text, cursor: 'pointer',
             }}
           >
             Tiếp tục →
@@ -377,7 +378,7 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
 
 const inputStyle: React.CSSProperties = {
   width: '100%', height: 36,
-  background: '#F0F0F0', border: '1px solid #D0D0D0',
+  background: colors.bg, border: '1px solid #D0D0D0',
   borderRadius: 6, padding: '0 12px',
-  fontSize: 11, color: '#1A1A1A', outline: 'none',
+  fontSize: 11, color: colors.text, outline: 'none',
 }

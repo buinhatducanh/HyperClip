@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../../design-system/tokens'
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -90,7 +91,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
 
       {/* Detection Interval */}
       <div style={{ marginBottom: 28 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A', marginBottom: 4 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
           Tốc độ detection
         </div>
         <div style={{ fontSize: 11, color: '#777', marginBottom: 12 }}>
@@ -103,12 +104,12 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
               onClick={() => setLocalSettings({ ...localSettings, pollIntervalMs: opt.value })}
               style={{
                 padding: '10px 14px',
-                background: localSettings.pollIntervalMs === opt.value ? '#00B4FF22' : '#F5F5F5',
-                border: `1px solid ${localSettings.pollIntervalMs === opt.value ? '#00B4FF' : '#D0D0D0'}`,
+                background: localSettings.pollIntervalMs === opt.value ? '#00B4FF22' : colors.bg,
+                border: `1px solid ${localSettings.pollIntervalMs === opt.value ? colors.accent : colors.borderHover}`,
                 borderRadius: 8, textAlign: 'left', cursor: 'pointer',
               }}
             >
-              <div style={{ fontSize: 13, fontWeight: 700, color: localSettings.pollIntervalMs === opt.value ? '#00B4FF' : '#1A1A1A', marginBottom: 2 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: localSettings.pollIntervalMs === opt.value ? colors.accent : colors.text, marginBottom: 2 }}>
                 {opt.label}
               </div>
               <div style={{ fontSize: 10, color: '#777' }}>{opt.desc}</div>
@@ -119,7 +120,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
 
       {/* Download Quality */}
       <div style={{ marginBottom: 28 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A', marginBottom: 4 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
           Chất lượng download
         </div>
         <div style={{ fontSize: 11, color: '#777', marginBottom: 12 }}>
@@ -132,12 +133,12 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
               onClick={() => setLocalSettings({ ...localSettings, autoDownloadQuality: opt.value })}
               style={{
                 padding: '10px 14px',
-                background: localSettings.autoDownloadQuality === opt.value ? '#00B4FF22' : '#F5F5F5',
-                border: `1px solid ${localSettings.autoDownloadQuality === opt.value ? '#00B4FF' : '#D0D0D0'}`,
+                background: localSettings.autoDownloadQuality === opt.value ? '#00B4FF22' : colors.bg,
+                border: `1px solid ${localSettings.autoDownloadQuality === opt.value ? colors.accent : colors.borderHover}`,
                 borderRadius: 8, textAlign: 'left', cursor: 'pointer',
               }}
             >
-              <div style={{ fontSize: 13, fontWeight: 700, color: localSettings.autoDownloadQuality === opt.value ? '#00B4FF' : '#1A1A1A', marginBottom: 2 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: localSettings.autoDownloadQuality === opt.value ? colors.accent : colors.text, marginBottom: 2 }}>
                 {opt.label}
               </div>
               <div style={{ fontSize: 10, color: '#777' }}>{opt.desc}</div>
@@ -148,7 +149,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
 
       {/* Render Quality */}
       <div style={{ marginBottom: 28 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A', marginBottom: 4 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
           Chất lượng render
         </div>
         <div style={{ fontSize: 11, color: '#777', marginBottom: 12 }}>
@@ -161,12 +162,12 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
               onClick={() => setLocalSettings({ ...localSettings, defaultQuality: opt.value })}
               style={{
                 padding: '10px 14px',
-                background: localSettings.defaultQuality === opt.value ? '#00B4FF22' : '#F5F5F5',
-                border: `1px solid ${localSettings.defaultQuality === opt.value ? '#00B4FF' : '#D0D0D0'}`,
+                background: localSettings.defaultQuality === opt.value ? '#00B4FF22' : colors.bg,
+                border: `1px solid ${localSettings.defaultQuality === opt.value ? colors.accent : colors.borderHover}`,
                 borderRadius: 8, textAlign: 'left', cursor: 'pointer',
               }}
             >
-              <div style={{ fontSize: 13, fontWeight: 700, color: localSettings.defaultQuality === opt.value ? '#00B4FF' : '#1A1A1A', marginBottom: 2 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: localSettings.defaultQuality === opt.value ? colors.accent : colors.text, marginBottom: 2 }}>
                 {opt.label}
               </div>
               <div style={{ fontSize: 10, color: '#777' }}>{opt.desc}</div>
@@ -179,7 +180,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
       <div style={{ marginBottom: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A' }}>Auto render</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>Auto render</div>
             <div style={{ fontSize: 11, color: '#777', marginTop: 2 }}>
               Tự động render video ngay sau khi download (dùng preset mặc định)
             </div>
@@ -188,7 +189,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
             onClick={() => setLocalSettings({ ...localSettings, autoRender: !localSettings.autoRender })}
             style={{
               width: 44, height: 24,
-              background: localSettings.autoRender ? '#00B4FF' : '#D0D0D0',
+              background: localSettings.autoRender ? colors.accent : colors.borderHover,
               border: 'none', borderRadius: 12,
               cursor: 'pointer', position: 'relative',
               transition: 'background 0.2s',
@@ -196,7 +197,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
           >
             <div style={{
               width: 18, height: 18, borderRadius: '50%',
-              background: '#1A1A1A',
+              background: colors.text,
               position: 'absolute',
               top: 3, right: localSettings.autoRender ? 3 : 'unset',
               left: localSettings.autoRender ? 'unset' : 3,
@@ -208,7 +209,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
 
       {/* Trim limit */}
       <div style={{ marginBottom: 32 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A', marginBottom: 4 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
           Giới hạn thời lượng video
         </div>
         <div style={{ fontSize: 11, color: '#777', marginBottom: 12 }}>
@@ -225,9 +226,9 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
             min={0} max={60}
             style={{
               width: 80, height: 36,
-              background: '#F5F5F5', border: '1px solid #D0D0D0',
+              background: colors.bg, border: '1px solid #D0D0D0',
               borderRadius: 6, padding: '0 12px',
-              fontSize: 13, fontWeight: 600, color: '#1A1A1A', outline: 'none',
+              fontSize: 13, fontWeight: 600, color: colors.text, outline: 'none',
               textAlign: 'center',
             }}
           />
@@ -265,10 +266,10 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
             disabled={saving}
             style={{
               height: 40, padding: '0 24px',
-              background: saving ? '#005577' : '#00B4FF',
+              background: saving ? '#005577' : colors.accent,
               border: 'none',
               borderRadius: 8, fontSize: 12, fontWeight: 700,
-              color: '#1A1A1A', cursor: saving ? 'not-allowed' : 'pointer',
+              color: colors.text, cursor: saving ? 'not-allowed' : 'pointer',
             }}
           >
             {saving ? 'Đang lưu...' : 'Lưu & Tiếp tục →'}

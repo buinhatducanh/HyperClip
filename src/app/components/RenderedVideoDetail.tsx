@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../design-system/tokens'
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -146,14 +147,14 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
   return (
     <div style={{
       flex: 1, display: 'flex', flexDirection: 'column',
-      background: '#F5F5F5',
+      background: colors.bg,
       overflow: 'hidden',
     }}>
       {/* Header bar */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10,
         padding: '10px 20px',
-        background: '#F5F5F5',
+        background: colors.bg,
         borderBottom: '1px solid #E0E0E0',
         flexShrink: 0,
       }}>
@@ -162,7 +163,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
         </svg>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{
-            fontSize: 12, fontWeight: 700, color: '#1A1A1A',
+            fontSize: 12, fontWeight: 700, color: colors.text,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
             {video.videoTitle || 'Untitled'}
@@ -195,7 +196,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#00FF88" strokeWidth="2">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#00FF88' }}>Mở thư mục</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: colors.success }}>Mở thư mục</span>
         </button>
       </div>
 
@@ -207,7 +208,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
           borderRadius: 8,
           overflow: 'hidden',
           border: '1px solid #D0D0D0',
-          background: '#F0F0F0',
+          background: colors.bg,
           position: 'relative',
         }}>
           {videoUrl ? (
@@ -284,7 +285,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
             margin: '12px 0',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 24, fontWeight: 800, color: '#00FF88', fontFamily: 'monospace' }}>
+              <span style={{ fontSize: 24, fontWeight: 800, color: colors.success, fontFamily: 'monospace' }}>
                 {formatRenderTime(video.renderDurationMs)}
               </span>
               <span style={{ fontSize: 9, color: '#00FF8888', fontWeight: 600 }}>render time</span>
@@ -310,13 +311,13 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
         }}>
           {/* Column headers */}
           <div style={{ padding: '6px 12px', background: '#FFFFFF', borderBottom: '1px solid #E0E0E0' }}>
-            <span style={{ fontSize: 8, fontWeight: 800, color: '#FFB800', letterSpacing: '0.08em' }}>SOURCE</span>
+            <span style={{ fontSize: 8, fontWeight: 800, color: colors.warning, letterSpacing: '0.08em' }}>SOURCE</span>
           </div>
           <div style={{ background: '#FFFFFF', borderBottom: '1px solid #E0E0E0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <span style={{ fontSize: 10, color: '#666' }}>→</span>
           </div>
           <div style={{ padding: '6px 12px', background: '#FFFFFF', borderBottom: '1px solid #E0E0E0' }}>
-            <span style={{ fontSize: 8, fontWeight: 800, color: '#00FF88', letterSpacing: '0.08em' }}>OUTPUT</span>
+            <span style={{ fontSize: 8, fontWeight: 800, color: colors.success, letterSpacing: '0.08em' }}>OUTPUT</span>
           </div>
 
           {/* Resolution */}
@@ -331,7 +332,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
           </div>
           <div style={{ padding: '5px 12px', borderBottom: '1px solid #E0E0E0' }}>
             <div style={{ fontSize: 7, color: '#888' }}>Resolution</div>
-            <div style={{ fontSize: 9, color: '#00FF88', fontFamily: 'monospace', fontWeight: 600 }}>
+            <div style={{ fontSize: 9, color: colors.success, fontFamily: 'monospace', fontWeight: 600 }}>
               {rc?.exportResolution || `${video.quality}p`}
             </div>
           </div>
@@ -348,10 +349,10 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
           </div>
           <div style={{ padding: '5px 12px', borderBottom: '1px solid #E0E0E0' }}>
             <div style={{ fontSize: 7, color: '#888' }}>Duration</div>
-            <div style={{ fontSize: 9, color: '#00FF88', fontFamily: 'monospace', fontWeight: 600 }}>
+            <div style={{ fontSize: 9, color: colors.success, fontFamily: 'monospace', fontWeight: 600 }}>
               {formatDuration(video.duration)}
               {rc?.speed && rc.speed !== 1.0 && (
-                <span style={{ color: '#FFB800', marginLeft: 4 }}>({rc.speed}x)</span>
+                <span style={{ color: colors.warning, marginLeft: 4 }}>({rc.speed}x)</span>
               )}
             </div>
           </div>
@@ -368,7 +369,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
           </div>
           <div style={{ padding: '5px 12px', borderBottom: '1px solid #E0E0E0' }}>
             <div style={{ fontSize: 7, color: '#888' }}>File Size</div>
-            <div style={{ fontSize: 9, color: '#00FF88', fontFamily: 'monospace', fontWeight: 600 }}>
+            <div style={{ fontSize: 9, color: colors.success, fontFamily: 'monospace', fontWeight: 600 }}>
               {formatFileSize(video.fileSize as any)}
             </div>
           </div>
@@ -385,7 +386,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
           </div>
           <div style={{ padding: '5px 12px' }}>
             <div style={{ fontSize: 7, color: '#888' }}>Format</div>
-            <div style={{ fontSize: 9, color: '#00FF88', fontFamily: 'monospace', fontWeight: 600 }}>
+            <div style={{ fontSize: 9, color: colors.success, fontFamily: 'monospace', fontWeight: 600 }}>
               {video.quality}p {video.codec?.toUpperCase()}
             </div>
           </div>
@@ -405,7 +406,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
             <>
               <InfoRow label="Export Resolution" value={rc.exportResolution} color="#00B4FF" mono />
               <InfoRow label="FPS" value={`${rc.fps}`} mono />
-              <InfoRow label="Speed" value={`${rc.speed}x`} color={rc.speed !== 1.0 ? '#FFB800' : '#888'} mono />
+              <InfoRow label="Speed" value={`${rc.speed}x`} color={rc.speed !== 1.0 ? colors.warning : '#888'} mono />
               <InfoRow label="Codec" value={rc.codec?.toUpperCase()} color="#7C3AED" mono />
               <InfoRow label="Preset" value={rc.preset?.toUpperCase()} mono />
               <InfoRow label="Tune" value={rc.tune?.toUpperCase()} mono />
@@ -417,9 +418,9 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
                 <InfoRow label="Video Zone" value={`${rc.vidHeightPct}%`} mono />
               )}
               <InfoRow label="GPU Tier" value={rc.gpuTier?.toUpperCase()} color={
-                rc.gpuTier === 'high' ? '#00FF88' :
-                rc.gpuTier === 'mid' ? '#FFB800' :
-                rc.gpuTier === 'software' ? '#FF4444' : '#888'
+                rc.gpuTier === 'high' ? colors.success :
+                rc.gpuTier === 'mid' ? colors.warning :
+                rc.gpuTier === 'software' ? colors.error : '#888'
               } mono />
               {(rc.trimStart != null || rc.trimEnd != null) && (
                 <InfoRow
@@ -502,7 +503,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00FF88" strokeWidth="2">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#00FF88' }}>Mở thư mục chứa file</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: colors.success }}>Mở thư mục chứa file</span>
         </button>
       </div>
     </div>

@@ -1,4 +1,6 @@
 'use client'
+import { colors, spacing, fontSize } from '../design-system/tokens'
+'use client'
 
 // ─── Skeleton Pulse Animation (injected once via global style) ───────────────────
 // App already has @keyframes in globals.css; add shimmer there if needed.
@@ -16,7 +18,7 @@ function Shimmer({ width = '100%', height = 14, radius = 3, style = {} }: {
         width,
         height,
         borderRadius: radius,
-        background: '#E0E0E0',
+        background: colors.border,
         animation: 'skeletonPulse 1.6s ease-in-out infinite',
         ...style,
       }}
@@ -57,7 +59,7 @@ export function SkeletonQueue() {
       {/* Group header */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 6,
-        padding: '6px 12px', background: '#F0F0F0',
+        padding: '6px 12px', background: colors.bg,
         borderBottom: '1px solid #E0E0E0',
       }}>
         <Shimmer width={6} height={6} radius={3} />
@@ -91,17 +93,17 @@ export function SkeletonChannelItem() {
 
 export function SkeletonEditor() {
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#F5F5F5' }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: colors.bg }}>
       {/* Header bar */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         paddingLeft: 16, paddingRight: 16, height: 40,
-        borderBottom: '1px solid #E0E0E0', background: '#F5F5F5', flexShrink: 0,
+        borderBottom: '1px solid #E0E0E0', background: colors.bg, flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <Shimmer width={8} height={8} radius={2} />
           <Shimmer width={40} height={10} radius={2} />
-          <div style={{ width: 1, height: 10, background: '#D0D0D0' }} />
+          <div style={{ width: 1, height: 10, background: colors.borderHover }} />
           <Shimmer width={180} height={11} radius={2} />
         </div>
       </div>
@@ -111,12 +113,12 @@ export function SkeletonEditor() {
         {/* Canvas area */}
         <div style={{
           flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden',
-          background: '#F0F0F0', alignItems: 'center', justifyContent: 'center', gap: 12,
+          background: colors.bg, alignItems: 'center', justifyContent: 'center', gap: 12,
         }}>
           {/* 9:16 video skeleton */}
           <div style={{
             width: '100%', maxWidth: 300, aspectRatio: '9/16',
-            background: '#F5F5F5', borderRadius: 3,
+            background: colors.bg, borderRadius: 3,
             border: '1px solid #E0E0E0',
             display: 'flex', flexDirection: 'column', overflow: 'hidden',
           }}>
@@ -125,12 +127,12 @@ export function SkeletonEditor() {
               <Shimmer width={40} height={12} radius={3} />
             </div>
             {/* Video zone */}
-            <div style={{ flex: '0 0 60%', background: '#F0F0F0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ flex: '0 0 60%', background: colors.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {/* Spinner */}
               <div style={{
                 width: 32, height: 32, borderRadius: '50%',
                 border: '2px solid rgba(0,0,0,0.08)',
-                borderTopColor: '#00B4FF',
+                borderTopColor: colors.accent,
                 animation: 'spin 0.8s linear infinite',
               }} />
             </div>
@@ -144,7 +146,7 @@ export function SkeletonEditor() {
         </div>
 
         {/* Controls panel */}
-        <div style={{ width: 280, borderLeft: '1px solid #E0E0E0', background: '#F5F5F5', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ width: 280, borderLeft: '1px solid #E0E0E0', background: colors.bg, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ flex: 1, overflow: 'hidden', padding: '0 12px' }}>
             {/* Section headers + content */}
             {['TRIM', 'TITLE', 'SPEED', 'BACKGROUND'].map((label, i) => (

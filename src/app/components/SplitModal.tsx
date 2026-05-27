@@ -1,4 +1,5 @@
 'use client'
+import { colors, spacing, fontSize } from '../design-system/tokens'
 
 import { useState, useEffect, useCallback } from 'react'
 import { ipc } from '../lib/ipc'
@@ -130,7 +131,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A', marginBottom: 2 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: colors.text, marginBottom: 2 }}>
               Split Video
             </div>
             <div style={{ fontSize: 11, color: '#777', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 340 }}>
@@ -154,10 +155,10 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
           <button
             onClick={() => setMode('auto')}
             style={{
-              flex: 1, height: 28, background: mode === 'auto' ? '#00B4FF20' : '#1A1A1A',
-              border: `1px solid ${mode === 'auto' ? '#00B4FF' : '#2a2a2a'}`,
+              flex: 1, height: 28, background: mode === 'auto' ? '#00B4FF20' : colors.text,
+              border: `1px solid ${mode === 'auto' ? colors.accent : '#2a2a2a'}`,
               borderRadius: 3, fontSize: 10, fontWeight: 600,
-              color: mode === 'auto' ? '#00B4FF' : '#555', cursor: 'pointer',
+              color: mode === 'auto' ? colors.accent : '#555', cursor: 'pointer',
             }}
           >
             Auto-Split (đều mỗi N phút)
@@ -165,10 +166,10 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
           <button
             onClick={() => setMode('manual')}
             style={{
-              flex: 1, height: 28, background: mode === 'manual' ? '#00B4FF20' : '#1A1A1A',
-              border: `1px solid ${mode === 'manual' ? '#00B4FF' : '#2a2a2a'}`,
+              flex: 1, height: 28, background: mode === 'manual' ? '#00B4FF20' : colors.text,
+              border: `1px solid ${mode === 'manual' ? colors.accent : '#2a2a2a'}`,
               borderRadius: 3, fontSize: 10, fontWeight: 600,
-              color: mode === 'manual' ? '#00B4FF' : '#555', cursor: 'pointer',
+              color: mode === 'manual' ? colors.accent : '#555', cursor: 'pointer',
             }}
           >
             Manual Split
@@ -188,10 +189,10 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
                   onClick={() => setPartMinutes(m)}
                   style={{
                     height: 28, padding: '0 12px',
-                    background: partMinutes === m ? '#00B4FF20' : '#1A1A1A',
-                    border: `1px solid ${partMinutes === m ? '#00B4FF' : '#2a2a2a'}`,
+                    background: partMinutes === m ? '#00B4FF20' : colors.text,
+                    border: `1px solid ${partMinutes === m ? colors.accent : '#2a2a2a'}`,
                     borderRadius: 3, fontSize: 10, fontWeight: 600,
-                    color: partMinutes === m ? '#00B4FF' : '#555', cursor: 'pointer',
+                    color: partMinutes === m ? colors.accent : '#555', cursor: 'pointer',
                   }}
                 >
                   {m} min
@@ -244,7 +245,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
                     style={{
                       position: 'absolute', top: 0, bottom: 0,
                       left: `${pct}%`,
-                      width: 2, background: '#FFB800',
+                      width: 2, background: colors.warning,
                       cursor: 'default',
                     }}
                     title={`${formatTime(t)}`}
@@ -283,7 +284,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
         {/* Parts preview */}
         {preview && (
           <div style={{
-            background: '#F5F5F5', border: '1px solid #E0E0E0',
+            background: colors.bg, border: '1px solid #E0E0E0',
             borderRadius: 3, padding: 12, marginBottom: 16,
           }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: '#777', letterSpacing: '0.08em', marginBottom: 8 }}>
@@ -297,7 +298,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
                 <div style={{
                   width: 20, height: 20, borderRadius: 3, background: '#00B4FF20',
                   border: '1px solid #00B4FF44', fontSize: 9, fontWeight: 700,
-                  color: '#00B4FF', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: colors.accent, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
                   {part.index}
                 </div>
@@ -308,7 +309,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
                 </div>
                 <div style={{
                   fontSize: 9, fontWeight: 600,
-                  color: part.duration < MIN_PART_DURATION ? '#FF4444' : '#555',
+                  color: part.duration < MIN_PART_DURATION ? colors.error : '#555',
                   fontFamily: 'monospace',
                 }}>
                   {formatDuration(part.duration)}
@@ -323,7 +324,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
           <div style={{
             background: '#FF444420', border: '1px solid #FF444444',
             borderRadius: 3, padding: '8px 12px', marginBottom: 12,
-            fontSize: 11, color: '#FF4444', fontWeight: 600,
+            fontSize: 11, color: colors.error, fontWeight: 600,
           }}>
             Tối đa 4 parts. Hiện tại: {numParts} parts (vượt {numParts - MAX_PARTS}).
           </div>
@@ -332,7 +333,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
           <div style={{
             background: '#FFB80020', border: '1px solid #FFB80044',
             borderRadius: 3, padding: '8px 12px', marginBottom: 12,
-            fontSize: 11, color: '#FFB800', fontWeight: 600,
+            fontSize: 11, color: colors.warning, fontWeight: 600,
           }}>
             Có part quá ngắn (&lt;30s). Điều chỉnh split points.
           </div>
@@ -349,7 +350,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
         >
           <div style={{
             width: 14, height: 14, borderRadius: 2, border: '1px solid #00B4FF',
-            background: autoRender ? '#00B4FF' : 'transparent',
+            background: autoRender ? colors.accent : 'transparent',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             flexShrink: 0,
           }}>
@@ -378,8 +379,8 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
             disabled={!canSplit || loading}
             style={{
               height: 32, padding: '0 16px',
-              background: canSplit ? '#00B4FF' : '#1A1A1A',
-              border: `1px solid ${canSplit ? '#00B4FF' : '#2a2a2a'}`,
+              background: canSplit ? colors.accent : colors.text,
+              border: `1px solid ${canSplit ? colors.accent : '#2a2a2a'}`,
               borderRadius: 3, fontSize: 11, fontWeight: 700,
               color: canSplit ? '#000' : '#666',
               cursor: canSplit ? 'pointer' : 'not-allowed',

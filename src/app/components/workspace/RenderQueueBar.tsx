@@ -1,4 +1,6 @@
 'use client'
+import { colors, spacing, fontSize } from '../../design-system/tokens'
+'use client'
 
 import { useState } from 'react'
 import type { Workspace } from '../../lib/store'
@@ -28,7 +30,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
         bottom: 0,
         left: 220, // sidebar width
         right: 0,
-        background: '#F5F5F5',
+        background: colors.bg,
         borderTop: '1px solid #E0E0E0',
         zIndex: 100,
         transition: 'height 0.2s',
@@ -88,8 +90,8 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
               borderRadius: 3,
               border: 'none',
               cursor: 'pointer',
-              background: autoRenderEnabled ? '#00FF8822' : '#1A1A1A',
-              color: autoRenderEnabled ? '#00FF88' : '#999',
+              background: autoRenderEnabled ? '#00FF8822' : colors.text,
+              color: autoRenderEnabled ? colors.success : '#999',
               borderWidth: 1,
               borderStyle: 'solid',
               borderColor: autoRenderEnabled ? '#00FF8844' : '#777',
@@ -107,7 +109,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
             style={{
               fontSize: 9,
               fontWeight: 700,
-              color: '#FF4444',
+              color: colors.error,
               background: '#FF444415',
               border: '1px solid #FF444422',
               borderRadius: 2,
@@ -126,7 +128,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
               fontSize: 9,
               fontWeight: 700,
               color: '#999',
-              background: '#1A1A1A',
+              background: colors.text,
               border: '1px solid #777',
               borderRadius: 2,
               padding: '1px 6px',
@@ -178,18 +180,18 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
               <div style={{ width: 120, fontSize: 9, color: '#777', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {ws.videoTitle}
               </div>
-              <div style={{ flex: 1, height: 3, background: '#1A1A1A', borderRadius: 1.5 }}>
+              <div style={{ flex: 1, height: 3, background: colors.text, borderRadius: 1.5 }}>
                 <div
                   style={{
                     width: `${ws.renderProgress || 0}%`,
                     height: '100%',
-                    background: '#FF4444',
+                    background: colors.error,
                     borderRadius: 1.5,
                     transition: 'width 0.5s',
                   }}
                 />
               </div>
-              <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#FF4444', minWidth: 32, textAlign: 'right' }}>
+              <span style={{ fontSize: 9, fontFamily: 'monospace', color: colors.error, minWidth: 32, textAlign: 'right' }}>
                 {ws.renderProgress || 0}%{ws.renderEta ? ` · ${ws.renderEta}` : ''}
               </span>
               {onCancel && (
@@ -198,7 +200,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
                   title="Cancel render"
                   style={{
                     width: 18, height: 18, borderRadius: 2, border: 'none',
-                    background: '#FF444420', color: '#FF4444', cursor: 'pointer',
+                    background: '#FF444420', color: colors.error, cursor: 'pointer',
                     fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center',
                     flexShrink: 0,
                   }}
@@ -211,7 +213,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
               <div style={{ width: 120, fontSize: 9, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {ws.videoTitle}
               </div>
-              <div style={{ flex: 1, height: 3, background: '#1A1A1A', borderRadius: 1.5 }}>
+              <div style={{ flex: 1, height: 3, background: colors.text, borderRadius: 1.5 }}>
                 <div
                   style={{
                     width: '2px',

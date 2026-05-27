@@ -1,4 +1,6 @@
 'use client'
+import { colors, spacing, fontSize } from '../design-system/tokens'
+'use client'
 
 import { useState, useEffect } from 'react'
 import { ipc } from '../lib/ipc'
@@ -56,14 +58,14 @@ export function UpdateBar() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <div style={{
           width: 8, height: 8, borderRadius: '50%',
-          background: '#00FF88',
+          background: colors.success,
         }} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A' }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>
           Cập nhật mới
         </span>
         {update.version && (
           <span style={{
-            fontSize: 11, color: '#00B4FF', background: 'rgba(0,180,255,0.1)',
+            fontSize: 11, color: colors.accent, background: 'rgba(0,180,255,0.1)',
             padding: '2px 6px', borderRadius: 4,
           }}>
             v{update.version}
@@ -75,10 +77,10 @@ export function UpdateBar() {
       {update.downloading && (
         <div style={{ marginBottom: 8 }}>
           <div style={{
-            height: 4, background: '#E0E0E0', borderRadius: 2, overflow: 'hidden',
+            height: 4, background: colors.border, borderRadius: 2, overflow: 'hidden',
           }}>
             <div style={{
-              height: '100%', background: '#00B4FF', borderRadius: 2,
+              height: '100%', background: colors.accent, borderRadius: 2,
               width: `${update.progress}%`, transition: 'width 0.3s',
             }} />
           </div>
@@ -102,7 +104,7 @@ export function UpdateBar() {
             onClick={handleDownload}
             style={{
               flex: 1, padding: '8px 16px',
-              background: '#00B4FF', border: 'none', borderRadius: 6,
+              background: colors.accent, border: 'none', borderRadius: 6,
               fontSize: 13, fontWeight: 600, color: '#FFFFFF', cursor: 'pointer',
             }}
           >
@@ -114,7 +116,7 @@ export function UpdateBar() {
             onClick={handleInstall}
             style={{
               flex: 1, padding: '8px 16px',
-              background: '#00FF88', border: 'none', borderRadius: 6,
+              background: colors.success, border: 'none', borderRadius: 6,
               fontSize: 13, fontWeight: 600, color: '#FFFFFF', cursor: 'pointer',
             }}
           >

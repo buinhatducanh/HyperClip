@@ -938,8 +938,8 @@ const BackgroundSection = React.memo(function BackgroundSection({ backgroundType
             }
           }}
           style={{ width: '100%', height: 28, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 3, color: colors.textSecondary, fontSize: 10, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = '#00B4FF44'; e.currentTarget.style.color = '#00B4FF' }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = '#D0D0D0'; e.currentTarget.style.color = colors.textSecondary }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = '#00B4FF44'; e.currentTarget.style.color = colors.accent }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = colors.borderHover; e.currentTarget.style.color = colors.textSecondary }}
         >
           <IconRefresh size={10} color="currentColor" />
           REGENERATE

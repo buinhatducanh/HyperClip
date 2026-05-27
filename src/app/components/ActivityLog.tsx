@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../design-system/tokens'
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
@@ -96,7 +97,7 @@ function DetectedIcon({ color }: { color: string }) {
 
 const TYPE_CONFIG: Record<ActivityType, TypeConfig> = {
   detected: {
-    color: '#00B4FF',
+    color: colors.accent,
     bgColor: '#00B4FF0D',
     borderColor: '#00B4FF25',
     badgeBg: '#00B4FF18',
@@ -104,7 +105,7 @@ const TYPE_CONFIG: Record<ActivityType, TypeConfig> = {
     icon: <DetectedIcon color="#00B4FF" />,
   },
   downloading: {
-    color: '#FFB800',
+    color: colors.warning,
     bgColor: '#FFB8000D',
     borderColor: '#FFB80025',
     badgeBg: '#FFB80018',
@@ -112,7 +113,7 @@ const TYPE_CONFIG: Record<ActivityType, TypeConfig> = {
     icon: <DownloadIcon color="#FFB800" />,
   },
   downloaded: {
-    color: '#00FF88',
+    color: colors.success,
     bgColor: '#00FF880D',
     borderColor: '#00FF8825',
     badgeBg: '#00FF8818',
@@ -128,7 +129,7 @@ const TYPE_CONFIG: Record<ActivityType, TypeConfig> = {
     icon: <RenderIcon color="#C084FC" />,
   },
   done: {
-    color: '#00FF88',
+    color: colors.success,
     bgColor: '#00FF880D',
     borderColor: '#00FF8825',
     badgeBg: '#00FF8818',
@@ -168,7 +169,7 @@ function ProgressBar({ type, detail }: { type: ActivityType; detail?: string }) 
     <div style={{
       height: 2,
       borderRadius: 1,
-      background: '#1A1A1A',
+      background: colors.text,
       marginTop: 4,
       overflow: 'hidden',
     }}>
@@ -386,7 +387,7 @@ export function ActivityLog({ entries, etaDisplay, onRemoveEntry, onCompare, ren
           <span style={{
             fontSize: 8,
             color: '#2A2A2A',
-            background: '#1A1A1A',
+            background: colors.text,
             borderRadius: 3,
             padding: '1px 5px',
           }}>
@@ -434,7 +435,7 @@ export function ActivityLog({ entries, etaDisplay, onRemoveEntry, onCompare, ren
             {activeEntries.length > 0 && terminalEntries.length > 0 && (
               <div style={{
                 height: 1,
-                background: '#1A1A1A',
+                background: colors.text,
                 margin: '2px 0',
               }} />
             )}

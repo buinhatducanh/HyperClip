@@ -1,3 +1,4 @@
+import { colors, spacing, fontSize } from '../../design-system/tokens'
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -41,7 +42,7 @@ export function CompleteStep({ onComplete, onBack }: CompleteStepProps) {
             <path d="M5 12l5 5L19 7" stroke="#00FF88" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: '#1A1A1A', marginBottom: 8, textAlign: 'center' }}>
+        <div style={{ fontSize: 22, fontWeight: 800, color: colors.text, marginBottom: 8, textAlign: 'center' }}>
           Setup hoàn tất!
         </div>
         <div style={{ fontSize: 13, color: '#777', textAlign: 'center', lineHeight: 1.6 }}>
@@ -53,11 +54,11 @@ export function CompleteStep({ onComplete, onBack }: CompleteStepProps) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 28 }}>
         {/* Sessions */}
         <div style={{
-          background: '#F5F5F5', border: '1px solid #E0E0E0',
+          background: colors.bg, border: '1px solid #E0E0E0',
           borderRadius: 10, padding: '14px 16px',
           textAlign: 'center',
         }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: readySessions > 0 ? '#00FF88' : '#777', marginBottom: 4 }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: readySessions > 0 ? colors.success : '#777', marginBottom: 4 }}>
             {readySessions}/{sessionTotal}
           </div>
           <div style={{ fontSize: 10, color: '#777' }}>Chrome Sessions</div>
@@ -68,11 +69,11 @@ export function CompleteStep({ onComplete, onBack }: CompleteStepProps) {
 
         {/* Channels */}
         <div style={{
-          background: '#F5F5F5', border: '1px solid #E0E0E0',
+          background: colors.bg, border: '1px solid #E0E0E0',
           borderRadius: 10, padding: '14px 16px',
           textAlign: 'center',
         }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: channels.length > 0 ? '#00B4FF' : '#777', marginBottom: 4 }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: channels.length > 0 ? colors.accent : '#777', marginBottom: 4 }}>
             {channels.length}
           </div>
           <div style={{ fontSize: 10, color: '#777' }}>Channels</div>
@@ -83,11 +84,11 @@ export function CompleteStep({ onComplete, onBack }: CompleteStepProps) {
 
         {/* Projects */}
         <div style={{
-          background: '#F5F5F5', border: '1px solid #E0E0E0',
+          background: colors.bg, border: '1px solid #E0E0E0',
           borderRadius: 10, padding: '14px 16px',
           textAlign: 'center',
         }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: projectCount > 0 ? '#00FF88' : '#777', marginBottom: 4 }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: projectCount > 0 ? colors.success : '#777', marginBottom: 4 }}>
             {projectCount}
           </div>
           <div style={{ fontSize: 10, color: '#777' }}>GCP Projects</div>
@@ -99,11 +100,11 @@ export function CompleteStep({ onComplete, onBack }: CompleteStepProps) {
 
       {/* What's next */}
       <div style={{
-        background: '#F5F5F5', border: '1px solid #E0E0E0',
+        background: colors.bg, border: '1px solid #E0E0E0',
         borderRadius: 12, padding: '20px 24px',
         marginBottom: 28,
       }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A', marginBottom: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: colors.text, marginBottom: 14 }}>
           HyperClip sẽ làm gì?
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -112,10 +113,10 @@ export function CompleteStep({ onComplete, onBack }: CompleteStepProps) {
               width: 20, height: 20, borderRadius: '50%',
               background: '#00B4FF22', border: '1px solid #00B4FF44',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 10, fontWeight: 700, color: '#00B4FF', flexShrink: 0,
+              fontSize: 10, fontWeight: 700, color: colors.accent, flexShrink: 0,
             }}>1</div>
             <div style={{ fontSize: 11, color: '#999', lineHeight: 1.6 }}>
-              <strong style={{ color: '#1A1A1A' }}>Detection tự động</strong> — Kiểm tra video mới mỗi 5 giây
+              <strong style={{ color: colors.text }}>Detection tự động</strong> — Kiểm tra video mới mỗi 5 giây
               từ các kênh đã thêm. Video mới trong vòng 10 phút được phát hiện trong &lt;20 giây.
             </div>
           </div>
@@ -124,10 +125,10 @@ export function CompleteStep({ onComplete, onBack }: CompleteStepProps) {
               width: 20, height: 20, borderRadius: '50%',
               background: '#00B4FF22', border: '1px solid #00B4FF44',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 10, fontWeight: 700, color: '#00B4FF', flexShrink: 0,
+              fontSize: 10, fontWeight: 700, color: colors.accent, flexShrink: 0,
             }}>2</div>
             <div style={{ fontSize: 11, color: '#999', lineHeight: 1.6 }}>
-              <strong style={{ color: '#1A1A1A' }}>Auto-download</strong> — Video được tải về tự động
+              <strong style={{ color: colors.text }}>Auto-download</strong> — Video được tải về tự động
               ngay khi detect. Không cần thao tác thủ công.
             </div>
           </div>
@@ -136,10 +137,10 @@ export function CompleteStep({ onComplete, onBack }: CompleteStepProps) {
               width: 20, height: 20, borderRadius: '50%',
               background: '#00B4FF22', border: '1px solid #00B4FF44',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 10, fontWeight: 700, color: '#00B4FF', flexShrink: 0,
+              fontSize: 10, fontWeight: 700, color: colors.accent, flexShrink: 0,
             }}>3</div>
             <div style={{ fontSize: 11, color: '#999', lineHeight: 1.6 }}>
-              <strong style={{ color: '#1A1A1A' }}>Chỉnh sửa + Render</strong> — Mở video trong app,
+              <strong style={{ color: colors.text }}>Chỉnh sửa + Render</strong> — Mở video trong app,
               cắt ghép, thêm overlay, render với GPU NVIDIA NVENC.
             </div>
           </div>
@@ -148,7 +149,7 @@ export function CompleteStep({ onComplete, onBack }: CompleteStepProps) {
 
       {/* Quick tips */}
       <div style={{ marginBottom: 32 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: '#1A1A1A', marginBottom: 10 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: colors.text, marginBottom: 10 }}>
           Mẹo nhanh
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -187,7 +188,7 @@ export function CompleteStep({ onComplete, onBack }: CompleteStepProps) {
           disabled={isLaunching}
           style={{
             height: 40, padding: '0 24px',
-            background: isLaunching ? '#005577' : '#00FF88',
+            background: isLaunching ? '#005577' : colors.success,
             border: 'none',
             borderRadius: 8, fontSize: 12, fontWeight: 700,
             color: '#000', cursor: isLaunching ? 'not-allowed' : 'pointer',

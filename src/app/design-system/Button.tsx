@@ -14,8 +14,8 @@ interface ButtonProps {
 
 const variantStyles: Record<string, { bg: string; color: string; border: string; hoverBg: string }> = {
   primary: { bg: '#3B82F6', color: '#FFFFFF', border: 'transparent', hoverBg: '#2563EB' },
-  secondary: { bg: '#F5F5F5', color: '#1A1A1A', border: '#E0E0E0', hoverBg: '#EAEAEA' },
-  ghost: { bg: 'transparent', color: '#888888', border: 'transparent', hoverBg: '#F5F5F5' },
+  secondary: { bg: colors.bg, color: '#1A1A1A', border: colors.border, hoverBg: colors.borderLight },
+  ghost: { bg: 'transparent', color: '#888888', border: 'transparent', hoverBg: colors.bg },
   danger: { bg: '#FFF0F0', color: '#EF4444', border: '#EF4444', hoverBg: '#FFE0E0' },
 }
 
@@ -44,7 +44,7 @@ export function Button({
       }}
       onMouseEnter={disabled ? undefined : (e) => {
         if (variant !== 'ghost') e.currentTarget.style.background = v.hoverBg
-        else e.currentTarget.style.background = '#F5F5F5'
+        else e.currentTarget.style.background = colors.bg
       }}
       onMouseLeave={disabled ? undefined : (e) => {
         e.currentTarget.style.background = v.bg

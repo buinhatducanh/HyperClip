@@ -1,4 +1,6 @@
 'use client'
+import { colors, spacing, fontSize } from '../design-system/tokens'
+'use client'
 
 interface ConfirmationDialogProps {
   open: boolean
@@ -46,7 +48,7 @@ export function ConfirmationDialog({
       }}>
         {/* Title */}
         <div style={{
-          fontSize: 13, fontWeight: 700, color: confirmDanger ? '#FF4444' : '#1A1A1A',
+          fontSize: 13, fontWeight: 700, color: confirmDanger ? colors.error : colors.text,
           marginBottom: 10,
         }}>
           {title}
@@ -66,7 +68,7 @@ export function ConfirmationDialog({
             onClick={onCancel}
             style={{
               height: 32, padding: '0 16px',
-              background: '#F0F0F0',
+              background: colors.bg,
               border: '1px solid #D0D0D0',
               borderRadius: 3,
               fontSize: 11, fontWeight: 600, color: '#555',
@@ -80,9 +82,9 @@ export function ConfirmationDialog({
             style={{
               height: 32, padding: '0 16px',
               background: confirmDanger ? '#FF444420' : '#00B4FF20',
-              border: `1px solid ${confirmDanger ? '#FF4444' : '#00B4FF'}`,
+              border: `1px solid ${confirmDanger ? colors.error : colors.accent}`,
               borderRadius: 3,
-              fontSize: 11, fontWeight: 700, color: confirmDanger ? '#FF4444' : '#00B4FF',
+              fontSize: 11, fontWeight: 700, color: confirmDanger ? colors.error : colors.accent,
               cursor: 'pointer',
             }}
           >
