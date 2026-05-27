@@ -10,39 +10,6 @@
  * The only "cookies" we need are the Netscape-format cookie file
  * which yt-dlp can generate from OAuth session.
  */
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -95,7 +62,7 @@ class ElectronCookieManager {
     }
     async _checkOAuthTokens() {
         try {
-            const { getTokenManager } = await Promise.resolve().then(() => __importStar(require('./token_manager.js')));
+            const { getTokenManager } = await import('./token_manager.js');
             const tm = getTokenManager();
             const best = await tm.getBestAvailable();
             return !!best;
@@ -211,8 +178,8 @@ class ElectronCookieManager {
      */
     async syncSubscriptionList() {
         try {
-            const { getTokenManager } = await Promise.resolve().then(() => __importStar(require('./token_manager.js')));
-            const { fetchMySubscriptions } = await Promise.resolve().then(() => __importStar(require('./youtube_auth.js')));
+            const { getTokenManager } = await import('./token_manager.js');
+            const { fetchMySubscriptions } = await import('./youtube_auth.js');
             const best = await getTokenManager().getBestAvailable();
             if (!best)
                 return { added: 0, removed: 0 };
@@ -240,7 +207,7 @@ class ElectronCookieManager {
             // Only ADD new channels that aren't already tracked.
             if (added > 0) {
                 exports.channelEvents.emit('channelsSynced');
-                const { refreshChannelCache } = await Promise.resolve().then(() => __importStar(require('./subscription_feed.js')));
+                const { refreshChannelCache } = await import('./subscription_feed.js');
                 refreshChannelCache();
                 (0, unified_log_js_1.devLog)(`[SubSync] Done: +${added} (existing channels preserved)`);
             }
@@ -332,7 +299,7 @@ class ElectronCookieManager {
         this._cookies = [];
         this._initPromise = Promise.resolve();
         try {
-            const { clearTokens } = await Promise.resolve().then(() => __importStar(require('./youtube_auth.js')));
+            const { clearTokens } = await import('./youtube_auth.js');
             clearTokens();
         }
         catch { }
@@ -340,7 +307,7 @@ class ElectronCookieManager {
     }
     getLastRefreshTime() { return this._lastRefresh; }
     async startOAuthFlow() {
-        const { startOAuthFlow, fetchAccountInfo, getOAuthClientId } = await Promise.resolve().then(() => __importStar(require('./youtube_auth.js')));
+        const { startOAuthFlow, fetchAccountInfo, getOAuthClientId } = await import('./youtube_auth.js');
         const clientId = getOAuthClientId();
         if (!clientId) {
             console.warn('[CookieManager] No OAuth client ID');

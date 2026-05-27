@@ -9,7 +9,7 @@ import path from 'path'
 import { IPC_CHANNELS } from '../channels.js'
 import { getWorkspace, updateWorkspace } from '../../services/store.js'
 import { getVideoStoragePath } from '../../services/ramdisk.js'
-import { getAppStoreDir } from '../../services/paths.js'
+import { getAppStoreDir, getDownloadsDir } from '../../services/paths.js'
 import { broadcast } from '../ipc-state.js'
 import { devLog } from '../../services/unified_log.js'
 
@@ -19,7 +19,7 @@ function findDownloadedFileAbs(workspaceId: string): string | null {
     getVideoStoragePath(),
     path.join(getAppStoreDir(), 'downloads'),
     path.join(getAppStoreDir(), 'videos'),
-    'D:\\HyperClip-Data\\downloads',
+    getDownloadsDir(),
   ]
   for (const dir of dirs) {
     try {

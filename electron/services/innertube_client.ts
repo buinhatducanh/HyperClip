@@ -123,23 +123,28 @@ function parseRelativeDate(relativeStr: string): number {
  */
 function deepFindRelativeTime(obj: any, depth = 0, maxDepth = 5): string {
   if (!obj || typeof obj !== 'object' || depth > maxDepth) return ''
+  let firstMatch = ''
   for (const key of Object.keys(obj)) {
     const val = obj[key]
     if (typeof val === 'string' && /\d+\s*(second|minute|hour|day|week)/i.test(val)) {
-      return val
+      // "ago" = real publish time, skip "47 seconds" (duration)
+      if (val.includes('ago')) return val
+      if (!firstMatch) firstMatch = val
     }
     if (Array.isArray(val)) {
       for (const item of val) {
         const found = deepFindRelativeTime(item, depth + 1, maxDepth)
-        if (found) return found
+        if (found.includes('ago')) return found
+        if (found && !firstMatch) firstMatch = found
       }
     }
     if (typeof val === 'object') {
       const found = deepFindRelativeTime(val, depth + 1, maxDepth)
-      if (found) return found
+      if (found.includes('ago')) return found
+      if (found && !firstMatch) firstMatch = found
     }
   }
-  return ''
+  return firstMatch
 }
 
 /**
@@ -172,23 +177,32 @@ function extractLockupVideoField(item: any, field: 'videoId' | 'title' | 'publis
       if (typeof mPt?.text === 'string') return mPt.text
     }
     // Structure C: metadata.metadata.metadata_rows[0].metadata_parts[i].text.text (Zilk Kay pattern)
+    // IMPORTANT: metadata_parts can contain duration ("47 seconds"), view count ("1.2M views"),
+    // and publish time ("16 hours ago"). Code MUST prefer text containing "ago" to avoid
+    // matching duration as publish time.
     const parts = item.metadata?.metadata?.metadata_rows?.[0]?.metadata_parts
     if (parts && Array.isArray(parts)) {
+      let firstMatch = ''
       for (const part of parts) {
         const text = part?.text?.text || part?.text
         if (text && typeof text === 'string' && /\d+\s*(second|minute|hour|day|week)/i.test(text)) {
-          return text
+          // "ago" = real publish time, not duration
+          if (text.includes('ago')) return text
+          if (!firstMatch) firstMatch = text
         }
         const runs = part?.text?.runs
         if (runs && Array.isArray(runs)) {
           for (const run of runs) {
             const runText = typeof run === 'string' ? run : run?.text
             if (runText && /\d+\s*(second|minute|hour|day|week)/i.test(String(runText))) {
-              return String(runText)
+              const str = String(runText)
+              if (str.includes('ago')) return str
+              if (!firstMatch) firstMatch = str
             }
           }
         }
       }
+      if (firstMatch) return firstMatch
     }
     // Fallback: deep scan entire item for time-like strings.
     // This catches LockupView formats not covered by A/B/C above.
@@ -1039,6 +1053,10 @@ class InnertubeClientPool {
           sessionEntry.suspendedAt = 0
         }
       }
+
+      // Yield to event loop — the LockupView parsing above is CPU-bound and
+      // can block the renderer from receiving IPC messages.
+      await new Promise<void>(resolve => setImmediate(resolve))
 
       return results
     } catch (e: unknown) {

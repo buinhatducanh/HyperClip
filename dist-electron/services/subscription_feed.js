@@ -13,39 +13,6 @@
  * Early termination: stops after N new videos found.
  * Uploads playlist ID cached 24h.
  */
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -377,7 +344,7 @@ async function fetchSubscriptionFeed(options = {}) {
     // eslint-disable-next-line no-useless-assignment -- used for observability logging
     let innertubeAvailable = false;
     // Lazy load opLog to avoid circular import at module initialization
-    const { opLog } = await Promise.resolve().then(() => __importStar(require('./unified_log.js')));
+    const { opLog } = await import('./unified_log.js');
     // Step 1: Innertube PRIMARY (0 quota, ~200ms/call)
     try {
         const pool = await (0, innertube_client_js_1.getInnertubePool)();
@@ -408,6 +375,9 @@ async function fetchSubscriptionFeed(options = {}) {
                         }
                     }
                 }
+                // Yield between batches so the renderer can receive IPC messages
+                // (system stats, workspace updates, render progress) while scanning.
+                await new Promise(resolve => setImmediate(resolve));
             }
             if (results.length === 0) {
                 _consecutiveZeroInnertubePolls++;

@@ -75,6 +75,17 @@ async function main() {
       console.log('[build] FFmpeg CUDA build extracted to resources/ffmpeg/bin/')
     }
 
+    // ── Step 0b: Download yt-dlp to resources/yt-dlp/ ───────────────────────────
+    const YTDLP_DEST = path.join(root, 'resources', 'yt-dlp', 'yt-dlp.exe')
+    if (!fs.existsSync(path.dirname(YTDLP_DEST))) fs.mkdirSync(path.dirname(YTDLP_DEST), { recursive: true })
+
+    if (fs.existsSync(YTDLP_DEST)) {
+      console.log('[build] yt-dlp already present')
+    } else {
+      console.log('[build] Downloading yt-dlp...')
+      execSync(`node ${path.join(root, 'scripts', 'setup-ytdlp.mjs')}`, { stdio: 'inherit', cwd: root })
+    }
+
     // next build may return exit code 1 due to SSR/prerender errors on 'use client' pages.
     // The output files are still produced correctly — ignore non-zero exit.
     await run('npx', ['next', 'build']).catch(e => console.warn('[build] next build had errors (ignored):', e.message))

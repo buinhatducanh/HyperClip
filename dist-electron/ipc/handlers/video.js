@@ -22,7 +22,7 @@ function findDownloadedFileAbs(workspaceId) {
         (0, ramdisk_js_1.getVideoStoragePath)(),
         path_1.default.join((0, paths_js_1.getAppStoreDir)(), 'downloads'),
         path_1.default.join((0, paths_js_1.getAppStoreDir)(), 'videos'),
-        'D:\\HyperClip-Data\\downloads',
+        (0, paths_js_1.getDownloadsDir)(),
     ];
     for (const dir of dirs) {
         try {

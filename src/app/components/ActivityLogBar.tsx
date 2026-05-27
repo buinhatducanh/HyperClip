@@ -1,27 +1,56 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import type { ActivityEntry } from './ActivityLog'
+
+interface LogEntry {
+  id: string
+  timestamp: number
+  /** Level from unified_log (info/warn/error/success/debug) */
+  level?: string
+  /** Type from activity:event (detected/downloading/done/error) */
+  type?: string
+  message: string
+  detail?: string
+  workspaceId?: string
+}
+
+interface SystemStatus {
+  innertubeReady?: number
+  innertubeTotal?: number
+  oauthQuota?: { used: number; total: number }
+  pollActive?: boolean
+  pollInterval?: number
+  gpuTemp?: number
+  gpuUsage?: number
+  freeGB?: number
+}
 
 interface Props {
-  entries: ActivityEntry[]
+  entries: LogEntry[]
   etaDisplay?: Map<string, string>
-  onCompare?: (workspaceId: string) => void
-  renderedWorkspaceIds?: Set<string>
+  systemStatus?: SystemStatus
 }
 
 type LogTab = 'activity' | 'errors' | 'system'
 
 const LEVEL_COLORS: Record<string, string> = {
-  success: '#00FF88', info: '#888', warning: '#FFB800', error: '#FF4444', render: '#7C3AED',
+  success: '#00FF88', info: '#888', warning: '#FFB800', error: '#FF4444', render: '#7C3AED', debug: '#555',
 }
 const LEVEL_ICONS: Record<string, string> = {
-  success: '✓', info: '●', warning: '⚠', error: '✗', render: '⚡',
+  success: '✓', info: '●', warning: '⚠', error: '✗', render: '⚡', debug: '○',
 }
 
-export function ActivityLogBar({ entries, etaDisplay }: Props) {
+export function ActivityLogBar({ entries, etaDisplay, systemStatus }: Props) {
   const [tab, setTab] = useState<LogTab>('activity')
-  const errorCount = useMemo(() => entries.filter(e => e.type === 'error').length, [entries])
+  const errorCount = useMemo(() => entries.filter(e => e.level === 'error' || e.type === 'error').length, [entries])
+
+  const { innertubeReady, innertubeTotal, pollActive = false, pollInterval = 5 } = systemStatus || {}
+  const { gpuTemp = 0, gpuUsage = 0, freeGB = 0 } = systemStatus || {}
+  const oauthUsed = systemStatus?.oauthQuota?.used ?? 0
+  const oauthTotal = systemStatus?.oauthQuota?.total ?? 0
+  const diskColor = freeGB > 10 ? '#00FF88' : freeGB > 5 ? '#FFB800' : '#FF4444'
+  const innertubeColor = innertubeReady !== undefined ? (innertubeReady > 0 ? '#00FF88' : '#FF4444') : '#555'
+  const oauthColor = oauthTotal > 0 ? (oauthUsed / oauthTotal < 0.8 ? '#00FF88' : oauthUsed / oauthTotal < 0.95 ? '#FFB800' : '#FF4444') : '#555'
 
   return (
     <div style={{
@@ -47,17 +76,15 @@ export function ActivityLogBar({ entries, etaDisplay }: Props) {
             }}
           >
             {t === 'errors' ? (
-              <>
-                ERR{errorCount > 0 && (
-                  <span style={{
-                    width: 14, height: 14, background: '#FF4444', borderRadius: '50%',
-                    fontSize: 6, fontWeight: 700, color: '#fff',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    {errorCount}
-                  </span>
-                )}
-              </>
+              <>ERR{errorCount > 0 && (
+                <span style={{
+                  width: 14, height: 14, background: '#FF4444', borderRadius: '50%',
+                  fontSize: 6, fontWeight: 700, color: '#fff',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {errorCount}
+                </span>
+              )}</>
             ) : t === 'activity' ? 'ACT' : 'SYS'}
           </button>
         ))}
@@ -72,21 +99,21 @@ export function ActivityLogBar({ entries, etaDisplay }: Props) {
           <div style={{ color: '#555', fontSize: 7 }}>
             <div style={{ marginBottom: 6 }}>
               <div style={{ color: '#00B4FF', fontSize: 6, fontWeight: 700, marginBottom: 2 }}>DETECTION</div>
-              <div>⬤ Innertube <span style={{ color: '#00FF88' }}>30/30</span></div>
-              <div>⬤ OAuth <span style={{ color: '#00FF88' }}>180/200</span></div>
-              <div>⬤ Poll: active · 5s</div>
+              <div>⬤ Innertube <span style={{ color: innertubeColor }}>{innertubeReady !== undefined ? `${innertubeReady}/${innertubeTotal ?? '?'}` : '?'}</span></div>
+              <div>⬤ OAuth <span style={{ color: oauthColor }}>{oauthTotal > 0 ? `${oauthUsed}/${oauthTotal}` : 'N/A'}</span></div>
+              <div>⬤ Poll: <span style={{ color: pollActive ? '#00FF88' : '#555' }}>{pollActive ? `active · ${pollInterval}s` : 'paused'}</span></div>
             </div>
             <div>
               <div style={{ color: '#7C3AED', fontSize: 6, fontWeight: 700, marginBottom: 2 }}>RENDER</div>
-              <div>GPU: NVENC · H.264</div>
-              <div>Preset: p1 · ull</div>
+              <div>GPU: {gpuTemp > 0 ? `${gpuTemp}°C` : 'N/A'} · <span style={{ color: gpuUsage > 0 ? '#00FF88' : '#555' }}>{gpuUsage}%</span></div>
+              <div>Disk: <span style={{ color: diskColor }}>{freeGB > 0 ? `${freeGB.toFixed(0)}GB free` : 'N/A'}</span></div>
             </div>
           </div>
         ) : tab === 'errors' ? (
-          entries.filter(e => e.type === 'error').length === 0 ? (
+          errorCount === 0 ? (
             <div style={{ color: '#333', padding: 2 }}>No errors</div>
           ) : (
-            entries.filter(e => e.type === 'error').slice(0, 30).map(e => (
+            entries.filter(e => e.level === 'error' || e.type === 'error').slice(0, 30).map(e => (
               <div key={e.id} style={{ color: '#FF6B6B', wordBreak: 'break-word', marginBottom: 3 }}>
                 <span style={{ color: '#FF4444' }}>[{new Date(e.timestamp).toLocaleTimeString()}]</span>
                 <br/>{e.message}
@@ -97,11 +124,12 @@ export function ActivityLogBar({ entries, etaDisplay }: Props) {
           entries.length === 0 ? (
             <div style={{ color: '#333', padding: 2 }}>No activity</div>
           ) : (
-            entries.slice(0, 40).map(e => {
+            entries.slice(0, 50).map(e => {
               const ts = new Date(e.timestamp)
               const time = `${String(ts.getHours()).padStart(2, '0')}:${String(ts.getMinutes()).padStart(2, '0')}`
-              const color = LEVEL_COLORS[e.type] || '#888'
-              const icon = LEVEL_ICONS[e.type] || '●'
+              const level = (e.level || e.type || 'info') as string
+              const color = LEVEL_COLORS[level] || '#888'
+              const icon = LEVEL_ICONS[level] || '●'
               const eta = e.workspaceId ? etaDisplay?.get(e.workspaceId) : undefined
               return (
                 <div key={e.id} style={{
@@ -125,10 +153,10 @@ export function ActivityLogBar({ entries, etaDisplay }: Props) {
         borderTop: '1px solid #1A1A1A', fontSize: 6, color: '#444', flexShrink: 0,
       }}>
         {[
-          { label: 'Innertube', color: '#00FF88' },
-          { label: 'OAuth', color: '#00FF88' },
-          { label: 'GPU', color: '#00FF88' },
-          { label: 'Disk', color: '#00FF88' },
+          { label: 'Innertube', color: innertubeColor },
+          { label: 'OAuth', color: oauthColor },
+          { label: 'GPU', color: gpuTemp > 0 ? '#00FF88' : '#555' },
+          { label: 'Disk', color: diskColor },
         ].map(dot => (
           <span key={dot.label} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <span style={{ width: 4, height: 4, borderRadius: '50%', background: dot.color, flexShrink: 0 }} />

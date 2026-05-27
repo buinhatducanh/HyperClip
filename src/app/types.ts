@@ -17,6 +17,7 @@ export interface ChannelSettings {
   resolution?: string
   autoSplit?: boolean
   splitMinutes?: number
+  fps?: 30 | 60
 }
 
 export interface Channel {

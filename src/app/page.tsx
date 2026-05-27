@@ -12,7 +12,7 @@ import { ConfirmationDialog } from './components/ConfirmationDialog'
 import { VideoCompareModal } from './components/VideoCompareModal'
 import { TopBar } from './components/TopBar'
 import { SettingsPanel } from './components/SettingsPanel'
-import { ActivityLogBar } from './components/ActivityLogBar'
+import { ActivityLogPanel } from './components/ActivityLogPanel'
 import type { Channel, SystemStats } from './types'
 import { useAppStore, type Workspace } from './lib/store'
 import { ipc } from './lib/ipc'
@@ -171,6 +171,36 @@ function DashboardContent() {
   const [isLoadingChannels, setIsLoadingChannels] = useState(true)
   const [onboardingDone, setOnboardingDone] = useState(false)
   const [activityMap, setActivityMap] = useState<Map<string, ActivityEntry>>(new Map())
+  // ── Batched activity: accumulate in ref, flush every 300ms ─────────────
+  const _pendingActivity = useRef<Map<string, ActivityEntry>>(new Map())
+  const _flushActivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function scheduleFlushActivity() {
+    if (_flushActivityTimer.current) return
+    _flushActivityTimer.current = setTimeout(() => {
+      _flushActivityTimer.current = null
+      const pending = _pendingActivity.current
+      if (pending.size === 0) return
+      _pendingActivity.current = new Map()
+      setActivityMap(prev => {
+        const next = new Map(prev)
+        let changed = false
+        for (const [key, entry] of pending) {
+          const existing = next.get(key)
+          if (existing && (existing.type === 'done' || existing.type === 'error') && entry.type !== 'error') {
+            continue
+          }
+          next.set(key, entry)
+          changed = true
+        }
+        if (next.size > 8) {
+          const oldest = [...next.entries()].slice(0, next.size - 8)
+          oldest.forEach(([k]) => next.delete(k))
+        }
+        return changed ? next : prev
+      })
+    }, 300) // 300ms debounce batch
+  }
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string; message: string; confirmLabel?: string; confirmDanger?: boolean; onConfirm: () => void
   } | null>(null)
@@ -349,7 +379,7 @@ function DashboardContent() {
     return () => clearInterval(interval)
   }, [])
 
-  // Activity feed
+  // Activity feed — batched
   useEffect(() => {
     const cleanup = ipc.onActivityEvent((entry) => {
       const aEntry: ActivityEntry = {
@@ -360,15 +390,13 @@ function DashboardContent() {
         detail: entry.subtitle ? (entry.eta ? `${entry.subtitle} • ETA: ${entry.eta}` : entry.subtitle) : (entry.eta ? `ETA: ${entry.eta}` : undefined),
         workspaceId: entry.workspaceId,
       }
-      setActivityMap(prev => {
-        const next = new Map(prev)
-        const key = entry.workspaceId || entry.id || aEntry.id
-        next.set(key, aEntry)
-        return next
-      })
+      const key = entry.workspaceId || entry.id || aEntry.id
+      _pendingActivity.current.set(key, aEntry)
+      scheduleFlushActivity()
     })
     return cleanup
   }, [])
+
 
   // Auto-cleanup old activity entries
   useEffect(() => {
@@ -503,7 +531,7 @@ function DashboardContent() {
     return cleanup ?? (() => {})
   }, [])
 
-  // ─── Activity feed ─────────────────────────────────────────────────────────────
+  // ─── Activity feed — batched ──────────────────────────────────────────────
   function upsertActivity(
     workspaceId: string,
     type: ActivityType,
@@ -511,26 +539,20 @@ function DashboardContent() {
     detail?: string,
     terminal = false,
   ) {
-    setActivityMap(prev => {
-      const next = new Map(prev)
-      const existing = next.get(workspaceId)
-      if (existing && (existing.type === 'done' || existing.type === 'error') && !terminal) {
-        return prev
-      }
-      next.set(workspaceId, {
-        id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-        timestamp: Date.now(),
-        type,
-        message,
-        detail,
-        workspaceId,
-      })
-      if (next.size > 8) {
-        const oldest = [...next.entries()].slice(0, next.size - 8)
-        oldest.forEach(([k]) => next.delete(k))
-      }
-      return next
+    const pending = _pendingActivity.current
+    const existing = pending.get(workspaceId)
+    if (existing && (existing.type === 'done' || existing.type === 'error') && !terminal) {
+      return
+    }
+    pending.set(workspaceId, {
+      id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      timestamp: Date.now(),
+      type,
+      message,
+      detail,
+      workspaceId,
     })
+    scheduleFlushActivity()
   }
 
   // Download / render progress: update activity
@@ -621,6 +643,10 @@ function DashboardContent() {
   const handleVideoSelect = (id: string) => {
     selectWorkspace(id)
     setSelectedRenderedVideoId(null)
+  }
+
+  const handleClearActivity = () => {
+    setActivityMap(new Map())
   }
 
   const handleRenderedVideoSelect = (id: string | null) => {
@@ -759,37 +785,40 @@ function DashboardContent() {
           )}
         </div>
 
-        {/* Video Queue (right panel) */}
+        {/* Right panel: WorkspaceQueue (flex) + ActivityLogPanel (bottom bar) */}
         <div style={{ width: 280, minWidth: 240, maxWidth: 400, display: 'flex', flexDirection: 'column', borderLeft: '1px solid #1E1E1E' }}>
-          {showSkeleton ? (
-            <SkeletonQueue />
-          ) : (
-            <WorkspaceQueue
-              workspaces={filteredWorkspaces}
-              renderedVideos={renderedVideos}
-              channels={channels}
-              selectedId={selectedWorkspaceId}
-              selectedRenderedId={selectedRenderedVideoId}
-              onSelect={(id) => handleVideoSelect(id)}
-              onSelectRendered={handleRenderedVideoSelect}
-              onQuickAction={handleQuickAction}
-              onRetry={handleRetry}
-              onRemoveRendered={(id) => {
-                if (selectedRenderedVideoId === id) setSelectedRenderedVideoId(null)
-                removeRenderedVideo(id)
-              }}
-              onShowToast={showToast}
-              onSplit={handleSplit}
-              trimLimitMinutes={settings.defaultTrimLimit as number}
-              onCompare={handleCompare}
-            />
-          )}
+          {/* Queue — scrollable */}
+          <div style={{ flex: 1, overflow: 'auto' }}>
+            {showSkeleton ? (
+              <SkeletonQueue />
+            ) : (
+              <WorkspaceQueue
+                workspaces={filteredWorkspaces}
+                renderedVideos={renderedVideos}
+                channels={channels}
+                selectedId={selectedWorkspaceId}
+                selectedRenderedId={selectedRenderedVideoId}
+                onSelect={(id) => handleVideoSelect(id)}
+                onSelectRendered={handleRenderedVideoSelect}
+                onQuickAction={handleQuickAction}
+                onRetry={handleRetry}
+                onRemoveRendered={(id) => {
+                  if (selectedRenderedVideoId === id) setSelectedRenderedVideoId(null)
+                  removeRenderedVideo(id)
+                }}
+                onShowToast={showToast}
+                onSplit={handleSplit}
+                trimLimitMinutes={settings.defaultTrimLimit as number}
+                onCompare={handleCompare}
+              />
+            )}
+          </div>
+          {/* Activity log — bottom bar */}
+          <ActivityLogPanel
+            entries={[...activityMap.values()].reverse()}
+            onClear={handleClearActivity}
+          />
         </div>
-
-        {/* Activity Log (rightmost panel — vertical) */}
-        <ActivityLogBar
-          entries={[...activityMap.values()].reverse()}
-        />
       </div>
 
       {/* Toast */}

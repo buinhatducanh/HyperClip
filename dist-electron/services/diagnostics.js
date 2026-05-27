@@ -1,37 +1,4 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -39,54 +6,18 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.runDiagnostics = runDiagnostics;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
+const child_process_1 = require("child_process");
 const electron_1 = require("electron");
 const ffmpeg_paths_js_1 = require("./ffmpeg-paths.js");
 const ramdisk_js_1 = require("./ramdisk.js");
+const youtube_js_1 = require("./youtube.js");
 // ─── System Diagnostics ───────────────────────────────────────────────────────────
 // Checks all prerequisites and returns a structured status report.
 // Called at startup and on-demand from Settings UI.
-// yt-dlp: check resources/bundled (shipped with app) → node_modules/.bin → PATH
-function getYtdlpStatus() {
-    const candidates = [];
-    // Bundled in resources/ — dev: app.getAppPath()/resources/yt-dlp/yt-dlp.exe
-    // packaged: process.resourcesPath/yt-dlp/yt-dlp.exe
-    if (electron_1.app.isReady()) {
-        candidates.push(path_1.default.join(electron_1.app.getAppPath(), 'resources', 'yt-dlp', 'yt-dlp.exe'));
-        candidates.push(path_1.default.join(process.resourcesPath || '', 'yt-dlp', 'yt-dlp.exe'));
-    }
-    // node_modules/.bin (dev + npm package)
-    candidates.push(path_1.default.join(process.cwd(), 'node_modules', '.bin', 'yt-dlp.exe'));
-    candidates.push(path_1.default.join(process.cwd(), 'node_modules', '.bin', 'yt-dlp'));
-    // PATH
-    const pathEnv = process.env.PATH || '';
-    for (const dir of pathEnv.split(path_1.default.delimiter)) {
-        candidates.push(path_1.default.join(dir.trim(), 'yt-dlp'));
-        candidates.push(path_1.default.join(dir.trim(), 'yt-dlp.exe'));
-    }
-    // Python Scripts (AppData Roaming)
-    for (const ver of ['Python314', 'Python313', 'Python312', 'Python311']) {
-        candidates.push(path_1.default.join(process.env.APPDATA || '', 'Python', ver, 'Scripts', 'yt-dlp.exe'));
-        candidates.push(path_1.default.join(process.env.APPDATA || '', 'Python', ver, 'Scripts', 'yt-dlp'));
-        candidates.push(path_1.default.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', ver, 'Scripts', 'yt-dlp.exe'));
-    }
-    for (const p of candidates) {
-        if (!p)
-            continue;
-        try {
-            if (fs_1.default.existsSync(p)) {
-                console.log(`[diagnostics] yt-dlp FOUND — ${p}`);
-                return { ok: true, path: p };
-            }
-        }
-        catch { }
-    }
-    return { ok: false, path: '', error: 'yt-dlp not found. Chạy: npm run setup:ytdlp' };
-}
 // Check yt-dlp can execute (basic version check)
 async function getYtdlpVersion(ytdlpPath) {
     try {
-        const { execSync } = await Promise.resolve().then(() => __importStar(require('child_process')));
-        const out = execSync(`"${ytdlpPath}" --version 2>&1`, { encoding: 'utf-8', timeout: 5000 });
+        const out = (0, child_process_1.execSync)(`"${ytdlpPath}" --version 2>&1`, { encoding: 'utf-8', timeout: 5000 });
         return out.trim().split('\n')[0];
     }
     catch {
@@ -160,19 +91,40 @@ async function runDiagnostics() {
     // ── yt-dlp ────────────────────────────────────────────────────────────────
     let ytdlpOk = false;
     let ytdlpVersion = '';
-    const ytdlpStatus = getYtdlpStatus();
-    const ytdlpPath = ytdlpStatus.path;
-    const ytdlpError = ytdlpStatus.error || '';
-    if (ytdlpStatus.ok) {
-        ytdlpVersion = await getYtdlpVersion(ytdlpPath);
-        ytdlpOk = true;
+    let ytdlpPath = '';
+    let ytdlpError = '';
+    try {
+        ytdlpPath = (0, youtube_js_1.getYtdlpPath)();
+        if (ytdlpPath && ytdlpPath !== 'yt-dlp') {
+            // getYtdlpPath returned a real path — verify it exists
+            if (fs_1.default.existsSync(ytdlpPath)) {
+                ytdlpOk = true;
+            }
+        }
+        else {
+            // Fallback: check if 'yt-dlp' resolves via PATH
+            try {
+                (0, child_process_1.execSync)('yt-dlp --version', { encoding: 'utf-8', timeout: 5000, stdio: 'pipe' });
+                ytdlpOk = true;
+            }
+            catch {
+                ytdlpError = 'yt-dlp not found. Chạy: npm run setup:ytdlp';
+            }
+        }
+        if (ytdlpOk) {
+            ytdlpVersion = await getYtdlpVersion(ytdlpPath);
+        }
+        else {
+            issues.push('yt-dlp not found — downloads will fail. Run: npm run setup:ytdlp');
+        }
     }
-    else {
-        issues.push('yt-dlp not found — downloads will fail. Run: npm install yt-dlp');
+    catch (e) {
+        ytdlpError = String(e);
+        issues.push('yt-dlp not found — downloads will fail. Run: npm run setup:ytdlp');
     }
     // ── Storage ────────────────────────────────────────────────────────────────
     const ramDiskAvailable = (0, ramdisk_js_1.isRamDiskAvailable)();
-    const { getAppStoreDir } = await Promise.resolve().then(() => __importStar(require('./paths.js')));
+    const { getAppStoreDir } = await import('./paths.js');
     const storeDir = getAppStoreDir();
     // ── Overall ────────────────────────────────────────────────────────────────
     const ready = ffmpegOk && ytdlpOk;

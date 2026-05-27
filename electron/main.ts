@@ -50,11 +50,6 @@ import { getInnertubePoolSync } from './services/innertube_client.js'
 import type { SessionStatus } from './services/chrome_cookies.js'
 import { log, devLog, opLog, setLogWindow, cleanupOldLogs } from './services/unified_log.js'
 import { getLogDir, getSystemSnapshot } from './services/unified_log.js'
-import {
-  createConsoleWindow,
-  destroyConsoleWindow,
-  setConsoleWindowQuit,
-} from './services/console-window.js'
 import { checkHealthAlerts, sendHealthAlerts, recordVideoDetected, recordDownloadFail, recordDownloadSuccess } from './services/health_alerts.js'
 import { startAutoCheck as startGitHubUpdateCheck } from './services/github-updater.js'
 import { checkResourceAlert, getLastResourceAlert } from './services/system.js'
@@ -1374,9 +1369,6 @@ async function createWindow() {
   // Wire unified log to renderer for live streaming
   setLogWindow(mainWindow)
 
-  // Show customer-facing console window (always-on-top, bottom-right)
-  createConsoleWindow()
-
   void mainWindow.loadURL(`http://localhost:${NEXT_PORT}`)
 
   // Retry load if initial attempt fails (server might still be warming up)
@@ -1641,7 +1633,6 @@ function startSystemMonitor() {
 
 // ─── Shutdown ─────────────────────────────────────────────────────────────────
 async function quitAll() {
-  setConsoleWindowQuit(true)
   await stopYouTubePoller()
   cancelAllFfmpeg()
   cancelAllChunked()
@@ -1659,7 +1650,6 @@ async function quitAll() {
   }
 
   mainWindow?.destroy()
-  destroyConsoleWindow()
 
   app.quit()
 }

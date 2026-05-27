@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getLatestVideosFromRss = getLatestVideosFromRss;
 exports.getChannelMetadataFromHttp = getChannelMetadataFromHttp;
 exports.checkYtdlpSupportsJsRuntimes = checkYtdlpSupportsJsRuntimes;
+exports.getYtdlpPath = getYtdlpPath;
 exports.getChannelId = getChannelId;
 exports.getChannelInfo = getChannelInfo;
 exports.getVideoInfo = getVideoInfo;

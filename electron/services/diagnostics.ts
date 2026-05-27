@@ -1,55 +1,18 @@
 import fs from 'fs'
 import path from 'path'
+import { execSync } from 'child_process'
 import { app } from 'electron'
 import { getFfmpegPath, getFfmpegVersion } from './ffmpeg-paths.js'
 import { isRamDiskAvailable } from './ramdisk.js'
+import { getYtdlpPath } from './youtube.js'
 
 // ─── System Diagnostics ───────────────────────────────────────────────────────────
 // Checks all prerequisites and returns a structured status report.
 // Called at startup and on-demand from Settings UI.
 
-// yt-dlp: check resources/bundled (shipped with app) → node_modules/.bin → PATH
-function getYtdlpStatus(): { ok: boolean; path: string; error?: string } {
-  const candidates: string[] = []
-
-  // Bundled in resources/ — dev: app.getAppPath()/resources/yt-dlp/yt-dlp.exe
-  // packaged: process.resourcesPath/yt-dlp/yt-dlp.exe
-  if (app.isReady()) {
-    candidates.push(path.join(app.getAppPath(), 'resources', 'yt-dlp', 'yt-dlp.exe'))
-    candidates.push(path.join(process.resourcesPath || '', 'yt-dlp', 'yt-dlp.exe'))
-  }
-  // node_modules/.bin (dev + npm package)
-  candidates.push(path.join(process.cwd(), 'node_modules', '.bin', 'yt-dlp.exe'))
-  candidates.push(path.join(process.cwd(), 'node_modules', '.bin', 'yt-dlp'))
-  // PATH
-  const pathEnv = process.env.PATH || ''
-  for (const dir of pathEnv.split(path.delimiter)) {
-    candidates.push(path.join(dir.trim(), 'yt-dlp'))
-    candidates.push(path.join(dir.trim(), 'yt-dlp.exe'))
-  }
-  // Python Scripts (AppData Roaming)
-  for (const ver of ['Python314', 'Python313', 'Python312', 'Python311']) {
-    candidates.push(path.join(process.env.APPDATA || '', 'Python', ver, 'Scripts', 'yt-dlp.exe'))
-    candidates.push(path.join(process.env.APPDATA || '', 'Python', ver, 'Scripts', 'yt-dlp'))
-    candidates.push(path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', ver, 'Scripts', 'yt-dlp.exe'))
-  }
-
-  for (const p of candidates) {
-    if (!p) continue
-    try {
-      if (fs.existsSync(p)) {
-        console.log(`[diagnostics] yt-dlp FOUND — ${p}`)
-        return { ok: true, path: p }
-      }
-    } catch {}
-  }
-  return { ok: false, path: '', error: 'yt-dlp not found. Chạy: npm run setup:ytdlp' }
-}
-
 // Check yt-dlp can execute (basic version check)
 async function getYtdlpVersion(ytdlpPath: string): Promise<string> {
   try {
-    const { execSync } = await import('child_process')
     const out = execSync(`"${ytdlpPath}" --version 2>&1`, { encoding: 'utf-8', timeout: 5000 })
     return out.trim().split('\n')[0]
   } catch {
@@ -151,15 +114,33 @@ export async function runDiagnostics(): Promise<DiagnosticResult> {
   // ── yt-dlp ────────────────────────────────────────────────────────────────
   let ytdlpOk = false
   let ytdlpVersion = ''
+  let ytdlpPath = ''
+  let ytdlpError = ''
 
-  const ytdlpStatus = getYtdlpStatus()
-  const ytdlpPath = ytdlpStatus.path
-  const ytdlpError = ytdlpStatus.error || ''
-  if (ytdlpStatus.ok) {
-    ytdlpVersion = await getYtdlpVersion(ytdlpPath)
-    ytdlpOk = true
-  } else {
-    issues.push('yt-dlp not found — downloads will fail. Run: npm install yt-dlp')
+  try {
+    ytdlpPath = getYtdlpPath()
+    if (ytdlpPath && ytdlpPath !== 'yt-dlp') {
+      // getYtdlpPath returned a real path — verify it exists
+      if (fs.existsSync(ytdlpPath)) {
+        ytdlpOk = true
+      }
+    } else {
+      // Fallback: check if 'yt-dlp' resolves via PATH
+      try {
+        execSync('yt-dlp --version', { encoding: 'utf-8', timeout: 5000, stdio: 'pipe' })
+        ytdlpOk = true
+      } catch {
+        ytdlpError = 'yt-dlp not found. Chạy: npm run setup:ytdlp'
+      }
+    }
+    if (ytdlpOk) {
+      ytdlpVersion = await getYtdlpVersion(ytdlpPath)
+    } else {
+      issues.push('yt-dlp not found — downloads will fail. Run: npm run setup:ytdlp')
+    }
+  } catch (e) {
+    ytdlpError = String(e)
+    issues.push('yt-dlp not found — downloads will fail. Run: npm run setup:ytdlp')
   }
 
   // ── Storage ────────────────────────────────────────────────────────────────

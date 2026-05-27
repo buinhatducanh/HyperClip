@@ -19,7 +19,17 @@ export default function WorkspacesPage() {
 
   const handleDelete = async (id: string) => {
     removeWorkspace(id)
-    showToast('Workspace removed')
+    ipc.deleteWorkspace(id).then((result) => {
+      const r = result as { bytesFreed?: number; filesDeleted?: number } | null
+      if (r && r.bytesFreed && r.bytesFreed > 0) {
+        const freedMB = (r.bytesFreed / 1024 / 1024).toFixed(1)
+        showToast(`Đã xóa (${r.filesDeleted} files, ${freedMB} MB freed)`)
+      } else {
+        showToast('Workspace removed')
+      }
+    }).catch(() => {
+      showToast('Workspace removed (file cleanup failed)')
+    })
   }
 
   const handleOpenOutput = async (ws: Workspace) => {

@@ -14,7 +14,7 @@ const mainPath = path.join(__dirname, '..', 'dist-electron', 'main.js')
 const child = spawn(electronPath, [mainPath], {
   env,
   stdio: 'inherit',
-  shell: true,
+  shell: process.platform === 'win32', // Windows needs shell for electron binary resolution
   windowsHide: false
 })
 

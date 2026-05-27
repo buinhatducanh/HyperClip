@@ -459,6 +459,10 @@ export async function fetchSubscriptionFeed(
             }
           }
         }
+
+        // Yield between batches so the renderer can receive IPC messages
+        // (system stats, workspace updates, render progress) while scanning.
+        await new Promise<void>(resolve => setImmediate(resolve))
       }
 
       if (results.length === 0) {

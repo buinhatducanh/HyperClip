@@ -1,37 +1,4 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -77,7 +44,6 @@ const cookie_manager_js_1 = require("./services/cookie_manager.js");
 const token_manager_js_1 = require("./services/token_manager.js");
 const cdp_js_1 = require("./services/cdp.js");
 const unified_log_js_1 = require("./services/unified_log.js");
-const console_window_js_1 = require("./services/console-window.js");
 const health_alerts_js_1 = require("./services/health_alerts.js");
 const github_updater_js_1 = require("./services/github-updater.js");
 const system_js_2 = require("./services/system.js");
@@ -85,7 +51,7 @@ const ipc_state_js_1 = require("./ipc/ipc-state.js");
 const index_js_1 = require("./ipc/handlers/index.js");
 // Fix UTF-8 console output on Windows — set code page to 65001 (UTF-8)
 if (process.platform === 'win32') {
-    Promise.resolve().then(() => __importStar(require('child_process'))).then(({ execSync }) => {
+    import('child_process').then(({ execSync }) => {
         try {
             execSync('chcp 65001', { stdio: 'ignore' });
         }
@@ -537,7 +503,7 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
         const videoUrl = 'https://www.youtube.com/watch?v=' + videoId;
         (0, unified_log_js_1.devLog)(`[Auto] Downloading: ${title} (${videoId}) from ${finalChannelName}, workspace=${ws.id}`);
         // Export Chrome cookies (cached 5 min) for yt-dlp authentication
-        const { getYtCookiesFile } = await Promise.resolve().then(() => __importStar(require('./services/po_token.js')));
+        const { getYtCookiesFile } = await import('./services/po_token.js');
         const ytCookiesFile = await getYtCookiesFile();
         // ── PHASE 0: Pre-check — detect private/short/unavailable BEFORE wasting time downloading ──
         // This saves 1-5 minutes per private/short/deleted video.
@@ -767,6 +733,14 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
             subtitle: `${finalChannelName} • ${fileSizeMB} MB • ${downloadElapsed}s`,
             workspaceId: ws.id,
         });
+        // ── Auto-split trigger ──────────────────────────────────────────────────────────
+        // NOTE: Full auto-split implementation requires calling the workspace-split handler
+        // directly from main process. For now, this logs intent and falls through to
+        // auto-render. The split handler (workspace-split.ts) is available via IPC for
+        // manual/manual-auto split. Full backend integration TBD.
+        if ((settings.autoSplitParts ?? 1) > 1 && autoRenderEnabled) {
+            (0, unified_log_js_1.devLog)(`[AutoSplit] Config: ${settings.autoSplitParts} parts (backend auto-split not yet wired)`);
+        }
         // ── Auto-render trigger ───────────────────────────────────────────────────────
         // Only triggers if: settings.autoRender=true AND no prior attempt on this workspace.
         // autoRenderAttempted flag prevents infinite loops when render fails → retries.
@@ -825,7 +799,7 @@ async function doRetryAutoDownload(ws) {
     const settings = (0, ramdisk_js_1.loadSettings)();
     const retryQuality = settings.autoDownloadQuality ?? '720';
     // Export Chrome cookies for yt-dlp authentication (bypasses EJS challenge → enables 1080p VP9)
-    const { getYtCookiesFile } = await Promise.resolve().then(() => __importStar(require('./services/po_token.js')));
+    const { getYtCookiesFile } = await import('./services/po_token.js');
     const ytCookiesFile = await getYtCookiesFile();
     (0, store_js_1.updateWorkspace)(ws.id, { status: 'downloading', downloadProgress: 0 });
     broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
@@ -1051,7 +1025,7 @@ function triggerAutoRenderForReadyWorkspaces() {
             const thumbCandidates = [
                 path_1.default.join(storagePath, `thumb_${ws.id}.jpg`),
                 path_1.default.join((0, ramdisk_js_1.getVideoStoragePath)(), `thumb_${ws.id}.jpg`),
-                path_1.default.join('D:\\HyperClip-Data\\downloads', `thumb_${ws.id}.jpg`),
+                path_1.default.join((0, paths_js_1.getDownloadsDir)(), `thumb_${ws.id}.jpg`),
             ];
             for (const tc of thumbCandidates) {
                 if (fs_1.default.existsSync(tc)) {
@@ -1307,8 +1281,6 @@ async function createWindow() {
     });
     // Wire unified log to renderer for live streaming
     (0, unified_log_js_1.setLogWindow)(mainWindow);
-    // Show customer-facing console window (always-on-top, bottom-right)
-    (0, console_window_js_1.createConsoleWindow)();
     void mainWindow.loadURL(`http://localhost:${NEXT_PORT}`);
     // Retry load if initial attempt fails (server might still be warming up)
     let loadRetries = 0;
@@ -1461,7 +1433,7 @@ function sendNotification(type, message, workspaceId) { void (0, ipc_state_js_1.
 function playSuccessBeep() {
     // Distinct double-chime on download complete — loud enough to cut through background noise
     if (process.platform === 'win32') {
-        Promise.resolve().then(() => __importStar(require('child_process'))).then(({ spawn }) => {
+        import('child_process').then(({ spawn }) => {
             // Exclamation is louder than Asterisk; play twice for emphasis
             spawn('powershell', [
                 '-c',
@@ -1476,7 +1448,7 @@ function playSuccessBeep() {
 function showWindowsToast(title, body) {
     if (process.platform !== 'win32')
         return;
-    Promise.resolve().then(() => __importStar(require('child_process'))).then(({ spawn }) => {
+    import('child_process').then(({ spawn }) => {
         const escapedTitle = title.replace(/"/g, '`"');
         const escapedBody = body.replace(/`/g, '``').replace(/"/g, '`"');
         const script = [
@@ -1572,7 +1544,6 @@ function startSystemMonitor() {
 }
 // ─── Shutdown ─────────────────────────────────────────────────────────────────
 async function quitAll() {
-    (0, console_window_js_1.setConsoleWindowQuit)(true);
     await (0, youtube_poller_js_1.stopYouTubePoller)();
     (0, worker_pool_js_1.cancelAllFfmpeg)();
     (0, ffmpeg_js_1.cancelAllChunked)();
@@ -1589,7 +1560,6 @@ async function quitAll() {
         tray = null;
     }
     mainWindow?.destroy();
-    (0, console_window_js_1.destroyConsoleWindow)();
     electron_1.app.quit();
 }
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
@@ -1696,7 +1666,7 @@ void electron_1.app.whenReady().then(async () => {
         sendNotification('info', 'RAM disk chưa bật — video sẽ lưu ổ C (chậm hơn RAM disk). Có thể bỏ qua nếu không cần tốc độ cao.');
     }
     // P3: Check yt-dlp version — older versions don't support --js-runtimes
-    const { checkYtdlpSupportsJsRuntimes } = await Promise.resolve().then(() => __importStar(require('./services/youtube.js')));
+    const { checkYtdlpSupportsJsRuntimes } = await import('./services/youtube.js');
     checkYtdlpSupportsJsRuntimes();
     // Setup: copy Arial font to resources/fonts/ for FFmpeg drawtext (lavfi requires no `:` in fontfile paths).
     // FFmpeg gyan.dev lavfi parser splits option values at COLON characters (drive letter `D:`).
@@ -1705,8 +1675,8 @@ void electron_1.app.whenReady().then(async () => {
     {
         const fontsDir = path_1.default.join(__dirname, '..', 'resources', 'fonts');
         const fontPath = path_1.default.join(fontsDir, 'arial.ttf');
-        // Also create fontconfig at D:\fonts\fonts.conf for FONTCONFIG_FILE env var
-        const fcDir = 'D:\\fonts';
+        // Also create fontconfig under HyperClip-Data for FONTCONFIG_FILE env var
+        const fcDir = path_1.default.join((0, paths_js_1.getHyperClipBaseDir)(), 'fonts');
         const fcPath = path_1.default.join(fcDir, 'fonts.conf');
         const fcXml = `<?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
@@ -1746,7 +1716,7 @@ void electron_1.app.whenReady().then(async () => {
     // Poll HTTP until server responds (handles cases where port is open but
     // Next.js hasn't finished compiling yet, especially in production).
     (0, unified_log_js_1.devLog)(`[HyperClip] Waiting for Next.js HTTP server on port ${NEXT_PORT}...`);
-    const http = await Promise.resolve().then(() => __importStar(require('http')));
+    const http = await import('http');
     await new Promise((resolve) => {
         let attempts = 0;
         const timeout = setTimeout(() => {
@@ -1896,7 +1866,7 @@ void electron_1.app.whenReady().then(async () => {
     (0, github_updater_js_1.startAutoCheck)();
     setTimeout(async () => {
         try {
-            const { checkForUpdates } = await Promise.resolve().then(() => __importStar(require('./services/github-updater.js')));
+            const { checkForUpdates } = await import('./services/github-updater.js');
             const result = await checkForUpdates();
             if (result.available) {
                 (0, unified_log_js_1.devLog)(`[GitHubUpdater] New version available: v${result.version}`);
@@ -1960,7 +1930,7 @@ void electron_1.app.whenReady().then(async () => {
             // Without this, the first poll races with pool initialization → OAuth fallback waste.
             // The pool init runs concurrently with SessionManager init (~12s), so start it early.
             (0, unified_log_js_1.devLog)('[HyperClip] Pre-warming Innertube pool...');
-            const { getInnertubePool } = await Promise.resolve().then(() => __importStar(require('./services/innertube_client.js')));
+            const { getInnertubePool } = await import('./services/innertube_client.js');
             const pool = await getInnertubePool();
             const poolStatus = pool.getStatus();
             (0, unified_log_js_1.devLog)(`[HyperClip] Innertube pool: ${poolStatus.readyCount}/${poolStatus.totalSessions} sessions ready`);

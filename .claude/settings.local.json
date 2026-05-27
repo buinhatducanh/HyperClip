@@ -41,7 +41,8 @@
       "Bash(rm -f ~/AppData/Local/electron/Cache/0bb2a552b63feacad81a0c34a460be1e22038a1fa7d013aeb54e89ffa2280cd8/*)",
       "Skill(update-config)",
       "Skill(update-config:*)",
-      "WebFetch(domain:www.gyan.dev)"
+      "WebFetch(domain:www.gyan.dev)",
+      "WebFetch(domain:)"
     ],
     "additionalDirectories": [
       "C:\\Users\\MSI\\.claude"

@@ -205,7 +205,7 @@ function getJsRuntimeArgs(): string[] {
 }
 
 // Find yt-dlp executable
-function getYtdlpPath(): string {
+export function getYtdlpPath(): string {
   // 1. Bundled in resources/ (shipped with app)
   //    In dev mode: app.getAppPath() = project root (D:\...\HyperClip) → resources/yt-dlp/yt-dlp.exe ✓
   //    In prod:    process.resourcesPath = app.asar/resources              → yt-dlp/yt-dlp.exe ✓
