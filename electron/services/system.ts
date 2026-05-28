@@ -315,7 +315,8 @@ export function detectSystemProfile(): { isLaptop: boolean; sessionCount: number
     return { isLaptop: _cachedSessionCount === 15, sessionCount: _cachedSessionCount }
   }
 
-  // Check hardware preset first
+  // User MUST select a hardware preset — no auto-detect.
+  // If no profile set, default to Low (safe conservative).
   const settings = loadSettings()
   if (settings.hardwareProfile) {
     const preset = PRESETS.find(p => p.vramGB === settings.hardwareProfile!.vramGB && p.ramGB === settings.hardwareProfile!.ramGB)
@@ -324,23 +325,12 @@ export function detectSystemProfile(): { isLaptop: boolean; sessionCount: number
       devLog(`[SystemProfile] Using preset sessions=${preset.sessions} (${preset.label})`)
       return { isLaptop: false, sessionCount: _cachedSessionCount }
     }
-    devLog(`[SystemProfile] hardwareProfile (${settings.hardwareProfile.vramGB}/${settings.hardwareProfile.ramGB}) không match preset — fallback auto-detect`)
+    devLog(`[SystemProfile] hardwareProfile (${settings.hardwareProfile.vramGB}/${settings.hardwareProfile.ramGB}) không match preset — falling back to Low`)
   }
-  // Env override: explicit control for deployment
-  const envCount = parseInt(process.env.HYPERCLIP_SESSION_COUNT || '', 10)
-  if (!isNaN(envCount) && envCount > 0) {
-    _cachedSessionCount = envCount
-    devLog(`[SystemProfile] Using HYPERCLIP_SESSION_COUNT=${envCount}`)
-    return { isLaptop: false, sessionCount: envCount }
-  }
-
-  const ramGB = Math.round(os.totalmem() / (1024 ** 3))
-  const isLaptop = ramGB <= 32
-  // Conservative defaults: 8 sessions đủ cho 100 kênh detection pipeline (5s poll)
-  // Mỗi session ~150MB RAM. 8 × 150MB = 1.2GB — nhẹ hơn đáng kể so với 30 sessions.
-  _cachedSessionCount = isLaptop ? 5 : 8
-  devLog(`[SystemProfile] RAM=${ramGB}GB → ${_cachedSessionCount} sessions (${isLaptop ? 'laptop' : 'desktop'})`)
-  return { isLaptop, sessionCount: _cachedSessionCount }
+  // No hardwareProfile set OR doesn't match any preset — use Low conservative default
+  _cachedSessionCount = 4
+  devLog(`[SystemProfile] No valid hardwareProfile — using Low default (${_cachedSessionCount} sessions)`)
+  return { isLaptop: false, sessionCount: _cachedSessionCount }
 }
 
 export function getSessionCount(): number {
@@ -423,27 +413,14 @@ export function getGpuLive(): GpuLiveData {
 //   - Total: ~600MB per worker (conservative)
 // Safety reserve: 2GB for OS + driver + UI (up from 4GB — RTX 5080 has 16GB)
 export function getEffectiveWorkers(perWorkerMB = 600): number {
-  // Check preset settings first
+  // Preset settings only — no auto-detect fallback.
   const profile = loadSettings().hardwareProfile
   if (profile) {
     const preset = PRESETS.find(p => p.vramGB === profile.vramGB && p.ramGB === profile.ramGB)
     if (preset) return preset.chunkWorkers
   }
-  // Fallback to auto-detection
-  const gpu = detectGPUOnce()
-  const baseWorkers = gpu.maxChunkWorkers
-  const vram = getVramInfo()
-
-  if (gpu.encoder !== 'nvenc' || vram.total === 0) return baseWorkers
-
-  // Architecture-aware per-worker VRAM budget (GPU-specific, not hardcoded)
-  const actualBudget = Math.min(perWorkerMB, getPerWorkerVRAM())
-  const reserveMB = 2048
-  const availableMB = vram.free - reserveMB
-
-  if (availableMB <= actualBudget) return Math.max(2, Math.floor(baseWorkers * 0.25))
-  const vramCapWorkers = Math.floor(availableMB / actualBudget)
-  return Math.max(2, Math.min(baseWorkers, vramCapWorkers))
+  // Default safe: Low preset worker count
+  return 2
 }
 
 // ─── Machine tier & adaptive download params ──────────────────────────────────────
@@ -500,25 +477,18 @@ let _cachedMachineTier: MachineTier | null = null
 export function getMachineTier(): MachineTier {
   if (_cachedMachineTier) return _cachedMachineTier
 
-  const envTier = process.env.HYPERCLIP_MACHINE_TIER as MachineTier | undefined
-  if (envTier && ['low', 'mid', 'high'].includes(envTier)) {
-    _cachedMachineTier = envTier
-    return envTier
+  // User MUST select a hardware preset — no auto-detect.
+  // If no profile set, default to Low (safe conservative).
+  const settings = loadSettings()
+  if (settings.hardwareProfile) {
+    const preset = PRESETS.find(p => p.vramGB === settings.hardwareProfile.vramGB && p.ramGB === settings.hardwareProfile.ramGB)
+    if (preset) {
+      _cachedMachineTier = preset.id === 'ultra' || preset.id === 'high' ? 'high' : preset.id === 'medium' ? 'mid' : 'low'
+      return _cachedMachineTier
+    }
   }
-
-  const ramGB = os.totalmem() / (1024 ** 3)
-  const cores = os.cpus().length
-  const gpuTier = detectGPUOnce().tier
-
-  if (ramGB >= 32 && cores >= 8 && gpuTier === 'high') {
-    _cachedMachineTier = 'high'
-  } else if (ramGB >= 16 && cores >= 4) {
-    _cachedMachineTier = 'mid'
-  } else {
-    _cachedMachineTier = 'low'
-  }
-
-  return _cachedMachineTier
+  _cachedMachineTier = 'low'
+  return 'low'
 }
 
 export interface DownloadParams {

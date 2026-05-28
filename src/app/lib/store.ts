@@ -137,6 +137,7 @@ export interface AppSettings {
   defaultTrimLimit: number | 'full'  // number = minutes
   defaultQuality: 1080 | 720  // default render quality
   autoDownloadEnabled: boolean  // whether auto-download is enabled
+  pollingEnabled: boolean       // whether polling is active (requires hardwareProfile set)
   autoRender: boolean
   autoRenderResolution: string  // '1080p' | '720p' | '360p'
   autoRenderFPS: number         // 30|60
@@ -302,6 +303,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     autoRenderTitleTemplate: '',
     minimizeToTray: true,
     autoDownloadEnabled: true,
+    pollingEnabled: false,
     autoDownloadQuality: '720',
     pollIntervalMs: 5000,
     downloadsCleanupDays: 7,

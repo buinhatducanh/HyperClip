@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { colors, spacing, fontSize } from '../design-system/tokens'
 import { Card as SharedCard } from '../design-system/Card'
+import { ActivityLogPanel } from './ActivityLogPanel'
+import type { ActivityEntry } from './ActivityLog'
 import type { Channel, SystemStats } from '../types'
 import type { AppSettings, HardwareProfile } from '../lib/store'
 import { ipc } from '../lib/ipc'
@@ -32,6 +34,8 @@ interface Props {
   channels: Channel[]
   activeChannelId: string | null
   onSettingsChange: (patch: Partial<AppSettings>) => void
+  activityEntries?: ActivityEntry[]
+  onClearActivity?: () => void
 }
 
 // ─── Shared components ────────────────────────────────────────────────
@@ -296,15 +300,9 @@ function DownloadCard({ s, onChange }: { s: AppSettings; onChange: (p: Partial<A
         }}>FULL</button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
-        <div>
-          <SectionLabel>Tải đồng thời</SectionLabel>
-          <BtnGroup options={[{ label: '3', value: 3 }, { label: '5', value: 5 }, { label: '10', value: 10 }]} value={s.maxConcurrentDownloads} onChange={v => onChange({ maxConcurrentDownloads: v as number })} />
-        </div>
-        <div>
-          <SectionLabel>Render đồng thời</SectionLabel>
-          <BtnGroup options={[{ label: '2', value: 2 }, { label: '4', value: 4 }, { label: '8', value: 8 }]} value={s.maxConcurrentRenders} onChange={v => onChange({ maxConcurrentRenders: v as number })} />
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 6px', background: colors.surface, borderRadius: 2 }}>
+        <span style={{ fontSize: 8, color: colors.accent, fontWeight: 600 }}>PIPELINE</span>
+        <span style={{ fontSize: 9, color: colors.textSecondary }}>1 video → tải xong → render xong → tiếp theo</span>
       </div>
     </SettingsCard>
   )
@@ -445,7 +443,7 @@ function StorageCard({ s, onChange }: { s: AppSettings; onChange: (p: Partial<Ap
 // DETECTION CARD
 // ═══════════════════════════════════════════════════════════════════════
 
-function DetectionCard() {
+function DetectionCard({ settings, onChange }: { settings: AppSettings; onChange: (patch: Partial<AppSettings>) => void }) {
   const [pollerStatus, setPollerStatus] = useState<any>(null)
   const [sessionStatus, setSessionStatus] = useState<any>(null)
   const [innertubeDegraded, setInnertubeDegraded] = useState(false)
@@ -474,7 +472,44 @@ function DetectionCard() {
           <span style={{ width: 5, height: 5, borderRadius: '50%', background: healthPct >= 50 ? colors.success : healthPct > 0 ? colors.warning : colors.textSecondary, flexShrink: 0 }} />
           Session health: <span style={{ color: healthPct >= 50 ? colors.success : colors.warning, fontWeight: 600 }}>{healthPct}%</span>
         </div>
-        <div style={{ marginTop: 2 }}>Poll: {pollerStatus?.active ? 'active' : 'paused'} · {pollerStatus?.lastError ? '⚠ lỗi' : '0 lỗi'}</div>
+
+        {/* Polling toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTop: `1px solid ${colors.border}` }}>
+          <div>
+            <span style={{ fontSize: 10, fontWeight: 700, color: colors.textSecondary }}>POLLING</span>
+            {!settings.hardwareProfile && (
+              <div style={{ fontSize: 8, color: colors.warning, marginTop: 1 }}>Cần chọn hardware preset trước</div>
+            )}
+          </div>
+          <button
+            disabled={!settings.hardwareProfile}
+            onClick={() => onChange({ pollingEnabled: !settings.pollingEnabled } as Partial<AppSettings>)}
+            style={{
+              padding: '4px 12px', borderRadius: 3, fontSize: 9, fontWeight: 700,
+              background: settings.pollingEnabled ? colors.success + '20' : colors.surface,
+              border: `1px solid ${settings.pollingEnabled ? colors.success + '66' : colors.border}`,
+              color: settings.pollingEnabled ? colors.success : colors.textSecondary,
+              cursor: settings.hardwareProfile ? 'pointer' : 'not-allowed',
+              opacity: settings.hardwareProfile ? 1 : 0.5,
+            }}
+          >
+            {settings.pollingEnabled ? 'ON' : 'OFF'}
+          </button>
+        </div>
+
+        <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ color: pollerStatus?.active ? colors.success : pollerStatus ? colors.textTertiary : colors.textSecondary, fontWeight: 600 }}>
+            {pollerStatus?.active ? 'ACTIVE' : pollerStatus ? 'PAUSED' : '—'}
+          </span>
+          <span style={{ fontFamily: 'monospace', fontSize: 9, color: colors.textTertiary }}>
+            {pollerStatus?.pollIntervalMs ? `${pollerStatus.pollIntervalMs / 1000}s` : '—'}
+          </span>
+          {pollerStatus?.lastPollAt && (
+            <span style={{ fontSize: 9, color: colors.textTertiary }}>
+              last {Math.round((Date.now() - pollerStatus.lastPollAt) / 1000)}s ago
+            </span>
+          )}
+        </div>
       </div>
     </SettingsCard>
   )
@@ -502,11 +537,11 @@ function SystemCard({ systemStats }: { systemStats: SystemStats }) {
 // MAIN EXPORT
 // ═══════════════════════════════════════════════════════════════════════
 
-export function SettingsPanel({ settings, systemStats, channels, onSettingsChange }: Props) {
+export function SettingsPanel({ settings, systemStats, channels, onSettingsChange, activityEntries = [], onClearActivity }: Props) {
   return (
     <div style={{ flex: 1, background: colors.bg, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Header bar */}
-      <div style={{ fontSize: 10, color: colors.textSecondary, fontWeight: 700, padding: '6px 12px', borderBottom: `1px solid ${colors.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: colors.bg }}>
+      <div style={{ fontSize: 10, color: colors.textSecondary, fontWeight: 700, padding: '6px 12px', borderBottom: `1px solid ${colors.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: colors.bg, flexShrink: 0 }}>
         <span style={{ letterSpacing: 1 }}>SETTINGS</span>
         <div style={{ display: 'flex', gap: 4 }}>
           <a href="/settings?tab=sessions" style={{ padding: '2px 6px', border: `1px solid ${colors.border}`, borderRadius: 2, fontSize: 9, color: colors.textSecondary, textDecoration: 'none' }}>Sessions</a>
@@ -516,8 +551,8 @@ export function SettingsPanel({ settings, systemStats, channels, onSettingsChang
         </div>
       </div>
 
-      {/* 2-column cards */}
-      <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexWrap: 'wrap', alignContent: 'flex-start' }}>
+      {/* Scrollable cards */}
+      <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexWrap: 'wrap', alignContent: 'flex-start', minHeight: 0 }}>
         <div style={{ flex: '1 1 240px', display: 'flex', flexDirection: 'column' }}>
           <HardwareProfileCard currentProfile={settings.hardwareProfile} />
           <AutoRenderCard s={settings} onChange={onSettingsChange} />
@@ -526,10 +561,16 @@ export function SettingsPanel({ settings, systemStats, channels, onSettingsChang
         </div>
         <div style={{ flex: '1 1 240px', display: 'flex', flexDirection: 'column' }}>
           <StorageCard s={settings} onChange={onSettingsChange} />
-          <DetectionCard />
+          <DetectionCard settings={settings} onChange={onSettingsChange} />
           <SystemCard systemStats={systemStats} />
         </div>
       </div>
+
+      {/* Activity log — pinned to bottom, fixed height */}
+      <ActivityLogPanel
+        entries={activityEntries}
+        onClear={onClearActivity}
+      />
     </div>
   )
 }

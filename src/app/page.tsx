@@ -12,7 +12,6 @@ import { ConfirmationDialog } from './components/ConfirmationDialog'
 import { VideoCompareModal } from './components/VideoCompareModal'
 import { TopBar } from './components/TopBar'
 import { SettingsPanel } from './components/SettingsPanel'
-import { ActivityLogPanel } from './components/ActivityLogPanel'
 import { VideoDetailPanel } from './components/VideoDetailPanel'
 import type { Channel, SystemStats } from './types'
 import { useAppStore, type Workspace } from './lib/store'
@@ -802,44 +801,38 @@ function DashboardContent() {
                 setSettings(patch)
                 await ipc.updateSettings(patch)
               }}
+              activityEntries={[...activityMap.values()].reverse()}
+              onClearActivity={handleClearActivity}
             />
           )}
         </div>
 
-        {/* Right panel: WorkspaceQueue (flex) + ActivityLogPanel (bottom bar) */}
-        <div style={{ width: 300, minWidth: 240, maxWidth: 400, display: 'flex', flexDirection: 'column', borderLeft: `1px solid ${colors.border}` }}>
-          {/* Queue — scrollable */}
-          <div style={{ flex: 1, overflow: 'auto' }}>
-            {showSkeleton ? (
-              <SkeletonQueue />
-            ) : (
-              <WorkspaceQueue
-                workspaces={filteredWorkspaces}
-                renderedVideos={renderedVideos}
-                channels={channels}
-                selectedId={selectedWorkspaceId}
-                selectedRenderedId={selectedRenderedVideoId}
-                onSelect={(id) => handleVideoSelect(id)}
-                onSelectRendered={handleRenderedVideoSelect}
-                onQuickAction={handleQuickAction}
-                onRetry={handleRetry}
-                onRemoveRendered={(id) => {
-                  if (selectedRenderedVideoId === id) setSelectedRenderedVideoId(null)
-                  removeRenderedVideo(id)
-                }}
-                onShowToast={showToast}
-                onSplit={handleSplit}
-                trimLimitMinutes={settings.defaultTrimLimit as number}
-                onCompare={handleCompare}
-                onOpenFolder={handleOpenFolder}
-              />
-            )}
-          </div>
-          {/* Activity log — bottom bar */}
-          <ActivityLogPanel
-            entries={[...activityMap.values()].reverse()}
-            onClear={handleClearActivity}
-          />
+        {/* Right panel: WorkspaceQueue */}
+        <div style={{ width: 300, minWidth: 240, maxWidth: 400, display: 'flex', flexDirection: 'column', borderLeft: `1px solid ${colors.border}`, overflow: 'hidden' }}>
+          {showSkeleton ? (
+            <SkeletonQueue />
+          ) : (
+            <WorkspaceQueue
+              workspaces={filteredWorkspaces}
+              renderedVideos={renderedVideos}
+              channels={channels}
+              selectedId={selectedWorkspaceId}
+              selectedRenderedId={selectedRenderedVideoId}
+              onSelect={(id) => handleVideoSelect(id)}
+              onSelectRendered={handleRenderedVideoSelect}
+              onQuickAction={handleQuickAction}
+              onRetry={handleRetry}
+              onRemoveRendered={(id) => {
+                if (selectedRenderedVideoId === id) setSelectedRenderedVideoId(null)
+                removeRenderedVideo(id)
+              }}
+              onShowToast={showToast}
+              onSplit={handleSplit}
+              trimLimitMinutes={settings.defaultTrimLimit as number}
+              onCompare={handleCompare}
+              onOpenFolder={handleOpenFolder}
+            />
+          )}
         </div>
       </div>
 

@@ -132,9 +132,6 @@ export function StorageWidget() {
   // Render quality state
   const [renderQuality, setRenderQuality] = useState<1080 | 720>((settings.defaultQuality ?? 1080) as 1080 | 720)
 
-  // Concurrency state
-  const [maxConcurrentRenders, setMaxConcurrentRenders] = useState(2)
-
   // Auto-render state
   const [autoRenderEnabled, setAutoRenderEnabled] = useState(settings.autoRender ?? false)
   const [titleTemplate, setTitleTemplate] = useState(settings.autoRenderTitleTemplate ?? '')
@@ -161,9 +158,6 @@ export function StorageWidget() {
 
     // Sync render quality
     setRenderQuality((st.defaultQuality ?? 1080) as 1080 | 720)
-
-    // Sync concurrency
-    setMaxConcurrentRenders(st.maxConcurrentRenders ?? 2)
 
     // Sync app behavior
     setQuitOnClose((st as { quitOnClose?: boolean }).quitOnClose !== false)
@@ -252,13 +246,6 @@ export function StorageWidget() {
     await ipc.updateSettings({ defaultQuality: val })
     setSettings({ defaultQuality: val })
     showToast(`Default render quality: ${val}p`)
-  }
-
-  const handleMaxConcurrentChange = async (val: number) => {
-    setMaxConcurrentRenders(val)
-    await ipc.updateSettings({ maxConcurrentRenders: val })
-    setSettings({ maxConcurrentRenders: val })
-    showToast(`Max concurrent renders: ${val}`)
   }
 
   const handleQuitOnCloseToggle = async (val: boolean) => {
@@ -535,13 +522,13 @@ export function StorageWidget() {
         <QualityPicker value={String(renderQuality)} options={['720', '1080']} onChange={v => handleRenderQualityChange(Number(v) as 720 | 1080)} label="p" />
       </div>
 
-      {/* Max concurrent renders */}
+      {/* Pipeline mode */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', borderBottom: '1px solid #181818' }}>
         <div>
-          <div style={{ fontSize: 11, color: '#888' }}>Max concurrent</div>
-          <div style={{ fontSize: 9, color: '#444' }}>GPU memory limit</div>
+          <div style={{ fontSize: 11, color: '#888' }}>Pipeline</div>
+          <div style={{ fontSize: 9, color: '#444' }}>1 video → tải → render → tiếp theo</div>
         </div>
-        <QualityPicker value={String(maxConcurrentRenders)} options={['1', '2']} onChange={v => handleMaxConcurrentChange(Number(v))} />
+        <div style={{ fontSize: 9, color: '#555', fontFamily: 'monospace' }}>SEQUENTIAL</div>
       </div>
 
       {/* Auto-render toggle */}

@@ -1,0 +1,112 @@
+<h2>Log Panel Concepts</h2>
+<p class="subtitle">ActivityLogPanel — style như Ant Design Timeline</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Concept 1 — Ant Design Timeline Style</div>
+    <div class="mockup-body" style="padding:16px;background:#fff;">
+      <div style="margin-bottom:16px;">
+        <div style="font-size:11px;font-weight:700;color:#1A1A1A;letter-spacing:0.05em;margin-bottom:12px;">ACTIVITY</div>
+        <div style="display:flex;flex-direction:column;gap:0;">
+          <div style="display:flex;gap:10;padding-bottom:16px;position:relative;">
+            <div style="display:flex;flex-direction:column;align-items:center;width:14px;flex-shrink:0;">
+              <div style="width:8px;height:8px;border-radius:50%;background:#00B4FF;border:2px solid #00B4FF20;margin-top:3px;"></div>
+              <div style="width:1px;flex:1;background:#E8E8E8;margin-top:4px;"></div>
+            </div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:12px;font-weight:500;color:#1A1A1A;margin-bottom:2px;">Phát hiện video mới</div>
+              <div style="font-size:11px;color:#888;">📁 Cách làm bánh flan</div>
+              <div style="font-size:10px;color:#aaa;margin-top:2px;">30s trước</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:10;padding-bottom:16px;position:relative;">
+            <div style="display:flex;flex-direction:column;align-items:center;width:14px;flex-shrink:0;">
+              <div style="width:8px;height:8px;border-radius:50%;background:#FFB800;border:2px solid #FFB80020;margin-top:3px;"></div>
+              <div style="width:1px;flex:1;background:#E8E8E8;margin-top:4px;"></div>
+            </div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:12px;font-weight:500;color:#1A1A1A;margin-bottom:2px;">Đang tải video</div>
+              <div style="font-size:11px;color:#888;">📁 10 phút làm bánh</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:10;padding-bottom:16px;position:relative;">
+            <div style="display:flex;flex-direction:column;align-items:center;width:14px;flex-shrink:0;">
+              <div style="width:8px;height:8px;border-radius:50%;background:#00FF88;border:2px solid #00FF8820;margin-top:3px;"></div>
+              <div style="width:1px;flex:1;background:#E8E8E8;margin-top:4px;"></div>
+            </div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:12px;font-weight:500;color:#1A1A1A;margin-bottom:2px;">Tải video hoàn tất</div>
+              <div style="font-size:11px;color:#888;">📁 Review sản phẩm</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:10;">
+            <div style="display:flex;flex-direction:column;align-items:center;width:14px;flex-shrink:0;">
+              <div style="width:8px;height:8px;border-radius:50%;background:#FF4444;border:2px solid #FF444420;margin-top:3px;"></div>
+              <div style="width:0;flex:0;"></div>
+            </div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:12px;font-weight:500;color:#FF4444;margin-bottom:2px;">Lỗi tải video</div>
+              <div style="font-size:11px;color:#888;">📁 Video không available</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">Concept 2 — Terminal Log</div>
+    <div class="mockup-body" style="padding:16px;background:#1A1A1A;font-family:monospace;">
+      <div style="color:#888;font-size:10px;margin-bottom:12px;">╰ activity.log</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <div style="display:flex;gap:8;font-size:11px;">
+          <span style="color:#555;flex-shrink:0;">[12:30:01]</span>
+          <span style="color:#00B4FF;">● DET</span>
+          <span style="color:#ccc;">Phát hiện: Cách làm bánh flan</span>
+        </div>
+        <div style="display:flex;gap:8;font-size:11px;">
+          <span style="color:#555;flex-shrink:0;">[12:30:05]</span>
+          <span style="color:#FFB800;">▼ DL</span>
+          <span style="color:#ccc;">Đang tải: 10 phút làm bánh</span>
+        </div>
+        <div style="display:flex;gap:8;font-size:11px;">
+          <span style="color:#555;flex-shrink:0;">[12:31:20]</span>
+          <span style="color:#00FF88;">✓ OK</span>
+          <span style="color:#ccc;">Hoàn tất: Review sản phẩm</span>
+        </div>
+        <div style="display:flex;gap:8;font-size:11px;">
+          <span style="color:#555;flex-shrink:0;">[12:32:00]</span>
+          <span style="color:#FF4444;">✗ ERR</span>
+          <span style="color:#FF444488;">Không tải được: private video</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px;">
+  <h3>Chọn style cho ActivityLog</h3>
+  <div class="options">
+    <div class="option" data-choice="timeline" onclick="toggleSelect(this)">
+      <div class="letter">1</div>
+      <div class="content">
+        <h3>Timeline (Ant Design style)</h3>
+        <p>Dot indicator + đường kết nối dọc. Clean, hiện đại, phù hợp light theme.</p>
+      </div>
+    </div>
+    <div class="option" data-choice="terminal" onclick="toggleSelect(this)">
+      <div class="letter">2</div>
+      <div class="content">
+        <h3>Terminal Log</h3>
+        <p>Dark terminal style, timestamp + status tag + message. Phân biệt rõ với UI chính.</p>
+      </div>
+    </div>
+    <div class="option" data-choice="hybrid" onclick="toggleSelect(this)">
+      <div class="letter">3</div>
+      <div class="content">
+        <h3>Hybrid</h3>
+        <p>Timeline cho activity chính + mini-terminal cho log chi tiết. Kết hợp cả hai.</p>
+      </div>
+    </div>
+  </div>
+</div>

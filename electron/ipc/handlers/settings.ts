@@ -8,7 +8,7 @@ import { IPC_CHANNELS } from '../channels.js'
 import { loadSettings, saveSettings } from '../../services/ramdisk.js'
 import { getYouTubePoller } from '../../services/youtube_poller.js'
 
-export function registerSettingsHandlers(ipcMain: IpcMain): void {
+export function registerSettingsHandlers(ipcMain: IpcMain, onSettingsChanged?: () => void): void {
   ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, () => {
     const settings = loadSettings()
     // SECURITY: strip sensitive fields
@@ -23,6 +23,7 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
     defaultQuality?: 1080 | 720
     autoDownloadQuality?: string
     autoDownloadEnabled?: boolean
+    pollingEnabled?: boolean
     autoRender?: boolean
     autoRenderResolution?: string
     autoRenderFPS?: number
@@ -53,6 +54,9 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
       const poller = getYouTubePoller()
       if (poller) poller.restart(patch.pollIntervalMs)
     }
+
+    // Notify main thread of settings change (poller lifecycle, etc.)
+    onSettingsChanged?.()
 
     return loadSettings()
   })

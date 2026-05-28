@@ -268,7 +268,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Settings
   getSettings: () => ipcRenderer.invoke(IPC.SETTINGS_GET),
-  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; maxConcurrentRenders?: number; quitOnClose?: boolean }) =>
+  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; pollingEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; maxConcurrentRenders?: number; hardwareProfile?: { vramGB: number; ramGB: number } | null; quitOnClose?: boolean }) =>
     ipcRenderer.invoke(IPC.SETTINGS_UPDATE, patch),
 
   // WebSub diagnostics

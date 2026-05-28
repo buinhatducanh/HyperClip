@@ -35,7 +35,6 @@ export function OperationPanel() {
 
   // Scan params
   const [pollInterval, setPollInterval] = useState(Math.round((settings.pollIntervalMs ?? 5000) / 1000))
-  const [maxConcurrentDl, setMaxConcurrentDl] = useState(settings.maxConcurrentDownloads ?? 3)
 
   // Filters
   const [durationMode, setDurationMode] = useState<'all' | 'short' | 'long'>('all')
@@ -145,7 +144,6 @@ export function OperationPanel() {
   const handleSaveScanParams = async () => {
     const patch = {
       pollIntervalMs: pollInterval * 1000,
-      maxConcurrentDownloads: maxConcurrentDl,
     }
     setSettings(patch)
     await ipc.updateSettings(patch)
@@ -450,21 +448,6 @@ export function OperationPanel() {
                     color: pollInterval === sec ? colors.accent : '#888',
                     cursor: 'pointer',
                   }}>{sec}s</button>
-                ))}
-              </div>
-            </div>
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 8, color: '#888', marginBottom: 4 }}>LUỒNG TẢI ĐỒNG THỜI</div>
-              <div style={{ display: 'flex', gap: 4 }}>
-                {[1, 2, 3, 4].map(n => (
-                  <button key={n} onClick={() => setMaxConcurrentDl(n)} style={{
-                    flex: 1, height: 26,
-                    background: maxConcurrentDl === n ? '#00FF8818' : 'transparent',
-                    border: `1px solid ${maxConcurrentDl === n ? colors.success : colors.borderHover}`,
-                    borderRadius: 4, fontSize: 10, fontWeight: 700,
-                    color: maxConcurrentDl === n ? colors.success : '#888',
-                    cursor: 'pointer',
-                  }}>{n}</button>
                 ))}
               </div>
             </div>

@@ -1,0 +1,99 @@
+<h2>Full Redesign — Layout Concepts</h2>
+<p class="subtitle">Chọn layout tổng thể cho HyperClip mới</p>
+
+<div class="section">
+  <h3>Layout A: 3-Column Split (giữ nguyên cấu trúc, làm đẹp)</h3>
+  <div class="mockup">
+    <div class="mockup-header">Layout A — Refined 3-Column</div>
+    <div class="mockup-body">
+      <div style="display:flex;height:100%;gap:0;background:#f8f8f8">
+        <div style="width:60px;background:#fff;border-right:1px solid #eee;display:flex;flex-direction:column;align-items:center;padding:8px;gap:16px;">
+          <div style="width:32px;height:32px;background:#00B4FF;border-radius:8px;"></div>
+          <div style="width:20px;height:20px;background:#ddd;border-radius:6px;"></div>
+          <div style="width:20px;height:20px;background:#ddd;border-radius:6px;"></div>
+          <div style="flex:1"></div>
+          <div style="width:20px;height:20px;background:#ddd;border-radius:6px;"></div>
+          <div style="width:180px;height:36px;background:#f0f0f0;border-radius:8px;position:absolute;bottom:8px;left:8px;"></div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;">
+          <div style="height:44px;background:#fff;border-bottom:1px solid #eee;display:flex;align-items:center;padding:0 16px;gap:12px;">
+            <div style="width:80px;height:20px;background:#f0f0f0;border-radius:4px;"></div>
+            <div style="flex:1"></div>
+            <div style="width:100px;height:24px;background:#00B4FF;border-radius:6px;"></div>
+            <div style="width:28px;height:28px;background:#eee;border-radius:50%;"></div>
+          </div>
+          <div style="flex:1;padding:20px;display:flex;gap:16px;">
+            <div style="flex:1;background:#fff;border-radius:8px;border:1px solid #eee;">
+              <div style="padding:16px;border-bottom:1px solid #f0f0f0;font-size:11px;color:#888;font-weight:600;">VIDEO DETAIL</div>
+              <div style="padding:16px;display:flex;flex-direction:column;gap:12px;">
+                <div style="width:100%;aspect-ratio:9/16;max-width:240px;background:#f5f5f5;border-radius:6px;margin:0 auto;"></div>
+                <div style="height:8px;width:60%;background:#f0f0f0;border-radius:4px;"></div>
+                <div style="height:8px;width:40%;background:#f0f0f0;border-radius:4px;"></div>
+              </div>
+            </div>
+            <div style="width:280px;background:#fff;border-radius:8px;border:1px solid #eee;">
+              <div style="padding:16px;border-bottom:1px solid #f0f0f0;font-size:11px;color:#888;font-weight:600;">QUEUE</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Layout B: 2-Column + Overlay</h3>
+  <div class="mockup">
+    <div class="mockup-header">Layout B — Minimal 2-Column</div>
+    <div class="mockup-body">
+      <div style="display:flex;height:100%;background:#f8f8f8">
+        <div style="width:220px;background:#fff;border-right:1px solid #eee;display:flex;flex-direction:column;">
+          <div style="padding:16px 12px;border-bottom:1px solid #eee;">
+            <div style="width:100px;height:24px;background:#00B4FF20;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;color:#00B4FF;">HyperClip</div>
+          </div>
+          <div style="flex:1;overflow:auto;padding:8px;">
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;margin-bottom:2px;">
+              <div style="width:24px;height:24px;background:#f0f0f0;border-radius:6px;"></div>
+              <div style="flex:1;height:10px;background:#f0f0f0;border-radius:4px;"></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;margin-bottom:2px;background:#00B4FF08;">
+              <div style="width:24px;height:24px;background:#00B4FF20;border-radius:6px;"></div>
+              <div style="flex:1;height:10px;background:#f0f0f0;border-radius:4px;"></div>
+              <div style="width:16px;height:16px;background:#00B4FF;border-radius:4px;font-size:9px;color:#fff;display:flex;align-items:center;justify-content:center;">3</div>
+            </div>
+          </div>
+          <div style="padding:8px;border-top:1px solid #eee;"><div style="height:32px;background:#f5f5f5;border-radius:6px;"></div></div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;">
+          <div style="height:44px;background:#fff;border-bottom:1px solid #eee;display:flex;align-items:center;padding:0 16px;">
+            <div style="flex:1;height:20px;background:#f0f0f0;border-radius:4px;max-width:300px;"></div>
+            <div style="width:40px;height:20px;border-radius:10px;background:#00B4FF;margin:0 12px;"></div>
+            <div style="width:100px;height:20px;background:#f0f0f0;border-radius:4px;"></div>
+          </div>
+          <div style="flex:1;padding:0;position:relative;overflow:hidden;">
+            <div style="width:280px;position:absolute;right:0;top:0;bottom:0;background:#fff;border-left:1px solid #eee;">
+              <div style="padding:16px;border-bottom:1px solid #f0f0f0;font-size:11px;color:#888;">QUEUE</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options" style="margin-top:24px;">
+  <div class="option" data-choice="A" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>3-Column Refined</h3>
+      <p>Giữ 3 pane (sidebar | center | right-panel) nhưng làm đẹp: icon nav, card elevation, spacing đều.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="B" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>2-Column + Slide Over</h3>
+      <p>Queue ở right panel dạng overlay/slide-in, center mở rộng hết. Hiện đại, minimal.</p>
+    </div>
+  </div>
+</div>

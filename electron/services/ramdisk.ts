@@ -26,6 +26,8 @@ interface AppSettingsStore {
   autoDownloadQuality?: string
   /** Whether auto-download is enabled. Defaults to true. */
   autoDownloadEnabled?: boolean
+  /** Whether polling is enabled. Defaults to false — user must toggle ON. */
+  pollingEnabled?: boolean
   /** Auto-render after auto-download. Defaults to false. */
   autoRender?: boolean
   /** Title template for auto-rendered videos. Defaults to '' (use video title). Variables: {title}, {channel}, {date:YYYY-MM-DD}, {time:HH:MM} */
@@ -86,8 +88,9 @@ export function loadSettings(): AppSettingsStore {
   if (_settings.downloadsCleanupDays === undefined) _settings.downloadsCleanupDays = 7
   if (_settings.defaultQuality === undefined) _settings.defaultQuality = 1080
   if (_settings.autoDownloadEnabled === undefined) _settings.autoDownloadEnabled = true
+  if (_settings.pollingEnabled === undefined) _settings.pollingEnabled = false
   if (_settings.pollIntervalMs === undefined) _settings.pollIntervalMs = 5000
-  if (_settings.maxConcurrentRenders === undefined) _settings.maxConcurrentRenders = 2
+  if (_settings.maxConcurrentRenders === undefined) _settings.maxConcurrentRenders = 1
   if (_settings.autoDownloadQuality === undefined) _settings.autoDownloadQuality = '720'
   if (_settings.maxConcurrentDownloads === undefined) _settings.maxConcurrentDownloads = 3
   if (_settings.videoMinDurationSec === undefined) _settings.videoMinDurationSec = 0

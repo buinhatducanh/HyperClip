@@ -26,7 +26,8 @@ import { registerGitHubUpdaterHandlers } from './github-updater.js'
 
 export function registerAllHandlers(
   ipcMain: IpcMain,
-  _getMainWindow: () => BrowserWindow | null
+  _getMainWindow: () => BrowserWindow | null,
+  onSettingsChanged?: () => void
 ): void {
   devLog('[IPC] Registering handlers...')
 
@@ -41,7 +42,7 @@ export function registerAllHandlers(
   registerVideoHandlers(ipcMain)
   registerRenderHandlers(ipcMain)
   registerStorageHandlers(ipcMain, sendNotification)
-  registerSettingsHandlers(ipcMain)
+  registerSettingsHandlers(ipcMain, onSettingsChanged)
   registerPollerHandlers(ipcMain)
   registerOpLogHandlers(ipcMain)
   registerGitHubUpdaterHandlers(ipcMain)

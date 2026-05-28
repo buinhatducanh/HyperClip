@@ -37,8 +37,8 @@ type RenderJob = {
 export const renderQueue: RenderJob[] = []
 
 export function startNextQueuedRender(): void {
-  const max = loadSettings().maxConcurrentRenders ?? 2
-  if (getPoolStatus().active >= max) return
+  // SEQUENTIAL PIPELINE: 1 render at a time, 100% GPU for single video.
+  if (getPoolStatus().active >= 1) return
   if (renderQueue.length === 0) return
 
   const job = renderQueue.shift()!
@@ -235,8 +235,7 @@ export function registerRenderHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(IPC_CHANNELS.RENDER_START, async (_, workspaceId: string, metadata: RenderMetadata) => {
     return new Promise((resolve) => {
       renderQueue.push({ workspaceId, metadata, resolve })
-      const max = loadSettings().maxConcurrentRenders ?? 2
-      if (getPoolStatus().active < max) {
+      if (getPoolStatus().active < 1) {
         startNextQueuedRender()
       }
     })

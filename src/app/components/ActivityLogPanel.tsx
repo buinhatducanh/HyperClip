@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useEffect, useRef, useMemo } from 'react'
 import type { ActivityEntry } from './ActivityLog'
-import { colors, spacing, fontSize } from '../design-system/tokens'
+import { colors, spacing } from '../design-system/tokens'
 
 interface Props {
   entries: ActivityEntry[]
@@ -24,13 +24,13 @@ function fmtRelTime(ts: number): string {
 }
 
 const TYPE_CONFIG: Record<string, { tag: string; color: string }> = {
-  detected:   { tag: 'DET', color: '#3B82F6' },
-  downloading:{ tag: 'DL',  color: '#F59E0B' },
-  downloaded: { tag: 'OK',  color: '#10B981' },
-  rendering:  { tag: 'RND', color: '#8B5CF6' },
-  done:       { tag: 'OK',  color: '#10B981' },
-  error:      { tag: 'ERR', color: '#EF4444' },
-  warning:    { tag: 'WRN', color: '#F59E0B' },
+  detected:   { tag: 'DET', color: colors.accent },
+  downloading:{ tag: 'DL',  color: colors.warning },
+  downloaded: { tag: 'OK',  color: colors.success },
+  rendering:  { tag: 'RND', color: colors.accent },
+  done:       { tag: 'OK',  color: colors.success },
+  error:      { tag: 'ERR', color: colors.error },
+  warning:    { tag: 'WRN', color: colors.warning },
 }
 
 export function ActivityLogPanel({ entries, onClear }: Props) {
@@ -53,42 +53,46 @@ export function ActivityLogPanel({ entries, onClear }: Props) {
 
   return (
     <div style={{
-      height: 300, flexShrink: 0,
-      background: '#1A1A1A',
-      display: 'flex', flexDirection: 'column',
-      fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+      margin: '0 6px 6px',
+      border: `1px solid ${colors.border}`,
+      borderRadius: 6,
+      background: colors.surface,
+      display: 'flex',
+      flexDirection: 'column',
       fontSize: 11,
-      borderTop: '1px solid #2A2A2A',
+      overflow: 'hidden',
+      height: 220,
+      flexShrink: 0,
     }}>
-      {/* Header bar */}
+      {/* Header */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: spacing.sm,
-        padding: '7px 12px',
-        borderBottom: '1px solid #2A2A2A',
-        background: '#1A1A1A',
-        flexShrink: 0, minHeight: 28,
+        padding: '6px 10px',
+        borderBottom: `1px solid ${colors.border}`,
+        background: colors.surface,
+        flexShrink: 0,
       }}>
-        <span style={{ fontSize: 10, color: '#666', fontWeight: 600, letterSpacing: '0.05em' }}>
-          ╰ activity.log
+        <span style={{ fontSize: 9, color: colors.textSecondary, fontWeight: 700, letterSpacing: '0.08em' }}>
+          ACTIVITY LOG
         </span>
 
         {counts.det > 0 && (
-          <span style={{ fontSize: 9, fontWeight: 700, color: '#3B82F6', background: '#3B82F615', padding: '1px 5px', borderRadius: 3 }}>
+          <span style={{ fontSize: 8, fontWeight: 700, color: colors.accent, background: colors.accent + '18', padding: '1px 5px', borderRadius: 3 }}>
             DET:{counts.det}
           </span>
         )}
         {counts.dl > 0 && (
-          <span style={{ fontSize: 9, fontWeight: 700, color: '#F59E0B', background: '#F59E0B15', padding: '1px 5px', borderRadius: 3 }}>
+          <span style={{ fontSize: 8, fontWeight: 700, color: colors.warning, background: colors.warning + '18', padding: '1px 5px', borderRadius: 3 }}>
             DL:{counts.dl}
           </span>
         )}
         {counts.ok > 0 && (
-          <span style={{ fontSize: 9, fontWeight: 700, color: '#10B981', background: '#10B98115', padding: '1px 5px', borderRadius: 3 }}>
+          <span style={{ fontSize: 8, fontWeight: 700, color: colors.success, background: colors.success + '18', padding: '1px 5px', borderRadius: 3 }}>
             OK:{counts.ok}
           </span>
         )}
         {counts.err > 0 && (
-          <span style={{ fontSize: 9, fontWeight: 700, color: '#EF4444', background: '#EF444415', padding: '1px 5px', borderRadius: 3 }}>
+          <span style={{ fontSize: 8, fontWeight: 700, color: colors.error, background: colors.error + '18', padding: '1px 5px', borderRadius: 3 }}>
             ERR:{counts.err}
           </span>
         )}
@@ -98,11 +102,12 @@ export function ActivityLogPanel({ entries, onClear }: Props) {
           <button
             onClick={onClear}
             style={{
-              fontSize: 10, color: '#555', background: 'transparent',
-              border: 'none', cursor: 'pointer', padding: 0,
+              fontSize: 9, color: colors.textTertiary, background: 'transparent',
+              border: 'none', cursor: 'pointer', padding: '2px 4px',
+              borderRadius: 3,
             }}
-            onMouseEnter={e => (e.currentTarget.style.color = '#EF4444')}
-            onMouseLeave={e => (e.currentTarget.style.color = '#555')}
+            onMouseEnter={e => { e.currentTarget.style.color = colors.error; e.currentTarget.style.background = colors.error + '18' }}
+            onMouseLeave={e => { e.currentTarget.style.color = colors.textTertiary; e.currentTarget.style.background = 'transparent' }}
           >
             clear
           </button>
@@ -112,34 +117,34 @@ export function ActivityLogPanel({ entries, onClear }: Props) {
       {/* Log entries */}
       <div ref={scrollRef} style={{
         flex: 1, overflowY: 'auto',
-        padding: '6px 12px',
-        lineHeight: 1.8,
+        padding: '6px 10px',
+        lineHeight: 1.7,
       }}>
         {entries.length === 0 && (
-          <div style={{ color: '#555', paddingTop: 4, fontSize: 11 }}>
-            ── no activity yet ──
+          <div style={{ color: colors.textTertiary, paddingTop: 4, fontSize: 10, textAlign: 'center' }}>
+            no activity yet
           </div>
         )}
-        {entries.slice(-80).map(e => {
+        {entries.slice(-50).map(e => {
           const meta = TYPE_CONFIG[e.type] || TYPE_CONFIG.detected
           return (
-            <div key={e.id} style={{
-              display: 'flex', gap: 8,
-            }}>
-              <span style={{ color: '#555', flexShrink: 0, minWidth: 56 }}>
-                [{fmtTimestamp(e.timestamp)}]
+            <div key={e.id} style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+              <span style={{ color: colors.textTertiary, flexShrink: 0, minWidth: 54, fontFamily: 'monospace', fontSize: 10 }}>
+                {fmtTimestamp(e.timestamp)}
               </span>
               <span style={{
                 color: meta.color, fontWeight: 700, flexShrink: 0, minWidth: 26,
+                fontSize: 9, fontFamily: 'monospace',
               }}>
                 {meta.tag}
               </span>
-              <span style={{ color: '#555', flexShrink: 0, minWidth: 26 }}>
+              <span style={{ color: colors.textTertiary, flexShrink: 0, minWidth: 24, fontSize: 9, fontFamily: 'monospace' }}>
                 {fmtRelTime(e.timestamp)}
               </span>
               <span style={{
-                color: e.type === 'error' ? '#EF4444' : '#ccc',
+                color: e.type === 'error' ? colors.error : colors.textSecondary,
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
+                fontSize: 10,
               }}>
                 {e.message}
               </span>

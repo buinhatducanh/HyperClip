@@ -51,8 +51,8 @@ type ElectronAPI = {
   onAuthUpdate: (callback: (status: object) => void) => () => void
   onCookieCritical: (callback: (errorMsg: string) => void) => () => void
   onChannelSynced: (callback: () => void) => () => void
-  getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; autoSplitParts?: number; autoSplitMinutes?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number; hardwareProfile?: { vramGB: number; ramGB: number } }>
-  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; autoSplitParts?: number; autoSplitMinutes?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number; quitOnClose?: boolean }) => Promise<void>
+  getSettings: () => Promise<{ videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; pollingEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; autoSplitParts?: number; autoSplitMinutes?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number; hardwareProfile?: { vramGB: number; ramGB: number } }>
+  updateSettings: (patch: { videoStoragePath?: string; outputPath?: string; defaultTrimLimit?: number | 'full'; defaultQuality?: 1080 | 720; autoDownloadQuality?: string; autoDownloadEnabled?: boolean; pollingEnabled?: boolean; autoRender?: boolean; autoRenderResolution?: string; autoRenderFPS?: number; autoSplitParts?: number; autoSplitMinutes?: number; downloadsCleanupDays?: number; renderedOutputPath?: string; pollIntervalMs?: number; maxConcurrentRenders?: number; hardwareProfile?: { vramGB: number; ramGB: number } | null; quitOnClose?: boolean }) => Promise<void>
   getAuthStatus: () => Promise<{ isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean; cookieCritical?: boolean; cookieError?: string }>
   logout: () => Promise<{ success: boolean }>
   startOAuthFlow: () => Promise<{ isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string; oauthReady: boolean }>
@@ -65,7 +65,7 @@ type ElectronAPI = {
   resetKey: (key?: string) => Promise<{ success: boolean; keys: unknown[]; nextReset: number }>
   testKey: (key: string) => Promise<{ valid: boolean; error?: string; errorType?: string }>
   testAllKeys: () => Promise<{ results: Array<{ key: string; name: string; valid: boolean; error?: string; errorType?: string }>; keys: unknown[] }>
-  getPollerStatus: () => Promise<{ active: boolean; lastPollAt: number | null; newVideoCount: number; lastError: string | null; exhaustedUntil: number | null; innertubeDegraded?: boolean } | null>
+  getPollerStatus: () => Promise<{ active: boolean; pollIntervalMs: number; lastPollAt: number | null; newVideoCount: number; lastError: string | null; exhaustedUntil: number | null; innertubeDegraded?: boolean } | null>
   resumePoller: () => Promise<{ success: boolean }>
   getProjects: () => Promise<unknown[]>
   getProjectTokenStatuses: () => Promise<unknown[]>
