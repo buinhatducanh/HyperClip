@@ -157,14 +157,13 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
       onMouseLeave={() => setIsHovered(false)}
       onClick={(e) => {
         const target = e.target as HTMLElement
-        const actionBtn = target.closest('button[data-action-area]') as HTMLButtonElement | null
+        const actionBtn = target.closest('button[data-action]') as HTMLButtonElement | null
         if (actionBtn) {
-          const btnText = actionBtn.textContent?.trim() || ''
-          console.log('[DEBUG] Action button clicked:', btnText, workspace.id)
-          if (btnText === 'CHI TIẾT') onQuickAction?.('open', workspace.id)
-          else if (btnText === 'XÓA') onQuickAction?.('delete', workspace.id)
-          else if (btnText === 'THỬ LẠI') onRetry?.(workspace.id)
-          else if (btnText === 'TÁCH') onSplit?.(workspace.id, trimLimitMinutes)
+          const action = actionBtn.getAttribute('data-action')
+          if (action === 'detail') onQuickAction?.('open', workspace.id)
+          else if (action === 'delete') onQuickAction?.('delete', workspace.id)
+          else if (action === 'retry') onRetry?.(workspace.id)
+          else if (action === 'split') onSplit?.(workspace.id, trimLimitMinutes)
           return
         }
         // Card body clicked → open preview
@@ -266,7 +265,7 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
               <div style={{
                 position: 'absolute', top: 6, right: 6,
                 background: `${colors.text}CC`,
-                border: `${colors.accent}66`,
+                border: `1px solid ${colors.accent}66`,
                 borderRadius: 4,
                 padding: '3px 8px',
                 backdropFilter: 'blur(4px)',
@@ -514,7 +513,7 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
         {onQuickAction && (
           <>
             <button
-              data-action-area="1"
+              data-action="detail"
               style={{ fontSize: 11, fontWeight: 600, color: colors.accent, background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.06em', padding: '2px 0', pointerEvents: 'auto' }}
               onMouseEnter={e => (e.currentTarget.style.color = colors.accent)}
               onMouseLeave={e => (e.currentTarget.style.color = colors.accent)}
@@ -522,7 +521,7 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
               CHI TIẾT
             </button>
             <button
-              data-action-area="1"
+              data-action="delete"
               style={{ fontSize: 11, fontWeight: 600, color: colors.textTertiary, background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0', pointerEvents: 'auto' }}
               onMouseEnter={e => (e.currentTarget.style.color = colors.error)}
               onMouseLeave={e => (e.currentTarget.style.color = colors.textTertiary)}
@@ -533,7 +532,7 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
         )}
         {showRetry && (
           <button
-            data-action-area="1"
+            data-action="retry"
             style={{ fontSize: 11, fontWeight: 600, color: colors.textSecondary, background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0', pointerEvents: 'auto' }}
             onMouseEnter={e => (e.currentTarget.style.color = colors.warning)}
             onMouseLeave={e => (e.currentTarget.style.color = colors.textSecondary)}
@@ -543,7 +542,7 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
         )}
         {showSplit && (
           <button
-            data-action-area="1"
+            data-action="split"
             style={{ fontSize: 11, fontWeight: 600, color: colors.textSecondary, background: 'transparent', border: 'none', cursor: 'pointer', letterSpacing: '0.08em', padding: '2px 0', pointerEvents: 'auto' }}
             onMouseEnter={e => (e.currentTarget.style.color = colors.success)}
             onMouseLeave={e => (e.currentTarget.style.color = colors.textSecondary)}

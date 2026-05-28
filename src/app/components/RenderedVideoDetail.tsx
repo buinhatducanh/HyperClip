@@ -158,7 +158,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
         borderBottom: '1px solid #E0E0E0',
         flexShrink: 0,
       }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00FF88" strokeWidth="2">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={colors.success} strokeWidth="2">
           <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
         </svg>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -178,22 +178,22 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
           style={{
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '6px 14px',
-            background: 'linear-gradient(135deg, #00FF8818, #00FF8808)',
-            border: '1px solid #00FF8833',
+            background: `linear-gradient(135deg, ${colors.success}18, ${colors.success}08)`,
+            border: `1px solid ${colors.success}33`,
             borderRadius: 6, cursor: 'pointer',
             transition: 'all 0.15s',
             flexShrink: 0,
           }}
           onMouseEnter={e => {
-            e.currentTarget.style.background = 'linear-gradient(135deg, #00FF8830, #00FF8818)'
-            e.currentTarget.style.borderColor = '#00FF8866'
+            e.currentTarget.style.background = `linear-gradient(135deg, ${colors.success}30, ${colors.success}18)`
+            e.currentTarget.style.borderColor = `${colors.success}66`
           }}
           onMouseLeave={e => {
-            e.currentTarget.style.background = 'linear-gradient(135deg, #00FF8818, #00FF8808)'
-            e.currentTarget.style.borderColor = '#00FF8833'
+            e.currentTarget.style.background = `linear-gradient(135deg, ${colors.success}18, ${colors.success}08)`
+            e.currentTarget.style.borderColor = `${colors.success}33`
           }}
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#00FF88" strokeWidth="2">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={colors.success} strokeWidth="2">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
           <span style={{ fontSize: 10, fontWeight: 700, color: colors.success }}>Mở thư mục</span>
@@ -264,10 +264,10 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
               <div style={{
                 width: 44, height: 44, borderRadius: '50%',
                 background: 'rgba(0,255,136,0.15)',
-                border: '2px solid #00FF88',
+                border: `2px solid ${colors.success}`,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="#00FF88">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill={colors.success}>
                   <polygon points="5 3 19 12 5 21 5 3" />
                 </svg>
               </div>
@@ -278,8 +278,8 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
         {/* Render performance card */}
         {video.renderDurationMs != null && video.renderDurationMs > 0 && (
           <div style={{
-            background: 'linear-gradient(135deg, #00FF8808, #00B4FF08)',
-            border: '1px solid #00FF8822',
+            background: `linear-gradient(135deg, ${colors.success}08, ${colors.accent}08)`,
+            border: `1px solid ${colors.success}22`,
             borderRadius: 8,
             padding: '12px 16px',
             margin: '12px 0',
@@ -288,7 +288,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
               <span style={{ fontSize: 24, fontWeight: 800, color: colors.success, fontFamily: 'monospace' }}>
                 {formatRenderTime(video.renderDurationMs)}
               </span>
-              <span style={{ fontSize: 9, color: '#00FF8888', fontWeight: 600 }}>render time</span>
+              <span style={{ fontSize: 9, color: `${colors.success}88`, fontWeight: 600 }}>render time</span>
             </div>
             {rc && (
               <div style={{ fontSize: 8, color: '#777', marginTop: 4 }}>
@@ -300,9 +300,9 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
 
         {/* ═══ Source → Output Comparison ═══ */}
         <SectionHeader
-          icon={<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#00B4FF" strokeWidth="2"><path d="M16 3h5v5" /><path d="M4 20L21 3" /><path d="M21 16v5h-5" /><path d="M15 15l6 6" /><path d="M4 4l5 5" /></svg>}
+          icon={<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={colors.accent} strokeWidth="2"><path d="M16 3h5v5" /><path d="M4 20L21 3" /><path d="M21 16v5h-5" /><path d="M15 15l6 6" /><path d="M4 4l5 5" /></svg>}
           title="SOURCE → OUTPUT"
-          color="#00B4FF"
+          color={colors.accent}
         />
         <div style={{
           display: 'grid', gridTemplateColumns: '1fr 30px 1fr',
@@ -394,9 +394,9 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
 
         {/* ═══ Render Configuration ═══ */}
         <SectionHeader
-          icon={<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>}
+          icon={<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={colors.accent} strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>}
           title="RENDER CONFIG"
-          color="#7C3AED"
+          color={colors.accent}
         />
         <div style={{
           background: '#FFFFFF', border: '1px solid #E0E0E0', borderRadius: 6,
@@ -404,10 +404,10 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
         }}>
           {rc ? (
             <>
-              <InfoRow label="Export Resolution" value={rc.exportResolution} color="#00B4FF" mono />
+              <InfoRow label="Export Resolution" value={rc.exportResolution} color={colors.accent} mono />
               <InfoRow label="FPS" value={`${rc.fps}`} mono />
               <InfoRow label="Speed" value={`${rc.speed}x`} color={rc.speed !== 1.0 ? colors.warning : '#888'} mono />
-              <InfoRow label="Codec" value={rc.codec?.toUpperCase()} color="#7C3AED" mono />
+              <InfoRow label="Codec" value={rc.codec?.toUpperCase()} color={colors.accent} mono />
               <InfoRow label="Preset" value={rc.preset?.toUpperCase()} mono />
               <InfoRow label="Tune" value={rc.tune?.toUpperCase()} mono />
               <InfoRow label="Background" value={rc.backgroundType} mono />
@@ -447,8 +447,8 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
           background: '#FFFFFF', border: '1px solid #E0E0E0', borderRadius: 6,
           padding: '4px 12px',
         }}>
-          <InfoRow label="Quality" value={`${displayQuality(video)}p`} color="#00B4FF" mono />
-          <InfoRow label="Codec" value={video.codec?.toUpperCase()} color="#7C3AED" mono />
+          <InfoRow label="Quality" value={`${displayQuality(video)}p`} color={colors.accent} mono />
+          <InfoRow label="Codec" value={video.codec?.toUpperCase()} color={colors.accent} mono />
           <InfoRow label="File Size" value={formatFileSize(video.fileSize as any)} mono />
           <InfoRow label="Duration" value={formatDuration(video.duration)} mono />
           <InfoRow label="Rendered At" value={video.renderedAt} />
@@ -484,23 +484,23 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             padding: '12px',
             marginTop: 16,
-            background: 'linear-gradient(135deg, #00FF8815, #00FF8808)',
-            border: '1px solid #00FF8833',
+            background: `linear-gradient(135deg, ${colors.success}15, ${colors.success}08)`,
+            border: `1px solid ${colors.success}33`,
             borderRadius: 8, cursor: 'pointer',
             transition: 'all 0.15s',
           }}
           onMouseEnter={e => {
-            e.currentTarget.style.background = 'linear-gradient(135deg, #00FF8830, #00FF8818)'
-            e.currentTarget.style.borderColor = '#00FF8866'
+            e.currentTarget.style.background = `linear-gradient(135deg, ${colors.success}30, ${colors.success}18)`
+            e.currentTarget.style.borderColor = `${colors.success}66`
             e.currentTarget.style.transform = 'translateY(-1px)'
           }}
           onMouseLeave={e => {
-            e.currentTarget.style.background = 'linear-gradient(135deg, #00FF8815, #00FF8808)'
-            e.currentTarget.style.borderColor = '#00FF8833'
+            e.currentTarget.style.background = `linear-gradient(135deg, ${colors.success}15, ${colors.success}08)`
+            e.currentTarget.style.borderColor = `${colors.success}33`
             e.currentTarget.style.transform = 'translateY(0)'
           }}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00FF88" strokeWidth="2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={colors.success} strokeWidth="2">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
           <span style={{ fontSize: 11, fontWeight: 700, color: colors.success }}>Mở thư mục chứa file</span>

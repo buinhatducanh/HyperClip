@@ -168,4 +168,7 @@ export const IPC_CHANNELS = {
   UPDATE_INSTALL: 'update:install',
   UPDATE_STATUS: 'update:status',
   UPDATE_EVENT: 'update:event',
+
+  // App lifecycle
+  APP_READY_EVENT: 'app:ready',
 } as const

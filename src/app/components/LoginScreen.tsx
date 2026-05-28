@@ -94,7 +94,7 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
         {/* Logo mark */}
         <div style={{
           width: 72, height: 72,
-          background: 'linear-gradient(135deg, #00B4FF 0%, #0066CC 100%)',
+          background: `linear-gradient(135deg, ${colors.accent} 0%, #1E40AF 100%)`,
           borderRadius: 18,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           marginBottom: 32,
@@ -127,7 +127,7 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
               <>
                 {/* Error state */}
                 <div style={{ fontSize: 22, textAlign: 'center' }}>
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FF4444" strokeWidth="2">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={colors.error} strokeWidth="2">
                     <circle cx="12" cy="12" r="10" />
                     <line x1="15" y1="9" x2="9" y2="15" />
                     <line x1="9" y1="9" x2="15" y2="15" />
@@ -262,7 +262,7 @@ export function LoginScreen({ accountName: initialName, oauthReady: initialOauth
             {/* Checkmark */}
             <div style={{
               width: 48, height: 48, borderRadius: '50%',
-              background: 'rgba(0,255,136,0.1)', border: '2px solid #00FF88',
+              background: 'rgba(0,255,136,0.1)', border: `2px solid ${colors.success}`,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 20,
             }}>✓</div>

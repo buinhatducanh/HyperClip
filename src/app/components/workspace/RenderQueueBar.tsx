@@ -54,11 +54,11 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
         {/* Flash icon when rendering */}
         <span style={{ fontSize: 14, marginRight: 8 }}>
           {rendering.length > 0 ? (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="#FF4444" stroke="none">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill={colors.error} stroke="none">
               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
             </svg>
           ) : (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="#00B4FF" stroke="none">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill={colors.accent} stroke="none">
               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
             </svg>
           )}
@@ -109,8 +109,8 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
               fontSize: 9,
               fontWeight: 700,
               color: colors.error,
-              background: '${colors.error}15',
-              border: '1px solid #FF444422',
+              background: `${colors.error}15`,
+              border: `1px solid ${colors.error}22`,
               borderRadius: 2,
               padding: '1px 6px',
               marginRight: 6,
@@ -199,7 +199,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
                   title="Cancel render"
                   style={{
                     width: 18, height: 18, borderRadius: 2, border: 'none',
-                    background: '${colors.error}20', color: colors.error, cursor: 'pointer',
+                    background: `${colors.error}20`, color: colors.error, cursor: 'pointer',
                     fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center',
                     flexShrink: 0,
                   }}

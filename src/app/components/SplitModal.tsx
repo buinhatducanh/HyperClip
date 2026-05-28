@@ -155,7 +155,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
           <button
             onClick={() => setMode('auto')}
             style={{
-              flex: 1, height: 28, background: mode === 'auto' ? '#00B4FF20' : colors.text,
+              flex: 1, height: 28, background: mode === 'auto' ? `${colors.accent}20` : colors.text,
               border: `1px solid ${mode === 'auto' ? colors.accent : '#2a2a2a'}`,
               borderRadius: 3, fontSize: 10, fontWeight: 600,
               color: mode === 'auto' ? colors.accent : '#555', cursor: 'pointer',
@@ -166,7 +166,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
           <button
             onClick={() => setMode('manual')}
             style={{
-              flex: 1, height: 28, background: mode === 'manual' ? '#00B4FF20' : colors.text,
+              flex: 1, height: 28, background: mode === 'manual' ? `${colors.accent}20` : colors.text,
               border: `1px solid ${mode === 'manual' ? colors.accent : '#2a2a2a'}`,
               borderRadius: 3, fontSize: 10, fontWeight: 600,
               color: mode === 'manual' ? colors.accent : '#555', cursor: 'pointer',
@@ -189,7 +189,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
                   onClick={() => setPartMinutes(m)}
                   style={{
                     height: 28, padding: '0 12px',
-                    background: partMinutes === m ? '#00B4FF20' : colors.text,
+                    background: partMinutes === m ? `${colors.accent}20` : colors.text,
                     border: `1px solid ${partMinutes === m ? colors.accent : '#2a2a2a'}`,
                     borderRadius: 3, fontSize: 10, fontWeight: 600,
                     color: partMinutes === m ? colors.accent : '#555', cursor: 'pointer',
@@ -224,7 +224,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
                     key={i}
                     style={{
                       flex: part.duration,
-                      background: i % 2 === 0 ? '#00B4FF10' : '#00FF8810',
+                      background: i % 2 === 0 ? `${colors.accent}10` : `${colors.success}10`,
                       borderRight: '1px solid #222',
                       height: '100%', display: 'flex', alignItems: 'center',
                       justifyContent: 'center',
@@ -296,8 +296,8 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
                 padding: '4px 0', borderBottom: '1px solid #E0E0E0',
               }}>
                 <div style={{
-                  width: 20, height: 20, borderRadius: 3, background: '#00B4FF20',
-                  border: '1px solid #00B4FF44', fontSize: 9, fontWeight: 700,
+                  width: 20, height: 20, borderRadius: 3, background: `${colors.accent}20`,
+                  border: `1px solid ${colors.accent}44`, fontSize: 9, fontWeight: 700,
                   color: colors.accent, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
                   {part.index}
@@ -322,7 +322,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
         {/* Warnings */}
         {exceedsMax && (
           <div style={{
-            background: '#FF444420', border: '1px solid #FF444444',
+            background: `${colors.error}20`, border: `1px solid ${colors.error}44`,
             borderRadius: 3, padding: '8px 12px', marginBottom: 12,
             fontSize: 11, color: colors.error, fontWeight: 600,
           }}>
@@ -349,7 +349,7 @@ export function SplitModal({ open, workspaceId, workspaceTitle, videoDuration, o
           }}
         >
           <div style={{
-            width: 14, height: 14, borderRadius: 2, border: '1px solid #00B4FF',
+            width: 14, height: 14, borderRadius: 2, border: `1px solid ${colors.accent}`,
             background: autoRender ? colors.accent : 'transparent',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             flexShrink: 0,

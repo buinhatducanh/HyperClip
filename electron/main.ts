@@ -2132,6 +2132,9 @@ void app.whenReady().then(async () => {
       devLog(`[HyperClip] Ready → http://localhost:${NEXT_PORT}`)
       startSystemMonitor()
 
+      // Notify renderer that backend init is complete
+      mainWindow?.webContents.send('app:ready')
+
       // ─── Periodic storage cleanup (every 1 hour) ─────────────────────────────────
       setInterval(() => {
         const cleanupDays = loadSettings().downloadsCleanupDays ?? 7

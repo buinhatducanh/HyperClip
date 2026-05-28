@@ -90,35 +90,35 @@ export function VideoDetailPanel({ workspace, onClose }: Props) {
         </div>
 
         {/* DOWNLOAD METRICS */}
-        <Section title='DOWNLOAD' color={colors.accent}>
-          <MetricRow label='Thoi gian' value={formatMs(m?.downloadMs)} color={colors.success} />
-          <MetricRow label='Toc do' value={downloadSpeed || '-'} suffix='MB/s' />
-          <MetricRow label='Kich thuoc' value={formatBytes((m?.downloadFileSize || Number(workspace.fileSize) || 0))} />
-          <MetricRow label='Chat luong' value={m?.downloadQuality || workspace.downloadQuality || '-'} suffix='p' />
-          <MetricRow label='Nguon' value={m?.downloadResolution || workspace.videoResolution || '-'} />
-          <MetricRow label='Multi-Instance' value={m?.downloadIsMultiInstance ? 'Co' : 'Khong'} color={m?.downloadIsMultiInstance ? colors.success : colors.textSecondary} />
+        <Section title='TẢI XUỐNG' color={colors.accent}>
+          <MetricRow label='Thời gian' value={formatMs(m?.downloadMs)} color={colors.success} />
+          <MetricRow label='Tốc độ' value={downloadSpeed || '-'} suffix='MB/s' />
+          <MetricRow label='Kích thước' value={formatBytes((m?.downloadFileSize || Number(workspace.fileSize) || 0))} />
+          <MetricRow label='Chất lượng' value={m?.downloadQuality || workspace.downloadQuality || '-'} suffix='p' />
+          <MetricRow label='Nguồn' value={m?.downloadResolution || workspace.videoResolution || '-'} />
+          <MetricRow label='Multi-Instance' value={m?.downloadIsMultiInstance ? 'Có' : 'Không'} color={m?.downloadIsMultiInstance ? colors.success : colors.textSecondary} />
         </Section>
 
         {/* RENDER METRICS */}
         <Section title='RENDER' color={colors.success}>
-          <MetricRow label='Thoi gian' value={formatMs(m?.renderMs)} color={colors.success} />
+          <MetricRow label='Thời gian' value={formatMs(m?.renderMs)} color={colors.success} />
           {m?.renderFps ? <MetricRow label='Encode FPS' value={m.renderFps.toFixed(1)} color={colors.warning} /> : null}
-          {m?.renderChunks ? <MetricRow label='So chunk' value={m.renderChunks} /> : null}
+          {m?.renderChunks ? <MetricRow label='Số chunk' value={m.renderChunks} /> : null}
           <MetricRow label='Workers' value={m?.renderWorkers || '-'} />
           <MetricRow label='Preset' value={m?.renderPreset || '-'} />
           <MetricRow label='Codec' value={m?.renderCodec || '-'} />
-          <MetricRow label='Dau ra' value={m?.renderOutputResolution || '-'} />
+          <MetricRow label='Đầu ra' value={m?.renderOutputResolution || '-'} />
         </Section>
 
         {/* SYSTEM */}
-        <Section title='SYSTEM' color={colors.warning}>
-          {m?.systemGpuLoad != null ? <MetricRow label='GPU su dung' value={`${m.systemGpuLoad}%`} color={colors.error} /> : null}
-          {m?.systemVramUsed != null ? <MetricRow label='VRAM dung' value={`${m.systemVramUsed} MB`} /> : null}
-          {m?.systemRamUsed != null ? <MetricRow label='RAM dung' value={`${m.systemRamUsed} GB`} /> : null}
+        <Section title='HỆ THỐNG' color={colors.warning}>
+          {m?.systemGpuLoad != null ? <MetricRow label='GPU sử dụng' value={`${m.systemGpuLoad}%`} color={colors.error} /> : null}
+          {m?.systemVramUsed != null ? <MetricRow label='VRAM dùng' value={`${m.systemVramUsed} MB`} /> : null}
+          {m?.systemRamUsed != null ? <MetricRow label='RAM dùng' value={`${m.systemRamUsed} GB`} /> : null}
         </Section>
 
         {/* E2E TIMELINE */}
-        <Section title='E2E TIMELINE' color={colors.textSecondary}>
+        <Section title='LUỒNG THỜI GIAN' color={colors.textSecondary}>
           <div style={{ fontSize: 8, fontFamily: 'monospace', color: colors.textSecondary, lineHeight: 1.8 }}>
             <div style={{ display: 'flex', gap: 8 }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, paddingTop: 4 }}>
@@ -131,16 +131,16 @@ export function VideoDetailPanel({ workspace, onClose }: Props) {
                 <div style={{ width: 6, height: 6, borderRadius: '50%', background: workspace.status === 'done' ? colors.success : colors.textSecondary }} />
               </div>
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <TimelineRow label='Phat hien' timestamp={m?.detectedAt} />
-                <TimelineRow label='Tai xuong' timestamp={m?.downloadStartedAt} />
-                <TimelineRow label='San sang' timestamp={m?.downloadCompletedAt} />
-                <TimelineRow label='Hoan thanh' timestamp={m?.renderCompletedAt} />
+                <TimelineRow label='Phát hiện' timestamp={m?.detectedAt} />
+                <TimelineRow label='Tải xuống' timestamp={m?.downloadStartedAt} />
+                <TimelineRow label='Sẵn sàng' timestamp={m?.downloadCompletedAt} />
+                <TimelineRow label='Hoàn thành' timestamp={m?.renderCompletedAt} />
               </div>
             </div>
           </div>
           {(m?.detectedAt && m?.renderCompletedAt) ? (
             <div style={{ marginTop: 4, padding: '4px 6px', background: colors.bg, borderRadius: 2, border: `1px solid ${colors.border}`, display: 'flex', justifyContent: 'space-between', fontSize: 8, fontFamily: 'monospace' }}>
-              <span style={{ color: colors.textSecondary }}>TONG</span>
+              <span style={{ color: colors.textSecondary }}>TỔNG</span>
               <span style={{ color: colors.success, fontWeight: 700 }}>
                 {formatMs(new Date(m.renderCompletedAt).getTime() - new Date(m.detectedAt).getTime())}
               </span>

@@ -155,6 +155,8 @@ export interface ElectronAPI {
   installUpdate: () => Promise<{ success: boolean }>
   getUpdateStatus: () => Promise<{ available: boolean; version?: string; progress: number }>
   onUpdateEvent: (callback: (event: { type: string; version?: string; percent?: number }) => void) => () => void
+  // App lifecycle
+  onAppReady: (callback: () => void) => () => void
   // App info
   getAppVersion: () => Promise<string>
 }

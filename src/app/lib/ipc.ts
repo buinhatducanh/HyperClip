@@ -106,6 +106,9 @@ type ElectronAPI = {
   installUpdate: () => Promise<{ success: boolean }>
   getUpdateStatus: () => Promise<{ available: boolean; version: string; releaseNotes: string; downloadSize: number; progress: number; downloaded: boolean; downloadedPath: string | null }>
   onUpdateEvent: (callback: (event: { type: string; version?: string; percent?: number; releaseNotes?: string; downloadSize?: number; publishedAt?: string; message?: string }) => void) => () => void
+
+  // ─── App lifecycle ───────────────────────────────────────────────────────────
+  onAppReady: (callback: () => void) => () => void
 }
 
 export const ipc = {
@@ -464,6 +467,10 @@ export const ipc = {
   async getUpdateStatus() {
     return window.electronAPI?.getUpdateStatus() ?? { available: false, version: '', releaseNotes: '', downloadSize: 0, progress: 0, downloaded: false, downloadedPath: null }
   },
+  onAppReady(callback: () => void) {
+    return window.electronAPI?.onAppReady(callback) ?? (() => {})
+  },
+
   onUpdateEvent(callback: (event: { type: string; version?: string; percent?: number; releaseNotes?: string; downloadSize?: number; publishedAt?: string; message?: string }) => void) {
     return window.electronAPI?.onUpdateEvent(callback as any) ?? (() => {})
   },

@@ -35,7 +35,7 @@ interface Props {
 type LogTab = 'activity' | 'errors' | 'system'
 
 const LEVEL_COLORS: Record<string, string> = {
-  success: colors.success, info: '#888', warning: colors.warning, error: colors.error, render: '#7C3AED', debug: '#555',
+  success: colors.success, info: colors.textTertiary, warning: colors.warning, error: colors.error, render: colors.accent, debug: colors.textSecondary,
 }
 const LEVEL_ICONS: Record<string, string> = {
   success: '✓', info: '●', warning: '⚠', error: '✗', render: '⚡', debug: '○',
@@ -70,7 +70,7 @@ export function ActivityLogBar({ entries, etaDisplay, systemStatus }: Props) {
             style={{
               flex: 1, fontSize: 7, fontWeight: 700, cursor: 'pointer', height: 18,
               background: tab === t ? 'rgba(0,180,255,0.08)' : 'transparent',
-              border: tab === t ? '1px solid #00B4FF44' : '1px solid transparent',
+              border: tab === t ? `1px solid ${colors.accent}44` : '1px solid transparent',
               borderRadius: 2, color: tab === t ? colors.accent : '#555',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3,
               fontFamily: 'monospace', letterSpacing: '0.04em',
@@ -105,7 +105,7 @@ export function ActivityLogBar({ entries, etaDisplay, systemStatus }: Props) {
               <div>⬤ Poll: <span style={{ color: pollActive ? colors.success : '#555' }}>{pollActive ? `active · ${pollInterval}s` : 'paused'}</span></div>
             </div>
             <div>
-              <div style={{ color: '#7C3AED', fontSize: 6, fontWeight: 700, marginBottom: 2 }}>RENDER</div>
+              <div style={{ color: colors.accent, fontSize: 6, fontWeight: 700, marginBottom: 2 }}>RENDER</div>
               <div>GPU: {gpuTemp > 0 ? `${gpuTemp}°C` : 'N/A'} · <span style={{ color: gpuUsage > 0 ? colors.success : '#555' }}>{gpuUsage}%</span></div>
               <div>Disk: <span style={{ color: diskColor }}>{freeGB > 0 ? `${freeGB.toFixed(0)}GB free` : 'N/A'}</span></div>
             </div>
@@ -140,7 +140,7 @@ export function ActivityLogBar({ entries, etaDisplay, systemStatus }: Props) {
                   <span style={{ color }}>[{time}]</span>
                   {' '}<span style={{ color }}>{icon}</span>
                   {' '}{e.message}
-                  {eta && <span style={{ color: '#7C3AED' }}> · {eta}</span>}
+                  {eta && <span style={{ color: colors.accent }}> · {eta}</span>}
                 </div>
               )
             })

@@ -105,6 +105,33 @@ let nextServerOwned = false; // did WE spawn the Next.js server?
 // ─── In-flight auto-download retries ──────────────────────────────────────────
 // Prevents multiple concurrent retry attempts for the same workspace
 const inProgressAutoRetries = new Set();
+// ─── Poller Lifecycle ─────────────────────────────────────────────────────────
+// Poller callbacks stored at init, then start/stop controlled by settings.
+let _pollerCallbacks = null;
+/** Sync poller state with settings — start/stop as needed. */
+function syncPollerState() {
+    const settings = (0, ramdisk_js_1.loadSettings)();
+    if (!_pollerCallbacks)
+        return;
+    const shouldRun = settings.pollingEnabled === true && !!settings.hardwareProfile;
+    const poller = (0, youtube_poller_js_1.getYouTubePoller)();
+    if (shouldRun) {
+        if (poller && !poller.isActive()) {
+            (0, unified_log_js_1.devLog)('[Poller] Resuming — user enabled polling');
+            poller.start();
+        }
+        else if (!poller) {
+            (0, unified_log_js_1.devLog)('[Poller] Starting');
+            startYouTubePoller(settings.pollIntervalMs ?? 5000, _pollerCallbacks.onVideos, _pollerCallbacks.onDegraded);
+        }
+    }
+    else {
+        if (poller && poller.isActive()) {
+            (0, unified_log_js_1.devLog)('[Poller] Paused');
+            poller.pause();
+        }
+    }
+}
 // ─── Background Download Queue ─────────────────────────────────────────────────
 // Non-blocking pre-download: poller detects video → immediately spawns download
 // in background without blocking the next poll. Multiple videos from same poll
@@ -115,29 +142,11 @@ const inProgressAutoRetries = new Set();
 const bgDownloadQueue = [];
 let activeBgDownloads = 0;
 /** Get safe concurrent download count.
- *  User's setting (maxConcurrentDownloads) takes priority if set (non-zero).
- *  Falls back to RAM-adaptive logic otherwise.
- *  Each download needs ~2-4 GB (buffers + yt-dlp heap + OS network buffers).
- *  FFmpeg workers also need RAM, so leave headroom.
+ *  SEQUENTIAL PIPELINE: always 1.
+ *  1 video at a time, 100% bandwidth/CPU/GPU for download → render → archive.
  */
 function getMaxConcurrentDownloads() {
-    const settings = (0, ramdisk_js_1.loadSettings)();
-    if (settings.maxConcurrentDownloads && settings.maxConcurrentDownloads > 0) {
-        return settings.maxConcurrentDownloads;
-    }
-    // Ultra preset (RTX 5080 16GB VRAM + 64GB RAM): zero-latency, max concurrency
-    if (settings.hardwareProfile?.vramGB === 16 && settings.hardwareProfile?.ramGB === 64) {
-        return 10;
-    }
-    const freeGB = os_1.default.freemem() / (1024 ** 3);
-    const totalGB = os_1.default.totalmem() / (1024 ** 3);
-    if (totalGB >= 48)
-        return 3; // RTX 5080 64GB: 3 concurrent
-    if (freeGB >= 8)
-        return 2; // 4050 24GB: 2 concurrent (8GB+ free after OS)
-    if (freeGB >= 4)
-        return 1; // Low RAM: 1 at a time
-    return 0; // Too low: pause queue
+    return 1;
 }
 /** Enqueue a video for non-blocking background download.
  *  PHASE 1 (immediate): create workspace with status='waiting' → UI shows video right away.
@@ -239,8 +248,8 @@ function processBgDownloadQueue() {
 const renderQueue = [];
 // Track which workspace is currently open in the DetailEditor — used to protect from auto-cleanup
 function startNextQueuedRender() {
-    const max = (0, ramdisk_js_1.loadSettings)().maxConcurrentRenders ?? 2;
-    if ((0, worker_pool_js_1.getPoolStatus)().active >= max)
+    // SEQUENTIAL PIPELINE: 1 render at a time, 100% GPU for single video.
+    if ((0, worker_pool_js_1.getPoolStatus)().active >= 1)
         return;
     if (renderQueue.length === 0)
         return;
@@ -807,9 +816,9 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
             (0, unified_log_js_1.devLog)(`[AutoSplit] Config: ${settings.autoSplitParts} parts (backend auto-split not yet wired)`);
         }
         // ── Auto-render trigger ───────────────────────────────────────────────────────
-        // Only triggers if: settings.autoRender=true AND no prior attempt on this workspace.
+        // SEQUENTIAL PIPELINE: await render completion before processing next video.
+        // This ensures 100% of system resources go to 1 video at a time.
         // autoRenderAttempted flag prevents infinite loops when render fails → retries.
-        // Uses user workspace settings (renderMetadata) if edited, otherwise global auto-render settings.
         if (autoRenderEnabled && !ws.autoRenderAttempted) {
             (0, store_js_1.updateWorkspace)(ws.id, { autoRenderAttempted: true });
             const sourceVideo = updatedWs?.preScaledPath || updatedWs?.downloadedPath || preScaledPath || finalFilePath;
@@ -819,12 +828,12 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
             else {
                 const thumbPath = path_1.default.join(storagePath, `thumb_${ws.id}.jpg`);
                 const autoMetadata = buildAutoRenderMetadata(ws, sourceVideo, finalDuration, blurBgPath, thumbPath, settings);
-                (0, unified_log_js_1.devLog)(`[Auto] Triggering render: ${realTitle}`);
-                renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve: () => { } });
-                const max = (0, ramdisk_js_1.loadSettings)().maxConcurrentRenders ?? 2;
-                if ((0, worker_pool_js_1.getPoolStatus)().active < max) {
+                (0, unified_log_js_1.devLog)(`[Auto] Render started: ${realTitle}`);
+                const renderResult = await new Promise((resolve) => {
+                    renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve });
                     startNextQueuedRender();
-                }
+                });
+                (0, unified_log_js_1.devLog)(`[Auto] Render ${renderResult.success ? 'done' : 'failed'}: ${realTitle}`);
             }
         }
         else {
@@ -1105,8 +1114,7 @@ function triggerAutoRenderForReadyWorkspaces() {
         const autoMetadata = buildAutoRenderMetadata(ws, videoPath, ws.duration || 0, blurBgPath, thumbnailPath, settings);
         (0, unified_log_js_1.devLog)(`[AutoCatchup] Triggering render for ${ws.id} (${ws.videoTitle?.slice(0, 40)})`);
         renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve: () => { } });
-        const max = (0, ramdisk_js_1.loadSettings)().maxConcurrentRenders ?? 2;
-        if ((0, worker_pool_js_1.getPoolStatus)().active < max) {
+        if ((0, worker_pool_js_1.getPoolStatus)().active < 1) {
             startNextQueuedRender();
         }
     }
@@ -1730,7 +1738,6 @@ void electron_1.app.whenReady().then(async () => {
     // P2: RAM disk not available
     if (!diag.storage.ramDiskAvailable) {
         (0, unified_log_js_1.devLog)('[HyperClip] RAM disk not available — videos will be stored on disk (slower I/O).');
-        sendNotification('info', 'RAM disk chưa bật — video sẽ lưu ổ C (chậm hơn RAM disk). Có thể bỏ qua nếu không cần tốc độ cao.');
     }
     // P3: Check yt-dlp version — older versions don't support --js-runtimes
     const { checkYtdlpSupportsJsRuntimes } = await Promise.resolve().then(() => __importStar(require('./services/youtube.js')));
@@ -1835,7 +1842,7 @@ void electron_1.app.whenReady().then(async () => {
     void createWindow();
     (0, ipc_state_js_1.setIPCState)({ mainWindow });
     void createTray();
-    (0, index_js_1.registerAllHandlers)(electron_1.ipcMain, () => mainWindow);
+    (0, index_js_1.registerAllHandlers)(electron_1.ipcMain, () => mainWindow, syncPollerState);
     // ─── Bundled License Server ─────────────────────────────────────────────────
     // Auto-starts the license server bundled inside the packaged app.
     // Falls back gracefully if server already running or files missing.
@@ -1986,68 +1993,64 @@ void electron_1.app.whenReady().then(async () => {
     }
     // Start auto-refresh timer (cookies + subscription sync)
     (0, cookie_manager_js_1.getCookieManager)().startAutoRefresh();
-    // Start polling ONLY after the renderer page has fully loaded AND Innertube pool is initialized.
-    // This guarantees the window + frontend IPC listeners are ready before
-    // any broadcast() call, so workspaces are always created and shown in real-time.
-    // Also guarantees Innertube pool is ready before first poll — prevents OAuth quota waste.
+    // Save poller callbacks — will be used when user enables polling via settings.
+    // Polling does NOT start automatically; user must enable it in settings.
     if (mainWindow) {
         // did-finish-load fires immediately if the page is already loaded
         mainWindow.webContents.once('did-finish-load', async () => {
-            // Pre-warm the Innertube pool before polling starts.
-            // Without this, the first poll races with pool initialization → OAuth fallback waste.
-            // The pool init runs concurrently with SessionManager init (~12s), so start it early.
+            // Pre-warm the Innertube pool so polling is ready when user enables it.
             (0, unified_log_js_1.devLog)('[HyperClip] Pre-warming Innertube pool...');
             const { getInnertubePool } = await Promise.resolve().then(() => __importStar(require('./services/innertube_client.js')));
             const pool = await getInnertubePool();
             const poolStatus = pool.getStatus();
             (0, unified_log_js_1.devLog)(`[HyperClip] Innertube pool: ${poolStatus.readyCount}/${poolStatus.totalSessions} sessions ready`);
-            startYouTubePoller(5_000, (videos) => {
-                // Deduplicate within the same poll: OAuth can return the same videoId from
-                // multiple channels (same video appears in multiple channel feeds).
-                // Dedupe by videoId — keep first occurrence.
-                const seen = new Set();
-                const uniqueVideos = videos.filter(v => {
-                    if (seen.has(v.videoId)) {
-                        (0, unified_log_js_1.devLog)(`[AutoIngest] dedup: skipping duplicate ${v.videoId} from channel ${v.channelName} (already processed in this poll)`);
-                        return false;
-                    }
-                    seen.add(v.videoId);
-                    return true;
-                });
-                // Non-blocking: enqueue all detected videos for background download.
-                // Each enqueueBgDownload() immediately creates a 'waiting' workspace → UI shows video right away.
-                // Downloads run in parallel (max 2-3 concurrent) without blocking the poller.
-                if (uniqueVideos.length > 0) {
-                    unified_log_js_1.opLog.success('scan', `${uniqueVideos.length} video mới sẵn sàng tải về`, uniqueVideos.map(v => v.title).join(', '));
-                }
-                for (const v of uniqueVideos) {
-                    (0, unified_log_js_1.devLog)(`[AutoIngest] new video detected: ${v.title} (${v.channelName}), enqueueing...`);
-                    unified_log_js_1.opLog.info('download', `Đang tải: ${v.title}`, v.channelName);
-                    // Check for existing 'error' workspace with expired backoff — retry it directly
-                    const existingWorkspaces = (0, store_js_1.getWorkspaces)();
-                    const errorWs = existingWorkspaces.find(ws => ws.videoId === v.videoId &&
-                        ws.status === 'error' &&
-                        (!ws.retryableAt || Date.now() >= new Date(ws.retryableAt).getTime()));
-                    if (errorWs && !inProgressAutoRetries.has(errorWs.id)) {
-                        (0, unified_log_js_1.devLog)(`[AutoIngest] retrying errored workspace ${errorWs.id}: ${v.title}`);
-                        void retryAutoDownload(errorWs);
-                        continue;
-                    }
-                    enqueueBgDownload(v);
-                }
-            }, () => {
-                // Innertube degraded — notify UI
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                    mainWindow.webContents.send(channels_js_1.IPC_CHANNELS.INNERTUBE_DEGRADED_EVENT, { degraded: true });
-                    mainWindow.webContents.send(channels_js_1.IPC_CHANNELS.NOTIFICATION_EVENT, {
-                        type: 'warning',
-                        message: '⚠️ Innertube đang degraded — đang kiểm tra OAuth...',
+            // Store callbacks for syncPollerState()
+            _pollerCallbacks = {
+                onVideos: (videos) => {
+                    // Deduplicate within the same poll
+                    const seen = new Set();
+                    const uniqueVideos = videos.filter(v => {
+                        if (seen.has(v.videoId)) {
+                            (0, unified_log_js_1.devLog)(`[AutoIngest] dedup: skipping duplicate ${v.videoId} from channel ${v.channelName} (already processed in this poll)`);
+                            return false;
+                        }
+                        seen.add(v.videoId);
+                        return true;
                     });
-                }
-            });
-            (0, unified_log_js_1.devLog)('[HyperClip] Auto-ingestion active (5s interval)');
+                    if (uniqueVideos.length > 0) {
+                        unified_log_js_1.opLog.success('scan', `${uniqueVideos.length} video mới sẵn sàng tải về`, uniqueVideos.map(v => v.title).join(', '));
+                    }
+                    for (const v of uniqueVideos) {
+                        (0, unified_log_js_1.devLog)(`[AutoIngest] new video detected: ${v.title} (${v.channelName}), enqueueing...`);
+                        unified_log_js_1.opLog.info('download', `Đang tải: ${v.title}`, v.channelName);
+                        const existingWorkspaces = (0, store_js_1.getWorkspaces)();
+                        const errorWs = existingWorkspaces.find(ws => ws.videoId === v.videoId &&
+                            ws.status === 'error' &&
+                            (!ws.retryableAt || Date.now() >= new Date(ws.retryableAt).getTime()));
+                        if (errorWs && !inProgressAutoRetries.has(errorWs.id)) {
+                            (0, unified_log_js_1.devLog)(`[AutoIngest] retrying errored workspace ${errorWs.id}: ${v.title}`);
+                            void retryAutoDownload(errorWs);
+                            continue;
+                        }
+                        enqueueBgDownload(v);
+                    }
+                },
+                onDegraded: () => {
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send(channels_js_1.IPC_CHANNELS.INNERTUBE_DEGRADED_EVENT, { degraded: true });
+                        mainWindow.webContents.send(channels_js_1.IPC_CHANNELS.NOTIFICATION_EVENT, {
+                            type: 'warning',
+                            message: '⚠️ Innertube đang degraded — đang kiểm tra OAuth...',
+                        });
+                    }
+                },
+            };
+            // Sync poller state with settings (won't start if pollingEnabled=false or no hardwareProfile)
+            syncPollerState();
             (0, unified_log_js_1.devLog)(`[HyperClip] Ready → http://localhost:${NEXT_PORT}`);
             startSystemMonitor();
+            // Notify renderer that backend init is complete
+            mainWindow?.webContents.send('app:ready');
             // ─── Periodic storage cleanup (every 1 hour) ─────────────────────────────────
             setInterval(() => {
                 const cleanupDays = (0, ramdisk_js_1.loadSettings)().downloadsCleanupDays ?? 7;

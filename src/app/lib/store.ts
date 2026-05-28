@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import type { Channel, Video, SystemStats, EditorState, RenderedVideo, UpdateStatus } from '../types'
 import { ipc } from './ipc'
 
+let _toastTimer: ReturnType<typeof setTimeout> | null = null
+
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
 export type WorkspaceStatus = 'new' | 'waiting' | 'downloading' | 'ready' | 'editing' | 'rendering' | 'done' | 'error'
@@ -568,8 +570,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((s) => ({ settings: { ...s.settings, hardwareProfile: profile } })),
 
   showToast: (msg) => {
+    if (_toastTimer) clearTimeout(_toastTimer)
     set({ toast: msg })
-    setTimeout(() => set({ toast: '' }), 3200)
+    _toastTimer = setTimeout(() => {
+      set({ toast: '' })
+      _toastTimer = null
+    }, 3200)
   },
 
   // Actions — Notifications

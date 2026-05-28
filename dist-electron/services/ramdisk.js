@@ -59,10 +59,12 @@ function loadSettings() {
         _settings.defaultQuality = 1080;
     if (_settings.autoDownloadEnabled === undefined)
         _settings.autoDownloadEnabled = true;
+    if (_settings.pollingEnabled === undefined)
+        _settings.pollingEnabled = false;
     if (_settings.pollIntervalMs === undefined)
         _settings.pollIntervalMs = 5000;
     if (_settings.maxConcurrentRenders === undefined)
-        _settings.maxConcurrentRenders = 2;
+        _settings.maxConcurrentRenders = 1;
     if (_settings.autoDownloadQuality === undefined)
         _settings.autoDownloadQuality = '720';
     if (_settings.maxConcurrentDownloads === undefined)

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useMemo } from 'react'
-import type { ActivityEntry } from './ActivityLog'
+import type { ActivityEntry } from '../lib/activity-types'
 import { colors, spacing } from '../design-system/tokens'
 
 interface Props {

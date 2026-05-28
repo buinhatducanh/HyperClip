@@ -480,8 +480,9 @@ export function getMachineTier(): MachineTier {
   // User MUST select a hardware preset — no auto-detect.
   // If no profile set, default to Low (safe conservative).
   const settings = loadSettings()
-  if (settings.hardwareProfile) {
-    const preset = PRESETS.find(p => p.vramGB === settings.hardwareProfile.vramGB && p.ramGB === settings.hardwareProfile.ramGB)
+  const profile = settings?.hardwareProfile
+  if (profile) {
+    const preset = PRESETS.find(p => p.vramGB === profile.vramGB && p.ramGB === profile.ramGB)
     if (preset) {
       _cachedMachineTier = preset.id === 'ultra' || preset.id === 'high' ? 'high' : preset.id === 'medium' ? 'mid' : 'low'
       return _cachedMachineTier

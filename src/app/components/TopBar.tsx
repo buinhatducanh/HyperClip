@@ -1,11 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, memo } from 'react'
 import { ipc } from '../lib/ipc'
 import type { SystemStats } from '../types'
 import type { AppSettings } from '../lib/store'
 import { colors, spacing, fontSize } from '../design-system/tokens'
-
 interface Props {
   settings: AppSettings
   systemStats: SystemStats
@@ -25,7 +24,7 @@ function MiniBar({ pct, color }: { pct: number; color: string }) {
   )
 }
 
-export function TopBar({ settings, systemStats, onSettingsChange }: Props) {
+export const TopBar = memo(function TopBar({ settings, systemStats, onSettingsChange }: Props) {
   const gpuPct = Math.min(systemStats.gpuUsage ?? 0, 100)
   const ramPct = systemStats.ramTotal > 0
     ? Math.round(((systemStats.ramUsed ?? 0) / systemStats.ramTotal) * 100)
@@ -132,4 +131,4 @@ export function TopBar({ settings, systemStats, onSettingsChange }: Props) {
       <MiniBar pct={ramPct} color={ramPct > 80 ? colors.error : colors.success} />
     </div>
   )
-}
+})

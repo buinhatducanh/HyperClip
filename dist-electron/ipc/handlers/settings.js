@@ -8,7 +8,7 @@ exports.registerSettingsHandlers = registerSettingsHandlers;
 const channels_js_1 = require("../channels.js");
 const ramdisk_js_1 = require("../../services/ramdisk.js");
 const youtube_poller_js_1 = require("../../services/youtube_poller.js");
-function registerSettingsHandlers(ipcMain) {
+function registerSettingsHandlers(ipcMain, onSettingsChanged) {
     ipcMain.handle(channels_js_1.IPC_CHANNELS.SETTINGS_GET, () => {
         const settings = (0, ramdisk_js_1.loadSettings)();
         // SECURITY: strip sensitive fields
@@ -29,6 +29,8 @@ function registerSettingsHandlers(ipcMain) {
             if (poller)
                 poller.restart(patch.pollIntervalMs);
         }
+        // Notify main thread of settings change (poller lifecycle, etc.)
+        onSettingsChanged?.();
         return (0, ramdisk_js_1.loadSettings)();
     });
 }

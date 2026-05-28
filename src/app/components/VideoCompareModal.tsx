@@ -112,16 +112,16 @@ function DiffRow({ label, value, unit, good }: { label: string; value: string; u
       <span style={{
         flex: 1,
         fontSize: 13, fontFamily: 'monospace', fontWeight: 800,
-        color: good ? colors.success : '#FF5252',
+        color: good ? colors.success : colors.error,
         letterSpacing: '0.02em',
       }}>
-        {value}{unit && <span style={{ fontSize: 10, fontWeight: 400, marginLeft: 3, color: good ? '#00FF8888' : '#FF525288' }}>{unit}</span>}
+        {value}{unit && <span style={{ fontSize: 10, fontWeight: 400, marginLeft: 3, color: good ? `${colors.success}88` : `${colors.error}88` }}>{unit}</span>}
       </span>
       <span style={{
         fontSize: 9, fontWeight: 700,
-        color: good ? colors.success : '#FF5252',
-        background: good ? '#00FF8812' : '#FF525212',
-        border: `1px solid ${good ? '#00FF8830' : '#FF525230'}`,
+        color: good ? colors.success : colors.error,
+        background: good ? `${colors.success}12` : `${colors.error}12`,
+        border: `1px solid ${good ? `${colors.success}30` : `${colors.error}30`}`,
         borderRadius: 3, padding: '2px 7px', letterSpacing: '0.04em',
       }}>
         {good ? '✓ OK' : '✗ DIFF'}
@@ -157,8 +157,8 @@ function FormatsBadge({ heights }: { heights: number[] }) {
         <span key={h} style={{
           fontSize: 9, fontWeight: 700, fontFamily: 'monospace',
           color: h >= 1080 ? colors.success : h >= 720 ? colors.accent : colors.warning,
-          background: h >= 1080 ? '#00FF8812' : h >= 720 ? '#00B4FF12' : '#FFB80012',
-          border: `1px solid ${h >= 1080 ? '#00FF8830' : h >= 720 ? '#00B4FF30' : '#FFB80030'}`,
+          background: h >= 1080 ? `${colors.success}12` : h >= 720 ? `${colors.accent}12` : `${colors.warning}12`,
+          border: `1px solid ${h >= 1080 ? `${colors.success}30` : h >= 720 ? `${colors.accent}30` : `${colors.warning}30`}`,
           borderRadius: 3, padding: '1px 6px',
         }}>
           {h}p
@@ -170,7 +170,7 @@ function FormatsBadge({ heights }: { heights: number[] }) {
 
 // ─── Codec badge ────────────────────────────────────────────────────────────────
 
-function CodecBadge({ codec, color = '#C084FC' }: { codec: string; color?: string }) {
+function CodecBadge({ codec, color = colors.accent }: { codec: string; color?: string }) {
   if (!codec) return null
   return (
     <span style={{
@@ -313,8 +313,8 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
             borderBottom: '1px solid #E0E0E0',
           }}>
             <div />
-            <ColumnHeader label="YouTube" subtitle="SOURCE" color="#00B4FF" />
-            <ColumnHeader label="HyperClip" subtitle="OUTPUT" color="#C084FC" />
+            <ColumnHeader label="YouTube" subtitle="SOURCE" color={colors.accent} />
+            <ColumnHeader label="HyperClip" subtitle="OUTPUT" color={colors.accent} />
           </div>
 
           {/* Metric rows */}
@@ -408,7 +408,7 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
             </span>
             <span style={{
               fontSize: 9, fontWeight: 700, color: colors.success,
-              background: '#00FF8812', border: '1px solid #00FF8830',
+              background: `${colors.success}12`, border: `1px solid ${colors.success}30`,
               borderRadius: 3, padding: '2px 7px', letterSpacing: '0.04em',
             }}>
               ✓ MP4
@@ -425,7 +425,7 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
               <span style={{ fontSize: 9, color: '#888', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', width: 90 }}>
                 Render time
               </span>
-              <span style={{ flex: 1, fontSize: 13, fontFamily: 'monospace', fontWeight: 800, color: '#C084FC', textAlign: 'right' }}>
+              <span style={{ flex: 1, fontSize: 13, fontFamily: 'monospace', fontWeight: 800, color: colors.accent, textAlign: 'right' }}>
                 {renderMs(rendered.renderDurationMs)}
               </span>
               <span style={{ fontSize: 9, color: '#666', minWidth: 40, textAlign: 'right' }}>

@@ -290,7 +290,7 @@ const TrimSection = React.memo(function TrimSection({ start, end, duration, curr
           <span style={{ fontSize: 13, fontWeight: 800, color: colors.success, fontFamily: 'monospace' }}>
             {fmtTime(spedUpSec)}
           </span>
-          <span style={{ fontSize: 9, color: '#00FF8866', fontWeight: 600 }}>
+          <span style={{ fontSize: 9, color: `${colors.success}66`, fontWeight: 600 }}>
             @{speedMultiplier.toFixed(1)}x
           </span>
           <span style={{ fontSize: 9, color: colors.textSecondary }}>
@@ -476,7 +476,7 @@ const SplitSection = React.memo(function SplitSection({ videoDuration, trimLimit
             {fmtDuration(videoDuration / speed)}
           </span>
           {speed !== 1.0 && (
-            <span style={{ fontSize: 9, color: '#00FF8866', fontWeight: 600 }}>
+            <span style={{ fontSize: 9, color: `${colors.success}66`, fontWeight: 600 }}>
               @{speed.toFixed(1)}x
             </span>
           )}
@@ -487,7 +487,7 @@ const SplitSection = React.memo(function SplitSection({ videoDuration, trimLimit
       <div style={{ marginBottom: 8 }}>
         <div style={{ height: 20, background: colors.surface, borderRadius: 3, position: 'relative', overflow: 'hidden' }}>
           {parts.map((p, i) => {
-            const timelineColors = [colors.accent, colors.success, colors.warning, '#FF6B35', '#7C3AED']
+            const timelineColors = [colors.accent, colors.success, colors.warning, '#FF6B35', colors.accent]
             const color = timelineColors[i % timelineColors.length]
             const left = (p.start / videoDuration) * 100
             const width = ((p.end - p.start) / videoDuration) * 100
@@ -854,7 +854,7 @@ const SpeedSection = React.memo(function SpeedSection({ speedMultiplier, onChang
                 {fmtTime(totalSpedUp)}
               </span>
             )}
-            <span style={{ fontSize: 9, color: '#00FF8866', fontWeight: 600 }}>@{speedMultiplier.toFixed(1)}x</span>
+            <span style={{ fontSize: 9, color: `${colors.success}66`, fontWeight: 600 }}>@{speedMultiplier.toFixed(1)}x</span>
           </div>
         </div>
       )}
@@ -938,7 +938,7 @@ const BackgroundSection = React.memo(function BackgroundSection({ backgroundType
             }
           }}
           style={{ width: '100%', height: 28, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 3, color: colors.textSecondary, fontSize: 10, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = '#00B4FF44'; e.currentTarget.style.color = colors.accent }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = `${colors.accent}44`; e.currentTarget.style.color = colors.accent }}
           onMouseLeave={e => { e.currentTarget.style.borderColor = colors.borderHover; e.currentTarget.style.color = colors.textSecondary }}
         >
           <IconRefresh size={10} color="currentColor" />
@@ -1880,7 +1880,7 @@ const ControlsPanel = React.memo(function ControlsPanel({ editorState, onChange,
             background: isRendering
               ? colors.error + '30'
               : editorState.enableChunked
-                ? '#7C3AED'
+                ? colors.accent
                 : colors.accent,
             borderWidth: 0, borderRadius: 3,
             fontSize: 11, fontWeight: 800,

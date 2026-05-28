@@ -54,8 +54,8 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
 
   return (
     <div style={{
-      background: wasJustReset ? '#00FF8808' : k.status === 'exhausted' ? '#FFF0F0' : k.status === 'unauthorized' ? '#FFF5EE' : colors.bg,
-      border: `1px solid ${wasJustReset ? '#00FF8833' : isActive ? '#00B4FF44' : k.status === 'exhausted' ? '#FF444444' : '#FFFFFF'}`,
+      background: wasJustReset ? `${colors.success}08` : k.status === 'exhausted' ? '#FFF0F0' : k.status === 'unauthorized' ? '#FFF5EE' : colors.bg,
+      border: `1px solid ${wasJustReset ? `${colors.success}33` : isActive ? `${colors.accent}44` : k.status === 'exhausted' ? `${colors.error}44` : '#FFFFFF'}`,
       borderRadius: 8, padding: '14px',
       transition: 'border-color 0.5s, background 0.5s',
       display: 'flex', flexDirection: 'column', gap: 10,
@@ -70,7 +70,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
           {isActive && (
             <div style={{
               width: 6, height: 6, borderRadius: '50%', background: colors.accent,
-              boxShadow: '0 0 4px #00B4FF',
+              boxShadow: `0 0 4px ${colors.accent}`,
               animation: 'pulse 2s infinite',
             }} />
           )}
@@ -83,7 +83,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
           }}>
             {k.name}
             {isActive && (
-              <span style={{ fontSize: 8, fontWeight: 700, color: colors.accent, background: '#00B4FF14', border: '1px solid #00B4FF44', borderRadius: 2, padding: '1px 4px', letterSpacing: '0.06em', flexShrink: 0 }}>
+              <span style={{ fontSize: 8, fontWeight: 700, color: colors.accent, background: `${colors.accent}14`, border: `1px solid ${colors.accent}44`, borderRadius: 2, padding: '1px 4px', letterSpacing: '0.06em', flexShrink: 0 }}>
                 ACTIVE
               </span>
             )}
@@ -165,7 +165,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
           last used {formatTimeAgo(k.lastUsed)}
         </span>
         {k.lastReset && (
-          <span style={{ fontSize: 8, color: '#00FF8877', fontFamily: 'monospace' }}>
+          <span style={{ fontSize: 8, color: `${colors.success}77`, fontFamily: 'monospace' }}>
             ↺ reset {formatTimeAgo(k.lastReset)}
           </span>
         )}
@@ -182,13 +182,13 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
             disabled={resetting}
             style={{
               height: 28, paddingLeft: 10, paddingRight: 10,
-              background: resetting ? '#00FF8820' : 'transparent',
-              border: `1px solid ${resetting ? colors.success : '#00FF8844'}`,
+              background: resetting ? `${colors.success}20` : 'transparent',
+              border: `1px solid ${resetting ? colors.success : `${colors.success}44`}`,
               borderRadius: 4, fontSize: 9, fontWeight: 700, color: colors.success,
               cursor: resetting ? 'default' : 'pointer', opacity: resetting ? 0.8 : 1,
               transition: 'all 0.2s',
             }}
-            onMouseEnter={e => { if (!resetting) { e.currentTarget.style.background = '#00FF8820' } }}
+            onMouseEnter={e => { if (!resetting) { e.currentTarget.style.background = `${colors.success}20` } }}
             onMouseLeave={e => { if (!resetting) { e.currentTarget.style.background = 'transparent' } }}
           >
             {resetting ? '✓' : '↺'}
@@ -198,12 +198,12 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
             style={{
               flex: 1, height: 28,
               background: 'transparent',
-              border: '1px solid #00B4FF44',
+              border: `1px solid ${colors.accent}44`,
               borderRadius: 4, fontSize: 9, fontWeight: 700, color: colors.accent,
               cursor: 'pointer', opacity: k.status === 'unauthorized' ? 1 : 0.7,
               transition: 'all 0.2s',
             }}
-            onMouseEnter={e => { e.currentTarget.style.background = '#00B4FF22' }}
+            onMouseEnter={e => { e.currentTarget.style.background = `${colors.accent}22` }}
             onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
           >
             {k.status === 'unauthorized' ? '⚠ TEST / AUTHORIZE' : 'TEST'}
@@ -213,13 +213,13 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
             style={{
               height: 28, width: 70,
               background: 'transparent',
-              border: '1px solid #FF444444',
-              borderRadius: 4, fontSize: 9, fontWeight: 700, color: '#FF444466',
+              border: `1px solid ${colors.error}44`,
+              borderRadius: 4, fontSize: 9, fontWeight: 700, color: `${colors.error}66`,
               cursor: 'pointer', opacity: 0.7,
               transition: 'all 0.15s',
             }}
             onMouseEnter={e => { e.currentTarget.style.color = colors.error; e.currentTarget.style.opacity = '1'; e.currentTarget.style.borderColor = colors.error }}
-            onMouseLeave={e => { e.currentTarget.style.color = '#FF444466'; e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.borderColor = '#FF444444' }}
+            onMouseLeave={e => { e.currentTarget.style.color = `${colors.error}66`; e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.borderColor = `${colors.error}44` }}
           >
             ✕
           </button>
@@ -227,7 +227,7 @@ const KeyCard = React.memo(function KeyCard({ k, events, onRemove, onReset, onTe
       ) : (
         <div style={{
           padding: '8px 10px',
-          background: '#FFF0F0', border: '1px solid #FF444433',
+          background: '#FFF0F0', border: `1px solid ${colors.error}33`,
           borderRadius: 4, display: 'flex', alignItems: 'center', gap: 8,
         }}>
           <span style={{ fontSize: 9, color: '#FF6644', flex: 1 }}>
@@ -476,7 +476,7 @@ export default function ApiKeysSection() {
           <div style={{ fontSize: 11, fontWeight: 800, color: colors.border, letterSpacing: '0.1em' }}>API KEY MANAGEMENT</div>
           <div style={{ width: 1, height: 12, background: colors.borderHover }} />
           <span style={{ fontSize: 8, color: '#888' }}>last refresh {refreshTime}</span>
-          {loading && <span style={{ fontSize: 8, color: '#00B4FF44' }}>● polling...</span>}
+          {loading && <span style={{ fontSize: 8, color: `${colors.accent}44` }}>● polling...</span>}
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <button
@@ -484,14 +484,14 @@ export default function ApiKeysSection() {
             disabled={testingAll}
             style={{
               height: 26, paddingLeft: 10, paddingRight: 10,
-              background: testingAll ? '#00B4FF14' : 'transparent',
-              border: '1px solid #00B4FF44', borderRadius: 4,
-              fontSize: 8, fontWeight: 700, color: testingAll ? '#00B4FF88' : colors.accent,
+              background: testingAll ? `${colors.accent}14` : 'transparent',
+              border: `1px solid ${colors.accent}44`, borderRadius: 4,
+              fontSize: 8, fontWeight: 700, color: testingAll ? `${colors.accent}88` : colors.accent,
               cursor: testingAll ? 'not-allowed' : 'pointer', letterSpacing: '0.06em',
               transition: 'all 0.15s',
               opacity: testingAll ? 0.7 : 1,
             }}
-            onMouseEnter={e => { if (!testingAll) { e.currentTarget.style.background = '#00B4FF22' } }}
+            onMouseEnter={e => { if (!testingAll) { e.currentTarget.style.background = `${colors.accent}22` } }}
             onMouseLeave={e => { if (!testingAll) { e.currentTarget.style.background = 'transparent' } }}
           >
             {testingAll ? '... TESTING' : '⚡ TEST ALL'}
@@ -500,12 +500,12 @@ export default function ApiKeysSection() {
             onClick={handleResetAll}
             style={{
               height: 26, paddingLeft: 10, paddingRight: 10,
-              background: 'transparent', border: '1px solid #FFB80033', borderRadius: 4,
-              fontSize: 8, fontWeight: 700, color: '#FFB80066', cursor: 'pointer', letterSpacing: '0.06em',
+              background: 'transparent', border: `1px solid ${colors.warning}33`, borderRadius: 4,
+              fontSize: 8, fontWeight: 700, color: `${colors.warning}66`, cursor: 'pointer', letterSpacing: '0.06em',
               transition: 'all 0.15s',
             }}
-            onMouseEnter={e => { e.currentTarget.style.color = colors.warning; e.currentTarget.style.borderColor = '#FFB80066' }}
-            onMouseLeave={e => { e.currentTarget.style.color = '#FFB80066'; e.currentTarget.style.borderColor = '#FFB80033' }}
+            onMouseEnter={e => { e.currentTarget.style.color = colors.warning; e.currentTarget.style.borderColor = `${colors.warning}66` }}
+            onMouseLeave={e => { e.currentTarget.style.color = `${colors.warning}66`; e.currentTarget.style.borderColor = `${colors.warning}33` }}
           >
             ↺ RESET ALL
           </button>
@@ -513,8 +513,8 @@ export default function ApiKeysSection() {
             onClick={() => setShowAddForm(v => !v)}
             style={{
               height: 26, paddingLeft: 10, paddingRight: 10,
-              background: showAddForm ? '#00B4FF22' : 'transparent',
-              border: `1px solid ${showAddForm ? '#00B4FF66' : '#00B4FF33'}`, borderRadius: 4,
+              background: showAddForm ? `${colors.accent}22` : 'transparent',
+              border: `1px solid ${showAddForm ? `${colors.accent}66` : `${colors.accent}33`}`, borderRadius: 4,
               fontSize: 8, fontWeight: 700, color: colors.accent, cursor: 'pointer',
               transition: 'all 0.15s',
             }}
@@ -541,25 +541,25 @@ export default function ApiKeysSection() {
           gap: 12,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: colors.error, flexShrink: 0, boxShadow: '0 0 6px #FF444488' }} />
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: colors.error, flexShrink: 0, boxShadow: `0 0 6px ${colors.error}88` }} />
             <span style={{ fontSize: 10, color: '#FF6644', fontWeight: 700 }}>
               {exhaustedKeys > 0 && `${exhaustedKeys} key${exhaustedKeys > 1 ? 's' : ''} quá tải quota`}
               {exhaustedKeys > 0 && unauthorizedKeys > 0 && ' · '}
               {unauthorizedKeys > 0 && `${unauthorizedKeys} key${unauthorizedKeys > 1 ? 's' : ''} không hợp lệ`}
             </span>
-            <span style={{ fontSize: 9, color: '#FF444466' }}>— auto-reset midnight PT</span>
+            <span style={{ fontSize: 9, color: `${colors.error}66` }}>— auto-reset midnight PT</span>
           </div>
           <button
             onClick={() => setFilter(exhaustedKeys > 0 ? 'exhausted' : 'unauthorized')}
             style={{
               height: 22, paddingLeft: 8, paddingRight: 8,
-              background: '#FF444422', border: '1px solid #FF444444',
+              background: `${colors.error}22`, border: `1px solid ${colors.error}44`,
               borderRadius: 3, cursor: 'pointer',
               fontSize: 9, fontWeight: 700, color: '#FF6644',
               transition: 'all 0.15s',
             }}
-            onMouseEnter={e => { e.currentTarget.style.background = '#FF444433' }}
-            onMouseLeave={e => { e.currentTarget.style.background = '#FF444422' }}
+            onMouseEnter={e => { e.currentTarget.style.background = `${colors.error}33` }}
+            onMouseLeave={e => { e.currentTarget.style.background = `${colors.error}22` }}
           >
             XEM →
           </button>
@@ -712,7 +712,7 @@ export default function ApiKeysSection() {
                 onClick={() => setShowAddForm(true)}
                 style={{
                   height: 28, paddingLeft: 14, paddingRight: 14,
-                  background: '#00B4FF22', border: '1px solid #00B4FF44', borderRadius: 4,
+                  background: `${colors.accent}22`, border: `1px solid ${colors.accent}44`, borderRadius: 4,
                   fontSize: 9, fontWeight: 700, color: colors.accent, cursor: 'pointer',
                 }}
               >

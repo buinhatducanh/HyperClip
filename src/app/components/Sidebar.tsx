@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, memo } from 'react'
+import { shallow } from 'zustand/shallow'
 import type { Channel, SystemStats } from '../types'
 import { ipc } from '../lib/ipc'
 import { useAppStore } from '../lib/store'
@@ -21,7 +22,6 @@ interface Props {
     isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string
     oauthReady?: boolean; quotaExceeded?: boolean
   }
-  pollerStatus?: { active: boolean; newVideoCount: number; lastError: string | null } | null
   onLogout?: () => void
   keyHealth?: { exhausted: number; unauthorized: number }
 }
@@ -50,9 +50,9 @@ function AvatarRound({ url, name, color }: { url: string; name: string; color: s
   )
 }
 
-export function Sidebar({
+export const Sidebar = memo(function Sidebar({
   channels, isLoadingChannels, activeChannelId, newCounts,
-  onChannelSelect, authStatus, pollerStatus, keyHealth,
+  onChannelSelect, authStatus, keyHealth,
 }: Props) {
   const [expanded, setExpanded] = useState(false)
   const [channelInput, setChannelInput] = useState('')
@@ -62,8 +62,8 @@ export function Sidebar({
     title: string; message: string; confirmLabel?: string; confirmDanger?: boolean; onConfirm: () => void
   } | null>(null)
   const showToast = useAppStore((s) => s.showToast)
-  const workspaces = useAppStore((s) => s.workspaces)
-  const renderedVideos = useAppStore((s) => s.renderedVideos)
+  const workspaces = useAppStore((s) => s.workspaces, shallow)
+  const renderedVideos = useAppStore((s) => s.renderedVideos, shallow)
 
   const [compareWorkspaceId, setCompareWorkspaceId] = useState<string | null>(null)
   const compareWorkspace = useMemo(() => workspaces.find(w => w.id === compareWorkspaceId) ?? null, [workspaces, compareWorkspaceId])
@@ -308,4 +308,4 @@ export function Sidebar({
       )}
     </div>
   )
-}
+})

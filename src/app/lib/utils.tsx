@@ -111,7 +111,7 @@ export function UsageTimeline({ events }: { events: number[] }) {
                   background: barColor,
                   borderRadius: '1px 1px 0 0',
                   transition: 'height 0.3s ease',
-                  ...(isCurrent ? { boxShadow: '0 0 4px #00B4FF88' } : {}),
+                  ...(isCurrent ? { boxShadow: `0 0 4px ${colors.accent}88` } : {}),
                 }} />
               )}
               {heightPct === 0 && <div style={{ width: '100%', flex: 1 }} />}
@@ -122,7 +122,7 @@ export function UsageTimeline({ events }: { events: number[] }) {
 
       {/* Current hour indicator */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2 }}>
-        <span style={{ fontSize: 7, color: '#00B4FF88', fontFamily: 'monospace' }}>
+        <span style={{ fontSize: 7, color: `${colors.accent}88`, fontFamily: 'monospace' }}>
           now {String(currentHour).padStart(2, '0')}:00 PT
         </span>
       </div>

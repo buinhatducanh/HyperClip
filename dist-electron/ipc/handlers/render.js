@@ -33,8 +33,8 @@ function extractQualityFromResolution(res) {
 }
 exports.renderQueue = [];
 function startNextQueuedRender() {
-    const max = (0, ramdisk_js_1.loadSettings)().maxConcurrentRenders ?? 2;
-    if ((0, worker_pool_js_1.getPoolStatus)().active >= max)
+    // SEQUENTIAL PIPELINE: 1 render at a time, 100% GPU for single video.
+    if ((0, worker_pool_js_1.getPoolStatus)().active >= 1)
         return;
     if (exports.renderQueue.length === 0)
         return;
@@ -230,8 +230,7 @@ function registerRenderHandlers(ipcMain) {
     ipcMain.handle(channels_js_1.IPC_CHANNELS.RENDER_START, async (_, workspaceId, metadata) => {
         return new Promise((resolve) => {
             exports.renderQueue.push({ workspaceId, metadata, resolve });
-            const max = (0, ramdisk_js_1.loadSettings)().maxConcurrentRenders ?? 2;
-            if ((0, worker_pool_js_1.getPoolStatus)().active < max) {
+            if ((0, worker_pool_js_1.getPoolStatus)().active < 1) {
                 startNextQueuedRender();
             }
         });

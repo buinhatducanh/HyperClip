@@ -14,9 +14,9 @@ import { TopBar } from './components/TopBar'
 import { SettingsPanel } from './components/SettingsPanel'
 import { VideoDetailPanel } from './components/VideoDetailPanel'
 import type { Channel, SystemStats } from './types'
-import { useAppStore, type Workspace } from './lib/store'
+import { useAppStore, type AppSettings, type Workspace } from './lib/store'
 import { ipc } from './lib/ipc'
-import { type ActivityEntry, type ActivityType } from './components/ActivityLog'
+import type { ActivityEntry, ActivityType } from './lib/activity-types'
 import { SkeletonQueue, SkeletonStyles } from './components/Skeleton'
 import { colors, spacing, fontSize } from './design-system/tokens'
 
@@ -99,8 +99,8 @@ function fmtEta(secs: number | string | undefined | null): string {
 
 export default function DashboardPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-screen bg-[${colors.bg}]"><div className="text-[${colors.accent}] text-sm">Loading...</div></div>}>
-      <DashboardContent />
+    <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: colors.bg }}><span style={{ color: colors.accent, fontSize: 13 }}>Đang tải...</span></div>}>
+      {<DashboardContent />}
     </Suspense>
   )
 }
@@ -146,15 +146,14 @@ function DashboardContent() {
   const addWorkspaceRef = useRef(addWorkspace)
   updateWorkspaceRef.current = updateWorkspace
   addWorkspaceRef.current = addWorkspace
+  const workspacesRef = useRef(workspaces)
+  workspacesRef.current = workspaces
 
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
   const [authStatus, setAuthStatus] = useState<{
     isReady: boolean; cookieCount: number; loggedOut: boolean; accountName: string
     oauthReady: boolean; quotaExceeded?: boolean
   }>({ isReady: false, cookieCount: 0, loggedOut: true, accountName: '', oauthReady: false })
-  const [pollerStatus, setPollerStatus] = useState<{
-    active: boolean; newVideoCount: number; lastError: string | null
-  } | null>(null)
   const quotaToastShown = useRef(false)
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -175,6 +174,8 @@ function DashboardContent() {
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [isLoadingChannels, setIsLoadingChannels] = useState(true)
   const [onboardingDone, setOnboardingDone] = useState(false)
+  const [settingsSynced, setSettingsSynced] = useState(false)
+  const [appReady, setAppReady] = useState(false)
   const [activityMap, setActivityMap] = useState<Map<string, ActivityEntry>>(new Map())
   // ── Batched activity: accumulate in ref, flush every 300ms ─────────────
   const _pendingActivity = useRef<Map<string, ActivityEntry>>(new Map())
@@ -251,7 +252,7 @@ function DashboardContent() {
         changed = true
       })
       if (changed) setEtaDisplay(newDisplay)
-    }, 1000)
+    }, 10000)
     return () => clearInterval(tid)
   }, [])
 
@@ -267,13 +268,20 @@ function DashboardContent() {
     return () => { cleanupAuth(); cleanupCritical() }
   }, [showToast, addNotification, router])
 
-  // Onboarding redirect
+  // Wait for backend to fully init before showing UI
+  useEffect(() => {
+    const cleanup = ipc.onAppReady(() => setAppReady(true))
+    return cleanup
+  }, [])
+
+  // Onboarding redirect — wait for settings sync before deciding
   useEffect(() => {
     if (!authStatus.isReady) return
+    if (!settingsSynced) return
     if (!onboardingDone) {
       router.push('/onboarding')
     }
-  }, [authStatus.isReady, onboardingDone, router])
+  }, [authStatus.isReady, settingsSynced, onboardingDone, router])
 
   // Sync backend settings
   useEffect(() => {
@@ -286,6 +294,7 @@ function DashboardContent() {
           setOnboardingDone(true)
         }
       }
+      setSettingsSynced(true)
     })
   }, [setSettings])
 
@@ -377,12 +386,6 @@ function DashboardContent() {
     return cleanup
   }, [updateSystemStats])
 
-  // Poller status
-  useEffect(() => {
-    const interval = setInterval(() => ipc.getPollerStatus().then(setPollerStatus), 10000)
-    ipc.getPollerStatus().then(setPollerStatus)
-    return () => clearInterval(interval)
-  }, [])
 
   // Activity feed — batched
   useEffect(() => {
@@ -632,36 +635,44 @@ function DashboardContent() {
     return cleanup
   }, [])
 
-  const newCounts: Record<string, number> = {}
-  channels.forEach((ch) => {
-    newCounts[ch.id] = workspaces.filter(v => v.channelId === ch.id && v.status === 'ready').length
-  })
+  const newCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    channels.forEach((ch) => {
+      counts[ch.id] = workspaces.filter(v => v.channelId === ch.id && v.status === 'ready').length
+    })
+    return counts
+  }, [channels, workspaces])
 
-  // Handlers
-  const handleChannelSelect = (id: string) => {
+  // Handlers — ALL useCallback to keep children memoized
+  const handleSettingsChange = useCallback(async (patch: Partial<AppSettings>) => {
+    setSettings(patch)
+    await ipc.updateSettings(patch)
+  }, [setSettings])
+
+  const handleChannelSelect = useCallback((id: string) => {
     const newId = id || null
     setActiveChannelId(newId)
     syncChannelToUrl(newId)
     selectWorkspace(null)
-  }
+  }, [syncChannelToUrl])
 
-  const handleVideoSelect = (id: string) => {
+  const handleVideoSelect = useCallback((id: string) => {
     selectWorkspace(id)
     setSelectedRenderedVideoId(null)
-  }
+  }, [])
 
-  const handleClearActivity = () => {
+  const handleClearActivity = useCallback(() => {
     setActivityMap(new Map())
-  }
+  }, [])
 
-  const handleRenderedVideoSelect = (id: string | null) => {
+  const handleRenderedVideoSelect = useCallback((id: string | null) => {
     setSelectedRenderedVideoId(id)
     if (id) selectWorkspace(null)
-  }
+  }, [])
 
-  const handleQuickAction = (action: 'open' | 'delete', id: string) => {
+  const handleQuickAction = useCallback((action: 'open' | 'delete', id: string) => {
     if (action === 'delete') {
-      const ws = workspaces.find(w => w.id === id)
+      const ws = workspacesRef.current.find(w => w.id === id)
       setConfirmDialog({
         title: 'Xóa video',
         message: `Bạn có chắc muốn xóa "${ws?.videoTitle ?? 'video này'}"? File sẽ bị xóa vĩnh viễn khỏi ổ cứng.`,
@@ -682,26 +693,26 @@ function DashboardContent() {
     } else {
       selectWorkspace(id)
     }
-  }
+  }, [removeWorkspace, showToast])
 
-  const handleOpenFolder = async (id: string) => {
-    const ws = workspaces.find(w => w.id === id)
+  const handleOpenFolder = useCallback(async (id: string) => {
+    const ws = workspacesRef.current.find(w => w.id === id)
     if (!ws?.downloadedPath) {
       showToast('File chưa được tải về')
       return
     }
     const folderPath = ws.downloadedPath.replace(/[/\\][^/\\]*$/, '')
     await ipc.openFolder(folderPath)
-  }
+  }, [showToast])
 
-  const handleRetry = async (id: string) => {
+  const handleRetry = useCallback(async (id: string) => {
     showToast('Retrying download...')
     const result = await ipc.retryWorkspace(id) as { success: boolean; error?: string }
     if (result.success) showToast('Download restarted')
     else showToast(`Retry failed: ${result.error}`)
-  }
+  }, [showToast])
 
-  const handleSplit = async (workspaceId: string, partMinutes: number) => {
+  const handleSplit = useCallback(async (workspaceId: string, partMinutes: number) => {
     showToast(`Đang tách video thành các phần...`)
     const result = await ipc.splitWorkspace(workspaceId, { partMinutes })
     if (result?.success) {
@@ -710,22 +721,34 @@ function DashboardContent() {
     } else {
       showToast(`Tách thất bại: ${result?.error || 'Lỗi không xác định'}`)
     }
-  }
+  }, [showToast])
 
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     await ipc.logout()
     setAuthStatus({ isReady: false, cookieCount: 0, loggedOut: true, accountName: '', oauthReady: false })
     showToast('Đã đăng xuất YouTube')
-  }
+  }, [showToast])
 
   const showSkeleton = isLoadingData && authStatus.isReady
 
-  const filteredWorkspaces = activeChannelId
-    ? workspaces.filter(w => w.channelId === activeChannelId)
-    : workspaces
+  const filteredWorkspaces = useMemo(() =>
+    activeChannelId
+      ? workspaces.filter(w => w.channelId === activeChannelId)
+      : workspaces,
+  [workspaces, activeChannelId])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: colors.bg, fontFamily: 'Inter, sans-serif', color: colors.text, overflow: 'hidden' }}>
+      {!appReady ? (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: colors.bg, gap: 16 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: colors.accent, letterSpacing: '0.05em' }}>HyperClip</div>
+          <div style={{ width: 120, height: 2, background: colors.border, borderRadius: 1, overflow: 'hidden' }}>
+            <div style={{ width: '30%', height: '100%', background: colors.accent, borderRadius: 1, animation: 'loadingSlide 1.2s ease-in-out infinite' }} />
+          </div>
+          <style>{`@keyframes loadingSlide{0%{transform:translateX(-100%)}100%{transform:translateX(400%)}}`}</style>
+          <div style={{ fontSize: 10, color: colors.textSecondary, fontFamily: 'monospace' }}>Đang khởi tạo...</div>
+        </div>
+      ) : null}
       {/* Login screen */}
       {!authStatus.isReady && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999 }}>
@@ -751,10 +774,7 @@ function DashboardContent() {
       <TopBar
         settings={settings}
         systemStats={systemStats}
-        onSettingsChange={async (patch) => {
-          setSettings(patch)
-          await ipc.updateSettings(patch)
-        }}
+        onSettingsChange={handleSettingsChange}
       />
 
       {/* Main 3-column area */}
@@ -766,9 +786,7 @@ function DashboardContent() {
           activeChannelId={activeChannelId || ''}
           newCounts={newCounts}
           onChannelSelect={handleChannelSelect}
-          systemStats={systemStats}
           authStatus={authStatus}
-          pollerStatus={pollerStatus}
           onLogout={handleLogout}
           keyHealth={keyHealth}
         />
@@ -797,10 +815,7 @@ function DashboardContent() {
               systemStats={systemStats}
               channels={channels}
               activeChannelId={activeChannelId}
-              onSettingsChange={async (patch) => {
-                setSettings(patch)
-                await ipc.updateSettings(patch)
-              }}
+              onSettingsChange={handleSettingsChange}
               activityEntries={[...activityMap.values()].reverse()}
               onClearActivity={handleClearActivity}
             />

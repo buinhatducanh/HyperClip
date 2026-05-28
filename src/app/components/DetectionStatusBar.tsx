@@ -2,6 +2,7 @@
 import { colors, spacing, fontSize } from '../design-system/tokens'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { ipc } from '../lib/ipc'
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
@@ -59,6 +60,7 @@ export function DetectionStatusBar() {
   }, [])
 
   const { ps, ss, pr } = stateRef.current ?? {}
+  const router = useRouter()
   const sessions = ss?.sessions ?? []
   const consentedCount = sessions.filter((s: any) => s.isConsented).length
   const sessionCount = ss?.sessionCount ?? sessions.length
@@ -131,7 +133,7 @@ export function DetectionStatusBar() {
 
   return (
     <div
-      onClick={() => { window.location.href = '/settings' }}
+      onClick={() => { router.push('/settings') }}
       title={hasWarning ? warning : `Detection: ${source} · ${sessionLabel} sessions · ${formatAgo(ps?.lastPollAt)} ago`}
       style={{
         padding: '0 12px',

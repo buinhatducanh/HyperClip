@@ -138,7 +138,7 @@ export default function SettingsPage() {
                         width: `${Math.min(systemStats.cpuUsage ?? 0, 100)}%`, height: '100%',
                         background: (systemStats.cpuUsage ?? 0) > 80 ? colors.warning : colors.accent,
                         borderRadius: 2, transition: 'width 1s ease',
-                        boxShadow: `0 0 4px ${(systemStats.cpuUsage ?? 0) > 80 ? '#FFB80044' : '#00B4FF44'}`,
+                        boxShadow: `0 0 4px ${(systemStats.cpuUsage ?? 0) > 80 ? `${colors.warning}44` : `${colors.accent}44`}`,
                       }} />
                     </div>
                     <span style={{ fontSize: 10, color: '#777', fontFamily: 'monospace', minWidth: 30, textAlign: 'right' }}>
@@ -160,7 +160,7 @@ export default function SettingsPage() {
                       <div style={{
                         width: `${systemStats.ramTotal ? Math.round(((systemStats.ramUsed ?? 0) / systemStats.ramTotal) * 100) : 0}%`,
                         height: '100%', background: colors.accent, borderRadius: 2,
-                        boxShadow: '0 0 4px #00B4FF44',
+                        boxShadow: '0 0 4px `${colors.accent}44`',
                       }} />
                     </div>
                     <span style={{ fontSize: 10, color: '#777', fontFamily: 'monospace', minWidth: 30, textAlign: 'right' }}>
@@ -179,7 +179,7 @@ export default function SettingsPage() {
                     <div style={{
                       width: 6, height: 6, borderRadius: 1,
                       background: systemStats.gpuEncoder === 'nvenc' ? colors.success : systemStats.gpuEncoder === 'qsv' ? colors.warning : '#777',
-                      boxShadow: systemStats.gpuEncoder === 'nvenc' ? '0 0 4px #00FF8866' : 'none',
+                      boxShadow: systemStats.gpuEncoder === 'nvenc' ? '0 0 4px `${colors.success}66`' : 'none',
                     }} />
                     <span style={{ fontSize: 11, fontWeight: 700, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {systemStats.gpuName || 'No GPU'}
@@ -224,7 +224,7 @@ export default function SettingsPage() {
                     <div style={{
                       width: 6, height: 6, borderRadius: 1,
                       background: systemStats.ramDiskIsAvailable ? colors.success : '#888',
-                      boxShadow: systemStats.ramDiskIsAvailable ? '0 0 4px #00FF8866' : 'none',
+                      boxShadow: systemStats.ramDiskIsAvailable ? '0 0 4px `${colors.success}66`' : 'none',
                     }} />
                     <span style={{ fontSize: 11, fontWeight: 700, color: systemStats.ramDiskIsAvailable ? '#888' : '#888' }}>
                       {systemStats.ramDiskIsAvailable ? `${systemStats.ramDiskTotal}GB` : 'N/A'}
@@ -263,7 +263,7 @@ export default function SettingsPage() {
                     <div style={{
                       width: 6, height: 6, borderRadius: '50%',
                       background: systemStats.isOnline ? colors.success : colors.error,
-                      boxShadow: systemStats.isOnline ? '0 0 4px #00FF8866' : '0 0 4px #FF444466',
+                      boxShadow: systemStats.isOnline ? '0 0 4px `${colors.success}66`' : '0 0 4px `${colors.error}66`',
                     }} />
                     <span style={{ fontSize: 10, color: '#888', fontFamily: 'monospace' }}>{systemStats.networkIp || '127.0.0.1'}</span>
                   </div>

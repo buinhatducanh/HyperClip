@@ -80,7 +80,7 @@ export function ConfirmationDialog({
             onClick={onConfirm}
             style={{
               height: 32, padding: '0 16px',
-              background: confirmDanger ? '#FF444420' : '#00B4FF20',
+              background: confirmDanger ? `${colors.error}20` : `${colors.accent}20`,
               border: `1px solid ${confirmDanger ? colors.error : colors.accent}`,
               borderRadius: 3,
               fontSize: 11, fontWeight: 700, color: confirmDanger ? colors.error : colors.accent,
