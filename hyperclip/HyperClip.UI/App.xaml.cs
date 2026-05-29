@@ -29,6 +29,7 @@ public partial class App : Application
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<TopBarViewModel>();
         services.AddSingleton<SidebarViewModel>();
+        services.AddSingleton<WorkspaceQueueViewModel>();
         _services = services.BuildServiceProvider();
     }
 
