@@ -175,8 +175,23 @@
             <!-- StatusBar -->
             <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
-                <TextBlock Text="Ready" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"
-                           VerticalAlignment="Center" Margin="16,0"/>
+                <Grid Margin="16,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Ready" FontSize="10"
+                               Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" FontSize="10"
+                               Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center">
+                        <Run Text="GPU: "/>
+                        <Run Text="{Binding TopBar.SystemStats.GpuName, Mode=OneWay, FallbackValue='N/A'}"/>
+                        <Run Text=" | "/>
+                        <Run Text="{Binding TopBar.SystemStats.GpuUsage, Mode=OneWay, StringFormat='{}{0:F0}%', FallbackValue='0%'}"/>
+                        <Run Text=" VRAM | RAM "/>
+                        <Run Text="{Binding TopBar.SystemStats.RamUsed, Mode=OneWay, StringFormat='{}{0:F0}GB', FallbackValue='0GB'}"/>
+                    </TextBlock>
+                </Grid>
             </Border>
         </Grid>
     </Border>
