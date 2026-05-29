@@ -40,7 +40,7 @@ public partial class App : Application
         services.AddSingleton<AutoDownloadService>();
         services.AddLogging();
         services.AddSingleton<MainViewModel>();
-        services.AddSingleton<TopBarViewModel>();
+        services.AddSingleton<TopBarViewModel>(sp => new TopBarViewModel(sp.GetRequiredService<ISystemMonitor>()));
         services.AddSingleton<SidebarViewModel>();
         services.AddSingleton<WorkspaceQueueViewModel>();
         services.AddSingleton<DetailEditorViewModel>();
@@ -51,7 +51,16 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        var systemMonitor = _services.GetService<ISystemMonitor>();
+        systemMonitor?.Start();
         var mainWindow = new MainWindow(_services.GetRequiredService<MainViewModel>());
         mainWindow.Show();
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        var systemMonitor = _services.GetService<ISystemMonitor>();
+        systemMonitor?.Stop();
+        base.OnExit(e);
     }
 }
