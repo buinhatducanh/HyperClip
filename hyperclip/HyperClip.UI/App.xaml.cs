@@ -30,10 +30,12 @@ public partial class App : Application
         services.AddSingleton<FfmpegPathResolver>();
         services.AddSingleton<IRenderEngine>(sp => new FfmpegRenderer(sp.GetRequiredService<FfmpegPathResolver>()));
         services.AddSingleton<RenderPipeline>();
+        services.AddLogging();
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<TopBarViewModel>();
         services.AddSingleton<SidebarViewModel>();
         services.AddSingleton<WorkspaceQueueViewModel>();
+        services.AddSingleton<DetailEditorViewModel>();
         _services = services.BuildServiceProvider();
     }
 

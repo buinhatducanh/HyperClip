@@ -19,15 +19,21 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _isLoading = true;
 
     public TopBarViewModel TopBar { get; } = new();
+    public WorkspaceQueueViewModel WorkspaceQueue { get; }
+    public DetailEditorViewModel DetailEditor { get; }
 
     public MainViewModel(
         IWorkspaceStore workspaceStore,
         IChannelStore channelStore,
-        IRenderedVideoStore renderedVideoStore)
+        IRenderedVideoStore renderedVideoStore,
+        WorkspaceQueueViewModel workspaceQueue,
+        DetailEditorViewModel detailEditor)
     {
         _workspaceStore = workspaceStore;
         _channelStore = channelStore;
         _renderedVideoStore = renderedVideoStore;
+        WorkspaceQueue = workspaceQueue;
+        DetailEditor = detailEditor;
         _workspaceStore.WorkspaceUpdated += OnWorkspaceUpdated;
         _ = LoadDataAsync();
     }
