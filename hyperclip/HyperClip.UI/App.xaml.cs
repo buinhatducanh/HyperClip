@@ -39,7 +39,13 @@ public partial class App : Application
         services.AddSingleton<YoutubePoller>();
         services.AddSingleton<AutoDownloadService>();
         services.AddLogging();
-        services.AddSingleton<MainViewModel>();
+        services.AddSingleton<MainViewModel>(sp => new MainViewModel(
+            sp.GetRequiredService<IWorkspaceStore>(),
+            sp.GetRequiredService<IChannelStore>(),
+            sp.GetRequiredService<IRenderedVideoStore>(),
+            sp.GetRequiredService<WorkspaceQueueViewModel>(),
+            sp.GetRequiredService<DetailEditorViewModel>(),
+            sp));
         services.AddSingleton<TopBarViewModel>(sp => new TopBarViewModel(sp.GetRequiredService<ISystemMonitor>()));
         services.AddSingleton<SidebarViewModel>();
         services.AddSingleton<WorkspaceQueueViewModel>();

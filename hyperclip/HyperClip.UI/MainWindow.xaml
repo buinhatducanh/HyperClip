@@ -13,6 +13,7 @@
         <converters:StatusToColorConverter x:Key="StatusToColorConverter"/>
         <converters:BytesToStringConverter x:Key="BytesToStringConverter"/>
         <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
+        <converters:StringEqualsVisibilityConverter x:Key="StringEqualsVisibilityConverter"/>
     </Window.Resources>
     <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
         <Grid>
@@ -63,11 +64,13 @@
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
                         <StackPanel Grid.Row="0" Margin="8,12">
-                            <Button Style="{StaticResource SidebarButtonStyle}" Content="Dashboard"/>
+                            <Button Style="{StaticResource SidebarButtonStyle}" Content="Dashboard"
+                                    Command="{Binding NavigateToCommand}" CommandParameter="dashboard"/>
                             <Button Style="{StaticResource SidebarButtonStyle}" Content="Channels"/>
                             <Button Style="{StaticResource SidebarButtonStyle}" Content="Render Queue"/>
                             <Button Style="{StaticResource SidebarButtonStyle}" Content="Rendered"/>
-                            <Button Style="{StaticResource SidebarButtonStyle}" Content="Settings"/>
+                            <Button Style="{StaticResource SidebarButtonStyle}" Content="Settings"
+                                    Command="{Binding NavigateToCommand}" CommandParameter="settings"/>
                         </StackPanel>
                         <views:ActivityLogView Grid.Row="1" DataContext="{Binding ActivityLog}" Margin="4,0,4,4"/>
                     </Grid>
@@ -79,47 +82,54 @@
                 <!-- Center Panel -->
                 <Border Grid.Column="2" Background="{StaticResource BgBrush}">
                     <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
+                        <!-- Dashboard -->
+                        <Grid Visibility="{Binding CurrentView, Converter={StaticResource StringEqualsVisibilityConverter}, ConverterParameter=dashboard}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
 
-                        <!-- Workspace list column -->
-                        <StackPanel>
-                            <views:InputBar DataContext="{Binding WorkspaceQueue}" Margin="16,16,16,8"/>
-                            <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="16,0,16,16">
-                                <ItemsControl ItemsSource="{Binding Workspaces}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,8">
-                                                <Grid>
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="80"/>
-                                                        <ColumnDefinition Width="*"/>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                    </Grid.ColumnDefinitions>
-                                                    <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
-                                                        <TextBlock Text="{Binding VideoTitle}" FontSize="13"
-                                                                   Foreground="{StaticResource TextPrimaryBrush}"
-                                                                   TextTrimming="CharacterEllipsis"/>
-                                                        <TextBlock Text="{Binding Status}" FontSize="10"
-                                                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,0"/>
-                                                    </StackPanel>
-                                                    <TextBlock Grid.Column="2" Text="{Binding FileSize}" FontSize="10"
-                                                               Foreground="{StaticResource TextTertiaryBrush}" VerticalAlignment="Center"/>
-                                                </Grid>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </ScrollViewer>
-                        </StackPanel>
+                            <!-- Workspace list column -->
+                            <StackPanel>
+                                <views:InputBar DataContext="{Binding WorkspaceQueue}" Margin="16,16,16,8"/>
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="16,0,16,16">
+                                    <ItemsControl ItemsSource="{Binding Workspaces}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,8">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="80"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding VideoTitle}" FontSize="13"
+                                                                       Foreground="{StaticResource TextPrimaryBrush}"
+                                                                       TextTrimming="CharacterEllipsis"/>
+                                                            <TextBlock Text="{Binding Status}" FontSize="10"
+                                                                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,0"/>
+                                                        </StackPanel>
+                                                        <TextBlock Grid.Column="2" Text="{Binding FileSize}" FontSize="10"
+                                                                   Foreground="{StaticResource TextTertiaryBrush}" VerticalAlignment="Center"/>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                            </StackPanel>
 
-                        <!-- Detail Editor column -->
-                        <views:DetailEditorView Grid.Column="1"
-                                                DataContext="{Binding DetailEditor}"
-                                                Width="300"
-                                                BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0"/>
+                            <!-- Detail Editor column -->
+                            <views:DetailEditorView Grid.Column="1"
+                                                    DataContext="{Binding DetailEditor}"
+                                                    Width="300"
+                                                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0"/>
+                        </Grid>
+
+                        <!-- Settings -->
+                        <views:SettingsView DataContext="{Binding SettingsVm}"
+                                           Visibility="{Binding DataContext.CurrentView, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsVisibilityConverter}, ConverterParameter=settings}"/>
                     </Grid>
                 </Border>
 
