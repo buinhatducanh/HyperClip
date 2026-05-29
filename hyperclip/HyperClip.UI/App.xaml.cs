@@ -3,6 +3,7 @@ using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using HyperClip.Core.Interfaces;
 using HyperClip.Services.Download;
+using HyperClip.Services.Render;
 using HyperClip.Services.Store;
 using HyperClip.UI.ViewModels;
 
@@ -26,6 +27,9 @@ public partial class App : Application
         services.AddSingleton<IRenderedVideoStore>(_ => new JsonRenderedVideoStore(dataDir));
         services.AddSingleton<IYtdlpDownloader>(_ => new YtdlpDownloader(new YtdlpPathResolver()));
         services.AddSingleton<DownloadPipeline>();
+        services.AddSingleton<FfmpegPathResolver>();
+        services.AddSingleton<IRenderEngine>(sp => new FfmpegRenderer(sp.GetRequiredService<FfmpegPathResolver>()));
+        services.AddSingleton<RenderPipeline>();
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<TopBarViewModel>();
         services.AddSingleton<SidebarViewModel>();
