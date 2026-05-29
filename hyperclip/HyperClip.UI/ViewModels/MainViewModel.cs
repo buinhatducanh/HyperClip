@@ -21,6 +21,7 @@ public partial class MainViewModel : ObservableObject
     public TopBarViewModel TopBar { get; } = new();
     public WorkspaceQueueViewModel WorkspaceQueue { get; }
     public DetailEditorViewModel DetailEditor { get; }
+    public ActivityLogViewModel ActivityLog { get; } = new();
 
     public MainViewModel(
         IWorkspaceStore workspaceStore,

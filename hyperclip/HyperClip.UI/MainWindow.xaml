@@ -57,13 +57,20 @@
                 <!-- Left Sidebar -->
                 <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}"
                         BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
-                    <StackPanel Margin="8,12">
-                        <Button Style="{StaticResource SidebarButtonStyle}" Content="Dashboard"/>
-                        <Button Style="{StaticResource SidebarButtonStyle}" Content="Channels"/>
-                        <Button Style="{StaticResource SidebarButtonStyle}" Content="Render Queue"/>
-                        <Button Style="{StaticResource SidebarButtonStyle}" Content="Rendered"/>
-                        <Button Style="{StaticResource SidebarButtonStyle}" Content="Settings"/>
-                    </StackPanel>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0" Margin="8,12">
+                            <Button Style="{StaticResource SidebarButtonStyle}" Content="Dashboard"/>
+                            <Button Style="{StaticResource SidebarButtonStyle}" Content="Channels"/>
+                            <Button Style="{StaticResource SidebarButtonStyle}" Content="Render Queue"/>
+                            <Button Style="{StaticResource SidebarButtonStyle}" Content="Rendered"/>
+                            <Button Style="{StaticResource SidebarButtonStyle}" Content="Settings"/>
+                        </StackPanel>
+                        <views:ActivityLogView Grid.Row="1" DataContext="{Binding ActivityLog}" Margin="4,0,4,4"/>
+                    </Grid>
                 </Border>
 
                 <GridSplitter Grid.Column="1" Width="1" HorizontalAlignment="Center"

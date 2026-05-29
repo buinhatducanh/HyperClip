@@ -2,9 +2,11 @@ using System.IO;
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using HyperClip.Core.Interfaces;
+using HyperClip.Services.Detection;
 using HyperClip.Services.Download;
 using HyperClip.Services.Render;
 using HyperClip.Services.Store;
+using HyperClip.Services.System;
 using HyperClip.UI.ViewModels;
 
 // IRenderedVideoStore lives in HyperClip.Services.Store
@@ -30,6 +32,11 @@ public partial class App : Application
         services.AddSingleton<FfmpegPathResolver>();
         services.AddSingleton<IRenderEngine>(sp => new FfmpegRenderer(sp.GetRequiredService<FfmpegPathResolver>()));
         services.AddSingleton<RenderPipeline>();
+        services.AddSingleton<GpuMonitor>();
+        services.AddSingleton<ISystemMonitor>(sp => new SystemMonitor(sp.GetRequiredService<GpuMonitor>()));
+        services.AddSingleton<RssFeedScanner>();
+        services.AddSingleton<YoutubePoller>();
+        services.AddSingleton<AutoDownloadService>();
         services.AddLogging();
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<TopBarViewModel>();
