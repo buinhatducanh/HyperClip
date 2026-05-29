@@ -95,4 +95,119 @@ public class JsonWorkspaceStoreTests : IDisposable
         Assert.Equal("0:30", found.RenderEta);
         Assert.Equal("Patch Test", found.VideoTitle);
     }
+
+    [Fact]
+    public async Task UpdateStatus_FiresWorkspaceUpdatedEvent()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            var store = new JsonWorkspaceStore(tmp);
+            var ws = new Workspace { Id = "ws-ev", Status = WorkspaceStatus.Waiting };
+            await store.SaveAsync(ws);
+
+            Workspace? updated = null;
+            store.WorkspaceUpdated += (_, w) => updated = w;
+
+            await store.UpdateStatusAsync("ws-ev", WorkspaceStatus.Downloading);
+
+            Assert.NotNull(updated);
+            Assert.Equal(WorkspaceStatus.Downloading, updated!.Status);
+        }
+        finally
+        {
+            Directory.Delete(tmp, true);
+        }
+    }
+
+    [Fact]
+    public async Task Retry_Flow_WaitingToDownloadingToReady()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            var store = new JsonWorkspaceStore(tmp);
+            var ws = new Workspace { Id = "ws-retry", Status = WorkspaceStatus.Error, VideoUrl = "https://youtube.com/watch?v=dQw4w9WgXcQ" };
+            await store.SaveAsync(ws);
+
+            await store.UpdateStatusAsync("ws-retry", WorkspaceStatus.Waiting);
+            var waiting = await store.GetByIdAsync("ws-retry");
+            Assert.Equal(WorkspaceStatus.Waiting, waiting!.Status);
+
+            await store.UpdateStatusAsync("ws-retry", WorkspaceStatus.Downloading);
+            var downloading = await store.GetByIdAsync("ws-retry");
+            Assert.Equal(WorkspaceStatus.Downloading, downloading!.Status);
+
+            await store.UpdateStatusAsync("ws-retry", WorkspaceStatus.Ready);
+            await store.UpdateAsync("ws-retry", w => w.DownloadedPath = "test.mp4");
+            var ready = await store.GetByIdAsync("ws-retry");
+            Assert.Equal(WorkspaceStatus.Ready, ready!.Status);
+            Assert.Equal("test.mp4", ready.DownloadedPath);
+        }
+        finally
+        {
+            Directory.Delete(tmp, true);
+        }
+    }
+
+    [Fact]
+    public async Task Patch_CanUpdateMultipleFields()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            var store = new JsonWorkspaceStore(tmp);
+            var ws = new Workspace { Id = "ws-patch", Status = WorkspaceStatus.Downloading };
+            await store.SaveAsync(ws);
+
+            await store.UpdateAsync("ws-patch", w =>
+            {
+                w.Status = WorkspaceStatus.Ready;
+                w.DownloadedPath = "patched.mp4";
+                w.DownloadProgress = 100;
+                w.FileSize = "50MB";
+            });
+
+            var patched = await store.GetByIdAsync("ws-patch");
+            Assert.Equal(WorkspaceStatus.Ready, patched!.Status);
+            Assert.Equal("patched.mp4", patched.DownloadedPath);
+            Assert.Equal(100, patched.DownloadProgress);
+            Assert.Equal("50MB", patched.FileSize);
+        }
+        finally
+        {
+            Directory.Delete(tmp, true);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadProgress_UpdatesPersistToStore()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            var store = new JsonWorkspaceStore(tmp);
+            var ws = new Workspace { Id = "ws-prog", Status = WorkspaceStatus.Downloading };
+            await store.SaveAsync(ws);
+
+            await store.UpdateAsync("ws-prog", w => w.DownloadProgress = 25.0);
+            await store.UpdateAsync("ws-prog", w => w.DownloadSpeed = "5.2MiB/s");
+            await store.UpdateAsync("ws-prog", w => w.DownloadProgress = 50.0);
+            await store.UpdateAsync("ws-prog", w => { w.DownloadProgress = 100.0; w.Status = WorkspaceStatus.Ready; w.DownloadedPath = "done.mp4"; });
+
+            var final = await store.GetByIdAsync("ws-prog");
+            Assert.Equal(WorkspaceStatus.Ready, final!.Status);
+            Assert.Equal(100.0, final.DownloadProgress);
+            Assert.Equal("5.2MiB/s", final.DownloadSpeed);
+            Assert.Equal("done.mp4", final.DownloadedPath);
+        }
+        finally
+        {
+            Directory.Delete(tmp, true);
+        }
+    }
 }
