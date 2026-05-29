@@ -27,6 +27,7 @@ public partial class App : Application
         services.AddSingleton<IWorkspaceStore>(_ => new JsonWorkspaceStore(dataDir));
         services.AddSingleton<IChannelStore>(_ => new JsonChannelStore(dataDir));
         services.AddSingleton<IRenderedVideoStore>(_ => new JsonRenderedVideoStore(dataDir));
+        services.AddSingleton<ISettingsStore>(_ => new JsonSettingsStore(dataDir));
         services.AddSingleton<IYtdlpDownloader>(_ => new YtdlpDownloader(new YtdlpPathResolver()));
         services.AddSingleton<DownloadPipeline>();
         services.AddSingleton<FfmpegPathResolver>();
@@ -43,6 +44,7 @@ public partial class App : Application
         services.AddSingleton<SidebarViewModel>();
         services.AddSingleton<WorkspaceQueueViewModel>();
         services.AddSingleton<DetailEditorViewModel>();
+        services.AddSingleton<SettingsViewModel>();
         _services = services.BuildServiceProvider();
     }
 
