@@ -16,4 +16,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\HyperClip.Core\HyperClip.Core.csproj" />
+  </ItemGroup>
+
 </Project>

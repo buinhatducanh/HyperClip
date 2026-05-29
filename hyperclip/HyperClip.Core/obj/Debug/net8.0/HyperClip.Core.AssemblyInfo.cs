@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("HyperClip.Core")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+9d7f50bb18c52c16619e11b0c3547c22051d6bb5")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d9cb3607622205c05d667eee058d670f77218266")]
 [assembly: System.Reflection.AssemblyProductAttribute("HyperClip.Core")]
 [assembly: System.Reflection.AssemblyTitleAttribute("HyperClip.Core")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
