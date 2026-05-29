@@ -1,13 +1,38 @@
-﻿using System.Configuration;
-using System.Data;
+using System.IO;
 using System.Windows;
+using Microsoft.Extensions.DependencyInjection;
+using HyperClip.Core.Interfaces;
+using HyperClip.Services.Store;
+using HyperClip.UI.ViewModels;
+
+// IRenderedVideoStore lives in HyperClip.Services.Store
 
 namespace HyperClip.UI;
 
-/// <summary>
-/// Interaction logic for App.xaml
-/// </summary>
 public partial class App : Application
 {
-}
+    private readonly IServiceProvider _services;
 
+    public App()
+    {
+        var dataDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "HyperClip", "data");
+
+        var services = new ServiceCollection();
+        services.AddSingleton<IWorkspaceStore>(_ => new JsonWorkspaceStore(dataDir));
+        services.AddSingleton<IChannelStore>(_ => new JsonChannelStore(dataDir));
+        services.AddSingleton<IRenderedVideoStore>(_ => new JsonRenderedVideoStore(dataDir));
+        services.AddSingleton<MainViewModel>();
+        services.AddSingleton<TopBarViewModel>();
+        services.AddSingleton<SidebarViewModel>();
+        _services = services.BuildServiceProvider();
+    }
+
+    protected override void OnStartup(StartupEventArgs e)
+    {
+        base.OnStartup(e);
+        var mainWindow = new MainWindow(_services.GetRequiredService<MainViewModel>());
+        mainWindow.Show();
+    }
+}

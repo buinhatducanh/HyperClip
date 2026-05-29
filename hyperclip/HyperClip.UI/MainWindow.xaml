@@ -1,12 +1,147 @@
-﻿<Window x:Class="HyperClip.UI.MainWindow"
+<Window x:Class="HyperClip.UI.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:HyperClip.UI"
-        mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
-    <Grid>
+        xmlns:converters="clr-namespace:HyperClip.UI.Converters"
+        Title="HyperClip"
+        Width="1280" Height="800"
+        MinWidth="960" MinHeight="600"
+        Background="{StaticResource BgBrush}"
+        WindowStyle="None"
+        AllowsTransparency="True">
+    <Window.Resources>
+        <converters:StatusToColorConverter x:Key="StatusToColorConverter"/>
+        <converters:BytesToStringConverter x:Key="BytesToStringConverter"/>
+    </Window.Resources>
+    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="40"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="26"/>
+            </Grid.RowDefinitions>
 
-    </Grid>
+            <!-- TopBar -->
+            <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                <Grid Margin="16,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="HyperClip" FontWeight="Bold" FontSize="13"
+                               Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" Margin="0,0,16,0"/>
+                    <Rectangle Grid.Column="1" Width="1" Height="14" Fill="{StaticResource BorderBrush}" Margin="8,0"/>
+                    <TextBlock Grid.Column="2" Text="RENDER" FontSize="10" FontWeight="Bold"
+                               Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="16,0,8,0"/>
+                    <TextBlock Grid.Column="5" Text="Ready" FontSize="10"
+                               Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+
+            <!-- Main Content: 3-pane -->
+            <Grid Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220" MinWidth="56" MaxWidth="400"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="340" MinWidth="200" MaxWidth="500"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Left Sidebar -->
+                <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}"
+                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+                    <StackPanel Margin="8,12">
+                        <Button Style="{StaticResource SidebarButtonStyle}" Content="Dashboard"/>
+                        <Button Style="{StaticResource SidebarButtonStyle}" Content="Channels"/>
+                        <Button Style="{StaticResource SidebarButtonStyle}" Content="Render Queue"/>
+                        <Button Style="{StaticResource SidebarButtonStyle}" Content="Rendered"/>
+                        <Button Style="{StaticResource SidebarButtonStyle}" Content="Settings"/>
+                    </StackPanel>
+                </Border>
+
+                <GridSplitter Grid.Column="1" Width="1" HorizontalAlignment="Center"
+                              Background="{StaticResource BorderBrush}" ResizeBehavior="PreviousAndNext"/>
+
+                <!-- Center Panel -->
+                <Border Grid.Column="2" Background="{StaticResource BgBrush}">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding Workspaces}" Margin="16">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,8">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="80"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding VideoTitle}" FontSize="13"
+                                                           Foreground="{StaticResource TextPrimaryBrush}"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding Status}" FontSize="10"
+                                                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,0"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="2" Text="{Binding FileSize}" FontSize="10"
+                                                       Foreground="{StaticResource TextTertiaryBrush}" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Border>
+
+                <GridSplitter Grid.Column="3" Width="1" HorizontalAlignment="Center"
+                              Background="{StaticResource BorderBrush}" ResizeBehavior="PreviousAndNext"/>
+
+                <!-- Right Queue Panel -->
+                <Border Grid.Column="4" Background="{StaticResource SurfaceBrush}"
+                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0">
+                    <Grid Margin="12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="Queue" FontSize="12" FontWeight="Bold"
+                                   Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,12"/>
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding Workspaces}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="{StaticResource BgBrush}" CornerRadius="3" Padding="8" Margin="0,0,0,6">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Ellipse Grid.Column="0" Width="8" Height="8" Margin="0,0,8,0"
+                                                         VerticalAlignment="Center"
+                                                         Fill="{Binding Status, Converter={StaticResource StatusToColorConverter}}"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding VideoTitle}" FontSize="11"
+                                                           Foreground="{StaticResource TextPrimaryBrush}"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <!-- StatusBar -->
+            <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
+                <TextBlock Text="Ready" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"
+                           VerticalAlignment="Center" Margin="16,0"/>
+            </Border>
+        </Grid>
+    </Border>
 </Window>
