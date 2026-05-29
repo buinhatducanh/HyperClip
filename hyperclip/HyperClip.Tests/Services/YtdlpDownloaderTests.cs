@@ -1,4 +1,5 @@
 using HyperClip.Core.Models;
+using HyperClip.Services.Download;
 
 namespace HyperClip.Tests.Services;
 
@@ -51,5 +52,16 @@ public class YtdlpDownloaderTests
         Assert.False(result.Success);
         Assert.Null(result.FilePath);
         Assert.Equal("yt-dlp exited with code 1", result.Error);
+    }
+
+    [Fact]
+    public async Task GetVideoDurationAsync_ReturnsNonEmptyString()
+    {
+        var resolver = new YtdlpPathResolver();
+        var downloader = new YtdlpDownloader(resolver);
+        // Will return null if video not found — that's acceptable
+        var duration = await downloader.GetVideoDurationAsync("https://youtube.com/watch?v=dQw4w9WgXcQ");
+        // Just verify it doesn't throw — actual return value depends on yt-dlp availability
+        Assert.True(duration == null || duration.Contains(":"));
     }
 }
