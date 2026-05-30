@@ -1,0 +1,66 @@
+{
+  "format": 1,
+  "restore": {
+    "D:\\LOOP_COMPANY\\HyperClip\\hyperclip\\HyperClip.Core\\HyperClip.Core.csproj": {}
+  },
+  "projects": {
+    "D:\\LOOP_COMPANY\\HyperClip\\hyperclip\\HyperClip.Core\\HyperClip.Core.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "D:\\LOOP_COMPANY\\HyperClip\\hyperclip\\HyperClip.Core\\HyperClip.Core.csproj",
+        "projectName": "HyperClip.Core",
+        "projectPath": "D:\\LOOP_COMPANY\\HyperClip\\hyperclip\\HyperClip.Core\\HyperClip.Core.csproj",
+        "packagesPath": "C:\\Users\\MSI\\.nuget\\packages\\",
+        "outputPath": "D:\\LOOP_COMPANY\\HyperClip\\hyperclip\\HyperClip.Core\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\MSI\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0": {
+            "targetAlias": "net8.0",
+            "projectReferences": {}
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        }
+      },
+      "frameworks": {
+        "net8.0": {
+          "targetAlias": "net8.0",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Users\\MSI\\AppData\\Local\\Microsoft\\dotnet\\sdk\\8.0.421/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}
