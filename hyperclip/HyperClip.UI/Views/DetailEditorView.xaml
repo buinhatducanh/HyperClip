@@ -139,6 +139,43 @@
                 </StackPanel>
             </Border>
 
+            <!-- AUDIO -->
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="AUDIO" Style="{StaticResource SectionHeaderStyle}"/>
+                        <Button Grid.Column="1" Command="{Binding ToggleMuteCommand}" Style="{StaticResource GhostButtonStyle}" Padding="8,2">
+                            <TextBlock FontSize="11">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding AudioMute}" Value="True">
+                                                <Setter Property="Foreground" Value="{StaticResource ErrorBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                                <Run Text="Mute"/>
+                            </TextBlock>
+                        </Button>
+                    </Grid>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="32"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="{Binding AudioVolume, StringFormat='{}{0}%'}" FontSize="10"
+                                   FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding AudioVolume}" Style="{StaticResource InputSliderStyle}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <!-- QUALITY -->
             <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,12">
                 <StackPanel>
@@ -221,13 +258,21 @@
                          Visibility="{Binding IsRendering, Converter={StaticResource BoolToVisConverter}}" Margin="0,0,0,12"/>
 
             <!-- Action Buttons -->
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="Cancel" Command="{Binding CancelRenderCommand}"
-                        Style="{StaticResource GhostButtonStyle}" Margin="0,0,8,0"
-                        Visibility="{Binding IsRendering, Converter={StaticResource BoolToVisConverter}}"/>
-                <Button Content="Render" Command="{Binding StartRenderCommand}"
-                        Style="{StaticResource AccentButtonStyle}" Padding="20,8"/>
-            </StackPanel>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Content="Reset" Command="{Binding ResetCommand}"
+                        Style="{StaticResource GhostButtonStyle}" HorizontalAlignment="Left" Padding="12,8"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Content="Cancel" Command="{Binding CancelRenderCommand}"
+                            Style="{StaticResource GhostButtonStyle}" Margin="0,0,8,0"
+                            Visibility="{Binding IsRendering, Converter={StaticResource BoolToVisConverter}}"/>
+                    <Button Content="Render" Command="{Binding StartRenderCommand}"
+                            Style="{StaticResource AccentButtonStyle}" Padding="20,8"/>
+                </StackPanel>
+            </Grid>
         </StackPanel>
     </ScrollViewer>
 </UserControl>
