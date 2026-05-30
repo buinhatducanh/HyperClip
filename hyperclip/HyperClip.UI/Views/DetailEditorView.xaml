@@ -1,134 +1,232 @@
 <UserControl x:Class="HyperClip.UI.Views.DetailEditorView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="#121212">
+             Background="{StaticResource BgBrush}">
     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
         <StackPanel>
-            <!-- Video Title -->
-            <TextBlock Text="{Binding Workspace.VideoTitle}" FontSize="14" FontWeight="SemiBold"
-                       Foreground="#F5F5F5" TextWrapping="Wrap" Margin="0,0,0,16"
-                       Visibility="{Binding Workspace, Converter={StaticResource BoolToVisConverter}}"/>
+
+            <!-- Editor Header -->
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,16" Padding="12">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="EDITOR" FontSize="10" FontWeight="Bold"
+                               Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                    <TextBlock Text="{Binding Workspace.VideoTitle}" FontSize="13" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" MaxWidth="180"
+                               Visibility="{Binding Workspace, Converter={StaticResource BoolToVisConverter}}"/>
+                    <Border Background="{StaticResource AccentGlowBrush}" CornerRadius="4" Padding="6,2" Margin="8,0,0,0"
+                            VerticalAlignment="Center" Visibility="{Binding IsShort, Converter={StaticResource BoolToVisConverter}}">
+                        <TextBlock Text="SHORT" FontSize="9" FontWeight="Bold" Foreground="{StaticResource AccentBrush}"/>
+                    </Border>
+                </StackPanel>
+            </Border>
 
             <!-- TRIM -->
-            <TextBlock Text="TRIM" FontSize="10" FontWeight="Bold" Foreground="#A3A3A3" Margin="0,0,0,4"/>
-            <Grid Margin="0,0,0,12">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="60"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="60"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="{Binding TrimStart, StringFormat={}{0:F1}s}"
-                           FontSize="11" Foreground="#A3A3A3" VerticalAlignment="Center"/>
-                <Slider Grid.Column="1" Minimum="0" Maximum="300" Value="{Binding TrimStart}" Margin="8,0"/>
-                <TextBlock Grid.Column="2" Text="{Binding TrimEnd, StringFormat={}{0:F1}s}"
-                           FontSize="11" Foreground="#A3A3A3" VerticalAlignment="Center"/>
-            </Grid>
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="TRIM" Style="{StaticResource SectionHeaderStyle}"/>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="60"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="60"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Start" FontSize="10" Foreground="{StaticResource TextTertiaryBrush}" VerticalAlignment="Center"/>
+                        <Slider Grid.Column="1" Minimum="0" Maximum="300" Value="{Binding TrimStart}" Style="{StaticResource InputSliderStyle}" Margin="8,0"/>
+                        <TextBlock Grid.Column="2" Text="{Binding TrimStart, StringFormat={}{0:F1}s}" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource MonoFont}" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="60"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="60"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="End" FontSize="10" Foreground="{StaticResource TextTertiaryBrush}" VerticalAlignment="Center"/>
+                        <Slider Grid.Column="1" Minimum="0" Maximum="300" Value="{Binding TrimEnd}" Style="{StaticResource InputSliderStyle}" Margin="8,0"/>
+                        <TextBlock Grid.Column="2" Text="{Binding TrimEnd, StringFormat={}{0:F1}s}" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource MonoFont}" VerticalAlignment="Center"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
 
             <!-- SPEED -->
-            <TextBlock Text="SPEED" FontSize="10" FontWeight="Bold" Foreground="#A3A3A3" Margin="0,8,0,4"/>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                <RadioButton Content="0.5x" Tag="0.5" IsChecked="False"
-                             Background="#1E1E1E" Foreground="#F5F5F5" Margin="0,0,8,0"/>
-                <RadioButton Content="1x" Tag="1.0" IsChecked="True"
-                             Background="#1E1E1E" Foreground="#F5F5F5" Margin="0,0,8,0"/>
-                <RadioButton Content="1.5x" Tag="1.5" IsChecked="False"
-                             Background="#1E1E1E" Foreground="#F5F5F5" Margin="0,0,8,0"/>
-                <RadioButton Content="2x" Tag="2.0" IsChecked="False"
-                             Background="#1E1E1E" Foreground="#F5F5F5" Margin="0,0,8,0"/>
-            </StackPanel>
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="SPEED" Style="{StaticResource SectionHeaderStyle}"/>
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton Content="0.5x" Tag="0.5" Command="{Binding DataContext.SetSpeedCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="0.5" Style="{StaticResource InputRadioButtonStyle}"/>
+                        <RadioButton Content="1x" Tag="1.0" IsChecked="True" Command="{Binding DataContext.SetSpeedCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="1.0" Style="{StaticResource InputRadioButtonStyle}"/>
+                        <RadioButton Content="1.5x" Tag="1.5" Command="{Binding DataContext.SetSpeedCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="1.5" Style="{StaticResource InputRadioButtonStyle}"/>
+                        <RadioButton Content="2x" Tag="2.0" Command="{Binding DataContext.SetSpeedCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="2.0" Style="{StaticResource InputRadioButtonStyle}"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
 
             <!-- BACKGROUND -->
-            <TextBlock Text="BACKGROUND" FontSize="10" FontWeight="Bold" Foreground="#A3A3A3" Margin="0,8,0,4"/>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                <Button Content="Black" Width="60" Margin="0,0,8,0"
-                        Command="{Binding SetBackgroundColorCommand}" CommandParameter="#000000"
-                        Background="#1E1E1E" Foreground="#F5F5F5" BorderThickness="0" Padding="8,4"/>
-                <Button Content="White" Width="60" Margin="0,0,8,0"
-                        Command="{Binding SetBackgroundColorCommand}" CommandParameter="#FFFFFF"
-                        Background="#1E1E1E" Foreground="#F5F5F5" BorderThickness="0" Padding="8,4"/>
-            </StackPanel>
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="BACKGROUND" Style="{StaticResource SectionHeaderStyle}"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <RadioButton Content="BLUR" IsChecked="True" Command="{Binding DataContext.SetBackgroundTypeCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="blur" Style="{StaticResource InputRadioButtonStyle}"/>
+                        <RadioButton Content="SOLID" Command="{Binding DataContext.SetBackgroundTypeCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="solid" Style="{StaticResource InputRadioButtonStyle}"/>
+                        <RadioButton Content="IMAGE" Command="{Binding DataContext.SetBackgroundTypeCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="image" Style="{StaticResource InputRadioButtonStyle}"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Black" Width="60" Margin="0,0,8,0" Command="{Binding SetBackgroundColorCommand}" CommandParameter="#000000" Style="{StaticResource GhostButtonStyle}" Padding="8,4"/>
+                        <Button Content="White" Width="60" Margin="0,0,8,0" Command="{Binding SetBackgroundColorCommand}" CommandParameter="#FFFFFF" Style="{StaticResource GhostButtonStyle}" Padding="8,4"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- TITLE -->
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="TITLE" Style="{StaticResource SectionHeaderStyle}"/>
+                    <TextBox Text="{Binding TitleText, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource InputTextBoxStyle}" Margin="0,0,0,8" AcceptsReturn="True" MaxHeight="60"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button Content="Rounded" Margin="0,0,6,0" Style="{StaticResource GhostButtonStyle}" Padding="8,4"
+                                Command="{Binding DataContext.SetTitleShapeCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="rounded"/>
+                        <Button Content="Square" Margin="0,0,6,0" Style="{StaticResource GhostButtonStyle}" Padding="8,4"
+                                Command="{Binding DataContext.SetTitleShapeCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="square"/>
+                        <Button Content="Diamond" Style="{StaticResource GhostButtonStyle}" Padding="8,4"
+                                Command="{Binding DataContext.SetTitleShapeCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="diamond"/>
+                    </StackPanel>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="80"/><ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Font size" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <Slider Grid.Column="1" Minimum="8" Maximum="32" Value="{Binding TitleFontSize}" Style="{StaticResource InputSliderStyle}" Margin="8,0"/>
+                    </Grid>
+                    <CheckBox Content="Bottom bar" IsChecked="{Binding BottomBarEnabled}" Style="{StaticResource InputCheckBoxStyle}"/>
+                </StackPanel>
+            </Border>
+
+            <!-- HEADER IMAGE -->
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="HEADER" Style="{StaticResource SectionHeaderStyle}"/>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="80"/><ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Position Y" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding HeaderPositionY}" Style="{StaticResource InputSliderStyle}" Margin="8,0"/>
+                    </Grid>
+                    <TextBlock Text="Upload an image for the header zone (top 20% of canvas)" FontSize="10"
+                               Foreground="{StaticResource TextTertiaryBrush}" Margin="0,0,0,8"/>
+                </StackPanel>
+            </Border>
+
+            <!-- SPLIT -->
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="SPLIT" Style="{StaticResource SectionHeaderStyle}"/>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="80"/><ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Parts" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <Slider Minimum="1" Maximum="10" Value="{Binding SplitCount}" Style="{StaticResource InputSliderStyle}" Width="150" Margin="0,0,8,0"/>
+                            <TextBlock Text="{Binding SplitCount}" FontSize="11" FontFamily="{StaticResource MonoFont}"
+                                       Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center" MinWidth="20"/>
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock FontSize="10" Foreground="{StaticResource TextTertiaryBrush}">
+                        <Run Text="Output: "/>
+                        <Run Text="{Binding SplitCount, StringFormat='{}{0} parts'}"/>
+                    </TextBlock>
+                </StackPanel>
+            </Border>
+
+            <!-- QUALITY -->
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="QUALITY" Style="{StaticResource SectionHeaderStyle}"/>
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton Content="1080p" Tag="1080" Command="{Binding DataContext.SetQualityCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="1080" Style="{StaticResource InputRadioButtonStyle}"/>
+                        <RadioButton Content="720p" Tag="720" IsChecked="True" Command="{Binding DataContext.SetQualityCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="720" Style="{StaticResource InputRadioButtonStyle}"/>
+                        <RadioButton Content="360p" Tag="360" Command="{Binding DataContext.SetQualityCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="360" Style="{StaticResource InputRadioButtonStyle}"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
 
             <!-- EXPORT -->
-            <TextBlock Text="EXPORT" FontSize="10" FontWeight="Bold" Foreground="#A3A3A3" Margin="0,8,0,4"/>
-
-            <Grid Margin="0,0,0,8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="80"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="FPS" FontSize="10" Foreground="#A3A3A3" VerticalAlignment="Center"/>
-                <ComboBox Grid.Column="1" SelectedValue="{Binding ExportFps}" SelectedValuePath="Tag"
-                          Background="#1E1E1E" Foreground="#F5F5F5" Padding="8,4">
-                    <ComboBoxItem Content="24" Tag="24"/>
-                    <ComboBoxItem Content="30" Tag="30"/>
-                    <ComboBoxItem Content="60" Tag="60"/>
-                </ComboBox>
-            </Grid>
-
-            <Grid Margin="0,0,0,8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="80"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Codec" FontSize="10" Foreground="#A3A3A3" VerticalAlignment="Center"/>
-                <ComboBox Grid.Column="1" SelectedValue="{Binding ExportCodec}" SelectedValuePath="Tag"
-                          Background="#1E1E1E" Foreground="#F5F5F5" Padding="8,4">
-                    <ComboBoxItem Content="H.264" Tag="h264"/>
-                    <ComboBoxItem Content="HEVC" Tag="hevc"/>
-                </ComboBox>
-            </Grid>
-
-            <Grid Margin="0,0,0,16">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="80"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Preset" FontSize="10" Foreground="#A3A3A3" VerticalAlignment="Center"/>
-                <ComboBox Grid.Column="1" SelectedValue="{Binding ExportPreset}" SelectedValuePath="Tag"
-                          Background="#1E1E1E" Foreground="#F5F5F5" Padding="8,4">
-                    <ComboBoxItem Content="p1 (fastest)" Tag="p1"/>
-                    <ComboBoxItem Content="p2" Tag="p2"/>
-                    <ComboBoxItem Content="p3" Tag="p3"/>
-                </ComboBox>
-            </Grid>
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="EXPORT" Style="{StaticResource SectionHeaderStyle}"/>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="80"/><ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="FPS" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1" SelectedValue="{Binding ExportFps}" SelectedValuePath="Tag" Style="{StaticResource InputComboBoxStyle}">
+                            <ComboBoxItem Content="24" Tag="24"/>
+                            <ComboBoxItem Content="30" Tag="30"/>
+                            <ComboBoxItem Content="60" Tag="60"/>
+                        </ComboBox>
+                    </Grid>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="80"/><ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Codec" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1" SelectedValue="{Binding ExportCodec}" SelectedValuePath="Tag" Style="{StaticResource InputComboBoxStyle}">
+                            <ComboBoxItem Content="H.264" Tag="h264"/>
+                            <ComboBoxItem Content="HEVC" Tag="hevc"/>
+                        </ComboBox>
+                    </Grid>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="80"/><ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Preset" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1" SelectedValue="{Binding ExportPreset}" SelectedValuePath="Tag" Style="{StaticResource InputComboBoxStyle}">
+                            <ComboBoxItem Content="p1 (fastest)" Tag="p1"/>
+                            <ComboBoxItem Content="p2" Tag="p2"/>
+                            <ComboBoxItem Content="p3" Tag="p3"/>
+                        </ComboBox>
+                    </Grid>
+                    <!-- Chunked toggle -->
+                    <Grid Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="80"/><ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="GPU MAX" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" Command="{Binding ToggleChunkedCommand}" Style="{StaticResource GhostButtonStyle}" Padding="8,4" HorizontalAlignment="Left">
+                            <TextBlock FontSize="11">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="Off"/>
+                                        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding EnableChunked}" Value="True">
+                                                <Setter Property="Text" Value="4x MAX"/>
+                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Button>
+                    </Grid>
+                </StackPanel>
+            </Border>
 
             <!-- Rendering Progress -->
-            <TextBlock Text="Rendering..." FontSize="11" Foreground="#3B82F6"
-                       Visibility="{Binding IsRendering, Converter={StaticResource BoolToVisConverter}}"
-                       Margin="0,0,0,4"/>
-            <ProgressBar Value="{Binding Workspace.RenderProgress}" Maximum="100" Height="4"
-                         Background="#333" Foreground="#3B82F6" BorderThickness="0"
-                         Visibility="{Binding IsRendering, Converter={StaticResource BoolToVisConverter}}"
-                         Margin="0,0,0,12"/>
+            <TextBlock Text="Rendering..." FontSize="11" Foreground="{StaticResource AccentBrush}"
+                       Visibility="{Binding IsRendering, Converter={StaticResource BoolToVisConverter}}" Margin="0,0,0,4"/>
+            <ProgressBar Value="{Binding Workspace.RenderProgress}" Maximum="100"
+                         Style="{StaticResource ProgressBarStyle}"
+                         Visibility="{Binding IsRendering, Converter={StaticResource BoolToVisConverter}}" Margin="0,0,0,12"/>
 
             <!-- Action Buttons -->
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="Cancel" Padding="16,8" Margin="0,0,8,0"
-                        Command="{Binding CancelRenderCommand}"
-                        Background="#333" Foreground="#A3A3A3" BorderThickness="0"
+                <Button Content="Cancel" Command="{Binding CancelRenderCommand}"
+                        Style="{StaticResource GhostButtonStyle}" Margin="0,0,8,0"
                         Visibility="{Binding IsRendering, Converter={StaticResource BoolToVisConverter}}"/>
-                <Button Content="Render" Padding="20,8"
-                        Command="{Binding StartRenderCommand}"
-                        Background="#3B82F6" Foreground="White" BorderThickness="0" FontWeight="600">
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}" CornerRadius="3" Padding="{TemplateBinding Padding}">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#2563EB"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
+                <Button Content="Render" Command="{Binding StartRenderCommand}"
+                        Style="{StaticResource AccentButtonStyle}" Padding="20,8"/>
             </StackPanel>
         </StackPanel>
     </ScrollViewer>

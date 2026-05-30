@@ -27,6 +27,23 @@ public partial class DetailEditorViewModel : ObservableObject
     [ObservableProperty] private string _exportTune = "hq";
     [ObservableProperty] private bool _isRendering;
 
+    // Editor features
+    [ObservableProperty] private int _exportQuality = 720;
+    [ObservableProperty] private bool _enableChunked;
+    [ObservableProperty] private int _maxChunkWorkers = 4;
+    [ObservableProperty] private string _backgroundType = "blur";
+    [ObservableProperty] private string _titleBorderColor = "#FFFFFF";
+    [ObservableProperty] private string _titleBgColor = "#000000";
+    [ObservableProperty] private bool _bottomBarEnabled = true;
+    [ObservableProperty] private string _bottomBarColor = "#3B82F6";
+    [ObservableProperty] private bool _isShort;
+    [ObservableProperty] private int _videoHeightPct = 70;
+    [ObservableProperty] private string _headerImagePath = "";
+    [ObservableProperty] private int _headerPositionY = 0;
+    [ObservableProperty] private int _splitCount = 1;
+
+    public bool HasWorkspace => Workspace != null;
+
     public DetailEditorViewModel(RenderPipeline renderPipeline)
     {
         _renderPipeline = renderPipeline;
@@ -46,6 +63,8 @@ public partial class DetailEditorViewModel : ObservableObject
         ExportPreset = "p1";
         ExportTune = "hq";
         IsRendering = ws.Status == WorkspaceStatus.Rendering;
+        IsShort = ws.IsShort ?? false;
+        OnPropertyChanged(nameof(HasWorkspace));
     }
 
     [RelayCommand]
@@ -89,6 +108,45 @@ public partial class DetailEditorViewModel : ObservableObject
     private void SetBackgroundColor(string color)
     {
         BackgroundColor = color;
+    }
+
+    [RelayCommand]
+    private void SetSpeed(string speed)
+    {
+        if (double.TryParse(speed, System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture, out var val))
+            SpeedMultiplier = val;
+    }
+
+    [RelayCommand]
+    private void SetQuality(string quality)
+    {
+        if (int.TryParse(quality, out var val))
+            ExportQuality = val;
+    }
+
+    [RelayCommand]
+    private void SetBackgroundType(string type)
+    {
+        BackgroundType = type;
+    }
+
+    [RelayCommand]
+    private void ToggleChunked()
+    {
+        EnableChunked = !EnableChunked;
+    }
+
+    [RelayCommand]
+    private void SetTitleShape(string shape)
+    {
+        TitleShape = shape;
+    }
+
+    [RelayCommand]
+    private void ToggleBottomBar()
+    {
+        BottomBarEnabled = !BottomBarEnabled;
     }
 
     partial void OnTrimStartChanged(double value) => Editor.TrimStart = value;

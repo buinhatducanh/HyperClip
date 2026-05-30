@@ -71,4 +71,20 @@ public class JsonChannelStore : IChannelStore
         }
         finally { _lock.Release(); }
     }
+
+    public async Task PauseAsync(string id, CancellationToken ct = default)
+    {
+        var channel = await GetByIdAsync(id, ct);
+        if (channel == null) return;
+        channel.Paused = true;
+        await SaveAsync(channel, ct);
+    }
+
+    public async Task ResumeAsync(string id, CancellationToken ct = default)
+    {
+        var channel = await GetByIdAsync(id, ct);
+        if (channel == null) return;
+        channel.Paused = false;
+        await SaveAsync(channel, ct);
+    }
 }

@@ -11,12 +11,10 @@ namespace HyperClip.UI.ViewModels;
 
 public partial class MainViewModel : ObservableObject
 {
-    private readonly IWorkspaceStore _workspaceStore;
     private readonly IChannelStore _channelStore;
     private readonly IRenderedVideoStore _renderedVideoStore;
     private readonly IServiceProvider _services;
 
-    [ObservableProperty] private ObservableCollection<Workspace> _workspaces = [];
     [ObservableProperty] private ObservableCollection<Channel> _channels = [];
     [ObservableProperty] private ObservableCollection<RenderedVideo> _renderedVideos = [];
     [ObservableProperty] private Workspace? _selectedWorkspace;
@@ -28,6 +26,10 @@ public partial class MainViewModel : ObservableObject
     public DetailEditorViewModel DetailEditor { get; }
     public ActivityLogViewModel ActivityLog { get; } = new();
     public SettingsViewModel SettingsVm => _services.GetRequiredService<SettingsViewModel>();
+    public ChannelSidebarViewModel ChannelsVm => _services.GetRequiredService<ChannelSidebarViewModel>();
+    public ToastViewModel ToastVm => _services.GetRequiredService<ToastViewModel>();
+    public DetectionStatusBarViewModel DetectionStatus => _services.GetRequiredService<DetectionStatusBarViewModel>();
+    public VideoDetailPanelViewModel DetailPanel { get; } = new();
 
     public MainViewModel(
         IWorkspaceStore workspaceStore,
@@ -37,13 +39,11 @@ public partial class MainViewModel : ObservableObject
         DetailEditorViewModel detailEditor,
         IServiceProvider services)
     {
-        _workspaceStore = workspaceStore;
         _channelStore = channelStore;
         _renderedVideoStore = renderedVideoStore;
         _services = services;
         WorkspaceQueue = workspaceQueue;
         DetailEditor = detailEditor;
-        _workspaceStore.WorkspaceUpdated += OnWorkspaceUpdated;
         _ = LoadDataAsync();
     }
 
@@ -53,32 +53,27 @@ public partial class MainViewModel : ObservableObject
         CurrentView = view;
     }
 
+    [RelayCommand]
+    private void SelectWorkspace(Workspace? ws)
+    {
+        SelectedWorkspace = ws;
+        if (ws != null)
+        {
+            DetailEditor.LoadWorkspace(ws);
+            DetailPanel.LoadWorkspace(ws);
+        }
+    }
+
     private async Task LoadDataAsync()
     {
         IsLoading = true;
         try
         {
-            var ws = await _workspaceStore.GetAllAsync();
-            Workspaces = new ObservableCollection<Workspace>(ws);
             var ch = await _channelStore.GetAllAsync();
             Channels = new ObservableCollection<Channel>(ch);
             var rv = await _renderedVideoStore.GetAllAsync();
             RenderedVideos = new ObservableCollection<RenderedVideo>(rv);
         }
         finally { IsLoading = false; }
-    }
-
-    private void OnWorkspaceUpdated(object? sender, Workspace ws)
-    {
-        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-        {
-            var existing = Workspaces.FirstOrDefault(w => w.Id == ws.Id);
-            if (existing != null)
-            {
-                var idx = Workspaces.IndexOf(existing);
-                Workspaces[idx] = ws;
-            }
-            else Workspaces.Add(ws);
-        });
     }
 }

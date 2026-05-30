@@ -1,96 +1,102 @@
 <UserControl x:Class="HyperClip.UI.Views.SettingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="#121212">
+             Background="{StaticResource BgBrush}">
     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
         <StackPanel MaxWidth="600">
-            <TextBlock Text="Settings" FontSize="18" FontWeight="Bold"
-                       Foreground="#F5F5F5" Margin="0,0,0,20"/>
+            <TextBlock Text="Settings" FontSize="20" FontWeight="SemiBold"
+                       Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,24"/>
 
-            <TextBlock Text="DETECTION" FontSize="10" FontWeight="Bold" Foreground="#A3A3A3" Margin="0,0,0,8"/>
-            <CheckBox Content="Enable auto-detection (poll channels)"
-                      IsChecked="{Binding Settings.PollingEnabled}"
-                      Foreground="#F5F5F5" Margin="0,0,0,8"/>
-            <Grid Margin="0,0,0,16">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="140"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Poll interval (ms)" FontSize="11" Foreground="#A3A3A3" VerticalAlignment="Center"/>
-                <TextBox Grid.Column="1" Text="{Binding Settings.PollIntervalMs}"
-                         Background="#1E1E1E" Foreground="#F5F5F5" BorderBrush="#333" Padding="8,4"/>
-            </Grid>
+            <!-- DETECTION -->
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="DETECTION" Style="{StaticResource SectionHeaderStyle}"/>
+                    <CheckBox Content="Enable auto-detection (poll channels)"
+                              IsChecked="{Binding Settings.PollingEnabled}"
+                              Style="{StaticResource InputCheckBoxStyle}" Margin="0,0,0,12"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Poll interval (ms)" FontSize="11"
+                                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <TextBox Grid.Column="1" Text="{Binding Settings.PollIntervalMs}"
+                                 Style="{StaticResource InputTextBoxStyle}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
 
-            <TextBlock Text="DOWNLOAD" FontSize="10" FontWeight="Bold" Foreground="#A3A3A3" Margin="0,0,0,8"/>
-            <Grid Margin="0,0,0,8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="140"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Quality" FontSize="11" Foreground="#A3A3A3" VerticalAlignment="Center"/>
-                <ComboBox Grid.Column="1" SelectedValue="{Binding Settings.AutoDownloadQuality}"
-                          Background="#1E1E1E" Foreground="#F5F5F5" Padding="8,4">
-                    <ComboBoxItem Content="360p" Tag="360"/>
-                    <ComboBoxItem Content="720p" Tag="720"/>
-                    <ComboBoxItem Content="1080p" Tag="1080"/>
-                </ComboBox>
-            </Grid>
-            <Grid Margin="0,0,0,8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="140"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Max concurrent downloads" FontSize="11" Foreground="#A3A3A3" VerticalAlignment="Center"/>
-                <TextBox Grid.Column="1" Text="{Binding Settings.MaxConcurrentDownloads}"
-                         Background="#1E1E1E" Foreground="#F5F5F5" BorderBrush="#333" Padding="8,4"/>
-            </Grid>
+            <!-- DOWNLOAD -->
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="DOWNLOAD" Style="{StaticResource SectionHeaderStyle}"/>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Quality" FontSize="11"
+                                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1" SelectedValue="{Binding Settings.AutoDownloadQuality}"
+                                  Style="{StaticResource InputComboBoxStyle}">
+                            <ComboBoxItem Content="360p" Tag="360"/>
+                            <ComboBoxItem Content="720p" Tag="720"/>
+                            <ComboBoxItem Content="1080p" Tag="1080"/>
+                        </ComboBox>
+                    </Grid>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Max concurrent" FontSize="11"
+                                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <TextBox Grid.Column="1" Text="{Binding Settings.MaxConcurrentDownloads}"
+                                 Style="{StaticResource InputTextBoxStyle}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
 
-            <TextBlock Text="RENDER" FontSize="10" FontWeight="Bold" Foreground="#A3A3A3" Margin="0,8,0,8"/>
-            <CheckBox Content="Auto-render after download"
-                      IsChecked="{Binding Settings.AutoRender}"
-                      Foreground="#F5F5F5" Margin="0,0,0,8"/>
-            <Grid Margin="0,0,0,16">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="140"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Max concurrent renders" FontSize="11" Foreground="#A3A3A3" VerticalAlignment="Center"/>
-                <TextBox Grid.Column="1" Text="{Binding Settings.MaxConcurrentRenders}"
-                         Background="#1E1E1E" Foreground="#F5F5F5" BorderBrush="#333" Padding="8,4"/>
-            </Grid>
+            <!-- RENDER -->
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="RENDER" Style="{StaticResource SectionHeaderStyle}"/>
+                    <CheckBox Content="Auto-render after download"
+                              IsChecked="{Binding Settings.AutoRender}"
+                              Style="{StaticResource InputCheckBoxStyle}" Margin="0,0,0,8"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Max concurrent renders" FontSize="11"
+                                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <TextBox Grid.Column="1" Text="{Binding Settings.MaxConcurrentRenders}"
+                                 Style="{StaticResource InputTextBoxStyle}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
 
-            <TextBlock Text="BEHAVIOR" FontSize="10" FontWeight="Bold" Foreground="#A3A3A3" Margin="0,0,0,8"/>
-            <CheckBox Content="Minimize to tray on close"
-                      IsChecked="{Binding Settings.MinimizeToTray}"
-                      Foreground="#F5F5F5" Margin="0,0,0,8"/>
-            <CheckBox Content="Quit app when closing"
-                      IsChecked="{Binding Settings.QuitOnClose}"
-                      Foreground="#F5F5F5" Margin="0,0,0,20"/>
+            <!-- BEHAVIOR -->
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,24">
+                <StackPanel>
+                    <TextBlock Text="BEHAVIOR" Style="{StaticResource SectionHeaderStyle}"/>
+                    <CheckBox Content="Minimize to tray on close"
+                              IsChecked="{Binding Settings.MinimizeToTray}"
+                              Style="{StaticResource InputCheckBoxStyle}" Margin="0,0,0,8"/>
+                    <CheckBox Content="Quit app when closing"
+                              IsChecked="{Binding Settings.QuitOnClose}"
+                              Style="{StaticResource InputCheckBoxStyle}"/>
+                </StackPanel>
+            </Border>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <TextBlock Text="{Binding StatusMessage}" FontSize="11" Foreground="#10B981"
+                <TextBlock Text="{Binding StatusMessage}" FontSize="11"
+                           Foreground="{StaticResource SuccessBrush}"
                            VerticalAlignment="Center" Margin="0,0,12,0"/>
                 <Button Content="Save" Command="{Binding SaveCommand}"
-                        Background="#3B82F6" Foreground="White" BorderThickness="0" Padding="20,8" FontWeight="600">
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}" CornerRadius="3" Padding="{TemplateBinding Padding}">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#2563EB"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
+                        Style="{StaticResource AccentButtonStyle}" Padding="20,8"/>
             </StackPanel>
         </StackPanel>
     </ScrollViewer>

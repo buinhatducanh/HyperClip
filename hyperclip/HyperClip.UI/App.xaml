@@ -6,8 +6,15 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="Resources/Theme.xaml"/>
+                <ResourceDictionary Source="Resources/ControlStyles.xaml"/>
             </ResourceDictionary.MergedDictionaries>
             <converters:BoolToVisibilityConverter x:Key="BoolToVisConverter"/>
+            <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
+            <converters:StringEqualsVisibilityConverter x:Key="StringEqualsVisibilityConverter"/>
+            <converters:StatusToColorConverter x:Key="StatusToColorConverter"/>
+            <converters:BytesToStringConverter x:Key="BytesToStringConverter"/>
+            <converters:ActivityLogTypeToBrushConverter x:Key="ActivityLogTypeToBrushConverter"/>
+            <converters:IntToVisibilityConverter x:Key="IntToVisibilityConverter"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

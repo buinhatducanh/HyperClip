@@ -17,6 +17,7 @@ public class YoutubePoller : IPollerService, IDisposable
     private long? _lastNewVideosAt;
     private string? _lastError;
     private bool _disposed;
+    private bool _paused;
 
     public event EventHandler<DetectedVideo>? OnVideoDetected;
 
@@ -40,6 +41,16 @@ public class YoutubePoller : IPollerService, IDisposable
         _timer = null;
     }
 
+    public void Pause()
+    {
+        _paused = true;
+    }
+
+    public void Resume()
+    {
+        _paused = false;
+    }
+
     public PollerStatus GetStatus() => new()
     {
         Active = IsActive,
@@ -54,7 +65,7 @@ public class YoutubePoller : IPollerService, IDisposable
 
     private async Task PollOnceAsync()
     {
-        if (_disposed) return;
+        if (_disposed || _paused) return;
 
         try
         {

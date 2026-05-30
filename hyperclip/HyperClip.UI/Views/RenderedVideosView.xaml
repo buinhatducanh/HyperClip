@@ -1,0 +1,52 @@
+<UserControl x:Class="HyperClip.UI.Views.RenderedVideosView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BgBrush}">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Text="Rendered Videos" FontSize="16" FontWeight="SemiBold"
+                   Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,16"/>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding Videos}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,8" Padding="12">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="{Binding VideoTitle}" FontSize="13" FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextPrimaryBrush}"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                        <TextBlock Text="{Binding Quality, StringFormat='{}{0}p'}" FontSize="10"
+                                                   FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource AccentBrush}" Margin="0,0,8,0"/>
+                                        <TextBlock Text="{Binding Codec}" FontSize="10" FontFamily="{StaticResource MonoFont}"
+                                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,8,0"/>
+                                        <TextBlock Text="{Binding FileSize}" FontSize="10" FontFamily="{StaticResource MonoFont}"
+                                                   Foreground="{StaticResource TextTertiaryBrush}" Margin="0,0,8,0"/>
+                                        <TextBlock Text="{Binding RenderedAt}" FontSize="10"
+                                                   Foreground="{StaticResource TextTertiaryBrush}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                    <Button Content="Open" Style="{StaticResource GhostButtonStyle}" Padding="8,4"
+                                            Command="{Binding DataContext.OpenOutputFolderCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}" FontSize="10"/>
+                                    <Button Content="Delete" Style="{StaticResource GhostButtonStyle}" Padding="8,4"
+                                            Command="{Binding DataContext.DeleteVideoCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}" FontSize="10" Foreground="{StaticResource ErrorBrush}"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

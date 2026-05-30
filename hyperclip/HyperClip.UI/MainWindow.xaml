@@ -3,196 +3,564 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:converters="clr-namespace:HyperClip.UI.Converters"
         xmlns:views="clr-namespace:HyperClip.UI.Views"
+        xmlns:settings="clr-namespace:HyperClip.UI.Views.Settings"
         Title="HyperClip"
         Width="1280" Height="800"
         MinWidth="960" MinHeight="600"
         Background="{StaticResource BgBrush}"
         WindowStyle="None"
-        AllowsTransparency="True">
+        AllowsTransparency="True"
+        StateChanged="Window_StateChanged">
     <Window.Resources>
-        <converters:StatusToColorConverter x:Key="StatusToColorConverter"/>
-        <converters:BytesToStringConverter x:Key="BytesToStringConverter"/>
-        <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
-        <converters:StringEqualsVisibilityConverter x:Key="StringEqualsVisibilityConverter"/>
     </Window.Resources>
-    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+    <Border BorderBrush="{StaticResource GlassBorderBrush}" BorderThickness="1"
+            Background="{StaticResource BgBrush}">
         <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="40"/>
-                <RowDefinition Height="*"/>
-                <RowDefinition Height="26"/>
-            </Grid.RowDefinitions>
+            <!-- ═══ Background glow layer ═══ -->
+            <Grid IsHitTestVisible="False">
+                <Border Background="{StaticResource GlowGradientBrush}"/>
+                <Border Background="{StaticResource SecondaryGlowBrush}" Opacity="0.6"/>
+            </Grid>
 
-            <!-- TopBar -->
-            <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}"
-                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
-                <Grid Margin="16,0">
+            <!-- ═══ Content ═══ -->
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="40"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="26"/>
+                </Grid.RowDefinitions>
+
+                <!-- ═══ TopBar ═══ -->
+                <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}"
+                        BorderBrush="{StaticResource GlassBorderBrush}" BorderThickness="0,0,0,1"
+                        MouseLeftButtonDown="TopBar_MouseLeftButtonDown">
+                    <Grid Margin="16,0,8,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="HyperClip" FontWeight="SemiBold" FontSize="13"
+                                   Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" Margin="0,0,16,0"/>
+                        <Border Grid.Column="1" Background="{StaticResource GlassSurfaceBrush}"
+                                BorderBrush="{StaticResource GlassBorderBrush}" BorderThickness="1"
+                                CornerRadius="4" Padding="8,2" Margin="8,0">
+                            <TextBlock Text="RENDER" FontSize="10" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       FontFamily="{StaticResource SansFont}"/>
+                        </Border>
+                        <TextBlock Grid.Column="5" Text="Ready" FontSize="10"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   FontFamily="{StaticResource SansFont}" VerticalAlignment="Center"/>
+
+                        <!-- Window Controls -->
+                        <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Center">
+                            <!-- Minimize -->
+                            <Button Click="MinimizeButton_Click" Style="{StaticResource WindowButtonStyle}" ToolTip="Minimize">
+                                <Path Data="M4,10 L14,10" Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="1"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"
+                                      Width="10" Height="10" Stretch="Uniform"/>
+                            </Button>
+                            <!-- Maximize / Restore -->
+                            <Button x:Name="MaximizeBtn" Click="MaximizeButton_Click" Style="{StaticResource WindowButtonStyle}" ToolTip="Maximize">
+                                <Grid>
+                                    <Path x:Name="maxIcon" Data="M3,3 L10,3 L10,10 L3,10 Z"
+                                          Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="1"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"
+                                          Width="10" Height="10" Stretch="Uniform"/>
+                                    <Path x:Name="restoreIcon" Data="M5,5 L8,5 L8,12 L3,12 L3,7 L5,7 Z"
+                                          Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="1"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"
+                                          Width="10" Height="10" Stretch="Uniform"
+                                          Visibility="Collapsed"/>
+                                </Grid>
+                            </Button>
+                            <!-- Close -->
+                            <Button Click="CloseButton_Click" Width="36" Height="36"
+                                    Background="Transparent" BorderThickness="0" Cursor="Hand"
+                                    ToolTip="Close">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="bd" Background="Transparent">
+                                            <Path Data="M4,4 L10,10 M10,4 L4,10"
+                                                  Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="1"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  Width="10" Height="10" Stretch="Uniform"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="bd" Property="Background" Value="#E81123"/>
+                                                <Setter Property="Foreground" Value="White"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- ═══ Main Content: 3-pane ═══ -->
+                <Grid Grid.Row="1">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="220" MinWidth="56" MaxWidth="400"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="340" MinWidth="200" MaxWidth="500"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="HyperClip" FontWeight="Bold" FontSize="13"
-                               Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" Margin="0,0,16,0"/>
-                    <Rectangle Grid.Column="1" Width="1" Height="14" Fill="{StaticResource BorderBrush}" Margin="8,0"/>
-                    <TextBlock Grid.Column="2" Text="RENDER" FontSize="10" FontWeight="Bold"
-                               Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="16,0,8,0"/>
-                    <TextBlock Grid.Column="5" Text="Ready" FontSize="10"
-                               Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
-                </Grid>
-            </Border>
 
-            <!-- Main Content: 3-pane -->
-            <Grid Grid.Row="1">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="220" MinWidth="56" MaxWidth="400"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="340" MinWidth="200" MaxWidth="500"/>
-                </Grid.ColumnDefinitions>
+                    <!-- Left Sidebar -->
+                    <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}"
+                            BorderBrush="{StaticResource GlassBorderBrush}" BorderThickness="0,0,1,0">
+                        <Grid Background="Transparent">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <StackPanel Grid.Row="0" Margin="8,12">
+                                <Button Content="Dashboard"
+                                        Command="{Binding NavigateToCommand}" CommandParameter="dashboard">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding CurrentView}" Value="dashboard">
+                                                    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                                <Button Content="Settings"
+                                        Command="{Binding NavigateToCommand}" CommandParameter="settings">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding CurrentView}" Value="settings">
+                                                    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                            </StackPanel>
+                            <!-- Detection Status -->
+                            <views:DetectionStatusBar DataContext="{Binding DetectionStatus}"
+                                                       Margin="8,4,8,8"/>
+                            <!-- Channel list -->
+                            <views:ChannelSidebarView Grid.Row="1" DataContext="{Binding ChannelsVm}" Margin="4,8,4,4"/>
+                            <!-- Activity log at bottom -->
+                            <views:ActivityLogView Grid.Row="1" DataContext="{Binding ActivityLog}" Margin="4,0,4,4"
+                                                   VerticalAlignment="Bottom"/>
+                        </Grid>
+                    </Border>
 
-                <!-- Left Sidebar -->
-                <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}"
-                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-                        <StackPanel Grid.Row="0" Margin="8,12">
-                            <Button Style="{StaticResource SidebarButtonStyle}" Content="Dashboard"
-                                    Command="{Binding NavigateToCommand}" CommandParameter="dashboard"/>
-                            <Button Style="{StaticResource SidebarButtonStyle}" Content="Channels"/>
-                            <Button Style="{StaticResource SidebarButtonStyle}" Content="Render Queue"/>
-                            <Button Style="{StaticResource SidebarButtonStyle}" Content="Rendered"/>
-                            <Button Style="{StaticResource SidebarButtonStyle}" Content="Settings"
-                                    Command="{Binding NavigateToCommand}" CommandParameter="settings"/>
-                        </StackPanel>
-                        <views:ActivityLogView Grid.Row="1" DataContext="{Binding ActivityLog}" Margin="4,0,4,4"/>
-                    </Grid>
-                </Border>
+                    <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Center"
+                                  Background="{StaticResource GlassBorderBrush}" ResizeBehavior="PreviousAndNext"
+                                  Cursor="SizeWE"/>
 
-                <GridSplitter Grid.Column="1" Width="1" HorizontalAlignment="Center"
-                              Background="{StaticResource BorderBrush}" ResizeBehavior="PreviousAndNext"/>
+                    <!-- Center Panel -->
+                    <Border Grid.Column="2" Background="Transparent">
+                        <Grid>
+                            <!-- Dashboard -->
+                            <Grid Visibility="{Binding CurrentView, Converter={StaticResource StringEqualsVisibilityConverter}, ConverterParameter=dashboard}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
 
-                <!-- Center Panel -->
-                <Border Grid.Column="2" Background="{StaticResource BgBrush}">
-                    <Grid>
-                        <!-- Dashboard -->
-                        <Grid Visibility="{Binding CurrentView, Converter={StaticResource StringEqualsVisibilityConverter}, ConverterParameter=dashboard}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
+                                <!-- Workspace list -->
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+                                    <views:InputBar Grid.Row="0" DataContext="{Binding WorkspaceQueue}" Margin="16,16,16,8"/>
+                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="16,0,16,16">
+                                        <ItemsControl ItemsSource="{Binding WorkspaceQueue.Workspaces}"
+                                                      VirtualizingStackPanel.IsVirtualizing="True"
+                                                      VirtualizingStackPanel.VirtualizationMode="Recycling">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <VirtualizingStackPanel/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Button Style="{StaticResource SidebarButtonStyle}" Padding="0" Margin="0,0,0,6"
+                                                            Command="{Binding DataContext.SelectWorkspaceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}">
+                                                        <Border Style="{StaticResource CardBorderStyle}" Padding="12">
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <Grid.RowDefinitions>
+                                                                    <RowDefinition Height="Auto"/>
+                                                                    <RowDefinition Height="Auto"/>
+                                                                    <RowDefinition Height="Auto"/>
+                                                                </Grid.RowDefinitions>
+                                                                <Ellipse Grid.Column="0" Grid.RowSpan="3" Width="8" Height="8"
+                                                                         Fill="{Binding Status, Converter={StaticResource StatusToColorConverter}}"
+                                                                         VerticalAlignment="Top" Margin="0,3,10,0"/>
+                                                                <StackPanel Grid.Column="1" Grid.Row="0" VerticalAlignment="Center">
+                                                                    <StackPanel Orientation="Horizontal">
+                                                                        <TextBlock Text="{Binding VideoTitle}" FontSize="13"
+                                                                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                                                                   TextTrimming="CharacterEllipsis" MaxWidth="200"/>
+                                                                        <!-- SHORT badge -->
+                                                                        <Border Background="{StaticResource AccentGlowBrush}" CornerRadius="3"
+                                                                                Padding="4,1" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                                                Visibility="{Binding IsShort, Converter={StaticResource BoolToVisConverter}}">
+                                                                            <TextBlock Text="9:16" FontSize="8" FontWeight="Bold" Foreground="{StaticResource AccentBrush}"/>
+                                                                        </Border>
+                                                                    </StackPanel>
+                                                                    <TextBlock FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,0">
+                                                                        <Run Text="{Binding Status, Mode=OneWay}"/>
+                                                                        <Run Text=" " Foreground="{StaticResource TextTertiaryBrush}"/>
+                                                                        <Run Text="{Binding FileSize, Mode=OneWay}" Foreground="{StaticResource TextTertiaryBrush}" FontFamily="{StaticResource MonoFont}"/>
+                                                                    </TextBlock>
+                                                                </StackPanel>
+                                                                <!-- Download progress -->
+                                                                <StackPanel Grid.Column="1" Grid.Row="1" Margin="0,4,0,0"
+                                                                            Visibility="{Binding Status, Converter={StaticResource StringEqualsVisibilityConverter}, ConverterParameter=Downloading}">
+                                                                    <Grid Margin="0,0,0,2">
+                                                                        <Grid.ColumnDefinitions>
+                                                                            <ColumnDefinition Width="*"/>
+                                                                            <ColumnDefinition Width="Auto"/>
+                                                                        </Grid.ColumnDefinitions>
+                                                                        <TextBlock Text="{Binding DownloadSpeed, FallbackValue=''}" FontSize="9"
+                                                                                   FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource AccentBrush}"/>
+                                                                        <TextBlock Grid.Column="1" Text="{Binding DownloadEta, FallbackValue=''}" FontSize="9"
+                                                                                   FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                                    </Grid>
+                                                                    <ProgressBar Value="{Binding DownloadProgress, FallbackValue=0}" Maximum="100"
+                                                                                 Style="{StaticResource ProgressBarStyle}"/>
+                                                                </StackPanel>
+                                                                <!-- Render progress -->
+                                                                <StackPanel Grid.Column="1" Grid.Row="1" Margin="0,4,0,0"
+                                                                            Visibility="{Binding Status, Converter={StaticResource StringEqualsVisibilityConverter}, ConverterParameter=Rendering}">
+                                                                    <Grid Margin="0,0,0,2">
+                                                                        <TextBlock FontSize="9" Foreground="{StaticResource PurpleBrush}" FontFamily="{StaticResource MonoFont}">
+                                                                            <Run Text="Rendering "/>
+                                                                            <Run Text="{Binding RenderProgress, StringFormat='{}{0:F0}%', Mode=OneWay}"/>
+                                                                        </TextBlock>
+                                                                    </Grid>
+                                                                    <ProgressBar Value="{Binding RenderProgress, FallbackValue=0}" Maximum="100"
+                                                                                 Style="{StaticResource ProgressBarStyle}"
+                                                                                 Foreground="{StaticResource PurpleBrush}"/>
+                                                                </StackPanel>
+                                                                <!-- Quality badge -->
+                                                                <TextBlock Grid.Column="2" Grid.Row="0" FontSize="9"
+                                                                           FontFamily="{StaticResource MonoFont}" VerticalAlignment="Top"
+                                                                           Foreground="{StaticResource TextTertiaryBrush}">
+                                                                    <Run Text="{Binding DownloadQuality, FallbackValue=''}"/>
+                                                                    <Run Text="p"/>
+                                                                </TextBlock>
+                                                                <!-- Error message -->
+                                                                <TextBlock Grid.Column="1" Grid.Row="2" Text="{Binding ErrorMessage}" FontSize="9"
+                                                                           Foreground="{StaticResource ErrorBrush}" TextTrimming="CharacterEllipsis"
+                                                                           Visibility="{Binding ErrorMessage, Converter={StaticResource StringToVisibilityConverter}}"
+                                                                           Margin="0,2,0,0"/>
+                                                            </Grid>
+                                                        </Border>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </Grid>
 
-                            <!-- Workspace list column -->
-                            <StackPanel>
-                                <views:InputBar DataContext="{Binding WorkspaceQueue}" Margin="16,16,16,8"/>
-                                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="16,0,16,16">
-                                    <ItemsControl ItemsSource="{Binding Workspaces}">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,8">
-                                                    <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="80"/>
-                                                            <ColumnDefinition Width="*"/>
-                                                            <ColumnDefinition Width="Auto"/>
-                                                        </Grid.ColumnDefinitions>
-                                                        <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
-                                                            <TextBlock Text="{Binding VideoTitle}" FontSize="13"
-                                                                       Foreground="{StaticResource TextPrimaryBrush}"
-                                                                       TextTrimming="CharacterEllipsis"/>
-                                                            <TextBlock Text="{Binding Status}" FontSize="10"
-                                                                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,0"/>
-                                                        </StackPanel>
-                                                        <TextBlock Grid.Column="2" Text="{Binding FileSize}" FontSize="10"
-                                                                   Foreground="{StaticResource TextTertiaryBrush}" VerticalAlignment="Center"/>
-                                                    </Grid>
-                                                </Border>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                </ScrollViewer>
+                                <!-- Detail Editor column -->
+                                <views:DetailEditorView Grid.Column="1"
+                                                        DataContext="{Binding DetailEditor}"
+                                                        Width="300"
+                                                        BorderBrush="{StaticResource GlassBorderBrush}" BorderThickness="1,0,0,0"/>
+                            </Grid>
+
+                            <!-- Settings -->
+                            <settings:SettingsTabView DataContext="{Binding SettingsVm}"
+                                                      Visibility="{Binding DataContext.CurrentView, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsVisibilityConverter}, ConverterParameter=settings}"/>
+
+                            <!-- Video Detail Panel (shows when workspace selected) -->
+                            <views:VideoDetailPanelView DataContext="{Binding DetailPanel}"
+                                                        Visibility="{Binding DetailPanel.IsVisible, Converter={StaticResource BoolToVisConverter}}"/>
+                        </Grid>
+                    </Border>
+
+                    <GridSplitter Grid.Column="3" Width="4" HorizontalAlignment="Center"
+                                  Background="{StaticResource GlassBorderBrush}" ResizeBehavior="PreviousAndNext"
+                                  Cursor="SizeWE"/>
+
+                    <!-- Right Queue Panel -->
+                    <Border Grid.Column="4" Background="{StaticResource SurfaceBrush}"
+                            BorderBrush="{StaticResource GlassBorderBrush}" BorderThickness="1,0,0,0">
+                        <Grid Margin="12">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- Tab headers -->
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
+                                <Button Content="Pipeline"
+                                        FontSize="11" Padding="8,4"
+                                        Command="{Binding WorkspaceQueue.SwitchTabCommand}" CommandParameter="pipeline">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding WorkspaceQueue.SelectedTab}" Value="pipeline">
+                                                    <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                                <Button Content="Rendered"
+                                        FontSize="11" Padding="8,4"
+                                        Command="{Binding WorkspaceQueue.SwitchTabCommand}" CommandParameter="rendered">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding WorkspaceQueue.SelectedTab}" Value="rendered">
+                                                    <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
                             </StackPanel>
 
-                            <!-- Detail Editor column -->
-                            <views:DetailEditorView Grid.Column="1"
-                                                    DataContext="{Binding DetailEditor}"
-                                                    Width="300"
-                                                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0"/>
+                            <!-- Search -->
+                            <Border Grid.Row="1" Margin="0,0,0,8"
+                                    BorderBrush="{StaticResource GlassBorderBrush}" BorderThickness="1"
+                                    CornerRadius="6" Padding="0">
+                                <Grid>
+                                    <TextBox Text="{Binding WorkspaceQueue.SearchQuery, UpdateSourceTrigger=PropertyChanged}"
+                                             Style="{StaticResource InputTextBoxStyle}" BorderThickness="0"
+                                             Padding="8,4" FontSize="11"/>
+                                    <TextBlock Text="Search..." FontSize="11"
+                                               Foreground="{StaticResource TextTertiaryBrush}"
+                                               VerticalAlignment="Center" Margin="8,0" IsHitTestVisible="False">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding WorkspaceQueue.SearchQuery, Converter={StaticResource StringToVisibilityConverter}}" Value="Collapsed">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Grid>
+                            </Border>
+
+                            <!-- Filter pills -->
+                            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+                                <Button Content="All" FontSize="9" Padding="6,2" Margin="0,0,4,0"
+                                        Command="{Binding WorkspaceQueue.SetStatusFilterCommand}" CommandParameter="all"
+                                        Style="{StaticResource GhostButtonStyle}"/>
+                                <Button FontSize="9" Padding="6,2" Margin="0,0,4,0"
+                                        Command="{Binding WorkspaceQueue.SetStatusFilterCommand}" CommandParameter="ready"
+                                        Style="{StaticResource GhostButtonStyle}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="Ready "/>
+                                        <TextBlock Text="{Binding WorkspaceQueue.ReadyCount}" Foreground="{StaticResource SuccessBrush}" FontFamily="{StaticResource MonoFont}"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button FontSize="9" Padding="6,2" Margin="0,0,4,0"
+                                        Command="{Binding WorkspaceQueue.SetStatusFilterCommand}" CommandParameter="downloading"
+                                        Style="{StaticResource GhostButtonStyle}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="DL "/>
+                                        <TextBlock Text="{Binding WorkspaceQueue.DownloadingCount}" Foreground="{StaticResource AccentBrush}" FontFamily="{StaticResource MonoFont}"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button FontSize="9" Padding="6,2" Margin="0,0,4,0"
+                                        Command="{Binding WorkspaceQueue.SetStatusFilterCommand}" CommandParameter="rendering"
+                                        Style="{StaticResource GhostButtonStyle}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="Render "/>
+                                        <TextBlock Text="{Binding WorkspaceQueue.RenderingCount}" Foreground="{StaticResource PurpleBrush}" FontFamily="{StaticResource MonoFont}"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button FontSize="9" Padding="6,2" Margin="0,0,4,0"
+                                        Command="{Binding WorkspaceQueue.SetStatusFilterCommand}" CommandParameter="error"
+                                        Style="{StaticResource GhostButtonStyle}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="Err "/>
+                                        <TextBlock Text="{Binding WorkspaceQueue.ErrorCount}" Foreground="{StaticResource ErrorBrush}" FontFamily="{StaticResource MonoFont}"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+
+                            <!-- Pipeline list -->
+                            <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto"
+                                          Visibility="{Binding WorkspaceQueue.SelectedTab, Converter={StaticResource StringEqualsVisibilityConverter}, ConverterParameter=pipeline}">
+                                <ItemsControl ItemsSource="{Binding WorkspaceQueue.Workspaces}"
+                                              VirtualizingStackPanel.IsVirtualizing="True"
+                                              VirtualizingStackPanel.VirtualizationMode="Recycling">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate><VirtualizingStackPanel/></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Background="Transparent" CornerRadius="{StaticResource CardRadius}"
+                                                    Padding="8" Margin="0,0,0,4"
+                                                    BorderBrush="{StaticResource GlassBorderBrush}" BorderThickness="1">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <Ellipse Grid.Column="0" Width="6" Height="6" Margin="0,0,8,0"
+                                                             VerticalAlignment="Center"
+                                                             Fill="{Binding Status, Converter={StaticResource StatusToColorConverter}}"/>
+                                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding VideoTitle}" FontSize="11"
+                                                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                                                   TextTrimming="CharacterEllipsis"/>
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock Text="{Binding Status}" FontSize="9"
+                                                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                            <TextBlock Text=" | " FontSize="9" Foreground="{StaticResource TextTertiaryBrush}"/>
+                                                            <TextBlock Text="{Binding FileSize}" FontSize="9"
+                                                                       FontFamily="{StaticResource MonoFont}"
+                                                                       Foreground="{StaticResource TextTertiaryBrush}"/>
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                    <!-- Download progress indicator -->
+                                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding DownloadSpeed}" FontSize="9"
+                                                                   FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource AccentBrush}"
+                                                                   Visibility="{Binding DownloadSpeed, Converter={StaticResource StringToVisibilityConverter}}"/>
+                                                        <TextBlock Text="{Binding RenderProgress, StringFormat='{}{0:F0}%'}" FontSize="9"
+                                                                   FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource PurpleBrush}"
+                                                                   Visibility="{Binding Status, Converter={StaticResource StringEqualsVisibilityConverter}, ConverterParameter=Rendering}"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+
+                            <!-- Rendered list -->
+                            <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto"
+                                          Visibility="{Binding WorkspaceQueue.SelectedTab, Converter={StaticResource StringEqualsVisibilityConverter}, ConverterParameter=rendered}">
+                                <ItemsControl ItemsSource="{Binding WorkspaceQueue.RenderedVideos}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Style="{StaticResource CardBorderStyle}" Padding="10" Margin="0,0,0,6">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Grid.Column="0">
+                                                        <TextBlock Text="{Binding VideoTitle}" FontSize="11"
+                                                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                                                   TextTrimming="CharacterEllipsis"/>
+                                                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                                                            <TextBlock FontSize="9" Foreground="{StaticResource AccentBrush}" FontFamily="{StaticResource MonoFont}"
+                                                                       Text="{Binding Quality, StringFormat='{}{0}p'}"/>
+                                                            <TextBlock Text=" | " FontSize="9" Foreground="{StaticResource TextTertiaryBrush}"/>
+                                                            <TextBlock Text="{Binding FileSize}" FontSize="9" FontFamily="{StaticResource MonoFont}"
+                                                                       Foreground="{StaticResource TextTertiaryBrush}"/>
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                                        <Button Content="&#x2197;" FontSize="10" Width="20" Height="20"
+                                                                Style="{StaticResource WindowButtonStyle}"
+                                                                Command="{Binding DataContext.OpenRenderedFolderCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                CommandParameter="{Binding}" ToolTip="Open folder"/>
+                                                        <Button Content="&#x2715;" FontSize="10" Width="20" Height="20"
+                                                                Style="{StaticResource WindowButtonStyle}"
+                                                                Command="{Binding DataContext.DeleteRenderedVideoCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                CommandParameter="{Binding}" ToolTip="Delete"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
                         </Grid>
+                    </Border>
+                </Grid>
 
-                        <!-- Settings -->
-                        <views:SettingsView DataContext="{Binding SettingsVm}"
-                                           Visibility="{Binding DataContext.CurrentView, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsVisibilityConverter}, ConverterParameter=settings}"/>
-                    </Grid>
-                </Border>
+                <!-- ═══ StatusBar ═══ -->
+                <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}"
+                        BorderBrush="{StaticResource GlassBorderBrush}" BorderThickness="0,1,0,0">
+                    <Grid Margin="16,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Ready" FontSize="10"
+                                   Foreground="{StaticResource TextTertiaryBrush}"
+                                   FontFamily="{StaticResource SansFont}" VerticalAlignment="Center" Margin="0,0,16,0"/>
 
-                <GridSplitter Grid.Column="3" Width="1" HorizontalAlignment="Center"
-                              Background="{StaticResource BorderBrush}" ResizeBehavior="PreviousAndNext"/>
+                        <!-- GPU/RAM stats -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock FontSize="9" Foreground="{StaticResource TextTertiaryBrush}" VerticalAlignment="Center">
+                                <Run Text="GPU:"/>
+                                <Run Text="{Binding TopBar.SystemStats.GpuUsage, Mode=OneWay, StringFormat=' {0:F0}%', FallbackValue=' 0%'}"
+                                     Foreground="{StaticResource AccentBrush}" FontFamily="{StaticResource MonoFont}"/>
+                                <Run Text="  RAM:"/>
+                                <Run Text="{Binding TopBar.SystemStats.RamUsed, Mode=OneWay, StringFormat=' {0:F1}GB', FallbackValue=' 0GB'}"
+                                     Foreground="{StaticResource SuccessBrush}" FontFamily="{StaticResource MonoFont}"/>
+                                <Run Text="  Workers:"/>
+                                <Run Text="{Binding TopBar.SystemStats.ActiveWorkers, Mode=OneWay, FallbackValue='0'}"
+                                     Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource MonoFont}"/>
+                            </TextBlock>
+                        </StackPanel>
 
-                <!-- Right Queue Panel -->
-                <Border Grid.Column="4" Background="{StaticResource SurfaceBrush}"
-                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0">
-                    <Grid Margin="12">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="Queue" FontSize="12" FontWeight="Bold"
-                                   Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,12"/>
-                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                            <ItemsControl ItemsSource="{Binding Workspaces}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border Background="{StaticResource BgBrush}" CornerRadius="3" Padding="8" Margin="0,0,0,6">
-                                            <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                    <ColumnDefinition Width="*"/>
-                                                </Grid.ColumnDefinitions>
-                                                <Ellipse Grid.Column="0" Width="8" Height="8" Margin="0,0,8,0"
-                                                         VerticalAlignment="Center"
-                                                         Fill="{Binding Status, Converter={StaticResource StatusToColorConverter}}"/>
-                                                <TextBlock Grid.Column="1" Text="{Binding VideoTitle}" FontSize="11"
-                                                           Foreground="{StaticResource TextPrimaryBrush}"
-                                                           TextTrimming="CharacterEllipsis"/>
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
+                        <TextBlock Grid.Column="2" FontSize="10"
+                                   Foreground="{StaticResource TextTertiaryBrush}"
+                                   FontFamily="{StaticResource MonoFont}" VerticalAlignment="Center">
+                            <Run Text="{Binding TopBar.SystemStats.GpuName, Mode=OneWay, FallbackValue='N/A'}"
+                                 Foreground="{StaticResource TextSecondaryBrush}"/>
+                        </TextBlock>
                     </Grid>
                 </Border>
             </Grid>
 
-            <!-- StatusBar -->
-            <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}"
-                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
-                <Grid Margin="16,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="Ready" FontSize="10"
-                               Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Column="1" FontSize="10"
-                               Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center">
-                        <Run Text="GPU: "/>
-                        <Run Text="{Binding TopBar.SystemStats.GpuName, Mode=OneWay, FallbackValue='N/A'}"/>
-                        <Run Text=" | "/>
-                        <Run Text="{Binding TopBar.SystemStats.GpuUsage, Mode=OneWay, StringFormat='{}{0:F0}%', FallbackValue='0%'}"/>
-                        <Run Text=" VRAM | RAM "/>
-                        <Run Text="{Binding TopBar.SystemStats.RamUsed, Mode=OneWay, StringFormat='{}{0:F0}GB', FallbackValue='0GB'}"/>
-                    </TextBlock>
-                </Grid>
-            </Border>
+            <!-- ═══ Toast Notifications (floating bottom-right) ═══ -->
+            <ItemsControl Grid.Row="1" ItemsSource="{Binding ToastVm.Notifications}"
+                          IsHitTestVisible="False" HorizontalAlignment="Right"
+                          VerticalAlignment="Bottom" Margin="0,0,16,16" MaxWidth="320">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="{StaticResource SurfaceBrush}"
+                                BorderBrush="{StaticResource GlassBorderBrush}" BorderThickness="1"
+                                CornerRadius="8" Padding="12,10" Margin="0,0,0,8"
+                                IsHitTestVisible="True">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                                <TextBlock Text="{Binding Message}" FontSize="11"
+                                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,0"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
         </Grid>
     </Border>
 </Window>

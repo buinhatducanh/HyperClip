@@ -1,0 +1,123 @@
+<UserControl x:Class="HyperClip.UI.Views.VideoDetailPanelView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BgBrush}">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
+        <StackPanel>
+            <!-- Header -->
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,16" Padding="12">
+                <StackPanel>
+                    <TextBlock Text="METRICS" FontSize="10" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" Margin="0,0,0,6"/>
+                    <TextBlock Text="{Binding VideoTitle}" FontSize="14" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding ChannelName}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <!-- E2E Timeline -->
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="PIPELINE" Style="{StaticResource SectionHeaderStyle}"/>
+                    <StackPanel Orientation="Horizontal">
+                        <StackPanel Margin="0,0,16,0">
+                            <TextBlock Text="Detected" FontSize="9" Foreground="{StaticResource TextTertiaryBrush}"/>
+                            <TextBlock Text="{Binding DetectedAt, StringFormat='{}{0:HH:mm:ss}', FallbackValue='--:--:--'}"
+                                       FontSize="10" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        </StackPanel>
+                        <TextBlock Text=">" FontSize="10" Foreground="{StaticResource TextTertiaryBrush}" VerticalAlignment="Center" Margin="0,0,16,0"/>
+                        <StackPanel Margin="0,0,16,0">
+                            <TextBlock Text="Downloaded" FontSize="9" Foreground="{StaticResource TextTertiaryBrush}"/>
+                            <TextBlock Text="{Binding DownloadedAt, FallbackValue='--:--:--'}"
+                                       FontSize="10" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        </StackPanel>
+                        <TextBlock Text=">" FontSize="10" Foreground="{StaticResource TextTertiaryBrush}" VerticalAlignment="Center" Margin="0,0,16,0"/>
+                        <StackPanel>
+                            <TextBlock Text="Rendered" FontSize="9" Foreground="{StaticResource TextTertiaryBrush}"/>
+                            <TextBlock Text="{Binding RenderedAt, FallbackValue='--:--:--'}"
+                                       FontSize="10" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        </StackPanel>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Download Metrics -->
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="DOWNLOAD" Style="{StaticResource SectionHeaderStyle}"/>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="100"/><ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Size" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding FileSize, FallbackValue='N/A'}" FontSize="10" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    </Grid>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="100"/><ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Quality" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <TextBlock Grid.Column="1" FontSize="10" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource TextPrimaryBrush}">
+                            <Run Text="{Binding DownloadQuality, FallbackValue='N/A'}"/>
+                            <Run Text="p"/>
+                        </TextBlock>
+                    </Grid>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="100"/><ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Resolution" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding SourceResolution, FallbackValue='N/A'}" FontSize="10" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Render Metrics -->
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="RENDER" Style="{StaticResource SectionHeaderStyle}"/>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="100"/><ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Codec" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding RenderCodec, FallbackValue='N/A'}" FontSize="10" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    </Grid>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="100"/><ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Preset" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding RenderPreset, FallbackValue='N/A'}" FontSize="10" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    </Grid>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="100"/><ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Duration" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <TextBlock Grid.Column="1" FontSize="10" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource TextPrimaryBrush}">
+                            <Run Text="{Binding RenderDurationMs, FallbackValue=0, StringFormat='{}{0}ms'}"/>
+                        </TextBlock>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- System Metrics -->
+            <Border Style="{StaticResource GlassPanelStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="SYSTEM" Style="{StaticResource SectionHeaderStyle}"/>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="100"/><ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="GPU" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding GpuName, FallbackValue='N/A'}" FontSize="10" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Close -->
+            <Button Content="Close" Command="{Binding DataContext.CloseDetailCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                    Style="{StaticResource GhostButtonStyle}" HorizontalAlignment="Center" Margin="0,8,0,0"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
