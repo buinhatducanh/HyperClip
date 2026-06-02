@@ -203,6 +203,11 @@ function enqueueBgDownload(video) {
         publishedAt: video.publishedAt ? new Date(video.publishedAt).toISOString() : undefined,
         detectedAt: video.detectedAt ? new Date(video.detectedAt).toISOString() : nowIso,
         downloadQuality: settings2.autoDownloadQuality ?? '720',
+        metrics: {
+            detectedAt: video.detectedAt ? new Date(video.detectedAt).toISOString() : nowIso,
+            downloadQuality: settings2.autoDownloadQuality ?? '720',
+            downloadIsMultiInstance: parseInt(settings2.autoDownloadQuality ?? '720') >= 1080,
+        },
     });
     (0, unified_log_js_1.devLog)(`[BgDownload] enqueue: ${video.videoId} (${video.title}) → workspace=${ws.id}, queue=${bgDownloadQueue.length + 1}`);
     // Broadcast immediately so UI shows the video right away
@@ -554,7 +559,14 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
             return;
         }
         // Update to 'downloading' so UI reflects actual progress
-        (0, store_js_1.updateWorkspace)(ws.id, { status: 'downloading', downloadProgress: 0 });
+        (0, store_js_1.updateWorkspace)(ws.id, {
+            status: 'downloading',
+            downloadProgress: 0,
+            metrics: {
+                ...(ws.metrics || {}),
+                downloadStartedAt: new Date().toISOString(),
+            }
+        });
         broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
         broadcast(channels_js_1.IPC_CHANNELS.ACTIVITY_EVENT, {
             id: ws.id,
@@ -974,25 +986,43 @@ async function autoDownloadFromWebSub(videoId, channelId, channelName, title, pu
         // autoRenderAttempted flag prevents infinite loops when render fails → retries.
         if (autoRenderEnabled && !updatedWs?.autoRenderAttempted) {
             (0, store_js_1.updateWorkspace)(ws.id, { autoRenderAttempted: true });
-            const sourceVideo = updatedWs?.preScaledPath || updatedWs?.downloadedPath || preScaledPath || finalFilePath;
+            // Use finalFilePath directly — it's the correct yt-dlp output path.
+            // Previously relied on updatedWs?.downloadedPath but resolveWorkspacePaths
+            // fails due to broken file-index cache parsing (underscore position bug).
+            const sourceVideo = finalFilePath || preScaledPath || updatedWs?.preScaledPath || updatedWs?.downloadedPath;
             if (!sourceVideo || !fs_1.default.existsSync(sourceVideo)) {
                 (0, unified_log_js_1.devLog)(`[Auto] Render skipped — source file not found: ${sourceVideo}`);
             }
             else {
                 const thumbPath = path_1.default.join(storagePath, `thumb_${ws.id}.jpg`);
-                // For autoSplitParts: chunkDuration = section duration so renderChunked produces
-                // exactly autoSplitParts chunks (no GPU-tier default override).
                 const autoSplitParts = settings.autoSplitParts ?? 1;
                 const splitChunkDuration = (settings.autoSplitMinutes ?? 0) === 0 && autoSplitParts > 1
                     ? Math.ceil(finalDuration / autoSplitParts)
                     : undefined;
-                const autoMetadata = buildAutoRenderMetadata(ws, sourceVideo, finalDuration, blurBgPath, thumbPath, settings, undefined, // no section trim override
-                splitChunkDuration);
+                const autoMetadata = buildAutoRenderMetadata(ws, sourceVideo, finalDuration, blurBgPath, thumbPath, settings, undefined, splitChunkDuration);
                 (0, unified_log_js_1.devLog)(`[Auto] Render started: ${realTitle}`);
-                const renderResult = await new Promise((resolve) => {
-                    renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve });
-                    startNextQueuedRender();
-                });
+                let renderResult;
+                if (autoSplitParts > 1 && (settings.autoSplitMinutes ?? 0) === 0 && splitChunkDuration) {
+                    (0, unified_log_js_1.devLog)(`[AutoSplit] Triggering chunked render: ${autoSplitParts} parts × ${splitChunkDuration}s`);
+                    const gpuCaps = (0, system_js_1.getGPUCapabilities)();
+                    const chunked = await (0, ffmpeg_js_1.renderChunked)(autoMetadata, (0, ramdisk_js_1.getOutputPath)(), {
+                        workers: gpuCaps.maxChunkWorkers,
+                        chunkDuration: splitChunkDuration,
+                        minChunkDuration: 10,
+                        gpuTier: gpuCaps.tier,
+                        fpsTarget: autoMetadata.fps_target || 30,
+                    }, (progress) => {
+                        (0, store_js_1.updateWorkspace)(ws.id, { renderProgress: Math.round(progress.percent) });
+                        broadcast(channels_js_1.IPC_CHANNELS.RENDER_PROGRESS_EVENT, progress);
+                    });
+                    renderResult = { success: chunked.success, outputPath: chunked.outputPath };
+                }
+                else {
+                    renderResult = await new Promise((resolve) => {
+                        renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve });
+                        startNextQueuedRender();
+                    });
+                }
                 (0, unified_log_js_1.devLog)(`[Auto] Render ${renderResult.success ? 'done' : 'failed'}: ${realTitle}`);
             }
         }
@@ -1035,7 +1065,14 @@ async function doRetryAutoDownload(ws) {
     // Export Chrome cookies for yt-dlp authentication (bypasses EJS challenge → enables 1080p VP9)
     const { getYtCookiesFile } = await Promise.resolve().then(() => __importStar(require('./services/po_token.js')));
     const ytCookiesFile = await getYtCookiesFile();
-    (0, store_js_1.updateWorkspace)(ws.id, { status: 'downloading', downloadProgress: 0 });
+    (0, store_js_1.updateWorkspace)(ws.id, {
+        status: 'downloading',
+        downloadProgress: 0,
+        metrics: {
+            ...(ws.metrics || {}),
+            downloadStartedAt: new Date().toISOString(),
+        }
+    });
     broadcast(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(ws.id));
     let _retryDlLastMs = 0;
     let _retryDlLastPct = -1;

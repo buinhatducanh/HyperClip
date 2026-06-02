@@ -197,6 +197,11 @@ function enqueueBgDownload(video: {
     publishedAt: video.publishedAt ? new Date(video.publishedAt).toISOString() : undefined,
     detectedAt: video.detectedAt ? new Date(video.detectedAt).toISOString() : nowIso,
     downloadQuality: settings2.autoDownloadQuality ?? '720',
+    metrics: {
+      detectedAt: video.detectedAt ? new Date(video.detectedAt).toISOString() : nowIso,
+      downloadQuality: settings2.autoDownloadQuality ?? '720',
+      downloadIsMultiInstance: parseInt(settings2.autoDownloadQuality ?? '720') >= 1080,
+    },
   })
 
   devLog(`[BgDownload] enqueue: ${video.videoId} (${video.title}) → workspace=${ws.id}, queue=${bgDownloadQueue.length + 1}`)
@@ -590,7 +595,14 @@ async function autoDownloadFromWebSub(
     }
 
     // Update to 'downloading' so UI reflects actual progress
-    updateWorkspace(ws.id, { status: 'downloading', downloadProgress: 0 })
+    updateWorkspace(ws.id, {
+      status: 'downloading',
+      downloadProgress: 0,
+      metrics: {
+        ...(ws.metrics || {}),
+        downloadStartedAt: new Date().toISOString(),
+      }
+    })
     broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
     broadcast(IPC_CHANNELS.ACTIVITY_EVENT, {
       id: ws.id,
@@ -1136,7 +1148,14 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
   const { getYtCookiesFile } = await import('./services/po_token.js')
   const ytCookiesFile = await getYtCookiesFile()
 
-  updateWorkspace(ws.id, { status: 'downloading', downloadProgress: 0 })
+  updateWorkspace(ws.id, {
+    status: 'downloading',
+    downloadProgress: 0,
+    metrics: {
+      ...(ws.metrics || {}),
+      downloadStartedAt: new Date().toISOString(),
+    }
+  })
   broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
   let _retryDlLastMs = 0
   let _retryDlLastPct = -1

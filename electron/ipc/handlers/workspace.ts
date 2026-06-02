@@ -87,7 +87,14 @@ export function registerWorkspaceHandlers(ipcMain: IpcMain): void {
     const videoUrl = ws.videoUrl || (ws.videoId ? `https://www.youtube.com/watch?v=${ws.videoId}` : null)
     if (!videoUrl) return { success: false, error: 'No video URL stored' }
 
-    updateWorkspace(id, { status: 'downloading', downloadProgress: 0 })
+    updateWorkspace(id, {
+      status: 'downloading',
+      downloadProgress: 0,
+      metrics: {
+        ...(ws.metrics || {}),
+        downloadStartedAt: new Date().toISOString(),
+      }
+    })
     broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id))
 
     const storagePath = getVideoStoragePath()

@@ -63,6 +63,12 @@ export function registerTrackerHandlers(ipcMain: IpcMain): void {
           fileSize: 0,
           renderMetadata: null,
           downloadQuality: quality,
+          metrics: {
+            detectedAt: new Date().toISOString(),
+            downloadStartedAt: new Date().toISOString(),
+            downloadQuality: quality,
+            downloadIsMultiInstance: parseInt(quality) >= 1080,
+          },
         })
 
         broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, workspace)

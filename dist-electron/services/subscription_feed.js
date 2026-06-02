@@ -320,20 +320,20 @@ async function fetchChannelWithInnertube(ch, seenVideoIds) {
             continue;
         // Skip already-seen (handled by getLatestVideos already, but double-check)
         if (seenVideoIds?.has(v.videoId)) {
-            (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: ${v.videoId} already seen — skipping`);
+            (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: ${v.videoId} already seen - skipping`);
             continue;
         }
         if (v.publishedAt === 0) {
-            (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: ${v.videoId} publishedAt=0 — trying RSS...`);
+            (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: ${v.videoId} publishedAt=0 - trying RSS...`);
             const rss = await fetchChannelWithRss(ch, seenVideoIds);
             if (rss) {
-                (0, unified_log_js_1.devLog)(`[SubFeed] RSS ✓: ${rss.videoId} — using RSS`);
+                (0, unified_log_js_1.devLog)(`[SubFeed] RSS [OK]: ${rss.videoId} - using RSS`);
                 return rss;
             }
-            (0, unified_log_js_1.devLog)(`[SubFeed] RSS empty/old — trying OAuth...`);
+            (0, unified_log_js_1.devLog)(`[SubFeed] RSS empty/old - trying OAuth...`);
             const oauth = await verifyVideoAgeByOAuth(v.videoId);
             if (oauth) {
-                (0, unified_log_js_1.devLog)(`[SubFeed] OAuth ✓: ${v.videoId} — verified ${Math.round((Date.now() - oauth.publishedAt) / 1000)}s ago`);
+                (0, unified_log_js_1.devLog)(`[SubFeed] OAuth [OK]: ${v.videoId} - verified ${Math.round((Date.now() - oauth.publishedAt) / 1000)}s ago`);
                 return {
                     videoId: v.videoId,
                     title: oauth.title,
@@ -349,10 +349,10 @@ async function fetchChannelWithInnertube(ch, seenVideoIds) {
         }
         const ageMin = (Date.now() - v.publishedAt) / 60000;
         if (ageMin > 10) {
-            (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: ${v.videoId} is ${ageMin.toFixed(1)}m old (>10m) — skipping`);
+            (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: ${v.videoId} is ${ageMin.toFixed(1)}m old (>10m) - skipping`);
             continue;
         }
-        (0, unified_log_js_1.devLog)(`[SubFeed] Innertube ✓: ${v.videoId} (${Math.round(ageMin * 60)}s ago) — accepting`);
+        (0, unified_log_js_1.devLog)(`[SubFeed] Innertube [OK]: ${v.videoId} (${Math.round(ageMin * 60)}s ago) - accepting`);
         return {
             videoId: v.videoId,
             title: v.title,
@@ -402,8 +402,8 @@ async function fetchSubscriptionFeed(options = {}) {
                         results.push(video);
                         seenVideoIds?.add(video.videoId);
                         if (results.length >= targetStop) {
-                            (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: ${results.length} videos found — returning`);
-                            opLog.success('scan', `Tìm thấy ${results.length} video mới — dừng sớm`);
+                            (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: ${results.length} videos found - returning`);
+                            opLog.success('scan', `Tìm thấy ${results.length} video mới - dừng sớm`);
                             return { videos: results, source: 'innertube' };
                         }
                     }
@@ -448,7 +448,7 @@ async function fetchSubscriptionFeed(options = {}) {
     }
     // Step 2b: OAuth FULL COVERAGE (Innertube dead)
     if (results.length === 0 && !innertubeAvailable) {
-        (0, unified_log_js_1.devLog)(`[SubFeed] Innertube DOWN — OAuth FULL COVERAGE mode`);
+        (0, unified_log_js_1.devLog)(`[SubFeed] Innertube DOWN - OAuth FULL COVERAGE mode`);
         await _fetchOAuthFullCoverage(channels, results, seenVideoIds, targetStop);
         if (results.length >= targetStop) {
             return { videos: results.slice(0, targetStop), source: 'oauth' };
@@ -458,7 +458,7 @@ async function fetchSubscriptionFeed(options = {}) {
     if (results.length === 0) {
         const priorityChannels = channels.slice(0, 10);
         const RSS_CONCURRENT = 3;
-        (0, unified_log_js_1.devLog)(`[SubFeed] All sources exhausted — RSS fallback for ${priorityChannels.length} channels`);
+        (0, unified_log_js_1.devLog)(`[SubFeed] All sources exhausted - RSS fallback for ${priorityChannels.length} channels`);
         for (let i = 0; i < priorityChannels.length; i += RSS_CONCURRENT) {
             const batch = priorityChannels.slice(i, i + RSS_CONCURRENT);
             const rssResults = await Promise.all(batch.map(ch => fetchChannelWithRss(ch, seenVideoIds)));
