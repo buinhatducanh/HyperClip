@@ -100,7 +100,7 @@ export function UsageTimeline({ events }: { events: number[] }) {
           const barColor = isCurrent
             ? colors.accent
             : isPast
-              ? count > 0 ? `rgba(0,180,255,${Math.max(0.15, count / maxBucket * 0.7)})` : '#0d0d0d'
+              ? count > 0 ? `rgba(0,180,255,${Math.max(0.15, count / maxBucket * 0.7)})` : colors.bg
               : colors.surface
           return (
             <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: '100%', position: 'relative' }} title={`${String(i).padStart(2, '0')}:00 PT — ${count} calls`}>
@@ -141,7 +141,7 @@ export function StatCard({ label, value, sub, color, icon }: { label: string; va
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         {icon}
-        <span style={{ fontSize: 8, color: '#3A3A3A', fontWeight: 700, letterSpacing: '0.1em' }}>{label}</span>
+        <span style={{ fontSize: 8, color: colors.textTertiary, fontWeight: 700, letterSpacing: '0.1em' }}>{label}</span>
       </div>
       <div style={{ fontSize: 22, fontWeight: 800, color: color || colors.textSecondary, fontFamily: 'monospace', lineHeight: 1.2 }}>{value}</div>
       {sub && <div style={{ fontSize: 8, color: colors.textSecondary }}>{sub}</div>}
@@ -156,22 +156,22 @@ export function QuotaBar({ used, total }: { used: number; total: number }) {
   const barColor = pct >= QUOTA_BAR_EXHAUSTED_PCT ? colors.error : pct >= QUOTA_BAR_WARN_PCT ? colors.warning : colors.success
 
   return (
-    <div style={{ padding: '12px 16px', background: colors.surface, borderBottom: '1px solid #141414' }}>
+    <div style={{ padding: '12px 16px', background: colors.surface, borderBottom: `1px solid ${colors.border}` }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, alignItems: 'baseline' }}>
-        <span style={{ fontSize: 9, color: '#777', fontWeight: 700, letterSpacing: '0.08em' }}>OVERALL QUOTA</span>
+        <span style={{ fontSize: 9, color: colors.textSecondary, fontWeight: 700, letterSpacing: '0.08em' }}>OVERALL QUOTA</span>
         <span style={{ fontFamily: 'monospace', fontSize: 11, color: barColor, fontWeight: 700 }}>
           {used.toLocaleString()} <span style={{ color: colors.textSecondary }}>/</span> {total.toLocaleString()} <span style={{ color: colors.textSecondary, fontSize: 9 }}>units</span>
-          <span style={{ color: '#777', fontSize: 9, marginLeft: 8 }}>({pct}%)</span>
+          <span style={{ color: colors.textSecondary, fontSize: 9, marginLeft: 8 }}>({pct}%)</span>
         </span>
       </div>
-      <div style={{ height: 8, background: '#141414', borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
+      <div style={{ height: 8, background: colors.surface, borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
         <div style={{
           width: `${Math.min(pct, 100)}%`, height: '100%', background: barColor,
           borderRadius: 4, transition: 'width 0.6s ease',
           boxShadow: `0 0 8px ${barColor}55`,
         }} />
         <div style={{ position: 'absolute', top: 0, left: `${QUOTA_BAR_WARN_PCT}%`, width: 1, height: '100%', background: colors.textSecondary }} />
-        <div style={{ position: 'absolute', top: 0, left: `${QUOTA_BAR_EXHAUSTED_PCT}%`, width: 1, height: '100%', background: '#777' }} />
+        <div style={{ position: 'absolute', top: 0, left: `${QUOTA_BAR_EXHAUSTED_PCT}%`, width: 1, height: '100%', background: colors.textSecondary }} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
         <span style={{ fontSize: 7, color: colors.borderHover }}>0%</span>

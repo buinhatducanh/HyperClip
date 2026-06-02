@@ -66,11 +66,11 @@ function InfoRow({ label, value, color, mono }: {
     <div style={{
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       padding: '5px 0',
-      borderBottom: '1px solid #E0E0E0',
+      borderBottom: `1px solid ${colors.border}`,
     }}>
-      <span style={{ fontSize: 9, color: '#777', fontWeight: 600 }}>{label}</span>
+      <span style={{ fontSize: 9, color: colors.textTertiary, fontWeight: 600 }}>{label}</span>
       <span style={{
-        fontSize: 9, color: color || '#888',
+        fontSize: 9, color: color || colors.textSecondary,
         fontFamily: mono ? 'monospace' : 'inherit',
         fontWeight: 600,
       }}>
@@ -155,7 +155,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
         display: 'flex', alignItems: 'center', gap: 10,
         padding: '10px 20px',
         background: colors.bg,
-        borderBottom: '1px solid #E0E0E0',
+        borderBottom: `1px solid ${colors.border}`,
         flexShrink: 0,
       }}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={colors.success} strokeWidth="2">
@@ -168,7 +168,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
           }}>
             {video.videoTitle || 'Untitled'}
           </div>
-          <div style={{ fontSize: 9, color: '#777', marginTop: 1 }}>
+          <div style={{ fontSize: 9, color: colors.textTertiary, marginTop: 1 }}>
             {video.channelName} · {video.renderedAt}
           </div>
         </div>
@@ -207,7 +207,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
           margin: '16px 0',
           borderRadius: 8,
           overflow: 'hidden',
-          border: '1px solid #D0D0D0',
+          border: `1px solid ${colors.border}`,
           background: colors.bg,
           position: 'relative',
         }}>
@@ -217,7 +217,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
                 key={video.id}
                 src={videoUrl}
                 controls
-                style={{ width: '100%', maxHeight: 220, display: 'block', background: '#000' }}
+                style={{ width: '100%', maxHeight: 220, display: 'block', background: colors.terminalBg }}
                 onError={() => setVideoError(true)}
               />
               {/* Always show thumbnail below video as poster fallback */}
@@ -237,10 +237,10 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
               height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexDirection: 'column', gap: 8,
             }}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="1.5">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={colors.textTertiary} strokeWidth="1.5">
                 <polygon points="5 3 19 12 5 21 5 3" />
               </svg>
-              <span style={{ fontSize: 9, color: '#666' }}>Video preview unavailable</span>
+              <span style={{ fontSize: 9, color: colors.textTertiary }}>Video preview unavailable</span>
             </div>
           ) : (
             <img
@@ -291,7 +291,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
               <span style={{ fontSize: 9, color: `${colors.success}88`, fontWeight: 600 }}>render time</span>
             </div>
             {rc && (
-              <div style={{ fontSize: 8, color: '#777', marginTop: 4 }}>
+              <div style={{ fontSize: 8, color: colors.textSecondary, marginTop: 4 }}>
                 {rc.exportResolution} · {rc.fps}fps · {rc.speed}x speed · {rc.codec?.toUpperCase()} · GPU: {rc.gpuTier || 'software'}
               </div>
             )}
@@ -306,49 +306,49 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
         />
         <div style={{
           display: 'grid', gridTemplateColumns: '1fr 30px 1fr',
-          background: '#FFFFFF', border: '1px solid #E0E0E0', borderRadius: 6,
+          background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 6,
           overflow: 'hidden',
         }}>
           {/* Column headers */}
-          <div style={{ padding: '6px 12px', background: '#FFFFFF', borderBottom: '1px solid #E0E0E0' }}>
+          <div style={{ padding: '6px 12px', background: colors.surface, borderBottom: `1px solid ${colors.border}` }}>
             <span style={{ fontSize: 8, fontWeight: 800, color: colors.warning, letterSpacing: '0.08em' }}>SOURCE</span>
           </div>
-          <div style={{ background: '#FFFFFF', borderBottom: '1px solid #E0E0E0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ fontSize: 10, color: '#666' }}>→</span>
+          <div style={{ background: colors.surface, borderBottom: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ fontSize: 10, color: colors.textTertiary }}>→</span>
           </div>
-          <div style={{ padding: '6px 12px', background: '#FFFFFF', borderBottom: '1px solid #E0E0E0' }}>
+          <div style={{ padding: '6px 12px', background: colors.surface, borderBottom: `1px solid ${colors.border}` }}>
             <span style={{ fontSize: 8, fontWeight: 800, color: colors.success, letterSpacing: '0.08em' }}>OUTPUT</span>
           </div>
 
           {/* Resolution */}
-          <div style={{ padding: '5px 12px', borderBottom: '1px solid #E0E0E0' }}>
-            <div style={{ fontSize: 7, color: '#888' }}>Resolution</div>
-            <div style={{ fontSize: 9, color: '#999', fontFamily: 'monospace', fontWeight: 600 }}>
+          <div style={{ padding: '5px 12px', borderBottom: `1px solid ${colors.border}` }}>
+            <div style={{ fontSize: 7, color: colors.textTertiary }}>Resolution</div>
+            <div style={{ fontSize: 9, color: colors.textSecondary, fontFamily: 'monospace', fontWeight: 600 }}>
               {si?.originalResolution || video.videoResolution || '—'}
             </div>
           </div>
-          <div style={{ borderBottom: '1px solid #E0E0E0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ fontSize: 8, color: '#666' }}>→</span>
+          <div style={{ borderBottom: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ fontSize: 8, color: colors.textTertiary }}>→</span>
           </div>
-          <div style={{ padding: '5px 12px', borderBottom: '1px solid #E0E0E0' }}>
-            <div style={{ fontSize: 7, color: '#888' }}>Resolution</div>
+          <div style={{ padding: '5px 12px', borderBottom: `1px solid ${colors.border}` }}>
+            <div style={{ fontSize: 7, color: colors.textTertiary }}>Resolution</div>
             <div style={{ fontSize: 9, color: colors.success, fontFamily: 'monospace', fontWeight: 600 }}>
               {rc?.exportResolution || `${video.quality}p`}
             </div>
           </div>
 
           {/* Duration */}
-          <div style={{ padding: '5px 12px', borderBottom: '1px solid #E0E0E0' }}>
-            <div style={{ fontSize: 7, color: '#888' }}>Duration</div>
-            <div style={{ fontSize: 9, color: '#999', fontFamily: 'monospace', fontWeight: 600 }}>
+          <div style={{ padding: '5px 12px', borderBottom: `1px solid ${colors.border}` }}>
+            <div style={{ fontSize: 7, color: colors.textTertiary }}>Duration</div>
+            <div style={{ fontSize: 9, color: colors.textSecondary, fontFamily: 'monospace', fontWeight: 600 }}>
               {formatDuration(si?.originalDuration || 0)}
             </div>
           </div>
-          <div style={{ borderBottom: '1px solid #E0E0E0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ fontSize: 8, color: '#666' }}>→</span>
+          <div style={{ borderBottom: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ fontSize: 8, color: colors.textTertiary }}>→</span>
           </div>
-          <div style={{ padding: '5px 12px', borderBottom: '1px solid #E0E0E0' }}>
-            <div style={{ fontSize: 7, color: '#888' }}>Duration</div>
+          <div style={{ padding: '5px 12px', borderBottom: `1px solid ${colors.border}` }}>
+            <div style={{ fontSize: 7, color: colors.textTertiary }}>Duration</div>
             <div style={{ fontSize: 9, color: colors.success, fontFamily: 'monospace', fontWeight: 600 }}>
               {formatDuration(video.duration)}
               {rc?.speed && rc.speed !== 1.0 && (
@@ -358,17 +358,17 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
           </div>
 
           {/* File size */}
-          <div style={{ padding: '5px 12px', borderBottom: '1px solid #E0E0E0' }}>
-            <div style={{ fontSize: 7, color: '#888' }}>File Size</div>
-            <div style={{ fontSize: 9, color: '#999', fontFamily: 'monospace', fontWeight: 600 }}>
+          <div style={{ padding: '5px 12px', borderBottom: `1px solid ${colors.border}` }}>
+            <div style={{ fontSize: 7, color: colors.textTertiary }}>File Size</div>
+            <div style={{ fontSize: 9, color: colors.textSecondary, fontFamily: 'monospace', fontWeight: 600 }}>
               {formatFileSize(si?.originalFileSize)}
             </div>
           </div>
-          <div style={{ borderBottom: '1px solid #E0E0E0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ fontSize: 8, color: '#666' }}>→</span>
+          <div style={{ borderBottom: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ fontSize: 8, color: colors.textTertiary }}>→</span>
           </div>
-          <div style={{ padding: '5px 12px', borderBottom: '1px solid #E0E0E0' }}>
-            <div style={{ fontSize: 7, color: '#888' }}>File Size</div>
+          <div style={{ padding: '5px 12px', borderBottom: `1px solid ${colors.border}` }}>
+            <div style={{ fontSize: 7, color: colors.textTertiary }}>File Size</div>
             <div style={{ fontSize: 9, color: colors.success, fontFamily: 'monospace', fontWeight: 600 }}>
               {formatFileSize(video.fileSize as any)}
             </div>
@@ -376,16 +376,16 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
 
           {/* Codec */}
           <div style={{ padding: '5px 12px' }}>
-            <div style={{ fontSize: 7, color: '#888' }}>Format</div>
-            <div style={{ fontSize: 9, color: '#999', fontFamily: 'monospace', fontWeight: 600 }}>
+            <div style={{ fontSize: 7, color: colors.textTertiary }}>Format</div>
+            <div style={{ fontSize: 9, color: colors.textSecondary, fontFamily: 'monospace', fontWeight: 600 }}>
               {si?.downloadQuality ? `${si.downloadQuality}p` : '—'}
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ fontSize: 8, color: '#666' }}>→</span>
+            <span style={{ fontSize: 8, color: colors.textTertiary }}>→</span>
           </div>
           <div style={{ padding: '5px 12px' }}>
-            <div style={{ fontSize: 7, color: '#888' }}>Format</div>
+            <div style={{ fontSize: 7, color: colors.textTertiary }}>Format</div>
             <div style={{ fontSize: 9, color: colors.success, fontFamily: 'monospace', fontWeight: 600 }}>
               {video.quality}p {video.codec?.toUpperCase()}
             </div>
@@ -399,14 +399,14 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
           color={colors.accent}
         />
         <div style={{
-          background: '#FFFFFF', border: '1px solid #E0E0E0', borderRadius: 6,
+          background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 6,
           padding: '4px 12px',
         }}>
           {rc ? (
             <>
               <InfoRow label="Export Resolution" value={rc.exportResolution} color={colors.accent} mono />
               <InfoRow label="FPS" value={`${rc.fps}`} mono />
-              <InfoRow label="Speed" value={`${rc.speed}x`} color={rc.speed !== 1.0 ? colors.warning : '#888'} mono />
+              <InfoRow label="Speed" value={`${rc.speed}x`} color={rc.speed !== 1.0 ? colors.warning : colors.textSecondary} mono />
               <InfoRow label="Codec" value={rc.codec?.toUpperCase()} color={colors.accent} mono />
               <InfoRow label="Preset" value={rc.preset?.toUpperCase()} mono />
               <InfoRow label="Tune" value={rc.tune?.toUpperCase()} mono />
@@ -420,7 +420,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
               <InfoRow label="GPU Tier" value={rc.gpuTier?.toUpperCase()} color={
                 rc.gpuTier === 'high' ? colors.success :
                 rc.gpuTier === 'mid' ? colors.warning :
-                rc.gpuTier === 'software' ? colors.error : '#888'
+                rc.gpuTier === 'software' ? colors.error : colors.textSecondary
               } mono />
               {(rc.trimStart != null || rc.trimEnd != null) && (
                 <InfoRow
@@ -431,7 +431,7 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
               )}
             </>
           ) : (
-            <div style={{ padding: '12px 0', fontSize: 9, color: '#888', textAlign: 'center' }}>
+            <div style={{ padding: '12px 0', fontSize: 9, color: colors.textSecondary, textAlign: 'center' }}>
               No render config available (legacy record)
             </div>
           )}
@@ -439,12 +439,12 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
 
         {/* ═══ Output Details ═══ */}
         <SectionHeader
-          icon={<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#FF6B35" strokeWidth="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /></svg>}
+          icon={<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={colors.accent} strokeWidth="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /></svg>}
           title="OUTPUT DETAILS"
-          color="#FF6B35"
+          color={colors.accent}
         />
         <div style={{
-          background: '#FFFFFF', border: '1px solid #E0E0E0', borderRadius: 6,
+          background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 6,
           padding: '4px 12px',
         }}>
           <InfoRow label="Quality" value={`${displayQuality(video)}p`} color={colors.accent} mono />
@@ -460,12 +460,12 @@ export function RenderedVideoDetail({ video, onShowToast }: Props) {
         {si && (
           <>
             <SectionHeader
-              icon={<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#FFB800" strokeWidth="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" /><line x1="7" y1="2" x2="7" y2="22" /><line x1="17" y1="2" x2="17" y2="22" /><line x1="2" y1="12" x2="22" y2="12" /><line x1="2" y1="7" x2="7" y2="7" /><line x1="2" y1="17" x2="7" y2="17" /><line x1="17" y1="7" x2="22" y2="7" /><line x1="17" y1="17" x2="22" y2="17" /></svg>}
+              icon={<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={colors.warning} strokeWidth="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" /><line x1="7" y1="2" x2="7" y2="22" /><line x1="17" y1="2" x2="17" y2="22" /><line x1="2" y1="12" x2="22" y2="12" /><line x1="2" y1="7" x2="7" y2="7" /><line x1="2" y1="17" x2="7" y2="17" /><line x1="17" y1="7" x2="22" y2="7" /><line x1="17" y1="17" x2="22" y2="17" /></svg>}
               title="SOURCE VIDEO"
-              color="#FFB800"
+              color={colors.warning}
             />
             <div style={{
-              background: '#FFFFFF', border: '1px solid #E0E0E0', borderRadius: 6,
+              background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 6,
               padding: '4px 12px',
             }}>
               <InfoRow label="Original Resolution" value={si.originalResolution || video.videoResolution} mono />

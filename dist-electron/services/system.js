@@ -8,6 +8,7 @@ exports.detectSystemProfile = detectSystemProfile;
 exports.getSessionCount = getSessionCount;
 exports.getGpuLive = getGpuLive;
 exports.getEffectiveWorkers = getEffectiveWorkers;
+exports.getRenderWorkers = getRenderWorkers;
 exports.getHardwareProfileInfo = getHardwareProfileInfo;
 exports.getMachineTier = getMachineTier;
 exports.getDownloadParams = getDownloadParams;
@@ -27,8 +28,10 @@ const getFfmpegBin = ffmpeg_paths_js_1.getFfmpegPath;
 const NVENC_ARCH = {
     // ── RTX 50 series (Blackwell / GB203) ────────────────────────────────────
     // RTX 5080: 2 NVENC engines, 14 concurrent sessions, 16GB GDDR7
-    'RTX 5080': { maxSessions: 14, surfaceCount: 48, recommendedWorkers: 14, label: 'RTX 50 series (Blackwell)' },
-    'RTX 5090': { maxSessions: 14, surfaceCount: 48, recommendedWorkers: 14, label: 'RTX 50 series (Blackwell)' },
+    // Surface count 64: RTX 5080 16GB can easily handle high surface pools.
+    // Workers 16: matches RTX 5080 NVENC session limit for maximum parallelism.
+    'RTX 5080': { maxSessions: 14, surfaceCount: 64, recommendedWorkers: 16, label: 'RTX 50 series (Blackwell)' },
+    'RTX 5090': { maxSessions: 14, surfaceCount: 64, recommendedWorkers: 16, label: 'RTX 50 series (Blackwell)' },
     // ── RTX 40 series (Ada Lovelace / AD102-AD104) ───────────────────────────
     // RTX 4090: 16 sessions, 24GB GDDR6X — hardware limit
     'RTX 4090': { maxSessions: 16, surfaceCount: 48, recommendedWorkers: 14, label: 'RTX 40 series (Ada Lovelace)' },
@@ -379,8 +382,19 @@ function getEffectiveWorkers(perWorkerMB = 600) {
     // Default safe: Low preset worker count
     return 2;
 }
+// Returns render (single-pass) workers from hardware preset.
+// Single-pass uses less VRAM than chunked encoding — more workers can run concurrently.
+function getRenderWorkers() {
+    const profile = (0, ramdisk_js_1.loadSettings)().hardwareProfile;
+    if (profile) {
+        const preset = PRESETS.find(p => p.vramGB === profile.vramGB && p.ramGB === profile.ramGB);
+        if (preset)
+            return preset.renderWorkers;
+    }
+    return 2;
+}
 const PRESETS = [
-    { id: 'ultra', label: 'Ultra', vramGB: 16, ramGB: 64, downloadInstances: 6, renderWorkers: 6, chunkWorkers: 14, sessions: 10 },
+    { id: 'ultra', label: 'Ultra', vramGB: 16, ramGB: 64, downloadInstances: 6, renderWorkers: 6, chunkWorkers: 14, sessions: 30 },
     { id: 'high', label: 'High', vramGB: 12, ramGB: 48, downloadInstances: 2, renderWorkers: 3, chunkWorkers: 6, sessions: 8 },
     { id: 'medium', label: 'Medium', vramGB: 8, ramGB: 32, downloadInstances: 2, renderWorkers: 2, chunkWorkers: 4, sessions: 6 },
     { id: 'low', label: 'Low', vramGB: 6, ramGB: 24, downloadInstances: 1, renderWorkers: 2, chunkWorkers: 2, sessions: 4 },
@@ -388,7 +402,7 @@ const PRESETS = [
 ];
 function getHardwareProfileInfo() {
     const gpu = detectGPUOnce();
-    const detectedRamGB = Math.round(os_1.default.totalmem() / (1024 ** 3));
+    const detectedRamGB = Math.ceil(os_1.default.totalmem() / (1024 ** 3));
     const activeProfile = (0, ramdisk_js_1.loadSettings)().hardwareProfile;
     const active = activeProfile
         ? PRESETS.find(p => p.vramGB === activeProfile.vramGB && p.ramGB === activeProfile.ramGB)?.id ?? null
@@ -434,13 +448,13 @@ function getDownloadParams() {
     const tier = getMachineTier();
     switch (tier) {
         case 'high':
-            _cachedDownloadParams = { fragments: 64, maxInstances: 4 };
+            _cachedDownloadParams = { fragments: 16, maxInstances: 4 };
             break;
         case 'mid':
-            _cachedDownloadParams = { fragments: 32, maxInstances: 2 };
+            _cachedDownloadParams = { fragments: 8, maxInstances: 2 };
             break;
         case 'low':
-            _cachedDownloadParams = { fragments: 16, maxInstances: 1 };
+            _cachedDownloadParams = { fragments: 4, maxInstances: 1 };
             break;
     }
     return _cachedDownloadParams ?? { fragments: 16, maxInstances: 1 };

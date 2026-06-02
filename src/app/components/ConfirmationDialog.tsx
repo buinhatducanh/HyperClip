@@ -37,8 +37,8 @@ export function ConfirmationDialog({
       onClick={(e) => { if (e.target === e.currentTarget) onCancel() }}
     >
       <div style={{
-        background: '#FFFFFF',
-        border: '1px solid #E0E0E0',
+        background: colors.surface,
+        border: `1px solid ${colors.border}`,
         borderRadius: 4,
         padding: '20px 24px',
         maxWidth: 360,
@@ -55,7 +55,7 @@ export function ConfirmationDialog({
 
         {/* Message */}
         <div style={{
-          fontSize: 12, color: '#666', lineHeight: 1.6,
+          fontSize: 12, color: colors.textSecondary, lineHeight: 1.6,
           marginBottom: 20, whiteSpace: 'pre-line',
         }}>
           {message}
@@ -68,9 +68,9 @@ export function ConfirmationDialog({
             style={{
               height: 32, padding: '0 16px',
               background: colors.bg,
-              border: '1px solid #D0D0D0',
+              border: `1px solid ${colors.borderHover}`,
               borderRadius: 3,
-              fontSize: 11, fontWeight: 600, color: '#555',
+              fontSize: 11, fontWeight: 600, color: colors.textSecondary,
               cursor: 'pointer',
             }}
           >

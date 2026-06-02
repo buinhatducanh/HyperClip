@@ -82,6 +82,7 @@ const IPC = {
     SESSION_OPEN_LOGIN: 'session:open-login',
     AUTH_CHROME_START: 'auth:chrome-start',
     SESSION_CLONE_ONE: 'session:clone-one',
+    SESSION_ADD: 'session:add',
     // Poller
     POLLER_STATUS: 'poller:status',
     POLLER_RESUME: 'poller:resume',
@@ -274,6 +275,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openSessionLogin: (profileId) => ipcRenderer.invoke(IPC.SESSION_OPEN_LOGIN, profileId),
     startChromeLogin: () => ipcRenderer.invoke(IPC.AUTH_CHROME_START),
     cloneSessionOne: () => ipcRenderer.invoke(IPC.SESSION_CLONE_ONE),
+    addSession: () => ipcRenderer.invoke(IPC.SESSION_ADD),
     // Rendered videos
     getRenderedVideos: () => ipcRenderer.invoke(IPC.RENDERED_LIST),
     archiveRendered: (workspaceId, customArchiveDir) => ipcRenderer.invoke(IPC.RENDERED_ARCHIVE, workspaceId, customArchiveDir),

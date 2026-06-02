@@ -139,7 +139,7 @@ export default function AdminPage() {
   }
 
   function getStatus(l: License) {
-    if (l.isExpired) return { label: `EXPIRED`, color: '#ff6b6b', bg: 'rgba(255,107,107,0.15)' }
+    if (l.isExpired) return { label: `EXPIRED`, color: colors.error, bg: `${colors.error}26` }
     if (!l.expiresAt) return { label: 'UNLIMITED', color: colors.accent, bg: 'rgba(0,180,255,0.15)' }
     return { label: `ACTIVE (${l.daysLeft}d)`, color: colors.success, bg: 'rgba(0,255,136,0.15)' }
   }
@@ -152,13 +152,13 @@ export default function AdminPage() {
         fontFamily: 'Inter, system-ui, sans-serif',
       }}>
         <div style={{
-          background: colors.bg, border: '1px solid #1a1a1a',
+          background: colors.bg, border: `1px solid ${colors.border}`,
           borderRadius: 12, padding: '40px 48px', width: 360,
         }}>
           <div style={{ fontSize: 20, fontWeight: 700, color: colors.text, marginBottom: 4, textAlign: 'center' }}>
             HyperClip Admin
           </div>
-          <div style={{ fontSize: 12, color: '#777', marginBottom: 28, textAlign: 'center' }}>
+          <div style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 28, textAlign: 'center' }}>
             Quản lý License Keys
           </div>
           <form onSubmit={handleLogin}>
@@ -170,25 +170,25 @@ export default function AdminPage() {
               autoFocus
               style={{
                 width: '100%', boxSizing: 'border-box',
-                background: colors.bg, border: `1px solid ${error ? '#ff4444' : '#2a2a2a'}`,
+                background: colors.bg, border: `1px solid ${error ? colors.error : colors.border}`,
                 borderRadius: 8, padding: '12px 16px',
                 fontSize: 14, color: colors.text, outline: 'none', marginBottom: 12,
               }}
             />
             {error && (
-              <div style={{ fontSize: 12, color: '#ff4444', marginBottom: 12, whiteSpace: 'pre-line' }}>{error}</div>
+              <div style={{ fontSize: 12, color: colors.error, marginBottom: 12, whiteSpace: 'pre-line' }}>{error}</div>
             )}
             <button
               type="submit"
               style={{
                 width: '100%', padding: '12px',
                 background: colors.accent, border: 'none', borderRadius: 8,
-                fontSize: 14, fontWeight: 600, color: '#000', cursor: 'pointer',
+                fontSize: 14, fontWeight: 600, color: colors.text, cursor: 'pointer',
               }}
             >
               Đăng nhập
             </button>
-            <div style={{ marginTop: 16, fontSize: 10, color: '#999', textAlign: 'center' }}>
+            <div style={{ marginTop: 16, fontSize: 10, color: colors.textSecondary, textAlign: 'center' }}>
               Default secret: hyperclip-admin-secret-change-me<br />
               {base && `Server: ${base}`}
             </div>
@@ -204,23 +204,23 @@ export default function AdminPage() {
   return (
     <div style={{
       minHeight: '100vh', background: colors.bg,
-      fontFamily: 'Inter, system-ui, sans-serif', color: '#e0e0e0',
+      fontFamily: 'Inter, system-ui, sans-serif', color: colors.border,
       padding: '24px 32px',
     }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
         <div>
           <div style={{ fontSize: 22, fontWeight: 700, color: colors.text }}>HyperClip Admin</div>
-          <div style={{ fontSize: 12, color: '#777' }}>Admin API: {base || '/api/admin/licenses'}</div>
+          <div style={{ fontSize: 12, color: colors.textSecondary }}>Admin API: {base || '/api/admin/licenses'}</div>
         </div>
         <div style={{ display: 'flex', gap: 12 }}>
           <button onClick={fetchLicenses} style={{
-            padding: '8px 16px', background: '#1a1a1a', border: '1px solid #2a2a2a',
-            borderRadius: 6, fontSize: 12, color: '#999', cursor: 'pointer',
+            padding: '8px 16px', background: colors.surface, border: `1px solid ${colors.border}`,
+            borderRadius: 6, fontSize: 12, color: colors.textSecondary, cursor: 'pointer',
           }}>Refresh</button>
           <button onClick={() => setLoggedIn(false)} style={{
-            padding: '8px 16px', background: '#1a1a1a', border: '1px solid #2a2a2a',
-            borderRadius: 6, fontSize: 12, color: '#999', cursor: 'pointer',
+            padding: '8px 16px', background: colors.surface, border: `1px solid ${colors.border}`,
+            borderRadius: 6, fontSize: 12, color: colors.textSecondary, cursor: 'pointer',
           }}>Đăng xuất</button>
         </div>
       </div>
@@ -228,16 +228,16 @@ export default function AdminPage() {
       {/* Stats */}
       <div style={{ display: 'flex', gap: 16, marginBottom: 28 }}>
         {[
-          { label: 'Tổng Keys', value: licenses.length, color: '#999' },
+          { label: 'Tổng Keys', value: licenses.length, color: colors.textSecondary },
           { label: 'Đang hoạt động', value: activeCount, color: colors.success },
-          { label: 'Hết hạn / Thu hồi', value: expiredCount, color: '#ff6b6b' },
+          { label: 'Hết hạn / Thu hồi', value: expiredCount, color: colors.error },
         ].map(s => (
           <div key={s.label} style={{
-            background: colors.bg, border: '1px solid #1a1a1a',
+            background: colors.bg, border: `1px solid ${colors.border}`,
             borderRadius: 10, padding: '16px 24px', minWidth: 140,
           }}>
             <div style={{ fontSize: 28, fontWeight: 700, color: s.color }}>{s.value}</div>
-            <div style={{ fontSize: 12, color: '#777' }}>{s.label}</div>
+            <div style={{ fontSize: 12, color: colors.textSecondary }}>{s.label}</div>
           </div>
         ))}
       </div>
@@ -248,17 +248,17 @@ export default function AdminPage() {
           <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 12 }}>
             Danh sách License ({licenses.length})
           </div>
-          <div style={{ background: colors.bg, border: '1px solid #1a1a1a', borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 10, overflow: 'hidden' }}>
             {loading ? (
-              <div style={{ padding: 40, textAlign: 'center', color: '#777' }}>Đang tải...</div>
+              <div style={{ padding: 40, textAlign: 'center', color: colors.textSecondary }}>Đang tải...</div>
             ) : licenses.length === 0 ? (
-              <div style={{ padding: 40, textAlign: 'center', color: '#777' }}>Chưa có license nào</div>
+              <div style={{ padding: 40, textAlign: 'center', color: colors.textSecondary }}>Chưa có license nào</div>
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid #1a1a1a' }}>
+                  <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
                     {['Key', 'Machine ID', 'Kích hoạt', 'Hết hạn', 'Trạng thái', ''].map(h => (
-                      <th key={h} style={{ padding: '10px 12px', textAlign: 'left', color: '#777', fontWeight: 500, fontSize: 11 }}>{h}</th>
+                      <th key={h} style={{ padding: '10px 12px', textAlign: 'left', color: colors.textSecondary, fontWeight: 500, fontSize: 11 }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -266,14 +266,14 @@ export default function AdminPage() {
                   {licenses.map(l => {
                     const status = getStatus(l)
                     return (
-                      <tr key={l.keyId} style={{ borderBottom: '1px solid #F5F5F5', opacity: l.isExpired ? 0.5 : 1 }}>
+                      <tr key={l.keyId} style={{ borderBottom: '1px solid ${colors.surface}', opacity: l.isExpired ? 0.5 : 1 }}>
                         <td style={{ padding: '10px 12px' }}>
                           <div style={{ fontFamily: 'monospace', color: l.key.startsWith('DEMO') ? colors.success : colors.accent, fontWeight: 600, fontSize: 11 }}>{l.key}</div>
-                          <div style={{ fontSize: 10, color: '#999', fontFamily: 'monospace' }}>{l.keyId}</div>
+                          <div style={{ fontSize: 10, color: colors.textSecondary, fontFamily: 'monospace' }}>{l.keyId}</div>
                         </td>
-                        <td style={{ padding: '10px 12px', fontFamily: 'monospace', color: '#999', fontSize: 10 }}>{l.machineIdShort || '—'}</td>
-                        <td style={{ padding: '10px 12px', color: '#777', fontSize: 11, whiteSpace: 'nowrap' }}>{formatDate(l.activatedAt)}</td>
-                        <td style={{ padding: '10px 12px', color: '#777', fontSize: 11, whiteSpace: 'nowrap' }}>{formatDate(l.expiresAt)}</td>
+                        <td style={{ padding: '10px 12px', fontFamily: 'monospace', color: colors.textSecondary, fontSize: 10 }}>{l.machineIdShort || '—'}</td>
+                        <td style={{ padding: '10px 12px', color: colors.textSecondary, fontSize: 11, whiteSpace: 'nowrap' }}>{formatDate(l.activatedAt)}</td>
+                        <td style={{ padding: '10px 12px', color: colors.textSecondary, fontSize: 11, whiteSpace: 'nowrap' }}>{formatDate(l.expiresAt)}</td>
                         <td style={{ padding: '10px 12px' }}>
                           <span style={{
                             padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600,
@@ -287,8 +287,8 @@ export default function AdminPage() {
                             onClick={() => handleRevoke(l.keyId)}
                             disabled={revoking === l.keyId}
                             style={{
-                              padding: '4px 10px', background: 'rgba(255,68,68,0.1)', border: '1px solid rgba(255,68,68,0.3)',
-                              borderRadius: 4, fontSize: 10, color: '#ff6b6b', cursor: 'pointer',
+                              padding: '4px 10px', background: `${colors.error}1A`, border: `1px solid ${colors.error}4D`,
+                              borderRadius: 4, fontSize: 10, color: colors.error, cursor: 'pointer',
                               opacity: revoking === l.keyId ? 0.5 : 1,
                             }}
                           >
@@ -310,11 +310,11 @@ export default function AdminPage() {
             Tạo Demo Key (max 2 ngày)
           </div>
           <form onSubmit={handleCreateDemo} style={{
-            background: colors.bg, border: '1px solid #1a1a1a',
+            background: colors.bg, border: `1px solid ${colors.border}`,
             borderRadius: 10, padding: 20,
           }}>
             <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 11, color: '#777', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <label style={{ display: 'block', fontSize: 11, color: colors.textSecondary, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Thời hạn
               </label>
               <div style={{ display: 'flex', gap: 6 }}>
@@ -325,10 +325,10 @@ export default function AdminPage() {
                     onClick={() => setNewDays(d)}
                     style={{
                       flex: 1, padding: '10px',
-                      background: newDays === d ? colors.accent : '#1a1a1a',
-                      border: `1px solid ${newDays === d ? colors.accent : '#2a2a2a'}`,
+                      background: newDays === d ? colors.accent : colors.surface,
+                      border: `1px solid ${newDays === d ? colors.accent : colors.border}`,
                       borderRadius: 6, fontSize: 14, fontWeight: 700,
-                      color: newDays === d ? '#000' : '#999', cursor: 'pointer',
+                      color: newDays === d ? colors.text : colors.textSecondary, cursor: 'pointer',
                     }}
                   >
                     {d} ngày
@@ -338,7 +338,7 @@ export default function AdminPage() {
             </div>
 
             <div style={{ marginBottom: 12 }}>
-              <label style={{ display: 'block', fontSize: 11, color: '#777', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <label style={{ display: 'block', fontSize: 11, color: colors.textSecondary, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Key tùy chỉnh (tùy chọn)
               </label>
               <input
@@ -348,18 +348,18 @@ export default function AdminPage() {
                 maxLength={8}
                 style={{
                   width: '100%', boxSizing: 'border-box',
-                  background: colors.bg, border: '1px solid #2a2a2a',
+                  background: colors.bg, border: `1px solid ${colors.border}`,
                   borderRadius: 6, padding: '10px 12px',
                   fontSize: 13, fontFamily: 'monospace', color: colors.text, outline: 'none',
                 }}
               />
-              <div style={{ fontSize: 10, color: '#999', marginTop: 4 }}>
-                Key: <span style={{ fontFamily: 'monospace', color: '#777' }}>DEMO-{newDays}-{newKey || 'XXXX'}</span>
+              <div style={{ fontSize: 10, color: colors.textSecondary, marginTop: 4 }}>
+                Key: <span style={{ fontFamily: 'monospace', color: colors.textSecondary }}>DEMO-{newDays}-{newKey || 'XXXX'}</span>
               </div>
             </div>
 
             <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 11, color: '#777', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <label style={{ display: 'block', fontSize: 11, color: colors.textSecondary, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Machine ID cố định (tùy chọn)
               </label>
               <input
@@ -368,7 +368,7 @@ export default function AdminPage() {
                 placeholder="Bind key to one machine only"
                 style={{
                   width: '100%', boxSizing: 'border-box',
-                  background: colors.bg, border: '1px solid #2a2a2a',
+                  background: colors.bg, border: `1px solid ${colors.border}`,
                   borderRadius: 6, padding: '10px 12px',
                   fontSize: 12, fontFamily: 'monospace', color: colors.text, outline: 'none',
                 }}
@@ -380,9 +380,9 @@ export default function AdminPage() {
               disabled={creating}
               style={{
                 width: '100%', padding: '12px',
-                background: creating ? '#1a2a3a' : colors.accent,
+                background: creating ? colors.accentHover : colors.accent,
                 border: 'none', borderRadius: 6,
-                fontSize: 13, fontWeight: 700, color: '#000', cursor: creating ? 'not-allowed' : 'pointer',
+                fontSize: 13, fontWeight: 700, color: colors.text, cursor: creating ? 'not-allowed' : 'pointer',
               }}
             >
               {creating ? 'Đang tạo...' : 'Tạo Demo Key'}
@@ -391,15 +391,15 @@ export default function AdminPage() {
             {createResult && (
               <div style={{
                 marginTop: 12, padding: '10px 12px', borderRadius: 6, fontSize: 12,
-                background: createResult.success ? 'rgba(0,255,136,0.1)' : 'rgba(255,68,68,0.1)',
-                border: `1px solid ${createResult.success ? 'rgba(0,255,136,0.3)' : 'rgba(255,68,68,0.3)'}`,
-                color: createResult.success ? colors.success : '#ff6b6b',
+                background: createResult.success ? `${colors.success}1A` : `${colors.error}1A`,
+                border: `1px solid ${createResult.success ? `${colors.success}4D` : `${colors.error}4D`}`,
+                color: createResult.success ? colors.success : colors.error,
               }}>
                 {createResult.success ? (
                   <>
                     <div style={{ fontWeight: 700 }}>Tạo thành công!</div>
                     <div style={{ fontFamily: 'monospace', marginTop: 4, fontSize: 13 }}>{createResult.key}</div>
-                    <div style={{ fontSize: 10, color: '#999', marginTop: 2 }}>
+                    <div style={{ fontSize: 10, color: colors.textSecondary, marginTop: 2 }}>
                       Hết hạn: {createResult.expiresAt ? formatDate(createResult.expiresAt) : ''}
                     </div>
                   </>

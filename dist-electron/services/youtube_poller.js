@@ -221,7 +221,7 @@ class YouTubePoller {
                     this._exhaustedBackoffUntil = 0;
                     this._backoffReason = null;
                     const reason = poolReady ? 'Innertube pool' : 'OAuth';
-                    (0, unified_log_js_1.devLog)(`[YouTubePoller] ${reason} recovered ✓ — resuming polling`);
+                    (0, unified_log_js_1.devLog)(`[YouTubePoller] ${reason} recovered [OK] - resuming polling`);
                 }
                 else {
                     (0, unified_log_js_1.devLog)(`[YouTubePoller] Backoff (${remaining}s remaining) — checking...`);

@@ -114,6 +114,7 @@ export const IPC_CHANNELS = {
   SESSION_OPEN_LOGIN: 'session:open-login',
   AUTH_CHROME_START: 'auth:chrome-start',
   SESSION_CLONE_ONE: 'session:clone-one',
+  SESSION_ADD: 'session:add',
 
   // Rendered videos
   RENDERED_LIST: 'rendered:list',

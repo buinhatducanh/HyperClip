@@ -80,7 +80,7 @@ export function DetectionStatusBar() {
   } else if (consentedCount === 0 && oauthTotal > 0 && oauthHealthy > 0) {
     source = 'OAuth'; sourceColor = colors.warning
   } else if (sessionCount === 0 && oauthTotal > 0) {
-    source = oauthHealthy > 0 ? 'OAuth only' : 'No auth'; sourceColor = oauthHealthy > 0 ? colors.warning : '#444'
+    source = oauthHealthy > 0 ? 'OAuth only' : 'No auth'; sourceColor = oauthHealthy > 0 ? colors.warning : colors.textTertiary
   }
 
   // Warning text
@@ -142,7 +142,7 @@ export function DetectionStatusBar() {
         alignItems: 'center',
         gap: 8,
         borderTop: `1px solid ${hasWarning ? warnColor + '44' : isHealthy ? colors.border : sourceColor + '44'}`,
-        borderBottom: '1px solid #E0E0E0',
+        borderBottom: `1px solid ${colors.border}`,
         background: hasWarning ? warnColor + '08' : colors.bg,
         cursor: 'pointer',
         flexShrink: 0,
@@ -183,8 +183,8 @@ export function DetectionStatusBar() {
       {/* OAuth quota */}
       {oauthTotal > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-          <span style={{ fontSize: 11, color: '#555' }}>·</span>
-          <span style={{ fontSize: 11, color: oauthHealthy === 0 ? colors.error : oauthHealthy < oauthTotal ? colors.warning : '#999' }}>
+          <span style={{ fontSize: 11, color: colors.textTertiary }}>·</span>
+          <span style={{ fontSize: 11, color: oauthHealthy === 0 ? colors.error : oauthHealthy < oauthTotal ? colors.warning : colors.textTertiary }}>
             {oauthHealthy}/{oauthTotal} OAuth
           </span>
         </div>
@@ -210,10 +210,10 @@ export function DetectionStatusBar() {
 
       {/* Timing + arrow — marginLeft:auto keeps them anchored to the right edge */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 'auto' }}>
-        <span style={{ fontSize: 11, color: '#777', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 11, color: colors.textTertiary, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
           {formatAgo(ps?.lastPollAt)} / {intervalSec}s
         </span>
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#ccc" strokeWidth="2">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={colors.textTertiary} strokeWidth="2">
           <path d="M9 18l6-6-6-6" />
         </svg>
       </div>

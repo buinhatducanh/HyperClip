@@ -103,7 +103,7 @@ export default function OnboardingPage() {
       }}>
         <div style={{
           width: 40, height: 40, borderRadius: '50%',
-          border: '3px solid #E0E0E0',
+          border: `3px solid ${colors.border}`,
           borderTopColor: colors.accent,
           animation: 'spin 1s linear infinite',
         }} />
@@ -118,7 +118,7 @@ export default function OnboardingPage() {
       <style>{`
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width: 3px; }
-        ::-webkit-scrollbar-thumb { background: #777; border-radius: 2px; }
+        ::-webkit-scrollbar-thumb { background: ${colors.textSecondary}; border-radius: 2px; }
       `}</style>
 
       <div style={{
@@ -132,7 +132,7 @@ export default function OnboardingPage() {
         <div style={{
           width: 280,
           background: colors.bg,
-          borderRight: '1px solid #E0E0E0',
+          borderRight: `1px solid ${colors.border}`,
           display: 'flex',
           flexDirection: 'column',
           padding: '40px 28px',
@@ -141,7 +141,7 @@ export default function OnboardingPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 48 }}>
             <div style={{
               width: 36, height: 36,
-              background: 'linear-gradient(135deg, #00B4FF 0%, #0066CC 100%)',
+              background: `linear-gradient(135deg, ${colors.accent} 0%, ${colors.accentHover} 100%)`,
               borderRadius: 10,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
@@ -159,7 +159,7 @@ export default function OnboardingPage() {
             <div style={{ fontSize: 13, fontWeight: 700, color: colors.text, marginBottom: 6 }}>
               Setup Wizard
             </div>
-            <div style={{ fontSize: 11, color: '#999', lineHeight: 1.6 }}>
+            <div style={{ fontSize: 11, color: colors.textSecondary, lineHeight: 1.6 }}>
               Cài đặt trong 5 phút.<br />Theo dõi video mới tự động 24/7.
             </div>
           </div>
@@ -179,7 +179,7 @@ export default function OnboardingPage() {
                   }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 10,
-                    background: isActive ? '#F5F5F5111' : 'transparent',
+                    background: isActive ? `${colors.surfaceHover}11` : 'transparent',
                     border: 'none',
                     borderRadius: 8,
                     padding: '8px 10px',
@@ -193,16 +193,16 @@ export default function OnboardingPage() {
                     width: 24, height: 24,
                     borderRadius: '50%',
                     border: `2px solid ${isDone ? colors.success : isCurrent ? colors.accent : colors.borderHover}`,
-                    background: isDone ? '#00FF8822' : 'transparent',
+                    background: isDone ? `${colors.success}22` : 'transparent',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 10, fontWeight: 700,
-                    color: isDone ? colors.success : isCurrent ? colors.accent : '#999',
+                    color: isDone ? colors.success : isCurrent ? colors.accent : colors.textSecondary,
                     flexShrink: 0,
                     transition: 'all 0.2s',
                   }}>
                     {isDone ? (
                       <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                        <path d="M2 5l2 2 4-4" stroke="#00FF88" strokeWidth="1.5" strokeLinecap="round" />
+                        <path d="M2 5l2 2 4-4" stroke={colors.success} strokeWidth="1.5" strokeLinecap="round" />
                       </svg>
                     ) : i + 1}
                   </div>
@@ -211,13 +211,13 @@ export default function OnboardingPage() {
                   <div>
                     <div style={{
                       fontSize: 11, fontWeight: 600,
-                      color: isActive || isDone ? '#FFFFFF' : '#999',
+                      color: isActive || isDone ? colors.text : colors.textSecondary,
                       lineHeight: 1.2,
                     }}>
                       {s.label}
                     </div>
                     <div style={{
-                      fontSize: 9, color: isActive ? '#777' : colors.borderHover,
+                      fontSize: 9, color: isActive ? colors.textSecondary : colors.borderHover,
                       marginTop: 1,
                     }}>
                       {s.desc}
@@ -233,7 +233,7 @@ export default function OnboardingPage() {
             onClick={handleSkipWizard}
             style={{
               background: 'transparent', border: 'none',
-              fontSize: 10, color: '#999', cursor: 'pointer',
+              fontSize: 10, color: colors.textSecondary, cursor: 'pointer',
               padding: '8px 0', marginTop: 24,
               textAlign: 'left',
             }}
@@ -252,12 +252,12 @@ export default function OnboardingPage() {
           {/* Top bar */}
           <div style={{
             padding: '20px 40px',
-            borderBottom: '1px solid #E0E0E0',
+            borderBottom: `1px solid ${colors.border}`,
             display: 'flex', alignItems: 'center',
             justifyContent: 'space-between',
           }}>
             <div>
-              <div style={{ fontSize: 11, color: '#777', marginBottom: 2 }}>
+              <div style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 2 }}>
                 Bước {currentStep + 1} / {STEPS.length}
               </div>
               <div style={{ fontSize: 18, fontWeight: 700, color: colors.text }}>

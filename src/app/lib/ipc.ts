@@ -81,6 +81,7 @@ type ElectronAPI = {
   refreshAllSessions: () => Promise<{ success: boolean; refreshedCount: number }>
   openSessionLogin: (profileId: string) => Promise<{ success: boolean }>
   cloneSessionOne: () => Promise<{ success: boolean; clonedCount: number; error?: string }>
+  addSession: () => Promise<{ success: boolean; profileId?: string; error?: string }>
   getRenderedVideos: () => Promise<unknown[]>
   archiveRendered: (workspaceId: string, customArchiveDir?: string) => Promise<{ success: boolean; archivedPath?: string; error?: string }>
   removeRenderedVideo: (id: string) => Promise<{ success: boolean; bytesFreed: number }>
@@ -364,6 +365,10 @@ export const ipc = {
 
   async cloneSessionOne() {
     return window.electronAPI?.cloneSessionOne() ?? { success: false, clonedCount: 0, error: 'electronAPI not available' }
+  },
+
+  async addSession() {
+    return window.electronAPI?.addSession() ?? { success: false, error: 'electronAPI not available' }
   },
 
   // ─── Rendered Videos ────────────────────────────────────────────────────────────

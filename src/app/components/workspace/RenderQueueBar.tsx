@@ -30,7 +30,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
         left: 220, // sidebar width
         right: 0,
         background: colors.bg,
-        borderTop: '1px solid #E0E0E0',
+        borderTop: `1px solid ${colors.border}`,
         zIndex: 100,
         transition: 'height 0.2s',
         height: isExpanded ? 120 : 40,
@@ -48,7 +48,7 @@ export function RenderQueueBar({ workspaces, isExpanded, onToggle, onCancel, aut
           paddingRight: 16,
           cursor: 'pointer',
           userSelect: 'none',
-          borderBottom: isExpanded ? '1px solid #1A1A1A' : 'none',
+          borderBottom: isExpanded ? `1px solid ${colors.surface}` : 'none',
         }}
       >
         {/* Flash icon when rendering */}

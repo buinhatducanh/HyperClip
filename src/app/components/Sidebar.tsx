@@ -163,7 +163,7 @@ export const Sidebar = memo(function Sidebar({
                 background: channelInput.trim() ? colors.accent : colors.bg,
                 border: `1px solid ${colors.border}`,
                 borderRadius: 4,
-                color: channelInput.trim() ? '#FFFFFF' : colors.textSecondary,
+                color: channelInput.trim() ? colors.text : colors.textSecondary,
                 fontSize: 14, fontWeight: 700,
                 cursor: addingChannel ? 'default' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -240,7 +240,7 @@ export const Sidebar = memo(function Sidebar({
                       {count > 0 && (
                         <div style={{
                           minWidth: 16, height: 16, borderRadius: 8,
-                          background: colors.accent, fontSize: 9, fontWeight: 800, color: '#FFFFFF',
+                          background: colors.accent, fontSize: 9, fontWeight: 800, color: colors.text,
                           display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', flexShrink: 0,
                         }}>
                           {count}

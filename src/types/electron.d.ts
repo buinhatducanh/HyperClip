@@ -112,6 +112,7 @@ export interface ElectronAPI {
   refreshAllSessions: () => Promise<{ success: boolean; refreshedCount: number }>
   openSessionLogin: (profileId: string) => Promise<{ success: boolean }>
   cloneSessionOne: () => Promise<{ success: boolean; clonedCount: number; error?: string }>
+  addSession: () => Promise<{ success: boolean; profileId?: string; error?: string }>
   // Rendered videos
   getRenderedVideos: () => Promise<unknown[]>
   archiveRendered: (workspaceId: string, customArchiveDir?: string) => Promise<{ success: boolean; archivedPath?: string; error?: string }>

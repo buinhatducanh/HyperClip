@@ -97,7 +97,14 @@ function registerWorkspaceHandlers(ipcMain) {
         const videoUrl = ws.videoUrl || (ws.videoId ? `https://www.youtube.com/watch?v=${ws.videoId}` : null);
         if (!videoUrl)
             return { success: false, error: 'No video URL stored' };
-        (0, store_js_1.updateWorkspace)(id, { status: 'downloading', downloadProgress: 0 });
+        (0, store_js_1.updateWorkspace)(id, {
+            status: 'downloading',
+            downloadProgress: 0,
+            metrics: {
+                ...(ws.metrics || {}),
+                downloadStartedAt: new Date().toISOString(),
+            }
+        });
         (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(id));
         const storagePath = (0, ramdisk_js_1.getVideoStoragePath)();
         (0, ramdisk_js_1.ensureStorageDirs)();

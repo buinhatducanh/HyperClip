@@ -143,6 +143,7 @@ export interface AppSettings {
   autoRender: boolean
   autoRenderResolution: string  // '1080p' | '720p' | '360p'
   autoRenderFPS: number         // 30|60
+  autoRenderSpeed: number       // 1.0–2.0 playback speed for auto-render
   autoSplitParts: number         // 1 = no split, 2-10 = number of parts
   autoSplitMinutes: number       // 0 = use autoSplitParts instead
   autoRenderTitleTemplate: string  // title template for auto-rendered videos
@@ -300,6 +301,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     autoRender: false,
     autoRenderResolution: '1080p',
     autoRenderFPS: 30,
+    autoRenderSpeed: 1.0,
     autoSplitParts: 1,       // default: no split
     autoSplitMinutes: 0,     // default: use parts-based,
     autoRenderTitleTemplate: '',
@@ -364,6 +366,31 @@ export const useAppStore = create<AppStore>((set, get) => ({
         videoResolution: w.videoResolution,
         downloadQuality: w.downloadQuality,
         availableFormats: w.availableFormats,
+        publishedAt: w.publishedAt,
+        detectedAt: w.detectedAt,
+        metrics: w.metrics ? {
+          detectedAt: w.detectedAt || w.metrics.detectedAt,
+          downloadStartedAt: w.metrics.downloadStartedAt,
+          downloadCompletedAt: w.metrics.downloadCompletedAt,
+          renderStartedAt: w.metrics.renderStartedAt,
+          renderCompletedAt: w.metrics.renderCompletedAt,
+          downloadMs: w.metrics.downloadMs,
+          downloadSpeedMBs: w.metrics.downloadSpeedMBs,
+          downloadFileSize: w.metrics.downloadFileSize,
+          downloadQuality: w.metrics.downloadQuality,
+          downloadResolution: w.metrics.downloadResolution,
+          downloadIsMultiInstance: w.metrics.downloadIsMultiInstance,
+          renderMs: w.metrics.renderMs,
+          renderFps: w.metrics.renderFps,
+          renderWorkers: w.metrics.renderWorkers,
+          renderPreset: w.metrics.renderPreset,
+          renderCodec: w.metrics.renderCodec,
+          renderChunks: w.metrics.renderChunks,
+          renderOutputResolution: w.metrics.renderOutputResolution,
+          systemGpuLoad: w.metrics.systemGpuLoad,
+          systemVramUsed: w.metrics.systemVramUsed,
+          systemRamUsed: w.metrics.systemRamUsed,
+        } : undefined,
       }))
       set({ workspaces: ws })
     } catch (e) {

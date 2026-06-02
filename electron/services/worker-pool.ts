@@ -2,7 +2,7 @@ import { spawn, ChildProcess } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import { getFfmpegPath, validateFfmpeg } from './ffmpeg-paths.js'
-import { getGPUCapabilities, getEffectiveWorkers } from './system.js'
+import { getGPUCapabilities, getEffectiveWorkers, getRenderWorkers } from './system.js'
 import { devLog } from './unified_log.js'
 
 // Cache validation result — check once at startup
@@ -145,7 +145,7 @@ function getRenderPool(): WorkerPool {
     const caps = getGPUCapabilities()
     // Env override: explicit control
     const envMax = parseInt(process.env.HYPERCLIP_MAX_WORKERS || '', 10)
-    const maxWorkers = !isNaN(envMax) && envMax > 0 ? envMax : 2
+    const maxWorkers = !isNaN(envMax) && envMax > 0 ? envMax : getRenderWorkers()
     _renderPool = new WorkerPool(maxWorkers)
     _renderPoolWorkers = maxWorkers
     devLog(`[WorkerPool] Render pool initialized: ${maxWorkers} workers (GPU: ${caps.gpuName}, encoder: ${caps.encoder})`)
