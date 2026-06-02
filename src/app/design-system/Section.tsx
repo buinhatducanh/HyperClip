@@ -36,7 +36,7 @@ export function Section({
           transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
           transition: 'transform 0.15s',
         }}>
-          <path d="M2 4l3 3 3-3" stroke="#888" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+          <path d="M2 4l3 3 3-3" stroke={colors.textSecondary} strokeWidth="1.5" fill="none" strokeLinecap="round" />
         </svg>
       </button>
       {open && (

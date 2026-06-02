@@ -79,7 +79,7 @@ function parseISO8601Duration(iso) {
 }
 // ─── Config ─────────────────────────────────────────────────────────────────────
 const PLAYLIST_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const MAX_CONCURRENT = 10;
+const MAX_CONCURRENT = 20;
 const MAX_VIDEOS_PER_POLL = 5;
 // ─── Module-level state ────────────────────────────────────────────────────────
 let _consecutiveZeroInnertubePolls = 0;

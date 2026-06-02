@@ -117,7 +117,7 @@ function getRenderPool() {
         const caps = (0, system_js_1.getGPUCapabilities)();
         // Env override: explicit control
         const envMax = parseInt(process.env.HYPERCLIP_MAX_WORKERS || '', 10);
-        const maxWorkers = !isNaN(envMax) && envMax > 0 ? envMax : 2;
+        const maxWorkers = !isNaN(envMax) && envMax > 0 ? envMax : (0, system_js_1.getRenderWorkers)();
         _renderPool = new WorkerPool(maxWorkers);
         _renderPoolWorkers = maxWorkers;
         (0, unified_log_js_1.devLog)(`[WorkerPool] Render pool initialized: ${maxWorkers} workers (GPU: ${caps.gpuName}, encoder: ${caps.encoder})`);

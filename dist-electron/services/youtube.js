@@ -12,7 +12,9 @@ exports.getChannelInfo = getChannelInfo;
 exports.getVideoInfo = getVideoInfo;
 exports.probeVideoAvailability = probeVideoAvailability;
 exports.probeActualDuration = probeActualDuration;
+exports.checkVideoHasAudio = checkVideoHasAudio;
 exports.probeAvailableFormats = probeAvailableFormats;
+exports.downloadSectionsAsSeparate = downloadSectionsAsSeparate;
 exports.downloadVideoStrategy = downloadVideoStrategy;
 exports.preScaleVideo = preScaleVideo;
 exports.downloadVideo = downloadVideo;
@@ -420,15 +422,24 @@ async function getVideoInfo(videoUrl) {
             '--dump-json',
             '--no-download',
             '--no-playlist',
+            '--no-update',
+            '--socket-timeout', '15',
             videoUrl,
         ], {
             env: { ...process.env },
         });
         proc.stdout?.on('data', (d) => { stdout += d.toString(); });
         proc.stderr?.on('data', (d) => { stderr += d.toString(); });
+        // Safety timeout — prevents hanging when network is slow/blocked
+        const killTimer = setTimeout(() => {
+            if (!proc.killed)
+                proc.kill();
+            resolve(null);
+        }, 15000);
         proc.on('close', (code) => {
+            clearTimeout(killTimer);
             if (code !== 0 || !stdout.trim()) {
-                console.error('[yt-dlp] getInfo failed:', stderr);
+                console.error('[yt-dlp] getInfo failed:', stderr.slice(0, 200));
                 resolve(null);
                 return;
             }
@@ -502,7 +513,7 @@ function buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, section
         args.push('--cookies', ytCookiesFile);
         console.log(`[yt-dlp] Using Chrome cookies: ${ytCookiesFile.split(/[/\\]/).pop()}`);
     }
-    args.push('-f', resolvedFormat, '--output', outputTemplate, '--no-playlist', '--no-update', '--newline', '--concurrent-fragments', String((0, system_js_1.getDownloadParams)().fragments), '--retries', '3', '--fragment-retries', '3', '--socket-timeout', '10', '--http-chunk-size', '10485760', '--download-sections', sectionArg);
+    args.push('-f', resolvedFormat, '--merge-output-format', 'mp4', '--remux-video', 'mp4', '--output', outputTemplate, '--no-playlist', '--no-update', '--newline', '--concurrent-fragments', String((0, system_js_1.getDownloadParams)().fragments), '--retries', '5', '--fragment-retries', '5', '--socket-timeout', '10', '--http-chunk-size', '10485760', '--download-sections', sectionArg);
     return args;
 }
 function makeSectionArg(startSec, endSec) {
@@ -805,7 +816,8 @@ async function probeVideoAvailability(videoUrl, ytCookiesFile) {
                 '--dump-json',
                 '--no-download',
                 '--no-playlist',
-                '--socket-timeout', '15',
+                '--no-update',
+                '--socket-timeout', '8',
             ];
             if (ytCookiesFile) {
                 args.push('--cookies', ytCookiesFile);
@@ -822,7 +834,7 @@ async function probeVideoAvailability(videoUrl, ytCookiesFile) {
                 if (!proc.killed)
                     proc.kill();
                 resolve(null);
-            }, 20000);
+            }, 8000);
             proc.on('close', (code) => {
                 clearTimeout(killTimer);
                 const err = stderr.toLowerCase();
@@ -871,26 +883,28 @@ async function probeVideoAvailability(videoUrl, ytCookiesFile) {
             });
         });
     };
-    // Probe web first — better indexing for new/recent videos.
-    // tv_embedded second — can fail on videos < ~1min old (not yet in HLS index).
-    // ios last resort. Falls back to download (downloadVideoStrategy) if probe inconclusive.
+    // Probe all clients IN PARALLEL — returns first available result.
+    // Previously sequential: web(0-20s) → tv_embedded(0-20s) → ios(0-20s) = up to 60s
+    // Now parallel: max = slowest probe (typically 5-10s)
     const clients = ['web', 'tv_embedded', 'ios'];
-    for (const client of clients) {
-        const result = await tryClient(client);
-        if (result && result.available)
-            return result;
-        // For unavailable (private/not-found/rate-limited), continue trying other clients
-        // — we want a definitive answer before giving up.
-        if (result && (result.isPrivate || result.isRateLimited || result.isNotFound)) {
-            // Retry isNotFound once after a short delay (video may still be propagating)
-            if (result.isNotFound) {
-                await new Promise(r => setTimeout(r, 5000));
-                const retry = await tryClient(client);
+    const probes = await Promise.allSettled(clients.map(c => tryClient(c)));
+    // Check for definitive unavailable result first (private/not-found/rate-limited)
+    for (const p of probes) {
+        if (p.status === 'fulfilled' && p.value && (p.value.isPrivate || p.value.isRateLimited || p.value.isNotFound)) {
+            // Retry isNotFound once after short delay (video may still be propagating)
+            if (p.value.isNotFound) {
+                await new Promise(r => setTimeout(r, 3000));
+                const retry = await tryClient('web');
                 if (retry && retry.available)
                     return retry;
             }
-            return result;
+            return p.value;
         }
+    }
+    // Return first available result
+    for (const p of probes) {
+        if (p.status === 'fulfilled' && p.value && p.value.available)
+            return p.value;
     }
     // All probes inconclusive — return null (caller should attempt download with caution)
     return null;
@@ -906,6 +920,20 @@ async function probeActualDuration(filePath) {
     }
     catch {
         return 0;
+    }
+}
+/** Check if a video file has an audio stream. Returns audio codec info. */
+async function checkVideoHasAudio(filePath) {
+    if (!fs_1.default.existsSync(filePath))
+        return { hasAudio: false };
+    try {
+        const ffprobePath = (0, ffmpeg_paths_js_1.getFfprobePath)();
+        const out = (0, child_process_1.execSync)(`"${ffprobePath}" -v error -select_streams a -show_entries stream=codec_name -of csv=p=0 -- "${filePath}"`, { encoding: 'utf-8', timeout: 10000 });
+        const codec = out.trim().split('\n')[0];
+        return { hasAudio: !!codec, audioCodec: codec || undefined };
+    }
+    catch {
+        return { hasAudio: false };
     }
 }
 async function probeAvailableFormats(videoUrl, ytCookiesFile) {
@@ -964,6 +992,246 @@ async function probeAvailableFormats(videoUrl, ytCookiesFile) {
             return result;
     }
     return null;
+}
+/** Download a single section — used by sequential fallback when parallel fails. */
+function downloadOneSection(ytdlp, args, enrichedPath, outputDir, workspaceId, idx, prefix) {
+    return new Promise((resolve) => {
+        let proc;
+        try {
+            proc = (0, child_process_1.spawn)(ytdlp, args, {
+                env: { ...process.env, PATH: enrichedPath },
+                stdio: ['ignore', 'pipe', 'pipe'],
+            });
+        }
+        catch {
+            resolve(null);
+            return;
+        }
+        let downloadedFile = '';
+        proc.stdout?.on('data', (data) => {
+            const text = data.toString();
+            const destMatch = text.match(/Dest(?:ination)?:\s*(.+)/);
+            if (destMatch)
+                downloadedFile = destMatch[1].trim();
+            const mergeMatch = text.match(/Merging formats into "(.+)"/);
+            if (mergeMatch)
+                downloadedFile = mergeMatch[1];
+        });
+        proc.stderr?.on('data', (data) => {
+            const destMatch = data.toString().match(/Dest(?:ination)?:\s*(.+)/);
+            if (destMatch && !downloadedFile)
+                downloadedFile = destMatch[1].trim();
+            const mergeMatch = data.toString().match(/Merging formats into "(.+)"/);
+            if (mergeMatch)
+                downloadedFile = mergeMatch[1];
+        });
+        proc.on('close', (code) => {
+            if (!downloadedFile) {
+                try {
+                    const files = fs_1.default.readdirSync(outputDir);
+                    const match = files.find(f => f.startsWith(`${workspaceId}_${prefix}${String(idx).padStart(2, '0')}_`) && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f));
+                    if (match)
+                        downloadedFile = path_1.default.join(outputDir, match);
+                }
+                catch { }
+            }
+            if (code === 0 && downloadedFile) {
+                resolve(downloadedFile);
+            }
+            else {
+                resolve(null);
+            }
+        });
+        setTimeout(() => { if (!proc.killed)
+            proc.kill(); resolve(null); }, 30 * 60 * 1000);
+    });
+}
+async function downloadSectionsAsSeparate(opts) {
+    const { workspaceId, videoUrl, outputDir, quality, sections, poToken, ytCookiesFile, onProgress } = opts;
+    const ytdlp = getYtdlpPath();
+    const ytdlpDir = path_1.default.dirname(ytdlp);
+    const ffmpegPath = (0, ffmpeg_paths_js_1.getFfmpegPath)();
+    const ffmpegDir = path_1.default.dirname(ffmpegPath);
+    const enrichedPath = ffmpegDir + path_1.default.delimiter + ytdlpDir + path_1.default.delimiter + (process.env.PATH || '');
+    const q = parseInt(quality);
+    const maxHeight = isNaN(q) ? 720 : q;
+    const formatSelector = [
+        `bestvideo[height<=${maxHeight}][vcodec!="none"]+bestaudio`,
+        `18/best[height<=${maxHeight}]`,
+    ].join('/');
+    let cacheDirArgs = [];
+    if (process.platform === 'linux') {
+        cacheDirArgs = ['--cache-dir', '/dev/shm/yt-dlp-cache'];
+    }
+    const numSections = sections.length;
+    const progressPerSection = 100 / numSections;
+    const completedSections = { count: 0 };
+    const results = [];
+    const errors = [];
+    const downloadPromises = sections.map((section, idx) => {
+        return new Promise((resolve) => {
+            const outputTemplate = path_1.default.join(outputDir, `${workspaceId}_sec${String(idx).padStart(2, '0')}_%(id)s.%(ext)s`);
+            const sectionArg = makeSectionArg(section.start, section.end);
+            const args = [
+                videoUrl,
+                ...getJsRuntimeArgs(),
+                '--remote-components', 'ejs:github',
+                '--extractor-args', poToken
+                    ? `youtube:player_client=android,po_token=${poToken}`
+                    : 'youtube:player_client=tv_embedded',
+                ...(ytCookiesFile ? ['--cookies', ytCookiesFile] : []),
+                '-f', formatSelector,
+                '--merge-output-format', 'mp4',
+                '--remux-video', 'mp4',
+                '--output', outputTemplate,
+                '--no-playlist',
+                '--no-update',
+                '--newline',
+                '--concurrent-fragments', String((0, system_js_1.getDownloadParams)().fragments),
+                '--retries', '5',
+                '--fragment-retries', '5',
+                '--socket-timeout', '10',
+                '--http-chunk-size', '10485760',
+                '--download-sections', sectionArg,
+                ...cacheDirArgs,
+            ];
+            (0, unified_log_js_1.devLog)(`[DownloadSections] Section ${idx + 1}/${numSections}: ${sectionArg} → ${outputTemplate}`);
+            const proc = (0, child_process_1.spawn)(ytdlp, args, {
+                env: { ...process.env, PATH: enrichedPath },
+                stdio: ['ignore', 'pipe', 'pipe'],
+            });
+            let stderr = '';
+            let downloadedFile = '';
+            let instanceProgress = 0;
+            proc.stdout?.on('data', (data) => {
+                const text = data.toString();
+                const pctMatch = text.match(/(\d+\.?\d*)%/);
+                if (pctMatch) {
+                    const pct = parseFloat(pctMatch[1]);
+                    if (pct >= 0 && pct <= 100) {
+                        instanceProgress = pct;
+                        const total = completedSections.count * progressPerSection + (instanceProgress / 100) * progressPerSection;
+                        onProgress?.({ workspaceId, percent: total, speed: '', eta: '', downloaded: '', total: '' });
+                    }
+                }
+                const destMatch = text.match(/Dest(?:ination)?:\s*(.+)/);
+                if (destMatch)
+                    downloadedFile = destMatch[1].trim();
+                const mergeMatch = text.match(/Merging formats into "(.+)"/);
+                if (mergeMatch)
+                    downloadedFile = mergeMatch[1];
+            });
+            proc.stderr?.on('data', (data) => {
+                stderr += data.toString();
+                const pctMatch = data.toString().match(/(\d+\.?\d*)%/);
+                if (pctMatch) {
+                    const pct = parseFloat(pctMatch[1]);
+                    if (pct >= 0 && pct <= 100) {
+                        instanceProgress = pct;
+                        const total = completedSections.count * progressPerSection + (instanceProgress / 100) * progressPerSection;
+                        onProgress?.({ workspaceId, percent: total, speed: '', eta: '', downloaded: '', total: '' });
+                    }
+                }
+                const destMatch = data.toString().match(/Dest(?:ination)?:\s*(.+)/);
+                if (destMatch && !downloadedFile)
+                    downloadedFile = destMatch[1].trim();
+                const mergeMatch = data.toString().match(/Merging formats into "(.+)"/);
+                if (mergeMatch)
+                    downloadedFile = mergeMatch[1];
+                const str = data.toString();
+                if (str.includes('Deleting original') || str.includes('Merging formats')) {
+                    onProgress?.({ workspaceId, percent: completedSections.count * progressPerSection + 99 / numSections, speed: 'processing', eta: 0, downloaded: '', total: '' });
+                }
+            });
+            proc.on('close', async (code) => {
+                if (!downloadedFile) {
+                    try {
+                        const files = fs_1.default.readdirSync(outputDir);
+                        const match = files.find(f => f.startsWith(`${workspaceId}_sec${String(idx).padStart(2, '0')}_`) && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f));
+                        if (match)
+                            downloadedFile = path_1.default.join(outputDir, match);
+                    }
+                    catch { }
+                }
+                completedSections.count++;
+                if (code === 0 && downloadedFile) {
+                    const fileSize = fs_1.default.statSync(downloadedFile).size;
+                    const actualDuration = await probeActualDuration(downloadedFile) || (section.end - section.start);
+                    results[idx] = { path: downloadedFile, duration: actualDuration, size: fileSize, startSec: section.start, endSec: section.end };
+                    resolve({ success: true, path: downloadedFile, duration: actualDuration, size: fileSize });
+                }
+                else {
+                    const err = stderr.includes('ERROR') ? stderr.split('\n').find(l => l.includes('ERROR')) || `code ${code}` : `code ${code}`;
+                    errors.push(`Section ${idx + 1}: ${err}`);
+                    resolve({ success: false, error: err });
+                }
+            });
+            setTimeout(() => {
+                if (!proc.killed)
+                    proc.kill();
+                resolve({ success: false, error: 'timeout' });
+            }, 30 * 60 * 1000);
+        });
+    });
+    const downloadResults = await Promise.all(downloadPromises);
+    if (errors.length > 0) {
+        (0, unified_log_js_1.devLog)(`[DownloadSections] Parallel download failed (${errors.length} errors: ${errors.slice(0, 2).join('; ')}) — trying sequential fallback`);
+        // Sequential fallback: download one section at a time (slower but more reliable)
+        const seqResults = [];
+        const seqErrors = [];
+        for (let i = 0; i < sections.length; i++) {
+            const section = sections[i];
+            const outputTemplate = path_1.default.join(outputDir, `${workspaceId}_seq${String(i).padStart(2, '0')}_%(id)s.%(ext)s`);
+            const sectionArg = makeSectionArg(section.start, section.end);
+            const args = [
+                videoUrl,
+                ...getJsRuntimeArgs(),
+                '--remote-components', 'ejs:github',
+                '--extractor-args', poToken
+                    ? `youtube:player_client=android,po_token=${poToken}`
+                    : 'youtube:player_client=tv_embedded',
+                ...(ytCookiesFile ? ['--cookies', ytCookiesFile] : []),
+                '-f', formatSelector,
+                '--merge-output-format', 'mp4',
+                '--remux-video', 'mp4',
+                '--output', outputTemplate,
+                '--no-playlist',
+                '--no-update',
+                '--newline',
+                '--concurrent-fragments', String((0, system_js_1.getDownloadParams)().fragments),
+                '--retries', '5',
+                '--fragment-retries', '5',
+                '--socket-timeout', '10',
+                '--http-chunk-size', '10485760',
+                '--download-sections', sectionArg,
+            ];
+            (0, unified_log_js_1.devLog)(`[DownloadSections] Sequential fallback ${i + 1}/${sections.length}: ${sectionArg}`);
+            const file = await downloadOneSection(ytdlp, args, enrichedPath, outputDir, workspaceId, i, '_seq');
+            if (file) {
+                const fileSize = fs_1.default.statSync(file).size;
+                const actualDuration = await probeActualDuration(file) || (section.end - section.start);
+                seqResults[i] = { path: file, duration: actualDuration, size: fileSize, startSec: section.start, endSec: section.end };
+            }
+            else {
+                seqErrors.push(`Section ${i + 1} failed`);
+            }
+        }
+        // Clean up parallel files
+        for (const r of downloadResults) {
+            if (r.path)
+                try {
+                    fs_1.default.unlinkSync(r.path);
+                }
+                catch { }
+        }
+        if (seqErrors.length > 0) {
+            return { success: false, files: [], error: `Sequential: ${seqErrors.join('; ')}` };
+        }
+        (0, unified_log_js_1.devLog)(`[DownloadSections] Sequential fallback succeeded: ${seqResults.length} sections`);
+        return { success: true, files: seqResults.filter(Boolean) };
+    }
+    (0, unified_log_js_1.devLog)(`[DownloadSections] All ${numSections} sections downloaded successfully`);
+    return { success: true, files: results.filter(Boolean) };
 }
 /**
  * High-level download function with client fallback chain.
@@ -1062,16 +1330,13 @@ async function downloadWithClient(opts) {
     }
     const q = parseInt(quality);
     const maxHeight = isNaN(q) ? 720 : q;
-    // All fallbacks enforce height<=maxHeight — no unconstrained fallback.
-    // Priority: bestvideo@maxHeight+best_audio @ AAC → same w/ any audio codec
-    // → same w/ any video codec → bestvideo@maxHeight+best_audio (strict cap).
+    // Optimized selector: 2 fast fallbacks instead of 5.
+    // Fallback 1: bestvideo+bestaudio at maxHeight (yt-dlp picks best codecs automatically)
+    // Fallback 2: pre-muxed format 18 for new videos without adaptive streams
+    // Previous 5-selector chain added ~10-30s of format negotiation per fallback attempt.
     const formatSelector = [
-        `bestvideo[height<=${maxHeight}][vcodec!="none"]+bestaudio[acodec=aac]`,
-        `bestvideo[height<=${maxHeight}][vcodec!="none"]+bestaudio`,
-        `bestvideo[height<=${maxHeight}]+bestaudio[acodec=aac]`,
-        `bestvideo[height<=${maxHeight}]+bestaudio`,
-        // Fallback for pre-muxed formats (e.g., format 18 for new videos without adaptive streams yet)
-        `18/best[height<=${maxHeight}]`,
+        `bestvideo[height<=${maxHeight}][fps<=30][vcodec!="none"]+bestaudio`,
+        `18/best[height<=${maxHeight}][fps<=30]`,
     ].join('/');
     console.log(`[Download] quality=${quality} maxHeight=${maxHeight}p selector=${formatSelector}`);
     // Multi-instance: parallel yt-dlp instances for 720p+ with enough free RAM
@@ -1084,10 +1349,10 @@ async function downloadWithClient(opts) {
     }
     else if (maxInstances === 'auto' && freeMemGB >= 8) {
         if (maxHeight >= 1080) {
-            instanceCount = Math.min(4, tierMax);
+            instanceCount = Math.min(6, tierMax); // up to 6 parallel yt-dlp for 1080p
         }
         else if (maxHeight >= 720) {
-            instanceCount = Math.min(2, tierMax);
+            instanceCount = Math.min(4, tierMax); // up to 4 for 720p
         }
     }
     // ── Start simulated progress to prevent 0% stuck bar ──────────────────────────
@@ -1142,11 +1407,11 @@ async function downloadWithClient(opts) {
                 : result.error;
             (0, unified_log_js_1.devLog)(`[Download] Section failed: ${sfErr?.slice(0, 120)} — falling back to full`);
         }
-        // ── Full download ────────────────────────────────────────────────────────
+        // ── Full download (always trim before download when trimLimit is set) ──
         const result = await spawnDownload({
             workspaceId, videoUrl, outputDir, formatSelector, client, ytCookiesFile,
-            extraArgs: [],
-            instanceCount: 1, sectionArg: null, maxInstances: 1, quality, onProgress: _wrappedOnProgress,
+            extraArgs: sectionArg ? ['--download-sections', sectionArg] : [],
+            instanceCount: 1, sectionArg, maxInstances: 1, quality, onProgress: _wrappedOnProgress,
         });
         if (result.success) {
             const actualDuration = await probeActualDuration(result.filePath);
@@ -1190,9 +1455,9 @@ async function spawnDownload(opts) {
         '--no-playlist',
         '--newline',
         '--concurrent-fragments', String((0, system_js_1.getDownloadParams)().fragments),
-        '--retries', '3',
-        '--fragment-retries', '3',
-        '--socket-timeout', '15',
+        '--retries', '10',
+        '--fragment-retries', '10',
+        '--socket-timeout', '30',
         '--http-chunk-size', '10485760',
         ...extraArgs,
     ];

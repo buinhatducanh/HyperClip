@@ -32,19 +32,61 @@ function extractQualityFromResolution(res) {
     return h >= w ? w : h;
 }
 exports.renderQueue = [];
+// Track renders currently executing (by workspaceId)
+const activeRenders = new Set();
+// ── Max concurrent renders based on GPU tier + output resolution ────────────────
+// VRAM budget per render session (decode + filter + encode):
+//   720p canvas (1920×1920 max): ~500MB
+//   1080p canvas (1920×1920):   ~800MB
+//   RTX 5080: 16GB → 3×720p or 2×1080p fits easily
+//   RTX 4090: 24GB → 3×720p or 2×1080p
+//   RTX 3060: 8GB  → 2×720p or 1×1080p
+function getMaxConcurrentRenders(outputResolution) {
+    const settings = (0, ramdisk_js_1.loadSettings)();
+    if (settings.maxConcurrentRenders && settings.maxConcurrentRenders > 0) {
+        return settings.maxConcurrentRenders;
+    }
+    const gpuCaps = (0, system_js_1.getGPUCapabilities)();
+    const tier = gpuCaps.tier;
+    // Extract output quality (short side of canvas)
+    let quality = 720;
+    if (outputResolution) {
+        const parts = outputResolution.split('x').map(Number);
+        quality = Math.max(parts[0] || 720, parts[1] || 720);
+    }
+    if (tier === 'high') {
+        // RTX 5080/4090: 3× 720p, 2× 1080p
+        return quality >= 1080 ? 2 : 3;
+    }
+    if (tier === 'mid') {
+        // RTX 3060-3070: 2× 720p, 1× 1080p
+        return quality >= 1080 ? 1 : 2;
+    }
+    // Low / software: 1 at a time
+    return 1;
+}
 function startNextQueuedRender() {
-    // SEQUENTIAL PIPELINE: 1 render at a time, 100% GPU for single video.
-    if ((0, worker_pool_js_1.getPoolStatus)().active >= 1)
-        return;
     if (exports.renderQueue.length === 0)
         return;
-    const job = exports.renderQueue.shift();
-    executeRenderJob(job);
+    // Determine how many slots are available
+    const activeCount = activeRenders.size;
+    const maxConcurrent = getMaxConcurrentRenders();
+    const slots = maxConcurrent - activeCount;
+    if (slots <= 0)
+        return;
+    // Start up to `slots` jobs in parallel
+    for (let i = 0; i < slots && exports.renderQueue.length > 0; i++) {
+        const job = exports.renderQueue.shift();
+        executeRenderJob(job);
+    }
 }
 function executeRenderJob(job) {
     const { workspaceId, metadata, resolve } = job;
+    // Track this render as active
+    activeRenders.add(workspaceId);
     const workspace = (0, store_js_1.getWorkspace)(workspaceId);
     if (!workspace) {
+        activeRenders.delete(workspaceId);
         resolve({ success: false, error: 'Workspace not found' });
         startNextQueuedRender();
         return;
@@ -54,6 +96,7 @@ function executeRenderJob(job) {
     const videoPath = workspace.preScaledPath || workspace.downloadedPath || findDownloadedFileAbs(workspaceId) || metadata.source_video;
     if (!fs_1.default.existsSync(videoPath)) {
         console.error(`[RENDER] Source video not found: ${videoPath}`);
+        activeRenders.delete(workspaceId);
         resolve({ success: false, error: `Source video not found: ${path_1.default.basename(videoPath)}` });
         startNextQueuedRender();
         return;
@@ -64,10 +107,12 @@ function executeRenderJob(job) {
     const trimStart = metadata.trim?.start ?? 0;
     const trimEnd = metadata.trim?.end ?? 0;
     const trimDuration = trimEnd - trimStart;
-    (0, unified_log_js_1.devLog)(`[TIMER] RENDER START: "${workspace.videoTitle}"`);
+    const maxConcurrent = getMaxConcurrentRenders(metadata.export_resolution);
+    (0, unified_log_js_1.devLog)(`[TIMER] RENDER START: "${workspace.videoTitle}" (${activeRenders.size}/${maxConcurrent} active)`);
     (0, unified_log_js_1.devLog)(`[TIMER]   Quality: ${renderQuality}p | Speed: ${renderSpeed}x | Trim: ${trimDuration}s (${trimStart}s–${trimEnd}s)`);
     (0, unified_log_js_1.devLog)(`[TIMER]   Codec: ${metadata.codec ?? 'hevc'} | Source: ${path_1.default.basename(videoPath)}`);
     (0, store_js_1.updateWorkspace)(workspaceId, { status: 'rendering', renderProgress: 0 });
+    const renderStartedAtISO = new Date().toISOString();
     (0, ipc_state_js_1.sendNotification)('info', `Rendering: ${workspace.videoTitle}`, workspaceId);
     (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.ACTIVITY_EVENT, {
         id: workspaceId,
@@ -102,7 +147,13 @@ function executeRenderJob(job) {
     }, gpuTier).then((result) => {
         const renderElapsed = ((Date.now() - renderStartMs) / 1000).toFixed(1);
         if (result.success) {
-            (0, store_js_1.updateWorkspace)(workspaceId, { status: 'done', renderProgress: 100, outputPath: result.outputPath || '' });
+            const renderCompletedAtISO = new Date().toISOString();
+            const renderMs = Date.now() - renderStartMs;
+            const ws = (0, store_js_1.getWorkspace)(workspaceId);
+            (0, store_js_1.updateWorkspace)(workspaceId, {
+                status: 'done', renderProgress: 100, outputPath: result.outputPath || '',
+                metrics: { ...ws?.metrics, renderStartedAt: renderStartedAtISO, renderCompletedAt: renderCompletedAtISO, renderMs },
+            });
             (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(workspaceId));
             (0, ipc_state_js_1.sendNotification)('success', `Done: ${workspace.videoTitle}`, workspaceId);
             (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.ACTIVITY_EVENT, {
@@ -198,6 +249,7 @@ function executeRenderJob(job) {
             (0, store_js_1.updateWorkspace)(workspaceId, { status: 'ready', renderProgress: 0 });
             (0, ipc_state_js_1.sendNotification)('error', `Render failed: ${result.error}`, workspaceId);
         }
+        activeRenders.delete(workspaceId);
         startNextQueuedRender();
     });
 }
@@ -230,9 +282,7 @@ function registerRenderHandlers(ipcMain) {
     ipcMain.handle(channels_js_1.IPC_CHANNELS.RENDER_START, async (_, workspaceId, metadata) => {
         return new Promise((resolve) => {
             exports.renderQueue.push({ workspaceId, metadata, resolve });
-            if ((0, worker_pool_js_1.getPoolStatus)().active < 1) {
-                startNextQueuedRender();
-            }
+            startNextQueuedRender();
         });
     });
     // ─── Cancel render ─────────────────────────────────────────────────────────────
@@ -260,9 +310,11 @@ function registerRenderHandlers(ipcMain) {
             return { success: false, workspaceId, error: `Source video not found: ${path_1.default.basename(videoPath)}` };
         }
         const gpuCaps = (0, system_js_1.getGPUCapabilities)();
+        // metadata.chunkDuration overrides GPU-tier default (used for auto-split workspaces:
+        // each section already split by download, so renderChunked must NOT re-split further).
         const effectiveConfig = {
             workers: config?.workers ?? gpuCaps.maxChunkWorkers,
-            chunkDuration: config?.chunkDuration ?? (gpuCaps.tier === 'high' ? 90 : 120),
+            chunkDuration: metadata.chunkDuration ?? config?.chunkDuration ?? (gpuCaps.tier === 'high' ? 90 : 120),
             minChunkDuration: config?.minChunkDuration ?? 10,
             gpuTier: gpuCaps.tier,
             fpsTarget: (metadata.fps_target || 30),
@@ -292,7 +344,23 @@ function registerRenderHandlers(ipcMain) {
             (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.RENDER_PROGRESS_EVENT, progress);
         });
         if (result.success) {
-            (0, store_js_1.updateWorkspace)(workspaceId, { status: 'done', renderProgress: 100, outputPath: result.outputPath || '' });
+            const renderCompletedAtISO = new Date().toISOString();
+            const chunkRenderMs = Date.now() - chunkRenderStartMs;
+            const ws = (0, store_js_1.getWorkspace)(workspaceId);
+            (0, store_js_1.updateWorkspace)(workspaceId, {
+                status: 'done', renderProgress: 100, outputPath: result.outputPath || '',
+                metrics: {
+                    ...ws?.metrics,
+                    renderStartedAt: ws?.metrics?.renderStartedAt || new Date(chunkRenderStartMs).toISOString(),
+                    renderCompletedAt: renderCompletedAtISO,
+                    renderMs: chunkRenderMs,
+                    renderWorkers: effectiveConfig.workers,
+                    renderPreset: gpuCaps.tier === 'high' ? 'p5' : 'p4',
+                    renderCodec: metadata.codec || 'hevc',
+                    renderOutputResolution: metadata.export_resolution || '1080x1920',
+                    renderChunks: Math.ceil((metadata.trim.end - metadata.trim.start) / (effectiveConfig.chunkDuration ?? 30)),
+                },
+            });
             (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, (0, store_js_1.getWorkspace)(workspaceId));
             (0, ipc_state_js_1.sendNotification)('success', `Done (chunked): ${workspace.videoTitle}`, workspaceId);
             const chunkRenderElapsed = ((Date.now() - chunkRenderStartMs) / 1000).toFixed(1);

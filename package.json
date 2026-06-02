@@ -6,7 +6,7 @@
   "author": "HyperClip",
   "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "npx electron .",
+    "dev": "node scripts/electron-dev.cjs",
     "dev:next": "next dev",
     "build": "next build",
     "start": "next start",
@@ -103,9 +103,6 @@
     "electron": "41.5.0",
     "electron-builder": "^26.8.1",
     "eslint": "^10.4.0",
-    "eslint-plugin-jsx-a11y": "^6.10.2",
-    "eslint-plugin-react": "^7.37.5",
-    "eslint-plugin-react-hooks": "^7.1.1",
     "extract-zip": "^2.0.1",
     "playwright": "^1.60.0",
     "png-to-ico": "^3.0.1",

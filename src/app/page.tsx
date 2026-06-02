@@ -110,7 +110,6 @@ function DashboardContent() {
   const renderedVideos = useAppStore(s => s.renderedVideos, shallow)
   const channels = useAppStore(s => s.channels, shallow)
   const selectedWorkspaceId = useAppStore(s => s.selectedWorkspaceId)
-  const systemStats = useAppStore(s => s.systemStats, shallow)
   const toast = useAppStore(s => s.toast)
   const settings = useAppStore(s => s.settings, shallow)
   // Actions
@@ -338,7 +337,31 @@ function DashboardContent() {
     return cleanup
   }, [initChannels])
 
-  // Sync IPC workspace updates into Zustand
+  // ── Batched workspace updates: accumulate patches, flush every 150ms ──
+  const _wsPending = useRef<Map<string, Partial<Workspace>>>(new Map())
+  const _wsFlushTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const scheduleWsFlush = useCallback(() => {
+    if (_wsFlushTimer.current) return
+    _wsFlushTimer.current = setTimeout(() => {
+      _wsFlushTimer.current = null
+      const pending = _wsPending.current
+      if (pending.size === 0) return
+      _wsPending.current = new Map()
+      const state = useAppStore.getState()
+      const current = state.workspaces
+      const next = current.map(w => {
+        const patch = pending.get(w.id)
+        return patch ? { ...w, ...patch } : w
+      })
+      // Only set if something actually changed
+      if (next !== current) {
+        useAppStore.setState({ workspaces: next })
+      }
+    }, 150)
+  }, [])
+
+  // Sync IPC workspace updates into Zustand (throttled)
   useEffect(() => {
     const cleanup = ipc.onWorkspaceUpdate((ws) => {
       const data = ws as any
@@ -355,7 +378,12 @@ function DashboardContent() {
         if (patch.downloadedAt) patch.downloadedAt = formatDateRaw(patch.downloadedAt)
         if (typeof patch.duration === 'number') patch.duration = formatDurationRaw(patch.duration)
         const hasChange = Object.keys(patch).some(k => (existing as any)[k] !== (patch as any)[k])
-        if (hasChange) updateWorkspaceRef.current(data.id, patch)
+        if (hasChange) {
+          // Merge into pending batch
+          const prev = _wsPending.current.get(data.id) || {}
+          _wsPending.current.set(data.id, { ...prev, ...patch })
+          scheduleWsFlush()
+        }
       } else {
         const formatted: Workspace = {
           id: data.id, channelId: data.channelId || '', channelName: (data.channelName && data.channelName !== 'N/A') ? data.channelName : 'Unknown Channel',
@@ -371,17 +399,48 @@ function DashboardContent() {
           publishedAt: data.publishedAt,
           detectedAt: data.detectedAt,
           videoResolution: data.videoResolution,
+          metrics: data.metrics ? {
+            detectedAt: data.detectedAt || data.metrics.detectedAt,
+            downloadStartedAt: data.metrics.downloadStartedAt,
+            downloadCompletedAt: data.metrics.downloadCompletedAt,
+            renderStartedAt: data.metrics.renderStartedAt,
+            renderCompletedAt: data.metrics.renderCompletedAt,
+            downloadMs: data.metrics.downloadMs,
+            downloadSpeedMBs: data.metrics.downloadSpeedMBs,
+            downloadFileSize: data.metrics.downloadFileSize,
+            downloadQuality: data.metrics.downloadQuality,
+            downloadResolution: data.metrics.downloadResolution,
+            downloadIsMultiInstance: data.metrics.downloadIsMultiInstance,
+            renderMs: data.metrics.renderMs,
+            renderFps: data.metrics.renderFps,
+            renderWorkers: data.metrics.renderWorkers,
+            renderPreset: data.metrics.renderPreset,
+            renderCodec: data.metrics.renderCodec,
+            renderChunks: data.metrics.renderChunks,
+            renderOutputResolution: data.metrics.renderOutputResolution,
+            systemGpuLoad: data.metrics.systemGpuLoad,
+            systemVramUsed: data.metrics.systemVramUsed,
+            systemRamUsed: data.metrics.systemRamUsed,
+          } : undefined,
         }
         addWorkspaceRef.current(formatted)
       }
     })
-    return cleanup
-  }, [])
+    return () => {
+      cleanup()
+      if (_wsFlushTimer.current) { clearTimeout(_wsFlushTimer.current); _wsFlushTimer.current = null }
+    }
+  }, [scheduleWsFlush, initWorkspaces, initRenderedVideos])
 
-  // System stats
+  // System stats — throttled to max once per 2s to avoid re-render cascade
+  const _lastStatsUpdate = useRef(0)
   useEffect(() => {
     const cleanup = window.electronAPI?.onSystemStats((stats) => {
-      if (stats) updateSystemStats(stats as SystemStats)
+      if (!stats) return
+      const now = Date.now()
+      if (now - _lastStatsUpdate.current < 2000) return
+      _lastStatsUpdate.current = now
+      updateSystemStats(stats as SystemStats)
     })
     return cleanup
   }, [updateSystemStats])
@@ -670,6 +729,11 @@ function DashboardContent() {
     if (id) selectWorkspace(null)
   }, [])
 
+  const handleRemoveRendered = useCallback((id: string) => {
+    setSelectedRenderedVideoId(prev => prev === id ? null : prev)
+    removeRenderedVideo(id)
+  }, [removeRenderedVideo])
+
   const handleQuickAction = useCallback((action: 'open' | 'delete', id: string) => {
     if (action === 'delete') {
       const ws = workspacesRef.current.find(w => w.id === id)
@@ -731,6 +795,10 @@ function DashboardContent() {
 
   const showSkeleton = isLoadingData && authStatus.isReady
 
+  // Memoized activity entries — avoids new array on every render
+  const activityEntries = useMemo(() =>
+    [...activityMap.values()].reverse(), [activityMap])
+
   const filteredWorkspaces = useMemo(() =>
     activeChannelId
       ? workspaces.filter(w => w.channelId === activeChannelId)
@@ -762,18 +830,17 @@ function DashboardContent() {
           position: 'fixed', top: authStatus.accountName === 'Demo Mode' ? 28 : 0, left: 0, right: 0, zIndex: 100,
           background: colors.error + '22', borderBottom: '1px solid ' + colors.error + '44',
           padding: '4px 16px', display: 'flex', alignItems: 'center', gap: 8,
-          fontSize: 9, color: '#FF6666',
+          fontSize: 9, color: colors.error,
         }}>
           <span>⚠️</span>
           <span style={{ flex: 1 }}>{diagIssues[0]}</span>
-          <Link href="/settings" style={{ color: '#FF6666', textDecoration: 'none', fontWeight: 600 }}>Diagnostics →</Link>
+          <Link href="/settings" style={{ color: colors.error, textDecoration: 'none', fontWeight: 600 }}>Diagnostics →</Link>
         </div>
       )}
 
       {/* Top Bar */}
       <TopBar
         settings={settings}
-        systemStats={systemStats}
         onSettingsChange={handleSettingsChange}
       />
 
@@ -812,11 +879,8 @@ function DashboardContent() {
           ) : (
             <SettingsPanel
               settings={settings}
-              systemStats={systemStats}
-              channels={channels}
-              activeChannelId={activeChannelId}
               onSettingsChange={handleSettingsChange}
-              activityEntries={[...activityMap.values()].reverse()}
+              activityEntries={activityEntries}
               onClearActivity={handleClearActivity}
             />
           )}
@@ -833,14 +897,11 @@ function DashboardContent() {
               channels={channels}
               selectedId={selectedWorkspaceId}
               selectedRenderedId={selectedRenderedVideoId}
-              onSelect={(id) => handleVideoSelect(id)}
+              onSelect={handleVideoSelect}
               onSelectRendered={handleRenderedVideoSelect}
               onQuickAction={handleQuickAction}
               onRetry={handleRetry}
-              onRemoveRendered={(id) => {
-                if (selectedRenderedVideoId === id) setSelectedRenderedVideoId(null)
-                removeRenderedVideo(id)
-              }}
+              onRemoveRendered={handleRemoveRendered}
               onShowToast={showToast}
               onSplit={handleSplit}
               trimLimitMinutes={settings.defaultTrimLimit as number}
@@ -859,7 +920,7 @@ function DashboardContent() {
           border: '1px solid ' + colors.border,
           borderLeft: '3px solid ' + colors.accent,
           borderRadius: 4, padding: '12px 18px',
-          fontSize: 14, color: '#555', zIndex: 9999,
+          fontSize: 14, color: colors.textSecondary, zIndex: 9999,
           maxWidth: 360,
           animation: 'toastIn 0.2s ease',
         }}>
@@ -893,8 +954,8 @@ function DashboardContent() {
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #c0c0c0; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #a0a0a0; }
+        ::-webkit-scrollbar-thumb { background: #3A3A48; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4A4A58; }
         input[type=range] { -webkit-appearance: none; appearance: none; background: transparent; }
         input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; }
         textarea { box-sizing: border-box; }

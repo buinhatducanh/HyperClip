@@ -43,7 +43,8 @@ function loadSettings() {
         return _settings;
     try {
         if (fs_1.default.existsSync(SETTINGS_FILE)) {
-            _settings = JSON.parse(fs_1.default.readFileSync(SETTINGS_FILE, 'utf-8'));
+            const raw = fs_1.default.readFileSync(SETTINGS_FILE, 'utf-8').replace(/^﻿/, '');
+            _settings = JSON.parse(raw);
         }
     }
     catch { }
@@ -53,6 +54,8 @@ function loadSettings() {
         _settings.autoRenderResolution = '1080p';
     if (_settings.autoRenderFPS === undefined)
         _settings.autoRenderFPS = 30;
+    if (_settings.autoRenderSpeed === undefined)
+        _settings.autoRenderSpeed = 1.0;
     if (_settings.downloadsCleanupDays === undefined)
         _settings.downloadsCleanupDays = 7;
     if (_settings.defaultQuality === undefined)
