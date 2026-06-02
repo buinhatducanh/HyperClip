@@ -46,7 +46,7 @@ export function UpdateBar() {
   return (
     <div style={{
       position: 'fixed', bottom: 16, right: 16,
-      background: '#FFFFFF', border: '1px solid #E0E0E0',
+      background: colors.surface, border: `1px solid ${colors.border}`,
       borderRadius: 12, padding: '12px 16px',
       minWidth: 280, maxWidth: 360,
       boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
@@ -83,7 +83,7 @@ export function UpdateBar() {
               width: `${update.progress}%`, transition: 'width 0.3s',
             }} />
           </div>
-          <div style={{ fontSize: 11, color: '#888', marginTop: 4, textAlign: 'right' }}>
+          <div style={{ fontSize: 11, color: colors.textSecondary, marginTop: 4, textAlign: 'right' }}>
             {update.progress}% đã tải
           </div>
         </div>
@@ -91,7 +91,7 @@ export function UpdateBar() {
 
       {/* Ready to install */}
       {update.ready && (
-        <p style={{ fontSize: 12, color: '#666', margin: '0 0 8px' }}>
+        <p style={{ fontSize: 12, color: colors.textTertiary, margin: '0 0 8px' }}>
           Đã tải xong. Khởi động lại để cập nhật.
         </p>
       )}
@@ -104,7 +104,7 @@ export function UpdateBar() {
             style={{
               flex: 1, padding: '8px 16px',
               background: colors.accent, border: 'none', borderRadius: 6,
-              fontSize: 13, fontWeight: 600, color: '#FFFFFF', cursor: 'pointer',
+              fontSize: 13, fontWeight: 600, color: colors.textWhite, cursor: 'pointer',
             }}
           >
             Tải cập nhật
@@ -116,7 +116,7 @@ export function UpdateBar() {
             style={{
               flex: 1, padding: '8px 16px',
               background: colors.success, border: 'none', borderRadius: 6,
-              fontSize: 13, fontWeight: 600, color: '#FFFFFF', cursor: 'pointer',
+              fontSize: 13, fontWeight: 600, color: colors.textWhite, cursor: 'pointer',
             }}
           >
             Khởi động lại ngay

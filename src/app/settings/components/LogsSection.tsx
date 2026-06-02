@@ -24,17 +24,17 @@ interface LogFile {
 }
 
 const LEVEL_COLORS: Record<string, string> = {
-  error: '#FF5555',
+  error: colors.error,
   warn: colors.warning,
   success: colors.success,
-  info: '#888999',
-  debug: '#888444',
+  info: colors.textSecondary,
+  debug: colors.textTertiary,
 }
 
 const LEVEL_BG: Record<string, string> = {
-  error: '#FF555518',
-  warn: '#FFB80014',
-  success: '#00FF8814',
+  error: `${colors.error}18`,
+  warn: `${colors.warning}14`,
+  success: `${colors.success}14`,
   info: 'transparent',
   debug: 'transparent',
 }
@@ -223,7 +223,7 @@ export function LogsSection() {
 
   // ─── Log entry component ─────────────────────────────────────────────────────
   const LogRow = ({ entry }: { entry: LogEntry }) => {
-    const color = LEVEL_COLORS[entry.level] || '#888'
+    const color = LEVEL_COLORS[entry.level] || colors.textSecondary
     const bg = LEVEL_BG[entry.level] || 'transparent'
     return (
       <div style={{
@@ -232,20 +232,20 @@ export function LogsSection() {
         background: bg,
         minHeight: 18,
       }}>
-        <span style={{ fontSize: 8.5, color: '#2d2d2d', fontFamily: 'monospace', flexShrink: 0, paddingTop: 2, minWidth: 68 }}>
+        <span style={{ fontSize: 8.5, color: colors.textTertiary, fontFamily: 'monospace', flexShrink: 0, paddingTop: 2, minWidth: 68 }}>
           {formatTime(entry.timestamp)}
         </span>
         <span style={{
           width: 5, height: 5, borderRadius: '50%',
           background: color, flexShrink: 0, marginTop: 3,
         }} />
-        <span style={{ fontSize: 8, color: '#2e2e2e', fontFamily: 'monospace', flexShrink: 0, paddingTop: 2, minWidth: 54 }}>
+        <span style={{ fontSize: 8, color: colors.textTertiary, fontFamily: 'monospace', flexShrink: 0, paddingTop: 2, minWidth: 54 }}>
           {CATEGORY_LABELS[entry.category] || entry.category}
         </span>
         <span style={{ fontSize: 9, color, flex: 1, paddingTop: 1, fontFamily: 'monospace' }}>
           {entry.message}
           {entry.detail && (
-            <span style={{ color: '#888', fontSize: 8 }}> — {entry.detail}</span>
+            <span style={{ color: colors.textSecondary, fontSize: 8 }}> — {entry.detail}</span>
           )}
         </span>
       </div>
@@ -263,7 +263,7 @@ export function LogsSection() {
             <span style={{ color: colors.success, marginRight: 6 }}>▶</span>
             CONSOLE
           </div>
-          <div style={{ fontSize: 8, color: '#888', fontFamily: 'monospace', marginTop: 2 }}>
+          <div style={{ fontSize: 8, color: colors.textSecondary, fontFamily: 'monospace', marginTop: 2 }}>
             {logDir || 'Đang khởi tạo...'}
           </div>
         </div>
@@ -271,8 +271,8 @@ export function LogsSection() {
           {/* Disk usage */}
           {diskUsage && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 4 }}>
-              <span style={{ fontSize: 9, color: '#888' }}>Disk:</span>
-              <span style={{ fontSize: 9, fontFamily: 'monospace', color: diskUsage.totalBytes > 10 * 1024 * 1024 ? colors.warning : '#777' }}>
+              <span style={{ fontSize: 9, color: colors.textSecondary }}>Disk:</span>
+              <span style={{ fontSize: 9, fontFamily: 'monospace', color: diskUsage.totalBytes > 10 * 1024 * 1024 ? colors.warning : colors.textSecondary }}>
                 {formatSize(diskUsage.totalBytes)}
               </span>
               <span style={{ fontSize: 9, color: colors.borderHover }}>({diskUsage.fileCount} files)</span>
@@ -286,9 +286,9 @@ export function LogsSection() {
             title="Sao chép tất cả dòng hiển thị vào clipboard"
             style={{
               height: 28, paddingLeft: 10, paddingRight: 10,
-              background: copied ? '#E0FFE8' : copyError ? '#FFE0E0' : colors.border,
-              border: `1px solid ${copied ? '#00FF8866' : copyError ? '#FF555566' : colors.border}`,
-              borderRadius: 4, color: copied ? colors.success : copyError ? '#FF5555' : '#888',
+              background: copied ? `${colors.success}11` : copyError ? `${colors.error}22` : colors.border,
+              border: `1px solid ${copied ? `${colors.success}66` : copyError ? `${colors.error}66` : colors.border}`,
+              borderRadius: 4, color: copied ? colors.success : copyError ? colors.error : colors.textSecondary,
               fontSize: 8, fontWeight: 700, cursor: filteredLogs.length === 0 ? 'not-allowed' : 'pointer',
               minWidth: 70,
             }}>
@@ -302,8 +302,8 @@ export function LogsSection() {
             title="Mở thư mục chứa file log"
             style={{
               height: 28, paddingLeft: 10, paddingRight: 10,
-              background: colors.border, border: '1px solid #E0E0E0',
-              borderRadius: 4, color: logDir ? '#888' : colors.borderHover,
+              background: colors.border, border: `1px solid ${colors.border}`,
+              borderRadius: 4, color: logDir ? colors.textSecondary : colors.borderHover,
               fontSize: 8, fontWeight: 700, cursor: logDir ? 'pointer' : 'not-allowed',
             }}>
             📁 MỞ THƯ MỤC
@@ -311,16 +311,16 @@ export function LogsSection() {
 
           <button onClick={() => setRefreshKey(k => k + 1)} style={{
             height: 28, paddingLeft: 10, paddingRight: 10,
-            background: colors.border, border: '1px solid #E0E0E0',
-            borderRadius: 4, color: '#888', fontSize: 8, fontWeight: 700,
+            background: colors.border, border: '1px solid colors.border',
+            borderRadius: 4, color: colors.textSecondary, fontSize: 8, fontWeight: 700,
             cursor: 'pointer',
           }}>↻</button>
 
           <button onClick={handleCleanup} disabled={cleaningUp} style={{
             height: 28, paddingLeft: 10, paddingRight: 10,
-            background: cleaningUp ? '#FFFDE0' : colors.bg,
-            border: `1px solid ${cleaningUp ? '#888' : colors.borderHover}`,
-            borderRadius: 4, color: cleaningUp ? '#888' : '#777',
+            background: cleaningUp ? `${colors.warning}11` : colors.bg,
+            border: `1px solid ${cleaningUp ? colors.textSecondary : colors.borderHover}`,
+            borderRadius: 4, color: cleaningUp ? colors.textSecondary : colors.textSecondary,
             fontSize: 8, fontWeight: 700, cursor: cleaningUp ? 'not-allowed' : 'pointer',
           }}>
             {cleaningUp ? '...' : '🗑'}
@@ -328,9 +328,9 @@ export function LogsSection() {
 
           <button onClick={handleExport} disabled={exporting} style={{
             height: 28, paddingLeft: 14, paddingRight: 14,
-            background: exporting ? '#FFFDE0' : '#FFFDE0',
-            border: `1px solid ${exporting ? '#888' : '#FF6B35'}`,
-            borderRadius: 4, color: exporting ? '#888' : '#FF6B35',
+            background: exporting ? `${colors.warning}11` : `${colors.warning}11`,
+            border: `1px solid ${exporting ? colors.textSecondary : colors.warning}`,
+            borderRadius: 4, color: exporting ? colors.textSecondary : colors.warning,
             fontSize: 9, fontWeight: 700, cursor: exporting ? 'not-allowed' : 'pointer',
           }}>
             {exporting ? '...' : '📦 XUẤT ZIP'}
@@ -344,8 +344,8 @@ export function LogsSection() {
           <button key={tab} onClick={() => setActiveTab(tab)} style={{
             padding: '5px 14px',
             background: activeTab === tab ? colors.border : 'transparent',
-            border: `1px solid ${activeTab === tab ? '#888' : colors.border}`,
-            borderRadius: 4, color: activeTab === tab ? '#888' : '#888',
+            border: `1px solid ${activeTab === tab ? colors.textSecondary : colors.border}`,
+            borderRadius: 4, color: activeTab === tab ? colors.textSecondary : colors.textSecondary,
             fontSize: 9, fontWeight: 700, cursor: 'pointer',
             letterSpacing: '0.05em',
           }}>
@@ -365,10 +365,10 @@ export function LogsSection() {
               {(['all', 'error', 'warn', 'success', 'info'] as LogLevel[]).map(lvl => (
                 <button key={lvl} onClick={() => setFilterLevel(lvl)} style={{
                   height: 22, paddingLeft: 8, paddingRight: 8,
-                  background: filterLevel === lvl ? (LEVEL_COLORS[lvl] || '#888') + '22' : 'transparent',
-                  border: `1px solid ${filterLevel === lvl ? (LEVEL_COLORS[lvl] || '#888') + '55' : colors.border}`,
+                  background: filterLevel === lvl ? (LEVEL_COLORS[lvl] || colors.textSecondary) + '22' : 'transparent',
+                  border: `1px solid ${filterLevel === lvl ? (LEVEL_COLORS[lvl] || colors.textSecondary) + '55' : colors.border}`,
                   borderRadius: 3, fontSize: 8, fontWeight: 700,
-                  color: filterLevel === lvl ? (LEVEL_COLORS[lvl] || '#888') : '#888',
+                  color: filterLevel === lvl ? (LEVEL_COLORS[lvl] || colors.textSecondary) : colors.textSecondary,
                   cursor: 'pointer',
                 }}>
                   {lvl === 'all' ? 'TẤT CẢ' : lvl.toUpperCase()}
@@ -381,10 +381,10 @@ export function LogsSection() {
               {(['all', 'scan', 'download', 'render', 'system', 'channel'] as LogCategory[]).map(cat => (
                 <button key={cat} onClick={() => setFilterCategory(cat)} style={{
                   height: 22, paddingLeft: 8, paddingRight: 8,
-                  background: filterCategory === cat ? '#00B4FF18' : 'transparent',
-                  border: `1px solid ${filterCategory === cat ? '#00B4FF44' : colors.border}`,
+                  background: filterCategory === cat ? `${colors.accent}18` : 'transparent',
+                  border: `1px solid ${filterCategory === cat ? `${colors.accent}44` : colors.border}`,
                   borderRadius: 3, fontSize: 8, fontWeight: 700,
-                  color: filterCategory === cat ? colors.accent : '#888',
+                  color: filterCategory === cat ? colors.accent : colors.textSecondary,
                   cursor: 'pointer',
                 }}>
                   {cat === 'all' ? 'TẤT CẢ' : CATEGORY_LABELS[cat] || cat}
@@ -401,19 +401,19 @@ export function LogsSection() {
 
               <button onClick={() => setAutoScroll(v => !v)} style={{
                 height: 22, paddingLeft: 8, paddingRight: 8,
-                background: autoScroll ? '#00B4FF18' : 'transparent',
-                border: `1px solid ${autoScroll ? '#00B4FF44' : colors.border}`,
+                background: autoScroll ? `${colors.accent}18` : 'transparent',
+                border: `1px solid ${autoScroll ? `${colors.accent}44` : colors.border}`,
                 borderRadius: 3, fontSize: 8, fontWeight: 700,
-                color: autoScroll ? colors.accent : '#888',
+                color: autoScroll ? colors.accent : colors.textSecondary,
                 cursor: 'pointer',
               }}>
                 Auto {autoScroll ? 'ON' : 'OFF'}
               </button>
               <button onClick={() => { ipc.clearOpLogs().catch(() => {}); setOpLogs([]) }} style={{
                 height: 22, paddingLeft: 8, paddingRight: 8,
-                background: 'transparent', border: '1px solid #E0E0E0',
+                background: 'transparent', border: '1px solid colors.border',
                 borderRadius: 3, fontSize: 8, fontWeight: 700,
-                color: '#888', cursor: 'pointer',
+                color: colors.textSecondary, cursor: 'pointer',
               }}>
                 Xóa
               </button>
@@ -423,7 +423,7 @@ export function LogsSection() {
           {/* Log list */}
           <div style={{
             flex: 1, overflowY: 'auto',
-            background: colors.bg, border: '1px solid #E0E0E0',
+            background: colors.bg, border: '1px solid colors.border',
             borderRadius: 6, padding: 6,
           }}>
             {filteredLogs.length === 0 ? (
@@ -448,10 +448,10 @@ export function LogsSection() {
         <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '220px 1fr', gap: 10, overflow: 'hidden' }}>
           {/* File list */}
           <div style={{
-            background: colors.bg, border: '1px solid #E0E0E0',
+            background: colors.bg, border: '1px solid colors.border',
             borderRadius: 6, overflow: 'auto', padding: 8,
           }}>
-            <div style={{ fontSize: 8, color: '#888', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 8, padding: '0 4px' }}>
+            <div style={{ fontSize: 8, color: colors.textSecondary, fontWeight: 700, letterSpacing: '0.08em', marginBottom: 8, padding: '0 4px' }}>
               FILES ({logFiles.length})
             </div>
             {loadingFiles ? (
@@ -465,13 +465,13 @@ export function LogsSection() {
                 <button key={file.name} onClick={() => { setSelectedFile(file.name) }} style={{
                   display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px',
                   background: selectedFile === file.name ? colors.border : 'transparent',
-                  border: selectedFile === file.name ? '1px solid #888' : '1px solid transparent',
+                  border: selectedFile === file.name ? `1px solid ${colors.textSecondary}` : '1px solid transparent',
                   borderRadius: 4, cursor: 'pointer', marginBottom: 2,
                 }}>
-                  <div style={{ fontSize: 9, color: selectedFile === file.name ? '#FF6B35' : '#888', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                  <div style={{ fontSize: 9, color: selectedFile === file.name ? colors.warning : colors.textSecondary, fontFamily: 'monospace', wordBreak: 'break-all' }}>
                     {file.name}
                   </div>
-                  <div style={{ fontSize: 8, color: '#888', marginTop: 2 }}>
+                  <div style={{ fontSize: 8, color: colors.textSecondary, marginTop: 2 }}>
                     {formatSize(file.size)} · {formatDate(file.mtime)}
                   </div>
                 </button>
@@ -481,23 +481,23 @@ export function LogsSection() {
 
           {/* File content */}
           <div style={{
-            background: colors.bg, border: '1px solid #E0E0E0',
+            background: colors.bg, border: '1px solid colors.border',
             borderRadius: 6, overflow: 'hidden', display: 'flex', flexDirection: 'column',
           }}>
             <div style={{
-              padding: '8px 12px', borderBottom: '1px solid #E0E0E0',
+              padding: '8px 12px', borderBottom: '1px solid colors.border',
               display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
             }}>
-              <span style={{ fontSize: 9, color: '#777', fontFamily: 'monospace' }}>{selectedFile || '—'}</span>
+              <span style={{ fontSize: 9, color: colors.textSecondary, fontFamily: 'monospace' }}>{selectedFile || '—'}</span>
               {selectedFile && (
-                <span style={{ fontSize: 8, color: '#888' }}>
+                <span style={{ fontSize: 8, color: colors.textSecondary }}>
                   {formatSize(logFiles.find(f => f.name === selectedFile)?.size || 0)}
                 </span>
               )}
             </div>
             <pre style={{
               flex: 1, overflow: 'auto', margin: 0, padding: 10,
-              fontSize: 9, color: '#777', fontFamily: 'Consolas, monospace',
+              fontSize: 9, color: colors.textSecondary, fontFamily: 'Consolas, monospace',
               lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-all',
             }}>
               {fileContent || <span style={{ color: colors.borderHover }}>— empty —</span>}
@@ -507,12 +507,12 @@ export function LogsSection() {
       )}
 
       {/* Help */}
-      <div style={{ padding: '8px 12px', background: colors.bg, borderRadius: 6, borderLeft: '3px solid #888', flexShrink: 0 }}>
-        <div style={{ fontSize: 8, fontWeight: 700, color: '#888', marginBottom: 4 }}>BÁO LỖI CHO DEV</div>
+      <div style={{ padding: '8px 12px', background: colors.bg, borderRadius: 6, borderLeft: `3px solid ${colors.textSecondary}`, flexShrink: 0 }}>
+        <div style={{ fontSize: 8, fontWeight: 700, color: colors.textSecondary, marginBottom: 4 }}>BÁO LỖI CHO DEV</div>
         <div style={{ fontSize: 8, color: colors.borderHover, lineHeight: 1.8 }}>
-          1. Nhấn <strong style={{ color: '#777' }}>COPY</strong> để sao chép logs<br />
+          1. Nhấn <strong style={{ color: colors.textSecondary }}>COPY</strong> để sao chép logs<br />
           2. Dán vào Zalo/Telegram kèm mô tả lỗi<br />
-          3. Hoặc nhấn <strong style={{ color: '#777' }}>MỞ THƯ MỤC</strong> → gửi file log
+          3. Hoặc nhấn <strong style={{ color: colors.textSecondary }}>MỞ THƯ MỤC</strong> → gửi file log
         </div>
       </div>
     </div>

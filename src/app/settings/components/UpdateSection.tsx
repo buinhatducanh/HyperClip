@@ -149,23 +149,23 @@ export function UpdateSection() {
         <div style={{ fontSize: 14, fontWeight: 800, color: colors.border, letterSpacing: '0.1em', marginBottom: 6 }}>
           🔄 CẬP NHẬT
         </div>
-        <div style={{ fontSize: 10, color: '#888' }}>
-          Phiên bản hiện tại: <span style={{ color: '#777', fontFamily: 'monospace' }}>v{currentVersion}</span>
+        <div style={{ fontSize: 10, color: colors.textSecondary }}>
+          Phiên bản hiện tại: <span style={{ color: colors.textSecondary, fontFamily: 'monospace' }}>v{currentVersion}</span>
         </div>
       </div>
 
       {/* Check for updates */}
       <div style={{
-        background: colors.bg, border: '1px solid #E0E0E0',
+        background: colors.bg, border: `1px solid ${colors.border}`,
         borderRadius: 8, padding: 20,
         marginBottom: 16,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#888', marginBottom: 2 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: colors.textSecondary, marginBottom: 2 }}>
               Kiểm tra cập nhật
             </div>
-            <div style={{ fontSize: 9, color: '#888' }}>
+            <div style={{ fontSize: 9, color: colors.textSecondary }}>
               Tự động kiểm tra mỗi 6 giờ
             </div>
           </div>
@@ -175,8 +175,8 @@ export function UpdateSection() {
             style={{
               height: 32, paddingLeft: 16, paddingRight: 16,
               background: checking ? colors.border : colors.border,
-              border: `1px solid ${checking ? colors.borderHover : '#00FF8844'}`,
-              borderRadius: 6, color: checking ? '#888' : colors.success,
+              border: `1px solid ${checking ? colors.borderHover : `${colors.success}44`}`,
+              borderRadius: 6, color: checking ? colors.textSecondary : colors.success,
               fontSize: 9, fontWeight: 700, cursor: checking ? 'not-allowed' : 'pointer',
               letterSpacing: '0.05em',
             }}
@@ -187,19 +187,19 @@ export function UpdateSection() {
 
         {error && (
           <div style={{
-            padding: '10px 12px', background: '#FF555510',
-            border: '1px solid #FF555533', borderRadius: 6, marginBottom: 12,
+            padding: '10px 12px', background: `${colors.error}10`,
+            border: `1px solid ${colors.error}33`, borderRadius: 6, marginBottom: 12,
           }}>
-            <div style={{ fontSize: 9, color: '#FF5555', fontWeight: 700, marginBottom: 2 }}>LỖI</div>
-            <div style={{ fontSize: 9, color: '#FF555588' }}>{error}</div>
+            <div style={{ fontSize: 9, color: colors.error, fontWeight: 700, marginBottom: 2 }}>LỖI</div>
+            <div style={{ fontSize: 9, color: `${colors.error}88` }}>{error}</div>
           </div>
         )}
 
         {/* Update available */}
         {isUpdateAvailable && (
           <div style={{
-            padding: '14px 16px', background: '#00FF8810',
-            border: '1px solid #00FF8833', borderRadius: 6,
+            padding: '14px 16px', background: `${colors.success}10`,
+            border: `1px solid ${colors.success}33`, borderRadius: 6,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <span style={{ fontSize: 16 }}>🎉</span>
@@ -208,7 +208,7 @@ export function UpdateSection() {
                   Có bản cập nhật: v{updateInfo?.version}
                 </div>
                 {updateInfo?.publishedAt && (
-                  <div style={{ fontSize: 8, color: '#00FF8866', marginTop: 2 }}>
+                  <div style={{ fontSize: 8, color: `${colors.success}66`, marginTop: 2 }}>
                     Phát hành: {formatDate(updateInfo.publishedAt)}
                   </div>
                 )}
@@ -220,7 +220,7 @@ export function UpdateSection() {
                 padding: '8px 10px', background: colors.bg,
                 borderRadius: 4, marginBottom: 12, maxHeight: 120, overflowY: 'auto',
               }}>
-                <div style={{ fontSize: 8, color: '#888', fontFamily: 'monospace', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                <div style={{ fontSize: 8, color: colors.textSecondary, fontFamily: 'monospace', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
                   {updateInfo.releaseNotes}
                 </div>
               </div>
@@ -230,7 +230,7 @@ export function UpdateSection() {
             {downloading && (
               <div style={{ marginBottom: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontSize: 8, color: '#888' }}>Đang tải xuống...</span>
+                  <span style={{ fontSize: 8, color: colors.textSecondary }}>Đang tải xuống...</span>
                   <span style={{ fontSize: 8, color: colors.success, fontFamily: 'monospace' }}>{progress}%</span>
                 </div>
                 <div style={{ height: 3, background: colors.border, borderRadius: 2 }}>
@@ -252,7 +252,7 @@ export function UpdateSection() {
                 disabled={downloading}
                 style={{
                   height: 32, paddingLeft: 16, paddingRight: 16,
-                  background: '#00FF8822', border: '1px solid #00FF8866',
+                  background: `${colors.success}22`, border: `1px solid ${colors.success}66`,
                   borderRadius: 6, color: colors.success,
                   fontSize: 9, fontWeight: 700, cursor: 'pointer',
                   letterSpacing: '0.05em', marginRight: 8,
@@ -269,14 +269,14 @@ export function UpdateSection() {
                   style={{
                     height: 32, paddingLeft: 16, paddingRight: 16,
                     background: colors.success, border: 'none',
-                    borderRadius: 6, color: '#000',
+                    borderRadius: 6, color: colors.text,
                     fontSize: 9, fontWeight: 700, cursor: 'pointer',
                     letterSpacing: '0.05em',
                   }}
                 >
                   ▶ CÀI ĐẶT & KHỞI ĐỘNG LẠI
                 </button>
-                <div style={{ fontSize: 8, color: '#00FF8866', paddingTop: 8 }}>
+                <div style={{ fontSize: 8, color: `${colors.success}66`, paddingTop: 8 }}>
                   Ứng dụng sẽ tắt, cập nhật, và khởi động lại tự động
                 </div>
               </div>
@@ -288,9 +288,9 @@ export function UpdateSection() {
         {!isUpdateAvailable && !checking && !error && (
           <div style={{
             padding: '10px 14px', background: colors.bg,
-            border: '1px solid #E0E0E0', borderRadius: 6,
+            border: `1px solid ${colors.border}`, borderRadius: 6,
           }}>
-            <div style={{ fontSize: 9, color: '#888', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ fontSize: 9, color: colors.textSecondary, display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ color: colors.success }}>✓</span>
               <span>Đã cài bản mới nhất (v{currentVersion})</span>
             </div>
@@ -301,12 +301,12 @@ export function UpdateSection() {
       {/* Info box */}
       <div style={{
         padding: '12px 14px', background: colors.bg,
-        border: '1px solid #E0E0E0', borderRadius: 6,
-        borderLeft: '3px solid #888',
+        border: `1px solid ${colors.border}`, borderRadius: 6,
+        borderLeft: `3px solid ${colors.textSecondary}`,
       }}>
-        <div style={{ fontSize: 8, fontWeight: 700, color: '#888', marginBottom: 6 }}>CÁCH HOẠT ĐỘNG</div>
+        <div style={{ fontSize: 8, fontWeight: 700, color: colors.textSecondary, marginBottom: 6 }}>CÁCH HOẠT ĐỘNG</div>
         <div style={{ fontSize: 8, color: colors.borderHover, lineHeight: 2 }}>
-          1. Khi bạn push git tag mới (vd: <code style={{ color: '#777' }}>git tag v1.2.0 && git push origin v1.2.0</code>), CI sẽ build tự động<br />
+          1. Khi bạn push git tag mới (vd: <code style={{ color: colors.textSecondary }}>git tag v1.2.0 && git push origin v1.2.0</code>), CI sẽ build tự động<br />
           2. App của khách tự kiểm tra GitHub Releases mỗi 6 giờ<br />
           3. Khách nhấn "Tải bản mới" → "Cài đặt & khởi động lại"<br />
           4. App tải portable zip → extract → swap files → tự khởi động lại

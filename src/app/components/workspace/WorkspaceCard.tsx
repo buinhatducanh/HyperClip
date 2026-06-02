@@ -37,7 +37,6 @@ const STATUS_CONFIG: Record<WorkspaceStatus, { label: string; color: string; dot
 function formatTimeAgo(isoString?: string): string {
   if (!isoString) return ''
   const ms = Date.now() - new Date(isoString).getTime()
-  if (!isFinite(ms) || ms < 0) return ''
   const m = Math.floor(ms / 60000)
   const h = Math.floor(m / 60)
   const d = Math.floor(h / 24)
@@ -45,6 +44,20 @@ function formatTimeAgo(isoString?: string): string {
   if (m < 60) return `${m}m`
   if (h < 24) return `${h}h`
   return `${d}d`
+}
+
+function formatAbsTime(isoString?: string): string {
+  if (!isoString) return ''
+  const d = new Date(isoString)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`
+}
+
+function formatMsDuration(ms?: number): string {
+  if (!ms) return ''
+  if (ms < 1000) return `${ms}ms`
+  const sec = Math.round(ms / 1000)
+  if (sec < 60) return `${sec}s`
+  return `${Math.floor(sec / 60)}m${sec % 60}s`
 }
 
 // Parse duration string "H:MM:SS" or "M:SS" → seconds
@@ -449,6 +462,32 @@ export const WorkspaceCard = memo(function WorkspaceCard({ workspace, isSelected
               </span>
             )}
           </div>
+
+          {/* Pipeline timeline — real-time timestamps for detected/downloaded/rendered */}
+          {(workspace.detectedAt || workspace.metrics?.downloadStartedAt || workspace.metrics?.renderStartedAt) && (
+            <div style={{
+              display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap',
+              minHeight: 12, marginTop: 1,
+            }}>
+              {workspace.detectedAt && (
+                <span style={{ fontSize: 9, color: colors.textTertiary, fontFamily: 'monospace' }}>
+                  ▶ {formatAbsTime(workspace.detectedAt)}
+                </span>
+              )}
+              {workspace.metrics?.downloadStartedAt && (
+                <span style={{ fontSize: 9, color: colors.textTertiary, fontFamily: 'monospace' }}>
+                  ↓ {formatAbsTime(workspace.metrics.downloadCompletedAt || workspace.metrics.downloadStartedAt)}
+                  {workspace.metrics.downloadMs ? ` (${formatMsDuration(workspace.metrics.downloadMs)})` : ''}
+                </span>
+              )}
+              {workspace.metrics?.renderStartedAt && (
+                <span style={{ fontSize: 9, color: colors.textTertiary, fontFamily: 'monospace' }}>
+                  ★ {formatAbsTime(workspace.metrics.renderCompletedAt || workspace.metrics.renderStartedAt)}
+                  {workspace.metrics.renderMs ? ` (${formatMsDuration(workspace.metrics.renderMs)})` : ''}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Download speed/ETA */}
           {status === 'downloading' && (

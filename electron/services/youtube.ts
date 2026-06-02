@@ -521,18 +521,26 @@ export async function getVideoInfo(videoUrl: string): Promise<YtdlpVideoInfo | n
       '--dump-json',
       '--no-download',
       '--no-playlist',
+      '--no-update',
+      '--socket-timeout', '15',
       videoUrl,
     ], {
-      
       env: { ...process.env },
     })
 
     proc.stdout?.on('data', (d) => { stdout += d.toString() })
     proc.stderr?.on('data', (d) => { stderr += d.toString() })
 
+    // Safety timeout — prevents hanging when network is slow/blocked
+    const killTimer = setTimeout(() => {
+      if (!proc.killed) proc.kill()
+      resolve(null)
+    }, 15000)
+
     proc.on('close', (code) => {
+      clearTimeout(killTimer)
       if (code !== 0 || !stdout.trim()) {
-        console.error('[yt-dlp] getInfo failed:', stderr)
+        console.error('[yt-dlp] getInfo failed:', stderr.slice(0, 200))
         resolve(null)
         return
       }
@@ -634,13 +642,15 @@ function buildYtDlpArgs(ytdlp: string, videoUrl: string, formatSelector: string,
 
   args.push(
     '-f', resolvedFormat,
+    '--merge-output-format', 'mp4',
+    '--remux-video', 'mp4',
     '--output', outputTemplate,
     '--no-playlist',
     '--no-update',
     '--newline',
     '--concurrent-fragments', String(getDownloadParams().fragments),
-    '--retries', '3',
-    '--fragment-retries', '3',
+    '--retries', '5',
+    '--fragment-retries', '5',
     '--socket-timeout', '10',
     '--http-chunk-size', '10485760',
     '--download-sections', sectionArg,
@@ -953,7 +963,8 @@ export async function probeVideoAvailability(
         '--dump-json',
         '--no-download',
         '--no-playlist',
-        '--socket-timeout', '15',
+        '--no-update',
+        '--socket-timeout', '8',
       ]
       if (ytCookiesFile) {
         args.push('--cookies', ytCookiesFile)
@@ -973,7 +984,7 @@ export async function probeVideoAvailability(
       const killTimer = setTimeout(() => {
         if (!proc.killed) proc.kill()
         resolve(null)
-      }, 20000)
+      }, 8000)
 
       proc.on('close', (code) => {
         clearTimeout(killTimer)
@@ -1029,25 +1040,28 @@ export async function probeVideoAvailability(
     })
   }
 
-  // Probe web first — better indexing for new/recent videos.
-  // tv_embedded second — can fail on videos < ~1min old (not yet in HLS index).
-  // ios last resort. Falls back to download (downloadVideoStrategy) if probe inconclusive.
+  // Probe all clients IN PARALLEL — returns first available result.
+  // Previously sequential: web(0-20s) → tv_embedded(0-20s) → ios(0-20s) = up to 60s
+  // Now parallel: max = slowest probe (typically 5-10s)
   const clients: readonly ('web' | 'tv_embedded' | 'ios')[] = ['web', 'tv_embedded', 'ios']
+  const probes = await Promise.allSettled(clients.map(c => tryClient(c)))
 
-  for (const client of clients) {
-    const result = await tryClient(client)
-    if (result && result.available) return result
-    // For unavailable (private/not-found/rate-limited), continue trying other clients
-    // — we want a definitive answer before giving up.
-    if (result && (result.isPrivate || result.isRateLimited || result.isNotFound)) {
-      // Retry isNotFound once after a short delay (video may still be propagating)
-      if (result.isNotFound) {
-        await new Promise(r => setTimeout(r, 5000))
-        const retry = await tryClient(client)
+  // Check for definitive unavailable result first (private/not-found/rate-limited)
+  for (const p of probes) {
+    if (p.status === 'fulfilled' && p.value && (p.value.isPrivate || p.value.isRateLimited || p.value.isNotFound)) {
+      // Retry isNotFound once after short delay (video may still be propagating)
+      if (p.value.isNotFound) {
+        await new Promise(r => setTimeout(r, 3000))
+        const retry = await tryClient('web')
         if (retry && retry.available) return retry
       }
-      return result
+      return p.value
     }
+  }
+
+  // Return first available result
+  for (const p of probes) {
+    if (p.status === 'fulfilled' && p.value && p.value.available) return p.value
   }
 
   // All probes inconclusive — return null (caller should attempt download with caution)
@@ -1066,6 +1080,22 @@ export async function probeActualDuration(filePath: string): Promise<number> {
     return Math.max(0, Math.floor(parseFloat(out.trim())))
   } catch {
     return 0
+  }
+}
+
+/** Check if a video file has an audio stream. Returns audio codec info. */
+export async function checkVideoHasAudio(filePath: string): Promise<{ hasAudio: boolean; audioCodec?: string }> {
+  if (!fs.existsSync(filePath)) return { hasAudio: false }
+  try {
+    const ffprobePath = getFfprobePath()
+    const out = execSync(
+      `"${ffprobePath}" -v error -select_streams a -show_entries stream=codec_name -of csv=p=0 -- "${filePath}"`,
+      { encoding: 'utf-8', timeout: 10000 },
+    )
+    const codec = out.trim().split('\n')[0]
+    return { hasAudio: !!codec, audioCodec: codec || undefined }
+  } catch {
+    return { hasAudio: false }
   }
 }
 
@@ -1164,6 +1194,281 @@ export async function probeAvailableFormats(
 //   all failed → return error
 
 type YtdlpClient = 'web' | 'tv_embedded' | 'ios'
+
+// ─── Download sections as separate files (no concat) ────────────────────────────
+// Used when autoSplitMinutes > 0: splits a video into N sections downloaded in
+// parallel, each saved as a separate file → N workspaces, N renders.
+
+export interface SectionDownloadResult {
+  success: boolean
+  files: Array<{
+    path: string
+    duration: number
+    size: number
+    startSec: number
+    endSec: number
+  }>
+  error?: string
+}
+
+export interface DownloadSectionsOptions {
+  workspaceId: string
+  videoUrl: string
+  outputDir: string
+  quality: string
+  sections: Array<{ start: number; end: number }>
+  poToken?: string | null
+  ytCookiesFile?: string | null
+  onProgress?: (progress: { workspaceId: string; percent: number; speed: string; eta: string; downloaded: string; total: string }) => void
+}
+
+/** Download a single section — used by sequential fallback when parallel fails. */
+function downloadOneSection(
+  ytdlp: string, args: string[], enrichedPath: string,
+  outputDir: string, workspaceId: string, idx: number, prefix: string,
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    let proc: ReturnType<typeof spawn>
+    try {
+      proc = spawn(ytdlp, args, {
+        env: { ...process.env, PATH: enrichedPath },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+    } catch {
+      resolve(null)
+      return
+    }
+
+    let downloadedFile = ''
+    proc.stdout?.on('data', (data: Buffer) => {
+      const text = data.toString()
+      const destMatch = text.match(/Dest(?:ination)?:\s*(.+)/)
+      if (destMatch) downloadedFile = destMatch[1].trim()
+      const mergeMatch = text.match(/Merging formats into "(.+)"/)
+      if (mergeMatch) downloadedFile = mergeMatch[1]
+    })
+    proc.stderr?.on('data', (data: Buffer) => {
+      const destMatch = data.toString().match(/Dest(?:ination)?:\s*(.+)/)
+      if (destMatch && !downloadedFile) downloadedFile = destMatch[1].trim()
+      const mergeMatch = data.toString().match(/Merging formats into "(.+)"/)
+      if (mergeMatch) downloadedFile = mergeMatch[1]
+    })
+
+    proc.on('close', (code) => {
+      if (!downloadedFile) {
+        try {
+          const files = fs.readdirSync(outputDir)
+          const match = files.find(f => f.startsWith(`${workspaceId}_${prefix}${String(idx).padStart(2, '0')}_`) && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f))
+          if (match) downloadedFile = path.join(outputDir, match)
+        } catch {}
+      }
+      if (code === 0 && downloadedFile) {
+        resolve(downloadedFile)
+      } else {
+        resolve(null)
+      }
+    })
+
+    setTimeout(() => { if (!proc.killed) proc.kill(); resolve(null) }, 30 * 60 * 1000)
+  })
+}
+
+export async function downloadSectionsAsSeparate(
+  opts: DownloadSectionsOptions,
+): Promise<SectionDownloadResult> {
+  const { workspaceId, videoUrl, outputDir, quality, sections, poToken, ytCookiesFile, onProgress } = opts
+  const ytdlp = getYtdlpPath()
+
+  const ytdlpDir = path.dirname(ytdlp)
+  const ffmpegPath = getFfmpegPath()
+  const ffmpegDir = path.dirname(ffmpegPath)
+  const enrichedPath = ffmpegDir + path.delimiter + ytdlpDir + path.delimiter + (process.env.PATH || '')
+
+  const q = parseInt(quality)
+  const maxHeight = isNaN(q) ? 720 : q
+  const formatSelector = [
+    `bestvideo[height<=${maxHeight}][vcodec!="none"]+bestaudio`,
+    `18/best[height<=${maxHeight}]`,
+  ].join('/')
+
+  let cacheDirArgs: string[] = []
+  if (process.platform === 'linux') {
+    cacheDirArgs = ['--cache-dir', '/dev/shm/yt-dlp-cache']
+  }
+
+  const numSections = sections.length
+  const progressPerSection = 100 / numSections
+  const completedSections = { count: 0 }
+  const results: Array<{ path: string; duration: number; size: number; startSec: number; endSec: number }> = []
+  const errors: string[] = []
+
+  const downloadPromises = sections.map((section, idx) => {
+    return new Promise<{ success: boolean; path?: string; duration?: number; size?: number; error?: string }>((resolve) => {
+      const outputTemplate = path.join(outputDir, `${workspaceId}_sec${String(idx).padStart(2, '0')}_%(id)s.%(ext)s`)
+      const sectionArg = makeSectionArg(section.start, section.end)
+      const args = [
+        videoUrl,
+        ...getJsRuntimeArgs(),
+        '--remote-components', 'ejs:github',
+        '--extractor-args', poToken
+          ? `youtube:player_client=android,po_token=${poToken}`
+          : 'youtube:player_client=tv_embedded',
+        ...(ytCookiesFile ? ['--cookies', ytCookiesFile] : []),
+        '-f', formatSelector,
+        '--merge-output-format', 'mp4',
+        '--remux-video', 'mp4',
+        '--output', outputTemplate,
+        '--no-playlist',
+        '--no-update',
+        '--newline',
+        '--concurrent-fragments', String(getDownloadParams().fragments),
+        '--retries', '5',
+        '--fragment-retries', '5',
+        '--socket-timeout', '10',
+        '--http-chunk-size', '10485760',
+        '--download-sections', sectionArg,
+        ...cacheDirArgs,
+      ]
+
+      devLog(`[DownloadSections] Section ${idx + 1}/${numSections}: ${sectionArg} → ${outputTemplate}`)
+
+      const proc = spawn(ytdlp, args, {
+        env: { ...process.env, PATH: enrichedPath },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+
+      let stderr = ''
+      let downloadedFile = ''
+      let instanceProgress = 0
+
+      proc.stdout?.on('data', (data: Buffer) => {
+        const text = data.toString()
+        const pctMatch = text.match(/(\d+\.?\d*)%/)
+        if (pctMatch) {
+          const pct = parseFloat(pctMatch[1])
+          if (pct >= 0 && pct <= 100) {
+            instanceProgress = pct
+            const total = completedSections.count * progressPerSection + (instanceProgress / 100) * progressPerSection
+            onProgress?.({ workspaceId, percent: total, speed: '', eta: '', downloaded: '', total: '' })
+          }
+        }
+        const destMatch = text.match(/Dest(?:ination)?:\s*(.+)/)
+        if (destMatch) downloadedFile = destMatch[1].trim()
+        const mergeMatch = text.match(/Merging formats into "(.+)"/)
+        if (mergeMatch) downloadedFile = mergeMatch[1]
+      })
+
+      proc.stderr?.on('data', (data: Buffer) => {
+        stderr += data.toString()
+        const pctMatch = data.toString().match(/(\d+\.?\d*)%/)
+        if (pctMatch) {
+          const pct = parseFloat(pctMatch[1])
+          if (pct >= 0 && pct <= 100) {
+            instanceProgress = pct
+            const total = completedSections.count * progressPerSection + (instanceProgress / 100) * progressPerSection
+            onProgress?.({ workspaceId, percent: total, speed: '', eta: '', downloaded: '', total: '' })
+          }
+        }
+        const destMatch = data.toString().match(/Dest(?:ination)?:\s*(.+)/)
+        if (destMatch && !downloadedFile) downloadedFile = destMatch[1].trim()
+        const mergeMatch = data.toString().match(/Merging formats into "(.+)"/)
+        if (mergeMatch) downloadedFile = mergeMatch[1]
+        const str = data.toString()
+        if (str.includes('Deleting original') || str.includes('Merging formats')) {
+          onProgress?.({ workspaceId, percent: completedSections.count * progressPerSection + 99 / numSections, speed: 'processing', eta: 0 as any, downloaded: '', total: '' })
+        }
+      })
+
+      proc.on('close', async (code) => {
+        if (!downloadedFile) {
+          try {
+            const files = fs.readdirSync(outputDir)
+            const match = files.find(f => f.startsWith(`${workspaceId}_sec${String(idx).padStart(2, '0')}_`) && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(f))
+            if (match) downloadedFile = path.join(outputDir, match)
+          } catch {}
+        }
+
+        completedSections.count++
+        if (code === 0 && downloadedFile) {
+          const fileSize = fs.statSync(downloadedFile).size
+          const actualDuration = await probeActualDuration(downloadedFile) || (section.end - section.start)
+          results[idx] = { path: downloadedFile, duration: actualDuration, size: fileSize, startSec: section.start, endSec: section.end }
+          resolve({ success: true, path: downloadedFile, duration: actualDuration, size: fileSize })
+        } else {
+          const err = stderr.includes('ERROR') ? stderr.split('\n').find(l => l.includes('ERROR')) || `code ${code}` : `code ${code}`
+          errors.push(`Section ${idx + 1}: ${err}`)
+          resolve({ success: false, error: err })
+        }
+      })
+
+      setTimeout(() => {
+        if (!proc.killed) proc.kill()
+        resolve({ success: false, error: 'timeout' })
+      }, 30 * 60 * 1000)
+    })
+  })
+
+  const downloadResults = await Promise.all(downloadPromises)
+
+  if (errors.length > 0) {
+    devLog(`[DownloadSections] Parallel download failed (${errors.length} errors: ${errors.slice(0, 2).join('; ')}) — trying sequential fallback`)
+
+    // Sequential fallback: download one section at a time (slower but more reliable)
+    const seqResults: typeof results = []
+    const seqErrors: string[] = []
+    for (let i = 0; i < sections.length; i++) {
+      const section = sections[i]
+      const outputTemplate = path.join(outputDir, `${workspaceId}_seq${String(i).padStart(2, '0')}_%(id)s.%(ext)s`)
+      const sectionArg = makeSectionArg(section.start, section.end)
+      const args = [
+        videoUrl,
+        ...getJsRuntimeArgs(),
+        '--remote-components', 'ejs:github',
+        '--extractor-args', poToken
+          ? `youtube:player_client=android,po_token=${poToken}`
+          : 'youtube:player_client=tv_embedded',
+        ...(ytCookiesFile ? ['--cookies', ytCookiesFile] : []),
+        '-f', formatSelector,
+        '--merge-output-format', 'mp4',
+        '--remux-video', 'mp4',
+        '--output', outputTemplate,
+        '--no-playlist',
+        '--no-update',
+        '--newline',
+        '--concurrent-fragments', String(getDownloadParams().fragments),
+        '--retries', '5',
+        '--fragment-retries', '5',
+        '--socket-timeout', '10',
+        '--http-chunk-size', '10485760',
+        '--download-sections', sectionArg,
+      ]
+
+      devLog(`[DownloadSections] Sequential fallback ${i + 1}/${sections.length}: ${sectionArg}`)
+      const file = await downloadOneSection(ytdlp, args, enrichedPath, outputDir, workspaceId, i, '_seq')
+      if (file) {
+        const fileSize = fs.statSync(file).size
+        const actualDuration = await probeActualDuration(file) || (section.end - section.start)
+        seqResults[i] = { path: file, duration: actualDuration, size: fileSize, startSec: section.start, endSec: section.end }
+      } else {
+        seqErrors.push(`Section ${i + 1} failed`)
+      }
+    }
+
+    // Clean up parallel files
+    for (const r of downloadResults) {
+      if (r.path) try { fs.unlinkSync(r.path) } catch {}
+    }
+
+    if (seqErrors.length > 0) {
+      return { success: false, files: [], error: `Sequential: ${seqErrors.join('; ')}` }
+    }
+    devLog(`[DownloadSections] Sequential fallback succeeded: ${seqResults.length} sections`)
+    return { success: true, files: seqResults.filter(Boolean) as SectionDownloadResult['files'] }
+  }
+
+  devLog(`[DownloadSections] All ${numSections} sections downloaded successfully`)
+  return { success: true, files: results.filter(Boolean) as SectionDownloadResult['files'] }
+}
 
 interface DownloadStrategyOpts {
   workspaceId: string
@@ -1305,16 +1610,13 @@ async function downloadWithClient(opts: DownloadWithClientOpts): Promise<Downloa
 
   const q = parseInt(quality)
   const maxHeight = isNaN(q) ? 720 : q
-  // All fallbacks enforce height<=maxHeight — no unconstrained fallback.
-  // Priority: bestvideo@maxHeight+best_audio @ AAC → same w/ any audio codec
-  // → same w/ any video codec → bestvideo@maxHeight+best_audio (strict cap).
+  // Optimized selector: 2 fast fallbacks instead of 5.
+  // Fallback 1: bestvideo+bestaudio at maxHeight (yt-dlp picks best codecs automatically)
+  // Fallback 2: pre-muxed format 18 for new videos without adaptive streams
+  // Previous 5-selector chain added ~10-30s of format negotiation per fallback attempt.
   const formatSelector = [
-    `bestvideo[height<=${maxHeight}][vcodec!="none"]+bestaudio[acodec=aac]`,
-    `bestvideo[height<=${maxHeight}][vcodec!="none"]+bestaudio`,
-    `bestvideo[height<=${maxHeight}]+bestaudio[acodec=aac]`,
-    `bestvideo[height<=${maxHeight}]+bestaudio`,
-    // Fallback for pre-muxed formats (e.g., format 18 for new videos without adaptive streams yet)
-    `18/best[height<=${maxHeight}]`,
+    `bestvideo[height<=${maxHeight}][fps<=30][vcodec!="none"]+bestaudio`,
+    `18/best[height<=${maxHeight}][fps<=30]`,
   ].join('/')
   console.log(`[Download] quality=${quality} maxHeight=${maxHeight}p selector=${formatSelector}`)
 
@@ -1327,9 +1629,9 @@ async function downloadWithClient(opts: DownloadWithClientOpts): Promise<Downloa
     instanceCount = Math.min(maxInstances, tierMax)
   } else if (maxInstances === 'auto' && freeMemGB >= 8) {
     if (maxHeight >= 1080) {
-      instanceCount = Math.min(4, tierMax)
+      instanceCount = Math.min(6, tierMax)  // up to 6 parallel yt-dlp for 1080p
     } else if (maxHeight >= 720) {
-      instanceCount = Math.min(2, tierMax)
+      instanceCount = Math.min(4, tierMax)  // up to 4 for 720p
     }
   }
 
@@ -1387,11 +1689,11 @@ async function downloadWithClient(opts: DownloadWithClientOpts): Promise<Downloa
       devLog(`[Download] Section failed: ${sfErr?.slice(0, 120)} — falling back to full`)
     }
 
-    // ── Full download ────────────────────────────────────────────────────────
+    // ── Full download (always trim before download when trimLimit is set) ──
     const result = await spawnDownload({
       workspaceId, videoUrl, outputDir, formatSelector, client, ytCookiesFile,
-      extraArgs: [],
-      instanceCount: 1, sectionArg: null, maxInstances: 1, quality, onProgress: _wrappedOnProgress,
+      extraArgs: sectionArg ? ['--download-sections', sectionArg] : [],
+      instanceCount: 1, sectionArg, maxInstances: 1, quality, onProgress: _wrappedOnProgress,
     })
 
     if (result.success) {
@@ -1454,9 +1756,9 @@ async function spawnDownload(opts: SpawnDownloadOpts): Promise<DownloadStrategyR
     '--no-playlist',
     '--newline',
     '--concurrent-fragments', String(getDownloadParams().fragments),
-    '--retries', '3',
-    '--fragment-retries', '3',
-    '--socket-timeout', '15',
+    '--retries', '10',
+    '--fragment-retries', '10',
+    '--socket-timeout', '30',
     '--http-chunk-size', '10485760',
     ...extraArgs,
   ]

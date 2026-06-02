@@ -78,19 +78,19 @@ function MetricRow({ label, source, output, accent }: {
       gridTemplateColumns: '90px 1fr 1fr',
       gap: 8,
       padding: '5px 0',
-      borderBottom: '1px solid #E0E0E0',
+      borderBottom: `1px solid ${colors.border}`,
     }}>
-      <span style={{ fontSize: 9, color: '#888', fontWeight: 600, letterSpacing: '0.06em', alignSelf: 'center', textTransform: 'uppercase' }}>
+      <span style={{ fontSize: 9, color: colors.textSecondary, fontWeight: 600, letterSpacing: '0.06em', alignSelf: 'center', textTransform: 'uppercase' }}>
         {label}
       </span>
       <span style={{
-        fontSize: 11, fontFamily: 'monospace', color: '#777', textAlign: 'right',
+        fontSize: 11, fontFamily: 'monospace', color: colors.textTertiary, textAlign: 'right',
         fontWeight: accent ? 700 : 400,
       }}>
         {source}
       </span>
       <span style={{
-        fontSize: 11, fontFamily: 'monospace', color: '#666', textAlign: 'right',
+        fontSize: 11, fontFamily: 'monospace', color: colors.textTertiary, textAlign: 'right',
         fontWeight: accent ? 700 : 400,
       }}>
         {output}
@@ -104,9 +104,9 @@ function DiffRow({ label, value, unit, good }: { label: string; value: string; u
     <div style={{
       display: 'flex', alignItems: 'center', gap: 8,
       padding: '6px 0',
-      borderBottom: '1px solid #E0E0E0',
+      borderBottom: `1px solid ${colors.border}`,
     }}>
-      <span style={{ fontSize: 9, color: '#888', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', width: 90 }}>
+      <span style={{ fontSize: 9, color: colors.textSecondary, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', width: 90 }}>
         {label}
       </span>
       <span style={{
@@ -140,7 +140,7 @@ function ColumnHeader({ label, subtitle, color }: { label: string; subtitle: str
       }}>
         {label}
       </div>
-      <div style={{ fontSize: 8, color: '#666', marginTop: 2, letterSpacing: '0.04em' }}>
+      <div style={{ fontSize: 8, color: colors.textTertiary, marginTop: 2, letterSpacing: '0.04em' }}>
         {subtitle}
       </div>
     </div>
@@ -248,7 +248,7 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
       {/* Modal */}
       <div style={{
         background: colors.bg,
-        border: '1px solid #D0D0D0',
+        border: `1px solid ${colors.borderHover}`,
         borderRadius: 10,
         width: '100%',
         maxWidth: 680,
@@ -256,18 +256,18 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
         overflowY: 'auto',
         boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
         scrollbarWidth: 'thin',
-        scrollbarColor: '#D0D0D0 transparent',
+        scrollbarColor: `${colors.borderHover} transparent`,
       }}>
         {/* Header */}
         <div style={{
           display: 'flex', alignItems: 'flex-start', gap: 12,
           padding: '16px 20px 12px',
-          borderBottom: '1px solid #E0E0E0',
+          borderBottom: `1px solid ${colors.border}`,
         }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             {/* Video title */}
             <div style={{
-              fontSize: 13, fontWeight: 600, color: '#777',
+              fontSize: 13, fontWeight: 600, color: colors.textTertiary,
               lineHeight: 1.4,
               overflow: 'hidden', textOverflow: 'ellipsis',
               display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
@@ -277,10 +277,10 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
             {/* Channel + IDs */}
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 4 }}>
               {workspace?.channelName && (
-                <span style={{ fontSize: 10, color: '#777', fontWeight: 600 }}>{workspace.channelName}</span>
+                <span style={{ fontSize: 10, color: colors.textTertiary, fontWeight: 600 }}>{workspace.channelName}</span>
               )}
               {workspace?.videoId && (
-                <span style={{ fontSize: 9, color: '#666', fontFamily: 'monospace' }}>
+                <span style={{ fontSize: 9, color: colors.textTertiary, fontFamily: 'monospace' }}>
                   youtube.com/watch?v={workspace.videoId}
                 </span>
               )}
@@ -292,11 +292,11 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
             onClick={onClose}
             style={{
               background: 'transparent', border: 'none', cursor: 'pointer',
-              color: '#888', fontSize: 16, lineHeight: 1, padding: '2px 4px',
+              color: colors.textSecondary, fontSize: 16, lineHeight: 1, padding: '2px 4px',
               flexShrink: 0,
             }}
             onMouseEnter={e => (e.currentTarget.style.color = colors.text)}
-            onMouseLeave={e => (e.currentTarget.style.color = '#888')}
+            onMouseLeave={e => (e.currentTarget.style.color = colors.textSecondary)}
           >
             ✕
           </button>
@@ -310,7 +310,7 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
             gridTemplateColumns: '90px 1fr 1fr',
             gap: 8,
             padding: '4px 0',
-            borderBottom: '1px solid #E0E0E0',
+            borderBottom: `1px solid ${colors.border}`,
           }}>
             <div />
             <ColumnHeader label="YouTube" subtitle="SOURCE" color={colors.accent} />
@@ -326,8 +326,8 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
           <MetricRow label="File size" source={formatBytes(srcFileSizeBytes)} output={formatBytes(outFileSizeBytes)} accent />
 
           {/* Source formats badge */}
-          <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: 8, padding: '5px 0', borderBottom: '1px solid #E0E0E0' }}>
-            <span style={{ fontSize: 9, color: '#888', fontWeight: 600, letterSpacing: '0.06em', alignSelf: 'center', textTransform: 'uppercase' }}>YT Formats</span>
+          <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: 8, padding: '5px 0', borderBottom: `1px solid ${colors.border}` }}>
+            <span style={{ fontSize: 9, color: colors.textSecondary, fontWeight: 600, letterSpacing: '0.06em', alignSelf: 'center', textTransform: 'uppercase' }}>YT Formats</span>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <FormatsBadge heights={workspace?.availableFormats ?? youtubeFormats ?? []} />
             </div>
@@ -335,10 +335,10 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
 
           {/* Render config (only on output side) */}
           {rendered?.renderConfig && (
-            <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr 1fr', gap: 8, padding: '5px 0', borderBottom: '1px solid #E0E0E0' }}>
-              <span style={{ fontSize: 9, color: '#888', fontWeight: 600, letterSpacing: '0.06em', alignSelf: 'center', textTransform: 'uppercase' }}>Preset</span>
+            <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr 1fr', gap: 8, padding: '5px 0', borderBottom: `1px solid ${colors.border}` }}>
+              <span style={{ fontSize: 9, color: colors.textSecondary, fontWeight: 600, letterSpacing: '0.06em', alignSelf: 'center', textTransform: 'uppercase' }}>Preset</span>
               <span />
-              <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#777', textAlign: 'right' }}>
+              <span style={{ fontSize: 11, fontFamily: 'monospace', color: colors.textTertiary, textAlign: 'right' }}>
                 {outPreset || '—'} {outSpeed ? `· ${outSpeed}×` : ''}
               </span>
             </div>
@@ -351,7 +351,7 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
             fontSize: 8, fontWeight: 800, color: colors.borderHover,
             letterSpacing: '0.1em', textTransform: 'uppercase',
             marginBottom: 8, paddingBottom: 6,
-            borderBottom: '1px solid #E0E0E0',
+            borderBottom: `1px solid ${colors.border}`,
           }}>
             Phân tích
           </div>
@@ -398,12 +398,12 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
           <div style={{
             display: 'flex', alignItems: 'center', gap: 8,
             padding: '6px 0',
-            borderBottom: '1px solid #E0E0E0',
+            borderBottom: `1px solid ${colors.border}`,
           }}>
-            <span style={{ fontSize: 9, color: '#888', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', width: 90 }}>
+            <span style={{ fontSize: 9, color: colors.textSecondary, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', width: 90 }}>
               Container
             </span>
-            <span style={{ flex: 1, fontSize: 11, fontFamily: 'monospace', color: '#666', textAlign: 'right' }}>
+            <span style={{ flex: 1, fontSize: 11, fontFamily: 'monospace', color: colors.textTertiary, textAlign: 'right' }}>
               YouTube (adaptive) → MP4 (H.264/AAC)
             </span>
             <span style={{
@@ -420,15 +420,15 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
             <div style={{
               display: 'flex', alignItems: 'center', gap: 8,
               padding: '6px 0',
-              borderBottom: '1px solid #E0E0E0',
+              borderBottom: `1px solid ${colors.border}`,
             }}>
-              <span style={{ fontSize: 9, color: '#888', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', width: 90 }}>
+              <span style={{ fontSize: 9, color: colors.textSecondary, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', width: 90 }}>
                 Render time
               </span>
               <span style={{ flex: 1, fontSize: 13, fontFamily: 'monospace', fontWeight: 800, color: colors.accent, textAlign: 'right' }}>
                 {renderMs(rendered.renderDurationMs)}
               </span>
-              <span style={{ fontSize: 9, color: '#666', minWidth: 40, textAlign: 'right' }}>
+              <span style={{ fontSize: 9, color: colors.textTertiary, minWidth: 40, textAlign: 'right' }}>
                 wall-clock
               </span>
             </div>
@@ -439,7 +439,7 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
         {rendered?.outputPath && (
           <div style={{
             padding: '10px 20px',
-            borderTop: '1px solid #E0E0E0',
+            borderTop: `1px solid ${colors.border}`,
             background: colors.bg,
             borderRadius: '0 0 10px 10px',
           }}>
@@ -447,7 +447,7 @@ export function VideoCompareModal({ workspace, rendered, onClose, youtubeFormats
               OUTPUT PATH
             </div>
             <div style={{
-              fontSize: 9, fontFamily: 'monospace', color: '#888',
+              fontSize: 9, fontFamily: 'monospace', color: colors.textSecondary,
               wordBreak: 'break-all', lineHeight: 1.6,
             }}>
               {rendered.outputPath}

@@ -574,7 +574,7 @@ class InnertubeClientPool {
             try {
               await entry.client.getHomeFeed()
               readyCount++
-              devLog(`[InnertubePool] Session ${entry.profileId}: ✓ client created and health-checked`)
+              devLog(`[InnertubePool] Session ${entry.profileId}: [OK] client created and health-checked`)
             } catch (healthErr: unknown) {
               const errStr = String(healthErr)
               const isAuthError = /401|403|not_signed_in|consent|verification|auth|500|Internal Server/i.test(errStr)
@@ -582,16 +582,16 @@ class InnertubeClientPool {
                 entry.client = null
                 entry.error = `auth check failed: ${errStr.slice(0, 80)}`
                 entry.lastErrorAt = Date.now()
-                devLog(`[InnertubePool] Session ${entry.profileId}: ✗ auth check failed — ${entry.error}`)
+                devLog(`[InnertubePool] Session ${entry.profileId}: [FAIL] auth check failed - ${entry.error}`)
               } else {
-                devLog(`[InnertubePool] Session ${entry.profileId}: health check transient error — not marked ready: ${errStr.slice(0, 80)}`)
+                devLog(`[InnertubePool] Session ${entry.profileId}: health check transient error - not marked ready: ${errStr.slice(0, 80)}`)
               }
             }
           } catch (e: unknown) {
             entry.error = String(e).slice(0, 120)
             entry.lastErrorAt = Date.now()
             entry.client = null
-            devLog(`[InnertubePool] Session ${entry.profileId}: ✗ error — ${entry.error}`)
+            devLog(`[InnertubePool] Session ${entry.profileId}: [FAIL] error - ${entry.error}`)
           }
         } else {
           // Diagnose why this session is unusable
@@ -601,7 +601,7 @@ class InnertubeClientPool {
           if (!entry.cookies?.PSID) reasons.push('no __Secure-1PSID')
           if (entry.cookies?.PSID && entry.cookies?.SAPISID && !entry.cookies?.PSIDCC) reasons.push('no PSIDCC (may be ok)')
           entry.error = reasons.join('; ')
-          devLog(`[InnertubePool] Session ${entry.profileId}: skipped — ${entry.error}`)
+          devLog(`[InnertubePool] Session ${entry.profileId}: skipped - ${entry.error}`)
         }
       }))
     }
@@ -614,7 +614,7 @@ class InnertubeClientPool {
     }
 
     if (ready === 0) {
-      console.warn('[InnertubePool] ⚠️ No sessions ready — Innertube detection will fail. Use OAuth fallback.')
+      console.warn('[InnertubePool] [WARN] No sessions ready - Innertube detection will fail. Use OAuth fallback.')
       console.warn('[InnertubePool] Hint: Close Chrome, then restart HyperClip. Or open Chrome profiles and log into YouTube.')
     }
 
@@ -691,7 +691,7 @@ class InnertubeClientPool {
         return new (channel.constructor)(client.actions, response, true)
       }
     } catch (e) {
-      devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): browse /videos tab failed — ${String(e).slice(0, 80)}`)
+      devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): browse /videos tab failed - ${String(e).slice(0, 80)}`)
     }
 
     // Strategy 2: Fetch the uploads playlist (UU...) directly.
@@ -706,7 +706,7 @@ class InnertubeClientPool {
           return playlist
         }
       } catch (e) {
-        devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): uploads playlist fetch failed — ${String(e).slice(0, 80)}`)
+        devLog(`[InnertubePool] _fetchUploadsTab(${channelId}): uploads playlist fetch failed - ${String(e).slice(0, 80)}`)
       }
     }
 
@@ -759,7 +759,7 @@ class InnertubeClientPool {
       // This handles: brand-new channels, channels with no Videos/Featured tabs,
       // channels that require authentication for tab access.
       if (bothTabsFailed) {
-        devLog(`[InnertubePool] getLatestVideo(${channelId}): standard tabs unavailable — trying uploads playlist`)
+        devLog(`[InnertubePool] getLatestVideo(${channelId}): standard tabs unavailable - trying uploads playlist`)
         const uploadsTab = await this._fetchUploadsTab(entry.client, channelId, channel)
         if (uploadsTab) {
           videosTab = uploadsTab
@@ -787,7 +787,7 @@ class InnertubeClientPool {
         title: extractLockupVideoField(vi, 'title').slice(0, 40),
         published: extractLockupVideoField(vi, 'published') || '(empty)',
       }))
-      devLog(`[InnertubePool] ${channelId} top-5: parseable=${parseableCount}/5 → ${JSON.stringify(top5)}`)
+      devLog(`[InnertubePool] ${channelId} top-5: parseable=${parseableCount}/5 -> ${JSON.stringify(top5)}`)
 
       // Try top-1..top-5 — skip deleted/private and seen videos
       const maxCheck = Math.min(5, videoItems.length)
@@ -844,7 +844,7 @@ class InnertubeClientPool {
         }
         // publishedAt=0 = old video with no cached timestamp — skip.
         if (publishedAt === 0) {
-          devLog(`[InnertubePool] check[${i}]: id=${videoId} "${title.slice(0, 30)}" age UNPARSEABLE — skip (old, no cached timestamp)`)
+          devLog(`[InnertubePool] check[${i}]: id=${videoId} "${title.slice(0, 30)}" age UNPARSEABLE - skip (old, no cached timestamp)`)
           continue
         }
 
@@ -884,7 +884,7 @@ class InnertubeClientPool {
         // Log ACCEPT — helps debug why old videos are being downloaded
         const ageMs = Date.now() - publishedAt
         const ageLabel = ageMs < 60000 ? 'just now' : ageMs < 3600000 ? `${Math.round(ageMs / 60000)}m ago` : ageMs < 86400000 ? `${Math.round(ageMs / 3600000)}h ago` : `${Math.round(ageMs / 86400000)}d ago`
-        devLog(`[InnertubePool] ✓ ACCEPT[${i}]: id=${videoId} "${title.slice(0, 40)}" age=${ageLabel}`)
+        devLog(`[InnertubePool] ACCEPT[${i}]: id=${videoId} "${title.slice(0, 40)}" age=${ageLabel}`)
 
         return {
           videoId: String(videoId),
@@ -947,14 +947,14 @@ class InnertubeClientPool {
 
       // When both standard tabs are unavailable, try the uploads playlist
       if (bothTabsFailed) {
-        devLog(`[InnertubePool] getLatestVideos(${channelId}): standard tabs unavailable — trying uploads playlist`)
+        devLog(`[InnertubePool] getLatestVideos(${channelId}): standard tabs unavailable - trying uploads playlist`)
         videosTab = await this._fetchUploadsTab(entry.client, channelId, channel) ?? undefined
       }
 
       const videoItems = videosTab ? extractVideosFromTab(videosTab) : []
 
       if (videoItems.length === 0) {
-        devLog(`[InnertubePool] getLatestVideos(${channelId}): 0 videos — session=${entry.profileId}`)
+        devLog(`[InnertubePool] getLatestVideos(${channelId}): 0 videos - session=${entry.profileId}`)
         return []
       }
 
@@ -991,7 +991,7 @@ class InnertubeClientPool {
         const publishedAt2 = parseRelativeDate(pr2)
         // Skip videos with unparseable timestamps — can't verify age, safer to exclude
         if (publishedAt2 === 0) {
-          devLog(`[InnertubePool] getLatestVideos(${channelId}): top-${i+1} id=${videoId} age unparseable ("${pr2}") — skipping — session=${entry.profileId}`)
+          devLog(`[InnertubePool] getLatestVideos(${channelId}): top-${i+1} id=${videoId} age unparseable ("${pr2}") - skipping - session=${entry.profileId}`)
           continue
         }
         const publishedText = pr2 || undefined
@@ -1034,7 +1034,7 @@ class InnertubeClientPool {
       }
 
       if (results.length === 0) {
-        devLog(`[InnertubePool] getLatestVideos(${channelId}): 0 valid (unparseable/deleted/seen) — session=${entry.profileId}`)
+        devLog(`[InnertubePool] getLatestVideos(${channelId}): 0 valid (unparseable/deleted/seen) - session=${entry.profileId}`)
         // Track empty result for session health — if all videos had unparseable
         // timestamps, this session may have a broken LockupView format.
         if (sessionEntry) {
@@ -1108,7 +1108,7 @@ class InnertubeClientPool {
         if (isAuthError) {
           entry.client = null
           entry.error = `auth check failed: ${errStr.slice(0, 80)}`
-          devLog(`[InnertubePool] Session ${profileId}: refresh auth check failed — ${entry.error}`)
+          devLog(`[InnertubePool] Session ${profileId}: refresh auth check failed - ${entry.error}`)
           return false
         }
         entry.cookies = session.cookies

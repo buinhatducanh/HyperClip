@@ -1017,6 +1017,118 @@ class ChromeSessionManager {
         }
         return refreshed;
     }
+    /**
+     * Dynamically add a new session (up to MAX_SESSIONS).
+     * Clones cookies from session 1 if available, then extracts.
+     */
+    async addSession() {
+        if (this._sessions.length >= 30) {
+            return { success: false, error: 'Đã đạt giới hạn 30 sessions' };
+        }
+        // Find next profile ID
+        const existingIds = this._sessions.map(s => parseInt(s.profileId, 10)).filter(n => !isNaN(n));
+        let nextId = Math.max(...existingIds, 0) + 1;
+        // Ensure no collision
+        while (this._sessions.find(s => s.profileId === String(nextId)))
+            nextId++;
+        const profileId = String(nextId);
+        const profileDir = getHyperClipProfileDir(profileId);
+        const cookieDbPath = path_1.default.join(profileDir, 'Default', 'Network', 'Cookies');
+        const profileExists = fs_1.default.existsSync(cookieDbPath);
+        const session = {
+            profileId,
+            profileName: `HyperClip Profile ${nextId}`,
+            profileDir,
+            cookies: null,
+            usedToday: 0,
+            lastUsed: 0,
+            isLoggedIn: profileExists,
+            wasLoggedIn: profileExists,
+            isConsented: false,
+            rawSocs: null,
+            lastRefreshAt: 0,
+            refreshFailCount: 0,
+            error: profileExists ? undefined : 'Profile not initialized — click "Mở Chrome" để đăng nhập',
+        };
+        // Clone cookies from session 1 (which is usually logged in) so the new profile
+        // is usable by Chrome immediately without re-login.
+        const session1 = this._sessions.find(s => s.profileId === '1');
+        if (session1) {
+            try {
+                const destDefaultDir = path_1.default.join(profileDir, 'Default');
+                const destNetworkDir = path_1.default.join(destDefaultDir, 'Network');
+                const destLocalState = path_1.default.join(profileDir, 'Local State');
+                // Source paths (Session 1: Default Chrome profile)
+                const srcSqlite = path_1.default.join(session1.profileDir, 'Network', 'Cookies');
+                const srcLocalState = path_1.default.join(session1.profileDir, '..', 'Local State');
+                const srcJson = path_1.default.join(session1.profileDir, '..', '_hyperclip_cookies.json');
+                // Persist HyperClip's fast-path JSON (so extractYouTubeCookies finds it immediately)
+                if (session1.cookies) {
+                    fs_1.default.writeFileSync(path_1.default.join(profileDir, '_hyperclip_cookies.json'), JSON.stringify(session1.cookies));
+                }
+                // Copy SQLite cookies so Chrome can open the profile with existing login
+                fs_1.default.mkdirSync(destNetworkDir, { recursive: true });
+                if (fs_1.default.existsSync(srcSqlite)) {
+                    try {
+                        fs_1.default.writeFileSync(path_1.default.join(destNetworkDir, 'Cookies'), fs_1.default.readFileSync(srcSqlite));
+                    }
+                    catch (e2) {
+                        (0, unified_log_js_1.devLog)(`[SessionManager] addSession: SQLite clone failed: ${e2}`);
+                    }
+                }
+                // Copy Local State (Chrome encryption keys)
+                if (fs_1.default.existsSync(srcLocalState)) {
+                    try {
+                        fs_1.default.writeFileSync(destLocalState, fs_1.default.readFileSync(srcLocalState));
+                    }
+                    catch (e2) {
+                        (0, unified_log_js_1.devLog)(`[SessionManager] addSession: LocalState clone failed: ${e2}`);
+                    }
+                }
+                // Mark session as pre-populated if session1 was logged in
+                if (session1.isLoggedIn) {
+                    session.isLoggedIn = session1.isLoggedIn;
+                    session.wasLoggedIn = session1.wasLoggedIn;
+                }
+            }
+            catch (e) {
+                (0, unified_log_js_1.devLog)(`[SessionManager] addSession: cookie clone failed: ${e}`);
+            }
+        }
+        // Extract cookies from the new profile
+        try {
+            const { cookies, rawSocs } = await extractYouTubeCookies(profileDir);
+            session.cookies = cookies;
+            session.rawSocs = rawSocs;
+            session.isLoggedIn = !!(cookies?.SAPISID && cookies?.PSID);
+            if (session.isLoggedIn) {
+                session.wasLoggedIn = true;
+                session.lastRefreshAt = Date.now();
+                session.refreshFailCount = 0;
+            }
+            session.isConsented = !!(cookies?.socs && !cookies.socs.startsWith('CAA'));
+            if (!cookies) {
+                session.error = 'No cookies — click "Mở Chrome" để đăng nhập';
+            }
+            else if (!session.isLoggedIn) {
+                session.error = 'Missing SAPISID or __Secure-1PSID cookie';
+            }
+            else if (!session.isConsented) {
+                session.error = 'SOCS cookie indicates terms not accepted — open YouTube in Chrome and accept any prompts';
+            }
+            else {
+                session.error = undefined;
+            }
+            if (cookies)
+                this._persistCookiesToFile(profileId, cookies);
+        }
+        catch (e) {
+            session.error = String(e);
+        }
+        this._sessions.push(session);
+        (0, unified_log_js_1.devLog)(`[SessionManager] addSession: added profileId=${profileId}, isLoggedIn=${session.isLoggedIn}, isConsented=${session.isConsented}`);
+        return { success: true, profileId };
+    }
     getSessions() {
         return this._sessions;
     }

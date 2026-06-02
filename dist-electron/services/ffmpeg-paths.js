@@ -264,8 +264,8 @@ function getFfmpegVersion(ffmpegPath) {
         result.hasQsv = encodersOut.includes('hevc_qsv') || encodersOut.includes('h264_qsv');
         result.hasVaapi = encodersOut.includes('hevc_vaapi') || encodersOut.includes('h264_vaapi');
         result.hasNvencLookahead = encodersOut.includes('nvenc_lookahead');
-        (0, unified_log_js_1.devLog)(`[FFmpeg] NVENC: ${result.hasNvenc ? '✓' : '✗'} | NVDEC: ${result.hasNvdec ? '✓' : '✗'} | CUVID: ${result.hasCuvid ? '✓' : '✗'} | QSV: ${result.hasQsv ? '✓' : '✗'} | VAAPI: ${result.hasVaapi ? '✓' : '✗'}`);
-        (0, unified_log_js_1.devLog)(`[FFmpeg] CUDA filters: ${result.hasCudaFilters ? '✓' : '✗'} | NVENC lookahead: ${result.hasNvencLookahead ? '✓' : '✗'}`);
+        (0, unified_log_js_1.devLog)(`[FFmpeg] NVENC: ${result.hasNvenc ? 'yes' : 'no'} | NVDEC: ${result.hasNvdec ? 'yes' : 'no'} | CUVID: ${result.hasCuvid ? 'yes' : 'no'} | QSV: ${result.hasQsv ? 'yes' : 'no'} | VAAPI: ${result.hasVaapi ? 'yes' : 'no'}`);
+        (0, unified_log_js_1.devLog)(`[FFmpeg] CUDA filters: ${result.hasCudaFilters ? 'yes' : 'no'} | NVENC lookahead: ${result.hasNvencLookahead ? 'yes' : 'no'}`);
     }
     catch (e) {
         console.warn('[FFmpeg] Could not enumerate encoders:', e);

@@ -84,7 +84,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
     <div style={{ maxWidth: 560 }}>
       {/* Explanation */}
       <div style={{ marginBottom: 28 }}>
-        <p style={{ fontSize: 13, color: '#999', lineHeight: 1.7, margin: 0 }}>
+        <p style={{ fontSize: 13, color: colors.textSecondary, lineHeight: 1.7, margin: 0 }}>
           Cấu hình tốc độ detection và chất lượng download. Bạn có thể thay đổi sau trong Settings.
         </p>
       </div>
@@ -94,7 +94,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
         <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
           Tốc độ detection
         </div>
-        <div style={{ fontSize: 11, color: '#777', marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 12 }}>
           HyperClip kiểm tra video mới mỗi bao lâu?
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
@@ -104,7 +104,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
               onClick={() => setLocalSettings({ ...localSettings, pollIntervalMs: opt.value })}
               style={{
                 padding: '10px 14px',
-                background: localSettings.pollIntervalMs === opt.value ? '#00B4FF22' : colors.bg,
+                background: localSettings.pollIntervalMs === opt.value ? `${colors.accent}22` : colors.bg,
                 border: `1px solid ${localSettings.pollIntervalMs === opt.value ? colors.accent : colors.borderHover}`,
                 borderRadius: 8, textAlign: 'left', cursor: 'pointer',
               }}
@@ -112,7 +112,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
               <div style={{ fontSize: 13, fontWeight: 700, color: localSettings.pollIntervalMs === opt.value ? colors.accent : colors.text, marginBottom: 2 }}>
                 {opt.label}
               </div>
-              <div style={{ fontSize: 10, color: '#777' }}>{opt.desc}</div>
+              <div style={{ fontSize: 10, color: colors.textSecondary }}>{opt.desc}</div>
             </button>
           ))}
         </div>
@@ -123,7 +123,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
         <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
           Chất lượng download
         </div>
-        <div style={{ fontSize: 11, color: '#777', marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 12 }}>
           Chất lượng video source để edit/render
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
@@ -133,7 +133,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
               onClick={() => setLocalSettings({ ...localSettings, autoDownloadQuality: opt.value })}
               style={{
                 padding: '10px 14px',
-                background: localSettings.autoDownloadQuality === opt.value ? '#00B4FF22' : colors.bg,
+                background: localSettings.autoDownloadQuality === opt.value ? `${colors.accent}22` : colors.bg,
                 border: `1px solid ${localSettings.autoDownloadQuality === opt.value ? colors.accent : colors.borderHover}`,
                 borderRadius: 8, textAlign: 'left', cursor: 'pointer',
               }}
@@ -141,7 +141,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
               <div style={{ fontSize: 13, fontWeight: 700, color: localSettings.autoDownloadQuality === opt.value ? colors.accent : colors.text, marginBottom: 2 }}>
                 {opt.label}
               </div>
-              <div style={{ fontSize: 10, color: '#777' }}>{opt.desc}</div>
+              <div style={{ fontSize: 10, color: colors.textSecondary }}>{opt.desc}</div>
             </button>
           ))}
         </div>
@@ -152,7 +152,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
         <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
           Chất lượng render
         </div>
-        <div style={{ fontSize: 11, color: '#777', marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 12 }}>
           Output resolution cho video đã chỉnh sửa
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
@@ -162,7 +162,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
               onClick={() => setLocalSettings({ ...localSettings, defaultQuality: opt.value })}
               style={{
                 padding: '10px 14px',
-                background: localSettings.defaultQuality === opt.value ? '#00B4FF22' : colors.bg,
+                background: localSettings.defaultQuality === opt.value ? `${colors.accent}22` : colors.bg,
                 border: `1px solid ${localSettings.defaultQuality === opt.value ? colors.accent : colors.borderHover}`,
                 borderRadius: 8, textAlign: 'left', cursor: 'pointer',
               }}
@@ -170,7 +170,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
               <div style={{ fontSize: 13, fontWeight: 700, color: localSettings.defaultQuality === opt.value ? colors.accent : colors.text, marginBottom: 2 }}>
                 {opt.label}
               </div>
-              <div style={{ fontSize: 10, color: '#777' }}>{opt.desc}</div>
+              <div style={{ fontSize: 10, color: colors.textSecondary }}>{opt.desc}</div>
             </button>
           ))}
         </div>
@@ -181,7 +181,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>Auto render</div>
-            <div style={{ fontSize: 11, color: '#777', marginTop: 2 }}>
+            <div style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }}>
               Tự động render video ngay sau khi download (dùng preset mặc định)
             </div>
           </div>
@@ -212,7 +212,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
         <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
           Giới hạn thời lượng video
         </div>
-        <div style={{ fontSize: 11, color: '#777', marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 12 }}>
           Chỉ download video ngắn hơn giới hạn này (phút). 0 = không giới hạn.
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -226,13 +226,13 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
             min={0} max={60}
             style={{
               width: 80, height: 36,
-              background: colors.bg, border: '1px solid #D0D0D0',
+              background: colors.bg, border: `1px solid ${colors.borderHover}`,
               borderRadius: 6, padding: '0 12px',
               fontSize: 13, fontWeight: 600, color: colors.text, outline: 'none',
               textAlign: 'center',
             }}
           />
-          <span style={{ fontSize: 12, color: '#777' }}>phút (0 = không giới hạn)</span>
+          <span style={{ fontSize: 12, color: colors.textSecondary }}>phút (0 = không giới hạn)</span>
         </div>
       </div>
 
@@ -242,9 +242,9 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
           onClick={onBack}
           style={{
             height: 40, padding: '0 20px',
-            background: 'transparent', border: '1px solid #D0D0D0',
+            background: 'transparent', border: `1px solid ${colors.borderHover}`,
             borderRadius: 8, fontSize: 12, fontWeight: 600,
-            color: '#777', cursor: 'pointer',
+            color: colors.textSecondary, cursor: 'pointer',
           }}
         >
           ← Quay lại
@@ -254,9 +254,9 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
             onClick={onSkip}
             style={{
               height: 40, padding: '0 20px',
-              background: 'transparent', border: '1px solid #D0D0D0',
+              background: 'transparent', border: `1px solid ${colors.borderHover}`,
               borderRadius: 8, fontSize: 12, fontWeight: 600,
-              color: '#777', cursor: 'pointer',
+              color: colors.textSecondary, cursor: 'pointer',
             }}
           >
             Dùng mặc định
@@ -266,7 +266,7 @@ export function QualityStep({ onComplete, onSkip, onBack }: QualityStepProps) {
             disabled={saving}
             style={{
               height: 40, padding: '0 24px',
-              background: saving ? '#005577' : colors.accent,
+              background: saving ? colors.accentHover : colors.accent,
               border: 'none',
               borderRadius: 8, fontSize: 12, fontWeight: 700,
               color: colors.text, cursor: saving ? 'not-allowed' : 'pointer',

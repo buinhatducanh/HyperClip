@@ -60,13 +60,29 @@ export function VideoDetailPanel({ workspace, onClose }: Props) {
   const m = workspace?.metrics
 
   const downloadSpeed = useMemo(() => {
-    if (m?.downloadSpeedMBs) return m.downloadSpeedMBs.toFixed(1)
+    if (m?.downloadSpeedMBs) return `${m.downloadSpeedMBs.toFixed(1)} MB/s`
+    if (workspace?.downloadSpeed) {
+      if (workspace.downloadSpeed === 'processing') return 'Merging...'
+      if (workspace.downloadSpeed === 'starting...') return 'Starting...'
+      return workspace.downloadSpeed
+    }
     if (m?.downloadMs && m?.downloadFileSize && m.downloadMs > 0) {
       const sec = m.downloadMs / 1000
-      return (m.downloadFileSize / 1024 / 1024 / sec).toFixed(1)
+      return `${(m.downloadFileSize / 1024 / 1024 / sec).toFixed(1)} MB/s`
     }
-    return null
-  }, [m])
+    return '- MB/s'
+  }, [m, workspace?.downloadSpeed])
+
+  const fileSizeStr = useMemo(() => {
+    if (m?.downloadFileSize) return formatBytes(m.downloadFileSize)
+    if (workspace?.fileSize && workspace.fileSize !== '0 B') return workspace.fileSize
+    return '-'
+  }, [m?.downloadFileSize, workspace?.fileSize])
+
+  const downloadQualityStr = useMemo(() => {
+    const q = m?.downloadQuality || workspace?.downloadQuality
+    return q ? `${q}p` : '-'
+  }, [m?.downloadQuality, workspace?.downloadQuality])
 
   if (!workspace) return null
 
@@ -92,11 +108,11 @@ export function VideoDetailPanel({ workspace, onClose }: Props) {
         {/* DOWNLOAD METRICS */}
         <Section title='TẢI XUỐNG' color={colors.accent}>
           <MetricRow label='Thời gian' value={formatMs(m?.downloadMs)} color={colors.success} />
-          <MetricRow label='Tốc độ' value={downloadSpeed || '-'} suffix='MB/s' />
-          <MetricRow label='Kích thước' value={formatBytes((m?.downloadFileSize || Number(workspace.fileSize) || 0))} />
-          <MetricRow label='Chất lượng' value={m?.downloadQuality || workspace.downloadQuality || '-'} suffix='p' />
+          <MetricRow label='Tốc độ' value={downloadSpeed} />
+          <MetricRow label='Kích thước' value={fileSizeStr} />
+          <MetricRow label='Chất lượng' value={downloadQualityStr} />
           <MetricRow label='Nguồn' value={m?.downloadResolution || workspace.videoResolution || '-'} />
-          <MetricRow label='Multi-Instance' value={m?.downloadIsMultiInstance ? 'Có' : 'Không'} color={m?.downloadIsMultiInstance ? colors.success : colors.textSecondary} />
+          <MetricRow label='Multi-Instance' value={m?.downloadIsMultiInstance != null ? (m.downloadIsMultiInstance ? 'Có' : 'Không') : '-'} color={m?.downloadIsMultiInstance ? colors.success : colors.textSecondary} />
         </Section>
 
         {/* RENDER METRICS */}
@@ -131,7 +147,7 @@ export function VideoDetailPanel({ workspace, onClose }: Props) {
                 <div style={{ width: 6, height: 6, borderRadius: '50%', background: workspace.status === 'done' ? colors.success : colors.textSecondary }} />
               </div>
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <TimelineRow label='Phát hiện' timestamp={m?.detectedAt} />
+                <TimelineRow label='Phát hiện' timestamp={m?.detectedAt || workspace.detectedAt} />
                 <TimelineRow label='Tải xuống' timestamp={m?.downloadStartedAt} />
                 <TimelineRow label='Sẵn sàng' timestamp={m?.downloadCompletedAt} />
                 <TimelineRow label='Hoàn thành' timestamp={m?.renderCompletedAt} />

@@ -27,6 +27,7 @@ export function registerSettingsHandlers(ipcMain: IpcMain, onSettingsChanged?: (
     autoRender?: boolean
     autoRenderResolution?: string
     autoRenderFPS?: number
+    autoRenderSpeed?: number
     downloadsCleanupDays?: number
     renderedOutputPath?: string
     pollIntervalMs?: number

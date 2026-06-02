@@ -36,6 +36,8 @@ interface AppSettingsStore {
   autoRenderResolution?: string
   /** FPS for auto-render: 30 | 60. Defaults to 30. */
   autoRenderFPS?: number
+  /** Playback speed for auto-render: 1.0 – 2.0. Defaults to 1.0. */
+  autoRenderSpeed?: number
   /** Number of parts to split video into for auto-render. 1 = no split. Defaults to 1. */
   autoSplitParts?: number
   /** Minutes per part for auto-render. 0 = use autoSplitParts instead. Defaults to 0. */
@@ -77,7 +79,8 @@ export function loadSettings(): AppSettingsStore {
   if (_settings !== null) return _settings
   try {
     if (fs.existsSync(SETTINGS_FILE)) {
-      _settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'))
+      const raw = fs.readFileSync(SETTINGS_FILE, 'utf-8').replace(/^﻿/, '')
+      _settings = JSON.parse(raw)
     }
   } catch {}
   _settings = _settings || {}
@@ -85,6 +88,7 @@ export function loadSettings(): AppSettingsStore {
   // Default values for new settings
   if (_settings.autoRenderResolution === undefined) _settings.autoRenderResolution = '1080p'
   if (_settings.autoRenderFPS === undefined) _settings.autoRenderFPS = 30
+  if (_settings.autoRenderSpeed === undefined) _settings.autoRenderSpeed = 1.0
   if (_settings.downloadsCleanupDays === undefined) _settings.downloadsCleanupDays = 7
   if (_settings.defaultQuality === undefined) _settings.defaultQuality = 1080
   if (_settings.autoDownloadEnabled === undefined) _settings.autoDownloadEnabled = true

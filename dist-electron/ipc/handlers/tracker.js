@@ -82,6 +82,12 @@ function registerTrackerHandlers(ipcMain) {
                 fileSize: 0,
                 renderMetadata: null,
                 downloadQuality: quality,
+                metrics: {
+                    detectedAt: new Date().toISOString(),
+                    downloadStartedAt: new Date().toISOString(),
+                    downloadQuality: quality,
+                    downloadIsMultiInstance: parseInt(quality) >= 1080,
+                },
             });
             (0, ipc_state_js_1.broadcast)(channels_js_1.IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, workspace);
             (0, ipc_state_js_1.sendNotification)('info', `Downloading: ${info.title}`, workspace.id);

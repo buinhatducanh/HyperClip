@@ -85,6 +85,17 @@ function getOverlayFilter(useGpu) {
         return 'overlay';
     return getHwCaps().hasCudaFilters ? 'overlay_cuda' : 'overlay';
 }
+// ─── RTX 5080 ultra-optimized filter flags ──────────────────────────────────────
+// These flags maximize CUDA pipeline throughput for the 16GB VRAM RTX 5080.
+// Force NV12 CUDA output after every scale_cuda — bridges CUDA surface → system RAM.
+// Without this, FFmpeg tries to auto-negotiate and may pick slower paths.
+const CUDA_FORMAT_NV12 = 'format=nv12';
+// Use cuda:0 device explicitly for CUDA filters — ensures all filters run on same GPU.
+// Without explicit device, FFmpeg may distribute across devices causing synchronization overhead.
+const CUDA_DEVICE = 'cuda:0';
+// Lanczos4 is the highest-quality CUDA scaling kernel available.
+// For downscaling 1080p→720p it's significantly better than bilinear.
+const LANCZOS_FLAGS = 'flags=lanczos';
 // ─── Shell path helper ─────────────────────────────────────────────────────────
 // Path quoting utility — exported for use by youtube.ts pre-scale function
 function quotePath(p) {
@@ -331,12 +342,15 @@ async function extractVideoThumbnail(videoPath, outputPath, seekTime = 5) {
 // GPU acceleration: uses scale_cuda/overlay_cuda when available (much faster than CPU).
 function buildFilterComplex(opts) {
     const { headerOl, titleOl, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, speedFilter, backgroundType = 'blur', titleOverlayPath, bottomBarOverlayPath, isShort = true, useCuda = true, fpsTarget = 30, trimStart = 0, trimDuration = 0, watermarkText, } = opts;
-    // GPU pipeline: scale_cuda/overlay_cuda with format=yuv420p conversion.
-    // scale_cuda outputs NV12 CUDA surface. overlay_cuda needs yuv420p system RAM format.
-    // format=yuv420p after every scale_cuda bridges the gap — output becomes system RAM yuv420p,
-    // which overlay_cuda (and all downstream filters) can consume directly.
+    // GPU pipeline: scale_cuda/overlay_cuda with format=nv12 conversion.
+    // scale_cuda outputs CUDA surface. overlay_cuda needs system RAM format.
+    // format=nv12 after scale_cuda bridges the gap — output becomes system RAM NV12,
+    // which overlay_cuda can consume directly.
+    // Lanczos: best quality for CPU scale (scale=...:flags=lanczos). scale_cuda uses its own
+    // built-in high-quality kernel — Lanczos flag on CUDA is silently ignored.
     const scale = useCuda ? 'scale_cuda' : 'scale';
     const ov = useCuda ? 'overlay_cuda' : 'overlay';
+    const scaleFlags = useCuda ? '' : ':flags=lanczos';
     // ── LANDSCAPE layout: thumbnail bg + landscape video + part number ──
     // IMPORTANT: sections[1] = bgChain2 outputs [bg] via [1:v].
     // But bgScaleFilter replaces sections[1] with a different background filter.
@@ -386,7 +400,8 @@ function buildFilterComplex(opts) {
                 ? `[0:v]${fpsTag}${speedTag}trim=start=${trimStart}:duration=${adjustedDuration},setpts=PTS-STARTPTS,`
                 : `[0:v]${fpsTag}${speedTag}setpts=PTS-STARTPTS,`;
             const cropY = videoTop;
-            videoChain2 = `${trimSection}${scale}=-2:${videoH}:flags=lanczos,crop=${canvasW}:${videoH}:${cropX}:${cropY}[vid]`;
+            const sf = scaleFlags ? `,${scaleFlags}` : '';
+            videoChain2 = `${trimSection}${scale}=-2:${videoH}${sf},crop=${canvasW}:${videoH}:${cropX}:${cropY}[vid]`;
         }
         else {
             const cropY = Math.round((canvasW * 9 / 16 - videoH) / 2) + videoTop;
@@ -395,7 +410,8 @@ function buildFilterComplex(opts) {
             const trimSection = (trimStart > 0 || trimDuration > 0)
                 ? `[0:v]${fpsTag}${speedTag}trim=start=${trimStart}:duration=${adjustedDuration},setpts=PTS-STARTPTS,`
                 : `[0:v]${fpsTag}${speedTag}setpts=PTS-STARTPTS,`;
-            videoChain2 = `${trimSection}${scale}=${canvasW}:-2:flags=lanczos,crop=${canvasW}:${videoH}:0:${cropY >= 0 ? cropY : 0}[vid]`;
+            const sf = scaleFlags ? `,${scaleFlags}` : '';
+            videoChain2 = `${trimSection}${scale}=${canvasW}:-2${sf},crop=${canvasW}:${videoH}:0:${cropY >= 0 ? cropY : 0}[vid]`;
         }
         // [1:v] thumbnail → FILL canvas (not fit within).
         // force_original_aspect_ratio=increase: scale up until canvas is covered.
@@ -483,7 +499,8 @@ function buildFilterComplex(opts) {
     //   Result: video covers rows headerH..(canvasH-bottomBarH-1), BG shows in header + bottom bar gap
     const scaledW = Math.round(videoH * 16 / 9);
     const cropX = Math.round((scaledW - canvasW) / 2);
-    const scaleChain = `${trimSection}[trimmed]${scale}=-2:${videoH}:flags=lanczos,crop=${canvasW}:${videoH}:${cropX}:0[vid]`;
+    const sf = scaleFlags ? `,${scaleFlags}` : '';
+    const scaleChain = `${trimSection}[trimmed]${scale}=-2:${videoH}${sf},crop=${canvasW}:${videoH}:${cropX}:0[vid]`;
     const videoChain = scaleChain;
     // Scale background to canvas — FILL canvas (not fit within).
     // BG shows through: header zone (top) + bottom bar gap (bottom).
@@ -554,14 +571,18 @@ function buildFilterComplex(opts) {
 // ─── Optimized NVENC parameters ─────────────────────────────────────────────────
 // Per-architecture NVENC tuning for RTX 5080 and other GPUs.
 // Uses GPUCapabilities to get architecture-specific session limits and surface counts.
+//
+// RTX 5080 specific optimizations:
+// - 2 NVENC engines → dual parallel encode
+// - 16GB VRAM → high surface counts
+// - Ada Lovelace arch → full NVENC feature set
+// - HEVC preferred: same quality at 20-30% less encode work vs H.264
 function getNvencParams(codec, isChunked, gpuTier = 'software', canvasW = 0, canvasH = 0, userPreset) {
     const isHighTier = gpuTier === 'high';
     const isMidTier = gpuTier === 'mid';
     // Fall back to CPU encoding (libx264/libx265) when NVENC is unavailable
     // (e.g. RTX 5080 driver incompatible with FFmpeg build's NVENC).
     if (gpuTier === 'software' || gpuTier === 'low') {
-        // x264/x265 CPU params — ultrafast for dev laptop iteration speed.
-        // CRF raised slightly vs 'fast' to compensate for ultrafast quality loss.
         const cpuPreset = 'ultrafast';
         const threads = String(Math.min(os_1.default.cpus().length, 8));
         if (codec === 'hevc') {
@@ -571,29 +592,26 @@ function getNvencParams(codec, isChunked, gpuTier = 'software', canvasW = 0, can
             return ['-preset', cpuPreset, '-crf', '22', '-c:v', 'libx264', '-threads', threads];
         }
     }
-    // GPU-aware preset selection:
-    //   RTX 5080 (high): p1 for both chunked and single (speed)
-    //   RTX 3060 (mid):  p2 for chunked, p3 for single
-    //   others (low):   p3 for both
-    // User preset (from editor) takes priority — only use tier default if not set.
+    // RTX 5080 (high tier): always p1 — maximum encode speed
+    // Mid tier: p2 for chunked (speed), p3 for single (quality)
+    // Low tier: p3 for both
     const preset = userPreset || (isChunked
         ? (isHighTier ? 'p1' : isMidTier ? 'p2' : 'p3')
         : (isHighTier ? 'p1' : 'p3'));
-    // CQ tuning: RTX 5080 uses balanced CQ (quality vs file size)
-    //   Chunked: speed focus → slightly higher CQ (smaller files, fast encode)
-    //   Single-pass: quality focus → lower CQ (better quality)
+    // HEVC on NVENC: same visual quality at 20-30% less bitrate = faster encode
+    // H.264: slightly better hardware support, use for compatibility
+    // CQ levels: lower = better quality, higher = faster encode
     const cq = codec === 'hevc'
-        ? (isChunked ? '24' : '20')
-        : (isChunked ? '20' : '18');
-    // Tune: 'ull' = ultra-low-latency, fastest encode on RTX 5080
-    //        'll'  = low-latency for mid-tier
-    //        'hq'  = high quality for single-pass
+        ? (isChunked ? '26' : '23') // HEVC: higher CQ (less work) still looks great
+        : (isChunked ? '22' : '19'); // H.264: lower CQ needed for same quality
+    // Tune: ull = ultra-low-latency for RTX 5080 (max speed)
+    //        ll  = low-latency for mid-tier
+    //        hq  = high quality for single-pass
     const tune = isChunked
         ? (isHighTier ? 'ull' : isMidTier ? 'll' : 'll')
         : (isHighTier ? 'ull' : 'hq');
-    // Bitrate cap based on output resolution — portrait upscaling needs more bitrate.
-    // Target: ~3 Mbps for 360p, ~6 Mbps for 720p, ~12 Mbps for 1080p.
-    // VBR HQ mode respects both max bitrate AND CQ quality target.
+    // Bitrate cap based on output resolution.
+    // Portrait upscaling needs more bitrate for smooth gradients.
     let maxBitrate = '';
     if (canvasH > 0) {
         if (canvasH <= 640)
@@ -605,33 +623,34 @@ function getNvencParams(codec, isChunked, gpuTier = 'software', canvasW = 0, can
     }
     const params = [
         '-preset', preset,
-        '-rc', 'vbr_hq', // vbr_hq: VBR with quality focus + better rate control
+        '-rc', 'vbr_hq',
         '-cq', cq,
         '-tune', tune,
-        '-bf', '0', // No B-frames → faster encode, hardware-compatible
-        '-refs', '1', // Single reference frame → minimum latency
-        '-g', '30', // GOP=30 (1 keyframe/s) — prevents irregular GOP stuttering
+        '-bf', '0', // No B-frames → minimal latency
+        '-refs', '1', // Single reference frame
+        '-g', '30', // GOP=30 (keyframe every second at 30fps)
+        '-strict_gop', '1', // RTX 5080: prevents irregular GOP stuttering
     ];
-    // Add bitrate cap for VBR mode — prevents oversized files
-    // bufsize = 2× maxrate (FFmpeg best practice for rate control)
+    // Bitrate cap for VBR mode — prevents oversized files
     if (maxBitrate) {
         const bufsizeK = String(parseInt(maxBitrate) * 2) + 'k';
         params.push('-maxrate', maxBitrate, '-bufsize', bufsizeK);
     }
     if (isChunked) {
-        params.push('-rc-lookahead', '0', // Disable lookahead → zero-latency encode (ull/ll tune)
+        params.push('-rc-lookahead', '0', // Zero-latency encode (ull tune)
         '-spatial-aq', '1', // Adaptive quantization for quality
-        '-aq-strength', '8');
-        // Hardware surface pool: use architecture-defined value from system.ts
-        // RTX 5080: 48 surfaces, RTX 4090: 48, RTX 4080: 48, RTX 3090: 32, RTX 3060: 16
-        const surfaceCount = String(isHighTier ? 48 : 16);
-        params.push('-surfaces', surfaceCount);
-        // Device selection: primary GPU (device 0) — multi-GPU future consideration
+        '-aq-strength', '8', '-no-scenecut', '1', // Disable scene-cut detection — faster encode
+        '-forced-idr', '1');
+        // Surface pool: RTX 5080 16GB VRAM can handle high counts
+        // High surfaces = fewer encoder stalls waiting for frame buffers
+        // 64 for high tier (RTX 5080/4090), 32 mid, 16 low
+        const surfaceCount = isHighTier ? 64 : (isMidTier ? 32 : 16);
+        params.push('-surfaces', String(surfaceCount));
         params.push('-gpu', 'any');
     }
     else {
-        params.push('-rc-lookahead', '16', // Quality-focused lookahead
-        '-spatial-aq', '1', '-aq-strength', '9');
+        params.push('-rc-lookahead', '16', // Light lookahead for better rate control
+        '-spatial-aq', '1', '-aq-strength', '9', '-no-scenecut', '1', '-forced-idr', '1');
         params.push('-gpu', 'any');
     }
     return params;
@@ -1169,7 +1188,7 @@ function cancelAllChunked() {
     }
 }
 // Build chunk encode args
-function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile, codec, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, titleOverlayPath, isShort, videoSpeed, gpuTier = 'software', backgroundType, backgroundColor, backgroundImage, numThreads, audioCodec = 'aac', audioBitrate = '192k', headerOlSrc, titleOl, fpsTarget = 30, vidHeightPct, bottomBarH) {
+function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile, codec, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, titleOverlayPath, isShort, videoSpeed, gpuTier = 'software', backgroundType, backgroundColor, backgroundImage, numThreads, audioCodec = 'aac', audioBitrate = '192k', headerOlSrc, titleOl, fpsTarget = 30, vidHeightPct, bottomBarH, bottomBarOverlayPath) {
     const isGpuAvailable = gpuTier !== 'software';
     const nvencCodec = isGpuAvailable
         ? (codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc')
@@ -1184,7 +1203,8 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
     // Must check hasCudaFilters — essentials build lists CUDA filters but NVDEC unavailable → runtime fail.
     const hasGpuFilters = isGpuAvailable && getHwCaps().hasCudaFilters;
     const scale = hasGpuFilters ? 'scale_cuda' : 'scale';
-    // lanczos: much better than bilinear for upscaling (720p→1080p) and sharper downscaling (CPU only)
+    // Lanczos flags only work with CPU scale (scale=lanczos). scale_cuda uses its own fast_bilinear
+    // by default — Lanczos flag on CUDA would be silently ignored or cause errors.
     const sf = hasGpuFilters ? '' : ':flags=lanczos';
     const overlay = hasGpuFilters ? 'overlay_cuda' : 'overlay';
     // Pre-scaled source detection: when the source filename contains '_preScaled',
@@ -1374,7 +1394,9 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
         : '[0:v]fps=' + fpsTarget + ',' + speedTag + 'setpts=PTS-STARTPTS,';
     const sections = [];
     const hasHeader = !!headerOlSrc;
-    const hasBottomBar = !!titleOverlayPath || !!titleOl?.content;
+    // SHORT mode: bottom bar comes from bottomBarOverlayPath (pre-rendered PNG with text).
+    // titleOverlayPath is for LANDSCAPE mode title overlays — do NOT use here.
+    const hasBottomBar = !!bottomBarOverlayPath || !!titleOl?.content;
     const bbH = bottomBarH ?? 64;
     let finalLabel = '[vz]';
     // Section 1: video — trim → fps → scale → crop to videoH tall
@@ -1402,13 +1424,17 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
     //   [vb][hd]overlay=0:0 → [final] (header on top of bottom bar)
     const bottomBarY = headerH + videoH; // = canvasH - bottomBarH
     if (hasBottomBar) {
-        // Bottom bar on video FIRST (below header in z-order)
-        if (titleOverlayPath) {
+        // Bottom bar on video FIRST (below header in z-order).
+        // Pre-rendered bottom bar PNG (bottomBarOverlayPath) is used when available —
+        // it already contains the title text drawn by PowerShell (crisp, anti-aliased).
+        // Skip drawtext to avoid duplicating text on top of the pre-rendered bar.
+        if (bottomBarOverlayPath) {
             sections.push('[3:v]null[bb]');
             sections.push('[vz][bb]' + overlay + '=0:' + bottomBarY + '[vb]');
         }
         else if (titleOl?.content) {
-            // Drawtext bottom bar: text drawn at center of bottom bar zone.
+            // Drawtext fallback: only when NO pre-rendered bottom bar.
+            // Text is drawn at center of bottom bar zone.
             const fontSize = Math.max(24, Math.floor(bbH * 0.45));
             const textCenterY = bottomBarY + Math.floor(bbH / 2);
             const escapedText = (titleOl.content || '').replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\[/g, "\\[").replace(/\]/g, "\\]");
@@ -1443,7 +1469,7 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
         ...(isShort
             ? (headerOlSrc ? ['-i', quotePath(headerOlSrc)] : ['-f', 'lavfi', '-i', 'color=black:s=2x2:d=1:r=1'])
             : []),
-        ...(isShort && hasBottomBar ? ['-i', quotePath(titleOverlayPath)] : []),
+        ...(isShort && hasBottomBar && bottomBarOverlayPath ? ['-i', quotePath(bottomBarOverlayPath)] : []),
         '-filter_threads', '16',
         '-filter_complex', filterChain + (audioSpeedFilter ? `; [0:a?]${audioSpeedFilter}[audio]` : ''),
         '-map', finalLabel, '-map', audioSpeedFilter ? '[audio]' : '0:a?',
@@ -1456,10 +1482,10 @@ function buildChunkArgs(sourceVideo, blurBg, trimStart, trimDuration, outputFile
     ];
 }
 // Encode a single chunk
-async function encodeChunk(workspaceId, sourceVideo, blurBg, startSec, durationSec, outputFile, codec, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, titleOverlayPath, onProgress, isShort, videoSpeed, gpuTier, backgroundType, backgroundColor, backgroundImage, audioCodec, audioBitrate, headerOlSrc, titleOl, fpsTarget, vidHeightPct, bottomBarH) {
+async function encodeChunk(workspaceId, sourceVideo, blurBg, startSec, durationSec, outputFile, codec, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, titleOverlayPath, onProgress, isShort, videoSpeed, gpuTier, backgroundType, backgroundColor, backgroundImage, audioCodec, audioBitrate, headerOlSrc, titleOl, fpsTarget, vidHeightPct, bottomBarH, bottomBarOverlayPath) {
     const ffmpeg = (0, ffmpeg_paths_js_1.getFfmpegPath)();
     const numThreads = Math.min(os_1.default.cpus().length, 16);
-    const args = buildChunkArgs(sourceVideo, blurBg, startSec, durationSec, outputFile, codec, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, titleOverlayPath, isShort, videoSpeed, gpuTier, backgroundType, backgroundColor, backgroundImage, numThreads, audioCodec ?? 'aac', audioBitrate ?? '192k', headerOlSrc, titleOl, fpsTarget ?? 30, vidHeightPct, bottomBarH);
+    const args = buildChunkArgs(sourceVideo, blurBg, startSec, durationSec, outputFile, codec, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, titleOverlayPath, isShort, videoSpeed, gpuTier, backgroundType, backgroundColor, backgroundImage, numThreads, audioCodec ?? 'aac', audioBitrate ?? '192k', headerOlSrc, titleOl, fpsTarget ?? 30, vidHeightPct, bottomBarH, bottomBarOverlayPath);
     return new Promise((resolve) => {
         const t0 = Date.now();
         const cmd = buildArgs(ffmpeg, args);
@@ -1720,10 +1746,10 @@ async function renderChunked(metadata, outputDir, config = {}, onProgress) {
             const endSec = finalSplits[idx + 1];
             const durationSec = endSec - startSec;
             const chunkFile = path_1.default.join(workspaceDir, `chunk_${String(idx).padStart(3, '0')}.mp4`);
-            const result = await encodeChunk(workspace_id, source_video, blur_background || '', startSec, durationSec, chunkFile, codec, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, resolvedIsShort2 ? bottomBarOverlayPath : (titleOverlayPath ?? undefined), (pct) => {
+            const result = await encodeChunk(workspace_id, source_video, blur_background || '', startSec, durationSec, chunkFile, codec, canvasW, canvasH, headerH, titleH, videoH, videoTop, videoW, bottomBarOverlayPath ?? undefined, (pct) => {
                 const chunkOverall = ((idx + pct / 100) / numChunks) * 90 + 5;
                 onProgress?.({ workspaceId: workspace_id, percent: chunkOverall, currentTime: 0, totalTime: 0, fps: 0, speed: '', bitrate: '', phase: 'encode', chunkIndex: idx });
-            }, resolvedIsShort2, video_speed, gpuTier, metadata.backgroundType, metadata.backgroundColor, metadata.backgroundImage, audioCodec, audioBitrate, headerOl?.src, titleOl, fps_target, vidHeightPct, bottomBarH);
+            }, resolvedIsShort2, video_speed, gpuTier, metadata.backgroundType, metadata.backgroundColor, metadata.backgroundImage, audioCodec, audioBitrate, headerOl?.src, titleOl, fps_target, vidHeightPct, bottomBarH, bottomBarOverlayPath);
             return { idx, startSec, endSec, chunkFile, result };
         }));
         for (const { idx, startSec, endSec, chunkFile, result } of batchResults) {

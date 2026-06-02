@@ -100,6 +100,10 @@ function registerSessionHandlers(ipcMain, getMainWindow) {
         const sm = (0, chrome_cookies_js_1.getSessionManager)();
         return sm.cloneSessionOne();
     });
+    ipcMain.handle(channels_js_1.IPC_CHANNELS.SESSION_ADD, async () => {
+        const sm = (0, chrome_cookies_js_1.getSessionManager)();
+        return sm.addSession();
+    });
     // ─── Log Export ─────────────────────────────────────────────────────────────
     ipcMain.handle('logs:read', async () => {
         return (0, unified_log_js_1.readFileLogs)();

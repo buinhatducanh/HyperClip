@@ -149,7 +149,7 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
           display: 'flex',
           alignItems: 'stretch',
           background: colors.bg,
-          borderBottom: '1px solid #E0E0E0',
+          borderBottom: `1px solid ${colors.border}`,
           flexShrink: 0,
         }}
       >
@@ -278,12 +278,12 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
         <div style={{
           display: 'flex', gap: 6, padding: '6px 10px',
           background: colors.bg,
-          borderBottom: '1px solid #E8E8E8',
+          borderBottom: `1px solid ${colors.borderHover}`,
           flexShrink: 0,
         }}>
           {/* Search */}
           <div style={{ flex: 1, position: 'relative' }}>
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#999999" strokeWidth="2"
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={colors.textSecondary} strokeWidth="2"
               style={{ position: 'absolute', left: 7, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
               <circle cx="11" cy="11" r="8" />
               <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -366,7 +366,7 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
                 className="flex flex-col items-center justify-center"
                 style={{ height: '100%', gap: 8 }}
               >
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#777" strokeWidth="1.5">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={colors.textSecondary} strokeWidth="1.5">
                   <path d="M15 10l4.553-2.276A1 1 0 0 1 21 8.618v6.764a1 1 0 0 1-1.447.894L15 14v-4z" />
                   <rect x="3" y="6" width="12" height="12" rx="2" ry="2" />
                 </svg>
@@ -380,7 +380,7 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
                 className="flex flex-col items-center justify-center"
                 style={{ height: '100%', gap: 8 }}
               >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#777" strokeWidth="1.5">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={colors.textSecondary} strokeWidth="1.5">
                   <circle cx="11" cy="11" r="8" />
                   <line x1="21" y1="21" x2="16.65" y2="16.65" />
                 </svg>

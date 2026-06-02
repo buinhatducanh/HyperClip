@@ -266,8 +266,8 @@ export function getFfmpegVersion(ffmpegPath: string): FfmpegVersion {
     result.hasVaapi = encodersOut.includes('hevc_vaapi') || encodersOut.includes('h264_vaapi')
     result.hasNvencLookahead = encodersOut.includes('nvenc_lookahead')
 
-    devLog(`[FFmpeg] NVENC: ${result.hasNvenc ? '✓' : '✗'} | NVDEC: ${result.hasNvdec ? '✓' : '✗'} | CUVID: ${result.hasCuvid ? '✓' : '✗'} | QSV: ${result.hasQsv ? '✓' : '✗'} | VAAPI: ${result.hasVaapi ? '✓' : '✗'}`)
-    devLog(`[FFmpeg] CUDA filters: ${result.hasCudaFilters ? '✓' : '✗'} | NVENC lookahead: ${result.hasNvencLookahead ? '✓' : '✗'}`)
+    devLog(`[FFmpeg] NVENC: ${result.hasNvenc ? 'yes' : 'no'} | NVDEC: ${result.hasNvdec ? 'yes' : 'no'} | CUVID: ${result.hasCuvid ? 'yes' : 'no'} | QSV: ${result.hasQsv ? 'yes' : 'no'} | VAAPI: ${result.hasVaapi ? 'yes' : 'no'}`)
+    devLog(`[FFmpeg] CUDA filters: ${result.hasCudaFilters ? 'yes' : 'no'} | NVENC lookahead: ${result.hasNvencLookahead ? 'yes' : 'no'}`)
   } catch (e) {
     console.warn('[FFmpeg] Could not enumerate encoders:', e)
   }

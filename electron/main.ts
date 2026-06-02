@@ -32,7 +32,7 @@ import {
   type WorkspaceData,
   getRenderedVideos, addRenderedVideo, removeRenderedVideo, type RenderedVideoRecord, type RenderConfigRecord, type SourceInfoRecord,
 } from './services/store.js'
-import { downloadVideo, downloadVideoStrategy, probeVideoAvailability, probeActualDuration, getVideoInfo, getChannelInfo, getChannelId, type YtdlpVideoInfo, type YtdlpChannelInfo } from './services/youtube.js'
+import { downloadVideo, downloadVideoStrategy, downloadSectionsAsSeparate, probeVideoAvailability, probeActualDuration, getVideoInfo, getChannelInfo, getChannelId, type YtdlpVideoInfo, type YtdlpChannelInfo } from './services/youtube.js'
 import { renderVideo, renderChunked, generateBlurBackground, extractVideoThumbnail, cancelChunked, cancelAllChunked, probeVideoAspect, trimVideo, type RenderMetadata, type RenderProgress, type ChunkConfig } from './services/ffmpeg.js'
 import { cancelFfmpeg, cancelAllFfmpeg, getPoolStatus } from './services/worker-pool.js'
 import { getFfmpegPath, validateFfmpeg } from './services/ffmpeg-paths.js'
@@ -126,12 +126,14 @@ const bgDownloadQueue: Array<{
 }> = []
 let activeBgDownloads = 0
 
-/** Get safe concurrent download count.
- *  SEQUENTIAL PIPELINE: always 1.
- *  1 video at a time, 100% bandwidth/CPU/GPU for download → render → archive.
+/** Get concurrent download count from user settings.
+ *  Respects maxConcurrentDownloads (RTX 5080 optimized default: 3).
  */
 function getMaxConcurrentDownloads(): number {
-  return 1
+  const settings = loadSettings()
+  const n = settings.maxConcurrentDownloads
+  if (typeof n === 'number' && n >= 1) return Math.min(n, 10)
+  return 3 // safe default for 64GB / RTX 5080
 }
 
 /** Enqueue a video for non-blocking background download.
@@ -195,6 +197,11 @@ function enqueueBgDownload(video: {
     publishedAt: video.publishedAt ? new Date(video.publishedAt).toISOString() : undefined,
     detectedAt: video.detectedAt ? new Date(video.detectedAt).toISOString() : nowIso,
     downloadQuality: settings2.autoDownloadQuality ?? '720',
+    metrics: {
+      detectedAt: video.detectedAt ? new Date(video.detectedAt).toISOString() : nowIso,
+      downloadQuality: settings2.autoDownloadQuality ?? '720',
+      downloadIsMultiInstance: parseInt(settings2.autoDownloadQuality ?? '720') >= 1080,
+    },
   })
 
   devLog(`[BgDownload] enqueue: ${video.videoId} (${video.title}) → workspace=${ws.id}, queue=${bgDownloadQueue.length + 1}`)
@@ -562,6 +569,8 @@ async function autoDownloadFromWebSub(
     const autoRenderEnabled = settings.autoRender === true
     const autoTrimLimit: number | 'full' = settings.defaultTrimLimit ?? 10
     const autoQuality = qualityOverride ?? settings.autoDownloadQuality ?? '720'
+    devLog(`[Auto] settings: autoRender=${settings.autoRender} autoRenderEnabled=${autoRenderEnabled} autoSplitMinutes=${settings.autoSplitMinutes} autoSplitParts=${settings.autoSplitParts} trimLimit=${autoTrimLimit}`)
+    devLog(`[Auto] auto-split: autoSplitMinutes(${settings.autoSplitMinutes ?? 0}) > 0 && trimLimitMin(${typeof autoTrimLimit === 'number' ? autoTrimLimit : 0}) > 0 = ${(settings.autoSplitMinutes ?? 0) > 0 && (typeof autoTrimLimit === 'number' ? autoTrimLimit : 0) > 0}`)
 
     // Find the 'waiting' workspace created by enqueueBgDownload
     let ws: ReturnType<typeof addWorkspace> | WorkspaceData | null | undefined
@@ -586,7 +595,14 @@ async function autoDownloadFromWebSub(
     }
 
     // Update to 'downloading' so UI reflects actual progress
-    updateWorkspace(ws.id, { status: 'downloading', downloadProgress: 0 })
+    updateWorkspace(ws.id, {
+      status: 'downloading',
+      downloadProgress: 0,
+      metrics: {
+        ...(ws.metrics || {}),
+        downloadStartedAt: new Date().toISOString(),
+      }
+    })
     broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
     broadcast(IPC_CHANNELS.ACTIVITY_EVENT, {
       id: ws.id,
@@ -646,6 +662,171 @@ async function autoDownloadFromWebSub(
       }
     } else {
       devLog(`[Auto] Pre-check: could not determine availability — proceeding with download`)
+    }
+
+    const autoSplitMinutes = settings.autoSplitMinutes ?? 0
+    const trimLimitMin = typeof autoTrimLimit === 'number' ? autoTrimLimit : 0
+
+    // ── Auto-split download: trimLimit → N sections, each → separate workspace ─────────
+    if (autoSplitMinutes > 0 && trimLimitMin > 0) {
+      const trimSec = trimLimitMin * 60
+      const partSec = autoSplitMinutes * 60
+      const numParts = Math.ceil(trimSec / partSec)
+
+      devLog(`[AutoSplit] Downloading "${title}" (${trimSec}s) split into ${numParts} × ${autoSplitMinutes}m sections in parallel`)
+      broadcast(IPC_CHANNELS.ACTIVITY_EVENT, {
+        id: ws.id, timestamp: Date.now(), type: 'downloading',
+        title: `Auto-split ${numParts}×${autoSplitMinutes}m: ${title.length > 30 ? title.slice(0, 30) + '…' : title}`,
+        subtitle: `${finalChannelName} • ${autoQuality}p`,
+        workspaceId: ws.id,
+      })
+
+      const { getYtCookiesFile } = await import('./services/po_token.js')
+      const splitYtCookiesFile = await getYtCookiesFile()
+
+      const sections: Array<{ start: number; end: number }> = []
+      for (let i = 0; i < numParts; i++) {
+        const start = i * partSec
+        const end = Math.min((i + 1) * partSec, trimSec)
+        sections.push({ start, end })
+      }
+
+      const downloadStartMs = Date.now()
+      let _dlLastPercent = 0
+
+      const dlResult = await downloadSectionsAsSeparate({
+        workspaceId: ws.id,
+        videoUrl,
+        outputDir: storagePath,
+        quality: autoQuality,
+        sections,
+        ytCookiesFile: splitYtCookiesFile,
+        onProgress: (p) => {
+          const pctDelta = Math.abs(p.percent - _dlLastPercent)
+          if (pctDelta >= 2) {
+            _dlLastPercent = p.percent
+            updateWorkspace(ws.id, { downloadProgress: p.percent })
+            broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, { workspaceId: ws.id, percent: p.percent, speed: p.speed, eta: p.eta })
+          }
+        },
+      })
+
+      if (!dlResult.success || dlResult.files.length === 0) {
+        devLog(`[AutoSplit] Download failed: ${dlResult.error}`)
+        updateWorkspace(ws.id, { status: 'error' })
+        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
+        return
+      }
+
+      const downloadElapsed = ((Date.now() - downloadStartMs) / 1000).toFixed(1)
+      devLog(`[AutoSplit] Downloaded ${dlResult.files.length} sections in ${downloadElapsed}s`)
+
+      const downloadElapsedNum = parseFloat(downloadElapsed)
+
+      // Process each section: thumb + blur + workspace update + auto-render
+      // Run all sections in parallel for speed.
+      const renderPromises = dlResult.files.map(async (file, idx) => {
+        // idx=0 → reuse original workspace; idx>0 → create new workspace
+        let targetWsId = ws.id
+        if (idx > 0) {
+          const newWs = addWorkspace({
+            channelId: ws.channelId,
+            channelName: finalChannelName,
+            channelColor: ws.channelColor || '#00B4FF',
+            videoId: ws.videoId,
+            videoTitle: ws.videoTitle,
+            videoUrl: ws.videoUrl,
+            thumbnail: ws.thumbnail,
+            duration: file.duration,
+            trimLimit: autoTrimLimit,
+            status: 'ready',
+            renderProgress: 0,
+            downloadedAt: new Date().toISOString(),
+            downloadedPath: file.path,
+            blurBackgroundPath: '',
+            outputPath: '',
+            metadataPath: '',
+            fileSize: file.size,
+            renderMetadata: null,
+            publishedAt: ws.publishedAt,
+            detectedAt: ws.detectedAt,
+            isShort: false,
+            videoResolution: ws.videoResolution,
+            downloadQuality: autoQuality,
+          })
+          devLog(`[AutoSplit] Created workspace ${newWs.id} for section ${idx + 1}`)
+        }
+
+        const aspect = await probeVideoAspect(file.path)
+        const isLandscape = !aspect?.isShort
+
+        // Parallel: thumbnail + blur
+        const thumbPath = path.join(storagePath, `thumb_${targetWsId}.jpg`)
+        const { blurPath } = generateWorkspacePaths(targetWsId)
+        const [thumbResult, blurResult] = await Promise.all([
+          extractVideoThumbnail(file.path, thumbPath),
+          isLandscape
+            ? Promise.resolve({ success: true })
+            : generateBlurBackground(file.path, blurPath, 1080, 1920, file.duration || undefined),
+        ])
+
+        const blurBgPath = (blurResult as any).success && !isLandscape ? blurPath : ''
+        const localThumb = thumbResult.success
+          ? 'local-video:///' + thumbPath.replace(/\\/g, '/')
+          : ws.thumbnail || `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`
+
+        updateWorkspace(targetWsId, {
+          status: 'ready',
+          downloadedAt: new Date().toISOString(),
+          downloadedPath: file.path,
+          fileSize: file.size,
+          thumbnail: localThumb,
+          duration: file.duration,
+          blurBackgroundPath: blurBgPath,
+          downloadQuality: autoQuality,
+        })
+
+        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(targetWsId))
+        broadcast(IPC_CHANNELS.AUTO_DOWNLOAD_EVENT, { videoId, title: `${ws.videoTitle} [${idx + 1}/${dlResult.files.length}]`, channelName: finalChannelName, detectedAt: new Date().toISOString() })
+
+        // Trigger auto-render for this section
+        if (autoRenderEnabled) {
+          updateWorkspace(targetWsId, { autoRenderAttempted: true })
+          const targetWsData: WorkspaceData = idx === 0 ? ws : getWorkspace(targetWsId)!
+          const autoMeta = buildAutoRenderMetadata(
+            targetWsData,
+            file.path,
+            file.duration,
+            blurBgPath,
+            thumbPath,
+            settings,
+            // Pass section trim so render uses correct chunkDuration (no re-chunk)
+            { start: 0, end: file.duration },
+            file.duration, // chunkDuration = section duration → single chunk per section
+          )
+          devLog(`[AutoSplit] Render started: section ${idx + 1} (${file.duration}s)`)
+          renderQueue.push({
+            workspaceId: targetWsId,
+            metadata: autoMeta,
+            resolve: () => {},
+          })
+          startNextQueuedRender()
+        }
+      })
+
+      await Promise.all(renderPromises)
+
+      const totalSizeMB = (dlResult.files.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)
+      broadcast(IPC_CHANNELS.ACTIVITY_EVENT, {
+        id: ws.id, timestamp: Date.now(), type: 'downloaded',
+        title: `Auto-split done: ${dlResult.files.length}×${autoSplitMinutes}m — ${title.length > 30 ? title.slice(0, 30) + '…' : title}`,
+        subtitle: `${finalChannelName} • ${totalSizeMB} MB • ${downloadElapsed}s`,
+        workspaceId: ws.id,
+      })
+      sendNotification('success', `Auto-split: ${dlResult.files.length}×${autoSplitMinutes}m downloaded`, ws.id)
+      playSuccessBeep()
+      markVideoSeen(channelId, videoId)
+      return
     }
 
     devLog(`[Auto] DOWNLOAD START: "${title}" quality=${autoQuality}p trimLimit=${autoTrimLimit === 'full' ? 'full' : autoTrimLimit + 'm'}`)
@@ -727,6 +908,16 @@ async function autoDownloadFromWebSub(
     const downloadElapsed = ((Date.now() - downloadStartMs) / 1000).toFixed(1)
     devLog(`[Auto] DOWNLOAD DONE: "${title}" (${downloadElapsed}s, ${fileSizeMB} MB)`)
     playSuccessBeep()
+
+    // Verify audio stream presence — warn if missing (render will be silent)
+    const { checkVideoHasAudio } = await import('./services/youtube.js')
+    const audioInfo = await checkVideoHasAudio(result.filePath!)
+    if (!audioInfo.hasAudio) {
+      devLog(`[Auto] ⚠ WARNING: Downloaded video has NO audio — render will be silent! codec=${audioInfo.audioCodec || 'none'}`)
+      opLog.warn('download', `No audio in downloaded video: ${title} (${videoId})`)
+    } else {
+      devLog(`[Auto] Audio OK: codec=${audioInfo.audioCodec}`)
+    }
 
     // Probe actual duration from file (not yt-dlp metadata, which can be stale/wrong).
     // ffprobe reads container metadata in ~100ms — worth the extra call to ensure correct duration.
@@ -837,6 +1028,7 @@ async function autoDownloadFromWebSub(
         detectedAt: ws.detectedAt || new Date().toISOString(),
       },
     })
+    broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
 
     sendNotification('success', `Auto-ready: ${realTitle}`, ws.id)
     broadcast(IPC_CHANNELS.AUTO_DOWNLOAD_EVENT, { videoId, title: realTitle, channelName: finalChannelName, detectedAt: detectedAtNow })
@@ -853,35 +1045,69 @@ async function autoDownloadFromWebSub(
     })
 
     // ── Auto-split trigger ──────────────────────────────────────────────────────────
-    // NOTE: Full auto-split implementation requires calling the workspace-split handler
-    // directly from main process. For now, this logs intent and falls through to
-    // auto-render. The split handler (workspace-split.ts) is available via IPC for
-    // manual/manual-auto split. Full backend integration TBD.
-    if ((settings.autoSplitParts ?? 1) > 1 && autoRenderEnabled) {
-      devLog(`[AutoSplit] Config: ${settings.autoSplitParts} parts (backend auto-split not yet wired)`)
+    // autoSplitMinutes > 0 is handled separately above (N files → N workspaces → N renders).
+    // autoSplitParts > 1 (with autoSplitMinutes = 0): renderChunked uses chunkDuration override
+    // so it produces exactly autoSplitParts chunks from the single downloaded file.
+    if ((settings.autoSplitParts ?? 1) > 1 && (settings.autoSplitMinutes ?? 0) === 0 && autoRenderEnabled) {
+      devLog(`[AutoSplit] Using renderChunked with chunkDuration = ${finalDuration / (settings.autoSplitParts ?? 1)}s (${settings.autoSplitParts} equal parts)`)
     }
 
     // ── Auto-render trigger ───────────────────────────────────────────────────────
     // SEQUENTIAL PIPELINE: await render completion before processing next video.
     // This ensures 100% of system resources go to 1 video at a time.
     // autoRenderAttempted flag prevents infinite loops when render fails → retries.
-    if (autoRenderEnabled && !ws.autoRenderAttempted) {
+    if (autoRenderEnabled && !updatedWs?.autoRenderAttempted) {
       updateWorkspace(ws.id, { autoRenderAttempted: true })
-      const sourceVideo = updatedWs?.preScaledPath || updatedWs?.downloadedPath || preScaledPath || finalFilePath
+      // Use finalFilePath directly — it's the correct yt-dlp output path.
+      // Previously relied on updatedWs?.downloadedPath but resolveWorkspacePaths
+      // fails due to broken file-index cache parsing (underscore position bug).
+      const sourceVideo = finalFilePath || preScaledPath || updatedWs?.preScaledPath || updatedWs?.downloadedPath
       if (!sourceVideo || !fs.existsSync(sourceVideo)) {
         devLog(`[Auto] Render skipped — source file not found: ${sourceVideo}`)
       } else {
         const thumbPath = path.join(storagePath, `thumb_${ws.id}.jpg`)
-        const autoMetadata = buildAutoRenderMetadata(ws, sourceVideo, finalDuration, blurBgPath, thumbPath, settings)
+        const autoSplitParts = settings.autoSplitParts ?? 1
+        const splitChunkDuration = (settings.autoSplitMinutes ?? 0) === 0 && autoSplitParts > 1
+          ? Math.ceil(finalDuration / autoSplitParts)
+          : undefined
+        const autoMetadata = buildAutoRenderMetadata(
+          ws, sourceVideo, finalDuration, blurBgPath, thumbPath, settings,
+          undefined,
+          splitChunkDuration,
+        )
         devLog(`[Auto] Render started: ${realTitle}`)
-        const renderResult = await new Promise<{ success: boolean; outputPath?: string }>((resolve) => {
-          renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve })
-          startNextQueuedRender()
-        })
+
+        let renderResult: { success: boolean; outputPath?: string }
+        if (autoSplitParts > 1 && (settings.autoSplitMinutes ?? 0) === 0 && splitChunkDuration) {
+          devLog(`[AutoSplit] Triggering chunked render: ${autoSplitParts} parts × ${splitChunkDuration}s`)
+          const gpuCaps = getGPUCapabilities()
+          const chunked = await renderChunked(
+            autoMetadata,
+            getOutputPath(),
+            {
+              workers: gpuCaps.maxChunkWorkers,
+              chunkDuration: splitChunkDuration,
+              minChunkDuration: 10,
+              gpuTier: gpuCaps.tier,
+              fpsTarget: autoMetadata.fps_target || 30,
+            },
+            (progress) => {
+              updateWorkspace(ws.id, { renderProgress: Math.round(progress.percent) })
+              broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, progress)
+            },
+          )
+          renderResult = { success: chunked.success, outputPath: chunked.outputPath }
+        } else {
+          renderResult = await new Promise<{ success: boolean; outputPath?: string }>((resolve) => {
+            renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve })
+            startNextQueuedRender()
+          })
+        }
+
         devLog(`[Auto] Render ${renderResult.success ? 'done' : 'failed'}: ${realTitle}`)
       }
     } else {
-      devLog(`[Auto] Downloaded — ready (autoRender=${autoRenderEnabled}, attempted=${!!ws.autoRenderAttempted})`)
+      devLog(`[Auto] Downloaded — ready (autoRender=${autoRenderEnabled}, attempted=${!!updatedWs?.autoRenderAttempted})`)
     }
 
     // Only mark as seen AFTER successful download — so YouTube processing delay doesn't block retry
@@ -922,7 +1148,14 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
   const { getYtCookiesFile } = await import('./services/po_token.js')
   const ytCookiesFile = await getYtCookiesFile()
 
-  updateWorkspace(ws.id, { status: 'downloading', downloadProgress: 0 })
+  updateWorkspace(ws.id, {
+    status: 'downloading',
+    downloadProgress: 0,
+    metrics: {
+      ...(ws.metrics || {}),
+      downloadStartedAt: new Date().toISOString(),
+    }
+  })
   broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
   let _retryDlLastMs = 0
   let _retryDlLastPct = -1
@@ -1065,6 +1298,10 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
  * Builds auto-render metadata for a workspace.
  * Priority: user-edited workspace settings (renderMetadata) > global auto-render settings.
  * "User-edited" = renderMetadata exists AND has overlays OR custom trim OR custom resolution.
+ *
+ * @param sectionTrim    Optional trim {start, end} for auto-split sections (overrides default 0→duration).
+ * @param sectionChunkDuration Optional chunkDuration for auto-split: set to section duration so
+ *                            renderChunked produces exactly 1 chunk per workspace (no re-split).
  */
 function buildAutoRenderMetadata(
   ws: WorkspaceData,
@@ -1072,13 +1309,18 @@ function buildAutoRenderMetadata(
   duration: number,
   blurBgPath: string,
   thumbnailPath: string,
-  globalSettings: { autoRenderResolution?: string; autoRenderFPS?: number },
+  globalSettings: { autoRenderResolution?: string; autoRenderFPS?: number; autoRenderTitleTemplate?: string; autoRenderSpeed?: number },
+  sectionTrim?: { start: number; end: number },
+  sectionChunkDuration?: number,
 ): RenderMetadata {
   const rm = ws.renderMetadata as RenderMetadata | null
   const hasOverlays = rm?.overlays && rm.overlays.length > 0
   const hasCustomTrim = rm && (rm.trim?.start ?? 0) > 0
   const hasCustomRes = rm && rm.export_resolution && rm.export_resolution !== '1080x1920'
   const hasUserSettings = hasOverlays || hasCustomTrim || hasCustomRes
+
+  const trimStart = sectionTrim ? sectionTrim.start : 0
+  const trimEnd = sectionTrim ? sectionTrim.end : duration
 
   if (rm && hasUserSettings) {
     devLog(`[Auto] Using user settings for ${ws.id} (overlays=${hasOverlays}, trim=${hasCustomTrim}, res=${hasCustomRes})`)
@@ -1093,16 +1335,31 @@ function buildAutoRenderMetadata(
 
   const autoRes = globalSettings.autoRenderResolution ?? '480x480'
   const autoFps = globalSettings.autoRenderFPS ?? 30
-  devLog(`[Auto] Using global settings for ${ws.id}: ${autoRes} @ ${autoFps}fps`)
+  const template = globalSettings.autoRenderTitleTemplate ?? ''
+
+  // Resolve title template: {title} → videoTitle, {channel} → channelName
+  const resolvedTitle = template
+    ? template.replace(/\{title\}/g, ws.videoTitle || '').replace(/\{channel\}/g, ws.channelName || '')
+    : ''
+
+  devLog(`[Auto] Using global settings for ${ws.id}: ${autoRes} @ ${autoFps}fps | title="${resolvedTitle || '(none)'}"`)
   return {
     workspace_id: ws.id,
     source_video: sourceVideo,
     export_resolution: autoRes,
-    video_speed: 1.0,
     fps_target: autoFps,
-    overlays: [],
-    trim: { start: 0, end: duration },
-    codec: 'h264',
+    overlays: resolvedTitle ? [
+      {
+        type: 'title' as const,
+        content: resolvedTitle,
+        borderColor: '#00B4FF',
+        bgColor: 'rgba(0,0,0,0.12)',
+        fontSize: 48,
+      },
+    ] : [],
+    trim: { start: trimStart, end: trimEnd },
+    video_speed: globalSettings.autoRenderSpeed ?? 1.0,
+    codec: 'hevc',
     preset: 'p1',
     tune: 'ull',
     backgroundType: blurBgPath ? 'blur' : 'image',
@@ -1111,7 +1368,13 @@ function buildAutoRenderMetadata(
     blur_background: blurBgPath,
     isShort: false,
     audioCodec: 'libopus',
+    // chunkDuration: passed through to renderChunked override. When set, render.ts
+    // uses this instead of the GPU-tier default so auto-split sections produce
+    // exactly 1 chunk per workspace (no re-split).
+    chunkDuration: sectionChunkDuration,
     audioBitrate: '128k',
+    bottomBarEnabled: true,
+    bottomBarColor: '#00B4FF',
   }
 }
 

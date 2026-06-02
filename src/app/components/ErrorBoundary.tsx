@@ -24,18 +24,18 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div style={{
           flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', gap: 16, background: '#0A0A0A', minHeight: '100vh',
+          justifyContent: 'center', gap: 16, background: colors.bg, minHeight: '100vh',
           padding: 32,
         }}>
           <div style={{ fontSize: 48 }}>⚠️</div>
-          <div style={{ fontSize: 18, color: '#fff', fontWeight: 700 }}>Lỗi giao diện</div>
-          <div style={{ fontSize: 12, color: '#666', maxWidth: 400, textAlign: 'center' }}>
+          <div style={{ fontSize: 18, color: colors.text, fontWeight: 700 }}>Lỗi giao diện</div>
+          <div style={{ fontSize: 12, color: colors.textSecondary, maxWidth: 400, textAlign: 'center' }}>
             {this.state.error?.message || 'Đã xảy ra lỗi không xác định'}
           </div>
           <button
             onClick={() => window.location.reload()}
             style={{
-              marginTop: 8, padding: '8px 20px', background: colors.accent, color: '#fff',
+              marginTop: 8, padding: '8px 20px', background: colors.accent, color: colors.textWhite,
               border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 13,
             }}
           >

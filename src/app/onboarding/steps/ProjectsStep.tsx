@@ -100,10 +100,10 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
   const statusColor = (status: string) => {
     switch (status) {
       case 'healthy': return colors.success
-      case 'warning': return '#FF6B35'
+      case 'warning': return colors.warning
       case 'exhausted': case 'rate_limited': return colors.error
-      case 'unauthorized': case 'no_oauth': return '#999'
-      default: return '#777'
+      case 'unauthorized': case 'no_oauth': return colors.textSecondary
+      default: return colors.textSecondary
     }
   }
 
@@ -116,13 +116,13 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
     <div style={{ maxWidth: 640 }}>
       {/* Explanation */}
       <div style={{ marginBottom: 24 }}>
-        <p style={{ fontSize: 13, color: '#999', lineHeight: 1.7, margin: '0 0 16px 0' }}>
+        <p style={{ fontSize: 13, color: colors.textSecondary, lineHeight: 1.7, margin: '0 0 16px 0' }}>
           <strong style={{ color: colors.text }}>GCP Projects</strong> là lớp dự phòng cho detection.
           Khi <strong style={{ color: colors.text }}>Innertube</strong> (Chrome sessions) gặp sự cố,
           HyperClip tự động chuyển sang dùng YouTube Data API với quota từ các projects này.
         </p>
-        <p style={{ fontSize: 12, color: '#777', lineHeight: 1.6, margin: 0 }}>
-          Mỗi project cung cấp <strong style={{ color: '#999' }}>10,000 units/ngày</strong>.
+        <p style={{ fontSize: 12, color: colors.textSecondary, lineHeight: 1.6, margin: 0 }}>
+          Mỗi project cung cấp <strong style={{ color: colors.textSecondary }}>10,000 units/ngày</strong>.
           200 projects = 2 triệu units/ngày — đủ cho ~100 kênh.
         </p>
       </div>
@@ -130,24 +130,24 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
       {/* Status summary */}
       {projects.length > 0 && (
         <div style={{
-          background: colors.bg, border: '1px solid #1A1A1A',
+          background: colors.bg, border: `1px solid ${colors.border}`,
           borderRadius: 12, padding: '16px 20px',
           marginBottom: 24,
           display: 'flex', gap: 24,
         }}>
           <div>
             <div style={{ fontSize: 20, fontWeight: 800, color: colors.text }}>{projects.length}</div>
-            <div style={{ fontSize: 10, color: '#777' }}>Projects</div>
+            <div style={{ fontSize: 10, color: colors.textSecondary }}>Projects</div>
           </div>
           <div>
             <div style={{ fontSize: 20, fontWeight: 800, color: colors.success }}>{healthyCount}</div>
-            <div style={{ fontSize: 10, color: '#777' }}>Healthy</div>
+            <div style={{ fontSize: 10, color: colors.textSecondary }}>Healthy</div>
           </div>
           <div>
             <div style={{ fontSize: 20, fontWeight: 800, color: colors.accent }}>
               {projects.reduce((s, p) => s + (p.quotaTotal - p.usedToday), 0).toLocaleString()}
             </div>
-            <div style={{ fontSize: 10, color: '#777' }}>Units/day</div>
+            <div style={{ fontSize: 10, color: colors.textSecondary }}>Units/day</div>
           </div>
         </div>
       )}
@@ -163,7 +163,7 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
               <div
                 key={p.projectId}
                 style={{
-                  background: colors.bg, border: '1px solid #1A1A1A',
+                  background: colors.bg, border: `1px solid ${colors.border}`,
                   borderRadius: 8, padding: '10px 14px',
                   display: 'flex', alignItems: 'center', gap: 10,
                 }}
@@ -179,20 +179,20 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
                   }}>
                     {p.projectId}
                   </div>
-                  <div style={{ fontSize: 9, color: '#777', marginTop: 2 }}>
+                  <div style={{ fontSize: 9, color: colors.textSecondary, marginTop: 2 }}>
                     {p.gmailAccount}
                   </div>
                 </div>
                 {p.quotaTotal > 0 && (
                   <div style={{ width: 80 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                      <span style={{ fontSize: 9, color: '#777' }}>{p.usedToday.toLocaleString()}</span>
-                      <span style={{ fontSize: 9, color: '#777' }}>{p.quotaTotal.toLocaleString()}</span>
+                      <span style={{ fontSize: 9, color: colors.textSecondary }}>{p.usedToday.toLocaleString()}</span>
+                      <span style={{ fontSize: 9, color: colors.textSecondary }}>{p.quotaTotal.toLocaleString()}</span>
                     </div>
                     <div style={{ height: 3, background: colors.text, borderRadius: 2 }}>
                       <div style={{
                         width: `${quotaPercent(p)}%`, height: '100%',
-                        background: quotaPercent(p) > 80 ? colors.error : quotaPercent(p) > 50 ? '#FF6B35' : colors.success,
+                        background: quotaPercent(p) > 80 ? colors.error : quotaPercent(p) > 50 ? colors.warning : colors.success,
                         borderRadius: 2,
                       }} />
                     </div>
@@ -205,10 +205,13 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
                       disabled={reauthorizing === p.projectId}
                       style={{
                         height: 24, padding: '0 10px',
-                        background: colors.text, border: '1px solid #D0D0D0',
+                        background: colors.surface, border: 'none',
                         borderRadius: 4, fontSize: 9, fontWeight: 600,
-                        color: '#999', cursor: 'pointer',
+                        color: colors.text, cursor: 'pointer',
+                        transition: 'background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease',
                       }}
+                      onMouseEnter={e => { e.currentTarget.style.background = colors.surfaceHover; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.2)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = colors.surface; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none' }}
                     >
                       {reauthorizing === p.projectId ? '...' : 'Authorize'}
                     </button>
@@ -217,10 +220,13 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
                     onClick={() => handleRemove(p.projectId)}
                     style={{
                       height: 24, width: 24, padding: 0,
-                      background: 'transparent', border: '1px solid #1A1A1A',
+                      background: 'transparent', border: `1px solid ${colors.borderHover}`,
                       borderRadius: 4, fontSize: 12,
-                      color: '#999', cursor: 'pointer',
+                      color: colors.textSecondary, cursor: 'pointer',
+                      transition: 'background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.1s ease',
                     }}
+                    onMouseEnter={e => { e.currentTarget.style.color = colors.error; e.currentTarget.style.borderColor = colors.error; e.currentTarget.style.transform = 'scale(1.05)' }}
+                    onMouseLeave={e => { e.currentTarget.style.color = colors.textSecondary; e.currentTarget.style.borderColor = colors.borderHover; e.currentTarget.style.transform = 'scale(1)' }}
                   >
                     ×
                   </button>
@@ -238,16 +244,19 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
             onClick={() => setShowAddForm(true)}
             style={{
               height: 36, padding: '0 16px',
-              background: colors.text, border: '1px dashed #D0D0D0',
+              background: colors.surface, border: 'none',
               borderRadius: 8, fontSize: 11, fontWeight: 600,
-              color: '#999', cursor: 'pointer',
+              color: colors.text, cursor: 'pointer',
+              transition: 'background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease',
             }}
+            onMouseEnter={e => { e.currentTarget.style.background = colors.surfaceHover; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 3px 10px rgba(0,0,0,0.2)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = colors.surface; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none' }}
           >
             + Thêm GCP Project
           </button>
         ) : (
           <div style={{
-            background: colors.bg, border: '1px solid #D0D0D0',
+            background: colors.bg, border: `1px solid ${colors.borderHover}`,
             borderRadius: 10, padding: '16px 20px',
           }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: colors.text, marginBottom: 14 }}>
@@ -286,7 +295,7 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
               style={{ ...inputStyle, marginBottom: 12 }}
             />
             {addError && (
-              <div style={{ fontSize: 11, color: '#FF6B6B', marginBottom: 10 }}>{addError}</div>
+              <div style={{ fontSize: 11, color: colors.error, marginBottom: 10 }}>{addError}</div>
             )}
             {addSuccess && (
               <div style={{ fontSize: 11, color: colors.success, marginBottom: 10 }}>✓ Project đã được thêm</div>
@@ -297,11 +306,15 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
                 disabled={adding}
                 style={{
                   height: 32, padding: '0 16px',
-                  background: adding ? '#005577' : colors.accent,
+                  background: adding ? colors.accentHover : colors.accent,
                   border: 'none', borderRadius: 6,
                   fontSize: 11, fontWeight: 700,
                   color: colors.text, cursor: adding ? 'not-allowed' : 'pointer',
+                  transition: 'background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease',
+                  opacity: adding ? 0.7 : 1,
                 }}
+                onMouseEnter={e => { if (!adding) { e.currentTarget.style.background = colors.accentHover; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 3px 10px rgba(59,130,246,0.35)' } }}
+                onMouseLeave={e => { e.currentTarget.style.background = colors.accent; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none' }}
               >
                 {adding ? 'Đang thêm...' : 'Thêm Project'}
               </button>
@@ -309,10 +322,13 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
                 onClick={() => { setShowAddForm(false); setAddError(''); setAddSuccess(false) }}
                 style={{
                   height: 32, padding: '0 16px',
-                  background: 'transparent', border: '1px solid #D0D0D0',
+                  background: 'transparent', border: `1px solid ${colors.borderHover}`,
                   borderRadius: 6, fontSize: 11,
-                  color: '#777', cursor: 'pointer',
+                  color: colors.textSecondary, cursor: 'pointer',
+                  transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease',
                 }}
+                onMouseEnter={e => { e.currentTarget.style.background = colors.surfaceHover; e.currentTarget.style.borderColor = colors.borderHover; e.currentTarget.style.color = colors.textTertiary; e.currentTarget.style.transform = 'translateY(-1px)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = colors.borderHover; e.currentTarget.style.color = colors.textSecondary; e.currentTarget.style.transform = 'translateY(0)' }}
               >
                 Hủy
               </button>
@@ -323,13 +339,13 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
 
       {/* Info */}
       <div style={{
-        background: colors.bg, border: '1px solid #1A1A1A',
+        background: colors.bg, border: `1px solid ${colors.border}`,
         borderRadius: 8, padding: '12px 16px', marginBottom: 32,
         display: 'flex', gap: 10, alignItems: 'flex-start',
       }}>
-        <div style={{ fontSize: 14, color: '#999', flexShrink: 0, marginTop: 1 }}>💡</div>
-        <div style={{ fontSize: 11, color: '#999', lineHeight: 1.6 }}>
-          <strong style={{ color: '#777' }}>Có thể bỏ qua bước này</strong> nếu Chrome sessions đã hoạt động tốt.
+        <div style={{ fontSize: 14, color: colors.textSecondary, flexShrink: 0, marginTop: 1 }}>💡</div>
+        <div style={{ fontSize: 11, color: colors.textSecondary, lineHeight: 1.6 }}>
+          <strong style={{ color: colors.textSecondary }}>Có thể bỏ qua bước này</strong> nếu Chrome sessions đã hoạt động tốt.
           GCP Projects chỉ cần thiết khi bạn cần monitoring 24/7 với khả năng chịu lỗi cao.
         </div>
       </div>
@@ -340,10 +356,13 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
           onClick={onBack}
           style={{
             height: 40, padding: '0 20px',
-            background: 'transparent', border: '1px solid #D0D0D0',
+            background: 'transparent', border: `1px solid ${colors.borderHover}`,
             borderRadius: 8, fontSize: 12, fontWeight: 600,
-            color: '#777', cursor: 'pointer',
+            color: colors.textSecondary, cursor: 'pointer',
+            transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease',
           }}
+          onMouseEnter={e => { e.currentTarget.style.background = colors.surfaceHover; e.currentTarget.style.borderColor = colors.borderHover; e.currentTarget.style.color = colors.textTertiary; e.currentTarget.style.transform = 'translateY(-1px)' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = colors.borderHover; e.currentTarget.style.color = colors.textSecondary; e.currentTarget.style.transform = 'translateY(0)' }}
         >
           ← Quay lại
         </button>
@@ -352,10 +371,13 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
             onClick={onSkip}
             style={{
               height: 40, padding: '0 20px',
-              background: 'transparent', border: '1px solid #D0D0D0',
+              background: 'transparent', border: `1px solid ${colors.borderHover}`,
               borderRadius: 8, fontSize: 12, fontWeight: 600,
-              color: '#777', cursor: 'pointer',
+              color: colors.textSecondary, cursor: 'pointer',
+              transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease',
             }}
+            onMouseEnter={e => { e.currentTarget.style.background = colors.surfaceHover; e.currentTarget.style.borderColor = colors.borderHover; e.currentTarget.style.color = colors.textTertiary; e.currentTarget.style.transform = 'translateY(-1px)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = colors.borderHover; e.currentTarget.style.color = colors.textSecondary; e.currentTarget.style.transform = 'translateY(0)' }}
           >
             Bỏ qua bước này
           </button>
@@ -366,7 +388,10 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
               background: colors.accent, border: 'none',
               borderRadius: 8, fontSize: 12, fontWeight: 700,
               color: colors.text, cursor: 'pointer',
+              transition: 'background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease',
             }}
+            onMouseEnter={e => { e.currentTarget.style.background = colors.accentHover; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 3px 10px rgba(59,130,246,0.35)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = colors.accent; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none' }}
           >
             Tiếp tục →
           </button>
@@ -378,7 +403,7 @@ export function ProjectsStep({ onComplete, onSkip, onBack }: ProjectsStepProps) 
 
 const inputStyle: React.CSSProperties = {
   width: '100%', height: 36,
-  background: colors.bg, border: '1px solid #D0D0D0',
+  background: colors.bg, border: `1px solid ${colors.borderHover}`,
   borderRadius: 6, padding: '0 12px',
   fontSize: 11, color: colors.text, outline: 'none',
 }

@@ -70,6 +70,11 @@ export function registerSessionHandlers(
     return sm.cloneSessionOne()
   })
 
+  ipcMain.handle(IPC_CHANNELS.SESSION_ADD, async () => {
+    const sm = getSessionManager()
+    return sm.addSession()
+  })
+
   // ─── Log Export ─────────────────────────────────────────────────────────────
 
   ipcMain.handle('logs:read', async () => {

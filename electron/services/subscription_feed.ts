@@ -67,7 +67,7 @@ export interface SubFeedOptions {
 // ─── Config ─────────────────────────────────────────────────────────────────────
 
 const PLAYLIST_CACHE_TTL_MS = 24 * 60 * 60 * 1000
-const MAX_CONCURRENT = 10
+const MAX_CONCURRENT = 20
 const MAX_VIDEOS_PER_POLL = 5
 
 // ─── Module-level state ────────────────────────────────────────────────────────
@@ -354,21 +354,21 @@ async function fetchChannelWithInnertube(
 
     // Skip already-seen (handled by getLatestVideos already, but double-check)
     if (seenVideoIds?.has(v.videoId)) {
-      devLog(`[SubFeed] Innertube: ${v.videoId} already seen — skipping`)
+      devLog(`[SubFeed] Innertube: ${v.videoId} already seen - skipping`)
       continue
     }
 
     if (v.publishedAt === 0) {
-      devLog(`[SubFeed] Innertube: ${v.videoId} publishedAt=0 — trying RSS...`)
+      devLog(`[SubFeed] Innertube: ${v.videoId} publishedAt=0 - trying RSS...`)
       const rss = await fetchChannelWithRss(ch, seenVideoIds)
       if (rss) {
-        devLog(`[SubFeed] RSS ✓: ${rss.videoId} — using RSS`)
+        devLog(`[SubFeed] RSS [OK]: ${rss.videoId} - using RSS`)
         return rss
       }
-      devLog(`[SubFeed] RSS empty/old — trying OAuth...`)
+      devLog(`[SubFeed] RSS empty/old - trying OAuth...`)
       const oauth = await verifyVideoAgeByOAuth(v.videoId)
       if (oauth) {
-        devLog(`[SubFeed] OAuth ✓: ${v.videoId} — verified ${Math.round((Date.now() - oauth.publishedAt) / 1000)}s ago`)
+        devLog(`[SubFeed] OAuth [OK]: ${v.videoId} - verified ${Math.round((Date.now() - oauth.publishedAt) / 1000)}s ago`)
         return {
           videoId: v.videoId,
           title: oauth.title,
@@ -385,11 +385,11 @@ async function fetchChannelWithInnertube(
 
     const ageMin = (Date.now() - v.publishedAt) / 60000
     if (ageMin > 10) {
-      devLog(`[SubFeed] Innertube: ${v.videoId} is ${ageMin.toFixed(1)}m old (>10m) — skipping`)
+      devLog(`[SubFeed] Innertube: ${v.videoId} is ${ageMin.toFixed(1)}m old (>10m) - skipping`)
       continue
     }
 
-    devLog(`[SubFeed] Innertube ✓: ${v.videoId} (${Math.round(ageMin * 60)}s ago) — accepting`)
+    devLog(`[SubFeed] Innertube [OK]: ${v.videoId} (${Math.round(ageMin * 60)}s ago) - accepting`)
     return {
       videoId: v.videoId,
       title: v.title,
@@ -453,8 +453,8 @@ export async function fetchSubscriptionFeed(
             results.push(video)
             seenVideoIds?.add(video.videoId)
             if (results.length >= targetStop) {
-              devLog(`[SubFeed] Innertube: ${results.length} videos found — returning`)
-              opLog.success('scan', `Tìm thấy ${results.length} video mới — dừng sớm`)
+              devLog(`[SubFeed] Innertube: ${results.length} videos found - returning`)
+              opLog.success('scan', `Tìm thấy ${results.length} video mới - dừng sớm`)
               return { videos: results, source: 'innertube' }
             }
           }
@@ -502,7 +502,7 @@ export async function fetchSubscriptionFeed(
 
   // Step 2b: OAuth FULL COVERAGE (Innertube dead)
   if (results.length === 0 && !innertubeAvailable) {
-    devLog(`[SubFeed] Innertube DOWN — OAuth FULL COVERAGE mode`)
+    devLog(`[SubFeed] Innertube DOWN - OAuth FULL COVERAGE mode`)
     await _fetchOAuthFullCoverage(channels, results, seenVideoIds, targetStop)
 
     if (results.length >= targetStop) {
@@ -514,7 +514,7 @@ export async function fetchSubscriptionFeed(
   if (results.length === 0) {
     const priorityChannels = channels.slice(0, 10)
     const RSS_CONCURRENT = 3
-    devLog(`[SubFeed] All sources exhausted — RSS fallback for ${priorityChannels.length} channels`)
+    devLog(`[SubFeed] All sources exhausted - RSS fallback for ${priorityChannels.length} channels`)
 
     for (let i = 0; i < priorityChannels.length; i += RSS_CONCURRENT) {
       const batch = priorityChannels.slice(i, i + RSS_CONCURRENT)
