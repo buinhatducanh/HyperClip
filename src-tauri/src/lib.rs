@@ -1,5 +1,11 @@
-use hyperclip_ipc::workspace_list;
 use hyperclip_store::workspaces::Store;
+
+#[tauri::command]
+async fn workspace_list_cmd() -> Result<Vec<hyperclip_core::workspace::WorkspaceData>, String> {
+    hyperclip_ipc::workspace_list()
+        .await
+        .map_err(|e| e.to_string())
+}
 
 pub fn run() {
     // Initialize tracing — defaults to INFO. Override with RUST_LOG env var.
@@ -10,19 +16,23 @@ pub fn run() {
         )
         .init();
 
-    tauri::Builder::default()
-        .setup(|app| {
-            // Initialize the workspace store and inject it as Tauri managed state.
-            let store =
-                Store::for_default_dir().map_err(|e| format!("Failed to init store: {}", e))?;
+    // Pre-warm the store so we can log the path on startup. The actual
+    // Tauri command opens its own Store per call in M0 (no managed
+    // state yet — added in M1).
+    match Store::for_default_dir() {
+        Ok(store) => {
             tracing::info!(
                 "Store initialized at {:?} (app ready)",
                 store.workspaces_path()
             );
-            app.manage(store);
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![workspace_list])
+        }
+        Err(e) => {
+            tracing::warn!("Could not pre-warm store: {}", e);
+        }
+    }
+
+    tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![workspace_list_cmd])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
