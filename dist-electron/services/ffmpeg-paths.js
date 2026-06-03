@@ -212,11 +212,19 @@ function resolveBinary(name) {
     console.warn(`[FFmpeg] Could not find ${name}.exe in any candidate path`);
     return name; // fallback to PATH lookup
 }
+let _cachedFfmpegPath = null;
+let _cachedFfprobePath = null;
 function getFfprobePath() {
-    return resolveBinary('ffprobe');
+    if (_cachedFfprobePath)
+        return _cachedFfprobePath;
+    _cachedFfprobePath = resolveBinary('ffprobe');
+    return _cachedFfprobePath;
 }
 function getFfmpegPath() {
-    return resolveBinary('ffmpeg');
+    if (_cachedFfmpegPath)
+        return _cachedFfmpegPath;
+    _cachedFfmpegPath = resolveBinary('ffmpeg');
+    return _cachedFfmpegPath;
 }
 let _cachedVersion = null;
 function parseVersion(versionStr) {
@@ -247,7 +255,8 @@ function getFfmpegVersion(ffmpegPath) {
         });
         result.version = versionOut.split('\n')[0];
         result.majorVersion = parseVersion(result.version);
-        (0, unified_log_js_1.devLog)(`[FFmpeg] ${result.version} (major=${result.majorVersion})`);
+        if (process.env.DEV_LOG)
+            (0, unified_log_js_1.devLog)(`[FFmpeg] ${result.version} (major=${result.majorVersion})`);
     }
     catch (e) {
         console.warn('[FFmpeg] Could not get version:', e);

@@ -180,6 +180,15 @@ async function runFfmpeg(opts) {
             return a;
         });
         const proc = (0, child_process_1.spawn)(ffmpeg, normalizedArgs, { shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+        // Bump stderr highWaterMark from default 16KB → 1MB to avoid back-pressure stalls
+        // when 14+ chunks dump progress simultaneously.
+        // FFmpeg progress lines are ~150-200 bytes; 1MB = ~5000-6500 lines buffered.
+        if (proc.stderr && proc.stderr.readableHighWaterMark !== undefined) {
+            try {
+                proc.stderr.readableHighWaterMark = 1024 * 1024;
+            }
+            catch { }
+        }
         // Register with pool for cancellation support
         exports.renderPool.track(jobId, proc);
         // Startup validation: check FFmpeg actually works (first render only)

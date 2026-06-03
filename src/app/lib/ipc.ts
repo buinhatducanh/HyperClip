@@ -3,6 +3,12 @@
 
 import type { KeyStatus } from '../types'
 
+// Track app:ready across mount/unmount cycles. Main process fires this
+// exactly once on startup, so any component subscribing after that miss
+// the event and stay loading forever. Cache the fired state here.
+let _appReadyFired = false
+const _pendingReadyCallbacks: Array<() => void> = []
+
 // Explicit type to ensure TypeScript resolves ElectronAPI from electron.d.ts
 type ElectronAPI = {
   addTracker: (url: string, trimLimit: string) => Promise<unknown>
@@ -473,7 +479,22 @@ export const ipc = {
     return window.electronAPI?.getUpdateStatus() ?? { available: false, version: '', releaseNotes: '', downloadSize: 0, progress: 0, downloaded: false, downloadedPath: null }
   },
   onAppReady(callback: () => void) {
-    return window.electronAPI?.onAppReady(callback) ?? (() => {})
+    if (_appReadyFired) {
+      // Already fired — invoke on next tick so consumer's effect cleanup is wired first
+      const id = setTimeout(callback, 0)
+      return () => clearTimeout(id)
+    }
+    _pendingReadyCallbacks.push(callback)
+    const cleanup = window.electronAPI?.onAppReady(() => {
+      _appReadyFired = true
+      const pending = _pendingReadyCallbacks.splice(0)
+      for (const cb of pending) cb()
+    }) ?? (() => {})
+    return () => {
+      const idx = _pendingReadyCallbacks.indexOf(callback)
+      if (idx >= 0) _pendingReadyCallbacks.splice(idx, 1)
+      cleanup()
+    }
   },
 
   onUpdateEvent(callback: (event: { type: string; version?: string; percent?: number; releaseNotes?: string; downloadSize?: number; publishedAt?: string; message?: string }) => void) {

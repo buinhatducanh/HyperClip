@@ -8,7 +8,7 @@ exports.registerSettingsHandlers = registerSettingsHandlers;
 const channels_js_1 = require("../channels.js");
 const ramdisk_js_1 = require("../../services/ramdisk.js");
 const youtube_poller_js_1 = require("../../services/youtube_poller.js");
-function registerSettingsHandlers(ipcMain, onSettingsChanged) {
+function registerSettingsHandlers(ipcMain, callbacks) {
     ipcMain.handle(channels_js_1.IPC_CHANNELS.SETTINGS_GET, () => {
         const settings = (0, ramdisk_js_1.loadSettings)();
         // SECURITY: strip sensitive fields
@@ -29,8 +29,13 @@ function registerSettingsHandlers(ipcMain, onSettingsChanged) {
             if (poller)
                 poller.restart(patch.pollIntervalMs);
         }
+        // Re-trigger auto-render for ready workspaces when user just enabled it.
+        // Fixes: video ready BEFORE autoRender was toggled on never gets rendered.
+        if (patch.autoRender === true) {
+            callbacks?.onAutoRenderEnabled?.();
+        }
         // Notify main thread of settings change (poller lifecycle, etc.)
-        onSettingsChanged?.();
+        callbacks?.onPollerStateChanged?.();
         return (0, ramdisk_js_1.loadSettings)();
     });
 }

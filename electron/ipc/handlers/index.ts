@@ -24,10 +24,17 @@ import { registerOpLogHandlers } from './op-logs.js'
 import { registerProjectHandlers } from './project.js'
 import { registerGitHubUpdaterHandlers } from './github-updater.js'
 
+export interface SettingsChangeCallbacks {
+  /** Called when poller state needs to be re-synced (pollingEnabled or hardwareProfile changed) */
+  onPollerStateChanged?: () => void
+  /** Called when user enables autoRender — triggers render for any 'ready' workspaces */
+  onAutoRenderEnabled?: () => void
+}
+
 export function registerAllHandlers(
   ipcMain: IpcMain,
   _getMainWindow: () => BrowserWindow | null,
-  onSettingsChanged?: () => void
+  callbacks?: SettingsChangeCallbacks
 ): void {
   devLog('[IPC] Registering handlers...')
 
@@ -42,7 +49,10 @@ export function registerAllHandlers(
   registerVideoHandlers(ipcMain)
   registerRenderHandlers(ipcMain)
   registerStorageHandlers(ipcMain, sendNotification)
-  registerSettingsHandlers(ipcMain, onSettingsChanged)
+  registerSettingsHandlers(ipcMain, {
+    onPollerStateChanged: callbacks?.onPollerStateChanged,
+    onAutoRenderEnabled: callbacks?.onAutoRenderEnabled,
+  })
   registerPollerHandlers(ipcMain)
   registerOpLogHandlers(ipcMain)
   registerGitHubUpdaterHandlers(ipcMain)

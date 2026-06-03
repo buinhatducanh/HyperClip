@@ -64,7 +64,6 @@ export function ActivityLogPanel({ entries, onClear }: Props) {
       height: 220,
       flexShrink: 0,
     }}>
-      {/* Header */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: spacing.sm,
         padding: '6px 10px',
@@ -114,7 +113,6 @@ export function ActivityLogPanel({ entries, onClear }: Props) {
         )}
       </div>
 
-      {/* Log entries */}
       <div ref={scrollRef} style={{
         flex: 1, overflowY: 'auto',
         padding: '6px 10px',
@@ -127,6 +125,7 @@ export function ActivityLogPanel({ entries, onClear }: Props) {
         )}
         {entries.slice(-50).map(e => {
           const meta = TYPE_CONFIG[e.type] || TYPE_CONFIG.detected
+          const secondary = e.detail || fmtRelTime(e.timestamp)
           return (
             <div key={e.id} style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
               <span style={{ color: colors.textTertiary, flexShrink: 0, minWidth: 54, fontFamily: 'monospace', fontSize: 10 }}>
@@ -138,8 +137,8 @@ export function ActivityLogPanel({ entries, onClear }: Props) {
               }}>
                 {meta.tag}
               </span>
-              <span style={{ color: colors.textTertiary, flexShrink: 0, minWidth: 24, fontSize: 9, fontFamily: 'monospace' }}>
-                {fmtRelTime(e.timestamp)}
+              <span style={{ color: colors.textTertiary, flexShrink: 0, minWidth: 48, fontSize: 9, fontFamily: 'monospace' }}>
+                {secondary}
               </span>
               <span style={{
                 color: e.type === 'error' ? colors.error : colors.textSecondary,

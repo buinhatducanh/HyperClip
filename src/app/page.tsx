@@ -636,9 +636,21 @@ function DashboardContent() {
         lastEtaUpdateMs.current.set(p.workspaceId, 0)
       }
       if (ws.status === 'downloading') {
-        upsertActivity(p.workspaceId, 'downloading', `Đang tải video về`, `📁 ${ws.videoTitle}`)
+        const pct = Math.max(0, Math.min(100, Math.round(p.percent || 0)))
+        upsertActivity(
+          p.workspaceId,
+          'downloading',
+          pct > 0 ? `Đang tải video về · ${pct}%` : `Đang tải video về`,
+          `📁 ${ws.videoTitle}`,
+        )
       } else if (ws.status === 'rendering') {
-        upsertActivity(p.workspaceId, 'rendering', `Đang xử lý video`, `📁 ${ws.videoTitle}`)
+        const pct = Math.max(0, Math.min(100, Math.round(p.percent || 0)))
+        upsertActivity(
+          p.workspaceId,
+          'rendering',
+          pct > 0 ? `Đang xử lý video · ${pct}%` : `Đang xử lý video`,
+          `📁 ${ws.videoTitle}`,
+        )
       }
     })
     return cleanup
@@ -734,9 +746,26 @@ function DashboardContent() {
     removeRenderedVideo(id)
   }, [removeRenderedVideo])
 
-  const handleQuickAction = useCallback((action: 'open' | 'delete', id: string) => {
+  const handleQuickAction = useCallback((action: 'open' | 'delete' | 'open-output' | 'open-output-folder', id: string) => {
+    const ws = workspacesRef.current.find(w => w.id === id)
+    if (action === 'open-output') {
+      if (!ws?.outputPath) {
+        showToast('Chưa có file output')
+        return
+      }
+      void ipc.openFolder(ws.outputPath)
+      return
+    }
+    if (action === 'open-output-folder') {
+      if (!ws?.outputPath) {
+        showToast('Chưa có file output')
+        return
+      }
+      const folderPath = ws.outputPath.replace(/[/\\][^/\\]*$/, '')
+      void ipc.openFolder(folderPath)
+      return
+    }
     if (action === 'delete') {
-      const ws = workspacesRef.current.find(w => w.id === id)
       setConfirmDialog({
         title: 'Xóa video',
         message: `Bạn có chắc muốn xóa "${ws?.videoTitle ?? 'video này'}"? File sẽ bị xóa vĩnh viễn khỏi ổ cứng.`,
@@ -757,7 +786,7 @@ function DashboardContent() {
     } else {
       selectWorkspace(id)
     }
-  }, [removeWorkspace, showToast])
+  }, [removeWorkspace, showToast, selectWorkspace])
 
   const handleOpenFolder = useCallback(async (id: string) => {
     const ws = workspacesRef.current.find(w => w.id === id)

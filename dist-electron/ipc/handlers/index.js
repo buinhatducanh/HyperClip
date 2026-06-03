@@ -24,7 +24,7 @@ const poller_js_1 = require("./poller.js");
 const op_logs_js_1 = require("./op-logs.js");
 const project_js_1 = require("./project.js");
 const github_updater_js_1 = require("./github-updater.js");
-function registerAllHandlers(ipcMain, _getMainWindow, onSettingsChanged) {
+function registerAllHandlers(ipcMain, _getMainWindow, callbacks) {
     (0, unified_log_js_1.devLog)('[IPC] Registering handlers...');
     (0, system_js_1.registerSystemHandlers)(ipcMain);
     (0, auth_js_1.registerAuthHandlers)(ipcMain);
@@ -37,7 +37,10 @@ function registerAllHandlers(ipcMain, _getMainWindow, onSettingsChanged) {
     (0, video_js_1.registerVideoHandlers)(ipcMain);
     (0, render_js_1.registerRenderHandlers)(ipcMain);
     (0, storage_js_1.registerStorageHandlers)(ipcMain, ipc_state_js_1.sendNotification);
-    (0, settings_js_1.registerSettingsHandlers)(ipcMain, onSettingsChanged);
+    (0, settings_js_1.registerSettingsHandlers)(ipcMain, {
+        onPollerStateChanged: callbacks?.onPollerStateChanged,
+        onAutoRenderEnabled: callbacks?.onAutoRenderEnabled,
+    });
     (0, poller_js_1.registerPollerHandlers)(ipcMain);
     (0, op_logs_js_1.registerOpLogHandlers)(ipcMain);
     (0, github_updater_js_1.registerGitHubUpdaterHandlers)(ipcMain);

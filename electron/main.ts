@@ -32,7 +32,7 @@ import {
   type WorkspaceData,
   getRenderedVideos, addRenderedVideo, removeRenderedVideo, type RenderedVideoRecord, type RenderConfigRecord, type SourceInfoRecord,
 } from './services/store.js'
-import { downloadVideo, downloadVideoStrategy, downloadSectionsAsSeparate, probeVideoAvailability, probeActualDuration, getVideoInfo, getChannelInfo, getChannelId, type YtdlpVideoInfo, type YtdlpChannelInfo } from './services/youtube.js'
+import { downloadVideo, downloadVideoStrategy, downloadSectionsAsSeparate, probeActualDuration, getVideoInfo, getChannelInfo, type DownloadProgress } from './services/youtube.js'
 import { renderVideo, renderChunked, generateBlurBackground, extractVideoThumbnail, cancelChunked, cancelAllChunked, probeVideoAspect, trimVideo, type RenderMetadata, type RenderProgress, type ChunkConfig } from './services/ffmpeg.js'
 import { cancelFfmpeg, cancelAllFfmpeg, getPoolStatus } from './services/worker-pool.js'
 import { getFfmpegPath, validateFfmpeg } from './services/ffmpeg-paths.js'
@@ -264,10 +264,34 @@ const renderQueue: Array<{
 }> = []
 
 // Track which workspace is currently open in the DetailEditor — used to protect from auto-cleanup
+let _renderQueueRetryTimer: NodeJS.Timeout | null = null
+
 function startNextQueuedRender(): void {
   // SEQUENTIAL PIPELINE: 1 render at a time, 100% GPU for single video.
-  if (getPoolStatus().active >= 1) return
-  if (renderQueue.length === 0) return
+  if (renderQueue.length === 0) {
+    if (_renderQueueRetryTimer) {
+      clearTimeout(_renderQueueRetryTimer)
+      _renderQueueRetryTimer = null
+    }
+    return
+  }
+
+  if (getPoolStatus().active >= 1) {
+    // Pool is busy. Keep a single retry timer alive so queued renders do not get
+    // stranded when startNextQueuedRender() is called while another render is active.
+    if (!_renderQueueRetryTimer) {
+      _renderQueueRetryTimer = setTimeout(() => {
+        _renderQueueRetryTimer = null
+        startNextQueuedRender()
+      }, 1500)
+    }
+    return
+  }
+
+  if (_renderQueueRetryTimer) {
+    clearTimeout(_renderQueueRetryTimer)
+    _renderQueueRetryTimer = null
+  }
 
   const job = renderQueue.shift()!
   executeRenderJob(job)
@@ -506,7 +530,7 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
     } else {
       devLog(`[TIMER] RENDER FAILED: "${workspace.videoTitle}" — ${renderElapsed}s — ${result.error}`)
     }
-    resolve({ success: result.success, outputPath: result.outputPath })
+    resolve({ success: result.success, outputPath: result.outputPath, error: result.error })
     startNextQueuedRender()
   }).catch((err) => {
     updateWorkspace(workspaceId, { status: 'ready', renderProgress: 0 })
@@ -620,56 +644,32 @@ async function autoDownloadFromWebSub(
     devLog(`[Auto] Downloading: ${title} (${videoId}) from ${finalChannelName}, workspace=${ws.id}`)
 
     // Export Chrome cookies (cached 5 min) for yt-dlp authentication
-    const { getYtCookiesFile } = await import('./services/po_token.js')
-    const ytCookiesFile = await getYtCookiesFile()
-
-    // ── PHASE 0: Pre-check — detect private/short/unavailable BEFORE wasting time downloading ──
-    // This saves 1-5 minutes per private/short/deleted video.
-    devLog(`[Auto] Pre-check: probing video availability...`)
-    const preCheck = await probeVideoAvailability(videoUrl, ytCookiesFile)
-    if (preCheck) {
-      if (preCheck.isPrivate) {
-        devLog(`[Auto] Pre-check: video is PRIVATE — skipping download, marking as error`)
-        opLog.error('download', `Private video skipped: ${title}`)
-        markVideoSeen(channelId, videoId)
-        updateWorkspace(ws.id, { status: 'error' })
-        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
-        sendNotification('error', `Private: ${title}`, ws.id)
-        return
-      }
-      if (preCheck.isNotFound) {
-        devLog(`[Auto] Pre-check: video not found/deleted — skipping download, marking as error`)
-        opLog.error('download', `Video unavailable: ${title}`)
-        markVideoSeen(channelId, videoId)
-        updateWorkspace(ws.id, { status: 'error' })
-        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
-        sendNotification('error', `Unavailable: ${title}`, ws.id)
-        return
-      }
-      if (preCheck.isRateLimited) {
-        devLog(`[Auto] Pre-check: rate-limited — waiting 30s before attempting download`)
-        await new Promise(r => setTimeout(r, 30000))
-      }
-      if (preCheck.available && preCheck.duration > 0 && preCheck.duration < 60) {
-        devLog(`[Auto] Pre-check: video is ${preCheck.duration}s — too short (Shorts), skipping`)
-        markVideoSeen(channelId, videoId)
-        updateWorkspace(ws.id, { status: 'error' })
-        broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
-        return
-      }
-      if (preCheck.available) {
-        devLog(`[Auto] Pre-check: available, duration=${preCheck.duration}s`)
-      }
-    } else {
-      devLog(`[Auto] Pre-check: could not determine availability — proceeding with download`)
+    // Prefer the pre-warmed cache so we don't pay ~10-15s of cold-start
+    // (launch persistent Chrome + CDP cookie export) on the hot path.
+    // Run cookie warm + video-info pre-resolve IN PARALLEL — both are
+    // I/O-bound and have no dependency on each other. Saves another ~1-3s.
+    const { warmYtCookiesFile } = await import('./services/po_token.js')
+    const { getVideoInfo } = await import('./services/youtube.js')
+    const [ytCookiesFile, preFetchedInfo] = await Promise.all([
+      warmYtCookiesFile(),
+      getVideoInfo(videoUrl).catch(() => null),
+    ])
+    const preFetchedDuration = preFetchedInfo?.duration && preFetchedInfo.duration > 0
+      ? preFetchedInfo.duration
+      : undefined
+    if (preFetchedDuration) {
+      devLog(`[Auto] pre-resolved duration: ${preFetchedDuration}s`)
     }
 
     const autoSplitMinutes = settings.autoSplitMinutes ?? 0
-    const trimLimitMin = typeof autoTrimLimit === 'number' ? autoTrimLimit : 0
+    // Render speed multiplier — applied by FFmpeg setpts/atempo AFTER download so the
+    // source is downloaded at full resolution/bitrate, then a fast ffmpeg pass produces
+    // a time-stretched "downloaded" file that the rest of the pipeline treats as-is.
+    const autoRenderSpeed = settings.autoRenderSpeed ?? 1.0
 
     // ── Auto-split download: trimLimit → N sections, each → separate workspace ─────────
-    if (autoSplitMinutes > 0 && trimLimitMin > 0) {
-      const trimSec = trimLimitMin * 60
+    if (autoSplitMinutes > 0 && autoTrimLimit !== 'full' && typeof autoTrimLimit === 'number' && autoTrimLimit > 0) {
+      const trimSec = autoTrimLimit * 60
       const partSec = autoSplitMinutes * 60
       const numParts = Math.ceil(trimSec / partSec)
 
@@ -681,8 +681,8 @@ async function autoDownloadFromWebSub(
         workspaceId: ws.id,
       })
 
-      const { getYtCookiesFile } = await import('./services/po_token.js')
-      const splitYtCookiesFile = await getYtCookiesFile()
+      const { warmYtCookiesFile } = await import('./services/po_token.js')
+      const splitYtCookiesFile = (await warmYtCookiesFile()) ?? ytCookiesFile
 
       const sections: Array<{ start: number; end: number }> = []
       for (let i = 0; i < numParts; i++) {
@@ -829,20 +829,92 @@ async function autoDownloadFromWebSub(
       return
     }
 
-    devLog(`[Auto] DOWNLOAD START: "${title}" quality=${autoQuality}p trimLimit=${autoTrimLimit === 'full' ? 'full' : autoTrimLimit + 'm'}`)
+    devLog(`[Auto] DOWNLOAD START: "${title}" quality=${autoQuality}p trimLimit=${autoTrimLimit === 'full' ? 'full' : autoTrimLimit + 'm'} source (render speed=${autoRenderSpeed}x)`)
 
     const downloadStartMs = Date.now()
     let _dlLastBroadcastMs = 0
     let _dlLastPercent = -1
+
+    // ── 360p fast path: 2 parallel yt-dlp instances, then FFmpeg concat ────
+    // For low-res downloads, per-instance fragment overhead is small — doubling
+    // concurrency roughly halves wall-clock time. Falls back to single download
+    // if multi-instance fails or preconditions aren't met.
+    const qNum = parseInt(autoQuality)
+    const isLowRes = !isNaN(qNum) && qNum <= 360
+    const trimMinNum = typeof autoTrimLimit === 'number' ? autoTrimLimit : 0
+    const freeMemGBNow = os.freemem() / (1024 ** 3)
+    const canMultiInstance = isLowRes
+      && trimMinNum >= 3
+      && (preFetchedDuration ?? 0) >= 180
+      && freeMemGBNow >= 6
+
+    let fastResult: { success: true; workspaceId: string; filePath: string; duration?: number; fileSize?: number } | null = null
+    if (canMultiInstance) {
+      const downloadStartFastMs = Date.now()
+      const { _multiInstanceDownload, getYtdlpPath } = await import('./services/youtube.js')
+      const { getDownloadParams } = await import('./services/system.js')
+      const tierMax = getDownloadParams().maxInstances
+      const instanceCount = Math.min(2, tierMax)
+      const trimSecTotal = trimMinNum * 60
+      // Prefer muxed MP4 to skip merge + remux + AAC post-process entirely.
+      // For 360p the muxed file is typically ~5-15 MB — download and merge is fastest path.
+      const formatSelector = `18/best[height<=${qNum}][ext=mp4]/best[height<=${qNum}]`
+
+      devLog(`[AutoFast] 360p multi-instance: ${instanceCount} parallel yt-dlp (free RAM=${freeMemGBNow.toFixed(1)}GB)`)
+      const r = await _multiInstanceDownload({
+        workspaceId: ws.id,
+        videoUrl,
+        outputDir: storagePath,
+        formatSelector,
+        trimLimit: trimMinNum,
+        instanceCount,
+        ytdlp: getYtdlpPath(),
+        preFetchedDuration,
+        ytCookiesFile,
+        quality: autoQuality,
+        onProgress: (p: DownloadProgress) => {
+          const now = Date.now()
+          const pctDelta = Math.abs(p.percent - _dlLastPercent)
+          if (now - _dlLastBroadcastMs >= 500 || pctDelta >= 2) {
+            _dlLastBroadcastMs = now
+            _dlLastPercent = p.percent
+            updateWorkspace(ws.id, { downloadProgress: p.percent })
+            broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
+            broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, {
+              workspaceId: ws.id, percent: p.percent, speed: p.speed, eta: p.eta,
+            })
+          }
+        },
+      }).catch((e: unknown) => {
+        devLog(`[AutoFast] multi-instance error: ${(e as Error)?.message || String(e)}`)
+        return null
+      })
+
+      if (r?.success && r.filePath) {
+        const fastElapsed = ((Date.now() - downloadStartFastMs) / 1000).toFixed(1)
+        devLog(`[AutoFast] merged in ${fastElapsed}s — skipping single download`)
+        fastResult = {
+          success: true,
+          workspaceId: ws.id,
+          filePath: r.filePath,
+          duration: r.duration,
+          fileSize: r.fileSize,
+        }
+      } else {
+        devLog(`[AutoFast] multi-instance unavailable — falling back to single download`)
+      }
+    }
+
     // downloadVideoStrategy handles the full client chain (web → tv_embedded → ios)
     // with proper error classification, rate-limit backoff, and processing retry.
-    let result = await downloadVideo({
+    let result: Awaited<ReturnType<typeof downloadVideo>> = fastResult ?? await downloadVideo({
       workspaceId: ws.id,
       videoUrl,
       outputDir: storagePath,
       trimLimit: autoTrimLimit,
       quality: autoQuality,
       ytCookiesFile,
+      preFetchedDuration,
       onProgress: (progress) => {
         // Throttle: broadcast every 500ms OR when percent changes
         const now = Date.now()
@@ -890,15 +962,40 @@ async function autoDownloadFromWebSub(
       return
     }
 
+    // Download succeeded — pre-speed first if user opted in.
+    // Time-stretch the freshly-downloaded source BEFORE the rest of the pipeline
+    // (thumb, blur, render) ever sees it. The sped-up file replaces the original
+    // so blur thumbnails + render trim all line up with the final output duration.
+    // After this block, `result.filePath`/`result.fileSize` are rebased to the sped
+    // file so every downstream consumer (thumb/blur/render) reads the right file.
+    let preSpeedApplied = false
+    if (autoRenderSpeed > 1.0) {
+      const spedPath = result.filePath!.replace(/(\.\w+)$/, `_speed${autoRenderSpeed.toFixed(1).replace('.', '_')}$1`)
+      devLog(`[Auto] Pre-speed ${autoRenderSpeed}x: ${result.filePath} → ${spedPath}`)
+      const { preSpeedVideo } = await import('./services/ffmpeg.js')
+      const preSpeedStart = Date.now()
+      const preSpeedRes = await preSpeedVideo(result.filePath!, spedPath, autoRenderSpeed)
+      if (preSpeedRes.success && fs.existsSync(spedPath)) {
+        try { fs.unlinkSync(result.filePath!) } catch {} // remove original
+        result = { ...result, filePath: spedPath, fileSize: fs.statSync(spedPath).size }
+        preSpeedApplied = true
+        devLog(`[Auto] Pre-speed done in ${((Date.now() - preSpeedStart) / 1000).toFixed(1)}s`)
+      } else {
+        console.warn(`[Auto] Pre-speed failed (${preSpeedRes.error}) — keeping original`)
+      }
+    }
+    const downloadedFilePath = result.filePath
+    const downloadedFileSize = result.fileSize || 0
+
     // Download succeeded — probe aspect ratio to determine if this is a 9:16 vertical video
-    const aspect = await probeVideoAspect(result.filePath)
-    const fileSizeMB = result.fileSize ? (result.fileSize / 1024 / 1024).toFixed(1) : '?'
-    devLog(`[Auto] DOWNLOADED: "${title}" → ${result.filePath} (${fileSizeMB}MB) ASPECT=${aspect ? aspect.width + 'x' + aspect.height : 'unknown'} ${aspect?.isShort ? '(VERTICAL)' : '(LANDSCAPE)'}`)
+    const aspect = await probeVideoAspect(downloadedFilePath!)
+    const fileSizeMB = downloadedFileSize ? (downloadedFileSize / 1024 / 1024).toFixed(1) : '?'
+    devLog(`[Auto] DOWNLOADED: "${title}" → ${downloadedFilePath} (${fileSizeMB}MB) ASPECT=${aspect ? aspect.width + 'x' + aspect.height : 'unknown'} ${aspect?.isShort ? '(VERTICAL)' : '(LANDSCAPE)'}`)
 
     // Skip 9:16 vertical videos — user only wants landscape 16:9 content
     if (aspect?.isShort) {
       devLog(`[Auto] Skipping 9:16 vertical video: ${title}`)
-      try { fs.unlinkSync(result.filePath) } catch {}
+      try { fs.unlinkSync(downloadedFilePath!) } catch {}
       updateWorkspace(ws.id, { status: 'error' })
       broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
       markVideoSeen(channelId, videoId)
@@ -909,7 +1006,9 @@ async function autoDownloadFromWebSub(
     devLog(`[Auto] DOWNLOAD DONE: "${title}" (${downloadElapsed}s, ${fileSizeMB} MB)`)
     playSuccessBeep()
 
-    // Verify audio stream presence — warn if missing (render will be silent)
+    // Verify audio stream presence — warn if missing (render will be silent).
+    // Probe the post-pre-speed file (if pre-speed applied) so we don't miss a
+    // case where the original had audio but the sped-up file lost it.
     const { checkVideoHasAudio } = await import('./services/youtube.js')
     const audioInfo = await checkVideoHasAudio(result.filePath!)
     if (!audioInfo.hasAudio) {
@@ -921,7 +1020,7 @@ async function autoDownloadFromWebSub(
 
     // Probe actual duration from file (not yt-dlp metadata, which can be stale/wrong).
     // ffprobe reads container metadata in ~100ms — worth the extra call to ensure correct duration.
-    const actualDuration = await probeActualDuration(result.filePath)
+    const actualDuration = await probeActualDuration(result.filePath!)
     const realDuration = actualDuration || result.duration || 0
 
     // Phase 1+2: Parallel — thumbnail, video info, trim, and blur ALL run simultaneously.
@@ -938,7 +1037,7 @@ async function autoDownloadFromWebSub(
     // CRITICAL: do NOT delete original file here — thumbnail/info read from it in parallel.
     // Delete it AFTER all parallel tasks complete (after Promise.all resolves).
     const [thumbResult, videoInfo, trimData, blurResult] = await Promise.all([
-      extractVideoThumbnail(result.filePath, thumbnailPath),
+      extractVideoThumbnail(result.filePath!, thumbnailPath),
       getVideoInfo('https://www.youtube.com/watch?v=' + videoId),
       // Trim: stream-copy is fast (~1-3s), run in parallel.
       (async () => {
@@ -954,7 +1053,7 @@ async function autoDownloadFromWebSub(
         return null
       })(),
       // Blur: only for vertical videos. Landscape uses thumbnail bg — skip to save ~10-15s.
-      (isLandscape ? Promise.resolve({ success: true }) : generateBlurBackground(result.filePath, blurPath, 1080, 1920, realDuration || undefined)),
+      (isLandscape ? Promise.resolve({ success: true }) : generateBlurBackground(result.filePath!, blurPath, 1080, 1920, realDuration || undefined)),
     ])
 
     const realTitle = videoInfo?.title || title
@@ -966,7 +1065,7 @@ async function autoDownloadFromWebSub(
     if (realDuration > 0 && realDuration < 60) {
       devLog(`[Auto] Video too short (${realDuration}s < 60s) — skipping (YouTube Short)`)
       opLog.error('download', `Video too short (${realDuration}s < 60s): ${title}`)
-      try { fs.unlinkSync(result.filePath) } catch {}
+      try { fs.unlinkSync(result.filePath!) } catch {}
       updateWorkspace(ws.id, { status: 'error' })
       broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
       sendNotification('error', `Too short: ${title}`, ws.id)
@@ -975,7 +1074,7 @@ async function autoDownloadFromWebSub(
     }
 
     // Determine final file path and size after parallel tasks resolved.
-    // If trim succeeded: switch to trimmed file and clean up original.
+    // If trim succeeded: switch to trimmed file and clean up pre-speed source.
     let finalFilePath = result.filePath
     let finalFileSize = result.fileSize || 0
     let finalDuration = realDuration
@@ -983,7 +1082,7 @@ async function autoDownloadFromWebSub(
       finalFilePath = trimData.path
       finalFileSize = trimData.size
       finalDuration = trimData.duration
-      try { fs.unlinkSync(result.filePath) } catch {} // clean up original
+      try { fs.unlinkSync(result.filePath!) } catch {} // clean up pre-speed source
     }
 
     // blurBackgroundPath: vertical videos only (landscape uses thumbnail bg)
@@ -1074,10 +1173,11 @@ async function autoDownloadFromWebSub(
           ws, sourceVideo, finalDuration, blurBgPath, thumbPath, settings,
           undefined,
           splitChunkDuration,
+          preSpeedApplied,
         )
         devLog(`[Auto] Render started: ${realTitle}`)
 
-        let renderResult: { success: boolean; outputPath?: string }
+        let renderResult: { success: boolean; outputPath?: string; error?: string }
         if (autoSplitParts > 1 && (settings.autoSplitMinutes ?? 0) === 0 && splitChunkDuration) {
           devLog(`[AutoSplit] Triggering chunked render: ${autoSplitParts} parts × ${splitChunkDuration}s`)
           const gpuCaps = getGPUCapabilities()
@@ -1096,15 +1196,29 @@ async function autoDownloadFromWebSub(
               broadcast(IPC_CHANNELS.RENDER_PROGRESS_EVENT, progress)
             },
           )
-          renderResult = { success: chunked.success, outputPath: chunked.outputPath }
+          renderResult = { success: chunked.success, outputPath: chunked.outputPath, error: chunked.error }
         } else {
-          renderResult = await new Promise<{ success: boolean; outputPath?: string }>((resolve) => {
+          renderResult = await new Promise<{ success: boolean; outputPath?: string; error?: string }>((resolve) => {
             renderQueue.push({ workspaceId: ws.id, metadata: autoMetadata, resolve })
             startNextQueuedRender()
           })
         }
 
         devLog(`[Auto] Render ${renderResult.success ? 'done' : 'failed'}: ${realTitle}`)
+        if (!renderResult.success) {
+          const reason = renderResult.error || 'unknown error'
+          updateWorkspace(ws.id, { status: 'ready', renderProgress: 0 })
+          broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(ws.id))
+          sendNotification('error', `Auto-render failed: ${reason}`, ws.id)
+          broadcast(IPC_CHANNELS.ACTIVITY_EVENT, {
+            id: ws.id,
+            timestamp: Date.now(),
+            type: 'error',
+            title: `Auto-render lỗi: ${realTitle.length > 40 ? realTitle.slice(0, 40) + '…' : realTitle}`,
+            subtitle: reason.slice(0, 120),
+            workspaceId: ws.id,
+          })
+        }
       }
     } else {
       devLog(`[Auto] Downloaded — ready (autoRender=${autoRenderEnabled}, attempted=${!!updatedWs?.autoRenderAttempted})`)
@@ -1145,8 +1259,9 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
   const retryQuality = settings.autoDownloadQuality ?? '720'
 
   // Export Chrome cookies for yt-dlp authentication (bypasses EJS challenge → enables 1080p VP9)
-  const { getYtCookiesFile } = await import('./services/po_token.js')
-  const ytCookiesFile = await getYtCookiesFile()
+  // Prefer the pre-warmed cache to skip cold-start cookie export.
+  const { warmYtCookiesFile } = await import('./services/po_token.js')
+  const ytCookiesFile = await warmYtCookiesFile()
 
   updateWorkspace(ws.id, {
     status: 'downloading',
@@ -1303,6 +1418,16 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
  * @param sectionChunkDuration Optional chunkDuration for auto-split: set to section duration so
  *                            renderChunked produces exactly 1 chunk per workspace (no re-split).
  */
+function resolveAutoRenderResolution(value?: string): string {
+  switch (value) {
+    case '1080p': return '1080x1920'
+    case '720p': return '720x1280'
+    case '360p': return '360x640'
+    default:
+      return value && /^\d+x\d+$/.test(value) ? value : '1080x1920'
+  }
+}
+
 function buildAutoRenderMetadata(
   ws: WorkspaceData,
   sourceVideo: string,
@@ -1312,6 +1437,7 @@ function buildAutoRenderMetadata(
   globalSettings: { autoRenderResolution?: string; autoRenderFPS?: number; autoRenderTitleTemplate?: string; autoRenderSpeed?: number },
   sectionTrim?: { start: number; end: number },
   sectionChunkDuration?: number,
+  preSpeedApplied: boolean = false,
 ): RenderMetadata {
   const rm = ws.renderMetadata as RenderMetadata | null
   const hasOverlays = rm?.overlays && rm.overlays.length > 0
@@ -1333,7 +1459,7 @@ function buildAutoRenderMetadata(
     }
   }
 
-  const autoRes = globalSettings.autoRenderResolution ?? '480x480'
+  const autoRes = resolveAutoRenderResolution(globalSettings.autoRenderResolution)
   const autoFps = globalSettings.autoRenderFPS ?? 30
   const template = globalSettings.autoRenderTitleTemplate ?? ''
 
@@ -1342,7 +1468,7 @@ function buildAutoRenderMetadata(
     ? template.replace(/\{title\}/g, ws.videoTitle || '').replace(/\{channel\}/g, ws.channelName || '')
     : ''
 
-  devLog(`[Auto] Using global settings for ${ws.id}: ${autoRes} @ ${autoFps}fps | title="${resolvedTitle || '(none)'}"`)
+  devLog(`[Auto] Using global settings for ${ws.id}: ${autoRes} @ ${autoFps}fps | title="${resolvedTitle || '(none)'}"${preSpeedApplied ? ' (pre-speed already applied → render speed=1.0)' : ''}`)
   return {
     workspace_id: ws.id,
     source_video: sourceVideo,
@@ -1358,7 +1484,9 @@ function buildAutoRenderMetadata(
       },
     ] : [],
     trim: { start: trimStart, end: trimEnd },
-    video_speed: globalSettings.autoRenderSpeed ?? 1.0,
+    // If pre-speed already produced a sped-up file, the render pipeline must
+    // NOT time-stretch again. Otherwise we'd apply autoRenderSpeed twice.
+    video_speed: preSpeedApplied ? 1.0 : (globalSettings.autoRenderSpeed ?? 1.0),
     codec: 'hevc',
     preset: 'p1',
     tune: 'ull',
@@ -1944,6 +2072,18 @@ function startSystemMonitor() {
   }, 5000)
 }
 
+// Background cookie refresh — keeps the yt-dlp cookies warm so the next download
+// doesn't pay the CDP+export cold-start cost (~10-15s).
+setInterval(async () => {
+  try {
+    const { shouldRefreshYtCookiesFile, warmYtCookiesFile } = await import('./services/po_token.js')
+    if (shouldRefreshYtCookiesFile()) {
+      devLog('[Auto] Background cookie refresh — pre-warming yt-dlp cookies')
+      await warmYtCookiesFile()
+    }
+  } catch {}
+}, 30_000)
+
 // ─── Shutdown ─────────────────────────────────────────────────────────────────
 async function quitAll() {
   await stopYouTubePoller()
@@ -2179,7 +2319,10 @@ void app.whenReady().then(async () => {
   void createWindow()
   setIPCState({ mainWindow })
   void createTray()
-  registerAllHandlers(ipcMain, () => mainWindow, syncPollerState)
+  registerAllHandlers(ipcMain, () => mainWindow, {
+    onPollerStateChanged: syncPollerState,
+    onAutoRenderEnabled: triggerAutoRenderForReadyWorkspaces,
+  })
 
   // ─── Bundled License Server ─────────────────────────────────────────────────
   // Auto-starts the license server bundled inside the packaged app.
@@ -2330,6 +2473,20 @@ void app.whenReady().then(async () => {
 
   // Start auto-refresh timer (cookies + subscription sync)
   getCookieManager().startAutoRefresh()
+
+  // Pre-warm yt-dlp cookies + persistent Chrome in the background so the first
+  // auto-download can skip the cold-start preflight (saves ~10-15s).
+  void (async () => {
+    try {
+      const { warmYtCookiesFile } = await import('./services/po_token.js')
+      devLog('[Auto] Pre-warming yt-dlp cookies (background)...')
+      const file = await warmYtCookiesFile()
+      if (file) devLog(`[Auto] yt-dlp cookies pre-warmed: ${file.split(/[/\\]/).pop()}`)
+      else devLog('[Auto] yt-dlp cookies pre-warm failed — will fall back to per-download export')
+    } catch (e) {
+      devLog(`[Auto] Pre-warm error: ${(e as Error).message}`)
+    }
+  })()
 
   // Save poller callbacks — will be used when user enables polling via settings.
   // Polling does NOT start automatically; user must enable it in settings.

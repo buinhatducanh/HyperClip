@@ -51,7 +51,7 @@ export default function SessionsSection() {
     if ((status?.sessionCount ?? 0) >= 30) return
     setAdding(true)
     const result = await ipc.addSession()
-    if (result.success) {
+    if (result.success && 'profileId' in result) {
       showToast(`Đã thêm session ${result.profileId} — mở Chrome để đăng nhập`)
       await load()
     } else {

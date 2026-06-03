@@ -79,7 +79,7 @@ function parseISO8601Duration(iso) {
 }
 // ─── Config ─────────────────────────────────────────────────────────────────────
 const PLAYLIST_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const MAX_CONCURRENT = 20;
+const MAX_CONCURRENT = 30; // matches InnertubePool session count — fully saturate the pool
 const MAX_VIDEOS_PER_POLL = 5;
 // ─── Module-level state ────────────────────────────────────────────────────────
 let _consecutiveZeroInnertubePolls = 0;
@@ -394,6 +394,8 @@ async function fetchSubscriptionFeed(options = {}) {
                 _lastLoggedChannelCount = channels.length;
                 _lastSessionCount = readyCount;
             }
+            const scanStartMs = Date.now();
+            let batchCount = 0;
             for (let i = 0; i < channels.length; i += MAX_CONCURRENT) {
                 const batch = channels.slice(i, i + MAX_CONCURRENT);
                 const batchResults = await Promise.all(batch.map(ch => fetchChannelWithInnertube(ch, seenVideoIds)));
@@ -402,15 +404,22 @@ async function fetchSubscriptionFeed(options = {}) {
                         results.push(video);
                         seenVideoIds?.add(video.videoId);
                         if (results.length >= targetStop) {
-                            (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: ${results.length} videos found - returning`);
+                            const scanMs = Date.now() - scanStartMs;
+                            (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: ${results.length} videos found - returning (scan took ${scanMs}ms across ${batchCount + 1} batches)`);
                             opLog.success('scan', `Tìm thấy ${results.length} video mới - dừng sớm`);
                             return { videos: results, source: 'innertube' };
                         }
                     }
                 }
+                batchCount++;
                 // Yield between batches so the renderer can receive IPC messages
                 // (system stats, workspace updates, render progress) while scanning.
                 await new Promise(resolve => setImmediate(resolve));
+            }
+            const totalScanMs = Date.now() - scanStartMs;
+            // Log scan duration when no videos found — helps diagnose "slow detection" reports
+            if (results.length === 0) {
+                (0, unified_log_js_1.devLog)(`[SubFeed] Innertube: full scan of ${channels.length} channels took ${totalScanMs}ms (${batchCount} batches × ${MAX_CONCURRENT} concurrent)`);
             }
             if (results.length === 0) {
                 _consecutiveZeroInnertubePolls++;

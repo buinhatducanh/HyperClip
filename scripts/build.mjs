@@ -22,13 +22,12 @@ function run(cmd, args) {
 }
 
 async function main() {
-  // Resolve TypeScript binary — pnpm isolates modules, so tsc lives in .pnpm/
-  const tscPath = path.join(root, 'node_modules', '.pnpm', 'typescript@6.0.3', 'node_modules', 'typescript', 'lib', 'tsc.js')
-
   try {
+    // Resolve TypeScript binary robustly for both npm and pnpm installs.
+    // Old code hardcoded pnpm's store path, which breaks when the repo is installed via npm.
+    const tscPath = require.resolve('typescript/lib/tsc.js')
+
     // ── Step 0: Download and extract full CUDA FFmpeg ────────────────────────────
-    // gyan.dev full build includes CUDA runtime + NVENC + NVDEC + CUDA filters.
-    // This ensures production builds have working GPU acceleration on RTX 5080/4090/3090.
     const FFMPEG_URL = 'https://github.com/GyanD/codexffmpeg/releases/download/7.1/ffmpeg-7.1-full_build.zip'
     const FFMPEG_DEST = path.join(root, 'resources', 'ffmpeg', 'bin')
     const ZIP_PATH = path.join(root, 'ffmpeg-7.1-full_build.zip')
@@ -37,7 +36,6 @@ async function main() {
 
     const ffmpegBin = path.join(FFMPEG_DEST, 'ffmpeg.exe')
     if (fs.existsSync(ffmpegBin)) {
-      // Quick sanity: verify the binary is executable and has NVENC
       try {
         const out = execSync(`"${ffmpegBin}" -hide_banner -encoders 2>&1`, { timeout: 8000, encoding: 'utf-8' })
         if (out.includes('h264_nvenc')) {
@@ -47,7 +45,6 @@ async function main() {
           fs.unlinkSync(ffmpegBin)
         }
       } catch {
-        // Binary corrupted or not executable — re-download
         fs.unlinkSync(ffmpegBin)
       }
     }
@@ -61,8 +58,6 @@ async function main() {
       console.log('[build] Extracting FFmpeg...')
       await extract(ZIP_PATH, { dir: path.join(root, 'resources', 'ffmpeg') })
       fs.unlinkSync(ZIP_PATH)
-      // Move extracted files up to resources/ffmpeg/bin/
-      // ZIP extracts to: resources/ffmpeg/ffmpeg-7.1-full_build/bin/...
       const extractedBin = path.join(root, 'resources', 'ffmpeg', 'ffmpeg-7.1-full_build', 'bin')
       if (fs.existsSync(extractedBin)) {
         for (const f of fs.readdirSync(extractedBin)) {
@@ -86,15 +81,10 @@ async function main() {
       execSync(`node ${path.join(root, 'scripts', 'setup-ytdlp.mjs')}`, { stdio: 'inherit', cwd: root })
     }
 
-    // next build may return exit code 1 due to SSR/prerender errors on 'use client' pages.
-    // The output files are still produced correctly — ignore non-zero exit.
     await run('npx', ['next', 'build']).catch(e => console.warn('[build] next build had errors (ignored):', e.message))
     await run('node', [tscPath, '-p', 'electron/tsconfig.main.json'])
     await run('node', [tscPath, '-p', 'electron/tsconfig.preload.json'])
 
-    // Fix: remove TypeScript's ESM-compat __dirname shim from compiled main.js.
-    // In CommonJS mode, __dirname is already a native global. The shim uses
-    // import.meta.url which Node.js v24 treats as ESM syntax.
     const mainJs = path.join(root, 'dist-electron', 'main.js')
     if (fs.existsSync(mainJs)) {
       let code = fs.readFileSync(mainJs, 'utf8')
@@ -108,10 +98,7 @@ async function main() {
 
     console.log('[build] Build complete!')
 
-    // ── Step final: Create portable zip (7z — PowerShell Compress-Archive fails on locked files) ──
     const unpackedDir = path.join(root, 'release', 'win-unpacked')
-
-    // Determine version for portable zip name
     const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
     const version = pkg.version || '0.0.0'
     const zipPath = path.join(root, 'release', `HyperClip-portable-${version}.zip`)

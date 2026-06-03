@@ -193,12 +193,19 @@ function resolveBinary(name: string): string {
   return name  // fallback to PATH lookup
 }
 
+let _cachedFfmpegPath: string | null = null
+let _cachedFfprobePath: string | null = null
+
 export function getFfprobePath(): string {
-  return resolveBinary('ffprobe')
+  if (_cachedFfprobePath) return _cachedFfprobePath
+  _cachedFfprobePath = resolveBinary('ffprobe')
+  return _cachedFfprobePath
 }
 
 export function getFfmpegPath(): string {
-  return resolveBinary('ffmpeg')
+  if (_cachedFfmpegPath) return _cachedFfmpegPath
+  _cachedFfmpegPath = resolveBinary('ffmpeg')
+  return _cachedFfmpegPath
 }
 
 // FFmpeg version and capability info (parsed once, cached)
@@ -247,7 +254,7 @@ export function getFfmpegVersion(ffmpegPath: string): FfmpegVersion {
     })
     result.version = versionOut.split('\n')[0]
     result.majorVersion = parseVersion(result.version)
-    devLog(`[FFmpeg] ${result.version} (major=${result.majorVersion})`)
+    if (process.env.DEV_LOG) devLog(`[FFmpeg] ${result.version} (major=${result.majorVersion})`)
   } catch (e) {
     console.warn('[FFmpeg] Could not get version:', e)
     _cachedVersion = result

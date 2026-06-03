@@ -1,7 +1,7 @@
 'use client'
-import { colors, spacing, fontSize } from '../../design-system/tokens'
-
 import { useState, useMemo, memo } from 'react'
+import { colors } from '../../design-system/tokens'
+
 import type { Workspace } from '../../lib/store'
 import type { RenderedVideo } from '../../types'
 import type { Channel } from '../../types'
@@ -16,7 +16,7 @@ interface Props {
   selectedRenderedId?: string | null
   onSelect: (id: string) => void
   onSelectRendered?: (id: string | null) => void
-  onQuickAction?: (action: 'open' | 'delete', id: string) => void
+  onQuickAction?: (action: 'open' | 'delete' | 'open-output' | 'open-output-folder', id: string) => void
   onRetry?: (id: string) => void
   onRemoveRendered?: (id: string) => void
   onShowToast?: (msg: string) => void
@@ -54,6 +54,20 @@ function groupByStatus(workspaces: Workspace[]): Map<GroupStatus, Workspace[]> {
     }
   }
   return groups
+}
+
+function getNextRenderWorkspaceId(workspaces: Workspace[]): string | null {
+  const ready = workspaces.filter(w => w.status === 'ready')
+  if (ready.length === 0) return null
+  ready.sort((a, b) => {
+    const ap = a.renderPriority ?? Number.MAX_SAFE_INTEGER
+    const bp = b.renderPriority ?? Number.MAX_SAFE_INTEGER
+    if (ap !== bp) return ap - bp
+    const at = a.detectedAt ? new Date(a.detectedAt).getTime() : Number.MAX_SAFE_INTEGER
+    const bt = b.detectedAt ? new Date(b.detectedAt).getTime() : Number.MAX_SAFE_INTEGER
+    return at - bt
+  })
+  return ready[0]?.id ?? null
 }
 
 const MemoizedGroupHeader = memo(function GroupHeader({
@@ -98,7 +112,7 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
   onSelect, onSelectRendered, onQuickAction, onRetry, onRemoveRendered, onShowToast, onSplit, trimLimitMinutes = 10,
   onCompare,
 }: Props) {
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<GroupStatus>>(new Set<GroupStatus>(['done']))
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<GroupStatus>>(new Set<GroupStatus>())
   const [activeTab, setActiveTab] = useState<ActiveTab>('pipeline')
   const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState<GroupStatus | 'all'>('all')
@@ -123,23 +137,14 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
     return result
   }, [workspaces, searchQuery, filterStatus, filterChannel])
 
-  // Memoize groupBy to avoid recomputing on every render
-  const groups = useMemo(() => groupByStatus(filteredWorkspaces), [filteredWorkspaces])
+  const nextRenderWorkspaceId = useMemo(
+    () => getNextRenderWorkspaceId(filteredWorkspaces),
+    [filteredWorkspaces]
+  )
 
-  const toggleGroup = (status: GroupStatus) => {
-    setCollapsedGroups(prev => {
-      const next = new Set(prev)
-      if (next.has(status)) next.delete(status)
-      else next.add(status)
-      return next
-    })
-  }
-
-  // Count totals (from filtered list)
   const totalActive = filteredWorkspaces.filter(w =>
     ['ready', 'rendering', 'downloading', 'waiting', 'editing'].includes(w.status)
   ).length
-  const totalDone = filteredWorkspaces.filter(w => w.status === 'done').length
 
   return (
     <div className="flex flex-col h-full" style={{ background: colors.bg }}>
@@ -237,7 +242,7 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
       {/* Filter tabs — compact pill style */}
       {activeTab === 'pipeline' && workspaces.length > 0 && (
         <div style={{
-          display: 'flex', gap: 4, padding: '3px 8px',
+          display: 'flex', gap: 4, padding: '4px 8px',
           background: colors.bg, borderBottom: `1px solid ${colors.border}`,
           flexShrink: 0, flexWrap: 'wrap',
         }}>
@@ -281,7 +286,6 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
           borderBottom: `1px solid ${colors.borderHover}`,
           flexShrink: 0,
         }}>
-          {/* Search */}
           <div style={{ flex: 1, position: 'relative' }}>
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={colors.textSecondary} strokeWidth="2"
               style={{ position: 'absolute', left: 7, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
@@ -304,7 +308,6 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
             />
           </div>
 
-          {/* Status filter */}
           <select
             value={filterStatus}
             onChange={e => setFilterStatus(e.target.value as GroupStatus | 'all')}
@@ -321,7 +324,6 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
             ))}
           </select>
 
-          {/* Channel filter */}
           <select
             value={filterChannel}
             onChange={e => setFilterChannel(e.target.value)}
@@ -338,7 +340,6 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
             ))}
           </select>
 
-          {/* Clear filters */}
           {(searchQuery || filterStatus !== 'all' || filterChannel !== 'all') && (
             <button
               onClick={() => { setSearchQuery(''); setFilterStatus('all'); setFilterChannel('all') }}
@@ -356,10 +357,8 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
         </div>
       )}
 
-      {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
         {activeTab === 'pipeline' ? (
-          /* Pipeline view */
           <>
             {workspaces.length === 0 ? (
               <div
@@ -390,44 +389,22 @@ export const WorkspaceQueue = memo(function WorkspaceQueue({
                 </span>
               </div>
             ) : (
-              STATUS_ORDER.map((status) => {
-                const items = groups.get(status) || []
-                if (items.length === 0) return null
-
-                const cfg = GROUP_CONFIG[status]
-                const isCollapsed = collapsedGroups.has(status)
-
-                return (
-                  <div key={status}>
-                    {/* Group header — memoized to avoid re-render on unrelated state changes */}
-                    <MemoizedGroupHeader
-                      status={status}
-                      count={items.length}
-                      cfg={cfg}
-                      isCollapsed={isCollapsed}
-                      onToggle={() => toggleGroup(status)}
-                    />
-
-                    {/* Group items */}
-                    {!isCollapsed && items.map((ws) => (
-                      <WorkspaceCard
-                        key={ws.id}
-                        workspace={ws}
-                        isSelected={ws.id === selectedId}
-                        onClick={() => onSelect(ws.id)}
-                        onQuickAction={onQuickAction}
-                        onRetry={onRetry}
-                        onSplit={onSplit}
-                        trimLimitMinutes={trimLimitMinutes}
-                      />
-                    ))}
-                  </div>
-                )
-              })
+              filteredWorkspaces.map((ws) => (
+                <WorkspaceCard
+                  key={ws.id}
+                  workspace={ws}
+                  isSelected={ws.id === selectedId}
+                  isNextRender={ws.id === nextRenderWorkspaceId}
+                  onClick={() => onSelect(ws.id)}
+                  onQuickAction={onQuickAction}
+                  onRetry={onRetry}
+                  onSplit={onSplit}
+                  trimLimitMinutes={trimLimitMinutes}
+                />
+              ))
             )}
           </>
         ) : (
-          /* Rendered videos tab */
           <RenderedVideos
             videos={renderedVideos}
             selectedId={selectedRenderedId ?? null}

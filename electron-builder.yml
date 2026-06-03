@@ -43,6 +43,7 @@ win:
         - x64
   icon: build/icon.ico
   artifactName: "${productName}-Setup-${version}.${ext}"
+  signAndEditExecutable: false
 
 nsis:
   oneClick: false

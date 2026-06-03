@@ -482,7 +482,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // App lifecycle
   onAppReady: (callback: () => void) => {
-    ipcRenderer.on('app:ready', () => callback())
-    return () => ipcRenderer.removeAllListeners('app:ready')
+    const handler = () => callback()
+    ipcRenderer.on('app:ready', handler)
+    return () => {
+      ipcRenderer.removeListener('app:ready', handler)
+    }
   },
 })

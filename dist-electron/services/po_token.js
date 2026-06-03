@@ -55,6 +55,8 @@ exports.navigateAndExtractPoToken = navigateAndExtractPoToken;
 exports.getCDPPort = getCDPPort;
 exports.exportCookiesForYtDlp = exportCookiesForYtDlp;
 exports.getYtCookiesFile = getYtCookiesFile;
+exports.warmYtCookiesFile = warmYtCookiesFile;
+exports.shouldRefreshYtCookiesFile = shouldRefreshYtCookiesFile;
 exports.clearYtCookiesCache = clearYtCookiesCache;
 exports.getPoTokenForProfile = getPoTokenForProfile;
 exports.refreshPoToken = refreshPoToken;
@@ -482,12 +484,8 @@ async function exportCookiesForYtDlp(port) {
 let _cachedCookiesFile = null;
 let _cachedCookiesTime = 0;
 const COOKIE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-async function getYtCookiesFile() {
-    // Return cached file if still fresh
-    if (_cachedCookiesFile && fs_1.default.existsSync(_cachedCookiesFile) && Date.now() - _cachedCookiesTime < COOKIE_CACHE_TTL_MS) {
-        return _cachedCookiesFile;
-    }
-    // Lazy import to avoid circular deps
+let _cookieWarmupPromise = null;
+async function refreshYtCookiesFile() {
     const { ensurePersistentChrome } = await Promise.resolve().then(() => __importStar(require('./cdp.js')));
     const { exportCookiesForYtDlp: exportFn } = await Promise.resolve().then(() => __importStar(require('./po_token.js')));
     const persistent = await ensurePersistentChrome();
@@ -499,6 +497,30 @@ async function getYtCookiesFile() {
         _cachedCookiesTime = Date.now();
     }
     return file;
+}
+async function getYtCookiesFile() {
+    // Hot path: return the warm cache if it's still fresh.
+    if (_cachedCookiesFile && fs_1.default.existsSync(_cachedCookiesFile) && Date.now() - _cachedCookiesTime < COOKIE_CACHE_TTL_MS) {
+        return _cachedCookiesFile;
+    }
+    // Otherwise refresh synchronously (legacy behavior preserved).
+    return refreshYtCookiesFile();
+}
+function warmYtCookiesFile() {
+    if (_cachedCookiesFile && fs_1.default.existsSync(_cachedCookiesFile) && Date.now() - _cachedCookiesTime < COOKIE_CACHE_TTL_MS) {
+        return Promise.resolve(_cachedCookiesFile);
+    }
+    if (_cookieWarmupPromise)
+        return _cookieWarmupPromise;
+    _cookieWarmupPromise = refreshYtCookiesFile().finally(() => {
+        _cookieWarmupPromise = null;
+    });
+    return _cookieWarmupPromise;
+}
+function shouldRefreshYtCookiesFile(bufferMs = 60_000) {
+    if (!_cachedCookiesFile || !fs_1.default.existsSync(_cachedCookiesFile))
+        return true;
+    return Date.now() - _cachedCookiesTime >= (COOKIE_CACHE_TTL_MS - bufferMs);
 }
 /** Clear the cookie cache — call this if the cookie file is corrupted */
 function clearYtCookiesCache() {

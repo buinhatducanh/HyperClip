@@ -10,6 +10,7 @@ exports.getYtdlpPath = getYtdlpPath;
 exports.getChannelId = getChannelId;
 exports.getChannelInfo = getChannelInfo;
 exports.getVideoInfo = getVideoInfo;
+exports._multiInstanceDownload = _multiInstanceDownload;
 exports.probeVideoAvailability = probeVideoAvailability;
 exports.probeActualDuration = probeActualDuration;
 exports.checkVideoHasAudio = checkVideoHasAudio;
@@ -330,6 +331,28 @@ function _simulateDownloadProgress(workspaceId, onProgress, durationSec, quality
     _simTicker.set(workspaceId, ticker);
     return stopSimulation.bind(null, workspaceId);
 }
+function isFast360pMode(quality) {
+    return parseInt(quality || '720', 10) <= 360;
+}
+function getFragmentConcurrency(quality) {
+    const configured = Math.max(1, (0, system_js_1.getDownloadParams)().fragments);
+    if (isFast360pMode(quality))
+        return Math.min(configured, 8);
+    return Math.min(configured, 24);
+}
+function getFormatSelectorForQuality(maxHeight) {
+    if (maxHeight <= 360) {
+        return [
+            '18',
+            `best[height<=${maxHeight}][ext=mp4][vcodec!=none][acodec!=none]`,
+            `best[height<=${maxHeight}]`,
+        ].join('/');
+    }
+    return [
+        `bestvideo[height<=${maxHeight}][fps<=30][vcodec!="none"]+bestaudio`,
+        `18/best[height<=${maxHeight}][fps<=30]`,
+    ].join('/');
+}
 async function getChannelId(videoUrl) {
     const ytdlp = getYtdlpPath();
     return new Promise((resolve) => {
@@ -486,12 +509,13 @@ async function withExponentialBackoff(fn, maxAttempts = 4, baseDelayMs = 2000) {
     // Should not reach here but satisfy TypeScript
     return fn();
 }
-function buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, sectionArg, instanceIdx, poToken, ytCookiesFile) {
+function buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, sectionArg, instanceIdx, poToken, ytCookiesFile, quality) {
     const args = [
         videoUrl,
         ...getJsRuntimeArgs(),
     ];
     // Quality strategy:
+    // - 360p fast path → prefer single-file muxed MP4 and lower fragment concurrency.
     // - With PO Token → android DASH bestvideo+bestaudio (1080p H.264)
     // - Without PO Token → web client with Chrome cookies (1080p VP9/H.264).
     //   web client works for most public videos. On "Private video" error, caller retries
@@ -499,21 +523,24 @@ function buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, section
     let resolvedFormat;
     if (poToken) {
         args.push('--extractor-args', `youtube:player_client=android,po_token=${poToken}`);
-        resolvedFormat = formatSelector; // DASH: bestvideo+bestaudio
+        resolvedFormat = formatSelector;
         console.log(`[yt-dlp] Using android DASH with PO Token (${poToken.slice(0, 8)}...)`);
     }
     else {
-        // web client: works with session cookies for most public videos.
         args.push('--extractor-args', 'youtube:player_client=web');
         resolvedFormat = formatSelector;
         console.log(`[yt-dlp] Using web client with cookies (best quality)`);
     }
-    // Authenticate yt-dlp with Chrome cookies to bypass EJS anti-bot challenge
     if (ytCookiesFile) {
         args.push('--cookies', ytCookiesFile);
         console.log(`[yt-dlp] Using Chrome cookies: ${ytCookiesFile.split(/[/\\]/).pop()}`);
     }
-    args.push('-f', resolvedFormat, '--merge-output-format', 'mp4', '--remux-video', 'mp4', '--output', outputTemplate, '--no-playlist', '--no-update', '--newline', '--concurrent-fragments', String((0, system_js_1.getDownloadParams)().fragments), '--retries', '5', '--fragment-retries', '5', '--socket-timeout', '10', '--http-chunk-size', '10485760', '--download-sections', sectionArg);
+    const fast360p = isFast360pMode(quality);
+    const fragmentConcurrency = getFragmentConcurrency(quality);
+    args.push('-f', resolvedFormat, '--output', outputTemplate, '--no-playlist', '--no-update', '--newline', '--concurrent-fragments', String(fragmentConcurrency), '--retries', '5', '--fragment-retries', '5', '--socket-timeout', fast360p ? '15' : '10', '--http-chunk-size', fast360p ? '0' : '10485760', '--download-sections', sectionArg);
+    if (!fast360p) {
+        args.push('--merge-output-format', 'mp4', '--remux-video', 'mp4', '--postprocessor-args', 'ffmpeg_o:-c:a aac -b:a 192k');
+    }
     return args;
 }
 function makeSectionArg(startSec, endSec) {
@@ -526,7 +553,7 @@ function makeSectionArg(startSec, endSec) {
     return `*${fmt(startSec)}-${fmt(endSec)}`;
 }
 async function _multiInstanceDownload(opts) {
-    const { workspaceId, videoUrl, outputDir, formatSelector, trimLimit, instanceCount, onProgress, ytdlp, preFetchedDuration, retryStrategy = 'immediate', poToken, ytCookiesFile } = opts;
+    const { workspaceId, videoUrl, outputDir, formatSelector, trimLimit, instanceCount, onProgress, ytdlp, preFetchedDuration, retryStrategy = 'immediate', poToken, ytCookiesFile, quality } = opts;
     // OPTIMIZATION #1: Skip sequential duration probe if caller already has it.
     // autoDownloadFromWebSub fetches videoInfo in parallel with download, so it's already available.
     // Saves ~1-3s network round-trip per download.
@@ -584,7 +611,7 @@ async function _multiInstanceDownload(opts) {
         return new Promise((resolve) => {
             const outputTemplate = path_1.default.join(outputDir, `${workspaceId}_part${String(idx).padStart(2, '0')}_%(id)s.%(ext)s`);
             const args = [
-                ...buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, makeSectionArg(section.start, section.end), idx, poToken, ytCookiesFile),
+                ...buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, makeSectionArg(section.start, section.end), idx, poToken, ytCookiesFile, quality),
                 ...cacheDirArgs,
             ];
             const proc = (0, child_process_1.spawn)(ytdlp, args, {
@@ -676,7 +703,7 @@ async function _multiInstanceDownload(opts) {
                         const section = sections[sectionIdx];
                         const outputTemplate = path_1.default.join(outputDir, `${workspaceId}_part${String(sectionIdx).padStart(2, '0')}_%(id)s.%(ext)s`);
                         const args = [
-                            ...buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, makeSectionArg(section.start, section.end), sectionIdx, poToken, ytCookiesFile),
+                            ...buildYtDlpArgs(ytdlp, videoUrl, formatSelector, outputTemplate, makeSectionArg(section.start, section.end), sectionIdx, poToken, ytCookiesFile, quality),
                             ...cacheDirArgs,
                         ];
                         return new Promise((resolve) => {
@@ -757,7 +784,11 @@ async function _multiInstanceDownload(opts) {
         }
     }
     console.log(`[yt-dlp] All ${instanceCount} instances complete — merging with FFmpeg concat`);
-    // Merge all sections with FFmpeg concat demuxer (stream copy — no re-encode, very fast)
+    // Merge all sections. Stream-copy would risk out-of-sync audio when section
+    // files have different codec params (e.g. one with audio, one without, or
+    // different timebases). Re-encode both streams to keep the merge output valid
+    // for downstream FFmpeg stages (pre-speed setpts, render scale_cuda).
+    // libx264 ultrafast is fast enough for 360p (1-3s per minute of source).
     const concatListFile = path_1.default.join(outputDir, `${workspaceId}_concat.txt`);
     const concatList = chunkFiles.filter((f) => !!f).map(f => `file '${f.replace(/\\/g, '/')}'`).join('\n');
     fs_1.default.writeFileSync(concatListFile, concatList, 'utf-8');
@@ -765,7 +796,9 @@ async function _multiInstanceDownload(opts) {
     const mergeArgs = [
         '-f', 'concat', '-safe', '0',
         '-i', `"${concatListFile.replace(/\\/g, '/')}"`,
-        '-c', 'copy',
+        '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '20',
+        '-c:a', 'aac', '-b:a', '192k',
+        '-movflags', '+faststart',
         '-y', `"${outputFile.replace(/\\/g, '/')}"`,
     ];
     const mergeResult = (0, ffmpeg_js_1.runSimpleFfmpeg)(ffmpegPath, mergeArgs);
@@ -1055,10 +1088,7 @@ async function downloadSectionsAsSeparate(opts) {
     const enrichedPath = ffmpegDir + path_1.default.delimiter + ytdlpDir + path_1.default.delimiter + (process.env.PATH || '');
     const q = parseInt(quality);
     const maxHeight = isNaN(q) ? 720 : q;
-    const formatSelector = [
-        `bestvideo[height<=${maxHeight}][vcodec!="none"]+bestaudio`,
-        `18/best[height<=${maxHeight}]`,
-    ].join('/');
+    const formatSelector = getFormatSelectorForQuality(maxHeight);
     let cacheDirArgs = [];
     if (process.platform === 'linux') {
         cacheDirArgs = ['--cache-dir', '/dev/shm/yt-dlp-cache'];
@@ -1072,6 +1102,7 @@ async function downloadSectionsAsSeparate(opts) {
         return new Promise((resolve) => {
             const outputTemplate = path_1.default.join(outputDir, `${workspaceId}_sec${String(idx).padStart(2, '0')}_%(id)s.%(ext)s`);
             const sectionArg = makeSectionArg(section.start, section.end);
+            const fast360p = isFast360pMode(quality);
             const args = [
                 videoUrl,
                 ...getJsRuntimeArgs(),
@@ -1081,20 +1112,21 @@ async function downloadSectionsAsSeparate(opts) {
                     : 'youtube:player_client=tv_embedded',
                 ...(ytCookiesFile ? ['--cookies', ytCookiesFile] : []),
                 '-f', formatSelector,
-                '--merge-output-format', 'mp4',
-                '--remux-video', 'mp4',
                 '--output', outputTemplate,
                 '--no-playlist',
                 '--no-update',
                 '--newline',
-                '--concurrent-fragments', String((0, system_js_1.getDownloadParams)().fragments),
+                '--concurrent-fragments', String(getFragmentConcurrency(quality)),
                 '--retries', '5',
                 '--fragment-retries', '5',
-                '--socket-timeout', '10',
-                '--http-chunk-size', '10485760',
+                '--socket-timeout', fast360p ? '15' : '10',
+                '--http-chunk-size', fast360p ? '0' : '10485760',
                 '--download-sections', sectionArg,
                 ...cacheDirArgs,
             ];
+            if (!fast360p) {
+                args.push('--merge-output-format', 'mp4', '--remux-video', 'mp4', '--postprocessor-args', 'ffmpeg_o:-c:a aac -b:a 192k');
+            }
             (0, unified_log_js_1.devLog)(`[DownloadSections] Section ${idx + 1}/${numSections}: ${sectionArg} → ${outputTemplate}`);
             const proc = (0, child_process_1.spawn)(ytdlp, args, {
                 env: { ...process.env, PATH: enrichedPath },
@@ -1183,6 +1215,7 @@ async function downloadSectionsAsSeparate(opts) {
             const section = sections[i];
             const outputTemplate = path_1.default.join(outputDir, `${workspaceId}_seq${String(i).padStart(2, '0')}_%(id)s.%(ext)s`);
             const sectionArg = makeSectionArg(section.start, section.end);
+            const fast360p = isFast360pMode(quality);
             const args = [
                 videoUrl,
                 ...getJsRuntimeArgs(),
@@ -1192,19 +1225,20 @@ async function downloadSectionsAsSeparate(opts) {
                     : 'youtube:player_client=tv_embedded',
                 ...(ytCookiesFile ? ['--cookies', ytCookiesFile] : []),
                 '-f', formatSelector,
-                '--merge-output-format', 'mp4',
-                '--remux-video', 'mp4',
                 '--output', outputTemplate,
                 '--no-playlist',
                 '--no-update',
                 '--newline',
-                '--concurrent-fragments', String((0, system_js_1.getDownloadParams)().fragments),
+                '--concurrent-fragments', String(getFragmentConcurrency(quality)),
                 '--retries', '5',
                 '--fragment-retries', '5',
-                '--socket-timeout', '10',
-                '--http-chunk-size', '10485760',
+                '--socket-timeout', fast360p ? '15' : '10',
+                '--http-chunk-size', fast360p ? '0' : '10485760',
                 '--download-sections', sectionArg,
             ];
+            if (!fast360p) {
+                args.push('--merge-output-format', 'mp4', '--remux-video', 'mp4', '--postprocessor-args', 'ffmpeg_o:-c:a aac -b:a 192k');
+            }
             (0, unified_log_js_1.devLog)(`[DownloadSections] Sequential fallback ${i + 1}/${sections.length}: ${sectionArg}`);
             const file = await downloadOneSection(ytdlp, args, enrichedPath, outputDir, workspaceId, i, '_seq');
             if (file) {
@@ -1330,14 +1364,7 @@ async function downloadWithClient(opts) {
     }
     const q = parseInt(quality);
     const maxHeight = isNaN(q) ? 720 : q;
-    // Optimized selector: 2 fast fallbacks instead of 5.
-    // Fallback 1: bestvideo+bestaudio at maxHeight (yt-dlp picks best codecs automatically)
-    // Fallback 2: pre-muxed format 18 for new videos without adaptive streams
-    // Previous 5-selector chain added ~10-30s of format negotiation per fallback attempt.
-    const formatSelector = [
-        `bestvideo[height<=${maxHeight}][fps<=30][vcodec!="none"]+bestaudio`,
-        `18/best[height<=${maxHeight}][fps<=30]`,
-    ].join('/');
+    const formatSelector = getFormatSelectorForQuality(maxHeight);
     console.log(`[Download] quality=${quality} maxHeight=${maxHeight}p selector=${formatSelector}`);
     // Multi-instance: parallel yt-dlp instances for 720p+ with enough free RAM
     // Capped by machine tier via getDownloadParams().maxInstances
@@ -1435,13 +1462,14 @@ function classifyError(error, stderr) {
     };
 }
 async function spawnDownload(opts) {
-    const { workspaceId, videoUrl, outputDir, formatSelector, client, ytCookiesFile, extraArgs, onProgress } = opts;
+    const { workspaceId, videoUrl, outputDir, formatSelector, client, ytCookiesFile, extraArgs, onProgress, quality } = opts;
     const ytdlp = getYtdlpPath();
     const ffmpeg = (0, ffmpeg_paths_js_1.getFfmpegPath)();
     const ffmpegDir = path_1.default.dirname(ffmpeg);
     const ytDlpDir = path_1.default.dirname(ytdlp);
     const enrichedPath = ffmpegDir + path_1.default.delimiter + ytDlpDir + path_1.default.delimiter + (process.env.PATH || '');
     const outputTemplate = path_1.default.join(outputDir, `${workspaceId}_%(id)s.%(ext)s`);
+    const fast360p = isFast360pMode(quality);
     const args = [
         videoUrl,
         ...getJsRuntimeArgs(),
@@ -1449,18 +1477,19 @@ async function spawnDownload(opts) {
         '--extractor-args', `youtube:player_client=${client}`,
         ...(ytCookiesFile ? ['--cookies', ytCookiesFile] : []),
         '-f', formatSelector,
-        '--merge-output-format', 'mp4',
-        '--remux-video', 'mp4',
         '--output', outputTemplate,
         '--no-playlist',
         '--newline',
-        '--concurrent-fragments', String((0, system_js_1.getDownloadParams)().fragments),
+        '--concurrent-fragments', String(getFragmentConcurrency(quality)),
         '--retries', '10',
         '--fragment-retries', '10',
-        '--socket-timeout', '30',
-        '--http-chunk-size', '10485760',
+        '--socket-timeout', fast360p ? '15' : '30',
+        '--http-chunk-size', fast360p ? '0' : '10485760',
         ...extraArgs,
     ];
+    if (!fast360p) {
+        args.push('--merge-output-format', 'mp4', '--remux-video', 'mp4', '--postprocessor-args', 'ffmpeg_o:-c:a aac -b:a 192k');
+    }
     (0, unified_log_js_1.devLog)(`[Download] Spawning yt-dlp (${client}): ${ytdlp}`);
     (0, unified_log_js_1.devLog)(`[Download] Args:`, args.map(a => a.length > 60 ? a.slice(0, 60) + '...' : a));
     return new Promise((resolve) => {
@@ -1562,13 +1591,11 @@ async function spawnDownload(opts) {
                 const errorLines = stderr.trim().split('\n').filter(l => l.includes('ERROR'));
                 let fullError = errorLines.join(' | ');
                 if (!fullError) {
-                    // No "ERROR" lines — use first meaningful lines of stderr
                     const meaningful = stderr.trim().split('\n')
                         .filter(l => l.trim() && !l.includes('[download]') && !l.includes('[ffmpeg]') && !l.includes('[Fixup'))
                         .slice(0, 3);
                     fullError = meaningful.length > 0 ? meaningful.join(' | ') : `yt-dlp code ${code}`;
                 }
-                // Always log stderr on failure so we can debug
                 const firstLines = stderr.trim().split('\n').slice(0, 5).join('\n');
                 (0, unified_log_js_1.devLog)(`[Download] yt-dlp stderr:\n${firstLines}`);
                 resolve({ success: false, workspaceId, error: fullError, stderr });
@@ -1579,7 +1606,6 @@ async function spawnDownload(opts) {
                 fileSize = fs_1.default.statSync(downloadedFile).size;
             }
             catch { }
-            // Verify file is not corrupt (must be > 50KB)
             if (fileSize < 50_000) {
                 (0, unified_log_js_1.devLog)(`[Download] File too small (${fileSize} bytes) — likely corrupt`);
                 try {
@@ -1589,8 +1615,11 @@ async function spawnDownload(opts) {
                 resolve({ success: false, workspaceId, error: `File too small (${fileSize} bytes)`, stderr });
                 return;
             }
-            const actualDuration = fs_1.default.existsSync(downloadedFile) ? 0 : 0; // will be probed by caller
-            resolve({ success: true, workspaceId, filePath: downloadedFile, duration: actualDuration, fileSize, stderr });
+            probeActualDuration(downloadedFile).then((actualDuration) => {
+                resolve({ success: true, workspaceId, filePath: downloadedFile, duration: actualDuration, fileSize, stderr });
+            }).catch(() => {
+                resolve({ success: true, workspaceId, filePath: downloadedFile, duration: 0, fileSize, stderr });
+            });
         });
     });
 }

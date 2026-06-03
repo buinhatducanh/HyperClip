@@ -8,7 +8,17 @@ import { IPC_CHANNELS } from '../channels.js'
 import { loadSettings, saveSettings } from '../../services/ramdisk.js'
 import { getYouTubePoller } from '../../services/youtube_poller.js'
 
-export function registerSettingsHandlers(ipcMain: IpcMain, onSettingsChanged?: () => void): void {
+export interface SettingsHandlerCallbacks {
+  /** Called when poller state needs to be re-synced (pollingEnabled or hardwareProfile changed) */
+  onPollerStateChanged?: () => void
+  /** Called when user enables autoRender — triggers render for any 'ready' workspaces */
+  onAutoRenderEnabled?: () => void
+}
+
+export function registerSettingsHandlers(
+  ipcMain: IpcMain,
+  callbacks?: SettingsHandlerCallbacks
+): void {
   ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, () => {
     const settings = loadSettings()
     // SECURITY: strip sensitive fields
@@ -56,8 +66,14 @@ export function registerSettingsHandlers(ipcMain: IpcMain, onSettingsChanged?: (
       if (poller) poller.restart(patch.pollIntervalMs)
     }
 
+    // Re-trigger auto-render for ready workspaces when user just enabled it.
+    // Fixes: video ready BEFORE autoRender was toggled on never gets rendered.
+    if (patch.autoRender === true) {
+      callbacks?.onAutoRenderEnabled?.()
+    }
+
     // Notify main thread of settings change (poller lifecycle, etc.)
-    onSettingsChanged?.()
+    callbacks?.onPollerStateChanged?.()
 
     return loadSettings()
   })

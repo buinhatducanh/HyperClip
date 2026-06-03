@@ -339,7 +339,11 @@ class YouTubePoller {
 
     if (newVideos.length > 0) {
       this._lastNewVideosAt = Date.now()
-      devLog(`[YouTubePoller] ${newVideos.length} video moi (${subResult.source}): ${newVideos.map(v => v.title.slice(0, 40) + ' (' + v.channelName + ')').join(', ')}`)
+      const ageLabels = newVideos.map(v => {
+        const ageSec = v.publishedAt ? Math.round((Date.now() - v.publishedAt) / 1000) : -1
+        return v.title.slice(0, 40) + ' (' + v.channelName + ', ' + (ageSec >= 0 ? ageSec + 's' : '?') + ')'
+      })
+      devLog(`[YouTubePoller] ${newVideos.length} video moi (${subResult.source}): ${ageLabels.join(', ')}`)
       this._onNewVideos?.(newVideos)
     }
   }

@@ -459,14 +459,9 @@ export async function exportCookiesForYtDlp(port: number): Promise<string | null
 let _cachedCookiesFile: string | null = null
 let _cachedCookiesTime = 0
 const COOKIE_CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+let _cookieWarmupPromise: Promise<string | null> | null = null
 
-export async function getYtCookiesFile(): Promise<string | null> {
-  // Return cached file if still fresh
-  if (_cachedCookiesFile && fs.existsSync(_cachedCookiesFile) && Date.now() - _cachedCookiesTime < COOKIE_CACHE_TTL_MS) {
-    return _cachedCookiesFile
-  }
-
-  // Lazy import to avoid circular deps
+async function refreshYtCookiesFile(): Promise<string | null> {
   const { ensurePersistentChrome } = await import('./cdp.js')
   const { exportCookiesForYtDlp: exportFn } = await import('./po_token.js')
   const persistent = await ensurePersistentChrome()
@@ -479,6 +474,33 @@ export async function getYtCookiesFile(): Promise<string | null> {
   }
   return file
 }
+
+export async function getYtCookiesFile(): Promise<string | null> {
+  // Hot path: return the warm cache if it's still fresh.
+  if (_cachedCookiesFile && fs.existsSync(_cachedCookiesFile) && Date.now() - _cachedCookiesTime < COOKIE_CACHE_TTL_MS) {
+    return _cachedCookiesFile
+  }
+  // Otherwise refresh synchronously (legacy behavior preserved).
+  return refreshYtCookiesFile()
+}
+
+export function warmYtCookiesFile(): Promise<string | null> {
+  if (_cachedCookiesFile && fs.existsSync(_cachedCookiesFile) && Date.now() - _cachedCookiesTime < COOKIE_CACHE_TTL_MS) {
+    return Promise.resolve(_cachedCookiesFile)
+  }
+  if (_cookieWarmupPromise) return _cookieWarmupPromise
+
+  _cookieWarmupPromise = refreshYtCookiesFile().finally(() => {
+    _cookieWarmupPromise = null
+  })
+  return _cookieWarmupPromise
+}
+
+export function shouldRefreshYtCookiesFile(bufferMs = 60_000): boolean {
+  if (!_cachedCookiesFile || !fs.existsSync(_cachedCookiesFile)) return true
+  return Date.now() - _cachedCookiesTime >= (COOKIE_CACHE_TTL_MS - bufferMs)
+}
+
 
 /** Clear the cookie cache — call this if the cookie file is corrupted */
 export function clearYtCookiesCache(): void {

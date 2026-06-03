@@ -227,6 +227,12 @@ export async function runFfmpeg(opts: FfmpegRunOptions): Promise<PoolResult> {
       return a
     })
     const proc = spawn(ffmpeg, normalizedArgs, { shell: false, stdio: ['ignore', 'pipe', 'pipe'] })
+    // Bump stderr highWaterMark from default 16KB → 1MB to avoid back-pressure stalls
+    // when 14+ chunks dump progress simultaneously.
+    // FFmpeg progress lines are ~150-200 bytes; 1MB = ~5000-6500 lines buffered.
+    if (proc.stderr && (proc.stderr as any).readableHighWaterMark !== undefined) {
+      try { (proc.stderr as any).readableHighWaterMark = 1024 * 1024 } catch {}
+    }
 
     // Register with pool for cancellation support
     renderPool.track(jobId, proc)

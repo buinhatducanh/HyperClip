@@ -89,6 +89,69 @@ function saveSettings(settings) {
     if (!fs_1.default.existsSync(STORE_DIR))
         fs_1.default.mkdirSync(STORE_DIR, { recursive: true });
     fs_1.default.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
+    // FIX 2026-06-02: Invalidate overlay cache when relevant settings change.
+    // Cache key is based on (title text, color, height, resolution) — any of these
+    // change → next render regenerates the PNG. Best-effort: if the cache module
+    // isn't loaded yet, just skip (next render will rebuild naturally).
+    try {
+        // Lazy import to avoid circular dep (ramdisk → overlay_cache → ffmpeg-shared → paths)
+        const cachePath = require('path').join(__dirname, 'overlay_cache.js');
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const cache = require(cachePath);
+        if (typeof cache.invalidateOverlayCache === 'function') {
+            cache.invalidateOverlayCache('settings-save');
+        }
+    }
+    catch {
+        // overlay_cache not yet built or not loadable — skip silently
+    }
+    // Pre-render bottom bar PNG right now so the next render (which is typically
+    // 0-2s away in the auto-download pipeline) hits the cache. Uses a sample title;
+    // the actual workspace title may differ, in which case the per-workspace render
+    // will re-generate the PNG (still ~50ms) on its first miss.
+    try {
+        void (async () => {
+            const cachePath = require('path').join(__dirname, 'overlay_cache.js');
+            const cache = require(cachePath);
+            const [cw, ch] = resolveAutoRenderResolution(settings.autoRenderResolution)
+                .split('x').map(Number);
+            const bottomBarH = settings.bottomBarH ?? Math.floor(ch * 0.25);
+            const color = (settings.bottomBarColor || '#00B4FF').replace(/^#/, '');
+            const previewText = settings.autoRenderTitleTemplate || 'PART 1';
+            // Resolved title uses sample values — actual workspace will re-render with
+            // its own title on the first miss.
+            const sampleTitle = previewText
+                .replace(/\{title\}/g, 'Video')
+                .replace(/\{channel\}/g, 'Channel');
+            await cache.getBottomBarPng({
+                canvasW: cw, canvasH: ch,
+                bottomBarH,
+                barText: sampleTitle,
+                colorHex: color,
+            });
+            // LANDSCAPE title overlay (only used when not SHORT)
+            if (ch < cw) {
+                const titleBarH = Math.floor(ch * 0.20);
+                await cache.getTitleOverlayPng({
+                    canvasW: cw, titleBarH,
+                    titleText: sampleTitle,
+                    colorHex: color,
+                });
+            }
+        })();
+    }
+    catch {
+        // non-fatal — render will regenerate
+    }
+}
+function resolveAutoRenderResolution(value) {
+    switch (value) {
+        case '1080p': return '1080x1920';
+        case '720p': return '720x1280';
+        case '360p': return '360x640';
+        default:
+            return value && /^\d+x\d+$/.test(value) ? value : '1080x1920';
+    }
 }
 function getConfiguredVideoStoragePath() {
     return loadSettings().videoStoragePath;
@@ -303,12 +366,14 @@ function cleanupWorkspace(workspaceId, downloadedPath) {
     }
     catch { }
     const { videoPath, blurPath, metadataPath, outputPath } = generateWorkspacePaths(workspaceId);
+    const thumbPath = path_1.default.join(storagePath, `thumb_${workspaceId}.jpg`);
     const filesToClean = new Set();
     if (downloadedPath)
         filesToClean.add(resolvePath(downloadedPath));
     filesToClean.add(resolvePath(videoPath)); // generic workspaceId.mp4 (old format)
     filesToClean.add(resolvePath(blurPath));
     filesToClean.add(resolvePath(metadataPath));
+    filesToClean.add(resolvePath(thumbPath)); // thumb_{workspaceId}.jpg
     // output file
     try {
         if (fs_1.default.existsSync(outputPath)) {

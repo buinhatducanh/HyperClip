@@ -181,36 +181,49 @@ function SettingsCard({ children }: { children: React.ReactNode }) {
   )
 }
 
-function SaveBar({ isDirty, onSave, onReset }: { isDirty: boolean; onSave: () => void; onReset: () => void }) {
-  if (!isDirty) return null
+function SaveBar({ isDirty, justSaved, onSave, onReset }: { isDirty: boolean; justSaved?: boolean; onSave: () => void; onReset: () => void }) {
+  if (!isDirty && !justSaved) return null
   return (
-    <div style={{ display: 'flex', gap: 4, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${colors.border}` }}>
-      <button
-        onClick={onSave}
-        style={{
-          flex: 1, height: 28, cursor: 'pointer',
-          background: colors.accent, border: 'none',
-          borderRadius: 4, fontSize: 12, fontWeight: 700,
-          color: colors.text, fontFamily: 'monospace',
-          transition: 'all 0.15s',
-        }}
-        onMouseEnter={e => { e.currentTarget.style.background = colors.accentHover }}
-        onMouseLeave={e => { e.currentTarget.style.background = colors.accent }}
-      >
-        Save
-      </button>
-      <button
-        onClick={onReset}
-        style={{
-          height: 28, padding: '0 12px', cursor: 'pointer',
-          background: 'transparent', border: `1px solid ${colors.border}`,
-          borderRadius: 4, fontSize: 12, fontWeight: 600,
-          color: colors.textSecondary, fontFamily: 'monospace',
-          transition: 'all 0.15s',
-        }}
-      >
-        Reset
-      </button>
+    <div style={{ display: 'flex', gap: 4, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${colors.border}`, alignItems: 'center' }}>
+      {isDirty ? (
+        <>
+          <button
+            onClick={onSave}
+            style={{
+              flex: 1, height: 28, cursor: 'pointer',
+              background: colors.accent, border: 'none',
+              borderRadius: 4, fontSize: 12, fontWeight: 700,
+              color: colors.text, fontFamily: 'monospace',
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = colors.accentHover }}
+            onMouseLeave={e => { e.currentTarget.style.background = colors.accent }}
+          >
+            Save
+          </button>
+          <button
+            onClick={onReset}
+            style={{
+              height: 28, padding: '0 12px', cursor: 'pointer',
+              background: 'transparent', border: `1px solid ${colors.border}`,
+              borderRadius: 4, fontSize: 12, fontWeight: 600,
+              color: colors.textSecondary, fontFamily: 'monospace',
+              transition: 'all 0.15s',
+            }}
+          >
+            Reset
+          </button>
+        </>
+      ) : (
+        <div style={{
+          flex: 1, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          background: colors.success + '14', border: `1px solid ${colors.success}44`, borderRadius: 4,
+          color: colors.success, fontSize: 12, fontWeight: 700, fontFamily: 'monospace',
+        }}>
+          <span>✓</span>
+          <span>ĐÃ ÁP DỤNG</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -219,11 +232,18 @@ function SaveBar({ isDirty, onSave, onReset }: { isDirty: boolean; onSave: () =>
 function useLocalSettings(initial: AppSettings, onSave: (p: Partial<AppSettings>) => void) {
   const [local, setLocal] = useState<AppSettings>(initial)
   const [committed, setCommitted] = useState<AppSettings>(initial)
+  const [justSaved, setJustSaved] = useState(false)
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const committedRef = useRef(committed)
 
   const isDirty = JSON.stringify(local) !== JSON.stringify(committed)
 
   const patch = useCallback((p: Partial<AppSettings>) => {
+    if (savedTimerRef.current) {
+      clearTimeout(savedTimerRef.current)
+      savedTimerRef.current = null
+    }
+    setJustSaved(false)
     setLocal(prev => ({ ...prev, ...p }))
   }, [])
 
@@ -231,9 +251,20 @@ function useLocalSettings(initial: AppSettings, onSave: (p: Partial<AppSettings>
     onSave(local)
     committedRef.current = local
     setCommitted(local)
+    setJustSaved(true)
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+    savedTimerRef.current = setTimeout(() => {
+      setJustSaved(false)
+      savedTimerRef.current = null
+    }, 1800)
   }, [local, onSave])
 
   const reset = useCallback(() => {
+    if (savedTimerRef.current) {
+      clearTimeout(savedTimerRef.current)
+      savedTimerRef.current = null
+    }
+    setJustSaved(false)
     setLocal(committedRef.current)
   }, [])
 
@@ -249,7 +280,13 @@ function useLocalSettings(initial: AppSettings, onSave: (p: Partial<AppSettings>
     }
   }, [initial])
 
-  return { local, isDirty, patch, save, reset }
+  useEffect(() => {
+    return () => {
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+    }
+  }, [])
+
+  return { local, isDirty, justSaved, patch, save, reset }
 }
 
 function BtnGroup({ options, value, onChange }: {
@@ -283,7 +320,7 @@ function BtnGroup({ options, value, onChange }: {
 // ═══════════════════════════════════════════════════════════════════════
 
 function AutoRenderCard({ s: initial, onChange }: { s: AppSettings; onChange: (p: Partial<AppSettings>) => void }) {
-  const { local: s, isDirty, patch, save, reset } = useLocalSettings(initial, onChange)
+  const { local: s, isDirty, justSaved, patch, save, reset } = useLocalSettings(initial, onChange)
 
   return (
     <SettingsCard>
@@ -437,7 +474,7 @@ function AutoRenderCard({ s: initial, onChange }: { s: AppSettings; onChange: (p
         />
       </div>
 
-      <SaveBar isDirty={isDirty} onSave={save} onReset={reset} />
+      <SaveBar isDirty={isDirty} justSaved={justSaved} onSave={save} onReset={reset} />
     </SettingsCard>
   )
 }
@@ -447,7 +484,7 @@ function AutoRenderCard({ s: initial, onChange }: { s: AppSettings; onChange: (p
 // ═══════════════════════════════════════════════════════════════════════
 
 function DownloadCard({ s: initial, onChange }: { s: AppSettings; onChange: (p: Partial<AppSettings>) => void }) {
-  const { local: s, isDirty, patch, save, reset } = useLocalSettings(initial, onChange)
+  const { local: s, isDirty, justSaved, patch, save, reset } = useLocalSettings(initial, onChange)
   const [pollerStatus, setPollerStatus] = useState<any>(null)
 
   useEffect(() => {
@@ -525,7 +562,7 @@ function DownloadCard({ s: initial, onChange }: { s: AppSettings; onChange: (p: 
         <span style={{ fontSize: 12, color: colors.textSecondary }}>1 video → tải xong → render xong → tiếp theo</span>
       </div>
 
-      <SaveBar isDirty={isDirty} onSave={save} onReset={reset} />
+      <SaveBar isDirty={isDirty} justSaved={justSaved} onSave={save} onReset={reset} />
     </SettingsCard>
   )
 }
