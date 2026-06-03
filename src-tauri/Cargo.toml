@@ -1,0 +1,60 @@
+[workspace]
+resolver = "2"
+members = [
+  ".",
+  "crates/hyperclip-core",
+  "crates/hyperclip-store",
+  "crates/hyperclip-ipc",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "Proprietary"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1.40", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tauri = { version = "2", features = [] }
+tauri-build = { version = "2", features = [] }
+
+hyperclip-core = { path = "crates/hyperclip-core" }
+hyperclip-store = { path = "crates/hyperclip-store" }
+hyperclip-ipc = { path = "crates/hyperclip-ipc" }
+
+[package]
+name = "hyperclip"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "HyperClip — Tauri desktop shell"
+
+[lib]
+name = "hyperclip_lib"
+path = "src/lib.rs"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "hyperclip"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+hyperclip-core.workspace = true
+hyperclip-store.workspace = true
+hyperclip-ipc.workspace = true
+tauri.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+serde_json.workspace = true
