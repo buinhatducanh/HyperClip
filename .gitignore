@@ -20,6 +20,7 @@ package-lock.json
 # Abandoned experiment dirs (build artifacts only, no source)
 src-tauri/
 hyperclip/
+electron/dist/   # stale TS compile output (project compiles to dist-electron/)
 
 # Sub-agent worktrees (ephemeral, can be 10+ GB)
 .claude/worktrees/
