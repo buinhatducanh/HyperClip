@@ -8,6 +8,9 @@ out/
 *.tmp-*
 tmp/
 
+# TypeScript incremental build cache
+*.tsbuildinfo
+
 # Local runtime data (NOT source — lives in user profile, not repo)
 .hyperclip/
 
