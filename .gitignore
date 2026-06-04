@@ -11,6 +11,9 @@ tmp/
 # TypeScript incremental build cache
 *.tsbuildinfo
 
+# npm lockfile (project uses pnpm, see pnpm-lock.yaml)
+package-lock.json
+
 # Local runtime data (NOT source — lives in user profile, not repo)
 .hyperclip/
 
