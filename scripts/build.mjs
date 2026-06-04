@@ -87,8 +87,13 @@ async function main() {
     }
 
     // next build may return exit code 1 due to SSR/prerender errors on 'use client' pages.
-    // The output files are still produced correctly — ignore non-zero exit.
-    await run('npx', ['next', 'build']).catch(e => console.warn('[build] next build had errors (ignored):', e.message))
+    // The output files are still produced correctly — but only if the dev server wasn't running
+    // (which causes actual failures). Re-run with a fresh .next/ to be sure.
+    if (fs.existsSync(path.join(root, '.next'))) {
+      console.log('[build] Removing existing .next/ for clean build...')
+      fs.rmSync(path.join(root, '.next'), { recursive: true, force: true })
+    }
+    await run('npx', ['next', 'build'])
     await run('node', [tscPath, '-p', 'electron/tsconfig.main.json'])
     await run('node', [tscPath, '-p', 'electron/tsconfig.preload.json'])
 

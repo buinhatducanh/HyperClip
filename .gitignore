@@ -7,3 +7,13 @@ out/
 *.tmp
 *.tmp-*
 tmp/
+
+# Local runtime data (NOT source — lives in user profile, not repo)
+.hyperclip/
+
+# Abandoned experiment dirs (build artifacts only, no source)
+src-tauri/
+hyperclip/
+
+# Sub-agent worktrees (ephemeral, can be 10+ GB)
+.claude/worktrees/
