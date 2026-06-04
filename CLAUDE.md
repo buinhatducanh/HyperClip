@@ -171,14 +171,23 @@ Luôn chạy `npx tsc --noEmit` sau khi sửa backend Electron. IDE diagnostics 
 
 ---
 
-## Dead Code (không dùng, không xóa — chỉ để reference)
+## Dead Code
 
-- `src/app/components/DetailEditor.tsx` — standalone file, không import ở đâu (replaced by SettingsPanel)
-- `src/app/components/workspace/RenderQueueBar.tsx` — standalone file, không import ở đâu (integrated into Queue panel)
-- `src/app/components/LoginScreen.tsx` — standalone file, không import ở đâu
-- `src/app/components/ui/` — shadcn/ui library files (accordion, alert, card, dialog, etc.) — không import trong app code
-- `electron/services/websub.ts` — đã xóa khỏi codebase
-- Các file `.claude/docs/` cũ: `PROJECT.md`, `ATTRIBUTIONS.md` — thông tin outdated
+Đã dọn trong các commit gần đây — KHÔNG còn dead code tracked. Có thể check lại bằng:
+
+```bash
+node scripts/find-unused-services.mjs   # scan electron/services/*.ts
+```
+
+Từng bước dọn (lịch sử):
+- `src/app/components/DetailEditor.tsx` — replaced by SettingsPanel — **dropped** (bdf5f8e)
+- `src/app/components/workspace/RenderQueueBar.tsx` — integrated into Queue panel — **dropped** (bdf5f8e)
+- `src/app/components/ui/` (60+ shadcn files) — không import — **dropped** (17055be)
+- `src/app/components/LoginScreen.tsx` — actually used in page.tsx cho unauth fallback, **giữ lại**
+- `electron/services/websub.ts` — **dropped** (pre-CLAUDE.md)
+- `electron/services/updater.ts` — replaced by `github-updater.ts` — **dropped** (5ac0fe8)
+- `electron/ipc/handlers/_original_project.ts` — empty leftover — **dropped** (37c918a)
+- `.claude/docs/DemoDesignTool.zip`, `Description.docx` — outdated binary blobs — **dropped**
 
 ---
 
