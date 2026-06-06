@@ -1,4 +1,4 @@
-use hyperclip_ipc::BackendCommand;
+use hyperclip_ipc::{BackendCommand, get_system_stats};
 
 pub fn handle_command(cmd: BackendCommand) -> String {
     match cmd {
@@ -8,14 +8,21 @@ pub fn handle_command(cmd: BackendCommand) -> String {
             })).unwrap()
         }
         BackendCommand::SystemStats => {
-            let stats = serde_json::json!({
-                "ram_used": 0, "ram_total": 0, "gpu_usage": 0,
-                "gpu_temp": 0, "gpu_name": "Unknown", "gpu_tier": "software",
-                "max_workers": 2, "active_workers": 0, "network_ip": "127.0.0.1",
-                "is_online": true
-            });
+            let stats = get_system_stats();
             serde_json::to_string(&serde_json::json!({
-                "ok": true, "result": stats
+                "ok": true,
+                "result": {
+                    "ram_used": stats.ram_used,
+                    "ram_total": stats.ram_total,
+                    "gpu_usage": stats.gpu_usage,
+                    "gpu_temp": stats.gpu_temp,
+                    "gpu_name": stats.gpu_name,
+                    "gpu_tier": stats.gpu_tier,
+                    "max_workers": stats.max_workers,
+                    "active_workers": stats.active_workers,
+                    "network_ip": stats.network_ip,
+                    "is_online": stats.is_online,
+                }
             })).unwrap()
         }
         _ => {
