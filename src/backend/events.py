@@ -12,9 +12,13 @@ class EventBus(QObject):
     channel_synced = Signal()
 
 _event_bus: Optional[EventBus] = None
+_keepalive_refs: list = []
+
 
 def get_event_bus() -> EventBus:
     global _event_bus
     if _event_bus is None:
         _event_bus = EventBus()
+        # Pin to module-level list to prevent Python GC from collecting C++ object
+        _keepalive_refs.append(_event_bus)
     return _event_bus

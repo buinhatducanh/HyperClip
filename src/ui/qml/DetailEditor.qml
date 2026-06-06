@@ -2,7 +2,6 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import QtQuick.Video
 
 Rectangle {
     id: detailRoot
@@ -15,7 +14,6 @@ Rectangle {
     property string currentTitle: "Select a workspace"
 
     function loadWorkspace(ws_id) {
-        // Stub: in full impl, fetch workspace from model
         currentTitle = ws_id
         currentVideoPath = ""
     }
@@ -24,22 +22,16 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        // Video preview
+        // Video preview placeholder (QtMultimedia via Python service)
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 300
             color: "black"
 
-            VideoOutput {
-                id: videoOutput
-                anchors.fill: parent
-                fillMode: VideoOutput.PreserveAspectFit
-            }
-
             Label {
-                visible: !detailRoot.currentVideoPath
                 anchors.centerIn: parent
-                text: detailRoot.currentTitle
+                text: detailRoot.currentVideoPath ? "▶ " + detailRoot.currentTitle
+                      : detailRoot.currentTitle
                 color: Theme.textMuted
                 font.pixelSize: 14
             }

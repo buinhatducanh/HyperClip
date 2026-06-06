@@ -1,31 +1,14 @@
-pub mod types {
-    use serde::{Deserialize, Serialize};
+// crates/hyperclip_ipc/src/lib.rs
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    #[serde(rename_all = "snake_case")]
-    pub enum BackendCommand {
-        WorkspaceList,
-        SystemStats,
-        WorkspaceAdd { url: String },
-        WorkspaceUpdate { id: String },
-        WorkspaceDelete { id: String },
-        WorkspaceRetry { id: String },
-        RenderStart { id: String },
-        RenderCancel { id: String },
-        ChannelList,
-        ChannelAdd { url: String },
-        ChannelRemove { id: String },
-    }
-}
-
-pub use types::*;
-
+pub mod types;
 pub mod system;
 pub mod ffmpeg;
 pub mod youtube;
 pub mod cookies;
 pub mod store;
 pub mod detection;
+
+pub use types::BackendCommand;
 pub use system::*;
 pub use ffmpeg::*;
 pub use youtube::*;
