@@ -1,124 +1,71 @@
 // src/ui/qml/DetailEditor.qml
+// Center pane container — switches between SettingsPanel / VideoDetailPanel / RenderedVideoDetail
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
 Rectangle {
-    id: detailRoot
-
+    id: root
     color: Theme.bg
     border.color: Theme.border
     border.width: 1
 
-    property string currentVideoPath: ""
-    property string currentTitle: "Select a workspace"
+    property string currentView: "settings"  // settings | workspace | rendered
+    property string currentWorkspaceId: ""
+    property string currentRenderedId: ""
+    property var currentWorkspaceData: ({})
+    property var currentRenderedData: ({})
 
-    function loadWorkspace(ws_id) {
-        currentTitle = ws_id
-        currentVideoPath = ""
-    }
-
-    ColumnLayout {
-        anchors.fill: parent
-        spacing: 0
-
-        // Video preview placeholder (QtMultimedia via Python service)
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 300
-            color: "black"
-
-            Label {
-                anchors.centerIn: parent
-                text: detailRoot.currentVideoPath ? "▶ " + detailRoot.currentTitle
-                      : detailRoot.currentTitle
-                color: Theme.textMuted
-                font.pixelSize: 14
-            }
-        }
-
-        // Timeline
-        RowLayout {
-            id: timeline
-            Layout.fillWidth: true
-            Layout.leftMargin: 8
-            Layout.rightMargin: 8
-            Layout.topMargin: 4
-            height: 32
-
-            Label {
-                text: formatTime(player.position)
-                color: Theme.textMuted
-                font.pixelSize: 11
-            }
-
-            Slider {
-                id: scrubber
-                Layout.fillWidth: true
-                from: 0
-                to: Math.max(player.duration, 1)
-                value: player.position
-                onMoved: player.seek(value)
-            }
-
-            Label {
-                text: formatTime(player.duration)
-                color: Theme.textMuted
-                font.pixelSize: 11
-            }
-        }
-
-        // Controls
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.leftMargin: 8
-            Layout.rightMargin: 8
-            Layout.bottomMargin: 8
-            height: 40
-
-            Button {
-                text: player.isPlaying ? "⏸" : "▶"
-                flat: true
-                onClicked: {
-                    if (player.isPlaying) player.pause()
-                    else player.play()
+    function loadWorkspace(id) {
+        currentWorkspaceId = id
+        currentView = "workspace"
+        // Lookup in workspaceModel — find the row
+        for (let i = 0; i < workspaceModel.rowCount(); i++) {
+            const idx = workspaceModel.index(i, 0)
+            if (workspaceModel.data(idx, Qt.UserRole + 1) === id) {
+                // Found — pull data (simplified)
+                currentWorkspaceData = {
+                    "id": id,
+                    "title": workspaceModel.data(idx, Qt.UserRole + 3) || "",
+                    "channel_name": workspaceModel.data(idx, Qt.UserRole + 5) || "",
+                    "progress": workspaceModel.data(idx, Qt.UserRole + 4) || 0,
+                    "quality": 1080
                 }
-            }
-
-            Label {
-                text: "← → ±5s  Space ⏯"
-                color: Theme.textMuted
-                font.pixelSize: 10
-                Layout.fillWidth: true
-            }
-
-            Button {
-                text: "Render"
-                flat: true
-                highlighted: true
+                return
             }
         }
     }
+    function loadRendered(id) {
+        currentRenderedId = id
+        currentView = "rendered"
+    }
+    function showSettings() { currentView = "settings" }
 
-    Keys.onPressed: {
-        if (event.key === Qt.Key_Space) {
-            event.accepted = true
-            if (player.isPlaying) player.pause()
-            else player.play()
-        }
-        if (event.key === Qt.Key_Left) {
-            event.accepted = true
-            player.seekRelative(event.modifiers & Qt.ShiftModifier ? -1 : -5)
-        }
-        if (event.key === Qt.Key_Right) {
-            event.accepted = true
-            player.seekRelative(event.modifiers & Qt.ShiftModifier ? 1 : 5)
+    Loader {
+        anchors.fill: parent
+        sourceComponent: {
+            if (root.currentView === "workspace") return workspaceView
+            if (root.currentView === "rendered") return renderedView
+            return settingsView
         }
     }
 
-    function formatTime(seconds) {
-        const m = Math.floor(seconds / 60)
-        const s = Math.floor(seconds % 60)
-        return m + ":" + (s < 10 ? "0" : "") + s
+    Component {
+        id: settingsView
+        SettingsPanel {}
+    }
+    Component {
+        id: workspaceView
+        VideoDetailPanel {
+            workspaceId: root.currentWorkspaceId
+            workspaceData: root.currentWorkspaceData
+        }
+    }
+    Component {
+        id: renderedView
+        RenderedVideoDetail {
+            videoId: root.currentRenderedId
+            videoData: root.currentRenderedData
+        }
     }
 }
