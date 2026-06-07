@@ -52,7 +52,7 @@ Rectangle {
 
         Item { Layout.fillHeight: true }
 
-        SystemMonitor {
+        DetectionStatusBar {
             Layout.alignment: Qt.AlignHCenter
             Layout.bottomMargin: 8
         }
