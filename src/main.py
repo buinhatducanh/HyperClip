@@ -9,6 +9,16 @@ from src.backend.client import get_client
 from src.models.workspace_model import WorkspaceModel
 from src.models.channel_model import ChannelModel
 from src.models.system_stats_model import SystemStatsModel
+from src.models.settings_model import SettingsModel
+from src.models.activity_log_model import ActivityLogModel
+from src.models.hardware_profile_model import HardwareProfileModel
+from src.models.poller_status_model import PollerStatusModel
+from src.models.auth_status_model import AuthStatusModel
+from src.models.channel_list_model import ChannelListModel
+from src.models.session_list_model import SessionListModel
+from src.models.project_list_model import ProjectListModel
+from src.models.key_list_model import KeyListModel
+from src.models.rendered_video_list_model import RenderedVideoListModel
 from src.services.video_player import VideoPlayer
 
 
@@ -17,34 +27,63 @@ def main():
     engine = QQmlApplicationEngine()
 
     bus = get_event_bus()
-    print(f"[main] bus id={id(bus)} addr={hex(id(bus))}", flush=True)
     client = get_client()  # spawns Rust backend subprocess
-    print(f"[main] client id={id(client)}", flush=True)
+
+    # ─── Models ───────────────────────────────────────────────────
     workspace_model = WorkspaceModel()
     channel_model = ChannelModel()
+    channel_list_model = ChannelListModel()
     stats_model = SystemStatsModel()
+    settings_model = SettingsModel()
+    activity_model = ActivityLogModel()
+    hw_profile_model = HardwareProfileModel()
+    poller_model = PollerStatusModel()
+    auth_model = AuthStatusModel()
+    session_model = SessionListModel()
+    project_model = ProjectListModel()
+    key_model = KeyListModel()
+    rendered_model = RenderedVideoListModel()
     video_player = VideoPlayer()
 
-    engine.rootContext().setContextProperty("eventBus", bus)
-    engine.rootContext().setContextProperty("workspaceModel", workspace_model)
-    engine.rootContext().setContextProperty("channelModel", channel_model)
-    engine.rootContext().setContextProperty("statsModel", stats_model)
-    engine.rootContext().setContextProperty("player", video_player)
+    # ─── Expose to QML ────────────────────────────────────────────
+    ctx = engine.rootContext()
+    ctx.setContextProperty("eventBus", bus)
+    ctx.setContextProperty("backend", client)  # direct backend access
+    ctx.setContextProperty("workspaceModel", workspace_model)
+    ctx.setContextProperty("channelModel", channel_model)
+    ctx.setContextProperty("channelListModel", channel_list_model)
+    ctx.setContextProperty("statsModel", stats_model)
+    ctx.setContextProperty("settings", settings_model)
+    ctx.setContextProperty("activityModel", activity_model)
+    ctx.setContextProperty("hwProfile", hw_profile_model)
+    ctx.setContextProperty("poller", poller_model)
+    ctx.setContextProperty("auth", auth_model)
+    ctx.setContextProperty("sessionModel", session_model)
+    ctx.setContextProperty("projectModel", project_model)
+    ctx.setContextProperty("keyModel", key_model)
+    ctx.setContextProperty("renderedModel", rendered_model)
+    ctx.setContextProperty("player", video_player)
 
+    # ─── Event bus wiring ─────────────────────────────────────────
     bus.workspace_updated.connect(lambda d: workspace_model.update_workspace(d.get("id", ""), d))
     bus.render_progress.connect(lambda ws_id, prog: workspace_model.set_progress(ws_id, prog))
-    bus.system_stats_updated.connect(lambda d: (
-        print(f"[main] system_stats_updated: {d}", flush=True),
-        stats_model.update_from_dict(d)
+    bus.system_stats_updated.connect(lambda d: stats_model.update_from_dict(d))
+    bus.new_video_detected.connect(lambda d: (
+        workspace_model.add_workspace(d),
+        activity_model.add_entry("auto", f"New video: {d.get('title', '?')}", "info"),
     ))
-    bus.new_video_detected.connect(lambda d: workspace_model.add_workspace(d))
     bus.channel_synced.connect(lambda: (
-        print("[main] channel_synced", flush=True),
-        workspace_model.load_from_backend(client) if client else None,
-        channel_model.load_from_backend(client) if client else None,
+        workspace_model.load_from_backend(client),
+        channel_model.load_from_backend(client),
+        channel_list_model.load_from_backend(client),
+        settings_model.load_from_backend(client),
+        hw_profile_model.refresh_from_backend(client),
+        poller_model.refresh_from_backend(client),
+        auth_model.refresh_from_backend(client),
+        rendered_model.load_from_backend(client),
     ))
 
-    # Periodic system:stats poll — 5s (matches electron/services/system.ts)
+    # Periodic system:stats poll — 5s
     def poll_stats():
         if client:
             client.send_command("system:stats", timeout=2.0)
@@ -54,6 +93,18 @@ def main():
     stats_timer.timeout.connect(poll_stats)
     stats_timer.start()
 
+    # Periodic poller status refresh — 15s
+    def poll_poller():
+        if client:
+            poller_model.refresh_from_backend(client)
+            auth_model.refresh_from_backend(client)
+
+    poller_timer = QTimer()
+    poller_timer.setInterval(15000)
+    poller_timer.timeout.connect(poll_poller)
+    poller_timer.start()
+
+    # ─── QML load ──────────────────────────────────────────────────
     qml_dir = "src/ui/qml"
 
     def on_qml_warnings(warnings):
@@ -62,18 +113,16 @@ def main():
             sys.stderr.flush()
 
     engine.warnings.connect(on_qml_warnings)
-    # Add QML import path so relative imports in QML work
     engine.addImportPath(os.path.abspath(qml_dir))
-    # Load main.qml directly from filesystem
     qml_main = os.path.abspath(os.path.join(qml_dir, "main.qml"))
     engine.load(QUrl.fromLocalFile(qml_main))
 
     if not engine.rootObjects():
-        sys.stderr.write("[main] QML failed to load — no root objects\n")
+        sys.stderr.write("[main] QML failed to load\n")
         sys.stderr.flush()
         return 1
 
-    sys.stderr.write(f"[main] QML loaded — {len(engine.rootObjects())} root object(s)\n")
+    sys.stderr.write(f"[main] QML loaded\n")
     sys.stderr.flush()
 
     exit_code = app.exec()
@@ -86,19 +135,3 @@ def main():
 if __name__ == "__main__":
     sys.exit(main() or 0)
 
-# --- DEBUG: minimal signal test ---
-import os
-if os.environ.get("HC_DEBUG") == "1":
-    from PySide6.QtCore import QTimer
-    def _debug_main():
-        app = QGuiApplication(sys.argv)
-        from src.backend.events import get_event_bus
-        from src.backend.client import get_client
-        bus = get_event_bus()
-        get_client()
-        bus.system_stats_updated.connect(lambda d: print(f"[DEBUG on_stats] {d}", flush=True))
-        bus.channel_synced.connect(lambda: print("[DEBUG channel_synced]", flush=True))
-        QTimer.singleShot(3000, app.quit)
-        sys.exit(app.exec())
-    if __name__ == "__main__" and "HC_DEBUG" in os.environ:
-        _debug_main()
