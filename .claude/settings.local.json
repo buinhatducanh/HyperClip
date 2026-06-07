@@ -42,10 +42,14 @@
       "Skill(update-config)",
       "Skill(update-config:*)",
       "WebFetch(domain:www.gyan.dev)",
-      "WebFetch(domain:)"
+      "WebFetch(domain:)",
+      "Read(//c/Users/MSI/Projects/ClipForge/**)",
+      "Bash(mkdir -p /c/Users/MSI/.claude/projects/C--Users-MSI-Projects-ClipForge-084569e1/memory && ls /c/Users/MSI/.claude/projects/C--Users-MSI-Projects-ClipForge-084569e1/)"
     ],
     "additionalDirectories": [
-      "C:\\Users\\MSI\\.claude"
+      "C:\\Users\\MSI\\.claude",
+      "C:\\Users\\MSI\\Projects\\ClipForge\\.claude",
+      "C:\\Users\\MSI\\.claude\\projects\\C--Users-MSI-Projects-ClipForge-084569e1"
     ]
   },
   "enabledMcpjsonServers": [

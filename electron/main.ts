@@ -1703,8 +1703,18 @@ async function createWindow() {
   })
 
   mainWindow.once('ready-to-show', () => {
+    devLog('[HyperClip] ready-to-show fired — showing window')
     mainWindow?.show()
   })
+
+  // Fallback: ready-to-show can fail to fire on some Windows GPU configs.
+  // Force-show after 3s if window is still hidden.
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      devLog('[HyperClip] ready-to-show did not fire in 3s — force-showing window')
+      mainWindow.show()
+    }
+  }, 3000)
 
   mainWindow.on('close', (e) => {
     if (_isQuitting) return
