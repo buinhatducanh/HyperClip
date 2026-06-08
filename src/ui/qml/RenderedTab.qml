@@ -1,64 +1,81 @@
-// src/ui/qml/RenderedTab.qml
-// RENDERED tab — list of completed outputs w/ archive/remove/open-folder actions
+// RenderedTab.qml
+// RENDERED tab — list of completed outputs w/ filter, open-folder
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
 ColumnLayout {
+    id: tab
     spacing: 4
     Layout.fillWidth: true
     Layout.fillHeight: true
 
-    SearchBar {
-        placeholderText: "Tìm rendered..."
-    }
+    property string searchQuery: ""
 
     ListView {
         Layout.fillWidth: true
         Layout.fillHeight: true
+        Layout.margins: 6
         model: renderedModel
         clip: true
         spacing: 1
         delegate: Rectangle {
             width: ListView.view.width
             height: 56
-            color: index % 2 === 0 ? "#161616" : "#1A1A1A"
+            visible: {
+                if (!tab.searchQuery) return true
+                const title = (model.title || "").toLowerCase()
+                return title.includes(tab.searchQuery.toLowerCase())
+            }
+            color: index % 2 === 0 ? Theme.rowEven : Theme.rowOdd
             RowLayout {
                 anchors.fill: parent
                 anchors.margins: 6
                 spacing: 8
-                Rectangle {
-                    Layout.preferredWidth: 32
-                    Layout.preferredHeight: 32
-                    color: "#0A0A0A"
-                    border.color: Theme.border
-                    border.width: 1
-                    Label {
-                        anchors.centerIn: parent
-                        text: "▶"
-                        color: Theme.success
-                        font.pixelSize: 14
-                    }
-                }
-                ColumnLayout {
+
+                MouseArea {
                     Layout.fillWidth: true
-                    spacing: 2
-                    Label {
-                        text: model.title
-                        color: Theme.text
-                        font.pixelSize: 11
-                        font.bold: true
-                        elide: Text.ElideRight
-                        Layout.fillWidth: true
-                    }
-                    Label {
-                        text: (model.channelName || "—") + " · " + model.quality + " · " + (model.fileSize/1048576).toFixed(1) + "MB"
-                        color: Theme.textMuted
-                        font.pixelSize: 9
+                    Layout.fillHeight: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: detailEditor.loadRendered(model.id)
+
+                    RowLayout {
+                        anchors.fill: parent
+                        spacing: 8
+                        Rectangle {
+                            Layout.preferredWidth: 32
+                            Layout.preferredHeight: 32
+                            color: Theme.bg
+                            border.color: Theme.border
+                            border.width: 1
+                            Label {
+                                anchors.centerIn: parent
+                                text: "▶"
+                                color: Theme.success
+                                font.pixelSize: 14
+                            }
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Label {
+                                text: model.title
+                                color: Theme.text
+                                font.pixelSize: 11
+                                font.bold: true
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                            Label {
+                                text: (model.channelName || "—") + " · " + model.quality + " · " + (model.fileSize/1048576).toFixed(1) + "MB"
+                                color: Theme.textMuted
+                                font.pixelSize: 9
+                            }
+                        }
                     }
                 }
                 Button {
-                    text: "📂"
+                    text: "\U0001F4C2"
                     Layout.preferredWidth: 28
                     onClicked: renderedModel.open_folder(backend, model.id)
                 }

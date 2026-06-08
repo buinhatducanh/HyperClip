@@ -3,29 +3,20 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
-Rectangle {
-    color: Theme.bg
-    border.color: Theme.border
-    border.width: 1
+SettingsCard {
+    title: "ACTIVITY LOG"
     Layout.preferredHeight: 280
 
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 12
+        width: parent.width
         spacing: 8
 
         RowLayout {
             Layout.fillWidth: true
-            Label {
-                text: "ACTIVITY LOG"
-                color: Theme.accent
-                font.pixelSize: 13
-                font.bold: true
-                Layout.fillWidth: true
-            }
             Button {
                 text: "Clear"
                 onClicked: activityModel.clear()
+                Layout.alignment: Qt.AlignRight
             }
         }
 
@@ -39,7 +30,7 @@ Rectangle {
             delegate: Rectangle {
                 width: logList.width
                 height: 22
-                color: index % 2 === 0 ? "#161616" : "#1A1A1A"
+                color: index % 2 === 0 ? Theme.rowEven : Theme.rowOdd
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: 6

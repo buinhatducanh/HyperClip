@@ -36,7 +36,11 @@ ColumnLayout {
                 }
                 channelListModel.toggle_pause(model.channelId)
             }
-            onDeleteClicked: confirmDelete.openFor(model.channelId, model.name)
+            onDeleteClicked: confirmDelete.openFor(model.channelId, model.name, function(id, name) {
+                backend.send_command("channel:remove", {"id": id})
+                activityModel.add_entry("channel", "Removed: " + name, "info")
+                channelListModel.remove_channel(id)
+            })
             onCompareClicked: compareModal.openFor(model.channelId, model.name)
         }
         Label {

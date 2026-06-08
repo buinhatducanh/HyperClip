@@ -10,15 +10,15 @@ Rectangle {
     Layout.fillWidth: true
     Layout.preferredHeight: 28
 
-    property alias text: input.text
     property alias placeholderText: input.placeholderText
+    signal searchChanged(string searchText)
     signal clearClicked()
 
     RowLayout {
         anchors.fill: parent
         anchors.margins: 4
         spacing: 4
-        Label { text: "🔍"; font.pixelSize: 11 }
+        Label { text: "\U0001F50D"; font.pixelSize: 11 }
         TextField {
             id: input
             Layout.fillWidth: true
@@ -26,13 +26,17 @@ Rectangle {
             color: Theme.text
             font.pixelSize: 11
             background: Rectangle { color: "transparent"; border.width: 0 }
+            onTextChanged: parent.parent.searchChanged(text)
         }
         Button {
             text: "×"
             visible: input.text.length > 0
             Layout.preferredWidth: 20
             Layout.preferredHeight: 20
-            onClicked: { input.text = ""; parent.parent.clearClicked() }
+            onClicked: {
+                input.text = ""
+                parent.parent.clearClicked()
+            }
         }
     }
 }

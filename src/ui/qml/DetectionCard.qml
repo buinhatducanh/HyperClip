@@ -3,29 +3,20 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
-Rectangle {
-    color: Theme.bg
-    border.color: Theme.border
-    border.width: 1
+SettingsCard {
+    title: "DETECTION"
     Layout.preferredHeight: 220
 
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 12
+        width: parent.width
         spacing: 8
 
         RowLayout {
             Layout.fillWidth: true
-            Label {
-                text: "DETECTION"
-                color: Theme.accent
-                font.pixelSize: 13
-                font.bold: true
-                Layout.fillWidth: true
-            }
             Switch {
                 checked: settings.pollingEnabled
                 onToggled: settings.pollingEnabled = checked
+                Layout.alignment: Qt.AlignRight
             }
         }
 
@@ -73,7 +64,7 @@ Rectangle {
 
         Button {
             text: poller.active ? "Pause" : "Resume"
-            onClicked: poller.resume(backend)
+            onClicked: poller.active ? poller.pause(backend) : poller.resume(backend)
         }
     }
 }

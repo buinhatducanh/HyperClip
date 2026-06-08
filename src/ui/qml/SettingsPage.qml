@@ -18,7 +18,7 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 40
-            color: "#181818"
+            color: Theme.rowEven
             border.color: Theme.border
             border.width: 0
             RowLayout {
@@ -37,7 +37,7 @@ Rectangle {
                     delegate: Rectangle {
                         Layout.fillHeight: true
                         Layout.preferredWidth: 96
-                        color: page.activeTab === modelData.key ? "#1F2A33" : "transparent"
+                        color: page.activeTab === modelData.key ? Theme.hoverBg : "transparent"
                         border.color: page.activeTab === modelData.key ? Theme.accent : "transparent"
                         border.width: page.activeTab === modelData.key ? 1 : 0
                         Label {

@@ -11,118 +11,76 @@ ApplicationWindow {
     title: "HyperClip"
     color: Theme.bg
 
-    // Top-level page switcher
+    // Navigation
     property string currentPage: "dashboard"
+    property string sidebarHighlight: "queue"
 
-    StackView {
-        id: pageStack
+    RowLayout {
         anchors.fill: parent
-        initialItem: dashboardPage
-    }
+        spacing: 0
 
-    Component {
-        id: dashboardPage
-        RowLayout {
-            spacing: 0
-            Sidebar {
-                Layout.preferredWidth: 220
-                Layout.fillHeight: true
-                onCurrentPageChanged: {
-                    if (currentPage === "settings") pageStack.push(settingsPage)
-                    else if (currentPage === "operation") pageStack.push(operationPage)
-                }
-            }
-            WorkspaceQueue {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-            }
-            DetailEditor {
-                Layout.preferredWidth: 400
-                Layout.fillHeight: true
+        // ─── Left: Sidebar — ALWAYS visible ──────────────────────
+        Sidebar {
+            id: sidebar
+            Layout.preferredWidth: 220
+            Layout.fillHeight: true
+            activeItem: root.sidebarHighlight
+            onNavigateToPage: function(page) {
+                root.sidebarHighlight = page
+                if (page === "settings") root.currentPage = "settings"
+                else if (page === "operation") root.currentPage = "operation"
+                else root.currentPage = "dashboard"
             }
         }
-    }
-    Component {
-        id: settingsPage
+
+        // ─── Right: Content area ─────────────────────────────────
+        // All pages always mounted, visibility-switched (preserves state)
         Item {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+
+            // Dashboard 3-pane
             RowLayout {
-                spacing: 0
+                id: dashboardContent
                 anchors.fill: parent
-                Rectangle {
-                    Layout.preferredWidth: 220
-                    Layout.fillHeight: true
-                    color: Theme.bg
-                    border.color: Theme.border
-                    border.width: 1
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 16
-                        Label {
-                            text: "Settings"
-                            color: Theme.accent
-                            font.pixelSize: 18
-                            font.bold: true
-                        }
-                        Button {
-                            text: "← Back to Dashboard"
-                            Layout.fillWidth: true
-                            onClicked: pageStack.pop()
-                        }
-                        Item { Layout.fillHeight: true }
-                    }
-                }
-                SettingsPage {
+                spacing: 0
+                visible: root.currentPage === "dashboard"
+
+                WorkspaceQueue {
+                    id: workspaceQueue
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                 }
+                DetailEditor {
+                    id: detailEditor
+                    Layout.preferredWidth: 400
+                    Layout.fillHeight: true
+                }
             }
-        }
-    }
-    Component {
-        id: operationPage
-        Item {
-            RowLayout {
-                spacing: 0
+
+            // Settings full page
+            SettingsPage {
                 anchors.fill: parent
-                Rectangle {
-                    Layout.preferredWidth: 220
-                    Layout.fillHeight: true
-                    color: Theme.bg
-                    border.color: Theme.border
-                    border.width: 1
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 16
-                        Label {
-                            text: "Operation"
-                            color: Theme.accent
-                            font.pixelSize: 18
-                            font.bold: true
-                        }
-                        Button {
-                            text: "← Back to Dashboard"
-                            Layout.fillWidth: true
-                            onClicked: pageStack.pop()
-                        }
-                        Item { Layout.fillHeight: true }
-                    }
-                }
-                OperationPanel {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                }
+                visible: root.currentPage === "settings"
+            }
+
+            // Operation full page
+            OperationPanel {
+                anchors.fill: parent
+                visible: root.currentPage === "operation"
             }
         }
     }
 
-    // LoginScreen overlay (shown when not authenticated)
+    // ─── LoginScreen overlay ───────────────────────────────────────
     LoginScreen {
         id: loginOverlay
         anchors.fill: parent
         visible: !auth.isReady
+        z: 999
     }
 
-    // UpdateBar toast (bottom-right)
+    // ─── Update toast ──────────────────────────────────────────────
     Rectangle {
         id: updateToast
         anchors.right: parent.right

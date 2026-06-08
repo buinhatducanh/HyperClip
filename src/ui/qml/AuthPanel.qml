@@ -4,32 +4,23 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
-Rectangle {
-    color: Theme.bg
-    border.color: Theme.border
-    border.width: 1
+SettingsCard {
+    title: "AUTHENTICATION"
     Layout.preferredHeight: 220
 
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 12
+        width: parent.width
         spacing: 8
 
         RowLayout {
             Layout.fillWidth: true
-            Label {
-                text: "AUTHENTICATION"
-                color: Theme.accent
-                font.pixelSize: 13
-                font.bold: true
-                Layout.fillWidth: true
-            }
             Rectangle {
                 width: 10; height: 10; radius: 5
                 color: auth.isReady ? Theme.success
                      : auth.cookieCritical ? Theme.error
                      : Theme.textMuted
             }
+            Item { Layout.fillWidth: true }
         }
 
         GridLayout {

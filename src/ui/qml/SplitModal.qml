@@ -145,10 +145,29 @@ Dialog {
             Button {
                 text: "Tách"
                 onClicked: {
+                    let parts = []
+                    if (dlg.intervals.length > 0) {
+                        const intervals = dlg.intervals
+                        let prev = 0
+                        for (let i = 0; i < intervals.length; i++) {
+                            parts.push({"start": prev, "end": intervals[i]})
+                            prev = intervals[i]
+                        }
+                        if (prev < dlg.totalDuration) {
+                            parts.push({"start": prev, "end": dlg.totalDuration})
+                        }
+                    } else {
+                        const partDur = dlg.totalDuration / dlg.numParts
+                        for (let i = 0; i < dlg.numParts; i++) {
+                            parts.push({
+                                "start": i * partDur,
+                                "end": Math.min((i + 1) * partDur, dlg.totalDuration)
+                            })
+                        }
+                    }
                     backend.send_command("workspace:split", {
                         "id": dlg.workspaceId,
-                        "intervals": dlg.intervals.length > 0 ? dlg.intervals : null,
-                        "numParts": dlg.numParts,
+                        "parts": parts,
                         "autoRender": true
                     })
                     activityModel.add_entry("ws", "Splitting " + dlg.workspaceId, "info")

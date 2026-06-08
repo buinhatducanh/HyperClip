@@ -3,29 +3,20 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
-Rectangle {
-    color: Theme.bg
-    border.color: Theme.border
-    border.width: 1
+SettingsCard {
+    title: "DOWNLOAD"
     Layout.preferredHeight: 200
 
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 12
+        width: parent.width
         spacing: 8
 
         RowLayout {
             Layout.fillWidth: true
-            Label {
-                text: "DOWNLOAD"
-                color: Theme.accent
-                font.pixelSize: 13
-                font.bold: true
-                Layout.fillWidth: true
-            }
             Switch {
                 checked: settings.autoDownloadEnabled
                 onToggled: settings.autoDownloadEnabled = checked
+                Layout.alignment: Qt.AlignRight
             }
         }
 

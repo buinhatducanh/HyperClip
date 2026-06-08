@@ -8,7 +8,8 @@ Rectangle {
     border.color: Theme.border
     border.width: 1
 
-    property string currentPage: "queue"
+    property string activeItem: "queue"
+    signal navigateToPage(string page)
 
     ColumnLayout {
         anchors.fill: parent
@@ -24,7 +25,7 @@ Rectangle {
         }
 
         Label {
-            text: "24/7 YouTube auto-capture"
+            text: "Bắt video YouTube 24/7"
             color: Theme.textMuted
             font.pixelSize: 9
             Layout.leftMargin: 4
@@ -39,29 +40,29 @@ Rectangle {
         }
 
         NavItem {
-            label: "Queue"; icon: "📋"
-            active: parent.parent.currentPage === "queue"
-            onClicked: parent.parent.currentPage = "queue"
+            label: "Hàng đợi"; icon: "📋"
+            active: parent.parent.activeItem === "queue"
+            onClicked: parent.parent.navigateToPage("queue")
         }
         NavItem {
-            label: "Channels"; icon: "📺"
-            active: parent.parent.currentPage === "channels"
-            onClicked: parent.parent.currentPage = "channels"
+            label: "Kênh"; icon: "📺"
+            active: parent.parent.activeItem === "channels"
+            onClicked: parent.parent.navigateToPage("channels")
         }
         NavItem {
-            label: "Rendered"; icon: "🎬"
-            active: parent.parent.currentPage === "rendered"
-            onClicked: parent.parent.currentPage = "rendered"
+            label: "Đã render"; icon: "🎬"
+            active: parent.parent.activeItem === "rendered"
+            onClicked: parent.parent.navigateToPage("rendered")
         }
         NavItem {
-            label: "Settings"; icon: "⚙"
-            active: parent.parent.currentPage === "settings"
-            onClicked: parent.parent.currentPage = "settings"
+            label: "Cài đặt"; icon: "⚙"
+            active: parent.parent.activeItem === "settings"
+            onClicked: parent.parent.navigateToPage("settings")
         }
         NavItem {
-            label: "Operation"; icon: "🔧"
-            active: parent.parent.currentPage === "operation"
-            onClicked: parent.parent.currentPage = "operation"
+            label: "Vận hành"; icon: "🔧"
+            active: parent.parent.activeItem === "operation"
+            onClicked: parent.parent.navigateToPage("operation")
         }
 
         ChannelList {
@@ -91,7 +92,7 @@ Rectangle {
         Layout.preferredHeight: 28
         Layout.leftMargin: 4
         Layout.rightMargin: 4
-        color: active ? "#1F2A33" : Theme.bg
+        color: active ? Theme.hoverBg : Theme.bg
         border.color: active ? Theme.accent : "transparent"
         border.width: 1
 

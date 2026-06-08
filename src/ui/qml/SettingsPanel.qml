@@ -27,7 +27,6 @@ ScrollView {
         StorageCard { Layout.fillWidth: true }
         DetectionCard { Layout.fillWidth: true }
         SystemCard { Layout.fillWidth: true }
-        ActivityLogCard { Layout.fillWidth: true }
 
         Rectangle {
             Layout.fillWidth: true

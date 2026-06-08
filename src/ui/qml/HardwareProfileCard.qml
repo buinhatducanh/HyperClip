@@ -3,33 +3,13 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
-Rectangle {
-    color: Theme.bg
-    border.color: Theme.border
-    border.width: 1
+SettingsCard {
+    title: "HARDWARE PROFILE"
     Layout.preferredHeight: 200
 
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 12
+        width: parent.width
         spacing: 8
-
-        RowLayout {
-            Layout.fillWidth: true
-            Label {
-                text: "HARDWARE PROFILE"
-                color: Theme.accent
-                font.pixelSize: 13
-                font.bold: true
-                Layout.fillWidth: true
-            }
-            Label {
-                text: hwProfile.activeLabel
-                color: hwProfile.activeId ? Theme.success : Theme.textMuted
-                font.pixelSize: 12
-                font.bold: true
-            }
-        }
 
         Label {
             text: "Detected: " + hwProfile.detectedGpuName + " · " + hwProfile.detectedVramGb + "GB VRAM · " + hwProfile.detectedRamGb + "GB RAM"
@@ -46,11 +26,13 @@ Rectangle {
             Repeater {
                 model: hwProfile.presets()
                 delegate: Rectangle {
+                    property bool compatible: modelData.vramGB <= hwProfile.detectedVramGb
                     Layout.fillWidth: true
                     Layout.preferredHeight: 56
-                    color: modelData.id === hwProfile.activeId ? "#1F2A33" : "#1A1A1A"
+                    color: modelData.id === hwProfile.activeId ? Theme.hoverBg : Theme.cardBg
                     border.color: modelData.id === hwProfile.activeId ? Theme.accent : Theme.border
                     border.width: 1
+                    opacity: compatible ? 1.0 : 0.4
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -74,8 +56,12 @@ Rectangle {
                     }
                     MouseArea {
                         anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: hwProfile.select_preset(backend, modelData.id)
+                        cursorShape: compatible ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        onClicked: {
+                            if (compatible) {
+                                hwProfile.select_preset(backend, modelData.id)
+                            }
+                        }
                     }
                 }
             }

@@ -3,32 +3,13 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
-Rectangle {
-    color: Theme.bg
-    border.color: Theme.border
-    border.width: 1
+SettingsCard {
+    title: "SYSTEM"
     Layout.preferredHeight: 200
 
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 12
+        width: parent.width
         spacing: 8
-
-        RowLayout {
-            Layout.fillWidth: true
-            Label {
-                text: "SYSTEM"
-                color: Theme.accent
-                font.pixelSize: 13
-                font.bold: true
-                Layout.fillWidth: true
-            }
-            Label {
-                text: "live"
-                color: Theme.success
-                font.pixelSize: 9
-            }
-        }
 
         GridLayout {
             columns: 4
@@ -36,7 +17,6 @@ Rectangle {
             rowSpacing: 8
             Layout.fillWidth: true
 
-            // Row 1
             Label { text: "GPU"; color: Theme.textMuted; font.pixelSize: 11 }
             Label { text: statsModel.gpu_name; color: Theme.text; font.pixelSize: 11; Layout.fillWidth: true }
             Label { text: "VRAM tier"; color: Theme.textMuted; font.pixelSize: 11 }

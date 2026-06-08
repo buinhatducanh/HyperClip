@@ -20,7 +20,7 @@ ColumnLayout {
     Rectangle {
         Layout.fillWidth: true
         Layout.preferredHeight: 26
-        color: "#181818"
+        color: Theme.rowEven
         border.color: Theme.border
         border.width: 0
         RowLayout {

@@ -1,19 +1,25 @@
-// src/ui/qml/FilterPills.qml
-// Status filter pills row
+// FilterPills.qml
+// Status filter pills row — uses named root + explicit current binding
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
 RowLayout {
+    id: rootPill
     spacing: 4
     Layout.fillWidth: true
 
     property string current: "all"
     signal filterChanged(string value)
 
-    function pill(value, label, color) {
-        return rectComp.createObject(null, {pillValue: value, pillLabel: label, pillColor: color})
+    function createPill(value, label, color) {
+        return rectComp.createObject(null, {
+            pillValue: value,
+            pillLabel: label,
+            pillColor: color
+        })
     }
+
     Component {
         id: rectComp
         Rectangle {
@@ -23,20 +29,20 @@ RowLayout {
             Layout.preferredHeight: 22
             Layout.preferredWidth: pillLabel.length * 7 + 16
             radius: 11
-            color: parent.current === pillValue ? pillColor : "#1A1A1A"
-            border.color: parent.current === pillValue ? pillColor : Theme.border
+            color: rootPill.current === pillValue ? pillColor : Theme.cardBg
+            border.color: rootPill.current === pillValue ? pillColor : Theme.border
             border.width: 1
             Label {
                 anchors.centerIn: parent
                 text: parent.pillLabel
-                color: parent.parent.current === parent.pillValue ? "white" : Theme.textMuted
+                color: rootPill.current === parent.pillValue ? "white" : Theme.textMuted
                 font.pixelSize: 9
-                font.bold: parent.parent.current === parent.pillValue
+                font.bold: rootPill.current === parent.pillValue
             }
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: parent.parent.parent.filterChanged(parent.pillValue)
+                onClicked: rootPill.filterChanged(parent.pillValue)
             }
         }
     }

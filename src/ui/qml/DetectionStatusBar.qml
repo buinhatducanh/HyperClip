@@ -58,7 +58,7 @@ Rectangle {
 
         // Sessions count
         Label {
-            text: (sessionModel.rowCount() || "—") + " ses"
+            text: (typeof sessionModel !== 'undefined' && sessionModel ? (sessionModel.rowCount() || "—") : "—") + " ses"
             color: Theme.textMuted
             font.pixelSize: 8
         }

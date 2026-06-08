@@ -8,8 +8,8 @@ Rectangle {
     id: item
     Layout.fillWidth: true
     Layout.preferredHeight: 36
-    color: hoverArea.containsMouse ? "#1F1F1F" : "transparent"
-    border.color: "#1A1A1A"
+    color: hoverArea.containsMouse ? Theme.hoverBg : "transparent"
+    border.color: Theme.cardBg
     border.width: 0
 
     property bool isPaused: false

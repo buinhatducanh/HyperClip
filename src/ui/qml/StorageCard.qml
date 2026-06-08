@@ -3,33 +3,13 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
-Rectangle {
-    color: Theme.bg
-    border.color: Theme.border
-    border.width: 1
-    Layout.preferredHeight: 200
-
-    property var storage: ({})
+SettingsCard {
+    title: "STORAGE"
+    Layout.preferredHeight: 240
 
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 12
+        width: parent.width
         spacing: 8
-
-        RowLayout {
-            Layout.fillWidth: true
-            Label {
-                text: "STORAGE"
-                color: Theme.accent
-                font.pixelSize: 13
-                font.bold: true
-                Layout.fillWidth: true
-            }
-            Button {
-                text: "Refresh"
-                onClicked: storage.refresh(backend)
-            }
-        }
 
         GridLayout {
             columns: 2
@@ -74,11 +54,17 @@ Rectangle {
             Layout.fillWidth: true
             Button {
                 text: "Clear downloads"
-                onClicked: activityModel.add_entry("storage", "Clear downloads requested", "warn")
+                onClicked: {
+                    backend.send_command("storage:clearDownloads")
+                    activityModel.add_entry("storage", "Clear downloads requested", "warn")
+                }
             }
             Button {
                 text: "Clear blur bg"
-                onClicked: activityModel.add_entry("storage", "Clear blur requested", "warn")
+                onClicked: {
+                    backend.send_command("storage:clearBlur")
+                    activityModel.add_entry("storage", "Clear blur requested", "warn")
+                }
             }
         }
     }

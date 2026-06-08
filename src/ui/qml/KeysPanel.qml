@@ -25,7 +25,7 @@ Rectangle {
                 Layout.fillWidth: true
             }
             Label {
-                text: keyModel.rowCount + " / 30"
+                text: (keyModel ? keyModel.rowCount : 0) + " / 30"
                 color: Theme.textMuted
                 font.pixelSize: 11
             }
@@ -41,7 +41,7 @@ Rectangle {
             delegate: Rectangle {
                 width: ListView.view.width
                 height: 32
-                color: index % 2 === 0 ? "#161616" : "#1A1A1A"
+                color: index % 2 === 0 ? Theme.rowEven : Theme.rowOdd
 
                 RowLayout {
                     anchors.fill: parent
@@ -76,7 +76,7 @@ Rectangle {
             }
             Label {
                 anchors.centerIn: parent
-                visible: keyModel.rowCount === 0
+                visible: !keyModel || keyModel.rowCount === 0
                 text: "Chưa có key nào"
                 color: Theme.textMuted
                 font.pixelSize: 10

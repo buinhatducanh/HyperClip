@@ -1,5 +1,5 @@
 // src/ui/qml/ConfirmationDialog.qml
-// Generic confirmation dialog — openFor(id, name) → user confirms → emits accepted
+// Generic confirmation dialog — openFor(id, name, onAccept) → user confirms → runs callback
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -12,10 +12,12 @@ Dialog {
     width: 360
     property string targetId: ""
     property string targetName: ""
+    property var onAcceptCallback: null
 
-    function openFor(id, name) {
+    function openFor(id, name, callback) {
         targetId = id
         targetName = name
+        onAcceptCallback = callback
         msgLabel.text = "Xóa \"" + name + "\"?"
         open()
     }
@@ -29,10 +31,8 @@ Dialog {
     }
 
     onAccepted: {
-        if (targetId !== "") {
-            backend.send_command("channel:remove", {"id": targetId})
-            activityModel.add_entry("channel", "Removed: " + targetName, "info")
-            channelListModel.remove_channel(targetId)
+        if (onAcceptCallback) {
+            onAcceptCallback(targetId, targetName)
         }
     }
 }
