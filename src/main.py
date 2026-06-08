@@ -20,6 +20,7 @@ from src.models.project_list_model import ProjectListModel
 from src.models.key_list_model import KeyListModel
 from src.models.rendered_video_list_model import RenderedVideoListModel
 from src.services.video_player import VideoPlayer
+from src.services.thumbnail_qobject import ThumbnailService
 
 
 def main():
@@ -44,6 +45,7 @@ def main():
     key_model = KeyListModel()
     rendered_model = RenderedVideoListModel()
     video_player = VideoPlayer()
+    thumbnail_service = ThumbnailService()
 
     # ─── Expose to QML ────────────────────────────────────────────
     ctx = engine.rootContext()
@@ -63,9 +65,15 @@ def main():
     ctx.setContextProperty("keyModel", key_model)
     ctx.setContextProperty("renderedModel", rendered_model)
     ctx.setContextProperty("player", video_player)
+    ctx.setContextProperty("thumbnailService", thumbnail_service)
 
     # ─── Event bus wiring ─────────────────────────────────────────
-    bus.workspace_updated.connect(lambda d: workspace_model.update_workspace(d.get("id", ""), d))
+    bus.workspace_updated.connect(lambda d: (
+        workspace_model.update_field(
+            d.get("id", ""), d.get("field", ""), d.get("value"),
+            client=None,  # avoid echo loop
+        ) if d.get("field") else workspace_model.update_workspace(d.get("id", ""), d)
+    ))
     bus.render_progress.connect(lambda ws_id, prog: workspace_model.set_progress(ws_id, prog))
     bus.system_stats_updated.connect(lambda d: stats_model.update_from_dict(d))
     bus.new_video_detected.connect(lambda d: (

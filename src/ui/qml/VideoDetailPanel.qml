@@ -129,6 +129,133 @@ ScrollView {
             }
         }
 
+        // ─── EDIT Section ──────────────────────────────────────
+        GroupBox {
+            Layout.fillWidth: true
+            Layout.topMargin: 16
+            title: "EDIT"
+            background: Rectangle {
+                color: Theme.bg
+                border.color: Theme.border
+                border.width: 1
+            }
+            label: Label {
+                text: parent.title
+                color: Theme.accent
+                font.pixelSize: 11
+                font.bold: true
+            }
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 6
+
+                EditField {
+                    label: "Title"
+                    value: root.workspaceData.title || ""
+                    onValueChanged: (newVal) => {
+                        workspaceModel.update_field(root.workspaceId, "title", newVal, backend)
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label {
+                        text: "Speed"
+                        color: Theme.textMuted
+                        font.pixelSize: 11
+                        Layout.preferredWidth: 80
+                    }
+                    Slider {
+                        id: speedSlider
+                        Layout.fillWidth: true
+                        from: 1.0
+                        to: 2.0
+                        stepSize: 0.1
+                        value: root.workspaceData.speed || 1.0
+                        onMoved: workspaceModel.update_field(
+                            root.workspaceId, "speed", value, backend)
+                    }
+                    Label {
+                        text: speedSlider.value.toFixed(1) + "x"
+                        color: Theme.text
+                        font.pixelSize: 11
+                        font.family: "monospace"
+                        Layout.preferredWidth: 40
+                    }
+                }
+
+                // Trim
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label {
+                        text: "Trim"
+                        color: Theme.textMuted
+                        font.pixelSize: 11
+                        Layout.preferredWidth: 80
+                    }
+                    SpinBox {
+                        id: trimStart
+                        from: 0
+                        to: (root.workspaceData.durationSec || 3600)
+                        value: root.workspaceData.trimStart || 0
+                        editable: true
+                        Layout.fillWidth: true
+                        onValueChanged: workspaceModel.update_field(
+                            root.workspaceId, "trimStart", value, backend)
+                    }
+                    Label {
+                        text: "→"
+                        color: Theme.text
+                        font.pixelSize: 11
+                    }
+                    SpinBox {
+                        id: trimEnd
+                        from: 0
+                        to: (root.workspaceData.durationSec || 3600)
+                        value: root.workspaceData.trimEnd || (root.workspaceData.durationSec || 60)
+                        editable: true
+                        Layout.fillWidth: true
+                        onValueChanged: workspaceModel.update_field(
+                            root.workspaceId, "trimEnd", value, backend)
+                    }
+                    Label {
+                        text: "sec"
+                        color: Theme.textMuted
+                        font.pixelSize: 10
+                    }
+                }
+
+                // Thumbnail
+                ThumbnailUploader {
+                    Layout.fillWidth: true
+                    workspaceId: root.workspaceData.video_id || ""
+                    currentThumbnail: root.workspaceData.thumbnail || ""
+                    localThumbnail: root.workspaceData.thumbnail_local || ""
+                    onThumbnailChanged: (path) => {
+                        workspaceModel.update_field(
+                            root.workspaceId, "thumbnail", path, backend)
+                    }
+                }
+            }
+        }
+
+        // ─── Render with new settings ──────────────────────────
+        Button {
+            Layout.fillWidth: true
+            Layout.topMargin: 8
+            text: "Render with new settings"
+            enabled: root.workspaceData.status === "ready" || root.workspaceData.status === "done"
+            onClicked: {
+                backend.send_command("render:start", {
+                    "id": root.workspaceId,
+                    "speed": speedSlider.value,
+                    "trimStart": trimStart.value,
+                    "trimEnd": trimEnd.value,
+                })
+            }
+        }
+
         // Action buttons
         RowLayout {
             Layout.fillWidth: true

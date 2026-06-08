@@ -93,3 +93,49 @@ class WorkspaceModel(QAbstractListModel):
                 idx = self.index(i)
                 self.dataChanged.emit(idx, idx, [self.ProgressRole])
                 return
+
+    def update_field(self, workspace_id: str, field: str, value, client=None):
+        """Update single field on workspace, sync to backend.
+
+        Args:
+            workspace_id: workspace ID
+            field: 'title' | 'speed' | 'trimStart' | 'trimEnd' | 'thumbnail'
+            value: new value
+            client: RustClient (optional, for backend sync)
+        """
+        field_map = {
+            "title": "title",
+            "speed": "speed",
+            "trimStart": "trim_start",
+            "trimEnd": "trim_end",
+            "thumbnail": "thumbnail_local",
+        }
+        local_key = field_map.get(field)
+        if local_key is None:
+            return
+
+        for row in range(self.rowCount()):
+            idx = self.index(row, 0)
+            ws_id = self.data(idx, self.IdRole)
+            if ws_id == workspace_id:
+                if field == "speed":
+                    self._workspaces[row][local_key] = float(value)
+                elif field in ("trimStart", "trimEnd"):
+                    self._workspaces[row][local_key] = float(value)
+                else:
+                    self._workspaces[row][local_key] = value
+                self.dataChanged.emit(idx, idx, [])
+                break
+
+        # Sync to backend
+        if client:
+            response = client.send_command(
+                "workspace:update",
+                {"id": workspace_id, "field": field, "value": value},
+                timeout=5.0,
+            )
+            if response and response.get("warning"):
+                from src.models.activity_log_model import ActivityLogModel
+                bus = getattr(ActivityLogModel, 'add_entry', None)
+                if bus:
+                    ActivityLogModel.add_entry("edit", response["warning"], "warning")

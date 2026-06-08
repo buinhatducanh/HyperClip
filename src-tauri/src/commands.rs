@@ -334,6 +334,8 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
 
         "workspace:update" => {
 
+            let id = p(params, "id").unwrap_or_default();
+
             let field = p(params, "field").unwrap_or_default();
 
             let value = params.get("value").cloned().unwrap_or(Value::Null);
@@ -342,14 +344,46 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
 
             let allowed: [&str; 5] = ["title", "speed", "trimStart", "trimEnd", "thumbnail"];
 
-            if allowed.contains(&field.as_str()) {
+            if !allowed.contains(&field.as_str()) {
 
-                Ok(json!({"ok": true, "field": field, "value": value}))
+                return CommandResult::Ok(json!({"ok": false, "error": format!("invalid field: {}", field)}));
 
+            }
+
+            // Persist to workspace store
+            let ws_path = get_workspaces_path();
+            let mut store = WorkspaceStore::load(&ws_path);
+
+            // Check if rendering — emit warning
+            let mut warning: Option<String> = None;
+            if let Some(ws) = store.workspaces.iter().find(|w| w.id == id) {
+                if ws.status == "rendering" {
+                    warning = Some("Workspace is rendering — changes apply on next render".into());
+                }
+            }
+
+            match store.patch(&id, &field, value.clone()) {
+                Ok(()) => {
+                    store.save(&ws_path).ok();
+                }
+                Err(e) => {
+                    warning = Some(e);
+                }
+            };
+
+            // Emit update event for UI sync
+            let event = json!({
+                "method": "workspace:update",
+                "params": {"id": id, "field": field, "value": value}
+            });
+            let s = serde_json::to_string(&event).unwrap();
+            let _ = writeln!(io::stdout(), "{}", s);
+            let _ = io::stdout().flush();
+
+            if let Some(w) = warning {
+                Ok(json!({"ok": true, "warning": w}))
             } else {
-
-                Ok(json!({"ok": false, "error": format!("invalid field: {}", field)}))
-
+                Ok(json!({"ok": true}))
             }
 
         }
@@ -635,16 +669,27 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                 map.insert(id.clone(), token.clone());
             }
             let tid = id.clone();
-            let tid_for_progress = tid.clone();
             let rt = RENDER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
             rt.spawn(async move {
                 let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
                 let _permit = pool.acquire().await;
                 let out_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into())).join("HyperClip/output");
                 std::fs::create_dir_all(&out_dir).ok();
+                // Resolve real input path from workspace store
+                let ws_path = get_workspaces_path();
+                let store = WorkspaceStore::load(&ws_path);
+                let workspace = store.workspaces.iter().find(|w| w.id == tid);
+                let input_path = match workspace.and_then(|w| w.downloaded_path.clone()) {
+                    Some(path) => PathBuf::from(path),
+                    None => {
+                        let vid_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into())).join("HyperClip/downloads");
+                        vid_dir.join(format!("{}.mp4", tid))
+                    }
+                };
+                let tid_for_progress = tid.clone();
                 let opts = RenderOptions {
                     workspace_id: tid_for_progress.clone(),
-                    input_path: PathBuf::from("C:/input.mp4"),
+                    input_path: input_path.clone(),
                     output_path: out_dir.join(format!("{}.mp4", tid_for_progress)),
                     resolution: "1080p".into(),
                     fps: 30,

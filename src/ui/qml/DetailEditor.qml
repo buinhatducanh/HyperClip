@@ -23,13 +23,20 @@ Rectangle {
         for (let i = 0; i < workspaceModel.rowCount(); i++) {
             const idx = workspaceModel.index(i, 0)
             if (workspaceModel.data(idx, Qt.UserRole + 1) === id) {
-                // Found — pull data (simplified)
+                // Found — pull data
                 currentWorkspaceData = {
                     "id": id,
                     "title": workspaceModel.data(idx, Qt.UserRole + 3) || "",
                     "channel_name": workspaceModel.data(idx, Qt.UserRole + 5) || "",
                     "progress": workspaceModel.data(idx, Qt.UserRole + 4) || 0,
-                    "quality": 1080
+                    "quality": 1080,
+                    "speed": 1.0,
+                    "trimStart": 0.0,
+                    "trimEnd": 0.0,
+                    "thumbnail": workspaceModel.data(idx, Qt.UserRole + 7) || "",
+                    "thumbnail_local": "",
+                    "durationSec": 0,
+                    "video_id": id,
                 }
                 return
             }

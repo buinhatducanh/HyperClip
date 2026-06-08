@@ -42,6 +42,8 @@ pub struct Workspace {
     pub channel_name: Option<String>,
     #[serde(rename = "renderedPath")]
     pub rendered_path: Option<String>,
+    #[serde(rename = "thumbnailLocal")]
+    pub thumbnail_local: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -70,6 +72,22 @@ impl WorkspaceStore {
     pub fn add(&mut self, ws: Workspace) {
         self.workspaces.retain(|w| w.id != ws.id);
         self.workspaces.insert(0, ws);
+    }
+
+    pub fn patch(&mut self, id: &str, field: &str, value: serde_json::Value) -> Result<(), String> {
+        if let Some(ws) = self.workspaces.iter_mut().find(|w| w.id == id) {
+            match field {
+                "title" => ws.title = value.as_str().unwrap_or("").to_string(),
+                "speed" => ws.video_speed = value.as_f64().unwrap_or(1.0),
+                "trimStart" => ws.trim_start = value.as_f64().unwrap_or(0.0),
+                "trimEnd" => ws.trim_end = value.as_f64().unwrap_or(0.0),
+                "thumbnail" => ws.thumbnail_local = value.as_str().map(String::from),
+                _ => return Err(format!("invalid field: {}", field)),
+            }
+            Ok(())
+        } else {
+            Err(format!("workspace not found: {}", id))
+        }
     }
 
     pub fn update(&mut self, id: &str, data: serde_json::Value) -> Result<(), String> {
