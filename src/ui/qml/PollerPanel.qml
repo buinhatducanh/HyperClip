@@ -1,31 +1,22 @@
 // src/ui/qml/PollerPanel.qml
-// Poller control center — start/stop, status, new video count, last error.
+// Poller control — status, latency metrics, activity log.
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
-Rectangle {
-    color: Theme.bg
-    border.color: Theme.border
-    border.width: 1
-    Layout.preferredHeight: 240
+SettingsCard {
+    title: "DETECTION"
+    Layout.preferredHeight: 340
 
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 12
-        spacing: 8
+        width: parent.width
+        spacing: 6
 
+        // ─── Top bar: status + controls ────────────────────────
         RowLayout {
             Layout.fillWidth: true
-            Label {
-                text: "POLLER"
-                color: Theme.accent
-                font.pixelSize: 13
-                font.bold: true
-                Layout.fillWidth: true
-            }
             Rectangle {
-                width: 10; height: 10; radius: 5
+                width: 8; height: 8; radius: 4
                 color: poller.active ? Theme.success : Theme.textMuted
             }
             Label {
@@ -34,61 +25,157 @@ Rectangle {
                 font.pixelSize: 10
                 font.bold: true
             }
-        }
-
-        GridLayout {
-            columns: 2
-            columnSpacing: 16
-            rowSpacing: 6
-            Layout.fillWidth: true
-
-            Label { text: "Interval"; color: Theme.textMuted; font.pixelSize: 11 }
             Label {
-                text: poller.pollIntervalMs + " ms"
-                color: Theme.text
-                font.pixelSize: 11
+                text: "| " + poller.pollIntervalMs + "ms"
+                color: Theme.textMuted
+                font.pixelSize: 9
                 font.family: "monospace"
             }
-
-            Label { text: "Last poll"; color: Theme.textMuted; font.pixelSize: 11 }
-            Label { text: poller.lastPollLabel; color: Theme.text; font.pixelSize: 11 }
-
-            Label { text: "New videos"; color: Theme.textMuted; font.pixelSize: 11 }
-            Label {
-                text: poller.newVideoCount
-                color: poller.newVideoCount > 0 ? Theme.accent : Theme.text
-                font.pixelSize: 11
-                font.bold: poller.newVideoCount > 0
-            }
-
-            Label { text: "Innertube"; color: Theme.textMuted; font.pixelSize: 11 }
-            Label {
-                text: poller.innertubeDegraded ? "DEGRADED" : "OK"
-                color: poller.innertubeDegraded ? Theme.error : Theme.success
-                font.pixelSize: 11
-            }
-        }
-
-        Label {
-            text: poller.lastError
-            color: Theme.error
-            font.pixelSize: 10
-            visible: poller.lastError !== ""
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
+            Item { Layout.fillWidth: true }
             Button {
                 text: poller.active ? "Pause" : "Resume"
-                onClicked: poller.resume(backend)
+                onClicked: poller.active ? poller.pause(backend) : poller.resume(backend)
+                font.pixelSize: 9; implicitHeight: 22
             }
             Button {
-                text: "Refresh"
+                text: "↻"
                 onClicked: poller.refresh_from_backend(backend)
+                font.pixelSize: 11; implicitHeight: 22; implicitWidth: 28
             }
-            Item { Layout.fillWidth: true }
+        }
+
+        // ─── 3 metric chips ────────────────────────────────────
+        RowLayout {
+            spacing: 4
+
+            Rectangle {
+                Layout.fillWidth: true; Layout.preferredHeight: 22
+                color: poller.latencyColor + "18"; radius: 4
+                border.color: poller.latencyColor; border.width: 1
+                Label {
+                    anchors.centerIn: parent
+                    text: poller.lastDetectionLatencyStr + " last"
+                    color: poller.latencyColor
+                    font.pixelSize: 9; font.bold: true
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true; Layout.preferredHeight: 22
+                color: poller.slaColor + "18"; radius: 4
+                border.color: poller.slaColor; border.width: 1
+                Label {
+                    anchors.centerIn: parent
+                    text: poller.slaPercent.toFixed(0) + "% <5s"
+                    color: poller.slaColor
+                    font.pixelSize: 9; font.bold: true
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true; Layout.preferredHeight: 22
+                color: Theme.accent + "18"; radius: 4
+                border.color: Theme.accent; border.width: 1
+                Label {
+                    anchors.centerIn: parent
+                    text: poller.detectionsToday + " today"
+                    color: Theme.accent
+                    font.pixelSize: 9; font.bold: true
+                }
+            }
+        }
+
+        // ─── Activity list ─────────────────────────────────────
+        Label {
+            text: "RECENT"
+            color: Theme.textMuted
+            font.pixelSize: 10; font.bold: true
+            Layout.topMargin: 2
+        }
+
+        ListView {
+            id: detList
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            model: detectionHistory
+            clip: true
+            spacing: 2
+            delegate: Rectangle {
+                id: item
+                width: detList.width
+                height: compactRow.height + (expanded ? detailRow.height + 10 : 0)
+                color: expanded ? Theme.cardBg : (index % 2 === 0 ? Theme.rowEven : "transparent")
+                radius: 3
+
+                property bool expanded: false
+
+                ColumnLayout {
+                    anchors.fill: parent; anchors.margins: 6; spacing: 4
+
+                    // Compact row
+                    RowLayout {
+                        id: compactRow
+                        Layout.fillWidth: true
+                        spacing: 6
+
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: item.expanded = !item.expanded
+                        }
+
+                        Label {
+                            text: model.detectedTimeStr || ""
+                            color: Theme.textMuted; font.pixelSize: 9
+                            font.family: "monospace"; Layout.preferredWidth: 38
+                        }
+                        Label {
+                            text: model.title || ""
+                            color: Theme.text; font.pixelSize: 9
+                            elide: Text.ElideRight; Layout.fillWidth: true
+                        }
+                        Label {
+                            text: model.latencyStr || ""
+                            color: item.expanded ? Theme.textMuted
+                                  : (model.latencyMs > 0 && model.latencyMs < 5000 ? Theme.success
+                                     : model.latencyMs < 10000 ? "#FFD93D" : Theme.error)
+                            font.pixelSize: 9; font.bold: true
+                        }
+                    }
+
+                    // Expanded detail
+                    ColumnLayout {
+                        id: detailRow
+                        Layout.fillWidth: true
+                        visible: item.expanded
+                        spacing: 1
+
+                        RowLayout { Layout.fillWidth: true; spacing: 6; Layout.preferredHeight: 14
+                            Label { text: "Age at detect"; color: Theme.textMuted; font.pixelSize: 8; Layout.preferredWidth: 60 }
+                            Label { text: model.ageAtDetection || "—"; color: Theme.text; font.pixelSize: 8 }
+                            Item { Layout.fillWidth: true }
+                            Label { text: "Status"; color: Theme.textMuted; font.pixelSize: 8 }
+                            Label { text: model.status || "—"; color: model.status === "ready" ? Theme.success : model.status === "error" ? Theme.error : Theme.textMuted; font.pixelSize: 8; font.bold: true }
+                        }
+                        RowLayout { Layout.fillWidth: true; spacing: 6; Layout.preferredHeight: 14
+                            Label { text: "Channel"; color: Theme.textMuted; font.pixelSize: 8; Layout.preferredWidth: 60 }
+                            Label { text: model.channelName || "—"; color: Theme.text; font.pixelSize: 8; elide: Text.ElideRight; Layout.fillWidth: true }
+                        }
+                        RowLayout { Layout.fillWidth: true; spacing: 6; Layout.preferredHeight: 14
+                            Label { text: "Download"; color: Theme.textMuted; font.pixelSize: 8; Layout.preferredWidth: 60 }
+                            Label { text: model.downloadedSize > 0 ? (model.downloadedSize/1048576).toFixed(1)+"MB in "+(model.downloadTimeSec || 0).toFixed(0)+"s" : "—"; color: Theme.text; font.pixelSize: 8 }
+                            Item { Layout.fillWidth: true }
+                            Label { text: model.width > 0 ? model.width+"×"+model.height : ""; color: Theme.textMuted; font.pixelSize: 8 }
+                        }
+                    }
+                }
+            }
+
+            Label {
+                visible: detList.count === 0
+                anchors.centerIn: parent
+                text: "No detections yet"
+                color: Theme.textMuted; font.pixelSize: 11
+            }
         }
     }
 }

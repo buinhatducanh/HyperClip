@@ -1,10 +1,10 @@
-use hyperclip_ipc::{get_system_stats, ChannelStore, WorkspaceStore, get_workspaces_path, get_channels_path, SettingsStore, get_settings_path, RenderedStore, get_rendered_videos_path, KeyStore, get_keys_path, ProjectStore, get_projects_path, KeyEntry, ProjectEntry};
+use hyperclip_ipc::{get_system_stats, ChannelStore, WorkspaceStore, get_workspaces_path, get_channels_path, get_seen_videos_path, SettingsStore, get_settings_path, RenderedStore, get_rendered_videos_path, KeyStore, get_keys_path, ProjectStore, get_projects_path, KeyEntry, ProjectEntry};
 
 use hyperclip_ipc::cookies::{extract_chrome_cookies, get_chrome_user_data_dir};
 
 use hyperclip_ipc::innertube_pool::{InnertubeClientPool, PoolConfig};
 
-use hyperclip_ipc::poller::Poller;
+use hyperclip_ipc::poller::{Poller, NewVideoEvent};
 
 use hyperclip_ipc::ffmpeg::{spawn_render_async, RenderOptions, FilterChain};
 
@@ -17,17 +17,31 @@ use hyperclip_ipc::system::get_gpu_config;
 
 use hyperclip_ipc::Channel;
 
+use serde::Serialize;
 use serde_json::{json, Value};
 
 use std::sync::Arc;
 
 use std::sync::{Mutex, OnceLock};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use std::path::PathBuf;
 
 use std::io::{self, Write};
+
+#[derive(Debug, Clone, Serialize)]
+struct DetectionEvent {
+    ws_id: String,
+    video_id: String,
+    channel_name: String,
+    title: String,
+    published_at: i64,
+    detected_at: i64,
+    latency_ms: i64,
+    duration_sec: f64,
+    status: String,
+}
 
 use tokio::sync::RwLock;
 
@@ -39,11 +53,14 @@ struct AppState {
 
     poller: Arc<Poller>,
 
-    poller_cancel: CancellationToken,
+    poller_cancel: Mutex<CancellationToken>,
 
     _channels: Arc<RwLock<Vec<Channel>>>,
 
     pool: Arc<InnertubeClientPool>,
+
+    // Holds NewVideoEvent callback so it lives for the program lifetime
+    _process_handle: Box<dyn Fn(NewVideoEvent) + Send + Sync>,
 
 }
 
@@ -61,6 +78,20 @@ impl AppState {
 
             let pool = Arc::new(InnertubeClientPool::initialize(pool_config).unwrap());
 
+            // Load cookies into pool from disk
+            let cookies_path = get_cookies_path();
+            if cookies_path.exists() {
+                if let Ok(cookie_str) = std::fs::read_to_string(&cookies_path) {
+                    let trimmed = cookie_str.trim().to_string();
+                    if !trimmed.is_empty() {
+                        pool.set_cookies(trimmed);
+                        tracing::info!("[AppState] Loaded cookies into Innertube pool from {:?}", cookies_path);
+                    }
+                }
+            } else {
+                tracing::warn!("[AppState] No cookies file at {:?} — Innertube sessions will be anonymous", cookies_path);
+            }
+
             // Load channels from disk store
             let ch_path = get_channels_path();
             let ch_store = ChannelStore::load(&ch_path);
@@ -76,26 +107,215 @@ impl AppState {
             tracing::info!("[AppState] Loaded {} channels from disk", v.len());
             let channels = Arc::new(RwLock::new(v));
 
+            // Process function: runs for each new video detected by the poller
+            let _channels_clone = channels.clone();
+            let process_fn = move |event: NewVideoEvent| {
+                let ws_id = format!("ws-ch-{}", event.detected_at);
+
+                // 0. Record detection event for UI history
+                {
+                    let latency = event.detected_at - event.published_at;
+                    let mut store = detection_events_store().lock().unwrap();
+                    store.push_front(DetectionEvent {
+                        ws_id: ws_id.clone(),
+                        video_id: event.video_id.clone(),
+                        channel_name: event.channel_name.clone(),
+                        title: event.title.clone(),
+                        published_at: event.published_at,
+                        detected_at: event.detected_at,
+                        latency_ms: latency.max(0),
+                        duration_sec: event.duration_sec,
+                        status: "waiting".to_string(),
+                    });
+                    if store.len() > 50 {
+                        store.truncate(50);
+                    }
+                }
+
+                // 1. Create workspace entry
+                let ws_path = get_workspaces_path();
+                let mut ws_store = WorkspaceStore::load(&ws_path);
+                let now = chrono::Utc::now().timestamp_millis();
+                ws_store.add(hyperclip_ipc::store::Workspace {
+                    id: ws_id.clone(),
+                    status: "waiting".to_string(),
+                    video_id: event.video_id.clone(),
+                    channel_id: event.channel_id.clone(),
+                    channel_name: Some(event.channel_name.clone()),
+                    title: event.title.clone(),
+                    created_at: now,
+                    published_at: event.published_at,
+                    ..Default::default()
+                });
+                ws_store.save(&ws_path).ok();
+
+                // 2. Emit new_video_detected event to stdout (Python/QML catches this)
+                let event_json = serde_json::json!({
+                    "method": "new_video_detected",
+                    "params": {
+                        "id": ws_id,
+                        "videoId": event.video_id,
+                        "channelId": event.channel_id,
+                        "channelName": event.channel_name,
+                        "title": event.title,
+                        "thumbnailUrl": event.thumbnail_url,
+                        "publishedAt": event.published_at,
+                        "durationSec": event.duration_sec,
+                        "detectedAt": event.detected_at,
+                        "status": "waiting",
+                    }
+                });
+                let _ = writeln!(std::io::stdout(), "{}", serde_json::to_string(&event_json).unwrap_or_default());
+                let _ = std::io::stdout().flush();
+
+                // 3. Load settings to check auto-download
+                let s_path = get_settings_path();
+                let s_store = SettingsStore::load(&s_path);
+                let auto_download = s_store.settings
+                    .get("auto_download_enabled")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+
+                if !auto_download {
+                    tracing::debug!("[AppState] Auto-download disabled — workspace {} created but not downloading", ws_id);
+                    return;
+                }
+
+                // 4. Spawn download thread
+                let url = format!("https://youtube.com/watch?v={}", event.video_id);
+                let cookies_path = get_cookies_path();
+                let video_dir = ensure_channel_video_dir(&event.channel_name, &event.channel_id);
+                let _ = std::fs::create_dir_all(&video_dir);
+                let output_path = video_dir.join(format!("{}.mp4", ws_id));
+                let output_str = output_path.to_string_lossy().to_string();
+                let cookies_str = cookies_path.to_string_lossy().to_string();
+                let tid = ws_id.clone();
+
+                let trim_minutes = s_store.settings
+                    .get("default_trim_limit_minutes")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(10) as u32;
+
+                // Emit downloading status
+                let dl_event = serde_json::json!({
+                    "method": "workspace:update",
+                    "params": {"id": tid, "status": "downloading"}
+                });
+                let _ = writeln!(std::io::stdout(), "{}", serde_json::to_string(&dl_event).unwrap_or_default());
+                let _ = std::io::stdout().flush();
+
+                let ch_name = event.channel_name.clone();
+                std::thread::spawn(move || {
+                    match download_video_streaming(&url, &output_str, &cookies_str, trim_minutes, |progress| {
+                        emit_download_progress(&tid, &progress);
+                    }) {
+                        Ok(result) => {
+                            tracing::info!("[AppState] Auto-download complete: {} ({:.1} MB)",
+                                tid, result.file_size as f64 / 1_048_576.0);
+
+                            // Update workspace store
+                            let ws_path = get_workspaces_path();
+                            let mut ws_store = WorkspaceStore::load(&ws_path);
+                            ws_store.update(&tid, serde_json::json!({
+                                "status": "ready",
+                                "downloadedPath": result.path,
+                            })).ok();
+                            ws_store.save(&ws_path).ok();
+
+                            // Emit ready event
+                            let done_event = serde_json::json!({
+                                "method": "workspace:update",
+                                "params": {
+                                    "id": tid,
+                                    "status": "ready",
+                                    "downloadedPath": result.path,
+                                    "downloadedSize": result.file_size,
+                                    "width": result.width,
+                                    "height": result.height,
+                                }
+                            });
+                            let _ = writeln!(std::io::stdout(), "{}", serde_json::to_string(&done_event).unwrap_or_default());
+                            let _ = std::io::stdout().flush();
+
+                            // Auto-render if enabled
+                            let s_path = get_settings_path();
+                            let s_store = SettingsStore::load(&s_path);
+                            let auto_render = s_store.settings
+                                .get("auto_render")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false);
+                            if auto_render {
+                                let in_path = result.path.clone();
+                                let out_dir = ensure_channel_output_dir_fn(&ch_name);
+                                let _ = std::fs::create_dir_all(&out_dir);
+                                let auto_render_speed = s_store.settings
+                                    .get("auto_render_speed")
+                                    .and_then(|v| v.as_f64())
+                                    .unwrap_or(1.0);
+                                let opts = hyperclip_ipc::ffmpeg::RenderOptions {
+                                    workspace_id: tid.clone(),
+                                    input_path: std::path::PathBuf::from(&in_path),
+                                    output_path: out_dir.join(format!("{}.mp4", tid)),
+                                    resolution: s_store.settings.get("auto_render_resolution").and_then(|v| v.as_str()).unwrap_or("1080p").to_string(),
+                                    fps: s_store.settings.get("auto_render_fps").and_then(|v| v.as_u64()).unwrap_or(30) as u32,
+                                    speed: auto_render_speed,
+                                    trim_start: 0.0,
+                                    trim_end: 60.0,
+                                    gpu_tier: get_gpu_config().tier,
+                                    preset: "p1".into(),
+                                    filter_chain: hyperclip_ipc::ffmpeg::FilterChain::Short,
+                                    chunked: false,
+                                    chunk_duration_sec: 120,
+                                };
+                                // Run in current thread (simple sequential auto-render)
+                                let pid = tid.clone();
+                                let result = spawn_render_async(opts, move |progress| {
+                                    let e = serde_json::json!({"method": "render:progress", "params": {"id": pid, "progress": progress}});
+                                    let _ = writeln!(std::io::stdout(), "{}", serde_json::to_string(&e).unwrap_or_default());
+                                    let _ = std::io::stdout().flush();
+                                });
+                                let _ = tokio::runtime::Runtime::new()
+                                    .map(|rt| rt.block_on(result));
+                                tracing::info!("[AppState] Auto-render completed for {}", tid);
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("[AppState] Auto-download failed for {}: {}", tid, e);
+                            let err_event = serde_json::json!({
+                                "method": "workspace:update",
+                                "params": {"id": tid, "status": "error", "error": e}
+                            });
+                            let _ = writeln!(std::io::stdout(), "{}", serde_json::to_string(&err_event).unwrap_or_default());
+                            let _ = std::io::stdout().flush();
+                        }
+                    }
+                });
+            };
+
             let poller = Arc::new(Poller::new(
-
                 pool.clone(),
-
                 channels.clone(),
-
                 5000,
-
+                process_fn,
             ));
 
+            // Load seen IDs from disk into poller
+            let seen_path = get_seen_videos_path();
+            let seen_store = hyperclip_ipc::store::SeenVideos::load(&seen_path);
+            let seen_ids: std::collections::HashSet<String> = seen_store.seen.into_iter().collect();
+            let poller_clone = poller.clone();
+            if let Ok(rt) = tokio::runtime::Handle::try_current() {
+                rt.spawn(async move {
+                    poller_clone.load_seen_ids(seen_ids).await;
+                });
+            }
+
             AppState {
-
                 poller,
-
-                poller_cancel: CancellationToken::new(),
-
+                poller_cancel: Mutex::new(CancellationToken::new()),
                 _channels: channels,
-
                 pool,
-
+                _process_handle: Box::new(process_fn),
             }
 
         });
@@ -104,66 +324,144 @@ impl AppState {
 
     }
 
-
-
     fn start_poller(&self) {
-
-        if self.poller_cancel.is_cancelled() {
-
-            // Cannot reassign, so just start new if not cancelled (or handle differently)
-
-        }
-
         let poller = self.poller.clone();
-
-        let cancel = self.poller_cancel.clone();
-
-        tokio::spawn(async move {
-
+        // Create a fresh token (in case the old one was cancelled)
+        let cancel = CancellationToken::new();
+        {
+            let mut guard = self.poller_cancel.lock().unwrap();
+            *guard = cancel.clone();
+        }
+        // Load seen IDs before starting
+        let seen_path = get_seen_videos_path();
+        let seen_store = hyperclip_ipc::store::SeenVideos::load(&seen_path);
+        let seen_ids: std::collections::HashSet<String> = seen_store.seen.into_iter().collect();
+        let rt = POLLER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
+        rt.spawn(async move {
+            poller.load_seen_ids(seen_ids).await;
             poller.run(cancel).await;
-
         });
-
+        tracing::info!("[AppState] Poller started");
     }
-
-
 
     fn stop_poller(&self) {
-
-        self.poller_cancel.cancel();
-
+        let guard = self.poller_cancel.lock().unwrap();
+        guard.cancel();
+        tracing::info!("[AppState] Poller stopped");
     }
-
-
 
     fn poller_active(&self) -> bool {
-
-        !self.poller_cancel.is_cancelled()
-
+        let guard = self.poller_cancel.lock().unwrap();
+        !guard.is_cancelled()
     }
-
-
 
     fn pool_ready_count(&self) -> usize {
-
         self.pool.ready_count()
-
     }
-
-
 
     fn pool_suspended_count(&self) -> usize {
-
         self.pool.suspended_count()
-
     }
-
-
 
     fn channels_total(&self) -> usize {
         self._channels.try_read().map(|c| c.len()).unwrap_or(0)
     }
 
+    fn channels_ref(&self) -> Arc<RwLock<Vec<Channel>>> {
+        self._channels.clone()
+    }
+
+    fn last_detection_latency(&self) -> i64 {
+        if let Ok(store) = detection_events_store().lock() {
+            store.front().map(|e| e.latency_ms).unwrap_or(0)
+        } else {
+            0
+        }
+    }
+
+    fn detections_today(&self) -> usize {
+        if let Ok(store) = detection_events_store().lock() {
+            let now_sec = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+            let today_start = now_sec - (now_sec % 86400);
+            let today_ms = today_start * 1000;
+            store.iter().filter(|e| e.detected_at >= today_ms).count()
+        } else {
+            0
+        }
+    }
+
+    fn average_latency(&self) -> f64 {
+        if let Ok(store) = detection_events_store().lock() {
+            let len = store.len();
+            if len == 0 { return 0.0; }
+            let total: i64 = store.iter().map(|e| e.latency_ms).sum();
+            total as f64 / len as f64
+        } else {
+            0.0
+        }
+    }
+
+    fn sla_percent(&self) -> f64 {
+        if let Ok(store) = detection_events_store().lock() {
+            let len = store.len();
+            if len == 0 { return 100.0; }
+            let under_5s = store.iter().filter(|e| e.latency_ms > 0 && e.latency_ms < 5000).count();
+            (under_5s as f64 / len as f64) * 100.0
+        } else {
+            100.0
+        }
+    }
+
+    fn detection_events(&self) -> Vec<DetectionEvent> {
+        if let Ok(store) = detection_events_store().lock() {
+            store.iter().cloned().collect()
+        } else {
+            vec![]
+        }
+    }
+
+}
+
+/// Reload channels from disk into the poller's channel list.
+/// Called after channel:add / remove / bulkRemove to keep poller in sync.
+fn poller_sync_channels() {
+    let ch_path = get_channels_path();
+    let ch_store = ChannelStore::load(&ch_path);
+    let v: Vec<Channel> = ch_store.channels.iter().map(|c| {
+        Channel {
+            id: c.id.clone(),
+            name: c.name.clone(),
+            handle: Some(c.handle.clone()),
+            paused: c.paused,
+            ..Default::default()
+        }
+    }).collect();
+    let state = AppState::get_or_init();
+    let channels = state.channels_ref();
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(async move {
+            let mut ch = channels.write().await;
+            *ch = v;
+        });
+    }
+}
+
+/// Persist seen IDs to disk (called periodically from main loop)
+#[allow(dead_code)]
+fn poller_flush_seen_ids() {
+    let seen_path = get_seen_videos_path();
+    let state = AppState::get_or_init();
+    let poller = state.poller.clone();
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(async move {
+            let ids = poller.seen_ids_snapshot().await;
+            let store = hyperclip_ipc::store::SeenVideos {
+                seen: ids.into_iter().collect(),
+            };
+            let _ = store.save(&seen_path);
+        });
+    }
 }
 
 
@@ -173,6 +471,18 @@ static CANCEL_TOKEN_MAP: OnceLock<Mutex<HashMap<String, CancellationToken>>> = O
 static WORKER_POOL: OnceLock<WorkerPool> = OnceLock::new();
 
 static RENDER_RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+
+static POLLER_RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+
+fn detection_events_store() -> &'static Mutex<VecDeque<DetectionEvent>> {
+    static STORE: OnceLock<Mutex<VecDeque<DetectionEvent>>> = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(VecDeque::new()))
+}
+
+/// Eagerly init POLLER_RT at startup so start_poller() never panics
+pub fn init_poller_runtime() {
+    POLLER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
+}
 
 
 
@@ -249,15 +559,76 @@ fn get_video_storage_path() -> PathBuf {
         .join("HyperClip/downloads")
 }
 
+/// Get or create a per-channel download subdirectory.
+/// Falls back to flat get_video_storage_path() if channel name is empty.
+fn ensure_channel_video_dir(channel_name: &str, channel_id: &str) -> PathBuf {
+    if channel_name.is_empty() && channel_id.is_empty() {
+        return get_video_storage_path();
+    }
+    let safe_name: String = channel_name
+        .chars()
+        .map(|c| match c { '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_', _ => c })
+        .take(100)
+        .collect();
+    let safe_name = if safe_name.trim().is_empty() { channel_id.to_string() } else { safe_name.trim().to_string() };
+    let dir = get_video_storage_path().join(&safe_name);
+    std::fs::create_dir_all(&dir).ok();
+    dir
+}
+
 #[allow(dead_code)]
 fn get_output_path() -> PathBuf {
     PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into()))
         .join("HyperClip/output")
 }
 
+/// Per-channel output subdirectory for rendered files.
+fn ensure_channel_output_dir_fn(channel_name: &str) -> PathBuf {
+    if channel_name.is_empty() {
+        return get_output_path();
+    }
+    let safe_name: String = channel_name
+        .chars()
+        .map(|c| match c { '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_', _ => c })
+        .take(100)
+        .collect();
+    let safe_name = if safe_name.trim().is_empty() { "unknown".to_string() } else { safe_name.trim().to_string() };
+    let dir = get_output_path().join(&safe_name);
+    std::fs::create_dir_all(&dir).ok();
+    dir
+}
+
 fn get_cookies_path() -> PathBuf {
     PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into()))
         .join("HyperClip/cookies.txt")
+}
+
+/// Extract cookies from Chrome Default profile → save to cookies.txt → feed Innertube pool.
+/// Returns the cookie string on success.
+fn extract_and_feed_cookies() -> Result<String, String> {
+    let profile_dir = get_chrome_user_data_dir().join("Default");
+    let result = extract_chrome_cookies(&profile_dir, "Default")
+        .map_err(|e| format!("Cookie extraction failed: {}", e))?;
+    let cookie_string = result.build_cookie_string();
+    let cookies_path = get_cookies_path();
+    if let Some(parent) = cookies_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&cookies_path, &cookie_string).map_err(|e| e.to_string())?;
+    AppState::get_or_init().pool.set_cookies(cookie_string.clone());
+    tracing::info!(
+        "[Cookies] Extracted {} cookies, {} bytes fed into pool (SAPISID: {})",
+        result.cookies.len(),
+        cookie_string.len(),
+        cookie_string.contains("SAPISID") || cookie_string.contains("__Secure-3PAPISID")
+    );
+    Ok(cookie_string)
+}
+
+/// Check whether cookies.txt exists and has content.
+fn cookies_file_has_content() -> bool {
+    let path = get_cookies_path();
+    path.exists() && std::fs::metadata(&path).map(|m| m.len() > 0).unwrap_or(false)
 }
 
 fn p(req: &Value, key: &str) -> Option<String> {
@@ -439,6 +810,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             });
             store.save(&ch_path).ok();
             tracing::info!("channel:add -> {}", id);
+            poller_sync_channels();
             Ok(json!({"ok": true, "id": id}))
         }
 
@@ -458,6 +830,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             let mut store = ChannelStore::load(&ch_path);
             store.remove(&id);
             store.save(&ch_path).ok();
+            poller_sync_channels();
             Ok(json!({"ok": true, "id": id}))
         }
 
@@ -466,7 +839,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             let ch_path = get_channels_path();
             let mut store = ChannelStore::load(&ch_path);
             match store.update(&id, &json!({"paused": true})) {
-                Ok(()) => { store.save(&ch_path).ok(); Ok(json!({"ok": true})) }
+                Ok(()) => { store.save(&ch_path).ok(); poller_sync_channels(); Ok(json!({"ok": true})) }
                 Err(e) => Ok(json!({"ok": false, "error": e})),
             }
         }
@@ -476,7 +849,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             let ch_path = get_channels_path();
             let mut store = ChannelStore::load(&ch_path);
             match store.update(&id, &json!({"paused": false})) {
-                Ok(()) => { store.save(&ch_path).ok(); Ok(json!({"ok": true})) }
+                Ok(()) => { store.save(&ch_path).ok(); poller_sync_channels(); Ok(json!({"ok": true})) }
                 Err(e) => Ok(json!({"ok": false, "error": e})),
             }
         }
@@ -494,6 +867,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                 }
             }
             if count > 0 { store.save(&ch_path).ok(); }
+            poller_sync_channels();
             Ok(json!({"ok": true, "count": count, "ids": ids}))
         }
 
@@ -510,6 +884,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                 }
             }
             if count > 0 { store.save(&ch_path).ok(); }
+            poller_sync_channels();
             Ok(json!({"ok": true, "count": count}))
         }
 
@@ -525,6 +900,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                 }
             }
             store.save(&ch_path).ok();
+            poller_sync_channels();
             Ok(json!({"ok": true, "count": count}))
         }
 
@@ -774,6 +1150,11 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     let rt = RENDER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
                     let rid = tid.clone();
                     let in_path = out_str.clone();
+                    let s_path2 = get_settings_path();
+                    let s_store2 = SettingsStore::load(&s_path2);
+                    let auto_speed2 = s_store2.settings.get("auto_render_speed").and_then(|v| v.as_f64()).unwrap_or(1.0);
+                    let auto_res2 = s_store2.settings.get("auto_render_resolution").and_then(|v| v.as_str()).unwrap_or("1080p").to_string();
+                    let auto_fps2 = s_store2.settings.get("auto_render_fps").and_then(|v| v.as_u64()).unwrap_or(30) as u32;
                     let out_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into())).join("HyperClip/output");
                     rt.spawn(async move {
                         let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
@@ -783,8 +1164,9 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                             workspace_id: rid.clone(),
                             input_path: PathBuf::from(&in_path),
                             output_path: out_dir.join(format!("{}.mp4", rid)),
-                            resolution: "1080p".into(),
-                            fps: 30, speed: 1.0,
+                            resolution: auto_res2,
+                            fps: auto_fps2,
+                            speed: auto_speed2,
                             trim_start: 0.0, trim_end: 60.0,
                             gpu_tier: get_gpu_config().tier,
                             preset: "p1".into(),
@@ -1067,10 +1449,25 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                 let input_path = match workspace.and_then(|w| w.downloaded_path.clone()) {
                     Some(path) => PathBuf::from(path),
                     None => {
-                        let vid_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into())).join("HyperClip/downloads");
-                        vid_dir.join(format!("{}.mp4", tid))
+                        let vid_dir = get_video_storage_path();
+                        let mut found = vid_dir.join(format!("{}.mp4", tid));
+                        // Also search per-channel subdirectories
+                        if !found.exists() {
+                            if let Ok(entries) = std::fs::read_dir(&vid_dir) {
+                                for entry in entries.flatten() {
+                                    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                                        let candidate = entry.path().join(format!("{}.mp4", tid));
+                                        if candidate.exists() { found = candidate; break; }
+                                    }
+                                }
+                            }
+                        }
+                        found
                     }
                 };
+                let ws_speed = store.workspaces.iter().find(|w| w.id == tid).map(|w| w.video_speed).unwrap_or(1.0);
+                let ws_trim_start = store.workspaces.iter().find(|w| w.id == tid).map(|w| w.trim_start).unwrap_or(0.0);
+                let ws_trim_end = store.workspaces.iter().find(|w| w.id == tid).map(|w| w.trim_end).unwrap_or(60.0);
                 let tid_for_progress = tid.clone();
                 let opts = RenderOptions {
                     workspace_id: tid_for_progress.clone(),
@@ -1078,9 +1475,9 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     output_path: out_dir.join(format!("{}.mp4", tid_for_progress)),
                     resolution: "1080p".into(),
                     fps: 30,
-                    speed: 1.0,
-                    trim_start: 0.0,
-                    trim_end: 60.0,
+                    speed: ws_speed,
+                    trim_start: ws_trim_start,
+                    trim_end: ws_trim_end,
                     gpu_tier: get_gpu_config().tier,
                     preset: "p1".into(),
                     filter_chain: FilterChain::Short,
@@ -1137,6 +1534,9 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             let chunk_duration = params.get("chunkDurationSec").and_then(|v| v.as_u64()).unwrap_or(120);
             let ws_path = get_workspaces_path();
             let store = WorkspaceStore::load(&ws_path);
+            let ws_speed = store.workspaces.iter().find(|w| w.id == id).map(|w| w.video_speed).unwrap_or(1.0);
+            let ws_trim_start = store.workspaces.iter().find(|w| w.id == id).map(|w| w.trim_start).unwrap_or(0.0);
+            let ws_trim_end = store.workspaces.iter().find(|w| w.id == id).map(|w| w.trim_end).unwrap_or(chunk_duration as f64);
             let workspace = store.workspaces.iter().find(|w| w.id == id);
             let input_path = match workspace.and_then(|w| w.downloaded_path.clone()) {
                 Some(path) => PathBuf::from(path),
@@ -1158,8 +1558,8 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     input_path,
                     output_path: out_path,
                     resolution: "1080p".into(),
-                    fps: 30, speed: 1.0,
-                    trim_start: 0.0, trim_end: chunk_duration as f64,
+                    fps: 30, speed: ws_speed,
+                    trim_start: ws_trim_start, trim_end: ws_trim_end,
                     gpu_tier: get_gpu_config().tier,
                     preset: "p1".into(),
                     filter_chain: FilterChain::Short,
@@ -1253,15 +1653,23 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
         // ─── Storage ────────────────────────────────────────────────
 
         "storage:getSize" => {
-            let video_dir = get_video_storage_path();
+            let base_dir = get_video_storage_path();
             let out_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into())).join("HyperClip/output");
-            let blur_dir = video_dir.join("blur");
-            let downloads = dir_size_internal(&video_dir);
+            let blur_dir = base_dir.join("blur");
+            let mut downloads = dir_size_internal(&base_dir);
+            // Also scan per-channel subdirectories
+            if let Ok(entries) = std::fs::read_dir(&base_dir) {
+                for entry in entries.flatten() {
+                    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                        downloads += dir_size_internal(&entry.path());
+                    }
+                }
+            }
             let blur_size = dir_size_internal(&blur_dir);
             let output = dir_size_internal(&out_dir);
             Ok(json!({
                 "downloads": downloads, "blur": blur_size, "total": downloads + output,
-                "downloadPath": video_dir.to_string_lossy().to_string(),
+                "downloadPath": base_dir.to_string_lossy().to_string(),
                 "outputPath": out_dir.to_string_lossy().to_string(),
             }))
         }
@@ -1269,12 +1677,32 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
         "storage:clearDownloads" => {
             let video_dir = get_video_storage_path();
             let mut freed = 0u64;
+            // Delete files in flat dir
             if let Ok(entries) = std::fs::read_dir(&video_dir) {
                 for entry in entries.flatten() {
                     if let Ok(meta) = entry.metadata() {
                         if meta.is_file() {
                             freed += meta.len();
                             std::fs::remove_file(entry.path()).ok();
+                        }
+                    }
+                }
+            }
+            // Delete files in per-channel subdirectories
+            if let Ok(entries) = std::fs::read_dir(&video_dir) {
+                for entry in entries.flatten() {
+                    if let Ok(file_type) = entry.file_type() {
+                        if file_type.is_dir() {
+                            if let Ok(sub_entries) = std::fs::read_dir(entry.path()) {
+                                for sub in sub_entries.flatten() {
+                                    if let Ok(meta) = sub.metadata() {
+                                        if meta.is_file() {
+                                            freed += meta.len();
+                                            std::fs::remove_file(sub.path()).ok();
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1380,10 +1808,36 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
         }
 
         "auth:startOAuth" => {
-            Ok(json!({"isReady": false, "cookieCount": 0, "loggedOut": true, "accountName": "", "oauthReady": false}))
+            match extract_and_feed_cookies() {
+                Ok(cookie_string) => {
+                    let sapisid = cookie_string.contains("SAPISID") || cookie_string.contains("__Secure-3PAPISID");
+                    let cookie_count = cookie_string.matches(';').count() + 1;
+                    Ok(json!({
+                        "isReady": sapisid,
+                        "cookieCount": cookie_count,
+                        "loggedOut": !sapisid,
+                        "accountName": "Default",
+                        "oauthReady": false,
+                        "cookieCritical": false,
+                    }))
+                }
+                Err(e) => {
+                    tracing::error!("[auth:startOAuth] {}", e);
+                    Ok(json!({
+                        "isReady": false, "cookieCount": 0, "loggedOut": true,
+                        "accountName": "", "oauthReady": false,
+                        "cookieCritical": true, "cookieError": e,
+                    }))
+                }
+            }
         }
 
-        "auth:startChromeLogin" => Ok(json!({"success": false, "profileId": ""})),
+        "auth:startChromeLogin" => {
+            match extract_and_feed_cookies() {
+                Ok(_) => Ok(json!({"success": true, "profileId": "Default"})),
+                Err(e) => Ok(json!({"success": false, "profileId": "", "error": e})),
+            }
+        }
 
         "auth:setCredentials" => Ok(json!({"success": true})),
 
@@ -1460,16 +1914,83 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
         // ─── Chrome sessions ────────────────────────────────────────
 
         "session:status" => {
-            Ok(json!({"ready": false, "sessionCount": 0, "loggedInCount": 0, "consentedCount": 0, "sessions": []}))
+            let has_cookies = cookies_file_has_content();
+            let sapisid_ok = has_cookies && {
+                let c = std::fs::read_to_string(get_cookies_path()).unwrap_or_default();
+                c.contains("SAPISID") || c.contains("__Secure-3PAPISID")
+            };
+            let pool_size = AppState::get_or_init().pool.size() as u64;
+            let ready_ok = AppState::get_or_init().pool.ready_count() > 0 && sapisid_ok;
+            let session_count = pool_size;
+            let logged_in = if sapisid_ok { pool_size } else { 0u64 };
+            let consented = if sapisid_ok { pool_size } else { 0u64 };
+
+            // Build 30 session entries matching SessionListModel expectations
+            let sessions: Vec<Value> = (1..=session_count.min(30) as u64).map(|i| {
+                let profile_id = format!("HyperClip-Profile-{}", i);
+                json!({
+                    "profileId": profile_id,
+                    "profileName": format!("Profile {}", i),
+                    "isLoggedIn": sapisid_ok,
+                    "isConsented": sapisid_ok,
+                    "usedToday": 0i64,
+                    "lastUsed": 0i64,
+                    "error": "",
+                    "refreshFailCount": 0u64,
+                    "hasCookies": sapisid_ok,
+                })
+            }).collect();
+
+            let health_pct = if sapisid_ok { 100u64 } else { 0u64 };
+            Ok(json!({
+                "ready": ready_ok,
+                "sessionCount": session_count,
+                "loggedInCount": logged_in,
+                "consentedCount": consented,
+                "sessions": sessions,
+                "health": {
+                    "healthPct": health_pct,
+                    "degradedCount": 0u64,
+                    "staleCount": 0u64,
+                    "oldestCookieAgeHours": 0u64,
+                    "level": if sapisid_ok { "healthy" } else { "critical" },
+                },
+            }))
         }
 
-        "session:refreshAll" => Ok(json!({"success": true, "refreshedCount": 0})),
+        "session:refreshAll" => {
+            match extract_and_feed_cookies() {
+                Ok(_) => Ok(json!({"success": true, "refreshedCount": 30})),
+                Err(e) => {
+                    tracing::error!("[session:refreshAll] {}", e);
+                    Ok(json!({"success": false, "refreshedCount": 0, "error": e}))
+                }
+            }
+        }
 
-        "session:openLogin" => Ok(json!({"success": true})),
+        "session:openLogin" => {
+            let _profile = p(params, "profileId").unwrap_or_else(|| "Default".to_string());
+            match extract_and_feed_cookies() {
+                Ok(_) => Ok(json!({"success": true, "profileId": _profile})),
+                Err(e) => Ok(json!({"success": false, "error": e})),
+            }
+        }
 
-        "session:cloneOne" => Ok(json!({"success": true, "clonedCount": 0})),
+        "session:cloneOne" => {
+            // Clone from Default Chrome profile into pool
+            match extract_and_feed_cookies() {
+                Ok(_) => Ok(json!({"success": true, "clonedCount": 30})),
+                Err(e) => Ok(json!({"success": false, "error": e})),
+            }
+        }
 
-        "session:add" => Ok(json!({"success": true, "profileId": ""})),
+        "session:add" => {
+            // Add = create fresh session (just re-extract cookies)
+            match extract_and_feed_cookies() {
+                Ok(_) => Ok(json!({"success": true, "profileId": "Default"})),
+                Err(e) => Ok(json!({"success": false, "error": e})),
+            }
+        }
 
 
 
@@ -1592,9 +2113,24 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
 
                 "suspendedSessions": state.pool_suspended_count(),
 
-                "channelsTotal": state.channels_total()
+                "channelsTotal": state.channels_total(),
+
+                "lastDetectionLatencyMs": state.last_detection_latency(),
+
+                "detectionsToday": state.detections_today(),
+
+                "averageLatencyMs": state.average_latency(),
+
+                "slaPercent": state.sla_percent(),
 
             }))
+
+        }
+
+        "detection:history" => {
+
+            let state = AppState::get_or_init();
+            Ok(json!({ "events": state.detection_events() }))
 
         }
 
@@ -1752,19 +2288,13 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
 
         "hardware:profile" => {
             let stats = get_system_stats();
-            let gpu_config = get_gpu_config();
             Ok(json!({
                 "detected": {
-                    "vramGB": gpu_config.max_workers as u32,
+                    "vramGB": stats.vram_total_gb,
                     "ramGB": (stats.ram_total / (1024 * 1024 * 1024)) as u32,
                     "gpuName": stats.gpu_name,
                 },
-                "presets": [
-                    {"label": "Balanced", "maxWorkers": gpu_config.max_workers, "poolSize": 15},
-                    {"label": "Performance", "maxWorkers": gpu_config.max_workers * 2, "poolSize": 30},
-                    {"label": "Eco", "maxWorkers": 1, "poolSize": 5},
-                ],
-                "active": "Balanced",
+                "active": "low",
             }))
         }
 

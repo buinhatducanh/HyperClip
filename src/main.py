@@ -1,13 +1,13 @@
 # src/main.py
 import sys
 import os
+os.environ["QT_QUICK_CONTROLS_STYLE"] = "Fusion"
 from PySide6.QtCore import QTimer, QUrl
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtGui import QGuiApplication
 from src.backend.events import get_event_bus
 from src.backend.client import get_client
 from src.models.workspace_model import WorkspaceModel
-from src.models.channel_model import ChannelModel
 from src.models.system_stats_model import SystemStatsModel
 from src.models.settings_model import SettingsModel
 from src.models.activity_log_model import ActivityLogModel
@@ -19,6 +19,7 @@ from src.models.session_list_model import SessionListModel
 from src.models.project_list_model import ProjectListModel
 from src.models.key_list_model import KeyListModel
 from src.models.rendered_video_list_model import RenderedVideoListModel
+from src.models.detection_history_model import DetectionHistoryModel
 from src.services.video_player import VideoPlayer
 from src.services.thumbnail_qobject import ThumbnailService
 
@@ -32,7 +33,6 @@ def main():
 
     # ─── Models ───────────────────────────────────────────────────
     workspace_model = WorkspaceModel()
-    channel_model = ChannelModel()
     channel_list_model = ChannelListModel()
     stats_model = SystemStatsModel()
     settings_model = SettingsModel()
@@ -44,6 +44,7 @@ def main():
     project_model = ProjectListModel()
     key_model = KeyListModel()
     rendered_model = RenderedVideoListModel()
+    detection_history_model = DetectionHistoryModel()
     video_player = VideoPlayer()
     thumbnail_service = ThumbnailService()
 
@@ -52,7 +53,6 @@ def main():
     ctx.setContextProperty("eventBus", bus)
     ctx.setContextProperty("backend", client)  # direct backend access
     ctx.setContextProperty("workspaceModel", workspace_model)
-    ctx.setContextProperty("channelModel", channel_model)
     ctx.setContextProperty("channelListModel", channel_list_model)
     ctx.setContextProperty("statsModel", stats_model)
     ctx.setContextProperty("settings", settings_model)
@@ -64,6 +64,7 @@ def main():
     ctx.setContextProperty("projectModel", project_model)
     ctx.setContextProperty("keyModel", key_model)
     ctx.setContextProperty("renderedModel", rendered_model)
+    ctx.setContextProperty("detectionHistory", detection_history_model)
     ctx.setContextProperty("player", video_player)
     ctx.setContextProperty("thumbnailService", thumbnail_service)
 
@@ -74,15 +75,35 @@ def main():
             client=None,  # avoid echo loop
         ) if d.get("field") else workspace_model.update_workspace(d.get("id", ""), d)
     ))
+    # Track download status changes for detection history
+    bus.workspace_updated.connect(lambda d: (
+        detection_history_model.update_download_status(d.get("id", ""), d.get("status", "")),
+    ) if not d.get("field") else None)
+    # Track download completion results (size, resolution)
+    bus.workspace_updated.connect(lambda d: (
+        detection_history_model.update_download_result(
+            d.get("id", ""), d.get("downloadedSize", 0),
+            d.get("width", 0), d.get("height", 0),
+        ),
+    ) if not d.get("field") and d.get("status") == "ready" and d.get("downloadedSize") else None)
     bus.render_progress.connect(lambda ws_id, prog: workspace_model.set_progress(ws_id, prog))
     bus.system_stats_updated.connect(lambda d: stats_model.update_from_dict(d))
     bus.new_video_detected.connect(lambda d: (
         workspace_model.add_workspace(d),
         activity_model.add_entry("auto", f"New video: {d.get('title', '?')}", "info"),
+        detection_history_model.add_detection(
+            d.get("id", ""),
+            d.get("videoId", ""),
+            d.get("title", ""),
+            d.get("channelName", ""),
+            d.get("publishedAt", 0),
+            d.get("detectedAt", 0),
+            d.get("durationSec", 0.0),
+            d.get("status", "waiting"),
+        ),
     ))
     bus.channel_synced.connect(lambda: (
         workspace_model.load_from_backend(client),
-        channel_model.load_from_backend(client),
         channel_list_model.load_from_backend(client),
         settings_model.load_from_backend(client),
         hw_profile_model.refresh_from_backend(client),
@@ -91,17 +112,38 @@ def main():
         rendered_model.load_from_backend(client),
     ))
 
-    # Periodic system:stats poll — 5s
+    # Wire notification signal → activity log
+    bus.notification.connect(lambda title, message: (
+        activity_model.add_entry("system", f"{title}: {message}", "info"),
+    ))
+
+    # Wire download progress → activity log
+    bus.download_progress.connect(lambda ws_id, percent, speed_mbps, eta_sec: (
+        activity_model.add_entry("download", f"Downloading {ws_id}: {percent:.0f}% @ {speed_mbps:.1f} MB/s", "info"),
+    ))
+
+    # Periodic system:stats poll — 5s via send_command_async (non-blocking)
     def poll_stats():
         if client:
-            client.send_command("system:stats", timeout=2.0)
+            client.send_command_async("system:stats")
 
     stats_timer = QTimer()
     stats_timer.setInterval(5000)
     stats_timer.timeout.connect(poll_stats)
     stats_timer.start()
 
-    # Periodic poller status refresh — 15s
+    # Auto-start poller once after UI is ready
+    def start_poller():
+        if client:
+            client.send_command_async("poller:start")
+            sys.stderr.write("[main] Poller auto-started\n")
+            # Refresh auth once poller is initialized (backend state is stable)
+            # This avoids the 15s wait for LoginScreen to dismiss
+            QTimer.singleShot(500, lambda: auth_model.refresh_from_backend(client))
+
+    QTimer.singleShot(1000, start_poller)
+
+    # Periodic poller status refresh — 15s via send_command_async
     def poll_poller():
         if client:
             poller_model.refresh_from_backend(client)
@@ -142,4 +184,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main() or 0)
-
