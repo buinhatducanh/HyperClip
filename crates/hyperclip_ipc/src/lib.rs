@@ -8,7 +8,10 @@ pub mod cookies;
 pub mod store;
 pub mod detection;
 
-pub use types::{BackendCommand, IpcRequest, IpcResponse};
+pub use types::{
+    BackendCommand, Channel, IpcRequest, IpcResponse, Settings, VideoInfo, Workspace,
+    WorkspaceStatus,
+};
 pub use system::*;
 pub use ffmpeg::*;
 pub use youtube::*;
