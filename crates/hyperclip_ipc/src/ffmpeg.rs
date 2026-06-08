@@ -15,9 +15,9 @@ pub fn build_short_filter_chain(
     canvas_w: u32,
     canvas_h: u32,
     header_h: u32,
-    bottom_bar_h: u32,
-    video_h: u32,
-    video_top: u32,
+    _bottom_bar_h: u32,
+    _video_h: u32,
+    _video_top: u32,
 ) -> String {
     // [0:v] fps=30 → setpts → trim → scale → crop
     let fps_tag = "fps=30,";
@@ -37,14 +37,14 @@ pub fn build_short_filter(
     canvas_w: u32,
     canvas_h: u32,
     header_h: u32,
-    bottom_bar_h: u32,
+    _bottom_bar_h: u32,
     use_cuda: bool,
 ) -> String {
     let scale = if use_cuda { "scale_cuda" } else { "scale" };
     let overlay = if use_cuda { "overlay_cuda" } else { "overlay" };
     let scale_flags = if use_cuda { "" } else { ":flags=lanczos" };
 
-    let video_h = canvas_h - header_h - bottom_bar_h;
+    let video_h = canvas_h - header_h - _bottom_bar_h;
     let video_top = header_h;
     let scaled_w = ((video_h as f64) * 16.0 / 9.0).round() as u32;
     let crop_x = ((scaled_w - canvas_w) / 2).max(0);
@@ -88,14 +88,14 @@ pub fn build_short_filter(
     );
 
     // Bottom bar at bottom
-    let bb_y = canvas_h - bottom_bar_h;
+    let bb_y = canvas_h - _bottom_bar_h;
     let bb_chain = format!(
         "[2:v]{}={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2[bb]",
         scale,
         canvas_w,
-        bottom_bar_h,
+        _bottom_bar_h,
         canvas_w,
-        bottom_bar_h
+        _bottom_bar_h
     );
     let vb_chain = format!(
         "[vz][bb]{}=0:{} [vb]",
@@ -280,9 +280,9 @@ pub fn spawn_render(
     codec: EncodeCodec,
     crf: u32,
     preset: &str,
-    maxrate: &str,
-    bufsize: &str,
-    progress_callback: impl Fn(f64) + Send + 'static,
+    _maxrate: &str,
+    _bufsize: &str,
+    _progress_callback: impl Fn(f64) + Send + 'static,
 ) -> std::process::Child {
     let codec_name = nvenc_codec_name(codec);
     let cmd_args = vec![

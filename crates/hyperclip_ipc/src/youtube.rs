@@ -99,7 +99,7 @@ pub fn probe_formats(url: &str, cookies_path: &str) -> Result<Vec<u32>, String> 
     let data: serde_json::Value = serde_json::from_str(&json_str)
         .map_err(|e| e.to_string())?;
 
-    let mut heights: Vec<u32> = data
+    let heights: Vec<u32> = data
         .get("formats")
         .and_then(|f| f.as_array())
         .map(|arr| {
