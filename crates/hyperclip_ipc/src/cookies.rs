@@ -51,22 +51,20 @@ pub fn extract_chrome_cookies(
     profile_dir: &std::path::Path,
     profile_name: &str,
 ) -> Result<CookieExtractionResult> {
-    let cookies_db = profile_dir.join("Network/Cookies");
-    if !cookies_db.exists() {
-        // Also try legacy path (older Chrome versions)
-        let legacy_db = profile_dir.join("Cookies");
-        if !legacy_db.exists() {
-            return Err(HyperclipError::ProfileNotFound(
-                cookies_db.display().to_string()
-            ));
-        }
-        // parse with legacy path
-        let raw = parse_cookies_file(&legacy_db, "youtube.com")?;
-        return build_result(raw, profile_name);
-    }
+    let new_path = profile_dir.join("Network").join("Cookies");
+    let legacy_path = profile_dir.join("Cookies");
 
-    let raw = parse_cookies_file(&cookies_db, "youtube.com")?;
-    build_result(raw, profile_name)
+    if new_path.exists() {
+        let raw = parse_cookies_file(&new_path, "youtube.com")?;
+        build_result(raw, profile_name)
+    } else if legacy_path.exists() {
+        let raw = parse_cookies_file(&legacy_path, "youtube.com")?;
+        build_result(raw, profile_name)
+    } else {
+        Err(HyperclipError::ProfileNotFound(
+            format!("{:?} or {:?}", new_path, legacy_path)
+        ))
+    }
 }
 
 fn build_result(raw_cookies: Vec<crate::cookies_sqlite::RawCookie>, profile_name: &str) -> Result<CookieExtractionResult> {

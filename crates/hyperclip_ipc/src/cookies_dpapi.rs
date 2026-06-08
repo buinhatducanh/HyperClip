@@ -53,7 +53,7 @@ pub fn decrypt_chrome_v10(encrypted: &[u8]) -> Result<Vec<u8>> {
 
         if result == 0 {
             return Err(HyperclipError::DatabaseCorruption(
-                "DPAPI decryption failed, error code: {error}".into()
+                format!("DPAPI decryption failed")
             ));
         }
 

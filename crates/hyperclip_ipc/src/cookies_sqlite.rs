@@ -39,8 +39,9 @@ pub fn parse_cookies_file(db_path: &Path, domain_filter: &str) -> Result<Vec<Raw
     ).map_err(HyperclipError::Sqlite)?;
 
     let pattern1 = format!("%{}", domain_filter);
+    let pattern2 = format!(".{}", domain_filter);
 
-    let cookies = stmt.query_map([&pattern1], |row| {
+    let cookies = stmt.query_map([&pattern1, &pattern2], |row| {
         Ok(RawCookie {
             name: row.get(0)?,
             value: row.get(1)?,
