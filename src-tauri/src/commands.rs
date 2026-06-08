@@ -9,7 +9,6 @@ use hyperclip_ipc::poller::Poller;
 use hyperclip_ipc::ffmpeg::{spawn_render_async, RenderOptions, FilterChain};
 
 use hyperclip_ipc::youtube::{download_video, download_video_streaming, emit_download_progress};
-use hyperclip_ipc::download_progress::DownloadProgress;
 
 
 use hyperclip_ipc::worker_pool::WorkerPool;
@@ -42,7 +41,7 @@ struct AppState {
 
     poller_cancel: CancellationToken,
 
-    channels: Arc<RwLock<Vec<Channel>>>,
+    _channels: Arc<RwLock<Vec<Channel>>>,
 
     pool: Arc<InnertubeClientPool>,
 
@@ -80,7 +79,7 @@ impl AppState {
 
                 poller_cancel: CancellationToken::new(),
 
-                channels,
+                _channels: channels,
 
                 pool,
 
@@ -166,7 +165,9 @@ static RENDER_RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
 
 
+#[allow(unused_imports)]
 pub use hyperclip_ipc::IpcRequest as PubBackendCommand;
+
 
 
 
@@ -237,6 +238,7 @@ fn get_video_storage_path() -> PathBuf {
         .join("HyperClip/downloads")
 }
 
+#[allow(dead_code)]
 fn get_output_path() -> PathBuf {
     PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into()))
         .join("HyperClip/output")
@@ -253,6 +255,7 @@ fn p(req: &Value, key: &str) -> Option<String> {
 
 }
 
+#[allow(dead_code)]
 fn p_u64(req: &Value, key: &str) -> Option<u64> {
     req.get(key).and_then(|v| v.as_u64())
 }
@@ -492,6 +495,37 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     let s = serde_json::to_string(&event).unwrap();
                     let _ = writeln!(io::stdout(), "{}", s);
                     let _ = io::stdout().flush();
+
+                    // Auto-render after successful download
+                    let rt = RENDER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
+                    let rid = tid.clone();
+                    let in_path = out_str.clone();
+                    let out_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into())).join("HyperClip/output");
+                    rt.spawn(async move {
+                        let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
+                        let _permit = pool.acquire().await;
+                        std::fs::create_dir_all(&out_dir).ok();
+                        let opts = RenderOptions {
+                            workspace_id: rid.clone(),
+                            input_path: PathBuf::from(&in_path),
+                            output_path: out_dir.join(format!("{}.mp4", rid)),
+                            resolution: "1080p".into(),
+                            fps: 30, speed: 1.0,
+                            trim_start: 0.0, trim_end: 60.0,
+                            gpu_tier: get_gpu_config().tier,
+                            preset: "p1".into(),
+                            filter_chain: FilterChain::Short,
+                            chunked: false, chunk_duration_sec: 120,
+                        };
+                        let pid = rid.clone();
+                        let result = spawn_render_async(opts, move |progress| {
+                            let e = json!({"method": "render:progress", "params": {"id": pid, "progress": progress}});
+                            let _ = writeln!(io::stdout(), "{}", serde_json::to_string(&e).unwrap());
+                            let _ = io::stdout().flush();
+                        }).await;
+                        emit_workspace_event(&rid, if result.is_ok() { "done" } else { "error" },
+                            result.as_ref().err().map(|e| e.to_string()));
+                    });
                 })
                 .unwrap_or_else(|e| {
                     tracing::error!("workspace:autoDownload failed for {}: {}", tid, e);
@@ -525,6 +559,36 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     emit_workspace_event(&tid, "ready", None);
                     tracing::info!("redownloadHd complete: {} ({}x{}, {} bytes)",
                         tid, result.width, result.height, result.file_size);
+                    // Auto-render after redownload
+                    let rt = RENDER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
+                    let rid = tid.clone();
+                    let in_path = out_str.clone();
+                    let out_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into())).join("HyperClip/output");
+                    rt.spawn(async move {
+                        let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
+                        let _permit = pool.acquire().await;
+                        std::fs::create_dir_all(&out_dir).ok();
+                        let opts = RenderOptions {
+                            workspace_id: rid.clone(),
+                            input_path: PathBuf::from(&in_path),
+                            output_path: out_dir.join(format!("{}.mp4", rid)),
+                            resolution: "1080p".into(),
+                            fps: 30, speed: 1.0,
+                            trim_start: 0.0, trim_end: 60.0,
+                            gpu_tier: get_gpu_config().tier,
+                            preset: "p1".into(),
+                            filter_chain: FilterChain::Short,
+                            chunked: false, chunk_duration_sec: 120,
+                        };
+                        let pid = rid.clone();
+                        let result = spawn_render_async(opts, move |progress| {
+                            let e = json!({"method": "render:progress", "params": {"id": pid, "progress": progress}});
+                            let _ = writeln!(io::stdout(), "{}", serde_json::to_string(&e).unwrap());
+                            let _ = io::stdout().flush();
+                        }).await;
+                        emit_workspace_event(&rid, if result.is_ok() { "done" } else { "error" },
+                            result.as_ref().err().map(|e| e.to_string()));
+                    });
                 })
                 .unwrap_or_else(|e| {
                     emit_workspace_event(&tid, "error", Some(e));
