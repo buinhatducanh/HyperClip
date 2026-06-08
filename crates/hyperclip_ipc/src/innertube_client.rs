@@ -26,6 +26,7 @@ impl Default for ClientConfig {
     }
 }
 
+#[derive(Debug)]
 pub struct InnertubeClient {
     config: ClientConfig,
 }

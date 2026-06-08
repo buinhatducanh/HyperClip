@@ -81,3 +81,34 @@ class SessionListModel(QAbstractListModel):
     def clone_one(self, backend):
         if not backend: return
         backend.send_command("session:cloneOne")
+
+    def extract_all_sessions(self, backend):
+        """Trigger cookie extraction for all 30 Chrome profiles.
+
+        Args:
+            backend: RustClient instance
+
+        Returns:
+            List of results dicts per profile
+        """
+        results = []
+        for i in range(1, 31):
+            profile_name = f"HyperClip-Chrome-Profile-{i}"
+            response = backend.send_command(
+                "auth:extractCookies",
+                {"profile_name": profile_name},
+                timeout=15.0,
+            )
+            if response and response.get("ok") is not False:
+                data = response.get("data", response)
+                cookies = data.get("cookies", []) if isinstance(data, dict) else []
+                results.append({
+                    "profile": profile_name,
+                    "ok": True,
+                    "cookie_count": len(cookies),
+                    "has_sapisid": any(c.get("name") == "SAPISID" for c in cookies) if isinstance(cookies, list) else False,
+                })
+            else:
+                error = response.get("error", "unknown") if isinstance(response, dict) else "unknown"
+                results.append({"profile": profile_name, "ok": False, "error": error})
+        return results

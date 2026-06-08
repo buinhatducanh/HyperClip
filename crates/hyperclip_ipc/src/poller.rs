@@ -62,13 +62,98 @@ impl Poller {
         }
     }
 
+    /// Poll all non-paused channels and check for new videos.
+    /// For each channel: acquire a session from the pool, call
+    /// InnertubeClient::get_latest_videos(), filter by age and seen-IDs,
+    /// then log the qualifying videos.
     async fn poll_once(&self) -> Result<()> {
+        let now_ms = chrono::Utc::now().timestamp_millis();
         let channels = self.channels.read().await.clone();
-        for _channel in channels.iter().filter(|c| !c.paused).take(50) {
-            if self.pool.get_ready_session().is_none() {
-                break;
+        let active_channels: Vec<_> = channels.iter().filter(|c| !c.paused).collect();
+
+        for channel in active_channels.iter().take(50) {
+            // Get a ready session from the pool
+            let session_idx = match self.pool.acquire_session() {
+                Some(idx) => idx,
+                None => {
+                    tracing::warn!(
+                        "No ready Innertube session for channel {} - pool exhausted",
+                        channel.id
+                    );
+                    break;
+                }
+            };
+
+            // Get client + cookie (both owned so we can hold them across await points)
+            let client_and_cookie = match self.pool.take_client_for_session(session_idx) {
+                Some(v) => v,
+                None => {
+                    tracing::warn!(
+                        "No client available for session {} on channel {}",
+                        session_idx,
+                        channel.id
+                    );
+                    continue;
+                }
+            };
+
+            // Call Innertube API
+            match client_and_cookie
+                .client
+                .get_latest_videos(&channel.id, &client_and_cookie.cookie)
+                .await
+            {
+                Ok(videos) => {
+                    let seen_ids = self.seen_ids.read().await;
+                    for video in videos.iter().take(self.max_videos_per_poll) {
+                        // Skip if already seen
+                        if seen_ids.contains(&video.video_id) {
+                            tracing::trace!(
+                                "Skipping already-seen video {} on channel {}",
+                                video.video_id,
+                                channel.id
+                            );
+                            continue;
+                        }
+
+                        // Age filter: must be published within the last 10 minutes
+                        if !Self::is_within_age_limit(video.published_at, now_ms) {
+                            tracing::trace!(
+                                "Skipping old video {} (published {} vs now {})",
+                                video.video_id,
+                                video.published_at,
+                                now_ms
+                            );
+                            continue;
+                        }
+
+                        // Mark as seen
+                        let mut seen_ids_mut = self.seen_ids.write().await;
+                        seen_ids_mut.insert(video.video_id.clone());
+                        drop(seen_ids_mut);
+
+                        tracing::info!(
+                            "NEW VIDEO [channel={}] [id={}] [title=\"{}\"] [publishedAt={}] [duration={:.0}s]",
+                            channel.id,
+                            video.video_id,
+                            video.title,
+                            video.published_at,
+                            video.duration_sec,
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "InnertubeClient error for channel {} (session {}): {}",
+                        channel.id,
+                        session_idx,
+                        e
+                    );
+                    self.pool.mark_failed(session_idx);
+                }
             }
         }
+
         Ok(())
     }
 }

@@ -142,7 +142,13 @@ class RustClient:
                 bus.system_stats_updated.emit(params)
             elif method == "notification":
                 bus.notification.emit(params.get("title", ""), params.get("message", ""))
-            elif method == "newVideoDetected":
+            elif method == "download:progress-event":
+                bus.download_progress.emit(
+                    params.get("workspace_id", ""),
+                    params.get("percent", 0.0),
+                    params.get("speed_mbps", 0.0),
+                    params.get("eta_sec", 0),
+                )
                 bus.new_video_detected.emit(params)
             elif method == "poller:status":
                 bus.poller_status_changed.emit(params)

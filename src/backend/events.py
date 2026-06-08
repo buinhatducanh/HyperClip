@@ -10,6 +10,7 @@ class EventBus(QObject):
     new_video_detected = Signal(dict)
     poller_status_changed = Signal(dict)
     channel_synced = Signal()
+    download_progress = Signal(str, float, float, int)  # workspace_id, percent, speed_mbps, eta_sec
 
 _event_bus: Optional[EventBus] = None
 _keepalive_refs: list = []
