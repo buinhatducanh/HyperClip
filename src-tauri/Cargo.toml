@@ -10,3 +10,5 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1", features = ["rt", "sync", "macros"] }
+tokio-util = "0.7"

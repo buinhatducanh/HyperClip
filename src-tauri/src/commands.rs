@@ -1,6 +1,74 @@
 use hyperclip_ipc::{get_system_stats, ChannelStore, WorkspaceStore, get_workspaces_path, get_channels_path};
 use hyperclip_ipc::cookies::{extract_chrome_cookies, get_chrome_user_data_dir};
+use hyperclip_ipc::innertube_pool::{InnertubeClientPool, PoolConfig};
+use hyperclip_ipc::poller::Poller;
+use hyperclip_ipc::Channel;
 use serde_json::{json, Value};
+use std::sync::Arc;
+use std::sync::OnceLock;
+use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
+
+struct AppState {
+    poller: Arc<Poller>,
+    poller_cancel: CancellationToken,
+    channels: Arc<RwLock<Vec<Channel>>>,
+    pool: Arc<InnertubeClientPool>,
+}
+
+impl AppState {
+    fn get_or_init() -> &'static AppState {
+        static INSTANCE: OnceLock<AppState> = OnceLock::new();
+        let _ = INSTANCE.get_or_init(|| {
+            let pool_config = PoolConfig::default();
+            let pool = Arc::new(InnertubeClientPool::initialize(pool_config).unwrap());
+            let channels = Arc::new(RwLock::new(Vec::new()));
+            let poller = Arc::new(Poller::new(
+                pool.clone(),
+                channels.clone(),
+                5000,
+            ));
+            AppState {
+                poller,
+                poller_cancel: CancellationToken::new(),
+                channels,
+                pool,
+            }
+        });
+        INSTANCE.get().unwrap()
+    }
+
+    fn start_poller(&self) {
+        if self.poller_cancel.is_cancelled() {
+            // Cannot reassign, so just start new if not cancelled (or handle differently)
+        }
+        let poller = self.poller.clone();
+        let cancel = self.poller_cancel.clone();
+        tokio::spawn(async move {
+            poller.run(cancel).await;
+        });
+    }
+
+    fn stop_poller(&self) {
+        self.poller_cancel.cancel();
+    }
+
+    fn poller_active(&self) -> bool {
+        !self.poller_cancel.is_cancelled()
+    }
+
+    fn pool_ready_count(&self) -> usize {
+        self.pool.ready_count()
+    }
+
+    fn pool_suspended_count(&self) -> usize {
+        self.pool.suspended_count()
+    }
+
+    fn channels_total(&self) -> usize {
+        0 // TODO: implement from channels RwLock
+    }
+}
 
 pub use hyperclip_ipc::IpcRequest as PubBackendCommand;
 
@@ -166,7 +234,28 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
 
         // ─── Poller ─────────────────────────────────────────────────
         "poller:status" => Ok(json!({ "active": false, "pollIntervalMs": 5000, "lastPollAt": null, "newVideoCount": 0, "lastError": null, "exhaustedUntil": null })),
-        "poller:resume" => Ok(json!({ "success": true })),
+        "poller:start" => {
+            AppState::get_or_init().start_poller();
+            Ok(json!({ "ok": true, "active": true }))
+        }
+        "poller:stop" => {
+            AppState::get_or_init().stop_poller();
+            Ok(json!({ "ok": true, "active": false }))
+        }
+        "poller:status" => {
+            let state = AppState::get_or_init();
+            Ok(json!({
+                "active": state.poller_active(),
+                "pollIntervalMs": 5000,
+                "readySessions": state.pool_ready_count(),
+                "suspendedSessions": state.pool_suspended_count(),
+                "channelsTotal": state.channels_total()
+            }))
+        }
+        "poller:resume" => {
+            AppState::get_or_init().start_poller();
+            Ok(json!({ "success": true }))
+        }
 
         // ─── Resource alerts ────────────────────────────────────────
         "resource:alert" => Ok(json!({ "level": "ok" })),
