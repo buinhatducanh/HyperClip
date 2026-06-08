@@ -14,6 +14,13 @@ fn main() {
         .init();
     tracing::info!("hyperclip backend started");
 
+    // Initialize WorkerPool from GPU config
+    let gpu_config = hyperclip_ipc::system::get_gpu_config();
+    tracing::info!(
+        "[GPU] {} — max_workers={} tier={:?}",
+        gpu_config.label, gpu_config.max_workers, gpu_config.tier
+    );
+
     // Emit initial system:stats + channel:synced events
     let stats = commands::handle_command(hyperclip_ipc::IpcRequest {
         id: 0, command: "system:stats".into(), params: serde_json::json!({}),
