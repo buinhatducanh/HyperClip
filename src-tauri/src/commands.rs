@@ -60,7 +60,18 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
         // ─── Workspaces ─────────────────────────────────────────────
         "workspace:list" => Ok(load_workspaces()),
         "workspace:add" => { let url = p(params, "url").unwrap_or_default(); tracing::info!("workspace:add {}", url); Ok(json!({ "ok": true, "id": format!("ws-{}", chrono::Utc::now().timestamp_millis()) })) }
-        "workspace:update" => Ok(json!({ "ok": true })),
+        "workspace:update" => {
+            let id = p(params, "id").unwrap_or_default();
+            let field = p(params, "field").unwrap_or_default();
+            let value = params.get("value").cloned().unwrap_or(Value::Null);
+
+            let allowed: [&str; 5] = ["title", "speed", "trimStart", "trimEnd", "thumbnail"];
+            if allowed.contains(&field.as_str()) {
+                Ok(json!({"ok": true, "field": field, "value": value}))
+            } else {
+                Ok(json!({"ok": false, "error": format!("invalid field: {}", field)}))
+            }
+        }
         "workspace:delete" => { let id = p(params, "id").unwrap_or_default(); tracing::info!("workspace:delete {}", id); Ok(json!({ "success": true, "bytesFreed": 0, "filesDeleted": 0 })) }
         "workspace:retry" => Ok(json!({ "ok": true })),
         "workspace:redownloadHd" => Ok(json!({ "success": true })),
@@ -194,12 +205,10 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
 
 fn load_workspaces() -> Value {
     let store = WorkspaceStore::load(&get_workspaces_path());
-    let workspaces: Vec<&hyperclip_ipc::Workspace> = store.workspaces.iter().collect();
-    json!({ "workspaces": workspaces })
+    json!({ "workspaces": store.workspaces })
 }
 
 fn load_channels() -> Value {
     let store = ChannelStore::load(&get_channels_path());
-    let channels: Vec<&hyperclip_ipc::Channel> = store.channels.iter().collect();
-    json!({ "channels": channels })
+    json!({ "channels": store.channels })
 }
