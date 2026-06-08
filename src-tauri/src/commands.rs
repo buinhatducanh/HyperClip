@@ -1,4 +1,5 @@
 use hyperclip_ipc::{get_system_stats, ChannelStore, WorkspaceStore, get_workspaces_path, get_channels_path};
+use hyperclip_ipc::cookies::{extract_chrome_cookies, get_chrome_user_data_dir};
 use serde_json::{json, Value};
 
 pub use hyperclip_ipc::IpcRequest as PubBackendCommand;
@@ -98,6 +99,27 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
 
         // ─── Auth ───────────────────────────────────────────────────
         "auth:status" => Ok(json!({ "isReady": false, "cookieCount": 0, "loggedOut": true, "accountName": "", "oauthReady": false })),
+        "auth:extractCookies" => {
+            let profile_name = p(params, "profile_name").unwrap_or_else(|| "Default".to_string());
+            let profile_dir = get_chrome_user_data_dir().join(&profile_name);
+
+            match extract_chrome_cookies(&profile_dir, &profile_name) {
+                Ok(result) => Ok(json!({
+                    "ok": true,
+                    "data": {
+                        "cookies": result.cookies,
+                        "profile_name": result.profile_name,
+                        "domain": result.domain,
+                        "socs_value": result.socs_value,
+                    }
+                })),
+                Err(e) => Ok(json!({
+                    "ok": false,
+                    "error_code": format!("{:?}", e).split('(').next().unwrap_or("Unknown"),
+                    "error": e.to_string(),
+                })),
+            }
+        }
         "auth:logout" => Ok(json!({ "success": true })),
         "auth:startOAuth" => Ok(json!({ "isReady": false, "cookieCount": 0, "loggedOut": true, "accountName": "", "oauthReady": false })),
         "auth:startChromeLogin" => Ok(json!({ "success": false, "profileId": "" })),
