@@ -10,6 +10,9 @@ pub mod cookies_dpapi;
 pub mod cookies_sqlite;
 pub mod store;
 pub mod detection;
+pub mod innertube_client;
+pub mod innertube_pool;
+pub mod poller;
 
 pub use error::HyperclipError;
 pub use types::{
