@@ -16,7 +16,10 @@ pub mod innertube_client;
 pub mod innertube_pool;
 pub mod poller;
 
+pub mod worker_pool;
+
 pub use error::HyperclipError;
+pub use worker_pool::WorkerPool;
 pub use types::{
     BackendCommand, Channel, IpcRequest, IpcResponse, Settings, VideoInfo, Workspace,
     WorkspaceStatus,
