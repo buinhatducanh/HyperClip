@@ -124,6 +124,52 @@ pub fn build_short_filter(
     )
 }
 
+/// CUDA-accelerated filter for SHORT (9:16) layout
+pub fn build_short_filter_cuda(
+    trim_start: f64,
+    trim_duration: f64,
+    canvas_w: u32,
+    canvas_h: u32,
+    header_h: u32,
+    bottom_bar_h: u32,
+) -> String {
+    let video_h = canvas_h - header_h - bottom_bar_h;
+    let video_top = header_h;
+    let scaled_w = ((video_h as f64) * 16.0 / 9.0).round() as u32;
+    let crop_x = ((scaled_w - canvas_w) / 2).max(0);
+
+    let trim_tag = if trim_start > 0.0 || trim_duration > 0.0 {
+        let end = if trim_duration > 0.0 { trim_start + trim_duration } else { 999.0 };
+        format!("trim=start={}:end={},setpts=PTS-STARTPTS,", trim_start, end)
+    } else {
+        String::new()
+    };
+    let video_chain = format!(
+        "[0:v]fps=30,{},setpts=PTS-STARTPTS,scale_cuda=-2:{},crop_cuda={}:{}:{}:0[vid]",
+        trim_tag, video_h, canvas_w, video_h, crop_x
+    );
+
+    let bg_chain = format!(
+        "[1:v]scale_cuda={}:{}:force_original_aspect_ratio=increase,crop_cuda={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1[bg]",
+        canvas_w, canvas_h, canvas_w, canvas_h
+    );
+
+    let vz_chain = format!("[bg][vid]overlay_cuda=0:{} [vz]", video_top);
+    let bb_y = canvas_h - bottom_bar_h;
+    let bb_chain = format!(
+        "[2:v]scale_cuda={}:{}:force_original_aspect_ratio=increase,crop_cuda={}:{}:(ow-iw)/2:(oh-ih)/2[bb]",
+        canvas_w, bottom_bar_h, canvas_w, bottom_bar_h
+    );
+    let vb_chain = format!("[vz][bb]overlay_cuda=0:{} [vb]", bb_y);
+    let hd_chain = format!(
+        "[3:v]scale_cuda={}:{}:force_original_aspect_ratio=increase,crop_cuda={}:{}:(ow-iw)/2:(oh-ih)/2[hd]",
+        canvas_w, header_h, canvas_w, header_h
+    );
+    let final_chain = format!("[vb][hd]overlay_cuda=0:0 [final]");
+
+    format!("{}; {}; {}; {}; {}; {}; {}", video_chain, bg_chain, vz_chain, bb_chain, vb_chain, hd_chain, final_chain)
+}
+
 /// Build filter complex for LANDSCAPE layout
 pub fn build_landscape_filter(
     trim_start: f64,
@@ -333,6 +379,7 @@ pub fn spawn_render(
 
 use crate::error::{HyperclipError, Result};
 use crate::render_progress::parse_ffmpeg_stderr;
+use crate::system::GPUTier;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command as TokioCommand;
 
@@ -340,6 +387,7 @@ use tokio::process::Command as TokioCommand;
 pub enum FilterChain { Short, Landscape }
 
 pub struct RenderOptions {
+    pub workspace_id: String,
     pub input_path: PathBuf,
     pub output_path: PathBuf,
     pub resolution: String,
@@ -359,41 +407,84 @@ pub async fn spawn_render_async<F>(
     mut on_progress: F,
 ) -> Result<PathBuf>
 where F: FnMut(f64) + Send + 'static {
+    let (canvas_w, canvas_h) = parse_resolution(&opts.resolution);
+    let (header_h, bottom_bar_h) = (canvas_h / 5, canvas_h / 10);
+    let use_cuda = matches!(opts.gpu_tier, GPUTier::High | GPUTier::Mid);
+
     let filter = match opts.filter_chain {
-        FilterChain::Short => build_short_filter(opts.trim_start, opts.trim_end - opts.trim_start, 1080, 1920, 200, 80, false),
-        FilterChain::Landscape => build_landscape_filter(opts.trim_start, opts.trim_end - opts.trim_start, 1920, 1080, 900, 0, false),
+        FilterChain::Short => {
+            if use_cuda {
+                build_short_filter_cuda(opts.trim_start, opts.trim_end - opts.trim_start, canvas_w, canvas_h, header_h, bottom_bar_h)
+            } else {
+                build_short_filter(opts.trim_start, opts.trim_end - opts.trim_start, canvas_w, canvas_h, header_h, bottom_bar_h, false)
+            }
+        }
+        FilterChain::Landscape => {
+            let video_h = canvas_h - header_h - bottom_bar_h;
+            build_landscape_filter(opts.trim_start, opts.trim_end - opts.trim_start, canvas_w, canvas_h, video_h, 0, use_cuda)
+        }
     };
 
-    let codec = nvenc_codec_name(EncodeCodec::H264);
-    let crf = 18u32;
+    let codec = match opts.gpu_tier {
+        GPUTier::High => "hevc_nvenc",
+        _ => "h264_nvenc",
+    };
+    let crf = if opts.chunked { 20 } else { 18 };
+    let maxrate = match opts.resolution.as_str() {
+        "1080p" | "1440p" | "2160p" => "12M",
+        "720p" => "6M",
+        _ => "3M",
+    };
+    let bufsize = maxrate;
 
     let mut cmd = TokioCommand::new(get_ffmpeg_path());
-    cmd.args([
-        "-hide_banner", "-y",
-        "-i", opts.input_path.to_str().unwrap(),
-        "-filter_complex", &filter,
-        "-map", "[final]",
-        "-c:v", codec,
-        "-preset", &opts.preset,
-        "-rc:v", "vbr_hq",
-        "-cq", &crf.to_string(),
-        "-tune", "ull",
-        "-bf", "0", "-refs", "1", "-g", "30",
-        "-c:a", "aac", "-b:a", "192k",
-        opts.output_path.to_str().unwrap(),
+    let mut args: Vec<String> = vec![
+        "-hide_banner".into(), "-y".into(),
+    ];
+
+    if use_cuda {
+        args.extend_from_slice(&["-hwaccel".into(), "cuda".into(), "-hwaccel_output_format".into(), "cuda".into()]);
+    }
+
+    args.extend_from_slice(&[
+        "-i".into(), opts.input_path.to_str().unwrap().to_string(),
+        "-filter_complex".into(), filter,
+        "-map".into(), "[final]".into(),
+        "-c:v".into(), codec.to_string(),
+        "-preset".into(), opts.preset.clone(),
+        "-rc:v".into(), "vbr_hq".into(),
+        "-cq".into(), crf.to_string(),
+        "-tune".into(), "ull".into(),
+        "-bf".into(), "0".into(),
+        "-refs".into(), "1".into(),
+        "-g".into(), "30".into(),
+        "-maxrate".into(), maxrate.to_string(),
+        "-bufsize".into(), bufsize.to_string(),
+        "-c:a".into(), "aac".into(), "-b:a".into(), "192k".into(),
+        opts.output_path.to_str().unwrap().to_string(),
     ]);
+
+    cmd.args(&args);
     cmd.stdout(std::process::Stdio::null());
     cmd.stderr(std::process::Stdio::piped());
 
     let mut child = cmd.spawn().map_err(|e| HyperclipError::FFmpegNotFound(e.to_string()))?;
     let stderr = child.stderr.take().unwrap();
-    let mut reader = BufReader::new(stderr).lines();
+    let mut reader = BufReader::new(stderr);
     let total_duration = (opts.trim_end - opts.trim_start) / opts.speed as f64;
 
     tokio::spawn(async move {
-        while let Ok(Some(line)) = reader.next_line().await {
-            if let Some(p) = parse_ffmpeg_stderr(&line, total_duration) {
-                on_progress(p);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line).await {
+                Ok(0) => break,
+                Ok(_) => {
+                    if let Some(p) = parse_ffmpeg_stderr(line.trim(), total_duration) {
+                        on_progress(p);
+                    }
+                }
+                Err(_) => break,
             }
         }
     });
@@ -403,4 +494,15 @@ where F: FnMut(f64) + Send + 'static {
         return Err(HyperclipError::BackendCrashed(format!("FFmpeg exit {:?}", status.code())));
     }
     Ok(opts.output_path)
+}
+
+fn parse_resolution(res: &str) -> (u32, u32) {
+    match res {
+        "2160p" => (3840, 2160),
+        "1440p" => (2560, 1440),
+        "1080p" => (1920, 1080),
+        "720p" => (1280, 720),
+        "360p" => (640, 360),
+        _ => (1920, 1080),
+    }
 }
