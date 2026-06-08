@@ -7,6 +7,7 @@ pub mod ffmpeg;
 pub mod youtube;
 pub mod cookies;
 pub mod cookies_dpapi;
+pub mod cookies_sqlite;
 pub mod store;
 pub mod detection;
 
