@@ -2,6 +2,7 @@
 // FFmpeg filter chain + NVENC params — ported from electron/services/ffmpeg.ts
 
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 // ─── Filter Chain constants — EXACT from ffmpeg.ts ───────────────────────────────
 
@@ -326,4 +327,80 @@ pub fn spawn_render(
         .stderr(std::process::Stdio::piped());
 
     cmd.spawn().expect("ffmpeg spawn failed")
+}
+
+// ─── Async render (WS4) ───────────────────────────────────────────────────
+
+use crate::error::{HyperclipError, Result};
+use crate::render_progress::parse_ffmpeg_stderr;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command as TokioCommand;
+
+#[derive(Debug, Clone, Copy)]
+pub enum FilterChain { Short, Landscape }
+
+pub struct RenderOptions {
+    pub input_path: PathBuf,
+    pub output_path: PathBuf,
+    pub resolution: String,
+    pub fps: u32,
+    pub speed: f32,
+    pub trim_start: f64,
+    pub trim_end: f64,
+    pub gpu_tier: crate::system::GPUTier,
+    pub preset: String,
+    pub filter_chain: FilterChain,
+    pub chunked: bool,
+    pub chunk_duration_sec: u32,
+}
+
+pub async fn spawn_render_async<F>(
+    opts: RenderOptions,
+    mut on_progress: F,
+) -> Result<PathBuf>
+where F: FnMut(f64) + Send + 'static {
+    let filter = match opts.filter_chain {
+        FilterChain::Short => build_short_filter(opts.trim_start, opts.trim_end - opts.trim_start, 1080, 1920, 200, 80, false),
+        FilterChain::Landscape => build_landscape_filter(opts.trim_start, opts.trim_end - opts.trim_start, 1920, 1080, 900, 0, false),
+    };
+
+    let codec = nvenc_codec_name(EncodeCodec::H264);
+    let crf = 18u32;
+
+    let mut cmd = TokioCommand::new(get_ffmpeg_path());
+    cmd.args([
+        "-hide_banner", "-y",
+        "-i", opts.input_path.to_str().unwrap(),
+        "-filter_complex", &filter,
+        "-map", "[final]",
+        "-c:v", codec,
+        "-preset", &opts.preset,
+        "-rc:v", "vbr_hq",
+        "-cq", &crf.to_string(),
+        "-tune", "ull",
+        "-bf", "0", "-refs", "1", "-g", "30",
+        "-c:a", "aac", "-b:a", "192k",
+        opts.output_path.to_str().unwrap(),
+    ]);
+    cmd.stdout(std::process::Stdio::null());
+    cmd.stderr(std::process::Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| HyperclipError::FFmpegNotFound(e.to_string()))?;
+    let stderr = child.stderr.take().unwrap();
+    let mut reader = BufReader::new(stderr).lines();
+    let total_duration = (opts.trim_end - opts.trim_start) / opts.speed as f64;
+
+    tokio::spawn(async move {
+        while let Ok(Some(line)) = reader.next_line().await {
+            if let Some(p) = parse_ffmpeg_stderr(&line, total_duration) {
+                on_progress(p);
+            }
+        }
+    });
+
+    let status = child.wait().await.map_err(HyperclipError::Io)?;
+    if !status.success() {
+        return Err(HyperclipError::BackendCrashed(format!("FFmpeg exit {:?}", status.code())));
+    }
+    Ok(opts.output_path)
 }

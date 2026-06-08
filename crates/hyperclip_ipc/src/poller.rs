@@ -64,12 +64,10 @@ impl Poller {
 
     async fn poll_once(&self) -> Result<()> {
         let channels = self.channels.read().await.clone();
-        let now_ms = chrono::Utc::now().timestamp_millis();
-        for channel in channels.iter().filter(|c| !c.paused).take(50) {
+        for _channel in channels.iter().filter(|c| !c.paused).take(50) {
             if self.pool.get_ready_session().is_none() {
                 break;
             }
-            // TODO(ws2.4): real innertube detection via Node subprocess
         }
         Ok(())
     }

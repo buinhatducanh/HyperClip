@@ -2,6 +2,7 @@
 // yt-dlp spawn — ported from electron/services/youtube.ts
 
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,6 +25,48 @@ pub struct DownloadResult {
     pub width: u32,
     pub height: u32,
     pub file_size: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct DownloadOptions {
+    pub url: String,
+    pub output_path: PathBuf,
+    pub trim_start: String,
+    pub trim_end: String,
+    pub quality: u32,
+    pub client_priority: Vec<String>,
+    pub concurrent_fragments: u32,
+    pub cookies_file: Option<PathBuf>,
+}
+
+pub fn build_ytdlp_args(opts: &DownloadOptions) -> Vec<String> {
+    let mut args = vec![
+        "--no-playlist".to_string(),
+        "--no-warnings".to_string(),
+        "--newline".to_string(),
+        "-f".to_string(),
+        format!("best[height<=?{}]/best", opts.quality),
+        "-o".to_string(),
+        opts.output_path.to_string_lossy().to_string(),
+        "--concurrent-fragments".to_string(),
+        opts.concurrent_fragments.to_string(),
+        "--remux-video".to_string(),
+        "mp4".to_string(),
+    ];
+    let clients = opts.client_priority.join(",");
+    args.push("--extractor-args".to_string());
+    args.push(format!("youtube:player_client={}", clients));
+    if !opts.trim_start.is_empty() || !opts.trim_end.is_empty() {
+        let end = if opts.trim_end.is_empty() { "99:00:00" } else { &opts.trim_end };
+        args.push("--download-sections".to_string());
+        args.push(format!("*{}-{}", opts.trim_start, end));
+    }
+    if let Some(cookies) = &opts.cookies_file {
+        args.push("--cookies".to_string());
+        args.push(cookies.to_string_lossy().to_string());
+    }
+    args.push(opts.url.clone());
+    args
 }
 
 /// EXACT flags from electron/services/youtube.ts:
