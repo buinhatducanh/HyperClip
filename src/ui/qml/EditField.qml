@@ -7,7 +7,7 @@ Rectangle {
     property string label: ""
     property var value: null
     property string unit: ""
-    signal valueChanged(var newValue)
+    signal valueModified(var newValue)
 
     color: "transparent"
     Layout.fillWidth: true
