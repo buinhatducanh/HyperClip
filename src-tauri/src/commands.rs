@@ -2,10 +2,17 @@ use hyperclip_ipc::{get_system_stats, ChannelStore, WorkspaceStore, get_workspac
 use hyperclip_ipc::cookies::{extract_chrome_cookies, get_chrome_user_data_dir};
 use hyperclip_ipc::innertube_pool::{InnertubeClientPool, PoolConfig};
 use hyperclip_ipc::poller::Poller;
+use hyperclip_ipc::ffmpeg::{spawn_render_async, RenderOptions, FilterChain};
+use hyperclip_ipc::youtube::download_video;
+use hyperclip_ipc::worker_pool::WorkerPool;
+use hyperclip_ipc::system::get_gpu_config;
 use hyperclip_ipc::Channel;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::io::{self, Write};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
@@ -70,6 +77,10 @@ impl AppState {
     }
 }
 
+static CANCEL_TOKEN_MAP: OnceLock<Mutex<HashMap<String, CancellationToken>>> = OnceLock::new();
+static WORKER_POOL: OnceLock<WorkerPool> = OnceLock::new();
+static RENDER_RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+
 pub use hyperclip_ipc::IpcRequest as PubBackendCommand;
 
 pub enum CommandResult {
@@ -84,6 +95,23 @@ impl CommandResult {
             CommandResult::Err(e) => serde_json::json!({ "error": e }),
         }
     }
+}
+
+fn emit_workspace_event(id: &str, status: &str, error: Option<String>) {
+    let mut payload = json!({
+        "id": id,
+        "status": status,
+    });
+    if let Some(e) = error {
+        payload["error"] = json!(e);
+    }
+    let event = json!({
+        "method": "workspace:update",
+        "params": payload,
+    });
+    let s = serde_json::to_string(&event).unwrap();
+    let _ = writeln!(io::stdout(), "{}", s);
+    let _ = io::stdout().flush();
 }
 
 fn p(req: &Value, key: &str) -> Option<String> {
@@ -141,7 +169,58 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             }
         }
         "workspace:delete" => { let id = p(params, "id").unwrap_or_default(); tracing::info!("workspace:delete {}", id); Ok(json!({ "success": true, "bytesFreed": 0, "filesDeleted": 0 })) }
-        "workspace:retry" => Ok(json!({ "ok": true })),
+        // Task 3: workspace:retry - calls yt-dlp download_video
+        "workspace:retry" => {
+            let id = p(params, "id").unwrap_or_default();
+            let video_url = p(params, "url")
+                .or_else(|| params.get("videoUrl").and_then(|v| v.as_str()))
+                .unwrap_or_default();
+
+            if id.is_empty() {
+                return Err("workspace:retry requires id param".into());
+            }
+            if video_url.is_empty() {
+                return Err("workspace:retry requires url or videoUrl param".into());
+            }
+
+            let cookies_path = get_cookies_path();
+            let video_dir = get_video_storage_path();
+            std::fs::create_dir_all(\&video_dir).ok();
+
+            let trim_minutes = params.get("trimMinutes")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(10) as u32;
+
+            let output_path = video_dir.join(format!("{}.mp4", id));
+            let output_str = output_path.to_string_lossy().to_string();
+
+            emit_workspace_event(\&id, "downloading", None);
+
+            let tid = id.clone();
+            let url = video_url.clone();
+            let cookies_str = cookies_path.to_string_lossy().to_string();
+            let out_str = output_str.clone();
+            std::thread::spawn(move || {
+                match download_video(\&url, \&out_str, \&cookies_str, trim_minutes) {
+                    Ok(result) => {
+                        tracing::info!("workspace:retry download complete: {} -> {} ({} bytes)",
+                            tid, result.path, result.file_size);
+                        emit_workspace_event(\&tid, "ready", None);
+                    }
+                    Err(e) => {
+                        tracing::error!("workspace::retry download failed for {}: {}", tid, e);
+                        emit_workspace_event(\&tid, "error", Some(e));
+                    }
+                }
+            });
+
+            Ok(json!({
+                "ok": true,
+                "id": id,
+                "status": "downloading",
+                "outputPath": output_str,
+            }))
+        }
         "workspace:redownloadHd" => Ok(json!({ "success": true })),
         "workspace:regenerateBlur" => Ok(json!({ "success": true })),
         "workspace:split" => Ok(json!({ "success": true, "newWorkspaces": [] })),
@@ -156,8 +235,82 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
         "video:getAvailableFormats" => Ok(json!({ "videoId": p(params, "videoId").unwrap_or_default(), "heights": [360, 720, 1080] })),
 
         // ─── Render ─────────────────────────────────────────────────
-        "render:start" => Ok(json!({ "ok": true })),
-        "render:cancel" => Ok(json!({ "ok": true })),
+        "render:start" => {
+            let id = p(params, "id").unwrap_or_default();
+            if id.is_empty() {
+                Ok(json!({ "ok": false, "error": "missing id" }))
+            } else {
+                let cancel_map = CANCEL_TOKEN_MAP.get_or_init(|| Mutex::new(HashMap::new()));
+                let token = CancellationToken::new();
+                {
+                    let mut map = cancel_map.lock().unwrap();
+                    map.insert(id.clone(), token.clone());
+                }
+
+                let tid = id.clone();
+                let rt = RENDER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
+                rt.spawn(async move {
+                    let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
+                    let _permit = pool.acquire().await;
+
+                    let out_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into())).join("HyperClip/output");
+                    std::fs::create_dir_all(&out_dir).ok();
+
+                    let opts = RenderOptions {
+                        workspace_id: tid.clone(),
+                        input_path: PathBuf::from("C:/input.mp4"),
+                        output_path: out_dir.join(format!("{}.mp4", tid)),
+                        resolution: "1080p".into(),
+                        fps: 30,
+                        speed: 1.0,
+                        trim_start: 0.0,
+                        trim_end: 60.0,
+                        gpu_tier: get_gpu_config().tier,
+                        preset: "p1".into(),
+                        filter_chain: FilterChain::Short,
+                        chunked: false,
+                        chunk_duration_sec: 120,
+                    };
+
+                    let tid2 = tid.clone();
+                    let result = spawn_render_async(opts, move |progress| {
+                        let event = json!({
+                            "method": "render:progress",
+                            "params": {
+                                "id": tid2,
+                                "progress": progress,
+                            }
+                        });
+                        let s = serde_json::to_string(&event).unwrap();
+                        let _ = writeln!(io::stdout(), "{}", s);
+                        let _ = io::stdout().flush();
+                    }).await;
+
+                    let status = if result.is_ok() { "done" } else { "error" };
+                    emit_workspace_event(&tid, status, result.as_ref().err().map(|e| e.to_string()));
+
+                    if let Some(map) = CANCEL_TOKEN_MAP.get() {
+                        let mut map = map.lock().unwrap();
+                        map.remove(&tid);
+                    }
+                });
+
+                Ok(json!({ "ok": true, "id": id, "status": "rendering" }))
+            }
+        }
+        "render:cancel" => {
+            let id = p(params, "id").unwrap_or_default();
+            if let Some(map) = CANCEL_TOKEN_MAP.get() {
+                let mut map = map.lock().unwrap();
+                if let Some(_token) = map.remove(&id) {
+                    Ok(json!({ "ok": true, "id": id, "status": "cancelled" }))
+                } else {
+                    Ok(json!({ "ok": false, "error": "not rendering" }))
+                }
+            } else {
+                Ok(json!({ "ok": false, "error": "not rendering" }))
+            }
+        }
         "render:chunked" => Ok(json!({ "ok": true })),
         "render:split" => Ok(json!({ "ok": true })),
         "render:splitPreview" => Ok(json!({ "parts": [] })),
@@ -233,7 +386,6 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
         "project:testToken" => Ok(json!({ "valid": false })),
 
         // ─── Poller ─────────────────────────────────────────────────
-        "poller:status" => Ok(json!({ "active": false, "pollIntervalMs": 5000, "lastPollAt": null, "newVideoCount": 0, "lastError": null, "exhaustedUntil": null })),
         "poller:start" => {
             AppState::get_or_init().start_poller();
             Ok(json!({ "ok": true, "active": true }))
