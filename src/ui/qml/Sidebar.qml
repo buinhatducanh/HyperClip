@@ -65,15 +65,8 @@ Rectangle {
             onClicked: parent.parent.navigateToPage("operation")
         }
 
-        ChannelList {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            Layout.topMargin: 8
-        }
-
         Item {
             Layout.fillHeight: true
-            visible: false
         }
 
         DetectionStatusBar {
