@@ -18,7 +18,7 @@ ScrollView {
         RowLayout {
             Layout.fillWidth: true
             Label {
-                text: "Workspace Detail"
+                text: "Chi tiết video"
                 color: Theme.text; font.pixelSize: Theme.textXl; font.bold: true
                 Layout.fillWidth: true
             }
@@ -34,7 +34,7 @@ ScrollView {
         GroupBox {
             Layout.fillWidth: true
             Layout.topMargin: 16
-            title: "EDIT"
+            title: "CHỈNH SỬA"
             background: Rectangle { color: Theme.bg; border.color: Theme.border; border.width: 1 }
             label: Label { text: parent.title; color: Theme.accent; font.pixelSize: Theme.textSm; font.bold: true }
 
@@ -63,14 +63,14 @@ ScrollView {
         // Action buttons
         RowLayout {
             Layout.fillWidth: true
-            Button { text: "Cancel"; onClicked: backend.send_command("render:cancel", {"id": root.workspaceId}) }
-            Button { text: "Retry"; onClicked: backend.send_command("workspace:retry", {"id": root.workspaceId}) }
+            Button { text: "Hủy"; onClicked: backend.send_command("render:cancel", {"id": root.workspaceId}) }
+            Button { text: "Thử lại"; onClicked: backend.send_command("workspace:retry", {"id": root.workspaceId}) }
             Item { Layout.fillWidth: true }
             Button {
                 text: "Xóa"
                 onClicked: {
                     backend.send_command("workspace:delete", {"id": root.workspaceId})
-                    activityModel.add_entry("ws", "Deleted " + root.workspaceId, "info")
+                    activityModel.add_entry("ws", "Đã xóa " + root.workspaceId, "info")
                 }
             }
         }

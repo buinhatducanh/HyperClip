@@ -1,4 +1,9 @@
-"""ChannelListModel — channel metadata for Sidebar (avatar, name, new-count)."""
+"""ChannelListModel — channel metadata for Sidebar (avatar, name, new-count).
+
+Incremental model: uses _id_index + _is_identical_set to avoid gratuitous
+beginResetModel on periodic refresh.  When the list is structurally unchanged
+only dataChanged is emitted.
+"""
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot
 
 
@@ -16,6 +21,7 @@ class ChannelListModel(QAbstractListModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._items: list[dict] = []
+        self._id_index: dict[str, int] = {}
 
     def rowCount(self, parent=QModelIndex()):
         if parent.isValid():
@@ -35,8 +41,7 @@ class ChannelListModel(QAbstractListModel):
         if role == self.AvatarUrlRole:
             return ch.get("avatarUrl", "")
         if role == self.AvatarColorRole:
-            color = self.PALETTE[index.row() % len(self.PALETTE)]
-            return color
+            return self.PALETTE[index.row() % len(self.PALETTE)]
         if role == self.NewCountRole:
             return int(ch.get("newCount", 0))
         if role == self.PausedRole:
@@ -54,20 +59,44 @@ class ChannelListModel(QAbstractListModel):
             self.PausedRole: QByteArray(b"paused"),
         }
 
+    def _rebuild_index(self):
+        self._id_index = {ch.get("id", ""): i for i, ch in enumerate(self._items)}
+
+    def _ids_identical(self, new: list[dict]) -> bool:
+        if len(new) != len(self._items):
+            return False
+        for a, b in zip(self._items, new):
+            if a.get("id") != b.get("id"):
+                return False
+        return True
+
     def load_from_backend(self, backend):
         try:
             resp = backend.send_command("channel:list")
             channels = resp.get("result", {}).get("channels", [])
-            self.beginResetModel()
-            self._items = list(channels)
-            self.endResetModel()
+            if self._ids_identical(channels):
+                # Update metadata in-place instead of full reset
+                for i, ch in enumerate(channels):
+                    self._items[i] = ch
+                idx_top = self.index(0)
+                idx_bot = self.index(len(self._items) - 1) if self._items else idx_top
+                self.dataChanged.emit(idx_top, idx_bot, [])
+            else:
+                self.beginResetModel()
+                self._items = list(channels)
+                self._rebuild_index()
+                self.endResetModel()
         except Exception as e:
             print(f"[ChannelListModel] load error: {e}")
 
     @Slot(str)
     def add_channel(self, url: str):
-        # Stays stubbed — actual flow goes through main app
-        pass
+        from src.backend.client import get_client
+        client = get_client()
+        if not client:
+            return
+        client.send_command("channel:add", {"url": url})
+        self.load_from_backend(client)
 
     @Slot(str)
     def remove_channel(self, channel_id: str):
@@ -76,6 +105,7 @@ class ChannelListModel(QAbstractListModel):
                 self.beginRemoveRows(QModelIndex(), i, i)
                 del self._items[i]
                 self.endRemoveRows()
+                self._rebuild_index()
                 return
 
     @Slot(str)

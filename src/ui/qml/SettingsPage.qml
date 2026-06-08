@@ -27,12 +27,12 @@ Rectangle {
                 spacing: 0
                 Repeater {
                     model: [
-                        {key: "general", label: "General"},
-                        {key: "operation", label: "Operation"},
+                        {key: "general", label: "Chung"},
+                        {key: "operation", label: "Vận hành"},
                         {key: "sessions", label: "Sessions"},
-                        {key: "system", label: "System"},
-                        {key: "logs", label: "Logs"},
-                        {key: "update", label: "Update"},
+                        {key: "system", label: "Hệ thống"},
+                        {key: "logs", label: "Nhật ký"},
+                        {key: "update", label: "Cập nhật"},
                     ]
                     delegate: Rectangle {
                         Layout.fillHeight: true
@@ -107,7 +107,7 @@ Rectangle {
                     spacing: 12
                     ActivityLogCard { Layout.fillWidth: true; Layout.preferredHeight: 400 }
                     Button {
-                        text: "Export logs"
+                        text: "Xuất nhật ký"
                         onClicked: backend.send_command("logs:export")
                     }
                 }
@@ -121,17 +121,17 @@ Rectangle {
                     anchors.margins: 12
                     spacing: 12
                     Label {
-                        text: "Update"
+                        text: "Cập nhật"
                         color: Theme.text
                         font.pixelSize: 20
                         font.bold: true
                     }
                     Button {
-                        text: "Check for update"
+                        text: "Kiểm tra cập nhật"
                         onClicked: backend.send_command("update:check")
                     }
                     Button {
-                        text: "Run diagnostics"
+                        text: "Chạy chẩn đoán"
                         onClicked: backend.send_command("system:runDiagnostics")
                     }
                 }

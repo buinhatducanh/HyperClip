@@ -18,6 +18,7 @@ pub struct SystemStats {
     pub active_workers: u32,
     pub network_ip: String,
     pub is_online: bool,
+    pub vram_total_gb: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -113,24 +114,23 @@ fn tier_to_string(tier: GPUTier) -> &'static str {
 
 // ─── Module-level GPU cache ─────────────────────────────────────────────────────
 
-static mut _CACHED_GPU: Option<(String, GPUConfig)> = None;
+use std::sync::OnceLock;
 
-fn cached_gpu() -> (String, GPUConfig) {
-    // SAFETY: called from single-threaded main loop at startup; no data races.
-    // This is acceptable because GPU detection must run once and the backend is single-threaded.
-    unsafe {
-        if let Some(ref cached) = _CACHED_GPU {
-            return cached.clone();
-        }
-        let (name, config) = detect_gpu();
-        _CACHED_GPU = Some((name.clone(), config.clone()));
-        (name, config)
-    }
+struct CachedGpu {
+    name: String,
+    config: GPUConfig,
+    vram_mb: u64,
+}
+
+static _CACHED_GPU: OnceLock<CachedGpu> = OnceLock::new();
+
+fn cached_gpu() -> &'static CachedGpu {
+    _CACHED_GPU.get_or_init(|| detect_gpu())
 }
 
 // ─── GPU detection ─────────────────────────────────────────────────────────────
 
-fn detect_gpu() -> (String, GPUConfig) {
+fn detect_gpu() -> CachedGpu {
     let output = Command::new("nvidia-smi")
         .args(["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"])
         .output();
@@ -140,19 +140,24 @@ fn detect_gpu() -> (String, GPUConfig) {
             let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
             let gpu_name = s.split('\n').next().unwrap_or("Unknown GPU").split(',').next().unwrap_or("Unknown GPU").trim().to_string();
             let config = get_nvenc_arch_config(&gpu_name);
+            let vram_mb = s.split(',').nth(1).unwrap_or("0").trim().parse::<u64>().unwrap_or(0);
             tracing::info!(
                 "[GPU] Found: {} ({}MB) → {} sessions={} workers={}",
                 gpu_name,
-                s.split(',').nth(1).unwrap_or("0").trim(),
+                vram_mb,
                 config.label,
                 config.max_sessions,
                 config.max_workers
             );
-            (gpu_name, config)
+            CachedGpu { name: gpu_name, config, vram_mb }
         }
         _ => {
             tracing::info!("[GPU] No NVIDIA GPU found — using software encoding");
-            ("CPU".to_string(), GPUConfig { max_sessions: 2, surface_count: 8, max_workers: 2, tier: GPUTier::Software, label: "Software encoding" })
+            CachedGpu {
+                name: "CPU".to_string(),
+                config: GPUConfig { max_sessions: 2, surface_count: 8, max_workers: 2, tier: GPUTier::Software, label: "Software encoding" },
+                vram_mb: 0,
+            }
         }
     }
 }
@@ -160,7 +165,9 @@ fn detect_gpu() -> (String, GPUConfig) {
 // ─── Public API ─────────────────────────────────────────────────────────────────
 
 pub fn get_system_stats() -> SystemStats {
-    let (gpu_name, gpu_config) = cached_gpu();
+    let cached = cached_gpu();
+    let gpu_name = cached.name.clone();
+    let gpu_config = &cached.config;
     SystemStats {
         gpu_name,
         gpu_tier: tier_to_string(gpu_config.tier).to_string(),
@@ -172,9 +179,10 @@ pub fn get_system_stats() -> SystemStats {
         ram_total: 0,
         network_ip: "127.0.0.1".to_string(),
         is_online: true,
+        vram_total_gb: (cached.vram_mb / 1024) as u32,
     }
 }
 
 pub fn get_gpu_config() -> GPUConfig {
-    cached_gpu().1
+    cached_gpu().config.clone()
 }

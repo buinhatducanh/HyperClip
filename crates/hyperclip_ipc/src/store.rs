@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::fs;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Workspace {
     pub id: String,
     pub status: String,  // pending|downloading|ready|rendering|done|error
@@ -123,17 +123,19 @@ impl WorkspaceStore {
 pub struct Channel {
     pub id: String,
     pub name: String,
+    #[serde(default)]
     pub handle: String,
-    #[serde(rename = "avatarColor")]
+    #[serde(rename = "avatarColor", default)]
     pub avatar_color: String,
     #[serde(rename = "channelId")]
     pub channel_id: Option<String>,
     #[serde(rename = "avatarUrl")]
     pub avatar_url: Option<String>,
-    #[serde(rename = "createdAt")]
+    #[serde(rename = "createdAt", default)]
     pub created_at: String,
     #[serde(rename = "lastChecked")]
     pub last_checked: Option<i64>,
+    #[serde(default)]
     pub enabled: bool,
     #[serde(rename = "uploadPlaylistId")]
     pub upload_playlist_id: Option<String>,

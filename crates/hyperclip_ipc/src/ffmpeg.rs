@@ -7,7 +7,7 @@ use std::path::PathBuf;
 // ─── Filter Chain constants — EXACT from ffmpeg.ts ───────────────────────────────
 
 /// SHORT mode: header(20%) | video(70%) | bottom bar(10%)
-/// Filter: fps=30 → setpts=PTS-STARTPTS → trim → scale → crop
+/// Filter: fps=30 → setpts(speed) → trim → setpts(reset) → scale → crop
 /// NO select='not(mod(n,2))' — causes 2x frame halving
 /// NO -r 30 output flag — conflicts with filter chain
 pub fn build_short_filter_chain(
@@ -30,11 +30,46 @@ pub fn build_short_filter_chain(
     format!("{},", trim_section)
 }
 
+/// Build speed filter tag: `setpts=1/speed*PTS,` or empty if speed == 1.0.
+/// The speed filter compresses timestamps so the trim filter selects fewer frames,
+/// resulting in shorter output duration.
+pub fn speed_filter_tag(speed: f64) -> String {
+    if speed <= 0.0 || (speed - 1.0).abs() < f64::EPSILON {
+        String::new()
+    } else {
+        format!("setpts={}*PTS,", 1.0 / speed)
+    }
+}
+
+/// Build atempo filter chain for audio speed adjustment.
+/// Returns `[0:a]atempo=X[a]` string, or chained atempo for speed > 2.0.
+/// atempo only supports 0.5–2.0 range; for speed < 0.5, audio is left at normal speed.
+pub fn build_atempo_chain(speed: f64) -> Option<String> {
+    if speed <= 0.0 || (speed - 1.0).abs() < f64::EPSILON { return None; }
+    if speed < 0.5 { return None; } // atempo minimum is 0.5 → skip audio
+    if speed <= 2.0 {
+        return Some(format!("[0:a]atempo={}[a]", speed));
+    }
+    // speed > 2.0: chain multiple atempo filters (max 2.0 each)
+    let mut factors: Vec<String> = Vec::new();
+    let mut remaining = speed;
+    while remaining > 2.0 {
+        factors.push("2.0".to_string());
+        remaining /= 2.0;
+    }
+    if (remaining - 1.0).abs() > 0.001 {
+        factors.push(format!("{:.2}", remaining));
+    }
+    Some(format!("[0:a]atempo={}[a]", factors.join(",atempo=")))
+}
+
 /// Build filter complex for SHORT (9:16) layout
 /// Z-order: bg(bottom) → video(middle) → bottom_bar → header(top)
+/// Filter order: fps → setpts(speed) → trim → setpts(reset) → scale → crop
 pub fn build_short_filter(
     trim_start: f64,
     trim_duration: f64,
+    speed: f64,
     canvas_w: u32,
     canvas_h: u32,
     header_h: u32,
@@ -50,9 +85,14 @@ pub fn build_short_filter(
     let scaled_w = ((video_h as f64) * 16.0 / 9.0).round() as u32;
     let crop_x = ((scaled_w - canvas_w) / 2).max(0);
 
-    // Video chain: fps → setpts → trim → setpts → scale → crop
+    // Speed filter BEFORE trim: compresses timestamps so trim duration refers to output seconds.
+    let speed_tag = speed_filter_tag(speed);
+    let speed_adj = if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON { 1.0 / speed } else { 1.0 };
+    let adjusted_dur = trim_duration * speed_adj;
+
+    // Video chain: fps → setpts(speed) → trim → setpts(reset) → scale → crop
     let trim_tag = if trim_start > 0.0 || trim_duration > 0.0 {
-        let end = if trim_duration > 0.0 { trim_start + trim_duration } else { 999.0 };
+        let end = if adjusted_dur > 0.0 { trim_start + adjusted_dur } else { 999.0 };
         format!(
             "trim=start={}:end={},setpts=PTS-STARTPTS,",
             trim_start, end
@@ -61,7 +101,8 @@ pub fn build_short_filter(
         String::new()
     };
     let video_chain = format!(
-        "[0:v]fps=30,{},setpts=PTS-STARTPTS,{}scale=-2:{},{}crop={}:{}:{}:0[vid]",
+        "[0:v]fps=30,{}{}setpts=PTS-STARTPTS,{}scale=-2:{},{}crop={}:{}:{}:0[vid]",
+        speed_tag,
         trim_tag,
         scale,
         video_h,
@@ -128,6 +169,7 @@ pub fn build_short_filter(
 pub fn build_short_filter_cuda(
     trim_start: f64,
     trim_duration: f64,
+    speed: f64,
     canvas_w: u32,
     canvas_h: u32,
     header_h: u32,
@@ -138,15 +180,19 @@ pub fn build_short_filter_cuda(
     let scaled_w = ((video_h as f64) * 16.0 / 9.0).round() as u32;
     let crop_x = ((scaled_w - canvas_w) / 2).max(0);
 
+    let speed_tag = speed_filter_tag(speed);
+    let speed_adj = if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON { 1.0 / speed } else { 1.0 };
+    let adjusted_dur = trim_duration * speed_adj;
+
     let trim_tag = if trim_start > 0.0 || trim_duration > 0.0 {
-        let end = if trim_duration > 0.0 { trim_start + trim_duration } else { 999.0 };
+        let end = if adjusted_dur > 0.0 { trim_start + adjusted_dur } else { 999.0 };
         format!("trim=start={}:end={},setpts=PTS-STARTPTS,", trim_start, end)
     } else {
         String::new()
     };
     let video_chain = format!(
-        "[0:v]fps=30,{},setpts=PTS-STARTPTS,scale_cuda=-2:{},crop_cuda={}:{}:{}:0[vid]",
-        trim_tag, video_h, canvas_w, video_h, crop_x
+        "[0:v]fps=30,{}{}setpts=PTS-STARTPTS,scale_cuda=-2:{},crop_cuda={}:{}:{}:0[vid]",
+        speed_tag, trim_tag, video_h, canvas_w, video_h, crop_x
     );
 
     let bg_chain = format!(
@@ -174,6 +220,7 @@ pub fn build_short_filter_cuda(
 pub fn build_landscape_filter(
     trim_start: f64,
     trim_duration: f64,
+    speed: f64,
     canvas_w: u32,
     canvas_h: u32,
     video_h: u32,
@@ -186,8 +233,12 @@ pub fn build_landscape_filter(
 
     let crop_x_num = ((video_h as f64 * 16.0 / 9.0) - (canvas_w as f64)).round() as i32 / 2;
 
+    let speed_tag = speed_filter_tag(speed);
+    let speed_adj = if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON { 1.0 / speed } else { 1.0 };
+    let adjusted_dur = trim_duration * speed_adj;
+
     let trim_tag = if trim_start > 0.0 || trim_duration > 0.0 {
-        let end = if trim_duration > 0.0 { trim_start + trim_duration } else { 999.0 };
+        let end = if adjusted_dur > 0.0 { trim_start + adjusted_dur } else { 999.0 };
         format!(
             "trim=start={}:end={},setpts=PTS-STARTPTS,",
             trim_start, end
@@ -198,8 +249,8 @@ pub fn build_landscape_filter(
 
     let video_chain = if crop_x_num >= 0 {
         format!(
-            "[0:v]fps=30,{},setpts=PTS-STARTPTS,{}scale=-2:{},{}crop={}:{}:{}:0[vid]",
-            trim_tag,
+            "[0:v]fps=30,{}{}setpts=PTS-STARTPTS,{}scale=-2:{},{}crop={}:{}:{}:0[vid]",
+            speed_tag, trim_tag,
             scale,
             video_h,
             scale_flags,
@@ -210,8 +261,8 @@ pub fn build_landscape_filter(
     } else {
         let crop_y = ((canvas_w as f64 * 9.0 / 16.0) - (video_h as f64)).round() as i32 / 2 + video_top as i32;
         format!(
-            "[0:v]fps=30,{},setpts=PTS-STARTPTS,{}scale={}:-2{} ,crop={}:{}:0:{} [vid]",
-            trim_tag,
+            "[0:v]fps=30,{}{}setpts=PTS-STARTPTS,{}scale={}:-2{} ,crop={}:{}:0:{} [vid]",
+            speed_tag, trim_tag,
             scale,
             canvas_w,
             scale_flags,
@@ -392,7 +443,7 @@ pub struct RenderOptions {
     pub output_path: PathBuf,
     pub resolution: String,
     pub fps: u32,
-    pub speed: f32,
+    pub speed: f64,
     pub trim_start: f64,
     pub trim_end: f64,
     pub gpu_tier: crate::system::GPUTier,
@@ -407,24 +458,41 @@ pub async fn spawn_render_async<F>(
     mut on_progress: F,
 ) -> Result<PathBuf>
 where F: FnMut(f64) + Send + 'static {
+    let speed = opts.speed;
     let (canvas_w, canvas_h) = parse_resolution(&opts.resolution);
     let (header_h, bottom_bar_h) = (canvas_h / 5, canvas_h / 10);
     let use_cuda = matches!(opts.gpu_tier, GPUTier::High | GPUTier::Mid);
 
-    let filter = match opts.filter_chain {
+    // 1. Build video filter chain
+    let video_filter = match opts.filter_chain {
         FilterChain::Short => {
             if use_cuda {
-                build_short_filter_cuda(opts.trim_start, opts.trim_end - opts.trim_start, canvas_w, canvas_h, header_h, bottom_bar_h)
+                build_short_filter_cuda(opts.trim_start, opts.trim_end - opts.trim_start, speed, canvas_w, canvas_h, header_h, bottom_bar_h)
             } else {
-                build_short_filter(opts.trim_start, opts.trim_end - opts.trim_start, canvas_w, canvas_h, header_h, bottom_bar_h, false)
+                build_short_filter(opts.trim_start, opts.trim_end - opts.trim_start, speed, canvas_w, canvas_h, header_h, bottom_bar_h, false)
             }
         }
         FilterChain::Landscape => {
             let video_h = canvas_h - header_h - bottom_bar_h;
-            build_landscape_filter(opts.trim_start, opts.trim_end - opts.trim_start, canvas_w, canvas_h, video_h, 0, use_cuda)
+            build_landscape_filter(opts.trim_start, opts.trim_end - opts.trim_start, speed, canvas_w, canvas_h, video_h, 0, use_cuda)
         }
     };
 
+    // 2. Build audio atempo chain (if speed != 1.0)
+    let atempo = build_atempo_chain(speed);
+
+    // 3. Combine filter complex + determine mappings
+    let complete_filter: String;
+    let audio_map: &str;
+    if let Some(audio_filter) = &atempo {
+        complete_filter = format!("{}; {}", video_filter, audio_filter);
+        audio_map = "[a]";
+    } else {
+        complete_filter = video_filter;
+        audio_map = "0:a?";  // auto-map best audio stream (optional — ? = skip if no audio)
+    }
+
+    // 4. Encode params
     let codec = match opts.gpu_tier {
         GPUTier::High => "hevc_nvenc",
         _ => "h264_nvenc",
@@ -448,8 +516,9 @@ where F: FnMut(f64) + Send + 'static {
 
     args.extend_from_slice(&[
         "-i".into(), opts.input_path.to_str().unwrap().to_string(),
-        "-filter_complex".into(), filter,
+        "-filter_complex".into(), complete_filter,
         "-map".into(), "[final]".into(),
+        "-map".into(), audio_map.into(),
         "-c:v".into(), codec.to_string(),
         "-preset".into(), opts.preset.clone(),
         "-rc:v".into(), "vbr_hq".into(),
@@ -471,7 +540,7 @@ where F: FnMut(f64) + Send + 'static {
     let mut child = cmd.spawn().map_err(|e| HyperclipError::FFmpegNotFound(e.to_string()))?;
     let stderr = child.stderr.take().unwrap();
     let mut reader = BufReader::new(stderr);
-    let total_duration = (opts.trim_end - opts.trim_start) / opts.speed as f64;
+    let total_duration = (opts.trim_end - opts.trim_start) / speed;
 
     tokio::spawn(async move {
         let mut line = String::new();

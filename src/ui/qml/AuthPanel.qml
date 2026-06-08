@@ -5,7 +5,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 
 SettingsCard {
-    title: "AUTHENTICATION"
+    title: "XÁC THỰC"
     Layout.preferredHeight: 220
 
     ColumnLayout {
@@ -29,14 +29,14 @@ SettingsCard {
             rowSpacing: 6
             Layout.fillWidth: true
 
-            Label { text: "Status"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Trạng thái"; color: Theme.textMuted; font.pixelSize: 11 }
             Label {
-                text: auth.isReady ? "Ready" : (auth.loggedOut ? "Logged out" : "Not configured")
+                text: auth.isReady ? "Sẵn sàng" : (auth.loggedOut ? "Đã đăng xuất" : "Chưa cấu hình")
                 color: auth.isReady ? Theme.success : Theme.text
                 font.pixelSize: 11
             }
 
-            Label { text: "Account"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Tài khoản"; color: Theme.textMuted; font.pixelSize: 11 }
             Label {
                 text: auth.accountName || "—"
                 color: Theme.text
@@ -54,7 +54,7 @@ SettingsCard {
 
             Label { text: "OAuth"; color: Theme.textMuted; font.pixelSize: 11 }
             Label {
-                text: auth.oauthReady ? "Configured" : "Not configured"
+                text: auth.oauthReady ? "Đã cấu hình" : "Chưa cấu hình"
                 color: auth.oauthReady ? Theme.success : Theme.text
                 font.pixelSize: 11
             }
@@ -77,7 +77,7 @@ SettingsCard {
                 onClicked: auth.start_oauth(backend)
             }
             Button {
-                text: "Logout"
+                text: "Đăng xuất"
                 enabled: auth.isReady
                 onClicked: auth.logout(backend)
             }

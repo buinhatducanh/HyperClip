@@ -149,14 +149,24 @@ impl Default for Workspace {
 pub struct Channel {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub channel_id: String,
+    #[serde(default)]
     pub handle: Option<String>,
+    #[serde(default)]
     pub avatar_url: Option<String>,
     pub added_at: i64,
+    #[serde(default)]
     pub paused: bool,
+    #[serde(default)]
     pub last_video_id: Option<String>,
+    #[serde(default)]
     pub last_poll_at: Option<i64>,
+    #[serde(default)]
     pub new_video_count: u32,
+    #[serde(default)]
     pub total_videos_downloaded: u32,
+    #[serde(default)]
     pub error_count: u32,
 }
 
@@ -165,6 +175,7 @@ impl Default for Channel {
         Self {
             id: String::new(),
             name: String::new(),
+            channel_id: String::new(),
             handle: None,
             avatar_url: None,
             added_at: chrono::Utc::now().timestamp_millis(),

@@ -99,7 +99,9 @@ impl AppState {
                 hyperclip_ipc::Channel {
                     id: c.id.clone(),
                     name: c.name.clone(),
+                    channel_id: c.channel_id.clone().unwrap_or_default(),
                     handle: Some(c.handle.clone()),
+                    avatar_url: c.avatar_url.clone(),
                     paused: c.paused,
                     ..Default::default()
                 }
@@ -432,7 +434,9 @@ fn poller_sync_channels() {
         Channel {
             id: c.id.clone(),
             name: c.name.clone(),
+            channel_id: c.channel_id.clone().unwrap_or_default(),
             handle: Some(c.handle.clone()),
+            avatar_url: c.avatar_url.clone(),
             paused: c.paused,
             ..Default::default()
         }
@@ -794,22 +798,79 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
         "channel:list" => Ok(load_channels()),
 
         "channel:add" => {
-            let url = p(params, "url").unwrap_or_default();
-            if url.is_empty() {
+            let raw = p(params, "url").unwrap_or_default();
+            if raw.is_empty() {
                 return CommandResult::Ok(json!({"ok": false, "error": "url required"}));
             }
             let ch_path = get_channels_path();
             let mut store = ChannelStore::load(&ch_path);
+
+            // 1. Normalize URL
+            let normalized = if raw.starts_with("http") {
+                raw.clone()
+            } else if raw.starts_with('@') {
+                format!("https://www.youtube.com/{}", raw)
+            } else {
+                format!("https://www.youtube.com/@{}", raw.trim_start_matches('@'))
+            };
+
+            // 2. Parse channel identifier from URL
+            let parsed_id: Option<String> = {
+                let path = normalized.trim_start_matches("https://").trim_start_matches("http://")
+                    .trim_start_matches("www.youtube.com")
+                    .trim_start_matches("m.youtube.com")
+                    .trim_start_matches("youtube.com");
+                let path = path.trim_start_matches('/');
+                if let Some(rest) = path.strip_prefix("channel/") {
+                    Some(rest.split('/').next().unwrap_or(rest).to_string())
+                } else if let Some(rest) = path.strip_prefix('@') {
+                    Some(rest.split('/').next().unwrap_or(rest).to_string())
+                } else if let Some(rest) = path.strip_prefix("c/") {
+                    Some(rest.split('/').next().unwrap_or(rest).to_string())
+                } else if let Some(rest) = path.strip_prefix("user/") {
+                    Some(rest.split('/').next().unwrap_or(rest).to_string())
+                } else if raw.starts_with("UC") && raw.len() >= 22 {
+                    Some(raw.clone())
+                } else {
+                    None
+                }
+            };
+
+            // 3. Duplicate check
+            let channel_id_str = parsed_id.as_deref().unwrap_or(&raw);
+            if store.channels.iter().any(|c| {
+                c.channel_id.as_deref() == Some(channel_id_str)
+                    || c.handle.as_str().trim_start_matches('@').eq_ignore_ascii_case(channel_id_str)
+            }) {
+                return CommandResult::Ok(json!({"ok": false, "error": "duplicate channel"}));
+            }
+
+            // 4. Try to resolve metadata via yt-dlp
+            let (resolved_name, resolved_id, resolved_avatar) = resolve_channel_metadata(&normalized);
+
             let id = format!("ch-{}", chrono::Utc::now().timestamp_millis());
+            let final_name = resolved_name.unwrap_or_else(|| {
+                channel_id_str.trim_start_matches('@').to_string()
+            });
+            let final_channel_id = resolved_id.unwrap_or(channel_id_str.to_string());
+            let final_handle = if final_channel_id.starts_with("UC") {
+                format!("@{}", channel_id_str.trim_start_matches('@'))
+            } else {
+                format!("@{}", final_channel_id.trim_start_matches('@'))
+            };
+
             store.add(hyperclip_ipc::store::Channel {
                 id: id.clone(),
-                name: url.clone(),
-                handle: url.clone(),
+                name: final_name,
+                handle: final_handle.clone(),
+                channel_id: Some(final_channel_id),
+                avatar_url: resolved_avatar,
                 paused: false,
+                enabled: true,
                 ..Default::default()
             });
             store.save(&ch_path).ok();
-            tracing::info!("channel:add -> {}", id);
+            tracing::info!("channel:add -> {} (handle={})", id, final_handle);
             poller_sync_channels();
             Ok(json!({"ok": true, "id": id}))
         }
@@ -2325,6 +2386,50 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
 }
 
 
+
+/// Resolve channel metadata via yt-dlp
+fn resolve_channel_metadata(url: &str) -> (Option<String>, Option<String>, Option<String>) {
+    let ytdlp = find_ytdlp();
+    let output = std::process::Command::new(&ytdlp)
+        .args([
+            "--no-warnings",
+            "--skip-download",
+            "--dump-json",
+            "--extractor-args",
+            "youtube:player_client=web",
+            url,
+        ])
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            let s = String::from_utf8_lossy(&out.stdout);
+            if let Ok(data) = serde_json::from_str::<serde_json::Value>(&s) {
+                let name = data.get("channel").and_then(|v| v.as_str()).map(String::from);
+                let channel_id = data.get("channel_id").and_then(|v| v.as_str()).map(String::from);
+                let avatar = data.get("thumbnail").and_then(|v| v.as_str()).map(String::from);
+                return (name, channel_id, avatar);
+            }
+            (None, None, None)
+        }
+        _ => (None, None, None),
+    }
+}
+
+fn find_ytdlp() -> String {
+    let candidates = [
+        "C:/Users/MSI/AppData/Roaming/Python/Python312/Scripts/yt-dlp.exe",
+        "C:/Users/MSI/AppData/Roaming/Python/Python313/Scripts/yt-dlp.exe",
+        "C:/Users/MSI/AppData/Roaming/Python/Python314/Scripts/yt-dlp.exe",
+        "yt-dlp",
+    ];
+    for p in &candidates {
+        if std::path::Path::new(p).exists() {
+            return p.to_string();
+        }
+    }
+    "yt-dlp".to_string()
+}
 
 fn load_workspaces() -> Value {
 

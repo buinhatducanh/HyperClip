@@ -1,4 +1,4 @@
-"""SettingsModel — exposes 28 AppSettings fields to QML."""
+"""SettingsModel — exposes AppSettings fields to QML via explicit Properties."""
 from PySide6.QtCore import QObject, Signal, Slot, Property
 
 
@@ -14,7 +14,7 @@ class SettingsModel(QObject):
         self._default_quality: int = 1080
         self._auto_download_quality: str = "1080"
         self._auto_download_enabled: bool = True
-        self._polling_enabled: bool = False
+        self._polling_enabled: bool = True
         self._auto_render: bool = True
         self._auto_render_resolution: str = "1080p"
         self._auto_render_fps: int = 30
@@ -39,42 +39,81 @@ class SettingsModel(QObject):
         self._hardware_vram_gb: int = 0
         self._hardware_ram_gb: int = 0
 
+    # ─── Explicit Properties (PySide6 requires class-level descriptor) ──
+    outputFolder = Property(str, lambda s: s._output_folder, lambda s, v: s._set("_output_folder", str, v), notify=changed)
+    videoStoragePath = Property(str, lambda s: s._video_storage_path, lambda s, v: s._set("_video_storage_path", str, v), notify=changed)
+    outputPath = Property(str, lambda s: s._output_path, lambda s, v: s._set("_output_path", str, v), notify=changed)
+    defaultTrimLimit = Property(int, lambda s: s._default_trim_limit, lambda s, v: s._set("_default_trim_limit", int, v), notify=changed)
+    defaultQuality = Property(int, lambda s: s._default_quality, lambda s, v: s._set("_default_quality", int, v), notify=changed)
+    autoDownloadQuality = Property(str, lambda s: s._auto_download_quality, lambda s, v: s._set("_auto_download_quality", str, v), notify=changed)
+    autoDownloadEnabled = Property(bool, lambda s: s._auto_download_enabled, lambda s, v: s._set("_auto_download_enabled", bool, v), notify=changed)
+    pollingEnabled = Property(bool, lambda s: s._polling_enabled, lambda s, v: s._set("_polling_enabled", bool, v), notify=changed)
+    autoRender = Property(bool, lambda s: s._auto_render, lambda s, v: s._set("_auto_render", bool, v), notify=changed)
+    autoRenderResolution = Property(str, lambda s: s._auto_render_resolution, lambda s, v: s._set("_auto_render_resolution", str, v), notify=changed)
+    autoRenderFPS = Property(int, lambda s: s._auto_render_fps, lambda s, v: s._set("_auto_render_fps", int, v), notify=changed)
+    autoRenderSpeed = Property(float, lambda s: s._auto_render_speed, lambda s, v: s._set("_auto_render_speed", float, v), notify=changed)
+    autoSplitParts = Property(int, lambda s: s._auto_split_parts, lambda s, v: s._set("_auto_split_parts", int, v), notify=changed)
+    autoSplitMinutes = Property(int, lambda s: s._auto_split_minutes, lambda s, v: s._set("_auto_split_minutes", int, v), notify=changed)
+    autoRenderTitleTemplate = Property(str, lambda s: s._auto_render_title_template, lambda s, v: s._set("_auto_render_title_template", str, v), notify=changed)
+    downloadsCleanupDays = Property(int, lambda s: s._downloads_cleanup_days, lambda s, v: s._set("_downloads_cleanup_days", int, v), notify=changed)
+    maxConcurrentRenders = Property(int, lambda s: s._max_concurrent_renders, lambda s, v: s._set("_max_concurrent_renders", int, v), notify=changed)
+    proxyEnabled = Property(bool, lambda s: s._proxy_enabled, lambda s, v: s._set("_proxy_enabled", bool, v), notify=changed)
+    proxyHost = Property(str, lambda s: s._proxy_host, lambda s, v: s._set("_proxy_host", str, v), notify=changed)
+    proxyPort = Property(int, lambda s: s._proxy_port, lambda s, v: s._set("_proxy_port", int, v), notify=changed)
+    proxyUsername = Property(str, lambda s: s._proxy_username, lambda s, v: s._set("_proxy_username", str, v), notify=changed)
+    proxyPassword = Property(str, lambda s: s._proxy_password, lambda s, v: s._set("_proxy_password", str, v), notify=changed)
+    maxConcurrentDownloads = Property(int, lambda s: s._max_concurrent_downloads, lambda s, v: s._set("_max_concurrent_downloads", int, v), notify=changed)
+    videoMinDurationSec = Property(int, lambda s: s._video_min_duration_sec, lambda s, v: s._set("_video_min_duration_sec", int, v), notify=changed)
+    videoMaxDurationSec = Property(int, lambda s: s._video_max_duration_sec, lambda s, v: s._set("_video_max_duration_sec", int, v), notify=changed)
+    minimizeToTray = Property(bool, lambda s: s._minimize_to_tray, lambda s, v: s._set("_minimize_to_tray", bool, v), notify=changed)
+    quitOnClose = Property(bool, lambda s: s._quit_on_close, lambda s, v: s._set("_quit_on_close", bool, v), notify=changed)
+    pollIntervalMs = Property(int, lambda s: s._poll_interval_ms, lambda s, v: s._set("_poll_interval_ms", int, v), notify=changed)
+    onboardingComplete = Property(bool, lambda s: s._onboarding_complete, lambda s, v: s._set("_onboarding_complete", bool, v), notify=changed)
+    hardwareVramGb = Property(int, lambda s: s._hardware_vram_gb, lambda s, v: s._set("_hardware_vram_gb", int, v), notify=changed)
+    hardwareRamGb = Property(int, lambda s: s._hardware_ram_gb, lambda s, v: s._set("_hardware_ram_gb", int, v), notify=changed)
+
+    # ─── Helpers ────────────────────────────────────────────────────────
+    def _set(self, attr, cast, value):
+        if getattr(self, attr) != cast(value):
+            setattr(self, attr, cast(value))
+            self.changed.emit()
+
     def load_from_dict(self, d: dict):
         """Load settings from a dict (typically from backend)."""
         m = {
-            "outputFolder": ("_output_folder", str),
-            "videoStoragePath": ("_video_storage_path", str),
-            "outputPath": ("_output_path", str),
-            "defaultTrimLimit": ("_default_trim_limit", lambda v: int(v) if v != "full" else 999),
-            "defaultQuality": ("_default_quality", int),
-            "autoDownloadQuality": ("_auto_download_quality", str),
-            "autoDownloadEnabled": ("_auto_download_enabled", bool),
-            "pollingEnabled": ("_polling_enabled", bool),
-            "autoRender": ("_auto_render", bool),
-            "autoRenderResolution": ("_auto_render_resolution", str),
-            "autoRenderFPS": ("_auto_render_fps", int),
-            "autoRenderSpeed": ("_auto_render_speed", float),
-            "autoSplitParts": ("_auto_split_parts", int),
-            "autoSplitMinutes": ("_auto_split_minutes", int),
-            "autoRenderTitleTemplate": ("_auto_render_title_template", str),
-            "downloadsCleanupDays": ("_downloads_cleanup_days", int),
-            "maxConcurrentRenders": ("_max_concurrent_renders", int),
-            "proxyEnabled": ("_proxy_enabled", bool),
-            "proxyHost": ("_proxy_host", str),
-            "proxyPort": ("_proxy_port", int),
-            "proxyUsername": ("_proxy_username", str),
-            "proxyPassword": ("_proxy_password", str),
-            "maxConcurrentDownloads": ("_max_concurrent_downloads", int),
-            "videoMinDurationSec": ("_video_min_duration_sec", int),
-            "videoMaxDurationSec": ("_video_max_duration_sec", int),
-            "minimizeToTray": ("_minimize_to_tray", bool),
-            "quitOnClose": ("_quit_on_close", bool),
-            "pollIntervalMs": ("_poll_interval_ms", int),
-            "onboardingComplete": ("_onboarding_complete", bool),
+            "outputFolder": "_output_folder",
+            "videoStoragePath": "_video_storage_path",
+            "outputPath": "_output_path",
+            "defaultTrimLimit": "_default_trim_limit",
+            "defaultQuality": "_default_quality",
+            "autoDownloadQuality": "_auto_download_quality",
+            "autoDownloadEnabled": "_auto_download_enabled",
+            "pollingEnabled": "_polling_enabled",
+            "autoRender": "_auto_render",
+            "autoRenderResolution": "_auto_render_resolution",
+            "autoRenderFPS": "_auto_render_fps",
+            "autoRenderSpeed": "_auto_render_speed",
+            "autoSplitParts": "_auto_split_parts",
+            "autoSplitMinutes": "_auto_split_minutes",
+            "autoRenderTitleTemplate": "_auto_render_title_template",
+            "downloadsCleanupDays": "_downloads_cleanup_days",
+            "maxConcurrentRenders": "_max_concurrent_renders",
+            "proxyEnabled": "_proxy_enabled",
+            "proxyHost": "_proxy_host",
+            "proxyPort": "_proxy_port",
+            "proxyUsername": "_proxy_username",
+            "proxyPassword": "_proxy_password",
+            "maxConcurrentDownloads": "_max_concurrent_downloads",
+            "videoMinDurationSec": "_video_min_duration_sec",
+            "videoMaxDurationSec": "_video_max_duration_sec",
+            "minimizeToTray": "_minimize_to_tray",
+            "quitOnClose": "_quit_on_close",
+            "pollIntervalMs": "_poll_interval_ms",
+            "onboardingComplete": "_onboarding_complete",
         }
-        for k, (attr, cast) in m.items():
+        for k, attr in m.items():
             if k in d:
-                setattr(self, attr, cast(d[k]))
+                setattr(self, attr, d[k])
         if "hardwareProfile" in d and d["hardwareProfile"]:
             p = d["hardwareProfile"]
             self._hardware_vram_gb = int(p.get("vramGB", 0))
@@ -132,36 +171,3 @@ class SettingsModel(QObject):
             self.load_from_dict(result)
             return True
         return False
-
-
-# ─── Property bindings — added after class definition ──────────────────────
-def _prop(name, cast):
-    # Map camelCase property name to snake_case private attribute.
-    private = "_" + name[0].lower() + "".join(c if c.islower() else "_" + c.lower() for c in name[1:])
-    def getter(self):
-        return getattr(self, private)
-    def setter(self, v):
-        if getattr(self, private) != cast(v):
-            setattr(self, private, cast(v))
-            self.changed.emit()
-    return Property(cast, getter, setter, notify=SettingsModel.changed)
-
-
-_FIELDS = [
-    ("outputFolder", str), ("videoStoragePath", str), ("outputPath", str),
-    ("defaultTrimLimit", int), ("defaultQuality", int), ("autoDownloadQuality", str),
-    ("autoDownloadEnabled", bool), ("pollingEnabled", bool), ("autoRender", bool),
-    ("autoRenderResolution", str), ("autoRenderFPS", int), ("autoRenderSpeed", float),
-    ("autoSplitParts", int), ("autoSplitMinutes", int), ("autoRenderTitleTemplate", str),
-    ("downloadsCleanupDays", int), ("maxConcurrentRenders", int),
-    ("proxyEnabled", bool), ("proxyHost", str), ("proxyPort", int),
-    ("proxyUsername", str), ("proxyPassword", str),
-    ("maxConcurrentDownloads", int), ("videoMinDurationSec", int), ("videoMaxDurationSec", int),
-    ("minimizeToTray", bool), ("quitOnClose", bool),
-    ("pollIntervalMs", int), ("onboardingComplete", bool),
-    ("hardwareVramGb", int), ("hardwareRamGb", int),
-]
-
-for _name, _cast in _FIELDS:
-    if not hasattr(SettingsModel, _name):
-        setattr(SettingsModel, _name, _prop(_name, _cast))

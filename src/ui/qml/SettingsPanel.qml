@@ -14,7 +14,7 @@ ScrollView {
         y: 12
 
         Label {
-            text: "Settings"
+            text: "Cài đặt"
             color: Theme.text
             font.pixelSize: 20
             font.bold: true
@@ -38,11 +38,11 @@ ScrollView {
                 anchors.fill: parent
                 anchors.margins: 12
                 Button {
-                    text: "Save"
+                    text: "Lưu"
                     onClicked: settings.save_to_backend(backend)
                 }
                 Button {
-                    text: "Reload"
+                    text: "Tải lại"
                     onClicked: settings.load_from_backend(backend)
                 }
                 Item { Layout.fillWidth: true }

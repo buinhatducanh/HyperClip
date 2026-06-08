@@ -38,7 +38,7 @@ Rectangle {
             color: Theme.rowEven
             Label {
                 anchors.centerIn: parent
-                text: "HyperClip Setup"
+                text: "Thiết lập HyperClip"
                 color: Theme.accent; font.pixelSize: 18; font.bold: true
             }
         }

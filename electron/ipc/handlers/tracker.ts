@@ -22,7 +22,7 @@ import {
   extractVideoThumbnail,
   generateBlurBackground,
 } from '../../services/ffmpeg.js'
-import { getVideoStoragePath, ensureStorageDirs, loadSettings, cleanupWorkspace, generateWorkspacePaths } from '../../services/ramdisk.js'
+import { getVideoStoragePath, ensureStorageDirs, loadSettings, cleanupWorkspace, generateWorkspacePaths, ensureChannelVideoDir } from '../../services/ramdisk.js'
 import { devLog } from '../../services/unified_log.js'
 
 export function registerTrackerHandlers(ipcMain: IpcMain): void {
@@ -37,6 +37,7 @@ export function registerTrackerHandlers(ipcMain: IpcMain): void {
         }
 
         const storagePath = getVideoStoragePath()
+        const channelOutputDir = ensureChannelVideoDir(info.channelName, info.channelId)
         ensureStorageDirs()
 
         const settings = loadSettings()
@@ -80,7 +81,7 @@ export function registerTrackerHandlers(ipcMain: IpcMain): void {
         const result = await downloadVideo({
           workspaceId: workspace.id,
           videoUrl: url,
-          outputDir: storagePath,
+          outputDir: channelOutputDir,
           trimLimit,
           quality,
           ytCookiesFile,

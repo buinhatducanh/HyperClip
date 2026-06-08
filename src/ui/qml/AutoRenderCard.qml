@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 
 SettingsCard {
-    title: "AUTO-RENDER"
+    title: "TỰ ĐỘNG RENDER"
     Layout.preferredHeight: 280
 
     ColumnLayout {
@@ -26,7 +26,7 @@ SettingsCard {
             rowSpacing: 8
             Layout.fillWidth: true
 
-            Label { text: "Resolution"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Độ phân giải"; color: Theme.textMuted; font.pixelSize: 11 }
             ComboBox {
                 Layout.fillWidth: true
                 model: ["1080p", "720p", "360p"]
@@ -42,7 +42,7 @@ SettingsCard {
                 onActivated: settings.autoRenderFPS = model[currentIndex]
             }
 
-            Label { text: "Speed"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Tốc độ"; color: Theme.textMuted; font.pixelSize: 11 }
             RowLayout {
                 Layout.fillWidth: true
                 Slider {
@@ -61,7 +61,7 @@ SettingsCard {
                 }
             }
 
-            Label { text: "Split parts"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Số phần tách"; color: Theme.textMuted; font.pixelSize: 11 }
             SpinBox {
                 Layout.fillWidth: true
                 from: 1
@@ -70,7 +70,7 @@ SettingsCard {
                 onValueChanged: settings.autoSplitParts = value
             }
 
-            Label { text: "Or minutes"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Hoặc số phút"; color: Theme.textMuted; font.pixelSize: 11 }
             SpinBox {
                 Layout.fillWidth: true
                 from: 0
@@ -79,7 +79,7 @@ SettingsCard {
                 onValueChanged: settings.autoSplitMinutes = value
             }
 
-            Label { text: "Title template"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Mẫu tiêu đề"; color: Theme.textMuted; font.pixelSize: 11 }
             TextField {
                 Layout.fillWidth: true
                 text: settings.autoRenderTitleTemplate

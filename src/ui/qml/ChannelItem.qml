@@ -50,7 +50,7 @@ Rectangle {
                 Layout.fillWidth: true
             }
             Label {
-                text: item.isPaused ? "paused" : "@" + (model.handle || model.channelId || "")
+                text: item.isPaused ? "Đã tạm dừng" : "@" + (model.handle || model.channelId || "")
                 color: Theme.textMuted
                 font.pixelSize: 9
                 elide: Text.ElideRight
@@ -90,15 +90,15 @@ Rectangle {
     Menu {
         id: ctxMenu
         MenuItem {
-            text: item.isPaused ? "Resume" : "Pause"
+            text: item.isPaused ? "Tiếp tục" : "Tạm dừng"
             onTriggered: item.pauseClicked()
         }
         MenuItem {
-            text: "Compare"
+            text: "So sánh"
             onTriggered: item.compareClicked()
         }
         MenuItem {
-            text: "Delete"
+            text: "Xóa"
             onTriggered: item.deleteClicked()
         }
     }

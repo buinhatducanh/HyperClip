@@ -17,6 +17,7 @@ class SystemStatsModel(QObject):
         self._active_workers: int = 0
         self._is_online: bool = True
         self._network_ip: str = "127.0.0.1"
+        self._vram_total_gb: int = 0
 
     def update_from_dict(self, d: dict):
         if "gpu_name" in d: self._gpu_name = d["gpu_name"]
@@ -29,6 +30,7 @@ class SystemStatsModel(QObject):
         if "active_workers" in d: self._active_workers = int(d["active_workers"])
         if "is_online" in d: self._is_online = bool(d["is_online"])
         if "network_ip" in d: self._network_ip = d["network_ip"]
+        if "vram_total_gb" in d: self._vram_total_gb = int(d["vram_total_gb"])
         self.statsChanged.emit()
 
     @Property(str, notify=statsChanged)
@@ -60,6 +62,9 @@ class SystemStatsModel(QObject):
 
     @Property(str, notify=statsChanged)
     def network_ip(self) -> str: return self._network_ip
+
+    @Property(int, notify=statsChanged)
+    def vram_total_gb(self) -> int: return self._vram_total_gb
 
     @Property(str, notify=statsChanged)
     def ram_label(self) -> str:

@@ -1,4 +1,4 @@
-"""RenderedVideoListModel — completed rendered outputs."""
+"""RenderedVideoListModel — completed rendered outputs, incremental model."""
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot
 
 
@@ -17,6 +17,7 @@ class RenderedVideoListModel(QAbstractListModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._items: list[dict] = []
+        self._id_index: dict[str, int] = {}
 
     def rowCount(self, parent=QModelIndex()):
         if parent.isValid():
@@ -53,15 +54,34 @@ class RenderedVideoListModel(QAbstractListModel):
             self.ThumbnailRole: QByteArray(b"thumbnail"),
         }
 
+    def _rebuild_index(self):
+        self._id_index = {v.get("id", ""): i for i, v in enumerate(self._items)}
+
+    def _ids_identical(self, new: list[dict]) -> bool:
+        if len(new) != len(self._items):
+            return False
+        for a, b in zip(self._items, new):
+            if a.get("id") != b.get("id"):
+                return False
+        return True
+
     def load_from_backend(self, backend):
         try:
             resp = backend.send_command("rendered:list")
             items = resp.get("result", [])
             if not isinstance(items, list):
                 items = []
-            self.beginResetModel()
-            self._items = items
-            self.endResetModel()
+            if self._ids_identical(items):
+                for i, v in enumerate(items):
+                    self._items[i] = v
+                idx_top = self.index(0)
+                idx_bot = self.index(len(self._items) - 1) if self._items else idx_top
+                self.dataChanged.emit(idx_top, idx_bot, [])
+            else:
+                self.beginResetModel()
+                self._items = items
+                self._rebuild_index()
+                self.endResetModel()
         except Exception as e:
             print(f"[RenderedVideoListModel] load error: {e}")
 

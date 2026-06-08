@@ -30,11 +30,11 @@ Rectangle {
                 font.pixelSize: 11
             }
             Button {
-                text: "Test all"
+                text: "Test tất cả"
                 onClicked: projectModel.test_all(backend)
             }
             Button {
-                text: "Repair all"
+                text: "Sửa tất cả"
                 onClicked: projectModel.batch_repair(backend)
             }
         }
@@ -86,7 +86,7 @@ Rectangle {
                         Layout.preferredWidth: 120
                     }
                     Button {
-                        text: "Repair"
+                        text: "Sửa"
                         onClicked: projectModel.repair(backend, model.id)
                     }
                     Button {

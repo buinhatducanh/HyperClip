@@ -26,6 +26,7 @@ import {
   ensureStorageDirs,
   loadSettings,
   generateWorkspacePaths,
+  ensureChannelVideoDir,
 } from '../../services/ramdisk.js'
 import { generateBlurBackground } from '../../services/ffmpeg.js'
 import {
@@ -98,6 +99,7 @@ export function registerWorkspaceHandlers(ipcMain: IpcMain): void {
     broadcast(IPC_CHANNELS.WORKSPACE_UPDATE_EVENT, getWorkspace(id))
 
     const storagePath = getVideoStoragePath()
+    const channelOutputDir = ensureChannelVideoDir(ws.channelName, ws.channelId)
     ensureStorageDirs()
 
     const settings = loadSettings()
@@ -112,7 +114,7 @@ export function registerWorkspaceHandlers(ipcMain: IpcMain): void {
       const result = await downloadVideo({
         workspaceId: id,
         videoUrl,
-        outputDir: storagePath,
+        outputDir: channelOutputDir,
         trimLimit: retryTrimLimit,
         quality: retryQuality,
         ytCookiesFile,

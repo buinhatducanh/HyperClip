@@ -22,7 +22,7 @@ Rectangle {
         TextField {
             id: addInput
             Layout.fillWidth: true
-            placeholderText: "@handle or URL"
+            placeholderText: "@handle hoặc URL kênh"
             color: Theme.text
             font.pixelSize: 11
             background: Rectangle { color: "transparent"; border.width: 0 }

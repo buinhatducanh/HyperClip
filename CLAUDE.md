@@ -33,14 +33,14 @@ autoDownload (yt-dlp --download-sections, multi-instance, 16 fragments, tv_embed
 
 | Layer | Technology |
 |-------|-----------|
-| Desktop Shell | Electron |
-| Frontend | Next.js 14 (App Router) |
-| State | Zustand (flat, NO context cascade) |
-| Styling | Tailwind CSS v3 + inline styles |
-| Backend | Node.js (Electron main process) |
+| Desktop Shell | PySide6 (QML/QtQuick) |
+| Frontend | QML (QtQuick) |
+| State | Python models + Rust backend |
+| Styling | QML inline (Theme singleton) |
+| Backend | Rust binary (`hyperclip-tauri.exe`) — stdin/stdout JSON-RPC |
 | Auth Primary | Innertube API via Chrome Session Cookies (30 profiles, NO quota) |
 | Auth Fallback | OAuth 2.0 + Data API v3 (TokenManager, 10k units/project/day) |
-| API Key Pool | KeyManager (chưa dùng trực tiếp, dự phòng tương lai) |
+| API Key Pool | KeyManager (dự phòng tương lai) |
 | Downloader | yt-dlp + Direct IP Binding |
 | Video Processing | FFmpeg + NVIDIA NVENC (RTX 5080) |
 | Hardware | Intel Core Ultra 9 285K, RTX 5080 16GB, 64GB RAM |
@@ -50,155 +50,102 @@ autoDownload (yt-dlp --download-sections, multi-instance, 16 fragments, tv_embed
 ## Thư mục chính
 
 ```
-electron/
-  main.ts                   — Bootstrap, window, tray, IPC handlers
-  preload.ts                — window.electronAPI bridge
-  ipc/
-    channels.ts              — IPC channel constants
-    handlers/                — IPC handler groups (extracted from main.ts)
-      index.ts               — registers all handlers
-      system.ts              — SYSTEM_STATS, SYSTEM_OPEN_*
-      auth.ts               — AUTH_*, TOKEN_*, KEY_*
-      project.ts             — PROJECT_*, PROJECT_REPAIR, PROJECT_BATCH_REPAIR
-      session.ts             — SESSION_*, logs:read, logs:export
-  services/__tests__/        — Unit tests (Vitest)
-  services/
-    youtube_auth.ts         — OAuth 2.0 flow, token management
-    key_manager.ts          — 30 API keys pool (quota tracking, dự phòng tương lai)
-    token_manager.ts        — OAuth tokens: smart rotation, refresh, per-project quota
-    subscription_feed.ts    — Full scan all channels: Innertube primary + OAuth fallback
-    chrome_cookies.ts       — Chrome cookie extraction (DPAPI + sql.js), SAPISIDHASH, SessionManager (30 profiles)
-    youtube_poller.ts       — Orchestrator: feed → autoDownload
-    youtube.ts              — yt-dlp wrapper (download, getVideoInfo)
-    ffmpeg.ts               — FFmpeg + NVENC render pipeline
-    ffmpeg-paths.ts        — FFmpeg binary resolution
-    worker-pool.ts          — Concurrent FFmpeg process management
-    ramdisk.ts             — Storage path management
-    store.ts               — Persistent JSON store (workspaces, channels)
-    system.ts              — System stats (GPU, RAM, workers, 5s interval)
+src/
+  main.py                — Python launcher: QGuiApplication + spawn Rust binary
+  backend/
+    client.py             — RustClient (stdin/stdout JSON-RPC to Rust)
+  models/                 — Python → QML context models
+  ui/qml/                — QML views (PollerPanel, WorkspaceQueue, etc.)
 
-src/app/
-  page.tsx                 — Dashboard (3-pane layout)
-  layout.tsx               — Root layout
-  globals.css              — Tailwind + :focus-visible outlines
-  components/
-    Sidebar.tsx            — Navigation + System Monitor
-    WorkspaceQueue.tsx      — Video list grouped by status
-    WorkspaceCard.tsx      — Individual card (hover actions + retry)
-    DetailEditor.tsx       — Editor panel (trim, speed, background, overlay, export)
-    RenderQueueBar.tsx     — Floating render queue
-    workspace/
-      InputBar.tsx         — URL input + trim dropdown + channel URL support
-  settings/page.tsx        — OAuth credentials + key management
-  lib/
-    store.ts               — Zustand (flat state)
-    ipc.ts                 — IPC client wrapper
-  types.ts                 — Shared TypeScript types
+crates/hyperclip_ipc/src/
+  cookies.rs              — DPAPI decrypt + SQLite parser, SOCS=CAI injection
+  cookies_sqlite.rs       — SQLite reader (%youtube.com + .youtube.com filter)
+  detection.rs            — Detection pipeline + health monitor
+  ffmpeg.rs               — FFmpeg filter chain + NVENC params
+  innertube_pool.rs       — 30 sessions, atomic round-robin, 10s cooldown
+  innertube_client.rs     — Node subprocess wrapper (youtubei.js via JSON-RPC)
+  poller.rs               — Async polling loop (5s ± 20% jitter)
+  store.rs                — Persistent JSON store (workspaces, channels, settings)
+  system.rs               — GPU detection + system stats
+  youtube.rs              — yt-dlp arg builder + download orchestration
 
-HYPERCLIP_RULES.md         — Source of truth cho nghiệp vụ + kỹ thuật
+src-tauri/src/
+  main.rs                 — Rust binary entry point (stdin/stdout JSON-RPC loop)
+  commands.rs             — ~80 IPC command handlers
+
+docs/
+  MIGRATION_NOTES.md      — Logic từ Electron cần verify trên Rust
+
+HYPERCLIP_RULES.md        — Source of truth nghiệp vụ + kỹ thuật
 ```
 
 ---
 
-## IPC Protocol (key channels)
+## IPC Protocol
 
-**Renderer → Main:**
-- `workspace:retry` — retry download for `waiting`/`error` workspaces
-- `workspace:update/delete/list` — Workspace CRUD
-- `channel:add/list/update/remove` — Channel CRUD
-- `render:start/cancel/chunked` — FFmpeg render control
-- `key:list/add/remove/reset` — API key management
-- `auth:oauth-start/set-creds/get-creds` — OAuth flow
+**Python ↔ Rust (stdin/stdout JSON-RPC):**
 
-**Main → Renderer (events):**
-- `workspace:update-event` — Workspace state changed
-- `render:progress-event` — FFmpeg render progress
-- `system:stats-update` — Periodic system stats (5s)
-- `notification` — Toast notification
-- `autodownload` — New video auto-downloaded
-- `channel:synced-event` — Subscription list synced (15 min interval)
+- **Request:** `{"id": 123, "cmd": "channel:list", "params": {}}` (stdin)
+- **Response:** `{"id": 123, "ok": true, "result": {...}}` (stdout)
+- **Push event:** `{"method": "workspace:update", "params": {...}}` (stdout, no `id`)
+
+**Key Rust commands (80+ handlers in `commands.rs`):**
+
+| Group | Commands |
+|-------|---------|
+| Workspace | `workspace:list/add/update/delete/retry/autoDownload/redownloadHd/split/setActive` |
+| Channel | `channel:list/add/remove/update/pause/resume/bulk*/sync/autoAssign/getInfo` |
+| Render | `render:start/cancel/chunked/split/splitPreview` |
+| Video | `video:getFile/getBlob/getAvailableFormats/image:getFile/video:saveBlob` |
+| Auth | `auth:status/extractCookies/logout/startOAuth/startChromeLogin/setCredentials/getCredentials` |
+| Poller | `poller:start/stop/status/resume`, `detection:history` |
+| System | `system:stats/openFolder/openUrl/pickFolder/runDiagnostics/hardware:profile` |
+
+**Python → QML (context properties):**
+- `backend` — RustClient instance
+- `workspaceModel`, `channelModel`, `pollerStatusModel`, `settingsModel`, etc.
+- `eventBus` — event distribution từ Rust push events
 
 ---
 
 ## Important Code Patterns
 
-### Zustand store (src/app/lib/store.ts)
-- Flat updates only — NO context cascade
-- `useAppStore` — single store for all app state
-- `WorkspaceStatus` includes `'error'` (for permanently unavailable videos)
+### Python models (src/models/)
+- Mỗi model là QObject subclass, exposed làm QML context property
+- `refresh_from_backend(backend)` — pulls data từ Rust qua JSON-RPC
+- Dùng `pyqtSignal` để notify QML khi data change
 
-### Module-level caching (electron services)
-- `_cachedGPU` in `system.ts` — GPU detection runs ONCE at startup
-- `_cachedIp` in `system.ts` — network IP cached
-- `_cachedChannels` in `subscription_feed.ts` — channel list cached, invalidated on add/sync
-- `_cpuFirstDone` in `system.ts` — CPU tick delta needs warmup (first call = 0%)
+### Rust IPC commands (src-tauri/src/commands.rs)
+- Single `handle_command(req: IpcRequest) -> CommandResult` dispatch (~2500 lines)
+- Every branch returns `CommandResult::Ok(Value)` or `CommandResult::Err(String)`
+- `AppState` singleton (OnceLock) — manages poller, innertube pool, worker pool
 
-### Video preview shortcuts (DetailEditor.tsx)
-- `Space` = play/pause
-- `ArrowLeft/Right` = seek ±5s (±1s with Shift)
-- Timeline click-to-seek on scrubber
+### Module-level caching (Rust)
+- `_cachedGPU` in `system.rs` — GPU detection runs ONCE at startup
+- Channel list cached, invalidated on add/sync
 
 ---
 
 ## Commands
 
 ```bash
-npm run dev           # Next.js dev (localhost:3000)
-npm run electron:dev  # Dev: Next.js + Electron
-npm run electron:build # Production .exe
-npm run lint          # ESLint (electron/)
-npm run lint:fix     # ESLint with --fix
-npm run test          # Unit tests (Vitest)
-npm run test:watch   # Watch mode
-npm run test:coverage # Coverage report
+python src/main.py             # Run QML app (spawns Rust binary)
+cargo build -p hyperclip-tauri  # Build Rust binary
+cargo test -p hyperclip-ipc     # Run Rust tests
+cargo clippy -p hyperclip-ipc   # Lint Rust code
 ```
 
 ---
 
-## TypeScript Verify
+## Rust Verify
 
-Luôn chạy `npx tsc --noEmit` sau khi sửa backend Electron. IDE diagnostics không luôn catch được main process errors.
+Luôn chạy `cargo test -p hyperclip-ipc` và `cargo clippy -p hyperclip-ipc` sau khi sửa crate này.
 
----
-
-## UI Rules
-
-- Layout: 3-pane (Sidebar 220px | Center flex | Right Editor)
-- Theme: `#121212` bg, `#00B4FF` accent, `#00FF88` success
-- Flat design: NO shadows, NO gradients
-- Font: Inter
-- `use client` BẮT BUỘC cho mọi React component trong `src/app/`
+Kiểm tra JSON-RPC protocol: response/event phải đúng format, push events không có `id`.
 
 ---
 
 ## Dead Code
 
-Đã dọn trong các commit gần đây — KHÔNG còn dead code tracked. Có thể check lại bằng:
-
-```bash
-node scripts/find-unused-services.mjs   # scan electron/services/*.ts
-```
-
-Từng bước dọn (lịch sử):
-- `src/app/components/DetailEditor.tsx` — replaced by SettingsPanel — **dropped** (bdf5f8e)
-- `src/app/components/workspace/RenderQueueBar.tsx` — integrated into Queue panel — **dropped** (bdf5f8e)
-- `src/app/components/ui/` (60+ shadcn files) — không import — **dropped** (17055be)
-- `src/app/components/LoginScreen.tsx` — actually used in page.tsx cho unauth fallback, **giữ lại**
-- `electron/services/websub.ts` — **dropped** (pre-CLAUDE.md)
-- `electron/services/updater.ts` — replaced by `github-updater.ts` — **dropped** (5ac0fe8)
-- `electron/ipc/handlers/_original_project.ts` — empty leftover — **dropped** (37c918a)
-- `.claude/docs/DemoDesignTool.zip`, `Description.docx` — outdated binary blobs — **dropped**
-
----
-
-## Cập nhật: 2026-05-13
-
-- `publishedAt=0` → OAuth verify (2026-05-13): gọi `/videos?id=...&part=snippet` để lấy real `publishedAt`. Accept nếu ≤ 10 min, skip nếu > 10 min. OAuth chỉ trigger khi Innertube trả empty timestamp → quota cost ~300-500 units/ngày.
-- Xóa priority re-scan + `getLatestVideoPriority()` + `verifyVideoAgeByOAuth()` + OAuth health check. OAuth quota ≈ 0 consumption.
-- Fix dedup bug: `return null` → `continue` trong `getLatestVideo`
-- **Download quality (2026-05-18):** Client priority: `tv_embedded` → `web` → `ios`. `web` client với Chrome CDP cookies bị giới hạn 360p (EJS challenge). `tv_embedded` bypass EJS qua HLS → 1080p60 H.264. Format selector: ưu tiên resolution (không H.264 restriction). E2E verified: 1920x1080 → 288.7MB download → 874MB render → archive ✅
-- **Preview/render fix (2026-05-13):** `downloadedPath` stored as relative filename (`"XYZ.mp4"`). VIDEO_FILE/VIDEO_BLOB handlers prepend `getVideoStoragePath()` to resolve absolute path. Fix `normalizedStored` undefined reference.
-
-## Cập nhật: 2026-05-12
-
-- DEV_LOG=1 enable qua `cross-env DEV_LOG=1` trong `electron:dev` script
+Electron + Next.js đã archive (2026-06-09). Xem `docs/MIGRATION_NOTES.md` cho logic cần verify trên Rust.
+Code gốc ở `../HyperClip-Electron-Archive/` — git history vẫn giữ đầy đủ.

@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 
 SettingsCard {
-    title: "HARDWARE PROFILE"
+    title: "PHẦN CỨNG"
     Layout.preferredHeight: 200
 
     ColumnLayout {
@@ -12,7 +12,7 @@ SettingsCard {
         spacing: 8
 
         Label {
-            text: "Detected: " + hwProfile.detectedGpuName + " · " + hwProfile.detectedVramGb + "GB VRAM · " + hwProfile.detectedRamGb + "GB RAM"
+            text: "Phát hiện: " + hwProfile.detectedGpuName + " · " + hwProfile.detectedVramGb + "GB VRAM · " + hwProfile.detectedRamGb + "GB RAM"
             color: Theme.textMuted
             font.pixelSize: 10
         }

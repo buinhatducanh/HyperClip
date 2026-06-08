@@ -11,7 +11,7 @@ import fs from 'fs'
 import { IPC_CHANNELS } from '../channels.js'
 import { broadcast, sendNotification } from '../ipc-state.js'
 import { getWorkspace, updateWorkspace, getRenderedVideos, addRenderedVideo, removeRenderedVideo, type RenderedVideoRecord, type RenderConfigRecord, type SourceInfoRecord } from '../../services/store.js'
-import { loadSettings, saveSettings, getVideoStoragePath, getOutputPath, archiveRenderedFile, openArchiveFolder, showInFolder, getAppStoreDir, formatBytes } from '../../services/ramdisk.js'
+import { loadSettings, saveSettings, getVideoStoragePath, getOutputPath, archiveRenderedFile, openArchiveFolder, showInFolder, getAppStoreDir, formatBytes, ensureChannelOutputDir } from '../../services/ramdisk.js'
 import { renderVideo, renderChunked, cancelChunked, type RenderMetadata, type RenderProgress, type ChunkConfig } from '../../services/ffmpeg.js'
 import { cancelFfmpeg } from '../../services/worker-pool.js'
 import { getGPUCapabilities } from '../../services/system.js'
@@ -140,7 +140,7 @@ function executeRenderJob(job: RenderJob): void {
     workspaceId,
   })
 
-  const outputDir = getOutputPath()
+  const outputDir = ensureChannelOutputDir(workspace.channelName)
 
   // Build resolved metadata with workspace state merged in
   const wsBlurBg = workspace?.blurBackgroundPath || ''
@@ -275,12 +275,19 @@ function executeRenderJob(job: RenderJob): void {
 // ─── IPC Handlers ────────────────────────────────────────────────────────────────
 
 function findDownloadedFileAbs(workspaceId: string): string | null {
-  const dirs = [
+  const baseDirs = [
     getVideoStoragePath(),
     path.join(getAppStoreDir(), 'downloads'),
     path.join(getAppStoreDir(), 'videos'),
   ]
-  for (const dir of dirs) {
+  // Also scan any channel subdirectories under downloads/
+  try {
+    const entries = fs.readdirSync(getVideoStoragePath(), { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.isDirectory()) baseDirs.push(path.join(getVideoStoragePath(), entry.name))
+    }
+  } catch {}
+  for (const dir of baseDirs) {
     try {
       const entries = fs.readdirSync(dir)
       const found = entries.find((f: string) => {
@@ -353,7 +360,7 @@ export function registerRenderHandlers(ipcMain: IpcMain): void {
     devLog(`[TIMER] RENDER START (GPU MAX CHUNKED): "${workspace.videoTitle}"`)
     devLog(`[TIMER]   Quality: ${chunkQuality}p | Speed: ${chunkSpeed}x | Trim: ${chunkTrimDuration}s | Codec: ${metadata.codec ?? 'hevc'} | Workers: ${effectiveConfig.workers}x`)
 
-    const outputDir = getOutputPath()
+    const outputDir = ensureChannelOutputDir(workspace.channelName)
 
     const wsBlurBg = workspace?.blurBackgroundPath || ''
     const wsThumbPath = path.join(getVideoStoragePath(), `thumb_${workspaceId}.jpg`)

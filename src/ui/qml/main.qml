@@ -11,15 +11,16 @@ ApplicationWindow {
     title: "HyperClip"
     color: Theme.bg
 
-    // Navigation
+    // Top-level page: "dashboard" | "settings" | "operation"
     property string currentPage: "dashboard"
+    // Dashboard sub-tab: "queue" | "channels" | "rendered"
     property string sidebarHighlight: "queue"
 
     RowLayout {
         anchors.fill: parent
         spacing: 0
 
-        // ─── Left: Sidebar — ALWAYS visible ──────────────────────
+        // ─── Left: Sidebar (persistent) ──────────────────────────
         Sidebar {
             id: sidebar
             Layout.preferredWidth: 220
@@ -33,21 +34,18 @@ ApplicationWindow {
             }
         }
 
-        // ─── Right: Content area ─────────────────────────────────
-        // All pages always mounted, visibility-switched (preserves state)
+        // ─── Right: Content ─────────────────────────────────────
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            // Dashboard 3-pane
+            // Dashboard: Queue view
             RowLayout {
-                id: dashboardContent
                 anchors.fill: parent
                 spacing: 0
-                visible: root.currentPage === "dashboard"
+                visible: root.currentPage === "dashboard" && root.sidebarHighlight === "queue"
 
                 WorkspaceQueue {
-                    id: workspaceQueue
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                 }
@@ -55,6 +53,129 @@ ApplicationWindow {
                     id: detailEditor
                     Layout.preferredWidth: 400
                     Layout.fillHeight: true
+                }
+            }
+
+            // Dashboard: Channels view (with add form + list)
+            Rectangle {
+                anchors.fill: parent
+                color: Theme.bg
+                visible: root.currentPage === "dashboard" && root.sidebarHighlight === "channels"
+
+                ChannelList {
+                    anchors.fill: parent
+                    anchors.margins: 8
+                }
+            }
+
+            // Rendered view
+            Rectangle {
+                anchors.fill: parent
+                color: Theme.bg
+                border.color: Theme.border
+                border.width: 1
+                visible: root.currentPage === "dashboard" && root.sidebarHighlight === "rendered"
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 6
+                    spacing: 4
+
+                    SearchBar {
+                        Layout.fillWidth: true
+                        placeholderText: "Tìm video đã render..."
+                        id: renderedSearch
+                        onSearchChanged: renderedList.searchText = searchText
+                        onClearClicked: renderedList.searchText = ""
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.preferredHeight: 1
+                        color: Theme.border
+                    }
+
+                    ListView {
+                        id: renderedList
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        spacing: 1
+                        property string searchText: ""
+
+                        model: renderedModel
+
+                        delegate: Rectangle {
+                            width: ListView.view.width
+                            height: 56
+                            visible: {
+                                if (!renderedList.searchText) return true
+                                const t = (model.title || "").toLowerCase()
+                                return t.includes(renderedList.searchText.toLowerCase())
+                            }
+                            color: index % 2 === 0 ? Theme.rowEven : Theme.rowOdd
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.margins: 6
+                                spacing: 8
+
+                                MouseArea {
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: detailEditor.loadRendered(model.id)
+
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        spacing: 8
+                                        Rectangle {
+                                            Layout.preferredWidth: 32
+                                            Layout.preferredHeight: 32
+                                            color: Theme.bg
+                                            border.color: Theme.border
+                                            border.width: 1
+                                            Label {
+                                                anchors.centerIn: parent
+                                                text: "▶"
+                                                color: Theme.success
+                                                font.pixelSize: 14
+                                            }
+                                        }
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 2
+                                            Label {
+                                                text: model.title
+                                                color: Theme.text
+                                                font.pixelSize: 11
+                                                font.bold: true
+                                                elide: Text.ElideRight
+                                                Layout.fillWidth: true
+                                            }
+                                            Label {
+                                                text: (model.channelName || "—") + " · " + model.quality + " · " + (model.fileSize/1048576).toFixed(1) + " MB"
+                                                color: Theme.textMuted
+                                                font.pixelSize: 9
+                                            }
+                                        }
+                                    }
+                                }
+                                Button {
+                                    text: "📂"
+                                    Layout.preferredWidth: 28
+                                    onClicked: renderedModel.open_folder(backend, model.id)
+                                }
+                            }
+                        }
+
+                        Label {
+                            anchors.centerIn: parent
+                            visible: parent.count === 0
+                            text: "Chưa có video đã render"
+                            color: Theme.textMuted
+                            font.pixelSize: 11
+                        }
+                    }
                 }
             }
 
@@ -94,7 +215,7 @@ ApplicationWindow {
         border.width: 1
         Label {
             anchors.centerIn: parent
-            text: "🆕 Update available"
+            text: "🆕 Có bản cập nhật mới"
             color: Theme.accent
             font.pixelSize: 12
         }

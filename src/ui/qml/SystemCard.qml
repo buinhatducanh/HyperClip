@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 
 SettingsCard {
-    title: "SYSTEM"
+    title: "HỆ THỐNG"
     Layout.preferredHeight: 200
 
     ColumnLayout {
@@ -19,7 +19,7 @@ SettingsCard {
 
             Label { text: "GPU"; color: Theme.textMuted; font.pixelSize: 11 }
             Label { text: statsModel.gpu_name; color: Theme.text; font.pixelSize: 11; Layout.fillWidth: true }
-            Label { text: "VRAM tier"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Cấp VRAM"; color: Theme.textMuted; font.pixelSize: 11 }
             Label {
                 text: statsModel.gpu_tier
                 color: statsModel.gpu_tier === "high" ? Theme.success
@@ -28,7 +28,7 @@ SettingsCard {
                 font.bold: true
             }
 
-            Label { text: "Temp"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Nhiệt độ"; color: Theme.textMuted; font.pixelSize: 11 }
             Label {
                 text: statsModel.gpu_temp + "°C"
                 color: statsModel.gpu_temp > 80 ? Theme.error : Theme.text

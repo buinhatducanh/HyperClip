@@ -15,7 +15,7 @@ ScrollView {
         y: 12
 
         Label {
-            text: "Operation Center"
+            text: "Trung tâm vận hành"
             color: Theme.text
             font.pixelSize: 20
             font.bold: true

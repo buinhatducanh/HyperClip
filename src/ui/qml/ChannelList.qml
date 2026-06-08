@@ -12,8 +12,8 @@ ColumnLayout {
     AddChannelForm {
         id: addForm
         onAddClicked: function(url) {
-            backend.send_command("channel:add", {"url": url})
-            activityModel.add_entry("channel", "Adding: " + url, "info")
+            channelListModel.add_channel(url)
+            activityModel.add_entry("channel", "Đang thêm: " + url, "info")
         }
     }
 
@@ -38,7 +38,7 @@ ColumnLayout {
             }
             onDeleteClicked: confirmDelete.openFor(model.channelId, model.name, function(id, name) {
                 backend.send_command("channel:remove", {"id": id})
-                activityModel.add_entry("channel", "Removed: " + name, "info")
+                activityModel.add_entry("channel", "Đã xóa: " + name, "info")
                 channelListModel.remove_channel(id)
             })
             onCompareClicked: compareModal.openFor(model.channelId, model.name)
@@ -46,7 +46,7 @@ ColumnLayout {
         Label {
             anchors.centerIn: parent
             visible: chList.count === 0
-            text: "Chưa có channel nào"
+            text: "Chưa có kênh nào"
             color: Theme.textMuted
             font.pixelSize: 10
         }

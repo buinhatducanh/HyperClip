@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 
 SettingsCard {
-    title: "DETECTION"
+    title: "PHÁT HIỆN"
     Layout.preferredHeight: 220
 
     ColumnLayout {
@@ -21,7 +21,7 @@ SettingsCard {
         }
 
         Label {
-            text: "Status: " + (poller.active ? "Active" : "Paused")
+            text: "Trạng thái: " + (poller.active ? "Đang chạy" : "Tạm dừng")
                   + (poller.lastError ? " · " + poller.lastError : "")
             color: poller.active ? Theme.success : Theme.textMuted
             font.pixelSize: 10
@@ -33,7 +33,7 @@ SettingsCard {
             rowSpacing: 8
             Layout.fillWidth: true
 
-            Label { text: "Poll interval (ms)"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Chu kỳ quét (ms)"; color: Theme.textMuted; font.pixelSize: 11 }
             SpinBox {
                 Layout.fillWidth: true
                 from: 1000
@@ -43,7 +43,7 @@ SettingsCard {
                 onValueChanged: settings.pollIntervalMs = value
             }
 
-            Label { text: "Min duration (s)"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Thời lượng tối thiểu (s)"; color: Theme.textMuted; font.pixelSize: 11 }
             SpinBox {
                 Layout.fillWidth: true
                 from: 0
@@ -52,7 +52,7 @@ SettingsCard {
                 onValueChanged: settings.videoMinDurationSec = value
             }
 
-            Label { text: "Max duration (s)"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Thời lượng tối đa (s)"; color: Theme.textMuted; font.pixelSize: 11 }
             SpinBox {
                 Layout.fillWidth: true
                 from: 60
@@ -63,7 +63,7 @@ SettingsCard {
         }
 
         Button {
-            text: poller.active ? "Pause" : "Resume"
+            text: poller.active ? "Tạm dừng" : "Tiếp tục"
             onClicked: poller.active ? poller.pause(backend) : poller.resume(backend)
         }
     }

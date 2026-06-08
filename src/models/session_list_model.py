@@ -1,5 +1,10 @@
-"""SessionListModel — list of Chrome sessions (per profile, login state, health)."""
-from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot
+"""SessionListModel — list of Chrome sessions (per profile, login state, health).
+
+Incremental model: _ids_identical check avoids gratuitous beginResetModel on
+periodic refresh. When the list is structurally unchanged only dataChanged is
+emitted.
+"""
+from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot, QObject
 
 
 class SessionListModel(QAbstractListModel):
@@ -15,6 +20,7 @@ class SessionListModel(QAbstractListModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._items: list[dict] = []
+        self._id_index: dict[str, int] = {}
 
     def rowCount(self, parent=QModelIndex()):
         if parent.isValid():
@@ -47,50 +53,62 @@ class SessionListModel(QAbstractListModel):
             self.HealthRole: QByteArray(b"health"),
         }
 
+    def _rebuild_index(self):
+        self._id_index = {s.get("profileId", ""): i for i, s in enumerate(self._items)}
+
+    def _ids_identical(self, new: list[dict]) -> bool:
+        if len(new) != len(self._items):
+            return False
+        for a, b in zip(self._items, new):
+            if a.get("profileId") != b.get("profileId"):
+                return False
+        return True
+
     def load_from_backend(self, backend):
         try:
             resp = backend.send_command("session:status")
             result = resp.get("result", {})
-            sessions = result.get("sessions", [])
-            self.beginResetModel()
-            self._items = list(sessions)
-            self.endResetModel()
+            sessions = list(result.get("sessions", []))
+            if self._ids_identical(sessions):
+                for i, s in enumerate(sessions):
+                    self._items[i] = s
+                idx_top = self.index(0)
+                idx_bot = self.index(len(self._items) - 1) if self._items else idx_top
+                self.dataChanged.emit(idx_top, idx_bot, [])
+            else:
+                self.beginResetModel()
+                self._items = sessions
+                self._rebuild_index()
+                self.endResetModel()
         except Exception as e:
             print(f"[SessionListModel] load error: {e}")
 
-    @Slot()
+    @Slot(QObject)
     def refresh(self, backend):
         self.load_from_backend(backend)
 
-    @Slot(str)
+    @Slot(QObject, str)
     def open_login(self, backend, profile_id: str):
         if not backend: return
         backend.send_command("session:openLogin", {"profileId": profile_id})
 
-    @Slot()
+    @Slot(QObject)
     def add_session(self, backend):
         if not backend: return
         backend.send_command("session:add")
 
-    @Slot()
+    @Slot(QObject)
     def refresh_all(self, backend):
         if not backend: return
         backend.send_command("session:refreshAll")
 
-    @Slot()
+    @Slot(QObject)
     def clone_one(self, backend):
         if not backend: return
         backend.send_command("session:cloneOne")
 
     def extract_all_sessions(self, backend):
-        """Trigger cookie extraction for all 30 Chrome profiles.
-
-        Args:
-            backend: RustClient instance
-
-        Returns:
-            List of results dicts per profile
-        """
+        """Trigger cookie extraction for all 30 Chrome profiles."""
         results = []
         for i in range(1, 31):
             profile_name = f"HyperClip-Chrome-Profile-{i}"

@@ -24,9 +24,9 @@ Rectangle {
                 font.bold: true
                 Layout.fillWidth: true
             }
-            Button { text: "Add"; onClicked: sessionModel.add_session(backend) }
-            Button { text: "Clone"; onClicked: sessionModel.clone_one(backend) }
-            Button { text: "Refresh all"; onClicked: sessionModel.refresh_all(backend) }
+            Button { text: "Thêm"; onClicked: sessionModel.add_session(backend) }
+            Button { text: "Sao chép"; onClicked: sessionModel.clone_one(backend) }
+            Button { text: "Làm mới"; onClicked: sessionModel.refresh_all(backend) }
         }
 
         ListView {
@@ -66,19 +66,19 @@ Rectangle {
                         color: model.consented ? Theme.accent : Theme.textMuted
                     }
                     Label {
-                        text: model.consented ? "OK" : "No consent"
+                        text: model.consented ? "OK" : "Chưa đồng ý"
                         color: Theme.textMuted
                         font.pixelSize: 9
                     }
                     Label {
-                        text: model.usedToday + "× today"
+                        text: model.usedToday + "× hôm nay"
                         color: Theme.textMuted
                         font.pixelSize: 9
                         font.family: "monospace"
                     }
                     Item { Layout.fillWidth: true }
                     Button {
-                        text: "Login"
+                        text: "Đăng nhập"
                         onClicked: sessionModel.open_login(backend, model.id)
                     }
                 }
@@ -86,7 +86,7 @@ Rectangle {
             Label {
                 anchors.centerIn: parent
                 visible: !sessionModel || sessionModel.rowCount === 0
-                text: "Chưa có session nào — bấm Add để tạo"
+                text: "Chưa có session nào — bấm Thêm để tạo"
                 color: Theme.textMuted
                 font.pixelSize: 10
             }

@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 
 SettingsCard {
-    title: "STORAGE"
+    title: "BỘ NHỚ"
     Layout.preferredHeight: 240
 
     ColumnLayout {
@@ -17,21 +17,21 @@ SettingsCard {
             rowSpacing: 8
             Layout.fillWidth: true
 
-            Label { text: "Video storage"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Thư mục video"; color: Theme.textMuted; font.pixelSize: 11 }
             TextField {
                 Layout.fillWidth: true
                 text: settings.videoStoragePath
                 onEditingFinished: settings.videoStoragePath = text
             }
 
-            Label { text: "Output folder"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Thư mục output"; color: Theme.textMuted; font.pixelSize: 11 }
             TextField {
                 Layout.fillWidth: true
                 text: settings.outputPath
                 onEditingFinished: settings.outputPath = text
             }
 
-            Label { text: "Cleanup (days)"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Dọn sau (ngày)"; color: Theme.textMuted; font.pixelSize: 11 }
             SpinBox {
                 Layout.fillWidth: true
                 from: 0
@@ -40,7 +40,7 @@ SettingsCard {
                 onValueChanged: settings.downloadsCleanupDays = value
             }
 
-            Label { text: "Concurrent renders"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Số render đồng thời"; color: Theme.textMuted; font.pixelSize: 11 }
             SpinBox {
                 Layout.fillWidth: true
                 from: 1
@@ -53,17 +53,17 @@ SettingsCard {
         RowLayout {
             Layout.fillWidth: true
             Button {
-                text: "Clear downloads"
+                text: "Xóa video đã tải"
                 onClicked: {
                     backend.send_command("storage:clearDownloads")
-                    activityModel.add_entry("storage", "Clear downloads requested", "warn")
+                    activityModel.add_entry("storage", "Đã yêu cầu xóa video", "warn")
                 }
             }
             Button {
-                text: "Clear blur bg"
+                text: "Xóa ảnh nền blur"
                 onClicked: {
                     backend.send_command("storage:clearBlur")
-                    activityModel.add_entry("storage", "Clear blur requested", "warn")
+                    activityModel.add_entry("storage", "Đã yêu cầu xóa blur", "warn")
                 }
             }
         }

@@ -29,7 +29,7 @@ Rectangle {
                 color: Theme.textMuted
                 font.pixelSize: 11
             }
-            Button { text: "Test all"; onClicked: keyModel.test_all(backend) }
+            Button { text: "Test tất cả"; onClicked: keyModel.test_all(backend) }
         }
 
         ListView {
@@ -77,7 +77,7 @@ Rectangle {
             Label {
                 anchors.centerIn: parent
                 visible: !keyModel || keyModel.rowCount === 0
-                text: "Chưa có key nào"
+                text: "Chưa có API key nào"
                 color: Theme.textMuted
                 font.pixelSize: 10
             }

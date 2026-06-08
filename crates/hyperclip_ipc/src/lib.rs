@@ -30,3 +30,4 @@ pub use youtube::*;
 pub use cookies::*;
 pub use store::*;
 pub use detection::*;
+pub use poller::NewVideoEvent;

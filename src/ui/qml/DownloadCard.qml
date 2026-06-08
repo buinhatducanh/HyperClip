@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 
 SettingsCard {
-    title: "DOWNLOAD"
+    title: "TẢI XUỐNG"
     Layout.preferredHeight: 200
 
     ColumnLayout {
@@ -26,7 +26,7 @@ SettingsCard {
             rowSpacing: 8
             Layout.fillWidth: true
 
-            Label { text: "Default quality"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Chất lượng mặc định"; color: Theme.textMuted; font.pixelSize: 11 }
             ComboBox {
                 Layout.fillWidth: true
                 model: ["1080", "720", "480", "360"]
@@ -34,7 +34,7 @@ SettingsCard {
                 onActivated: settings.autoDownloadQuality = model[currentIndex]
             }
 
-            Label { text: "Trim (minutes)"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Cắt (phút)"; color: Theme.textMuted; font.pixelSize: 11 }
             SpinBox {
                 Layout.fillWidth: true
                 from: 1
@@ -43,7 +43,7 @@ SettingsCard {
                 onValueChanged: settings.defaultTrimLimit = value
             }
 
-            Label { text: "Concurrent downloads"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Số video tải đồng thời"; color: Theme.textMuted; font.pixelSize: 11 }
             SpinBox {
                 Layout.fillWidth: true
                 from: 1

@@ -1,0 +1,122 @@
+<h2>Option C mở rộng — Activity Log chi tiết</h2>
+<p class="subtitle">Badge latency trên StatusBar + PollerPanel mở rộng thêm Activity Log cho từng video</p>
+
+<div class="section">
+  <h3>DetectionStatusBar (giữ nguyên gọn nhẹ)</h3>
+  <div class="mockup" style="max-width:450px">
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;font-family:Inter,sans-serif;background:#1a1a2e;border-radius:6px;font-size:12px;color:#ccc">
+      <span style="background:#00B4FF;width:6px;height:6px;border-radius:50%"></span>
+      <span style="font-weight:500">Phát hiện</span>
+      <span style="background:#00B4FF22;color:#00B4FF;padding:1px 6px;border-radius:4px;font-size:11px">Innertube</span>
+      <span style="background:#00FF8822;color:#00FF88;padding:1px 6px;border-radius:4px;font-size:11px">~2s</span>
+      <span style="margin-left:auto;color:#666">27/30</span>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>PollerPanel — Activity Log (danh sách video đã bắt)</h3>
+  <p>Mỗi video là một card thu gọn, click để xem chi tiết.</p>
+
+  <!-- Video 1 -->
+  <div class="mockup" style="max-width:600px">
+    <div class="mockup-body" style="padding:0;font-family:Inter,sans-serif;background:#1a1a2e;border-radius:6px;color:#e0e0e0;font-size:13px">
+
+      <!-- Header -->
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;border-bottom:1px solid #2a2a3e">
+        <span style="font-size:16px">▶</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">I Built a PC That Reads Minds (ft. GPT-6)</div>
+          <div style="font-size:11px;color:#888;display:flex;gap:12px">
+            <span>📺 @LinusTechTips</span>
+            <span>🕐 09:42:15</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="background:#00B4FF22;color:#00B4FF;font-size:11px;padding:2px 6px;border-radius:4px">~1.8s</span>
+          <span style="background:#00FF8822;color:#00FF88;font-size:11px;padding:2px 6px;border-radius:4px">✅ 3.2s</span>
+          <span style="color:#666;font-size:11px">▾</span>
+        </div>
+      </div>
+
+      <!-- Expanded detail -->
+      <div style="padding:10px 12px;border-bottom:1px solid #2a2a3e;display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:11px">
+        <span style="color:#666">Phát hiện lúc</span>
+        <span>09:42:15 — <span style="color:#00FF88">cách upload 1.8s</span></span>
+        <span style="color:#666">Kênh</span>
+        <span>@LinusTechTips</span>
+        <span style="color:#666">Video ID</span>
+        <span style="color:#888;font-family:monospace">dQw4w9WgXcQ</span>
+        <span style="color:#666">Độ trễ detection</span>
+        <span style="color:#00FF88;font-weight:600">1.8s</span>
+        <span style="color:#666;border-top:1px solid #333;padding-top:4px;margin-top:4px">Tải xuống bắt đầu</span>
+        <span style="border-top:1px solid #333;padding-top:4px;margin-top:4px">09:42:17</span>
+        <span style="color:#666">Tải xuống hoàn tất</span>
+        <span>09:44:39</span>
+        <span style="color:#666">Thời gian tải</span>
+        <span style="color:#00B4FF;font-weight:600">2m 22s</span>
+        <span style="color:#666">Dung lượng</span>
+        <span>288.7 MB</span>
+        <span style="color:#666">Định dạng</span>
+        <span>1080p60 H.264 — tv_embedded</span>
+        <span style="color:#666">Chất lượng đích</span>
+        <span>1920&#8203;×&#8203;1080 @ 60fps</span>
+        <span style="color:#666;border-top:1px solid #333;padding-top:4px;margin-top:4px">Render bắt đầu</span>
+        <span style="border-top:1px solid #333;padding-top:4px;margin-top:4px">09:44:40</span>
+        <span style="color:#666">Render hoàn tất</span>
+        <span>09:48:12</span>
+        <span style="color:#666">Thời gian render</span>
+        <span style="color:#FF8800;font-weight:600">3m 32s</span>
+        <span style="color:#666">Kết quả</span>
+        <span>874 MB — HEVC NVENC CRF 18</span>
+        <span style="color:#666;border-top:1px solid #333;padding-top:4px;margin-top:4px">Cấu hình</span>
+        <span style="border-top:1px solid #333;padding-top:4px;margin-top:4px;color:#888;font-size:10px;font-family:monospace">--download-sections *0-78 --concurrent-fragments 16</span>
+        <span style="color:#666">Client</span>
+        <span style="color:#888">tv_embedded → web → ios</span>
+        <span style="color:#666">Tuổi video lúc bắt</span>
+        <span style="color:#00FF88">< 2 giây</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Video 2 — thu gọn (mặc định)</h3>
+  <div class="mockup" style="max-width:600px;margin-top:8px">
+    <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;font-family:Inter,sans-serif;background:#1a1a2e;border-radius:6px;color:#e0e0e0;font-size:13px;cursor:pointer">
+      <span style="font-size:16px">▶</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Why You Should Never Trust AI (Documentary)</div>
+        <div style="font-size:11px;color:#888;display:flex;gap:12px">
+          <span>📺 @Mrwhosetheboss</span>
+          <span>🕐 09:43:05</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <span style="background:#00B4FF22;color:#00B4FF;font-size:11px;padding:2px 6px;border-radius:4px">~3.4s</span>
+        <span style="background:#00FF8822;color:#00FF88;font-size:11px;padding:2px 6px;border-radius:4px">⏳ 1m 48s</span>
+        <span style="color:#666;font-size:11px">▸</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Tổng quan detection (top card)</h3>
+  <div class="mockup" style="max-width:600px;margin-top:8px">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:12px;font-family:Inter,sans-serif;background:#1a1a2e;border-radius:6px;color:#e0e0e0;font-size:13px;text-align:center">
+      <div>
+        <div style="font-size:18px;font-weight:700;color:#00B4FF">~2.3s</div>
+        <div style="font-size:11px;color:#888">Độ trễ TB</div>
+      </div>
+      <div>
+        <div style="font-size:18px;font-weight:700;color:#00FF88">100%</div>
+        <div style="font-size:11px;color:#888">SLA &lt; 5s</div>
+      </div>
+      <div>
+        <div style="font-size:18px;font-weight:700;color:#ccc">12</div>
+        <div style="font-size:11px;color:#888">Video hôm nay</div>
+      </div>
+    </div>
+  </div>
+</div>

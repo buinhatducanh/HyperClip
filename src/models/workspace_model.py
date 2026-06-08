@@ -1,5 +1,5 @@
 # src/models/workspace_model.py
-from PySide6.QtCore import QAbstractListModel, Signal, QModelIndex, Qt, QByteArray
+from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray
 
 
 class WorkspaceModel(QAbstractListModel):
@@ -16,6 +16,7 @@ class WorkspaceModel(QAbstractListModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._workspaces: list[dict] = []
+        self._id_index: dict[str, int] = {}   # ws_id → row
         self._progress_map: dict[str, float] = {}
 
     def rowCount(self, parent=QModelIndex()):
@@ -61,48 +62,63 @@ class WorkspaceModel(QAbstractListModel):
             self.IsShortRole: QByteArray(b"isShort"),
         }
 
+    # ── Index maintenance ──────────────────────────────────────────
+    def _rebuild_index(self):
+        self._id_index = {ws.get("id", ""): i for i, ws in enumerate(self._workspaces)}
+
+    # ── Incremental load (replaces beginResetModel pattern) ────────
     def load_from_backend(self, backend):
         try:
             resp = backend.send_command("workspace:list")
             workspaces = resp.get("result", {}).get("workspaces", [])
+            # Check if it's the same set — fast-path: no-op
+            if self._is_identical_set(workspaces):
+                return
             self.beginResetModel()
             self._workspaces = workspaces
+            self._rebuild_index()
             self.endResetModel()
         except Exception as e:
             print(f"[WorkspaceModel] load error: {e}")
 
+    def _is_identical_set(self, new: list[dict]) -> bool:
+        """Return True if new list is same IDs in same order — skip full reset."""
+        if len(new) != len(self._workspaces):
+            return False
+        for old_item, new_item in zip(self._workspaces, new):
+            if old_item.get("id") != new_item.get("id"):
+                return False
+        return True
+
     def update_workspace(self, ws_id: str, data: dict):
-        for i, ws in enumerate(self._workspaces):
-            if ws.get("id") == ws_id:
-                ws.update(data)
-                idx = self.index(i)
-                self.dataChanged.emit(idx, idx, [self.StatusRole, self.ProgressRole])
-                return
+        row = self._id_index.get(ws_id)
+        if row is not None and row < len(self._workspaces):
+            self._workspaces[row].update(data)
+            idx = self.index(row)
+            self.dataChanged.emit(idx, idx, [self.StatusRole, self.ProgressRole])
+            return
         # Not found — add
         self.add_workspace({"id": ws_id, **data})
 
     def add_workspace(self, ws: dict):
+        ws_id = ws.get("id", "")
+        if ws_id in self._id_index:
+            # Update in-place instead of duplicate
+            self.update_workspace(ws_id, ws)
+            return
         self.beginInsertRows(QModelIndex(), len(self._workspaces), len(self._workspaces))
         self._workspaces.append(ws)
+        self._id_index[ws_id] = len(self._workspaces) - 1
         self.endInsertRows()
 
     def set_progress(self, ws_id: str, progress: float):
         self._progress_map[ws_id] = progress
-        for i, ws in enumerate(self._workspaces):
-            if ws.get("id") == ws_id:
-                idx = self.index(i)
-                self.dataChanged.emit(idx, idx, [self.ProgressRole])
-                return
+        row = self._id_index.get(ws_id)
+        if row is not None and row < len(self._workspaces):
+            idx = self.index(row)
+            self.dataChanged.emit(idx, idx, [self.ProgressRole])
 
     def update_field(self, workspace_id: str, field: str, value, client=None):
-        """Update single field on workspace, sync to backend.
-
-        Args:
-            workspace_id: workspace ID
-            field: 'title' | 'speed' | 'trimStart' | 'trimEnd' | 'thumbnail'
-            value: new value
-            client: RustClient (optional, for backend sync)
-        """
         field_map = {
             "title": "title",
             "speed": "speed",
@@ -114,20 +130,19 @@ class WorkspaceModel(QAbstractListModel):
         if local_key is None:
             return
 
-        for row in range(self.rowCount()):
-            idx = self.index(row, 0)
-            ws_id = self.data(idx, self.IdRole)
-            if ws_id == workspace_id:
-                if field == "speed":
-                    self._workspaces[row][local_key] = float(value)
-                elif field in ("trimStart", "trimEnd"):
-                    self._workspaces[row][local_key] = float(value)
-                else:
-                    self._workspaces[row][local_key] = value
-                self.dataChanged.emit(idx, idx, [])
-                break
+        row = self._id_index.get(workspace_id)
+        if row is None:
+            return
 
-        # Sync to backend
+        idx = self.index(row)
+        if field == "speed":
+            self._workspaces[row][local_key] = float(value)
+        elif field in ("trimStart", "trimEnd"):
+            self._workspaces[row][local_key] = float(value)
+        else:
+            self._workspaces[row][local_key] = value
+        self.dataChanged.emit(idx, idx, [])
+
         if client:
             response = client.send_command(
                 "workspace:update",
@@ -136,6 +151,5 @@ class WorkspaceModel(QAbstractListModel):
             )
             if response and response.get("warning"):
                 from src.models.activity_log_model import ActivityLogModel
-                bus = getattr(ActivityLogModel, 'add_entry', None)
-                if bus:
+                if hasattr(ActivityLogModel, 'add_entry'):
                     ActivityLogModel.add_entry("edit", response["warning"], "warning")

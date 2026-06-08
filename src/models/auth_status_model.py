@@ -34,7 +34,7 @@ class AuthStatusModel(QObject):
         if result:
             self.load_from_dict(result)
 
-    @Slot()
+    @Slot(QObject)
     def start_oauth(self, backend):
         if not backend:
             return

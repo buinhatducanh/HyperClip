@@ -1,6 +1,7 @@
 //! Parse Chrome Cookies SQLite file.
 
 use std::path::Path;
+use std::time::Duration;
 use crate::error::{HyperclipError, Result};
 
 #[derive(Debug, Clone)]
@@ -14,7 +15,72 @@ pub struct RawCookie {
     pub is_httponly: bool,
 }
 
+/// Copy a file using PowerShell/.NET — the most reliable approach on Windows
+/// for reading files locked by Chrome's SQLite. .NET's `File.ReadAllBytes`
+/// internally uses `CreateFileW` with sharing modes that Windows 11 honors
+/// even when Chrome holds an exclusive WAL checkpoint lock.
+///
+/// Fallback: try Rust native first (faster, no subprocess overhead), then
+/// PowerShell if native fails.
+#[cfg(windows)]
+fn copy_with_shared_access(src: &Path, dst: &Path) -> std::io::Result<()> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    // Strategy 1: Rust native with maximum sharing
+    let native_ok = (|| -> std::io::Result<()> {
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0x7) // FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
+            .open(src)?;
+        std::io::copy(&mut file, &mut std::fs::File::create(dst)?)?;
+        Ok(())
+    })();
+
+    if native_ok.is_ok() {
+        return native_ok;
+    }
+
+    // Strategy 2: PowerShell/.NET — handles locked files differently
+    let src_abs = std::fs::canonicalize(src).unwrap_or_else(|_| src.to_path_buf());
+    let dst_abs = std::fs::canonicalize(dst).unwrap_or_else(|_| dst.to_path_buf());
+    let src_s = src_abs.to_string_lossy().replace('\'', "''");
+    let dst_s = dst_abs.to_string_lossy().replace('\'', "''");
+
+    // .NET File.ReadAllBytes → MemoryStream → File.Create → CopyTo
+    let script = format!(
+        "$b=[System.IO.File]::ReadAllBytes('{}');\
+         $ms=[System.IO.MemoryStream]::new();\
+         $ms.Write($b,0,$b.Length);\
+         $ms.Position=0;\
+         $fs=[System.IO.File]::Create('{}');\
+         $ms.CopyTo($fs);\
+         $fs.Close()",
+        src_s, dst_s
+    );
+
+    let output = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let err_msg = format!(
+            "Failed to read Chrome Cookies (Chrome may be open). Tried native open and PowerShell/.NET fallback. Error: {}",
+            stderr.trim()
+        );
+        Err(std::io::Error::new(std::io::ErrorKind::Other, err_msg))
+    }
+}
+
+#[cfg(not(windows))]
+fn copy_with_shared_access(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::copy(src, dst).map(|_| ())
+}
+
 /// Parse Chrome Cookies SQLite file, filter by domain (e.g., "youtube.com").
+/// Handles Chrome exclusive lock on Windows by copying to temp first.
 pub fn parse_cookies_file(db_path: &Path, domain_filter: &str) -> Result<Vec<RawCookie>> {
     if !db_path.exists() {
         return Err(HyperclipError::ProfileNotFound(
@@ -22,38 +88,87 @@ pub fn parse_cookies_file(db_path: &Path, domain_filter: &str) -> Result<Vec<Raw
         ));
     }
 
-    let conn = rusqlite::Connection::open(db_path)
-        .map_err(|e| {
-            // Detect locked DB (Chrome is running)
-            if e.to_string().contains("database is locked") {
-                HyperclipError::ChromeCookieLocked
-            } else {
-                HyperclipError::Sqlite(e)
+    // Chrome holds an exclusive lock on its Cookies file. On Windows,
+    // rusqlite::Connection::open fails with "unable to open database file", and
+    // even std::fs::copy fails because Windows doesn't allow copying a file that
+    // is exclusively locked. Workaround: use share_mode to bypass the lock AND
+    // retry with exponential backoff (Chrome's WAL checkpoint releases within ms).
+    let temp_copy = {
+        let ext = db_path.extension().unwrap_or_default();
+        let stem = db_path.file_stem().unwrap_or_default();
+        let mut tmp = std::env::temp_dir();
+        tmp.push(format!("{}-copy.{}", stem.to_string_lossy(), ext.to_string_lossy()));
+        let _ = std::fs::remove_file(&tmp);
+
+        let max_retries = 5;
+        let base_delay_ms = 1000; // 1s, matching Node.js: 1, 2, 4, 8s = 15s total
+        let mut last_err = None;
+        for attempt in 1..=max_retries {
+            match copy_with_shared_access(db_path, &tmp) {
+                Ok(()) => {
+                    if attempt > 1 {
+                        tracing::info!("[CookiesSQLite] Copy succeeded on attempt {}/{}", attempt, max_retries);
+                    }
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!("[CookiesSQLite] Copy attempt {}/{} failed: {}", attempt, max_retries, e);
+                    last_err = Some(e);
+                    if attempt < max_retries {
+                        let delay = base_delay_ms * (1u64 << (attempt - 1)); // exponential
+                        std::thread::sleep(Duration::from_millis(delay));
+                    }
+                }
             }
-        })?;
+        }
+        if let Some(e) = last_err {
+            return Err(HyperclipError::Io(e));
+        }
+        tmp
+    };
 
-    let mut stmt = conn.prepare(
-        "SELECT name, value, encrypted_value, host_key, path, is_secure, is_httponly
-         FROM cookies
-         WHERE host_key LIKE ?1 OR host_key LIKE ?2"
-    ).map_err(HyperclipError::Sqlite)?;
+    let result = (|| -> Result<Vec<RawCookie>> {
+        let conn = rusqlite::Connection::open(&temp_copy)
+            .map_err(|e| {
+                if e.to_string().contains("database is locked") {
+                    HyperclipError::ChromeCookieLocked
+                } else {
+                    HyperclipError::Sqlite(e)
+                }
+            })?;
 
-    let pattern1 = format!("%{}", domain_filter);
-    let pattern2 = format!(".{}", domain_filter);
+        let mut stmt = conn.prepare(
+            "SELECT name, value, encrypted_value, host_key, path, is_secure, is_httponly
+             FROM cookies
+             WHERE host_key LIKE ?1 OR host_key LIKE ?2"
+        ).map_err(HyperclipError::Sqlite)?;
 
-    let cookies = stmt.query_map([&pattern1, &pattern2], |row| {
-        Ok(RawCookie {
-            name: row.get(0)?,
-            value: row.get(1)?,
-            encrypted_value: row.get(2)?,
-            domain: row.get(3)?,
-            path: row.get(4)?,
-            is_secure: row.get::<_, i64>(5)? != 0,
-            is_httponly: row.get::<_, i64>(6)? != 0,
-        })
-    }).map_err(HyperclipError::Sqlite)?
-    .collect::<std::result::Result<Vec<_>, _>>()
-    .map_err(|e| HyperclipError::Sqlite(e))?;
+        let pattern1 = format!("%{}", domain_filter);
+        let pattern2 = format!(".{}", domain_filter);
 
-    Ok(cookies)
+        let cookies = stmt.query_map([&pattern1, &pattern2], |row| {
+            Ok(RawCookie {
+                name: row.get(0)?,
+                value: row.get(1)?,
+                encrypted_value: row.get(2)?,
+                domain: row.get(3)?,
+                path: row.get(4)?,
+                is_secure: row.get::<_, i64>(5)? != 0,
+                is_httponly: row.get::<_, i64>(6)? != 0,
+            })
+        }).map_err(HyperclipError::Sqlite)?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| HyperclipError::Sqlite(e))?;
+
+        // Drop conn + stmt before temp_copy is removed
+        drop(stmt);
+        drop(conn);
+
+        Ok(cookies)
+    })();
+
+    // Clean up temp copy regardless of success/failure
+    let _ = std::fs::remove_file(&temp_copy);
+
+    result
 }

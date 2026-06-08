@@ -1,11 +1,29 @@
 // crates/hyperclip_ipc/src/cookies.rs
 // Chrome cookie extraction via DPAPI + SQLite — ported from electron/services/chrome_cookies.ts
 
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 
 use crate::cookies_dpapi::{decrypt_chrome_v10, is_encrypted_v10};
 use crate::cookies_sqlite::parse_cookies_file;
 use crate::error::{HyperclipError, Result};
+
+/// JSON format that Electron/CDP persists after successful Chrome login
+/// (written to `_hyperclip_cookies.json`). Accessed without any NTFS lock
+/// since Chrome only locks the SQLite file, not this JSON.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedCookies {
+    #[serde(rename = "PSID")]
+    psid: Option<String>,
+    #[serde(rename = "SAPISID")]
+    sapisid: Option<String>,
+    #[serde(rename = "PSIDCC")]
+    psidcc: Option<String>,
+    #[serde(rename = "PSIDTS")]
+    psidts: Option<String>,
+    socs: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractedCookie {
@@ -46,11 +64,101 @@ impl CookieExtractionResult {
     }
 }
 
-/// Main extraction function: parse SQLite + decrypt v10 + build result.
+/// Try to read cookies from the persisted JSON file (fast path, no lock contention).
+/// Electron/CDP writes `_hyperclip_cookies.json` after a successful Chrome login,
+/// so this file is always available when the user has logged in via the app.
+fn try_persisted_json(profile_dir: &Path) -> Option<CookieExtractionResult> {
+    // Check both locations where CDP writes the file:
+    //   1. profile_dir/_hyperclip_cookies.json (HyperClip profiles 2-30)
+    //   2. profile_dir/../_hyperclip_cookies.json (Default Chrome profile, parent = User Data)
+    let candidates = [
+        profile_dir.join("_hyperclip_cookies.json"),
+        profile_dir.join("..").join("_hyperclip_cookies.json"),
+    ];
+
+    for path in &candidates {
+        let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
+        if !canonical.exists() {
+            continue;
+        }
+        let content = match std::fs::read_to_string(&canonical) {
+            Ok(c) if !c.is_empty() => c,
+            _ => continue,
+        };
+        let persisted: PersistedCookies = match serde_json::from_str(&content) {
+            Ok(p) => p,
+            _ => continue,
+        };
+
+        let sapisid = persisted.sapisid.as_deref().unwrap_or("");
+        let psid = persisted.psid.as_deref().unwrap_or("");
+
+        // Need at least SAPISID + PSID for YouTube auth
+        if sapisid.is_empty() || psid.is_empty() {
+            tracing::warn!("[Cookies] Persisted JSON at {:?} missing SAPISID or PSID — skipping", canonical);
+            continue;
+        }
+
+        let mut cookies = Vec::new();
+        cookies.push(ExtractedCookie {
+            name: "SAPISID".into(),
+            value: sapisid.to_string(),
+            domain: ".youtube.com".into(),
+        });
+        cookies.push(ExtractedCookie {
+            name: "__Secure-1PSID".into(),
+            value: psid.to_string(),
+            domain: ".youtube.com".into(),
+        });
+        if let Some(ref v) = persisted.psidcc {
+            if !v.is_empty() {
+                cookies.push(ExtractedCookie {
+                    name: "__Secure-1PSIDCC".into(),
+                    value: v.clone(),
+                    domain: ".youtube.com".into(),
+                });
+            }
+        }
+        if let Some(ref v) = persisted.psidts {
+            if !v.is_empty() {
+                cookies.push(ExtractedCookie {
+                    name: "__Secure-1PSIDTS".into(),
+                    value: v.clone(),
+                    domain: ".youtube.com".into(),
+                });
+            }
+        }
+
+        let socs_value = persisted.socs.clone();
+
+        tracing::info!(
+            "[Cookies] Loaded {} cookies from persisted JSON at {:?}",
+            cookies.len(),
+            canonical
+        );
+
+        return Some(CookieExtractionResult {
+            cookies,
+            profile_name: "Default".to_string(),
+            domain: "youtube.com".to_string(),
+            socs_value,
+        });
+    }
+
+    None
+}
+
+/// Main extraction function: try fast path JSON first, then SQLite + DPAPI.
 pub fn extract_chrome_cookies(
     profile_dir: &std::path::Path,
     profile_name: &str,
 ) -> Result<CookieExtractionResult> {
+    // Fast path: read persisted JSON (no NTFS lock contention)
+    if let Some(result) = try_persisted_json(profile_dir) {
+        return Ok(result);
+    }
+
+    tracing::info!("[Cookies] No persisted JSON found — falling back to SQLite");
     let new_path = profile_dir.join("Network").join("Cookies");
     let legacy_path = profile_dir.join("Cookies");
 

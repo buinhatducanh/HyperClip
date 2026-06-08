@@ -3,7 +3,7 @@ import path from 'path'
 import os from 'os'
 import { execSync } from 'child_process'
 import { shell, app } from 'electron'
-import { getAppStoreDir, getRamDiskPath, getDownloadsDir, getBlurDir, getOutputDir, getArchivedDir } from './paths.js'
+import { getAppStoreDir, getRamDiskPath, getDownloadsDir, getBlurDir, getOutputDir, getArchivedDir, getChannelDownloadsDir, sanitizeDirName, getChannelOutputDir, getChannelArchivedDir } from './paths.js'
 export { getAppStoreDir }
 import { devLog } from './unified_log.js'
 
@@ -225,6 +225,23 @@ export function getVideoStoragePath(): string {
   return getDownloadsDir()
 }
 
+/** Per-channel video download directory.
+ *  Creates the directory if it doesn't exist.
+ *  Falls back to flat getVideoStoragePath() if channel name is empty. */
+export function ensureChannelVideoDir(channelName: string, channelId?: string): string {
+  if (!channelName && !channelId) return getVideoStoragePath()
+  const channelDir = getChannelDownloadsDir(channelName, channelId)
+  try {
+    if (!fs.existsSync(channelDir)) {
+      fs.mkdirSync(channelDir, { recursive: true })
+    }
+    return channelDir
+  } catch {
+    // Fallback to flat dir if channel folder creation fails
+    return getVideoStoragePath()
+  }
+}
+
 // Get output path (user-configured > RAM disk > persistent output/)
 export function getOutputPath(): string {
   const configured = getConfiguredOutputPath()
@@ -232,6 +249,22 @@ export function getOutputPath(): string {
   if (isRamDiskAvailable()) return OUTPUT_PATH
   // Fallback: persistent folder under HyperClip-Data/output/
   return getOutputDir()
+}
+
+/** Per-channel output directory for rendered files before archive.
+ *  Creates the directory if it doesn't exist.
+ *  Falls back to flat getOutputPath() if channel name is empty. */
+export function ensureChannelOutputDir(channelName: string): string {
+  if (!channelName) return getOutputPath()
+  const channelDir = getChannelOutputDir(channelName)
+  try {
+    if (!fs.existsSync(channelDir)) {
+      fs.mkdirSync(channelDir, { recursive: true })
+    }
+    return channelDir
+  } catch {
+    return getOutputPath()
+  }
 }
 
 // Ensure directories exist
@@ -341,13 +374,25 @@ export function cleanupWorkspace(workspaceId: string, downloadedPath?: string): 
   }
 
   // Also scan for any leftover files matching {workspaceId}_*.{ext} pattern
+  // Check flat storage dir AND all channel subdirectories
   let patternFiles: string[] = []
+  const scanDirs: string[] = [storagePath]
   try {
-    const entries = fs.readdirSync(storagePath)
-    patternFiles = entries
-      .filter(f => f.startsWith(`${workspaceId}_`))
-      .map(f => path.join(storagePath, f))
+    const entries = fs.readdirSync(storagePath, { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.isDirectory() && !entry.name.startsWith('_')) {
+        scanDirs.push(path.join(storagePath, entry.name))
+      }
+    }
   } catch {}
+  for (const dir of scanDirs) {
+    try {
+      const files = fs.readdirSync(dir)
+      patternFiles.push(...files
+        .filter(f => f.startsWith(`${workspaceId}_`))
+        .map(f => path.join(dir, f)))
+    } catch {}
+  }
 
   const { videoPath, blurPath, metadataPath, outputPath } = generateWorkspacePaths(workspaceId)
 
@@ -398,13 +443,24 @@ export function getWorkspaceStorageSize(workspaceId: string): { video: number; b
   let videoSize = 0
   let blurSize = 0
 
-  // yt-dlp outputs: workspaceId_{videoId}.mp4 — scan for matching files
+  // yt-dlp outputs: workspaceId_{videoId}.mp4 — scan for matching files in flat + channel subdirs
+  const scanDirs: string[] = [storagePath]
   try {
-    const files = fs.readdirSync(storagePath).filter(f => f.startsWith(workspaceId + '_') && f.endsWith('.mp4'))
-    for (const f of files) {
-      videoSize += fs.statSync(path.join(storagePath, f)).size
+    const entries = fs.readdirSync(storagePath, { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        scanDirs.push(path.join(storagePath, entry.name))
+      }
     }
   } catch {}
+  for (const dir of scanDirs) {
+    try {
+      const files = fs.readdirSync(dir).filter(f => f.startsWith(workspaceId + '_') && f.endsWith('.mp4'))
+      for (const f of files) {
+        videoSize += fs.statSync(path.join(dir, f)).size
+      }
+    } catch {}
+  }
 
   try {
     const blurPath = path.join(storagePath, `blur_${workspaceId}.jpg`)
@@ -450,7 +506,10 @@ export async function archiveRenderedFile(
   fileSize: number,
   duration: number,
 ): Promise<{ success: boolean; archivedPath?: string; error?: string }> {
-  const archiveDir = getArchivePath()
+  // Use per-channel archive directory if channel name is available
+  const archiveDir = channelName
+    ? getChannelArchivedDir(channelName)
+    : getArchivePath()
 
   // Ensure archive directory exists
   try {

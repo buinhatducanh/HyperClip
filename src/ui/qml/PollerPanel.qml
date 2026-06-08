@@ -5,7 +5,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 
 SettingsCard {
-    title: "DETECTION"
+    title: "PHÁT HIỆN"
     Layout.preferredHeight: 340
 
     ColumnLayout {
@@ -20,7 +20,7 @@ SettingsCard {
                 color: poller.active ? Theme.success : Theme.textMuted
             }
             Label {
-                text: poller.active ? "ACTIVE" : "PAUSED"
+                text: poller.active ? "ĐANG CHẠY" : "TẠM DỪNG"
                 color: poller.active ? Theme.success : Theme.textMuted
                 font.pixelSize: 10
                 font.bold: true
@@ -33,7 +33,7 @@ SettingsCard {
             }
             Item { Layout.fillWidth: true }
             Button {
-                text: poller.active ? "Pause" : "Resume"
+                text: poller.active ? "Tạm dừng" : "Tiếp tục"
                 onClicked: poller.active ? poller.pause(backend) : poller.resume(backend)
                 font.pixelSize: 9; implicitHeight: 22
             }
@@ -54,7 +54,7 @@ SettingsCard {
                 border.color: poller.latencyColor; border.width: 1
                 Label {
                     anchors.centerIn: parent
-                    text: poller.lastDetectionLatencyStr + " last"
+                    text: poller.lastDetectionLatencyStr + " cuối"
                     color: poller.latencyColor
                     font.pixelSize: 9; font.bold: true
                 }
@@ -78,7 +78,7 @@ SettingsCard {
                 border.color: Theme.accent; border.width: 1
                 Label {
                     anchors.centerIn: parent
-                    text: poller.detectionsToday + " today"
+                    text: poller.detectionsToday + " hôm nay"
                     color: Theme.accent
                     font.pixelSize: 9; font.bold: true
                 }
@@ -87,7 +87,7 @@ SettingsCard {
 
         // ─── Activity list ─────────────────────────────────────
         Label {
-            text: "RECENT"
+            text: "GẦN ĐÂY"
             color: Theme.textMuted
             font.pixelSize: 10; font.bold: true
             Layout.topMargin: 2
@@ -173,7 +173,7 @@ SettingsCard {
             Label {
                 visible: detList.count === 0
                 anchors.centerIn: parent
-                text: "No detections yet"
+                text: "Chưa có lượt phát hiện nào"
                 color: Theme.textMuted; font.pixelSize: 11
             }
         }

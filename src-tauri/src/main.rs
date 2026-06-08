@@ -14,6 +14,12 @@ fn main() {
         .init();
     tracing::info!("hyperclip backend started");
 
+    // Eagerly init POLLER_RT before any IPC call that needs it
+    commands::init_poller_runtime();
+
+    // Create a Tokio runtime for async operations (pool, innertube, etc.)
+    let _rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+
     // Initialize WorkerPool from GPU config
     let gpu_config = hyperclip_ipc::system::get_gpu_config();
     tracing::info!(
