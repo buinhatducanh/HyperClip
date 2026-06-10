@@ -1,180 +1,221 @@
 // src/ui/qml/SplitModal.qml
-// Split a workspace into N parts (auto/manual)
+// Split a workspace into N parts (max 3) with per-part title input + auto-render
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
 Dialog {
     id: dlg
-    title: "Tách video thành nhiều phần"
+    title: "Tách và tự động render"
     modal: true
-    width: 480
-    height: 380
+    width: 520
+    height: 520
 
     property string workspaceId: ""
     property int totalDuration: 600  // seconds
     property int numParts: 2
-    property var intervals: []
 
     function openFor(id, duration) {
         workspaceId = id
         totalDuration = duration || 600
+        // Default titles
+        for (var i = 0; i < titleInputs.length; i++)
+            titleInputs[i] = "Part " + (i + 1)
         numParts = 2
-        intervals = []
         open()
     }
+
+    // Per-part titles (max 3)
+    property var titleInputs: ["", "", ""]
 
     ColumnLayout {
         anchors.fill: parent
         spacing: 12
 
-        // Mode toggle
+        // Number of parts
         RowLayout {
             Layout.fillWidth: true
             Label {
-                text: "Mode:"
+                text: "Số video:"
                 color: Theme.textMuted
                 font.pixelSize: 16
             }
-            RadioButton {
-                text: "Tự động (chia đều)"
-                checked: true
-                onToggled: { if (checked) partSpinner.enabled = true; manualBox.visible = false }
-            }
-            RadioButton {
-                text: "Thủ công"
-                onToggled: { if (checked) partSpinner.enabled = false; manualBox.visible = true }
-            }
-        }
-
-        // Auto: spinner
-        RowLayout {
-            Layout.fillWidth: true
-            Label { text: "Số phần:"; color: Theme.textMuted; font.pixelSize: 16 }
-            SpinBox {
-                id: partSpinner
-                from: 2
-                to: 10
-                value: dlg.numParts
-                onValueChanged: dlg.numParts = value
-            }
-            Label {
-                text: "≈ " + Math.floor(dlg.totalDuration / Math.max(1, dlg.numParts) / 60) + ":" +
-                      (Math.floor(dlg.totalDuration / Math.max(1, dlg.numParts) % 60) < 10 ? "0" : "") +
-                      Math.floor(dlg.totalDuration / Math.max(1, dlg.numParts) % 60) + " mỗi phần"
-                color: Theme.textMuted
-                font.pixelSize: 15
-            }
-        }
-
-        // Manual: interval input
-        GroupBox {
-            id: manualBox
-            visible: false
-            Layout.fillWidth: true
-            title: "Thời điểm kết thúc (giây, phân cách bởi dấu phẩy)"
-            background: Rectangle {
-                color: Theme.bg
-                border.color: Theme.border
-                border.width: 1
-            }
-            label: Label {
-                text: parent.title
-                color: Theme.accent
-                font.pixelSize: 15
-            }
-            TextField {
-                id: manualField
-                Layout.fillWidth: true
-                placeholderText: "120, 240, 360, ..."
-                onEditingFinished: {
-                    dlg.intervals = text.split(",").map(s => parseFloat(s.trim())).filter(x => !isNaN(x))
-                }
-            }
-        }
-
-        // Preview
-        GroupBox {
-            Layout.fillWidth: true
-            title: "PREVIEW"
-            background: Rectangle {
-                color: Theme.bg
-                border.color: Theme.border
-                border.width: 1
-            }
-            label: Label {
-                text: parent.title
-                color: Theme.accent
-                font.pixelSize: 15
-            }
-            ColumnLayout {
-                anchors.fill: parent
-                spacing: 2
+            RowLayout {
+                spacing: 8
                 Repeater {
-                    model: {
-                        const parts = dlg.intervals.length > 0
-                            ? dlg.intervals.length + 1
-                            : dlg.numParts
-                        const partDur = dlg.totalDuration / Math.max(1, parts)
-                        return parts
-                    }
-                    delegate: Label {
-                        text: "Part " + (index + 1) + ": 00:00 → " +
-                              Math.floor((index + 1) * dlg.totalDuration / dlg.numParts / 60) + ":" +
-                              (Math.floor((index + 1) * dlg.totalDuration / dlg.numParts % 60) < 10 ? "0" : "") +
-                              Math.floor((index + 1) * dlg.totalDuration / dlg.numParts % 60)
-                        color: Theme.text
-                        font.pixelSize: 15
-                        font.family: "monospace"
+                    model: [1, 2, 3]
+                    delegate: RadioButton {
+                        text: modelData
+                        checked: dlg.numParts === modelData
+                        onToggled: { if (checked) dlg.numParts = modelData }
                     }
                 }
-            }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            Switch {
-                text: "Auto-render sau khi tách"
-                checked: true
             }
             Item { Layout.fillWidth: true }
+        }
+
+        // Per-part title inputs
+        Label {
+            text: "Tiêu đề từng phần:"
+            color: Theme.textMuted
+            font.pixelSize: 16
+            Layout.topMargin: 8
+        }
+
+        Repeater {
+            model: 3
+            delegate: RowLayout {
+                Layout.fillWidth: true
+                visible: index < dlg.numParts
+                Layout.preferredHeight: visible ? 36 : 0
+                spacing: 8
+
+                Label {
+                    text: "Video " + (index + 1) + ":"
+                    color: Theme.text
+                    font.pixelSize: 15
+                    Layout.preferredWidth: 72
+                }
+                TextField {
+                    Layout.fillWidth: true
+                    font.pixelSize: 15
+                    placeholderText: "Nhập tiêu đề..."
+                    text: dlg.titleInputs[index]
+                    onEditingFinished: {
+                        var arr = dlg.titleInputs
+                        arr[index] = text
+                        dlg.titleInputs = arr
+                    }
+                }
+
+                // Duration preview
+                Label {
+                    text: {
+                        var partDur = dlg.totalDuration / Math.max(1, dlg.numParts)
+                        var start = index * partDur
+                        var end = Math.min((index + 1) * partDur, dlg.totalDuration)
+                        return formatTime(start) + " → " + formatTime(end)
+                    }
+                    color: Theme.textMuted
+                    font.pixelSize: 13
+                    font.family: "monospace"
+                    Layout.preferredWidth: 130
+                }
+            }
+        }
+
+        // Visual separator
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 1
+            color: Theme.border
+            Layout.topMargin: 8
+        }
+
+        // Render settings
+        Label {
+            text: "Cài đặt render:"
+            color: Theme.textMuted
+            font.pixelSize: 16
+        }
+
+        GridLayout {
+            columns: 2
+            columnSpacing: Theme.spacingLg
+            rowSpacing: 6
+            Layout.fillWidth: true
+
+            Label { text: "Độ phân giải"; color: Theme.textMuted; font.pixelSize: 14 }
+            ComboBox {
+                id: resCombo
+                Layout.fillWidth: true
+                font.pixelSize: 14
+                model: ["1080p", "720p", "360p"]
+                currentIndex: model.indexOf(settings.autoRenderResolution)
+            }
+
+            Label { text: "FPS"; color: Theme.textMuted; font.pixelSize: 14 }
+            ComboBox {
+                id: fpsCombo
+                Layout.fillWidth: true
+                font.pixelSize: 14
+                model: [30, 60]
+                currentIndex: [30, 60].indexOf(settings.autoRenderFPS)
+            }
+
+            Label { text: "Tốc độ"; color: Theme.textMuted; font.pixelSize: 14 }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 6
+                Slider {
+                    id: speedSlider
+                    Layout.fillWidth: true
+                    from: 1.0; to: 2.0; stepSize: 0.1
+                    value: settings.autoRenderSpeed
+                }
+                Label {
+                    text: speedSlider.value.toFixed(1) + "x"
+                    color: Theme.text
+                    font.pixelSize: 14
+                    Layout.preferredWidth: 36
+                }
+            }
+        }
+
+        // Action buttons
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: 8
+
+            Switch {
+                id: autoRenderSwitch
+                text: "Tự động render sau khi tách"
+                checked: true
+            }
+
+            Item { Layout.fillWidth: true }
+
             Button {
                 text: "Hủy"
                 Layout.minimumWidth: 36
                 onClicked: dlg.close()
             }
             Button {
-                text: "Tách"
+                text: "Tách" + (autoRenderSwitch.checked ? " & Render" : "")
+                highlighted: true
                 onClicked: {
-                    let parts = []
-                    if (dlg.intervals.length > 0) {
-                        const intervals = dlg.intervals
-                        let prev = 0
-                        for (let i = 0; i < intervals.length; i++) {
-                            parts.push({"start": prev, "end": intervals[i]})
-                            prev = intervals[i]
-                        }
-                        if (prev < dlg.totalDuration) {
-                            parts.push({"start": prev, "end": dlg.totalDuration})
-                        }
-                    } else {
-                        const partDur = dlg.totalDuration / dlg.numParts
-                        for (let i = 0; i < dlg.numParts; i++) {
-                            parts.push({
-                                "start": i * partDur,
-                                "end": Math.min((i + 1) * partDur, dlg.totalDuration)
-                            })
-                        }
+                    // Build parts with per-part titles
+                    var parts = []
+                    var partDur = dlg.totalDuration / dlg.numParts
+                    for (var i = 0; i < dlg.numParts; i++) {
+                        var title = dlg.titleInputs[i] && dlg.titleInputs[i].trim()
+                            ? dlg.titleInputs[i].trim()
+                            : "Part " + (i + 1)
+                        parts.push({
+                            "start": i * partDur,
+                            "end": Math.min((i + 1) * partDur, dlg.totalDuration),
+                            "title": title
+                        })
                     }
+
                     backend.send_command("workspace:split", {
                         "id": dlg.workspaceId,
                         "parts": parts,
-                        "autoRender": true
+                        "autoRender": autoRenderSwitch.checked,
+                        "renderResolution": resCombo.currentText,
+                        "renderFPS": fpsCombo.currentValue || fpsCombo.model[fpsCombo.currentIndex],
+                        "renderSpeed": speedSlider.value
                     })
-                    activityModel.add_entry("ws", "Splitting " + dlg.workspaceId, "info")
+                    activityModel.add_entry("ws", "Splitting " + dlg.workspaceId + " into " + dlg.numParts + " parts", "info")
                     dlg.close()
                 }
             }
         }
+    }
+
+    function formatTime(sec) {
+        var m = Math.floor(sec / 60)
+        var s = Math.floor(sec % 60)
+        return m + ":" + (s < 10 ? "0" : "") + s
     }
 }

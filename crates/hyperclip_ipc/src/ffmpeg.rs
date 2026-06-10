@@ -92,10 +92,10 @@ pub fn build_short_filter(
 
     // Video chain: fps → setpts(speed) → trim → setpts(reset) → scale → crop
     let trim_tag = if trim_start > 0.0 || trim_duration > 0.0 {
-        let end = if adjusted_dur > 0.0 { trim_start + adjusted_dur } else { 999.0 };
+        let dur = if adjusted_dur > 0.0 { adjusted_dur } else { 999.0 };
         format!(
-            "trim=start={}:end={},setpts=PTS-STARTPTS,",
-            trim_start, end
+            "trim=start={}:duration={},setpts=PTS-STARTPTS,",
+            trim_start, dur
         )
     } else {
         String::new()
@@ -185,8 +185,8 @@ pub fn build_short_filter_cuda(
     let adjusted_dur = trim_duration * speed_adj;
 
     let trim_tag = if trim_start > 0.0 || trim_duration > 0.0 {
-        let end = if adjusted_dur > 0.0 { trim_start + adjusted_dur } else { 999.0 };
-        format!("trim=start={}:end={},setpts=PTS-STARTPTS,", trim_start, end)
+        let dur = if adjusted_dur > 0.0 { adjusted_dur } else { 999.0 };
+        format!("trim=start={}:duration={},setpts=PTS-STARTPTS,", trim_start, dur)
     } else {
         String::new()
     };
@@ -238,10 +238,10 @@ pub fn build_landscape_filter(
     let adjusted_dur = trim_duration * speed_adj;
 
     let trim_tag = if trim_start > 0.0 || trim_duration > 0.0 {
-        let end = if adjusted_dur > 0.0 { trim_start + adjusted_dur } else { 999.0 };
+        let dur = if adjusted_dur > 0.0 { adjusted_dur } else { 999.0 };
         format!(
-            "trim=start={}:end={},setpts=PTS-STARTPTS,",
-            trim_start, end
+            "trim=start={}:duration={},setpts=PTS-STARTPTS,",
+            trim_start, dur
         )
     } else {
         String::new()
@@ -541,7 +541,7 @@ where F: FnMut(f64) + Send + 'static {
     ] {
         args.extend_from_slice(&[
             "-f".into(), "lavfi".into(),
-            "-i".into(), format!("color=c={}:s={}x{}:{}", color, w, h, dur_str),
+            "-i".into(), format!("color=c={}:s={}x{}:{}:r=30", color, w, h, dur_str),
         ]);
     }
 

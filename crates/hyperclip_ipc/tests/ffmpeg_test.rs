@@ -10,14 +10,14 @@ fn test_build_short_filter_vertical() {
     assert!(filter.contains("crop="), "should use sw crop: {}", filter);
     assert!(filter.contains("overlay="), "should use sw overlay: {}", filter);
     assert!(filter.contains("[final]"), "should end with [final]");
-    assert!(filter.contains("trim=start=0:end=60"), "trim should be correct: {}", filter);
+    assert!(filter.contains("trim=start=0:duration=60"), "trim should be correct: {}", filter);
 }
 
 #[test]
 fn test_build_short_filter_vertical_with_speed() {
     let filter = build_short_filter(0.0, 60.0, 1.5, 1080, 1920, 384, 192, false);
     assert!(filter.contains("setpts=0.6666666666666666*PTS"), "should have speed setpts: {}", filter);
-    assert!(filter.contains("trim=start=0:end=40"), "trim should be speed-adjusted: {}", filter);
+    assert!(filter.contains("trim=start=0:duration=40"), "trim should be speed-adjusted: {}", filter);
 }
 
 #[test]
@@ -32,7 +32,7 @@ fn test_build_short_filter_cuda() {
 fn test_build_short_filter_cuda_with_speed() {
     let filter = build_short_filter_cuda(0.0, 60.0, 2.0, 1080, 1920, 384, 192);
     assert!(filter.contains("setpts=0.5*PTS"), "should have speed setpts: {}", filter);
-    assert!(filter.contains("trim=start=0:end=30"), "trim should be speed-adjusted: {}", filter);
+    assert!(filter.contains("trim=start=0:duration=30"), "trim should be speed-adjusted: {}", filter);
 }
 
 #[test]
@@ -46,7 +46,7 @@ fn test_build_landscape_filter() {
 fn test_build_landscape_filter_with_speed() {
     let filter = build_landscape_filter(0.0, 60.0, 1.2, 1920, 1080, 900, 0, false);
     assert!(filter.contains("setpts=0.8333333333333334*PTS"), "should have exact speed setpts: {}", filter);
-    assert!(filter.contains("trim=start=0:end=50"), "trim should be speed-adjusted: {}", filter);
+    assert!(filter.contains("trim=start=0:duration=50"), "trim should be speed-adjusted: {}", filter);
 }
 
 #[test]

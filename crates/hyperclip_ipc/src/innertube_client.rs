@@ -100,12 +100,12 @@ impl InnertubeClient {
             .parent().unwrap()
             .parent().unwrap()
             .to_path_buf();
-        tracing::debug!("[Innertube] Spawn Node for {channel_id} (helper={:?}, cwd={:?}, req_file={:?})",
-            helper, project_root, req_file);
+        tracing::info!("[Node] Spawning {} {} (cwd={:?}, req={:?}, cookie_len={})",
+            node_path, helper.display(), project_root, req_file, cookie.len());
 
         let mut child = match Command::new(node_path)
             .arg(helper)
-            .arg(&req_path)      // Pass request file as CLI arg
+            .arg(&req_path)
             .env("HYPERCLIP_RESPONSE_FILE", &resp_path)
             .current_dir(&project_root)
             .stdin(Stdio::null())

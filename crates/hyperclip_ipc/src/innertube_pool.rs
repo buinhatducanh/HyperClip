@@ -136,9 +136,10 @@ impl InnertubeClientPool {
     /// Returns None if no session is ready.
     pub fn get_ready_session(&self) -> Option<usize> {
         let now = Instant::now();
+        let len = self.size(); // get size BEFORE locking to avoid deadlock with next_session() -> size()
         let sessions = self.sessions.lock().unwrap();
-        for _ in 0..sessions.len() {
-            let idx = self.next_session();
+        for _ in 0..len {
+            let idx = self.next_session_unlocked(&sessions);
             if let Some(s) = sessions.get(idx) {
                 if s.cooldown_until.map_or(true, |t| now >= t)
                     && s.suspended_until.map_or(true, |t| now >= t)
@@ -148,6 +149,10 @@ impl InnertubeClientPool {
             }
         }
         None
+    }
+
+    fn next_session_unlocked(&self, _sessions: &std::sync::MutexGuard<Vec<Session>>) -> usize {
+        self.round_robin_idx.fetch_add(1, Ordering::SeqCst) % _sessions.len()
     }
 
     /// Return the index of a ready session.  Alias for get_ready_session for clarity.

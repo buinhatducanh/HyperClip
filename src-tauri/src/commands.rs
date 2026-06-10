@@ -322,6 +322,7 @@ impl AppState {
                 pool.clone(),
                 channels.clone(),
                 5000,
+                1440, // default max age = 1440 min (24h), matches settings autoDownloadMaxAgeMinutes
                 process_fn,
             ));
 
@@ -1392,17 +1393,66 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             let source = store.workspaces.iter().find(|w| w.id == id).cloned();
             let mut new_ids = vec![];
             if let Some(src) = source {
+                let auto_render = params.get("autoRender").and_then(|v| v.as_bool()).unwrap_or(false);
+                let render_res = params.get("renderResolution").and_then(|v| v.as_str()).unwrap_or("1080p").to_string();
+                let render_fps = params.get("renderFPS").and_then(|v| v.as_u64()).unwrap_or(30) as u32;
+                let render_speed = params.get("renderSpeed").and_then(|v| v.as_f64()).unwrap_or(1.0);
+
                 for (i, part) in parts.iter().enumerate() {
                     let new_id = format!("{}-part{}", id, i + 1);
                     let trim_start = part.get("start").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let trim_end = part.get("end").and_then(|v| v.as_f64()).unwrap_or(60.0);
+                    let custom_title = part.get("title").and_then(|v| v.as_str()).unwrap_or("");
                     let mut new_ws = src.clone();
                     new_ws.id = new_id.clone();
-                    new_ws.title = format!("{} (Part {})", src.title, i + 1);
+                    new_ws.title = if !custom_title.is_empty() {
+                        format!("{} - {}", src.title, custom_title)
+                    } else {
+                        format!("{} (Part {})", src.title, i + 1)
+                    };
                     new_ws.trim_start = trim_start;
                     new_ws.trim_end = trim_end;
-                    new_ws.status = "ready".to_string();
+                    new_ws.status = if auto_render { "downloading" } else { "ready" }.to_string();
                     store.add(new_ws);
+
+                    // Trigger auto-render for each part
+                    if auto_render {
+                        let rid = new_id.clone();
+                        let in_path = get_video_storage_path().join(format!("{}.mp4", id));
+                        let out_dir = PathBuf::from("D:/HyperClip-Data/output");
+                        std::fs::create_dir_all(&out_dir).ok();
+                        let rt = RENDER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
+                        let res = render_res.clone();
+                        let fps = render_fps;
+                        let speed = render_speed;
+                        rt.spawn(async move {
+                            let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
+                            let _permit = pool.acquire().await;
+                            let opts = RenderOptions {
+                                workspace_id: rid.clone(),
+                                input_path: in_path.clone(),
+                                output_path: out_dir.join(format!("{}.mp4", rid)),
+                                resolution: res,
+                                fps,
+                                speed,
+                                trim_start, trim_end,
+                                gpu_tier: get_gpu_config().tier,
+                                preset: "p1".into(),
+                                filter_chain: FilterChain::Short,
+                                chunked: false, chunk_duration_sec: 120,
+                            };
+                            let pid = rid.clone();
+                            let result = spawn_render_async(opts, move |progress| {
+                                let e = serde_json::json!({"method": "render:progress", "params": {"id": pid, "progress": progress}});
+                                let _ = writeln!(io::stdout(), "{}", serde_json::to_string(&e).unwrap());
+                                let _ = io::stdout().flush();
+                            }).await;
+                            let event_method = if result.is_ok() { "done" } else { "error" };
+                            let err_msg = result.as_ref().err().map(|e| e.to_string());
+                            emit_workspace_event(&rid, event_method, err_msg);
+                        });
+                    }
+
                     new_ids.push(new_id);
                 }
                 store.save(&ws_path).ok();

@@ -116,11 +116,24 @@ async function getLatestVideo(channelId, cookieStr) {
     const client = await ensureClient(cookieStr);
     const resolvedId = await resolveChannelId(client, channelId);
     const channel = await client.getChannel(resolvedId);
-    let videos = await strategyGetVideos(channel);
-    if (videos.length >= 1) return { ok: true, videos: videos.slice(0, 5) };
-    videos = await strategySearch(channel);
-    if (videos.length >= 1) return { ok: true, videos: videos.slice(0, 5) };
-    return { ok: true, videos: [] };
+    // Try BOTH strategies in parallel, merge results by videoId
+    const [fromGetVids, fromSearch] = await Promise.all([
+      strategyGetVideos(channel),
+      strategySearch(channel),
+    ]);
+    // Merge: keep video with highest publishedAt (most recent)
+    const merged = new Map();
+    for (const v of [...fromGetVids, ...fromSearch]) {
+      if (!v.videoId) continue;
+      const existing = merged.get(v.videoId);
+      if (!existing || v.publishedAt > existing.publishedAt) {
+        merged.set(v.videoId, v);
+      }
+    }
+    const all = Array.from(merged.values())
+      .sort((a, b) => b.publishedAt - a.publishedAt)
+      .slice(0, 5);
+    return { ok: true, videos: all };
   } catch (e) {
     return { ok: false, error: e.message || String(e) };
   }
