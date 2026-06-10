@@ -13,6 +13,7 @@ class SettingsModel(QObject):
         self._default_trim_limit: int = 10
         self._default_quality: int = 1080
         self._auto_download_quality: str = "1080"
+        self._auto_download_max_age_minutes: int = 1440
         self._auto_download_enabled: bool = True
         self._polling_enabled: bool = True
         self._auto_render: bool = True
@@ -46,6 +47,7 @@ class SettingsModel(QObject):
     defaultTrimLimit = Property(int, lambda s: s._default_trim_limit, lambda s, v: s._set("_default_trim_limit", int, v), notify=changed)
     defaultQuality = Property(int, lambda s: s._default_quality, lambda s, v: s._set("_default_quality", int, v), notify=changed)
     autoDownloadQuality = Property(str, lambda s: s._auto_download_quality, lambda s, v: s._set("_auto_download_quality", str, v), notify=changed)
+    autoDownloadMaxAgeMinutes = Property(int, lambda s: s._auto_download_max_age_minutes, lambda s, v: s._set("_auto_download_max_age_minutes", int, v), notify=changed)
     autoDownloadEnabled = Property(bool, lambda s: s._auto_download_enabled, lambda s, v: s._set("_auto_download_enabled", bool, v), notify=changed)
     pollingEnabled = Property(bool, lambda s: s._polling_enabled, lambda s, v: s._set("_polling_enabled", bool, v), notify=changed)
     autoRender = Property(bool, lambda s: s._auto_render, lambda s, v: s._set("_auto_render", bool, v), notify=changed)
