@@ -208,6 +208,10 @@ ApplicationWindow {
                                         onClicked: {
                                             detailEditor.loadRendered(model.id)
                                             root.centerView = "rendered"
+                                            var resp = backend.send_command("rendered:get", {"id": model.id})
+                                            if (resp && resp.ok !== false) {
+                                                detailEditor.currentRenderedData = resp.result
+                                            }
                                         }
                                     }
                                 }
@@ -230,6 +234,16 @@ ApplicationWindow {
                         Layout.fillHeight: true
                         globalSearchText: root.globalSearchText
                         channelFilter: root.filterChannelId
+                        onOpenWorkspace: function(ws_id) {
+                            // Switch view immediately with model data
+                            detailEditor.loadWorkspace(ws_id)
+                            root.centerView = "workspace"
+                            // Async fetch full data from Rust
+                            var resp = backend.send_command("workspace:get", {"id": ws_id})
+                            if (resp && resp.ok !== false) {
+                                detailEditor.currentWorkspaceData = resp.result
+                            }
+                        }
                     }
                 }
             }

@@ -46,28 +46,27 @@ ScrollView {
             }
         }
 
-        // Video preview placeholder
+        // Video preview
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 300
             color: "black"
             border.color: Theme.border
             border.width: 1
-            ColumnLayout {
+            clip: true
+
+            Image {
+                anchors.fill: parent
+                fillMode: Image.PreserveAspectFit
+                source: root.videoData.thumbnail || ""
+                visible: root.videoData.thumbnail && root.videoData.thumbnail !== ""
+            }
+            Label {
                 anchors.centerIn: parent
-                spacing: 8
-                Icon {
-                    name: "render"
-                    size: 48
-                    color: Theme.textMuted
-                    Layout.alignment: Qt.AlignHCenter
-                }
-                Label {
-                    text: root.videoId ? root.videoId : "Chọn video đã render"
-                    color: Theme.textMuted
-                    font.pixelSize: 14
-                    Layout.alignment: Qt.AlignHCenter
-                }
+                text: root.videoData.thumbnail ? "" : (root.videoData.title || root.videoId || "Chọn video đã render")
+                color: Theme.textMuted
+                font.pixelSize: 14
+                visible: !root.videoData.thumbnail || root.videoData.thumbnail === ""
             }
         }
 

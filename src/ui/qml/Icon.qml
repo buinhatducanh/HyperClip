@@ -11,7 +11,7 @@ Text {
     property color color: Theme.text
     property bool filled: true
 
-    font.family: "Segoe UI Symbol"
+    font.family: "Segoe UI Symbol, Segoe UI, Arial"
     font.pixelSize: size
     font.bold: filled
     horizontalAlignment: Text.AlignHCenter
@@ -37,7 +37,7 @@ Text {
             case "download": return "⬇"   // ⬇
             case "upload":   return "⬆"   // ⬆
             case "render":   return "▶"   // ▶
-            case "search":   return "⚲"   // ⚲
+            case "search":   return "⌕"   // ⌕
             case "warning":  return "⚠"   // ⚠
             case "info":     return "ℹ"   // ℹ
             case "trash":    return "✖"   // ✖

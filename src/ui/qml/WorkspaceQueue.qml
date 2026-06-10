@@ -13,6 +13,7 @@ Rectangle {
     property string globalSearchText: ""
     property string channelFilter: ""
     property string statusFilter: "all"
+    signal openWorkspace(string ws_id)
 
     function passFilter(itemStatus, itemTitle, itemChannel) {
         if (statusFilter !== "all" && statusFilter !== itemStatus)
@@ -64,6 +65,9 @@ Rectangle {
                 channel_name: model.channel_name
                 thumbnail: model.thumbnail
                 isShort: model.isShort
+                onWorkspaceClicked: function(id) {
+                    root.openWorkspace(id)
+                }
             }
 
             Label {

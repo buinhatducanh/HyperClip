@@ -1,5 +1,5 @@
 # src/models/workspace_model.py
-from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray
+from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot
 
 
 class WorkspaceModel(QAbstractListModel):
@@ -42,7 +42,7 @@ class WorkspaceModel(QAbstractListModel):
         if role == self.CreatedAtRole:
             return ws.get("created_at", 0)
         if role == self.ThumbnailRole:
-            return ws.get("thumbnail", "")
+            return ws.get("thumbnailLocal") or ws.get("thumbnail") or ws.get("thumbnailUrl") or ""
         if role == self.RenderedRole:
             return ws.get("renderedPath", "")
         if role == self.IsShortRole:
@@ -118,6 +118,7 @@ class WorkspaceModel(QAbstractListModel):
             idx = self.index(row)
             self.dataChanged.emit(idx, idx, [self.ProgressRole])
 
+    @Slot(str, str, str, object)
     def update_field(self, workspace_id: str, field: str, value, client=None):
         field_map = {
             "title": "title",

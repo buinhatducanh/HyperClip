@@ -16,6 +16,7 @@ pub mod innertube_client;
 pub mod innertube_pool;
 pub mod poller;
 
+pub mod thumbnail;
 pub mod worker_pool;
 
 pub use error::HyperclipError;

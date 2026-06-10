@@ -267,6 +267,8 @@ Rectangle {
                     font.bold: sideRoot.activeChannelId === model.channelId
                     elide: Text.ElideRight
                     Layout.fillWidth: true
+                    Layout.maximumWidth: 100
+                }
                 }
 
                 // Paused indicator (small icon)
@@ -297,6 +299,7 @@ Rectangle {
                 RowLayout {
                     visible: sideRoot.expanded && rowMa.containsMouse
                     spacing: 2
+                    Layout.preferredWidth: 44
 
                     Rectangle {
                         Layout.preferredWidth: 18

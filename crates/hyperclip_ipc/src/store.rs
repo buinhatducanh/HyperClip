@@ -44,6 +44,24 @@ pub struct Workspace {
     pub rendered_path: Option<String>,
     #[serde(rename = "thumbnailLocal")]
     pub thumbnail_local: Option<String>,
+    #[serde(rename = "fileSize", default)]
+    pub file_size: Option<u64>,
+    #[serde(rename = "downloadSpeed", default)]
+    pub download_speed: Option<String>,
+    #[serde(rename = "downloadTime", default)]
+    pub download_time: Option<String>,
+    #[serde(rename = "durationSec", default)]
+    pub duration_sec: Option<u64>,
+    #[serde(rename = "quality", default)]
+    pub quality: Option<u32>,
+    #[serde(rename = "renderFps", default)]
+    pub render_fps: Option<f64>,
+    #[serde(rename = "renderWorkers", default)]
+    pub render_workers: Option<u32>,
+    #[serde(rename = "renderPreset", default)]
+    pub render_preset: Option<String>,
+    #[serde(rename = "renderCodec", default)]
+    pub render_codec: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -105,6 +123,9 @@ impl WorkspaceStore {
             if let Some(path) = data.get("renderedPath").and_then(|v| v.as_str()) {
                 ws.rendered_path = Some(path.to_string());
             }
+            if let Some(path) = data.get("thumbnailLocal").and_then(|v| v.as_str()) {
+                ws.thumbnail_local = Some(path.to_string());
+            }
             if let Some(err) = data.get("error").and_then(|v| v.as_str()) {
                 ws.error = Some(err.to_string());
             }
@@ -116,6 +137,10 @@ impl WorkspaceStore {
 
     pub fn remove(&mut self, id: &str) {
         self.workspaces.retain(|w| w.id != id);
+    }
+
+    pub fn get(&self, id: &str) -> Option<&Workspace> {
+        self.workspaces.iter().find(|w| w.id == id)
     }
 }
 
@@ -382,6 +407,10 @@ impl RenderedStore {
                 v.output_path = val.to_string();
             }
         }
+    }
+
+    pub fn get(&self, id: &str) -> Option<&RenderedVideo> {
+        self.videos.iter().find(|v| v.id == id)
     }
 }
 

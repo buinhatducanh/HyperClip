@@ -79,16 +79,6 @@ Rectangle {
                 size: 21
                 color: Theme.textMuted
             }
-            // Short indicator
-            Rectangle {
-                visible: isShort
-                anchors.bottom: parent.bottom; anchors.right: parent.right
-                width: 14; height: 14; color: Theme.accent
-                Label {
-                    anchors.centerIn: parent
-                    text: "9:16"; color: "white"; font.pixelSize: 9
-                }
-            }
             // Duration badge
             Rectangle {
                 visible: durationSec > 0

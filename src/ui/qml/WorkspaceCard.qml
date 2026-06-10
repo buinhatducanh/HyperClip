@@ -22,6 +22,7 @@ Rectangle {
     property real speed: 1.0
     property string fileSize: ""
     property string ageLabel: ""
+    signal workspaceClicked(string ws_id)
 
     WorkspaceCardDisplay {
         anchors.fill: parent
@@ -42,8 +43,7 @@ Rectangle {
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
             onClicked: {
-                detailEditor.loadWorkspace(card.ws_id)
-                window.centerView = "workspace"
+                card.workspaceClicked(card.ws_id)
             }
         }
     }

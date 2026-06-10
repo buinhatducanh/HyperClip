@@ -11,6 +11,8 @@ use hyperclip_ipc::ffmpeg::{spawn_render_async, RenderOptions, FilterChain};
 
 use hyperclip_ipc::youtube::{download_video, download_video_streaming, emit_download_progress};
 
+use hyperclip_ipc::thumbnail::download_youtube_thumbnail_to;
+
 
 use hyperclip_ipc::worker_pool::WorkerPool;
 
@@ -169,6 +171,12 @@ impl AppState {
                 });
                 ws_store.save(&ws_path).ok();
 
+                // Persist seen_id immediately so re-launch won't re-download
+                let seen_path = get_seen_videos_path();
+                let mut seen_store = hyperclip_ipc::store::SeenVideos::load(&seen_path);
+                seen_store.mark_seen(&event.video_id);
+                seen_store.save(&seen_path).ok();
+
                 // 2. Emit new_video_detected event to stdout (Python/QML catches this)
                 let event_json = serde_json::json!({
                     "method": "new_video_detected",
@@ -204,9 +212,7 @@ impl AppState {
                 // 4. Spawn download thread
                 let url = format!("https://youtube.com/watch?v={}", event.video_id);
                 let cookies_path = get_cookies_netscape_path();
-                let video_dir = ensure_channel_video_dir(&event.channel_name, &event.channel_id);
-                let _ = std::fs::create_dir_all(&video_dir);
-                let output_path = video_dir.join(format!("{}.mp4", ws_id));
+                let output_path = build_download_path(&event.channel_id, &event.channel_name, &event.video_id, event.detected_at);
                 let output_str = output_path.to_string_lossy().to_string();
                 let cookies_str = cookies_path.to_string_lossy().to_string();
                 let tid = ws_id.clone();
@@ -225,8 +231,6 @@ impl AppState {
                 let _ = std::io::stdout().flush();
 
                 // Read quality from settings, default 360p for speed
-                // "autoDownloadQuality" stores string like "1080", "720", "360"
-                // SettingsModel sends: "1080"/"720"/"480"/"360"/"240"/"144"
                 let auto_dl_quality: u32 = s_store.settings
                     .get("autoDownloadQuality")
                     .and_then(|v| v.as_str())
@@ -236,6 +240,8 @@ impl AppState {
                     .unwrap_or(360);
 
                 let ch_name = event.channel_name.clone();
+                let cid = event.channel_id.clone();
+                let video_id = event.video_id.clone();
                 std::thread::spawn(move || {
                     match download_video_streaming(&url, &output_str, &cookies_str, trim_minutes, auto_dl_quality, |progress| {
                         emit_download_progress(&tid, &progress);
@@ -244,12 +250,18 @@ impl AppState {
                             tracing::info!("[AppState] Auto-download complete: {} ({:.1} MB)",
                                 tid, result.file_size as f64 / 1_048_576.0);
 
+                            // Download thumbnail to per-channel dir
+                            let thumb_path = get_thumbnail_path(&cid, &ch_name, &video_id);
+                            let _ = download_youtube_thumbnail_to(&video_id, &thumb_path);
+                            let thumb_str = if thumb_path.exists() { Some(thumb_path.to_string_lossy().to_string()) } else { None };
+
                             // Update workspace store
                             let ws_path = get_workspaces_path();
                             let mut ws_store = WorkspaceStore::load(&ws_path);
                             ws_store.update(&tid, serde_json::json!({
                                 "status": "ready",
                                 "downloadedPath": result.path,
+                                "thumbnailLocal": thumb_str,
                             })).ok();
                             ws_store.save(&ws_path).ok();
 
@@ -263,6 +275,7 @@ impl AppState {
                                     "downloadedSize": result.file_size,
                                     "width": result.width,
                                     "height": result.height,
+                                    "thumbnailLocal": thumb_str,
                                 }
                             });
                             let _ = writeln!(std::io::stdout(), "{}", serde_json::to_string(&done_event).unwrap_or_default());
@@ -277,18 +290,19 @@ impl AppState {
                                 .unwrap_or(false);
                             if auto_render {
                                 let in_path = result.path.clone();
-                                let out_dir = ensure_channel_output_dir_fn(&ch_name);
-                                let _ = std::fs::create_dir_all(&out_dir);
+                                let out_path = build_render_path(&cid, &ch_name, &tid);
                                 let auto_render_speed = s_store.settings
                                     .get("auto_render_speed")
                                     .and_then(|v| v.as_f64())
                                     .unwrap_or(1.0);
+                                let render_res = s_store.settings.get("auto_render_resolution").and_then(|v| v.as_str()).unwrap_or("1080p").to_string();
+                                let render_fps = s_store.settings.get("auto_render_fps").and_then(|v| v.as_u64()).unwrap_or(30) as u32;
                                 let opts = hyperclip_ipc::ffmpeg::RenderOptions {
                                     workspace_id: tid.clone(),
                                     input_path: std::path::PathBuf::from(&in_path),
-                                    output_path: out_dir.join(format!("{}.mp4", tid)),
-                                    resolution: s_store.settings.get("auto_render_resolution").and_then(|v| v.as_str()).unwrap_or("1080p").to_string(),
-                                    fps: s_store.settings.get("auto_render_fps").and_then(|v| v.as_u64()).unwrap_or(30) as u32,
+                                    output_path: out_path.clone(),
+                                    resolution: render_res,
+                                    fps: render_fps,
                                     speed: auto_render_speed,
                                     trim_start: 0.0,
                                     trim_end: 60.0,
@@ -298,7 +312,6 @@ impl AppState {
                                     chunked: false,
                                     chunk_duration_sec: 120,
                                 };
-                                // Run in current thread (simple sequential auto-render)
                                 let pid = tid.clone();
                                 let result = spawn_render_async(opts, move |progress| {
                                     let e = serde_json::json!({"method": "render:progress", "params": {"id": pid, "progress": progress}});
@@ -600,6 +613,95 @@ fn emit_workspace_event(id: &str, status: &str, error: Option<String>) {
 }
 
 
+
+/// Base media directory — all channel assets organized by channel_id.
+fn get_media_dir() -> PathBuf {
+    PathBuf::from("D:/HyperClip-Data/media")
+}
+
+/// Sanitize a directory name (remove path-invalid characters).
+fn sanitize_dir_name(name: &str) -> String {
+    name.chars()
+        .map(|c| match c { '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_', _ => c })
+        .take(100)
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+/// Resolve channel folder name: prefer channel_id, fall back to sanitized channel_name.
+fn channel_folder_name(channel_id: &str, channel_name: &str) -> String {
+    if !channel_id.is_empty() {
+        channel_id.to_string()
+    } else {
+        let s = sanitize_dir_name(channel_name);
+        if s.is_empty() { "unknown".to_string() } else { s }
+    }
+}
+
+/// Per-channel media root, e.g. media/{channel_id}/
+fn channel_media_dir(channel_id: &str, channel_name: &str) -> PathBuf {
+    get_media_dir().join(channel_folder_name(channel_id, channel_name))
+}
+
+/// media/{channel_id}/downloads/
+fn channel_downloads_dir(channel_id: &str, channel_name: &str) -> PathBuf {
+    let dir = channel_media_dir(channel_id, channel_name).join("downloads");
+    std::fs::create_dir_all(&dir).ok();
+    dir
+}
+
+/// media/{channel_id}/thumbnails/
+fn channel_thumbnails_dir(channel_id: &str, channel_name: &str) -> PathBuf {
+    let dir = channel_media_dir(channel_id, channel_name).join("thumbnails");
+    std::fs::create_dir_all(&dir).ok();
+    dir
+}
+
+/// media/{channel_id}/renders/
+fn channel_renders_dir(channel_id: &str, channel_name: &str) -> PathBuf {
+    let dir = channel_media_dir(channel_id, channel_name).join("renders");
+    std::fs::create_dir_all(&dir).ok();
+    dir
+}
+
+/// media/{channel_id}/renders/{ws_id}/  (contains final.mp4 + params.json)
+fn render_output_dir(channel_id: &str, channel_name: &str, ws_id: &str) -> PathBuf {
+    let dir = channel_renders_dir(channel_id, channel_name).join(ws_id);
+    std::fs::create_dir_all(&dir).ok();
+    dir
+}
+
+/// Look up (channel_id, channel_name, video_id) from workspace store.
+fn lookup_channel_ids(ws_id: &str) -> (String, String, String) {
+    let ws_path = get_workspaces_path();
+    let store = WorkspaceStore::load(&ws_path);
+    if let Some(ws) = store.workspaces.iter().find(|w| w.id == ws_id) {
+        let cid = if ws.channel_id.is_empty() { "unknown".to_string() } else { ws.channel_id.clone() };
+        let cname = ws.channel_name.clone().unwrap_or_default();
+        let vid = ws.video_id.clone();
+        (cid, cname, vid)
+    } else {
+        ("unknown".to_string(), String::new(), String::new())
+    }
+}
+
+/// Build download file path: media/{channel_id}/downloads/{video_id}_{timestamp}.mp4
+fn build_download_path(channel_id: &str, channel_name: &str, video_id: &str, timestamp_ms: i64) -> PathBuf {
+    channel_downloads_dir(channel_id, channel_name).join(format!("{}_{}.mp4", video_id, timestamp_ms))
+}
+
+/// Build render output path: media/{channel_id}/renders/{ws_id}/final.mp4
+fn build_render_path(channel_id: &str, channel_name: &str, ws_id: &str) -> PathBuf {
+    render_output_dir(channel_id, channel_name, ws_id).join("final.mp4")
+}
+
+/// Get a thumbnail file path for a video under a channel.
+fn get_thumbnail_path(channel_id: &str, channel_name: &str, video_id: &str) -> PathBuf {
+    channel_thumbnails_dir(channel_id, channel_name).join(format!("{}.jpg", video_id))
+}
+
+// ─── Legacy flat helpers (keep for backward compat, migrate gradually) ───
 
 fn get_video_storage_path() -> PathBuf {
     PathBuf::from("D:/HyperClip-Data/downloads")
@@ -1037,6 +1139,15 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
 
         "workspace:list" => Ok(load_workspaces()),
 
+        "workspace:get" => {
+            let id = p(params, "id").unwrap_or_default();
+            let store = WorkspaceStore::load(&get_workspaces_path());
+            match store.get(&id) {
+                Some(ws) => Ok(json!(ws)),
+                None => Ok(json!({"ok": false, "error": "not found", "id": id})),
+            }
+        }
+
         "workspace:add" => { let url = p(params, "url").unwrap_or_default(); tracing::info!("workspace:add {}", url); Ok(json!({ "ok": true, "id": format!("ws-{}", chrono::Utc::now().timestamp_millis()) })) }
 
         "workspace:update" => {
@@ -1099,23 +1210,51 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             let id = p(params, "id").unwrap_or_default();
             let ws_path = get_workspaces_path();
             let mut store = WorkspaceStore::load(&ws_path);
+            let mut bytes_freed: u64 = 0;
+            let mut files_deleted: u32 = 0;
+
+            // Look up channel info to find new-path files
+            let (cid, cname, _) = lookup_channel_ids(&id);
+            let maybe_ws = store.workspaces.iter().find(|w| w.id == id).cloned();
+
+            // Delete downloaded file (try stored path first, then legacy, then new)
+            if let Some(ref ws) = maybe_ws {
+                if let Some(ref dl_path) = ws.downloaded_path {
+                    let p = PathBuf::from(dl_path);
+                    if p.exists() {
+                        if let Ok(meta) = std::fs::metadata(&p) { bytes_freed += meta.len(); files_deleted += 1; }
+                        std::fs::remove_file(&p).ok();
+                    }
+                }
+            }
+            // Also try legacy flat path
+            let legacy_file = get_video_storage_path().join(format!("{}.mp4", id));
+            if legacy_file.exists() {
+                if let Ok(meta) = std::fs::metadata(&legacy_file) { bytes_freed += meta.len(); files_deleted += 1; }
+                std::fs::remove_file(&legacy_file).ok();
+            }
+
+            // Delete render directory (new structure)
+            if !cid.is_empty() {
+                let render_dir = render_output_dir(&cid, &cname, &id);
+                if render_dir.exists() {
+                    if let Ok(meta) = std::fs::metadata(render_dir.join("final.mp4")) {
+                        bytes_freed += meta.len();
+                        files_deleted += 1;
+                    }
+                    std::fs::remove_dir_all(&render_dir).ok();
+                }
+            }
+            // Also try legacy flat output path
+            let legacy_out = get_output_path().join(format!("{}.mp4", id));
+            if legacy_out.exists() {
+                if let Ok(meta) = std::fs::metadata(&legacy_out) { bytes_freed += meta.len(); files_deleted += 1; }
+                std::fs::remove_file(&legacy_out).ok();
+            }
+
             store.remove(&id);
             store.save(&ws_path).ok();
-            let video_dir = get_video_storage_path();
-            let video_file = video_dir.join(format!("{}.mp4", id));
-            let mut bytes_freed: u64 = 0;
-            if video_file.exists() {
-                if let Ok(meta) = std::fs::metadata(&video_file) {
-                    bytes_freed = meta.len();
-                }
-                std::fs::remove_file(&video_file).ok();
-            }
-            let out_dir = PathBuf::from("D:/HyperClip-Data/output");
-            let out_file = out_dir.join(format!("{}.mp4", id));
-            if out_file.exists() {
-                std::fs::remove_file(&out_file).ok();
-            }
-            Ok(json!({"success": true, "bytesFreed": bytes_freed, "filesDeleted": if bytes_freed > 0 { 1 } else { 0 }}))
+            Ok(json!({"success": true, "bytesFreed": bytes_freed, "filesDeleted": files_deleted}))
         }
 
         // Task 3: workspace:retry - calls yt-dlp download_video
@@ -1142,48 +1281,56 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
 
 
 
-            let video_dir = get_video_storage_path();
+            // Use new media structure
+            let (cid, cname, _) = lookup_channel_ids(&id);
+            let timestamp = chrono::Utc::now().timestamp_millis();
+            let output_path = if !cid.is_empty() || !cname.is_empty() {
+                let video_id = video_url.rsplit('=').next().unwrap_or(&id).to_string();
+                build_download_path(&cid, &cname, &video_id, timestamp)
+            } else {
+                get_video_storage_path().join(format!("{}.mp4", id))
+            };
 
-            std::fs::create_dir_all(&video_dir).ok();
-
-
-
-            let trim_minutes = params.get("trimMinutes")
-
-                .and_then(|v| v.as_u64())
-
-                .unwrap_or(10) as u32;
+            let output_str = output_path.to_string_lossy().to_string();
 
             let quality: u32 = params.get("quality")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(360) as u32;
 
-
-
-            let output_path = video_dir.join(format!("{}.mp4", id));
-
-            let output_str = output_path.to_string_lossy().to_string();
-
-
-
-            emit_workspace_event(&id, "downloading", None);
+            let trim_minutes = params.get("trimMinutes")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(10) as u32;
 
 
 
             let tid = id.clone();
 
-            let url = video_url.clone();
-
             let netscape_path = get_cookies_netscape_path();
             let cookies_str = netscape_path.to_string_lossy().to_string();
 
             let out_str = output_str.clone();
+            let cid2 = cid.clone();
+            let cname2 = cname.clone();
+            let vid2 = video_url.rsplit('=').next().unwrap_or(&id).to_string();
+            let url2 = video_url.clone();
 
             std::thread::spawn(move || {
 
-                match download_video(&url, &out_str, &cookies_str, trim_minutes, quality) {
+                match download_video(&url2, &out_str, &cookies_str, trim_minutes, quality) {
 
                     Ok(result) => {
+
+                        // Download thumbnail
+                        let thumb_path = get_thumbnail_path(&cid2, &cname2, &vid2);
+                        let thumb_str = download_youtube_thumbnail_to(&vid2, &thumb_path);
+
+                        // Persist thumbnail to store
+                        let ws_path = get_workspaces_path();
+                        let mut ws_store = WorkspaceStore::load(&ws_path);
+                        ws_store.update(&tid, serde_json::json!({
+                            "thumbnailLocal": thumb_str,
+                        })).ok();
+                        ws_store.save(&ws_path).ok();
 
                         tracing::info!("workspace:retry download complete: {} -> {} ({} bytes)",
 
@@ -1221,15 +1368,20 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
 
         }
 
-        // Task 3 (WS3): workspace:autoDownload - triggered by poller on new video detection
+        // Task 3 (WS3): workspace:autoDownload - triggered from frontend
         "workspace:autoDownload" => {
             let id = p(params, "id").unwrap_or_default();
             let video_url = p(params, "url").or_else(|| p(params, "videoUrl")).unwrap_or_default();
             let netscape_path = get_cookies_netscape_path();
-            let video_dir = get_video_storage_path();
-            std::fs::create_dir_all(&video_dir).ok();
             let trim_minutes = params.get("trimMinutes").and_then(|v| v.as_u64()).unwrap_or(10) as u32;
-            let output_path = video_dir.join(format!("{}.mp4", id));
+            let (cid, cname, _) = lookup_channel_ids(&id);
+            let timestamp = chrono::Utc::now().timestamp_millis();
+            let output_path = if !cid.is_empty() || !cname.is_empty() {
+                let video_id = video_url.rsplit('=').next().unwrap_or(&id).to_string();
+                build_download_path(&cid, &cname, &video_id, timestamp)
+            } else {
+                get_video_storage_path().join(format!("{}.mp4", id))
+            };
             let output_str = output_path.to_string_lossy().to_string();
             emit_workspace_event(&id, "downloading", None);
             let tid = id.clone();
@@ -1237,6 +1389,8 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             let cookies_str = netscape_path.to_string_lossy().to_string();
             let dl_quality: u32 = params.get("quality").and_then(|v| v.as_u64()).unwrap_or(360) as u32;
             let out_str = output_str.clone();
+            let cid2 = cid.clone();
+            let cname2 = cname.clone();
             std::thread::spawn(move || {
                 download_video_streaming(&url, &out_str, &cookies_str, trim_minutes, dl_quality, |progress| {
                     emit_download_progress(&tid, &progress);
@@ -1244,6 +1398,13 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                 .map(|result| {
                     tracing::info!("workspace:autoDownload complete: {} -> {} ({} bytes)",
                         tid, result.path, result.file_size);
+
+                    // Download thumbnail to per-channel dir
+                    let video_id = url.rsplit('=').next().unwrap_or(&tid).to_string();
+                    let thumb_path = get_thumbnail_path(&cid2, &cname2, &video_id);
+                    let _ = download_youtube_thumbnail_to(&video_id, &thumb_path);
+                    let thumb_str = if thumb_path.exists() { Some(thumb_path.to_string_lossy().to_string()) } else { None };
+
                     let event = json!({
                         "method": "workspace:update",
                         "params": {
@@ -1253,9 +1414,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                             "downloadedSize": result.file_size,
                             "width": result.width,
                             "height": result.height,
-                            "codec": result.codec,
-                            "fps": result.fps,
-                            "duration": result.duration,
+                            "thumbnailLocal": thumb_str,
                         }
                     });
                     let s = serde_json::to_string(&event).unwrap();
@@ -1271,15 +1430,14 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     let auto_speed2 = s_store2.settings.get("auto_render_speed").and_then(|v| v.as_f64()).unwrap_or(1.0);
                     let auto_res2 = s_store2.settings.get("auto_render_resolution").and_then(|v| v.as_str()).unwrap_or("1080p").to_string();
                     let auto_fps2 = s_store2.settings.get("auto_render_fps").and_then(|v| v.as_u64()).unwrap_or(30) as u32;
-                    let out_dir = PathBuf::from("D:/HyperClip-Data/output");
+                    let out_path = build_render_path(&cid2, &cname2, &rid);
                     rt.spawn(async move {
                         let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
                         let _permit = pool.acquire().await;
-                        std::fs::create_dir_all(&out_dir).ok();
                         let opts = RenderOptions {
                             workspace_id: rid.clone(),
                             input_path: PathBuf::from(&in_path),
-                            output_path: out_dir.join(format!("{}.mp4", rid)),
+                            output_path: out_path.clone(),
                             resolution: auto_res2,
                             fps: auto_fps2,
                             speed: auto_speed2,
@@ -1314,20 +1472,32 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                 return CommandResult::Ok(json!({ "ok": false, "error": "requires id and url params" }));
             }
             let netscape_path = get_cookies_netscape_path();
-            let video_dir = get_video_storage_path();
-            std::fs::create_dir_all(&video_dir).ok();
-            let output_path = video_dir.join(format!("{}.mp4", id));
+            let (cid, cname, _) = lookup_channel_ids(&id);
+            let timestamp = chrono::Utc::now().timestamp_millis();
+            let output_path = if !cid.is_empty() || !cname.is_empty() {
+                let video_id = video_url.rsplit('=').next().unwrap_or(&id).to_string();
+                build_download_path(&cid, &cname, &video_id, timestamp)
+            } else {
+                get_video_storage_path().join(format!("{}.mp4", id))
+            };
             let output_str = output_path.to_string_lossy().to_string();
             emit_workspace_event(&id, "downloading", None);
             let tid = id.clone();
             let url = video_url.clone();
             let cookies_str = netscape_path.to_string_lossy().to_string();
             let out_str = output_str.clone();
+            let cid2 = cid.clone();
+            let cname2 = cname.clone();
             std::thread::spawn(move || {
                 download_video_streaming(&url, &out_str, &cookies_str, 10, 1080, |progress| {
                     emit_download_progress(&tid, &progress);
                 })
                 .map(|result| {
+                    // Download thumbnail
+                    let video_id = url.rsplit('=').next().unwrap_or(&tid).to_string();
+                    let thumb_path = get_thumbnail_path(&cid2, &cname2, &video_id);
+                    let _ = download_youtube_thumbnail_to(&video_id, &thumb_path);
+
                     emit_workspace_event(&tid, "ready", None);
                     tracing::info!("redownloadHd complete: {} ({}x{}, {} bytes)",
                         tid, result.width, result.height, result.file_size);
@@ -1335,15 +1505,14 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     let rt = RENDER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
                     let rid = tid.clone();
                     let in_path = out_str.clone();
-                    let out_dir = PathBuf::from("D:/HyperClip-Data/output");
+                    let out_path = build_render_path(&cid2, &cname2, &rid);
                     rt.spawn(async move {
                         let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
                         let _permit = pool.acquire().await;
-                        std::fs::create_dir_all(&out_dir).ok();
                         let opts = RenderOptions {
                             workspace_id: rid.clone(),
                             input_path: PathBuf::from(&in_path),
-                            output_path: out_dir.join(format!("{}.mp4", rid)),
+                            output_path: out_path.clone(),
                             resolution: "1080p".into(),
                             fps: 30, speed: 1.0,
                             trim_start: 0.0, trim_end: 60.0,
@@ -1424,8 +1593,14 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     if auto_render {
                         let rid = new_id.clone();
                         let in_path = get_video_storage_path().join(format!("{}.mp4", id));
-                        let out_dir = PathBuf::from("D:/HyperClip-Data/output");
-                        std::fs::create_dir_all(&out_dir).ok();
+                        let (cid_split, cname_split, _) = lookup_channel_ids(&id);
+                        let out_path = if !cid_split.is_empty() || !cname_split.is_empty() {
+                            build_render_path(&cid_split, &cname_split, &rid)
+                        } else {
+                            let legacy_out = PathBuf::from("D:/HyperClip-Data/output");
+                            std::fs::create_dir_all(&legacy_out).ok();
+                            legacy_out.join(format!("{}.mp4", rid))
+                        };
                         let rt = RENDER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
                         let res = render_res.clone();
                         let fps = render_fps;
@@ -1436,7 +1611,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                             let opts = RenderOptions {
                                 workspace_id: rid.clone(),
                                 input_path: in_path.clone(),
-                                output_path: out_dir.join(format!("{}.mp4", rid)),
+                                output_path: out_path.clone(),
                                 resolution: res,
                                 fps,
                                 speed,
@@ -1601,12 +1776,18 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                 map.insert(id.clone(), token.clone());
             }
             let tid = id.clone();
+            let (cid, cname, _) = lookup_channel_ids(&id);
             let rt = RENDER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
             rt.spawn(async move {
                 let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
                 let _permit = pool.acquire().await;
-                let out_dir = PathBuf::from("D:/HyperClip-Data/output");
-                std::fs::create_dir_all(&out_dir).ok();
+                let out_path = if !cid.is_empty() || !cname.is_empty() {
+                    build_render_path(&cid, &cname, &tid)
+                } else {
+                    let legacy_out = PathBuf::from("D:/HyperClip-Data/output");
+                    std::fs::create_dir_all(&legacy_out).ok();
+                    legacy_out.join(format!("{}.mp4", tid))
+                };
                 // Resolve real input path from workspace store
                 let ws_path = get_workspaces_path();
                 let store = WorkspaceStore::load(&ws_path);
@@ -1616,7 +1797,6 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     None => {
                         let vid_dir = get_video_storage_path();
                         let mut found = vid_dir.join(format!("{}.mp4", tid));
-                        // Also search per-channel subdirectories
                         if !found.exists() {
                             if let Ok(entries) = std::fs::read_dir(&vid_dir) {
                                 for entry in entries.flatten() {
@@ -1637,7 +1817,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                 let opts = RenderOptions {
                     workspace_id: tid_for_progress.clone(),
                     input_path: input_path.clone(),
-                    output_path: out_dir.join(format!("{}.mp4", tid_for_progress)),
+                    output_path: out_path.clone(),
                     resolution: "1080p".into(),
                     fps: 30,
                     speed: ws_speed,
@@ -1710,10 +1890,15 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             if !input_path.exists() {
                 return CommandResult::Err("input file not found for chunked render".into());
             }
-            let out_dir = PathBuf::from("D:/HyperClip-Data/output");
-            std::fs::create_dir_all(&out_dir).ok();
+            let (cid, cname, _) = lookup_channel_ids(&id);
+            let out_path = if !cid.is_empty() || !cname.is_empty() {
+                build_render_path(&cid, &cname, &id)
+            } else {
+                let legacy_out = PathBuf::from("D:/HyperClip-Data/output");
+                std::fs::create_dir_all(&legacy_out).ok();
+                legacy_out.join(format!("{}.mp4", id))
+            };
             let tid = id.clone();
-            let out_path = out_dir.join(format!("{}.mp4", tid));
             let rt = RENDER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
             rt.spawn(async move {
                 let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
@@ -1755,6 +1940,15 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             let r_path = get_rendered_videos_path();
             let store = RenderedStore::load(&r_path);
             Ok(json!(store.videos))
+        }
+
+        "rendered:get" => {
+            let id = p(params, "id").unwrap_or_default();
+            let store = RenderedStore::load(&get_rendered_videos_path());
+            match store.get(&id) {
+                Some(v) => Ok(json!(v)),
+                None => Ok(json!({"ok": false, "error": "not found", "id": id})),
+            }
         }
 
         "rendered:archive" => {
@@ -1818,22 +2012,49 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
         // ─── Storage ────────────────────────────────────────────────
 
         "storage:getSize" => {
+            let media_dir = get_media_dir();
             let base_dir = get_video_storage_path();
             let out_dir = PathBuf::from("D:/HyperClip-Data/output");
             let blur_dir = base_dir.join("blur");
             let mut downloads = dir_size_internal(&base_dir);
-            // Also scan per-channel subdirectories
+            // Also scan per-channel subdirectories (legacy flat structure)
             if let Ok(entries) = std::fs::read_dir(&base_dir) {
                 for entry in entries.flatten() {
-                    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) && entry.file_name() != "blur" {
                         downloads += dir_size_internal(&entry.path());
                     }
                 }
             }
+            // New media structure
+            let media_downloads = if media_dir.exists() {
+                let mut total = 0u64;
+                if let Ok(entries) = std::fs::read_dir(&media_dir) {
+                    for entry in entries.flatten() {
+                        let dl_dir = entry.path().join("downloads");
+                        if dl_dir.exists() {
+                            total += dir_size_internal(&dl_dir);
+                        }
+                    }
+                }
+                total
+            } else { 0u64 };
             let blur_size = dir_size_internal(&blur_dir);
-            let output = dir_size_internal(&out_dir);
+            let output = if media_dir.exists() {
+                let mut total = dir_size_internal(&out_dir);
+                if let Ok(entries) = std::fs::read_dir(&media_dir) {
+                    for entry in entries.flatten() {
+                        let render_dir = entry.path().join("renders");
+                        if render_dir.exists() {
+                            total += dir_size_internal(&render_dir);
+                        }
+                    }
+                }
+                total
+            } else {
+                dir_size_internal(&out_dir)
+            };
             Ok(json!({
-                "downloads": downloads, "blur": blur_size, "total": downloads + output,
+                "downloads": downloads + media_downloads, "blur": blur_size, "total": downloads + media_downloads + output,
                 "downloadPath": base_dir.to_string_lossy().to_string(),
                 "outputPath": out_dir.to_string_lossy().to_string(),
             }))

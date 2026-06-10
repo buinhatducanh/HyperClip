@@ -28,6 +28,7 @@ Rectangle {
     function loadWorkspace(id) {
         currentWorkspaceId = id
         currentView = "workspace"
+        // Minimal snapshot from model — full data fetched async by main.qml via workspace:get
         for (let i = 0; i < workspaceModel.rowCount(); i++) {
             const idx = workspaceModel.index(i, 0)
             if (workspaceModel.data(idx, root._roleId) === id) {
@@ -36,13 +37,7 @@ Rectangle {
                     "title": workspaceModel.data(idx, root._roleTitle) || "",
                     "channel_name": workspaceModel.data(idx, root._roleChannel) || "",
                     "progress": workspaceModel.data(idx, root._roleProgress) || 0,
-                    "quality": 1080,
-                    "speed": 1.0,
-                    "trimStart": 0.0,
-                    "trimEnd": 0.0,
                     "thumbnail": workspaceModel.data(idx, root._roleThumbnail) || "",
-                    "thumbnail_local": "",
-                    "durationSec": 0,
                     "video_id": id,
                 }
                 return
