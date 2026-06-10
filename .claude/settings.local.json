@@ -44,7 +44,9 @@
       "WebFetch(domain:www.gyan.dev)",
       "WebFetch(domain:)",
       "Read(//c/Users/MSI/Projects/ClipForge/**)",
-      "Bash(mkdir -p /c/Users/MSI/.claude/projects/C--Users-MSI-Projects-ClipForge-084569e1/memory && ls /c/Users/MSI/.claude/projects/C--Users-MSI-Projects-ClipForge-084569e1/)"
+      "Bash(mkdir -p /c/Users/MSI/.claude/projects/C--Users-MSI-Projects-ClipForge-084569e1/memory && ls /c/Users/MSI/.claude/projects/C--Users-MSI-Projects-ClipForge-084569e1/)",
+      "Skill(run)",
+      "Skill(run:*)"
     ],
     "additionalDirectories": [
       "C:\\Users\\MSI\\.claude",
