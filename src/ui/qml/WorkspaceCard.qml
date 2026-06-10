@@ -43,7 +43,7 @@ Rectangle {
             cursorShape: Qt.PointingHandCursor
             onClicked: {
                 detailEditor.loadWorkspace(card.ws_id)
-                root.centerView = "workspace"
+                window.centerView = "workspace"
             }
         }
     }
