@@ -17,6 +17,9 @@ package-lock.json
 # Local runtime data (NOT source — lives in user profile, not repo)
 .hyperclip/
 
+# Claude Code — machine-specific overrides (each machine creates its own)
+.claude/settings.local.json
+
 # Abandoned experiment dirs (build artifacts only, no source)
 src-tauri/
 hyperclip/

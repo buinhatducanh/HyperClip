@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx:*)",
+      "WebSearch",
+      "WebFetch(domain:developers.google.com)",
+      "WebFetch(domain:support.google.com)",
+      "WebFetch(domain:www.youtube.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:docs.cloud.google.com)",
+      "Bash(git checkout:*)",
+      "Bash(git merge:*)",
+      "Skill(run)",
+      "Skill(run:*)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\YOUR_USERNAME\\.claude"
+    ]
+  },
+  "enabledMcpjsonServers": [],
+  "disabledMcpjsonServers": []
+}
