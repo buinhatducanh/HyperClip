@@ -224,11 +224,16 @@ impl AppState {
                 let _ = writeln!(std::io::stdout(), "{}", serde_json::to_string(&dl_event).unwrap_or_default());
                 let _ = std::io::stdout().flush();
 
-                let auto_dl_quality = s_store.settings
+                // Read quality from settings, default 360p for speed
+                // "autoDownloadQuality" stores string like "1080", "720", "360"
+                // SettingsModel sends: "1080"/"720"/"480"/"360"/"240"/"144"
+                let auto_dl_quality: u32 = s_store.settings
                     .get("autoDownloadQuality")
                     .and_then(|v| v.as_str())
                     .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(360); // default 360p for speed
+                    .or_else(|| s_store.settings.get("autoDownloadQuality").and_then(|v| v.as_u64()).map(|n| n as u32))
+                    .or_else(|| s_store.settings.get("defaultQuality").and_then(|v| v.as_u64()).map(|n| n as u32))
+                    .unwrap_or(360);
 
                 let ch_name = event.channel_name.clone();
                 std::thread::spawn(move || {
