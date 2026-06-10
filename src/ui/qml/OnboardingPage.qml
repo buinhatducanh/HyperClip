@@ -39,7 +39,7 @@ Rectangle {
             Label {
                 anchors.centerIn: parent
                 text: "Thiết lập HyperClip"
-                color: Theme.accent; font.pixelSize: 18; font.bold: true
+                color: Theme.accent; font.pixelSize: 27; font.bold: true
             }
         }
         Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
@@ -60,7 +60,7 @@ Rectangle {
                             anchors.centerIn: parent
                             text: index + 1
                             color: index <= page.currentStep ? "white" : Theme.textMuted
-                            font.pixelSize: 11; font.bold: true
+                            font.pixelSize: 16; font.bold: true
                         }
                     }
                     Label {

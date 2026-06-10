@@ -274,12 +274,9 @@ impl SeenVideos {
     }
 }
 
-/// Get the store directory (Roaming/HyperClip/.hyperclip on Windows)
+/// Get the store directory (D:/HyperClip-Data/.hyperclip)
 pub fn get_store_dir() -> PathBuf {
-    if let Some(roaming) = std::env::var_os("APPDATA") {
-        return PathBuf::from(roaming).join("HyperClip").join(".hyperclip");
-    }
-    PathBuf::from(".")
+    PathBuf::from("D:/HyperClip-Data/.hyperclip")
 }
 
 pub fn get_workspaces_path() -> PathBuf {

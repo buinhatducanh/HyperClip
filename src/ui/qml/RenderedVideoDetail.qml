@@ -26,16 +26,22 @@ ScrollView {
             Label {
                 text: "Rendered Video"
                 color: Theme.text
-                font.pixelSize: 18
+                font.pixelSize: 27
                 font.bold: true
                 Layout.fillWidth: true
             }
-            Button {
-                text: "Archive"
+            IconButton {
+                iconName: "archive"
+                label: "Archive"
+                iconSize: 12
+                Layout.minimumWidth: 70
                 onClicked: renderedModel.archive(backend, root.videoId)
             }
-            Button {
-                text: "Open folder"
+            IconButton {
+                iconName: "folder"
+                label: "Folder"
+                iconSize: 12
+                Layout.minimumWidth: 70
                 onClicked: renderedModel.open_folder(backend, root.videoId)
             }
         }
@@ -47,11 +53,21 @@ ScrollView {
             color: "black"
             border.color: Theme.border
             border.width: 1
-            Label {
+            ColumnLayout {
                 anchors.centerIn: parent
-                text: root.videoId ? "▶ " + root.videoId : "Chọn video đã render"
-                color: Theme.textMuted
-                font.pixelSize: 14
+                spacing: 8
+                Icon {
+                    name: "render"
+                    size: 48
+                    color: Theme.textMuted
+                    Layout.alignment: Qt.AlignHCenter
+                }
+                Label {
+                    text: root.videoId ? root.videoId : "Chọn video đã render"
+                    color: Theme.textMuted
+                    font.pixelSize: 14
+                    Layout.alignment: Qt.AlignHCenter
+                }
             }
         }
 
@@ -67,7 +83,7 @@ ScrollView {
             label: Label {
                 text: parent.title
                 color: Theme.success
-                font.pixelSize: 11
+                font.pixelSize: 16
                 font.bold: true
             }
             GridLayout {
@@ -75,16 +91,16 @@ ScrollView {
                 columnSpacing: 16
                 rowSpacing: 4
                 anchors.fill: parent
-                Label { text: "Path"; color: Theme.textMuted; font.pixelSize: 10 }
-                Label { text: root.videoData.outputPath || "—"; color: Theme.text; font.pixelSize: 9; font.family: "monospace"; elide: Text.ElideMiddle; Layout.fillWidth: true }
-                Label { text: "Size"; color: Theme.textMuted; font.pixelSize: 10 }
-                Label { text: ((root.videoData.fileSize || 0) / 1048576).toFixed(1) + " MB"; color: Theme.text; font.pixelSize: 10; font.family: "monospace" }
-                Label { text: "Duration"; color: Theme.textMuted; font.pixelSize: 10 }
-                Label { text: (root.videoData.duration || 0).toFixed(1) + "s"; color: Theme.text; font.pixelSize: 10; font.family: "monospace" }
-                Label { text: "Quality"; color: Theme.textMuted; font.pixelSize: 10 }
-                Label { text: root.videoData.quality || "1080p"; color: Theme.text; font.pixelSize: 10; font.family: "monospace" }
-                Label { text: "Rendered at"; color: Theme.textMuted; font.pixelSize: 10 }
-                Label { text: root.videoData.renderedAt ? new Date(root.videoData.renderedAt * 1000).toLocaleString() : "—"; color: Theme.text; font.pixelSize: 10; font.family: "monospace" }
+                Label { text: "Path"; color: Theme.textMuted; font.pixelSize: 15 }
+                Label { text: root.videoData.outputPath || "—"; color: Theme.text; font.pixelSize: 14; font.family: "monospace"; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                Label { text: "Size"; color: Theme.textMuted; font.pixelSize: 15 }
+                Label { text: ((root.videoData.fileSize || 0) / 1048576).toFixed(1) + " MB"; color: Theme.text; font.pixelSize: 15; font.family: "monospace" }
+                Label { text: "Duration"; color: Theme.textMuted; font.pixelSize: 15 }
+                Label { text: (root.videoData.duration || 0).toFixed(1) + "s"; color: Theme.text; font.pixelSize: 15; font.family: "monospace" }
+                Label { text: "Quality"; color: Theme.textMuted; font.pixelSize: 15 }
+                Label { text: root.videoData.quality || "1080p"; color: Theme.text; font.pixelSize: 15; font.family: "monospace" }
+                Label { text: "Rendered at"; color: Theme.textMuted; font.pixelSize: 15 }
+                Label { text: root.videoData.renderedAt ? new Date(root.videoData.renderedAt * 1000).toLocaleString() : "—"; color: Theme.text; font.pixelSize: 15; font.family: "monospace" }
             }
         }
 
@@ -100,7 +116,7 @@ ScrollView {
             label: Label {
                 text: parent.title
                 color: Theme.accent
-                font.pixelSize: 11
+                font.pixelSize: 16
                 font.bold: true
             }
             RowLayout {
@@ -116,7 +132,7 @@ ScrollView {
                         anchors.centerIn: parent
                         text: "YOUTUBE\n(gốc)"
                         color: Theme.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: 15
                         horizontalAlignment: Text.AlignHCenter
                     }
                 }
@@ -130,15 +146,22 @@ ScrollView {
                         anchors.centerIn: parent
                         text: "HYPERCLIP\n(đã render)"
                         color: Theme.success
-                        font.pixelSize: 10
+                        font.pixelSize: 15
                         horizontalAlignment: Text.AlignHCenter
                     }
                 }
             }
         }
 
-        Button {
-            text: "Remove"
+        IconButton {
+            iconName: "delete"
+            label: "Remove"
+            iconSize: 12
+            iconColorIdle: Theme.textMuted
+            iconColorHover: "white"
+            colorHover: Theme.error + "30"
+            colorPressed: Theme.error
+            Layout.minimumWidth: 80
             onClicked: {
                 renderedModel.remove(backend, root.videoId)
                 activityModel.add_entry("rendered", "Removed " + root.videoId, "info")

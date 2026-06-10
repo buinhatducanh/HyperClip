@@ -72,11 +72,12 @@ Rectangle {
                 fillMode: Image.PreserveAspectCrop
                 visible: thumbnail !== ""
             }
-            Label {
+            Icon {
                 anchors.centerIn: parent
                 visible: thumbnail === ""
-                text: "▶"
-                color: Theme.textMuted; font.pixelSize: 14
+                name: "play"
+                size: 21
+                color: Theme.textMuted
             }
             // Short indicator
             Rectangle {
@@ -85,7 +86,7 @@ Rectangle {
                 width: 14; height: 14; color: Theme.accent
                 Label {
                     anchors.centerIn: parent
-                    text: "9:16"; color: "white"; font.pixelSize: 6
+                    text: "9:16"; color: "white"; font.pixelSize: 9
                 }
             }
             // Duration badge
@@ -102,7 +103,7 @@ Rectangle {
                         const s = durationSec % 60
                         return m + ":" + (s < 10 ? "0" : "") + s
                     }
-                    color: "white"; font.pixelSize: 8
+                    color: "white"; font.pixelSize: 12
                 }
             }
         }
@@ -116,28 +117,53 @@ Rectangle {
                 Layout.fillWidth: true
                 Label {
                     text: title || "Chưa có tiêu đề"
-                    color: Theme.text; font.pixelSize: 12; font.bold: true
+                    color: Theme.text; font.pixelSize: 18; font.bold: true
                     elide: Text.ElideRight; Layout.fillWidth: true
                 }
+                // Status badge with icon + label
                 Rectangle {
-                    Layout.preferredHeight: 16
-                    Layout.preferredWidth: badgeLabel.implicitWidth + 12
-                    radius: 2
-                    color: status === "error" ? Theme.error
-                         : status === "rendering" ? Theme.accent
-                         : status === "done" ? Theme.success
+                    Layout.preferredHeight: 18
+                    Layout.preferredWidth: badgeRow.implicitWidth + 14
+                    radius: 9
+                    color: status === "error" ? Theme.error + "30"
+                         : status === "rendering" ? Theme.accent + "30"
+                         : status === "done" ? Theme.success + "30"
+                         : status === "downloading" ? "#FFA50030"
+                         : status === "ready" ? Theme.success + "30"
                          : "#2A2A2A"
-                    Label {
-                        id: badgeLabel
+                    border.color: status === "error" ? Theme.error
+                               : status === "rendering" ? Theme.accent
+                               : status === "done" ? Theme.success
+                               : status === "downloading" ? "#FFA500"
+                               : status === "ready" ? Theme.success
+                               : Theme.border
+                    border.width: 1
+                    RowLayout {
+                        id: badgeRow
                         anchors.centerIn: parent
-                        text: statusIcon() + " " + statusLabel()
-                        color: "white"; font.pixelSize: 8; font.bold: true
-                    }
-                    SequentialAnimation on opacity {
-                        running: status === "downloading" || status === "rendering"
-                        loops: Animation.Infinite
-                        NumberAnimation { from: 1.0; to: 0.4; duration: 600 }
-                        NumberAnimation { from: 0.4; to: 1.0; duration: 600 }
+                        spacing: 3
+                        StatusDot {
+                            state: {
+                                if (status === "error") return "error"
+                                if (status === "rendering") return "running"
+                                if (status === "done") return "success"
+                                if (status === "downloading") return "warning"
+                                if (status === "ready") return "ready"
+                                return "idle"
+                            }
+                            size: 6
+                            showRing: status === "rendering" || status === "downloading"
+                        }
+                        Label {
+                            text: statusLabel()
+                            color: status === "error" ? Theme.error
+                                 : status === "rendering" ? Theme.accent
+                                 : status === "done" ? Theme.success
+                                 : status === "downloading" ? "#FFA500"
+                                 : status === "ready" ? Theme.success
+                                 : Theme.text
+                            font.pixelSize: 11; font.bold: true
+                        }
                     }
                 }
             }
@@ -155,7 +181,7 @@ Rectangle {
             // Quality + speed
             Label {
                 text: quality + "p" + (speed > 1 ? " · " + speed.toFixed(1) + "x" : "")
-                color: Theme.textMuted; font.pixelSize: 8
+                color: Theme.textMuted; font.pixelSize: 12
             }
 
             // Progress bar

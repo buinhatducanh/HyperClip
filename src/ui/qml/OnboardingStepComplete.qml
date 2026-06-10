@@ -11,17 +11,17 @@ Item {
 
         Label {
             text: "🎉"
-            font.pixelSize: 64
+            font.pixelSize: 96
             Layout.alignment: Qt.AlignHCenter
         }
         Label {
             text: "Sẵn sàng!"
-            color: Theme.success; font.pixelSize: 24; font.bold: true
+            color: Theme.success; font.pixelSize: 36; font.bold: true
             Layout.alignment: Qt.AlignHCenter
         }
         Label {
             text: "Bấm 'Hoàn tất' để bắt đầu bắt video 24/7"
-            color: Theme.textMuted; font.pixelSize: 12
+            color: Theme.textMuted; font.pixelSize: 18
             Layout.alignment: Qt.AlignHCenter
         }
     }

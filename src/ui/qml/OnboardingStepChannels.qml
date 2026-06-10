@@ -12,7 +12,7 @@ Item {
 
         Label {
             text: "Thêm channels bạn muốn theo dõi"
-            color: Theme.text; font.pixelSize: 20; font.bold: true
+            color: Theme.text; font.pixelSize: 30; font.bold: true
         }
         AddChannelForm {}
         ListView {

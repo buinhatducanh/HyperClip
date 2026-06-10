@@ -31,7 +31,7 @@ ColumnLayout {
             Label {
                 text: grp.collapsed ? "▸" : "▾"
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: 15
             }
             Rectangle {
                 Layout.preferredWidth: 8
@@ -42,13 +42,13 @@ ColumnLayout {
             Label {
                 text: grp.groupLabel.toUpperCase()
                 color: grp.groupColor
-                font.pixelSize: 10
+                font.pixelSize: 15
                 font.bold: true
             }
             Label {
                 text: "(" + grp.items.length + ")"
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: 15
             }
             Item { Layout.fillWidth: true }
         }

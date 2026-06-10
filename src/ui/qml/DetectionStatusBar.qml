@@ -35,7 +35,7 @@ Rectangle {
         Label {
             text: root.source
             color: root.sourceColor
-            font.pixelSize: 9
+            font.pixelSize: 14
             font.bold: true
         }
 
@@ -49,7 +49,7 @@ Rectangle {
                 anchors.centerIn: parent
                 text: poller.lastDetectionLatencyStr
                 color: poller.latencyColor
-                font.pixelSize: 8
+                font.pixelSize: 12
                 font.bold: true
             }
         }
@@ -60,7 +60,7 @@ Rectangle {
         Label {
             text: (typeof sessionModel !== 'undefined' && sessionModel ? (sessionModel.rowCount() || "—") : "—") + " ses"
             color: Theme.textMuted
-            font.pixelSize: 8
+            font.pixelSize: 12
         }
     }
 }

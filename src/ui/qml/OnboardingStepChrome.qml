@@ -12,12 +12,12 @@ Item {
 
         Label {
             text: "Đăng nhập YouTube qua Chrome"
-            color: Theme.text; font.pixelSize: 20; font.bold: true
+            color: Theme.text; font.pixelSize: 30; font.bold: true
             Layout.alignment: Qt.AlignHCenter
         }
         Label {
             text: "HyperClip dùng Chrome cookies để bypass quota. Bấm OAuth Flow để bắt đầu."
-            color: Theme.textMuted; font.pixelSize: 12
+            color: Theme.textMuted; font.pixelSize: 18
             wrapMode: Text.WordWrap
             Layout.alignment: Qt.AlignHCenter
             Layout.preferredWidth: 460
@@ -33,7 +33,7 @@ Item {
         Label {
             text: "Status: " + (auth.isReady ? "Authenticated" : "Not yet")
             color: auth.isReady ? Theme.success : Theme.textMuted
-            font.pixelSize: 11
+            font.pixelSize: 16
             Layout.alignment: Qt.AlignHCenter
         }
     }

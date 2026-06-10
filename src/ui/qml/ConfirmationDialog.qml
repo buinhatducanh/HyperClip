@@ -26,7 +26,7 @@ Dialog {
         id: msgLabel
         text: "Xác nhận?"
         color: Theme.text
-        font.pixelSize: 12
+        font.pixelSize: 18
         wrapMode: Text.WordWrap
     }
 

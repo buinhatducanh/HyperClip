@@ -1,44 +1,42 @@
 // src/ui/qml/SettingsCard.qml
-// Reusable card wrapper for settings panels
+// Reusable card wrapper for settings panels.
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
 Rectangle {
-    default property alias content: body.children
+    id: card
+    default property alias content: body.data
     property string title: ""
     property color titleColor: Theme.accent
-    property int bodySpacing: 8
+    property int bodySpacing: Theme.spacingSm
 
-    color: Theme.bg
+    color: Theme.cardBg
     border.color: Theme.border
     border.width: 1
+    radius: Theme.radiusLg
+    implicitHeight: layout.implicitHeight + 2 * Theme.spacingLg
 
     ColumnLayout {
+        id: layout
         anchors.fill: parent
-        anchors.margins: 12
-        spacing: bodySpacing
+        anchors.margins: Theme.spacingLg
+        spacing: Theme.spacingSm
 
-        // Header row (only shown if title is set)
-        RowLayout {
-            visible: title !== ""
+        Label {
+            visible: card.title !== ""
+            text: card.title
+            color: card.titleColor
+            font.pixelSize: Theme.textLg
+            font.bold: true
+            font.letterSpacing: 0.8
             Layout.fillWidth: true
-            spacing: 8
-
-            Label {
-                text: title
-                visible: title !== ""
-                color: titleColor
-                font.pixelSize: 13
-                font.bold: true
-                Layout.fillWidth: true
-            }
         }
 
-        Item {
+        ColumnLayout {
             id: body
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            spacing: card.bodySpacing
         }
     }
 }

@@ -27,7 +27,7 @@ Dialog {
         Label {
             text: "Channel: " + dlg.channelName
             color: Theme.text
-            font.pixelSize: 14
+            font.pixelSize: 21
             font.bold: true
         }
 
@@ -49,13 +49,13 @@ Dialog {
                     Label {
                         text: "YOUTUBE (gốc)"
                         color: Theme.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: 15
                         font.bold: true
                     }
                     Label {
                         text: "https://www.youtube.com/channel/" + dlg.channelId
                         color: Theme.accent
-                        font.pixelSize: 9
+                        font.pixelSize: 14
                         wrapMode: Text.Wrap
                     }
                 }
@@ -74,13 +74,13 @@ Dialog {
                     Label {
                         text: "HYPERCLIP (đã render)"
                         color: Theme.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: 15
                         font.bold: true
                     }
                     Label {
                         text: "Mở HyperClip-Data\\output\\" + dlg.channelName
                         color: Theme.textMuted
-                        font.pixelSize: 9
+                        font.pixelSize: 14
                         wrapMode: Text.Wrap
                     }
                 }

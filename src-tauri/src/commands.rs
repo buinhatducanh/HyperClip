@@ -338,10 +338,12 @@ impl AppState {
         let seen_path = get_seen_videos_path();
         let seen_store = hyperclip_ipc::store::SeenVideos::load(&seen_path);
         let seen_ids: std::collections::HashSet<String> = seen_store.seen.into_iter().collect();
-        let rt = POLLER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
-        rt.spawn(async move {
-            poller.load_seen_ids(seen_ids).await;
-            poller.run(cancel).await;
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async move {
+                poller.load_seen_ids(seen_ids).await;
+                poller.run(cancel).await;
+            });
         });
         tracing::info!("[AppState] Poller started");
     }
@@ -559,8 +561,7 @@ fn emit_workspace_event(id: &str, status: &str, error: Option<String>) {
 
 
 fn get_video_storage_path() -> PathBuf {
-    PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into()))
-        .join("HyperClip/downloads")
+    PathBuf::from("D:/HyperClip-Data/downloads")
 }
 
 /// Get or create a per-channel download subdirectory.
@@ -582,8 +583,7 @@ fn ensure_channel_video_dir(channel_name: &str, channel_id: &str) -> PathBuf {
 
 #[allow(dead_code)]
 fn get_output_path() -> PathBuf {
-    PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into()))
-        .join("HyperClip/output")
+    PathBuf::from("D:/HyperClip-Data/output")
 }
 
 /// Per-channel output subdirectory for rendered files.
@@ -603,8 +603,7 @@ fn ensure_channel_output_dir_fn(channel_name: &str) -> PathBuf {
 }
 
 fn get_cookies_path() -> PathBuf {
-    PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into()))
-        .join("HyperClip/cookies.txt")
+    PathBuf::from("D:/HyperClip-Data/cookies.txt")
 }
 
 /// Extract cookies from Chrome Default profile → save to cookies.txt → feed Innertube pool.
@@ -1059,7 +1058,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                 }
                 std::fs::remove_file(&video_file).ok();
             }
-            let out_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into())).join("HyperClip/output");
+            let out_dir = PathBuf::from("D:/HyperClip-Data/output");
             let out_file = out_dir.join(format!("{}.mp4", id));
             if out_file.exists() {
                 std::fs::remove_file(&out_file).ok();
@@ -1216,7 +1215,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     let auto_speed2 = s_store2.settings.get("auto_render_speed").and_then(|v| v.as_f64()).unwrap_or(1.0);
                     let auto_res2 = s_store2.settings.get("auto_render_resolution").and_then(|v| v.as_str()).unwrap_or("1080p").to_string();
                     let auto_fps2 = s_store2.settings.get("auto_render_fps").and_then(|v| v.as_u64()).unwrap_or(30) as u32;
-                    let out_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into())).join("HyperClip/output");
+                    let out_dir = PathBuf::from("D:/HyperClip-Data/output");
                     rt.spawn(async move {
                         let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
                         let _permit = pool.acquire().await;
@@ -1280,7 +1279,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     let rt = RENDER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
                     let rid = tid.clone();
                     let in_path = out_str.clone();
-                    let out_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into())).join("HyperClip/output");
+                    let out_dir = PathBuf::from("D:/HyperClip-Data/output");
                     rt.spawn(async move {
                         let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
                         let _permit = pool.acquire().await;
@@ -1501,7 +1500,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             rt.spawn(async move {
                 let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
                 let _permit = pool.acquire().await;
-                let out_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into())).join("HyperClip/output");
+                let out_dir = PathBuf::from("D:/HyperClip-Data/output");
                 std::fs::create_dir_all(&out_dir).ok();
                 // Resolve real input path from workspace store
                 let ws_path = get_workspaces_path();
@@ -1606,7 +1605,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             if !input_path.exists() {
                 return CommandResult::Err("input file not found for chunked render".into());
             }
-            let out_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into())).join("HyperClip/output");
+            let out_dir = PathBuf::from("D:/HyperClip-Data/output");
             std::fs::create_dir_all(&out_dir).ok();
             let tid = id.clone();
             let out_path = out_dir.join(format!("{}.mp4", tid));
@@ -1691,7 +1690,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     }
                 }
             }
-            let out_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into())).join("HyperClip/output");
+            let out_dir = PathBuf::from("D:/HyperClip-Data/output");
             if out_dir.exists() {
                 std::process::Command::new("explorer").arg(&out_dir.to_string_lossy().as_ref()).spawn().ok();
             }
@@ -1715,7 +1714,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
 
         "storage:getSize" => {
             let base_dir = get_video_storage_path();
-            let out_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into())).join("HyperClip/output");
+            let out_dir = PathBuf::from("D:/HyperClip-Data/output");
             let blur_dir = base_dir.join("blur");
             let mut downloads = dir_size_internal(&base_dir);
             // Also scan per-channel subdirectories
@@ -2216,8 +2215,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
         // ─── Logs ───────────────────────────────────────────────────
 
         "logs:read" => {
-            let log_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into()))
-                .join("HyperClip").join("logs");
+            let log_dir = PathBuf::from("D:/HyperClip-Data/logs");
             let mut files = vec![];
             let mut entries = vec![];
             if log_dir.exists() {
@@ -2244,8 +2242,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
         }
 
         "logs:export" => {
-            let log_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into()))
-                .join("HyperClip").join("logs");
+            let log_dir = PathBuf::from("D:/HyperClip-Data/logs");
             let export_dir = PathBuf::from(std::env::var("TEMP").unwrap_or_else(|_| "C:/temp".into()))
                 .join("HyperClip-Logs-Export");
             std::fs::create_dir_all(&export_dir).ok();
@@ -2263,8 +2260,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
         }
 
         "logs:diskUsage" => {
-            let log_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into()))
-                .join("HyperClip").join("logs");
+            let log_dir = PathBuf::from("D:/HyperClip-Data/logs");
             let mut total_bytes = 0u64;
             let mut file_count = 0u64;
             let mut oldest_age = 0u64;
@@ -2289,8 +2285,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
         }
 
         "logs:cleanup" => {
-            let log_dir = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| "C:/temp".into()))
-                .join("HyperClip").join("logs");
+            let log_dir = PathBuf::from("D:/HyperClip-Data/logs");
             let mut deleted = 0u64;
             let mut freed = 0u64;
             if log_dir.exists() {

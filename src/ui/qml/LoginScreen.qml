@@ -67,7 +67,7 @@ Rectangle {
                     anchors.centerIn: parent
                     text: "HC"
                     color: "#00B4FF"
-                    font.pixelSize: 22
+                    font.pixelSize: 33
                     font.bold: true
                 }
             }
@@ -77,7 +77,7 @@ Rectangle {
             Label {
                 text: "HyperClip"
                 color: "#FFFFFF"
-                font.pixelSize: 28
+                font.pixelSize: 42
                 font.bold: true
                 font.letterSpacing: 4
                 Layout.alignment: Qt.AlignHCenter
@@ -88,7 +88,7 @@ Rectangle {
             Label {
                 text: "24/7 YouTube Auto-Capture Pipeline"
                 color: "#666666"
-                font.pixelSize: 10
+                font.pixelSize: 15
                 font.letterSpacing: 2
                 Layout.alignment: Qt.AlignHCenter
             }
@@ -141,7 +141,7 @@ Rectangle {
                             color: auth.isReady ? "#00FF88"
                                  : auth.cookieCritical ? "#FF4444"
                                  : "#CCCCCC"
-                            font.pixelSize: 12
+                            font.pixelSize: 18
                             font.bold: true
                         }
                         Item { Layout.fillWidth: true }
@@ -153,19 +153,19 @@ Rectangle {
                         Label {
                             text: "Account:"
                             color: "#888888"
-                            font.pixelSize: 10
+                            font.pixelSize: 15
                         }
                         Label {
                             text: auth.accountName || "—"
                             color: "#FFFFFF"
-                            font.pixelSize: 10
+                            font.pixelSize: 15
                             elide: Text.ElideRight
                             Layout.fillWidth: true
                         }
                         Label {
                             text: "Cookies: " + auth.cookieCount
                             color: "#888888"
-                            font.pixelSize: 10
+                            font.pixelSize: 15
                         }
                     }
                 }
@@ -188,7 +188,7 @@ Rectangle {
                 contentItem: Label {
                     text: mainBtn.text
                     color: mainBtn.enabled ? "#FFFFFF" : "#555555"
-                    font.pixelSize: 13
+                    font.pixelSize: 20
                     font.bold: true
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
@@ -218,7 +218,7 @@ Rectangle {
                 contentItem: Label {
                     text: skipBtn.text
                     color: "#666666"
-                    font.pixelSize: 10
+                    font.pixelSize: 15
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
@@ -247,7 +247,7 @@ Rectangle {
             anchors.centerIn: parent
             text: auth.cookieError || "Cookie invalid"
             color: "#FF4444"
-            font.pixelSize: 10
+            font.pixelSize: 15
             elide: Text.ElideRight
             leftPadding: 12
             rightPadding: 12

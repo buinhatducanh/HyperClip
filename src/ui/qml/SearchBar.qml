@@ -18,13 +18,13 @@ Rectangle {
         anchors.fill: parent
         anchors.margins: 4
         spacing: 4
-        Label { text: "\U0001F50D"; font.pixelSize: 11 }
+        Label { text: "🔍"; font.pixelSize: 16 }
         TextField {
             id: input
             Layout.fillWidth: true
             placeholderText: "Tìm kiếm..."
             color: Theme.text
-            font.pixelSize: 11
+            font.pixelSize: 16
             background: Rectangle { color: "transparent"; border.width: 0 }
             onTextChanged: parent.parent.searchChanged(text)
         }

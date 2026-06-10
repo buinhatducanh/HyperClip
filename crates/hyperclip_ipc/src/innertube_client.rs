@@ -3,7 +3,7 @@
 use crate::error::{HyperclipError, Result};
 use crate::types::VideoInfo;
 use serde::{Deserialize, Serialize};
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
@@ -18,56 +18,32 @@ impl Default for ClientConfig {
     fn default() -> Self {
         Self {
             node_path: "node".to_string(),
-            helper_script: PathBuf::from(
-                "crates/hyperclip_ipc/src/innertube_helper.js",
-            ),
+            helper_script: PathBuf::from("crates/hyperclip_ipc/src/innertube_helper.js"),
             timeout_sec: 30,
         }
     }
 }
 
 #[derive(Debug)]
-pub struct InnertubeClient {
-    config: ClientConfig,
-}
+pub struct InnertubeClient { config: ClientConfig }
 
 #[derive(Serialize)]
-struct NodeRequest {
-    id: u64,
-    channelId: String,
-    cookie: String,
-}
+struct NodeRequest { id: u64, channelId: String, cookie: String }
 
 #[derive(Deserialize)]
-struct NodeResponse {
-    id: Option<u64>,
-    ok: bool,
-    videos: Option<Vec<NodeVideo>>,
-    error: Option<String>,
-}
+struct NodeResponse { id: Option<u64>, ok: bool, videos: Option<Vec<NodeVideo>>, error: Option<String> }
 
 #[derive(Deserialize)]
-struct NodeVideo {
-    videoId: String,
-    title: String,
-    publishedAt: i64,
-    thumbnailUrl: String,
-    durationSec: f64,
-}
+struct NodeVideo { videoId: String, title: String, publishedAt: i64, thumbnailUrl: String, durationSec: f64 }
 
 impl InnertubeClient {
     pub fn find_node() -> Result<PathBuf> {
-        let candidates = ["node", "node.exe", r"C:\Program Files\nodejs\node.exe"];
-        for c in &candidates {
-            if let Ok(output) = Command::new(c).arg("--version").output() {
-                if output.status.success() {
-                    return Ok(PathBuf::from(c));
-                }
+        for c in &["node", "node.exe", r"C:\Program Files\nodejs\node.exe"] {
+            if let Ok(o) = Command::new(c).arg("--version").output() {
+                if o.status.success() { return Ok(PathBuf::from(*c)); }
             }
         }
-        Err(HyperclipError::BackendCrashed(
-            "Node.js not found in PATH".into(),
-        ))
+        Err(HyperclipError::BackendCrashed("Node.js not found".into()))
     }
 
     pub fn new(config: ClientConfig) -> Result<Self> {
@@ -75,99 +51,88 @@ impl InnertubeClient {
         Ok(Self { config })
     }
 
-    pub async fn get_latest_videos(
-        &self,
-        channel_id: &str,
-        cookie: &str,
-    ) -> Result<Vec<VideoInfo>> {
+    /// Uses temp file to avoid Windows pipe buffering deadlocks.
+    pub async fn get_latest_videos(&self, channel_id: &str, cookie: &str) -> Result<Vec<VideoInfo>> {
         let helper = if self.config.helper_script.exists() {
             self.config.helper_script.clone()
         } else {
-            // Fallback: find in crate root
-            let crate_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            crate_root.join("src/innertube_helper.js")
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/innertube_helper.js")
         };
+        let ch = channel_id.to_string();
+        let ch_err = ch.clone();
+        let ck = cookie.to_string();
+        let np = self.config.node_path.clone();
 
-        let mut child = Command::new(&self.config.node_path)
-            .arg(&helper)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| {
-                HyperclipError::BackendCrashed(format!("Node spawn failed: {}", e))
-            })?;
+        let result = std::sync::Arc::new(std::sync::Mutex::new(None::<Result<Vec<VideoInfo>>>));
+        let r2 = result.clone();
+        std::thread::spawn(move || {
+            let r = Self::call_node(&np, &helper, &ch, &ck);
+            *r2.lock().unwrap() = Some(r);
+        });
 
-        let req = NodeRequest {
-            id: 1,
-            channelId: channel_id.to_string(),
-            cookie: cookie.to_string(),
-        };
-
-        let line = serde_json::to_string(&req).unwrap() + "\n";
-        if let Some(stdin) = child.stdin.as_mut() {
-            stdin
-                .write_all(line.as_bytes())
-                .map_err(|e| HyperclipError::Io(e))?;
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
+        loop {
+            if let Some(r) = result.lock().unwrap().take() { return r; }
+            if tokio::time::Instant::now() > deadline {
+                return Err(HyperclipError::InnertubeTransient(format!("Node timed out for {ch_err}")));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
-
-        let stdout = child.stdout.take().unwrap();
-        let mut reader = BufReader::new(stdout);
-        let mut response_line = String::new();
-        reader
-            .read_line(&mut response_line)
-            .map_err(|e| HyperclipError::Io(e))?;
-
-        let status = child.wait().map_err(|e| HyperclipError::Io(e))?;
-        if !status.success() {
-            return Err(HyperclipError::InnertubeTransient(
-                "Node process exited with error".into(),
-            ));
-        }
-
-        let response: NodeResponse = serde_json::from_str(&response_line)
-            .map_err(|e| HyperclipError::Json(e))?;
-
-        if !response.ok {
-            return Err(HyperclipError::InnertubeTransient(
-                response.error.unwrap_or_else(|| "unknown".into()),
-            ));
-        }
-
-        let videos = response.videos.unwrap_or_default();
-        Ok(videos
-            .into_iter()
-            .map(|v| VideoInfo {
-                video_id: v.videoId,
-                title: v.title,
-                published_at: v.publishedAt,
-                thumbnail_url: v.thumbnailUrl,
-                duration_sec: v.durationSec,
-                width: 0,
-                height: 0,
-            })
-            .collect())
     }
 
-    pub fn mark_failed(&mut self) {
-        // Kill any running subprocess — handled by drop
+    fn call_node(node_path: &str, helper: &PathBuf, channel_id: &str, cookie: &str) -> Result<Vec<VideoInfo>> {
+        let resp_file = std::env::temp_dir().join(format!("hc_response_{channel_id}.json"));
+        let resp_path = resp_file.to_string_lossy().to_string();
+        let _ = std::fs::remove_file(&resp_file);
+
+        let mut child = match Command::new(node_path)
+            .arg(helper)
+            .env("HYPERCLIP_RESPONSE_FILE", &resp_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => return Err(HyperclipError::BackendCrashed(format!("Node spawn failed: {e}"))),
+        };
+
+        let req = serde_json::json!({"id":1,"channelId":channel_id,"cookie":cookie}).to_string() + "\n";
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(req.as_bytes());
+        }
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            if std::time::Instant::now() > deadline {
+                let _ = child.kill(); let _ = child.wait();
+                return Err(HyperclipError::InnertubeTransient(format!("Node timed out for {channel_id}")));
+            }
+            match std::fs::read_to_string(&resp_file) {
+                Ok(c) if !c.is_empty() => {
+                    let _ = child.kill(); let _ = child.wait();
+                    let _ = std::fs::remove_file(&resp_file);
+                    match serde_json::from_str::<NodeResponse>(&c) {
+                        Ok(r) if r.ok => return Ok(r.videos.unwrap_or_default().into_iter().map(|v| VideoInfo {
+                            video_id: v.videoId, title: v.title,
+                            published_at: v.publishedAt * 1000,
+                            thumbnail_url: v.thumbnailUrl, duration_sec: v.durationSec,
+                            width: 0, height: 0,
+                        }).collect()),
+                        Ok(r) => return Err(HyperclipError::InnertubeTransient(r.error.unwrap_or_default())),
+                        Err(e) => return Err(HyperclipError::Json(e)),
+                    }
+                }
+                _ => {}
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_client_config_defaults() {
-        let config = ClientConfig::default();
-        assert_eq!(config.timeout_sec, 30);
-        assert_eq!(config.node_path, "node");
-    }
-
-    #[test]
-    fn test_find_node_if_available() {
-        let result = InnertubeClient::find_node();
-        assert!(result.is_ok() || result.is_err());
-    }
+    #[test] fn test_config() { let c = ClientConfig::default(); assert_eq!(c.timeout_sec, 30); }
+    #[test] fn test_node() { let r = InnertubeClient::find_node(); assert!(r.is_ok() || r.is_err()); }
 }

@@ -34,7 +34,7 @@ Dialog {
             Label {
                 text: "Mode:"
                 color: Theme.textMuted
-                font.pixelSize: 11
+                font.pixelSize: 16
             }
             RadioButton {
                 text: "Tự động (chia đều)"
@@ -50,7 +50,7 @@ Dialog {
         // Auto: spinner
         RowLayout {
             Layout.fillWidth: true
-            Label { text: "Số phần:"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Số phần:"; color: Theme.textMuted; font.pixelSize: 16 }
             SpinBox {
                 id: partSpinner
                 from: 2
@@ -63,7 +63,7 @@ Dialog {
                       (Math.floor(dlg.totalDuration / Math.max(1, dlg.numParts) % 60) < 10 ? "0" : "") +
                       Math.floor(dlg.totalDuration / Math.max(1, dlg.numParts) % 60) + " mỗi phần"
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: 15
             }
         }
 
@@ -81,7 +81,7 @@ Dialog {
             label: Label {
                 text: parent.title
                 color: Theme.accent
-                font.pixelSize: 10
+                font.pixelSize: 15
             }
             TextField {
                 id: manualField
@@ -105,7 +105,7 @@ Dialog {
             label: Label {
                 text: parent.title
                 color: Theme.accent
-                font.pixelSize: 10
+                font.pixelSize: 15
             }
             ColumnLayout {
                 anchors.fill: parent
@@ -124,7 +124,7 @@ Dialog {
                               (Math.floor((index + 1) * dlg.totalDuration / dlg.numParts % 60) < 10 ? "0" : "") +
                               Math.floor((index + 1) * dlg.totalDuration / dlg.numParts % 60)
                         color: Theme.text
-                        font.pixelSize: 10
+                        font.pixelSize: 15
                         font.family: "monospace"
                     }
                 }
@@ -140,6 +140,7 @@ Dialog {
             Item { Layout.fillWidth: true }
             Button {
                 text: "Hủy"
+                Layout.minimumWidth: 36
                 onClicked: dlg.close()
             }
             Button {

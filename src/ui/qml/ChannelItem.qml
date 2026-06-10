@@ -35,7 +35,7 @@ Rectangle {
                 anchors.centerIn: parent
                 text: model.name ? model.name[0].toUpperCase() : "?"
                 color: "white"
-                font.pixelSize: 10
+                font.pixelSize: 15
                 font.bold: true
             }
         }
@@ -45,14 +45,14 @@ Rectangle {
             Label {
                 text: model.name
                 color: item.isPaused ? Theme.textMuted : Theme.text
-                font.pixelSize: 11
+                font.pixelSize: 16
                 elide: Text.ElideRight
                 Layout.fillWidth: true
             }
             Label {
                 text: item.isPaused ? "Đã tạm dừng" : "@" + (model.handle || model.channelId || "")
                 color: Theme.textMuted
-                font.pixelSize: 9
+                font.pixelSize: 14
                 elide: Text.ElideRight
                 Layout.fillWidth: true
             }
@@ -67,7 +67,7 @@ Rectangle {
                 anchors.centerIn: parent
                 text: item.newCount > 99 ? "99+" : item.newCount
                 color: "white"
-                font.pixelSize: 9
+                font.pixelSize: 14
                 font.bold: true
             }
         }

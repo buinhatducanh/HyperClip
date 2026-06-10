@@ -44,7 +44,7 @@ Rectangle {
             Label {
                 text: "Thumbnail (PNG/JPG)"
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: 15
             }
 
             RowLayout {

@@ -1,5 +1,5 @@
-// src/ui/qml/OperationPanel.qml
-// MMO Operation Center — consolidated view of poller, auth, sessions, projects, keys
+// src/ui/qml/AuthOverviewPanel.qml
+// Consolidated auth: cookie/OAuth status, Chrome sessions, projects, API keys
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -15,14 +15,13 @@ ScrollView {
         y: 12
 
         Label {
-            text: "Trung tâm vận hành"
+            text: "Xác thực"
             color: Theme.text
-            font.pixelSize: 30
+            font.pixelSize: 20
             font.bold: true
             Layout.bottomMargin: 8
         }
 
-        PollerPanel { Layout.fillWidth: true }
         AuthPanel { Layout.fillWidth: true }
         SessionsPanel { Layout.fillWidth: true }
         ProjectsPanel { Layout.fillWidth: true }

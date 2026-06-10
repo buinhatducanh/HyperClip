@@ -14,11 +14,11 @@ SettingsCard {
 
         RowLayout {
             Layout.fillWidth: true
-            Rectangle {
-                width: 10; height: 10; radius: 5
-                color: auth.isReady ? Theme.success
-                     : auth.cookieCritical ? Theme.error
-                     : Theme.textMuted
+            StatusDot {
+                state: auth.isReady ? "running" : (auth.cookieCritical ? "error" : "idle")
+                size: 10
+                showRing: auth.isReady
+                Layout.alignment: Qt.AlignVCenter
             }
             Item { Layout.fillWidth: true }
         }
@@ -29,41 +29,41 @@ SettingsCard {
             rowSpacing: 6
             Layout.fillWidth: true
 
-            Label { text: "Trạng thái"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Trạng thái"; color: Theme.textMuted; font.pixelSize: 16 }
             Label {
                 text: auth.isReady ? "Sẵn sàng" : (auth.loggedOut ? "Đã đăng xuất" : "Chưa cấu hình")
                 color: auth.isReady ? Theme.success : Theme.text
-                font.pixelSize: 11
+                font.pixelSize: 16
             }
 
-            Label { text: "Tài khoản"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Tài khoản"; color: Theme.textMuted; font.pixelSize: 16 }
             Label {
                 text: auth.accountName || "—"
                 color: Theme.text
-                font.pixelSize: 11
+                font.pixelSize: 16
                 elide: Text.ElideRight
                 Layout.fillWidth: true
             }
 
-            Label { text: "Cookies"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "Cookies"; color: Theme.textMuted; font.pixelSize: 16 }
             Label {
                 text: auth.cookieCount
                 color: auth.cookieCount > 0 ? Theme.success : Theme.text
-                font.pixelSize: 11
+                font.pixelSize: 16
             }
 
-            Label { text: "OAuth"; color: Theme.textMuted; font.pixelSize: 11 }
+            Label { text: "OAuth"; color: Theme.textMuted; font.pixelSize: 16 }
             Label {
                 text: auth.oauthReady ? "Đã cấu hình" : "Chưa cấu hình"
                 color: auth.oauthReady ? Theme.success : Theme.text
-                font.pixelSize: 11
+                font.pixelSize: 16
             }
         }
 
         Label {
             text: auth.cookieError
             color: Theme.error
-            font.pixelSize: 10
+            font.pixelSize: 15
             visible: auth.cookieCritical
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
@@ -71,17 +71,23 @@ SettingsCard {
 
         RowLayout {
             Layout.fillWidth: true
-            Button {
-                text: "OAuth Flow"
+            IconButton {
+                iconName: "play"
+                label: "OAuth Flow"
+                iconSize: 12
+                Layout.minimumWidth: 96
                 enabled: !auth.isReady
                 onClicked: auth.start_oauth(backend)
             }
-            Button {
-                text: "Đăng xuất"
+            IconButton {
+                iconName: "close"
+                label: "Đăng xuất"
+                iconSize: 12
+                Layout.minimumWidth: 96
                 enabled: auth.isReady
                 onClicked: auth.logout(backend)
             }
-            Item { Layout.fillWidth: true }
+            Item { Layout.fillWidth: true; Layout.minimumWidth: 4 }
         }
     }
 }

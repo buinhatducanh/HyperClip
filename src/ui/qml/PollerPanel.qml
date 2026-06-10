@@ -15,32 +15,38 @@ SettingsCard {
         // ─── Top bar: status + controls ────────────────────────
         RowLayout {
             Layout.fillWidth: true
-            Rectangle {
-                width: 8; height: 8; radius: 4
-                color: poller.active ? Theme.success : Theme.textMuted
+            StatusDot {
+                state: poller.active ? "running" : "paused"
+                size: 8
+                showRing: poller.active
+                Layout.alignment: Qt.AlignVCenter
             }
             Label {
                 text: poller.active ? "ĐANG CHẠY" : "TẠM DỪNG"
                 color: poller.active ? Theme.success : Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: 15
                 font.bold: true
             }
             Label {
                 text: "| " + poller.pollIntervalMs + "ms"
                 color: Theme.textMuted
-                font.pixelSize: 9
+                font.pixelSize: 14
                 font.family: "monospace"
             }
             Item { Layout.fillWidth: true }
-            Button {
-                text: poller.active ? "Tạm dừng" : "Tiếp tục"
+            IconButton {
+                iconName: poller.active ? "pause" : "play"
+                label: poller.active ? "Tạm dừng" : "Tiếp tục"
+                iconSize: 12
+                Layout.minimumWidth: 80
                 onClicked: poller.active ? poller.pause(backend) : poller.resume(backend)
-                font.pixelSize: 9; implicitHeight: 22
             }
-            Button {
-                text: "↻"
+            IconButton {
+                iconName: "refresh"
+                iconSize: 14
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: 28
                 onClicked: poller.refresh_from_backend(backend)
-                font.pixelSize: 11; implicitHeight: 22; implicitWidth: 28
             }
         }
 
@@ -56,7 +62,7 @@ SettingsCard {
                     anchors.centerIn: parent
                     text: poller.lastDetectionLatencyStr + " cuối"
                     color: poller.latencyColor
-                    font.pixelSize: 9; font.bold: true
+                    font.pixelSize: 14; font.bold: true
                 }
             }
 
@@ -68,7 +74,7 @@ SettingsCard {
                     anchors.centerIn: parent
                     text: poller.slaPercent.toFixed(0) + "% <5s"
                     color: poller.slaColor
-                    font.pixelSize: 9; font.bold: true
+                    font.pixelSize: 14; font.bold: true
                 }
             }
 
@@ -80,7 +86,7 @@ SettingsCard {
                     anchors.centerIn: parent
                     text: poller.detectionsToday + " hôm nay"
                     color: Theme.accent
-                    font.pixelSize: 9; font.bold: true
+                    font.pixelSize: 14; font.bold: true
                 }
             }
         }
@@ -89,7 +95,7 @@ SettingsCard {
         Label {
             text: "GẦN ĐÂY"
             color: Theme.textMuted
-            font.pixelSize: 10; font.bold: true
+            font.pixelSize: 15; font.bold: true
             Layout.topMargin: 2
         }
 
@@ -125,12 +131,12 @@ SettingsCard {
 
                         Label {
                             text: model.detectedTimeStr || ""
-                            color: Theme.textMuted; font.pixelSize: 9
+                            color: Theme.textMuted; font.pixelSize: 14
                             font.family: "monospace"; Layout.preferredWidth: 38
                         }
                         Label {
                             text: model.title || ""
-                            color: Theme.text; font.pixelSize: 9
+                            color: Theme.text; font.pixelSize: 14
                             elide: Text.ElideRight; Layout.fillWidth: true
                         }
                         Label {
@@ -138,7 +144,7 @@ SettingsCard {
                             color: item.expanded ? Theme.textMuted
                                   : (model.latencyMs > 0 && model.latencyMs < 5000 ? Theme.success
                                      : model.latencyMs < 10000 ? "#FFD93D" : Theme.error)
-                            font.pixelSize: 9; font.bold: true
+                            font.pixelSize: 14; font.bold: true
                         }
                     }
 
@@ -150,21 +156,21 @@ SettingsCard {
                         spacing: 1
 
                         RowLayout { Layout.fillWidth: true; spacing: 6; Layout.preferredHeight: 14
-                            Label { text: "Age at detect"; color: Theme.textMuted; font.pixelSize: 8; Layout.preferredWidth: 60 }
-                            Label { text: model.ageAtDetection || "—"; color: Theme.text; font.pixelSize: 8 }
+                            Label { text: "Age at detect"; color: Theme.textMuted; font.pixelSize: 12; Layout.preferredWidth: 60 }
+                            Label { text: model.ageAtDetection || "—"; color: Theme.text; font.pixelSize: 12 }
                             Item { Layout.fillWidth: true }
-                            Label { text: "Status"; color: Theme.textMuted; font.pixelSize: 8 }
-                            Label { text: model.status || "—"; color: model.status === "ready" ? Theme.success : model.status === "error" ? Theme.error : Theme.textMuted; font.pixelSize: 8; font.bold: true }
+                            Label { text: "Status"; color: Theme.textMuted; font.pixelSize: 12 }
+                            Label { text: model.status || "—"; color: model.status === "ready" ? Theme.success : model.status === "error" ? Theme.error : Theme.textMuted; font.pixelSize: 12; font.bold: true }
                         }
                         RowLayout { Layout.fillWidth: true; spacing: 6; Layout.preferredHeight: 14
-                            Label { text: "Channel"; color: Theme.textMuted; font.pixelSize: 8; Layout.preferredWidth: 60 }
-                            Label { text: model.channelName || "—"; color: Theme.text; font.pixelSize: 8; elide: Text.ElideRight; Layout.fillWidth: true }
+                            Label { text: "Channel"; color: Theme.textMuted; font.pixelSize: 12; Layout.preferredWidth: 60 }
+                            Label { text: model.channelName || "—"; color: Theme.text; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
                         }
                         RowLayout { Layout.fillWidth: true; spacing: 6; Layout.preferredHeight: 14
-                            Label { text: "Download"; color: Theme.textMuted; font.pixelSize: 8; Layout.preferredWidth: 60 }
-                            Label { text: model.downloadedSize > 0 ? (model.downloadedSize/1048576).toFixed(1)+"MB in "+(model.downloadTimeSec || 0).toFixed(0)+"s" : "—"; color: Theme.text; font.pixelSize: 8 }
+                            Label { text: "Download"; color: Theme.textMuted; font.pixelSize: 12; Layout.preferredWidth: 60 }
+                            Label { text: model.downloadedSize > 0 ? (model.downloadedSize/1048576).toFixed(1)+"MB in "+(model.downloadTimeSec || 0).toFixed(0)+"s" : "—"; color: Theme.text; font.pixelSize: 12 }
                             Item { Layout.fillWidth: true }
-                            Label { text: model.width > 0 ? model.width+"×"+model.height : ""; color: Theme.textMuted; font.pixelSize: 8 }
+                            Label { text: model.width > 0 ? model.width+"×"+model.height : ""; color: Theme.textMuted; font.pixelSize: 12 }
                         }
                     }
                 }
@@ -174,7 +180,7 @@ SettingsCard {
                 visible: detList.count === 0
                 anchors.centerIn: parent
                 text: "Chưa có lượt phát hiện nào"
-                color: Theme.textMuted; font.pixelSize: 11
+                color: Theme.textMuted; font.pixelSize: 16
             }
         }
     }

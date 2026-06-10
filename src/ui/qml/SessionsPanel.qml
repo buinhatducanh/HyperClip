@@ -17,16 +17,43 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true
-            Label {
-                text: "CHROME SESSIONS"
-                color: Theme.accent
-                font.pixelSize: 13
-                font.bold: true
-                Layout.fillWidth: true
+            RowLayout {
+                spacing: 6
+                Icon {
+                    name: "settings"
+                    size: 14
+                    color: Theme.accent
+                    Layout.alignment: Qt.AlignVCenter
+                }
+                Label {
+                    text: "CHROME SESSIONS"
+                    color: Theme.accent
+                    font.pixelSize: 20
+                    font.bold: true
+                }
             }
-            Button { text: "Thêm"; onClicked: sessionModel.add_session(backend) }
-            Button { text: "Sao chép"; onClicked: sessionModel.clone_one(backend) }
-            Button { text: "Làm mới"; onClicked: sessionModel.refresh_all(backend) }
+            Item { Layout.fillWidth: true }
+            IconButton {
+                iconName: "add"
+                label: "Thêm"
+                iconSize: 12
+                Layout.minimumWidth: 60
+                onClicked: sessionModel.add_session(backend)
+            }
+            IconButton {
+                iconName: "folder"
+                label: "Sao chép"
+                iconSize: 12
+                Layout.minimumWidth: 80
+                onClicked: sessionModel.clone_one(backend)
+            }
+            IconButton {
+                iconName: "refresh"
+                label: "Làm mới"
+                iconSize: 12
+                Layout.minimumWidth: 80
+                onClicked: sessionModel.refresh_all(backend)
+            }
         }
 
         ListView {
@@ -45,40 +72,51 @@ Rectangle {
                     anchors.margins: 4
                     spacing: 8
 
-                    Rectangle {
-                        Layout.preferredWidth: 10
-                        Layout.preferredHeight: 10
-                        radius: 5
-                        color: model.loggedIn ? Theme.success : Theme.error
+                    StatusDot {
+                        state: model.loggedIn ? "running" : "error"
+                        size: 8
+                        showRing: model.loggedIn
                     }
                     Label {
                         text: model.name
                         color: Theme.text
-                        font.pixelSize: 11
+                        font.pixelSize: 16
                         font.bold: true
-                        Layout.preferredWidth: 100
+                        Layout.minimumWidth: 60
+                        Layout.maximumWidth: 140
                         elide: Text.ElideRight
                     }
-                    Rectangle {
-                        Layout.preferredWidth: 10
-                        Layout.preferredHeight: 10
-                        radius: 5
-                        color: model.consented ? Theme.accent : Theme.textMuted
+                    StatusDot {
+                        state: model.consented ? "ready" : "idle"
+                        size: 8
+                        showRing: false
                     }
                     Label {
                         text: model.consented ? "OK" : "Chưa đồng ý"
                         color: Theme.textMuted
-                        font.pixelSize: 9
+                        font.pixelSize: 14
+                        Layout.minimumWidth: 50
                     }
-                    Label {
-                        text: model.usedToday + "× hôm nay"
-                        color: Theme.textMuted
-                        font.pixelSize: 9
-                        font.family: "monospace"
+                    RowLayout {
+                        spacing: 2
+                        Icon {
+                            name: "clock"
+                            size: 11
+                            color: Theme.textMuted
+                        }
+                        Label {
+                            text: model.usedToday + "× hôm nay"
+                            color: Theme.textMuted
+                            font.pixelSize: 14
+                            font.family: "monospace"
+                        }
                     }
-                    Item { Layout.fillWidth: true }
-                    Button {
-                        text: "Đăng nhập"
+                    Item { Layout.fillWidth: true; Layout.minimumWidth: 4 }
+                    IconButton {
+                        iconName: "play"
+                        label: "Đăng nhập"
+                        iconSize: 12
+                        Layout.minimumWidth: 96
                         onClicked: sessionModel.open_login(backend, model.id)
                     }
                 }
@@ -88,7 +126,7 @@ Rectangle {
                 visible: !sessionModel || sessionModel.rowCount === 0
                 text: "Chưa có session nào — bấm Thêm để tạo"
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: 15
             }
         }
     }

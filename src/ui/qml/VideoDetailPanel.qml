@@ -45,29 +45,64 @@ ScrollView {
         }
 
         // ─── Render with new settings ──────────────────────────
-        Button {
-            id: renderBtn
-            Layout.fillWidth: true; Layout.topMargin: 8
-            text: "Render"
-            enabled: root.workspaceData.status === "ready" || root.workspaceData.status === "done"
-            onClicked: {
-                backend.send_command("render:start", {
-                    "id": root.workspaceId,
-                    "speed": root.workspaceData.speed || 1.0,
-                    "trimStart": root.workspaceData.trimStart || 0,
-                    "trimEnd": root.workspaceData.trimEnd || 0,
-                })
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: 8
+            spacing: 6
+
+            IconButton {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 36
+                iconName: "render"
+                label: "Render"
+                iconSize: 14
+                colorIdle: Theme.accent + "20"
+                colorHover: Theme.accent + "40"
+                colorPressed: Theme.accent
+                iconColorIdle: Theme.accent
+                iconColorHover: "white"
+                flat: true
+                enabled: root.workspaceData.status === "ready" || root.workspaceData.status === "done"
+                onClicked: {
+                    backend.send_command("render:start", {
+                        "id": root.workspaceId,
+                        "speed": root.workspaceData.speed || 1.0,
+                        "trimStart": root.workspaceData.trimStart || 0,
+                        "trimEnd": root.workspaceData.trimEnd || 0,
+                    })
+                }
             }
         }
 
         // Action buttons
         RowLayout {
             Layout.fillWidth: true
-            Button { text: "Hủy"; onClicked: backend.send_command("render:cancel", {"id": root.workspaceId}) }
-            Button { text: "Thử lại"; onClicked: backend.send_command("workspace:retry", {"id": root.workspaceId}) }
-            Item { Layout.fillWidth: true }
-            Button {
-                text: "Xóa"
+            spacing: 6
+
+            IconButton {
+                iconName: "pause"
+                label: "Hủy"
+                iconSize: 12
+                Layout.minimumWidth: 64
+                onClicked: backend.send_command("render:cancel", {"id": root.workspaceId})
+            }
+            IconButton {
+                iconName: "retry"
+                label: "Thử lại"
+                iconSize: 12
+                Layout.minimumWidth: 80
+                onClicked: backend.send_command("workspace:retry", {"id": root.workspaceId})
+            }
+            Item { Layout.fillWidth: true; Layout.minimumWidth: 4 }
+            IconButton {
+                iconName: "delete"
+                label: "Xóa"
+                iconSize: 12
+                iconColorIdle: Theme.textMuted
+                iconColorHover: "white"
+                colorHover: Theme.error + "30"
+                colorPressed: Theme.error
+                Layout.minimumWidth: 64
                 onClicked: {
                     backend.send_command("workspace:delete", {"id": root.workspaceId})
                     activityModel.add_entry("ws", "Đã xóa " + root.workspaceId, "info")

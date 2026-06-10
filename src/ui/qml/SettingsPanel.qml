@@ -1,4 +1,5 @@
 // src/ui/qml/SettingsPanel.qml
+// General settings: hardware, download, auto-render, storage.
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -8,49 +9,66 @@ ScrollView {
     clip: true
 
     ColumnLayout {
-        width: root.width - 24
-        spacing: 12
-        x: 12
-        y: 12
+        width: root.availableWidth - Theme.spacingLg * 2
+        spacing: Theme.spacingMd
+        x: Theme.spacingLg
+        y: Theme.spacingLg
 
         Label {
             text: "Cài đặt"
             color: Theme.text
-            font.pixelSize: 20
+            font.pixelSize: Theme.textXl
             font.bold: true
-            Layout.bottomMargin: 8
+            Layout.fillWidth: true
+            Layout.bottomMargin: Theme.spacingXs
         }
 
         HardwareProfileCard { Layout.fillWidth: true }
-        AutoRenderCard { Layout.fillWidth: true }
-        DownloadCard { Layout.fillWidth: true }
-        StorageCard { Layout.fillWidth: true }
-        DetectionCard { Layout.fillWidth: true }
-        SystemCard { Layout.fillWidth: true }
 
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Theme.spacingMd
+            DownloadCard { Layout.fillWidth: true; Layout.preferredWidth: 1 }
+            AutoRenderCard { Layout.fillWidth: true; Layout.preferredWidth: 1 }
+        }
+
+        StorageCard { Layout.fillWidth: true }
+
+        // Action bar
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 60
-            color: Theme.bg
+            Layout.topMargin: Theme.spacingSm
+            Layout.preferredHeight: 48
+            color: Theme.cardBg
             border.color: Theme.border
             border.width: 1
+            radius: Theme.radiusLg
+
             RowLayout {
                 anchors.fill: parent
-                anchors.margins: 12
+                anchors.leftMargin: Theme.spacingLg
+                anchors.rightMargin: Theme.spacingLg
+                spacing: Theme.spacingSm
+
                 Button {
                     text: "Lưu"
-                    onClicked: settings.save_to_backend(backend)
+                    highlighted: true
+                    onClicked: {
+                        if (settings.save_to_backend(backend)) {
+                            toastService.show("Đã lưu", "Cài đặt đã được lưu thành công", "success")
+                        } else {
+                            toastService.show("Lỗi", "Không thể lưu cài đặt", "error")
+                        }
+                    }
                 }
                 Button {
                     text: "Tải lại"
-                    onClicked: settings.load_from_backend(backend)
+                    onClicked: {
+                        settings.load_from_backend(backend)
+                        toastService.show("Đã tải lại", "Đã khôi phục cài đặt gần nhất", "info")
+                    }
                 }
                 Item { Layout.fillWidth: true }
-                Label {
-                    text: "GPU: " + statsModel.gpu_name
-                    color: Theme.textMuted
-                    font.pixelSize: 10
-                }
             }
         }
     }

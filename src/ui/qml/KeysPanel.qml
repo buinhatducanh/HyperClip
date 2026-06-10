@@ -17,19 +17,34 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true
-            Label {
-                text: "API KEYS"
-                color: Theme.accent
-                font.pixelSize: 13
-                font.bold: true
-                Layout.fillWidth: true
+            RowLayout {
+                spacing: 6
+                Icon {
+                    name: "settings"
+                    size: 14
+                    color: Theme.accent
+                    Layout.alignment: Qt.AlignVCenter
+                }
+                Label {
+                    text: "API KEYS"
+                    color: Theme.accent
+                    font.pixelSize: 20
+                    font.bold: true
+                }
             }
+            Item { Layout.fillWidth: true }
             Label {
                 text: (keyModel ? keyModel.rowCount : 0) + " / 30"
                 color: Theme.textMuted
-                font.pixelSize: 11
+                font.pixelSize: 16
             }
-            Button { text: "Test tất cả"; onClicked: keyModel.test_all(backend) }
+            IconButton {
+                iconName: "play"
+                label: "Test tất cả"
+                iconSize: 12
+                Layout.minimumWidth: 90
+                onClicked: keyModel.test_all(backend)
+            }
         }
 
         ListView {
@@ -48,28 +63,33 @@ Rectangle {
                     anchors.margins: 4
                     spacing: 8
 
-                    Rectangle {
-                        Layout.preferredWidth: 8
-                        Layout.preferredHeight: 8
-                        radius: 4
-                        color: model.valid ? Theme.success : Theme.error
+                    StatusDot {
+                        state: model.valid ? "running" : "error"
+                        size: 8
+                        showRing: model.valid
                     }
                     Label {
                         text: model.name
                         color: Theme.text
-                        font.pixelSize: 11
+                        font.pixelSize: 16
                         Layout.preferredWidth: 100
                         elide: Text.ElideRight
                     }
                     Label {
                         text: model.maskedKey
                         color: Theme.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: 15
                         font.family: "monospace"
+                        Layout.minimumWidth: 60
+                        Layout.maximumWidth: 120
+                        elide: Text.ElideRight
                     }
-                    Item { Layout.fillWidth: true }
-                    Button {
-                        text: "×"
+                    Item { Layout.fillWidth: true; Layout.minimumWidth: 4 }
+                    IconButton {
+                        iconName: "delete"
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 24
+                        iconSize: 12
                         onClicked: keyModel.remove(backend, model.key)
                     }
                 }
@@ -79,7 +99,7 @@ Rectangle {
                 visible: !keyModel || keyModel.rowCount === 0
                 text: "Chưa có API key nào"
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: 15
             }
         }
     }

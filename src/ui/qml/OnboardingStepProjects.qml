@@ -12,11 +12,11 @@ Item {
 
         Label {
             text: "OAuth projects (tuỳ chọn)"
-            color: Theme.text; font.pixelSize: 20; font.bold: true
+            color: Theme.text; font.pixelSize: 30; font.bold: true
         }
         Label {
             text: "HyperClip ưu tiên Innertube (no quota). OAuth chỉ dùng làm fallback khi Innertube die."
-            color: Theme.textMuted; font.pixelSize: 12
+            color: Theme.textMuted; font.pixelSize: 18
             wrapMode: Text.WordWrap; Layout.fillWidth: true
         }
         ProjectsPanel { Layout.fillWidth: true; Layout.fillHeight: true }

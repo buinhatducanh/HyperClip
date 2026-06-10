@@ -1,6 +1,5 @@
 // src/ui/qml/WorkspaceQueue.qml
-// Right-pane queue: search + status filter + workspace list
-// Navigation handled by Sidebar — no tab header needed
+// Queue: status filter + workspace list (search from TopMenuBar)
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -11,15 +10,18 @@ Rectangle {
     border.color: Theme.border
     border.width: 1
 
-    property string searchText: ""
+    property string globalSearchText: ""
+    property string channelFilter: ""
     property string statusFilter: "all"
 
-    function passFilter(itemStatus, itemTitle) {
+    function passFilter(itemStatus, itemTitle, itemChannel) {
         if (statusFilter !== "all" && statusFilter !== itemStatus)
             return false
-        if (searchText) {
+        if (channelFilter && channelFilter !== itemChannel)
+            return false
+        if (globalSearchText) {
             const title = (itemTitle || "").toLowerCase()
-            if (!title.includes(searchText.toLowerCase()))
+            if (!title.includes(globalSearchText.toLowerCase()))
                 return false
         }
         return true
@@ -29,14 +31,6 @@ Rectangle {
         anchors.fill: parent
         anchors.margins: 6
         spacing: 4
-
-        // ─── Search ─────────────────────────────────────────────
-        SearchBar {
-            Layout.fillWidth: true
-            placeholderText: "Tìm video..."
-            onSearchChanged: root.searchText = searchText
-            onClearClicked: root.searchText = ""
-        }
 
         // ─── Status filter pills ────────────────────────────────
         FilterPills {
@@ -62,7 +56,7 @@ Rectangle {
             delegate: WorkspaceCard {
                 width: queueList.width
                 ws_id: model.id
-                status: root.passFilter(model.status || "pending", model.title) ? model.status || "pending" : "hidden"
+                status: root.passFilter(model.status || "pending", model.title, model.channel_name) ? model.status || "pending" : "hidden"
                 visible: status !== "hidden"
                 height: status === "hidden" ? 0 : 76
                 title: model.title
@@ -77,7 +71,7 @@ Rectangle {
                 visible: queueList.count === 0
                 text: "Chưa có video nào"
                 color: Theme.textMuted
-                font.pixelSize: 11
+                font.pixelSize: 16
             }
         }
     }

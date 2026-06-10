@@ -12,7 +12,7 @@ Item {
 
         Label {
             text: "Chọn hardware profile"
-            color: Theme.text; font.pixelSize: 20; font.bold: true
+            color: Theme.text; font.pixelSize: 30; font.bold: true
         }
         HardwareProfileCard { Layout.fillWidth: true; Layout.preferredHeight: 240 }
     }

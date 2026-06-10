@@ -17,24 +17,39 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true
-            Label {
-                text: "OAUTH PROJECTS"
-                color: Theme.accent
-                font.pixelSize: 13
-                font.bold: true
-                Layout.fillWidth: true
+            RowLayout {
+                spacing: 6
+                Icon {
+                    name: "settings"
+                    size: 14
+                    color: Theme.accent
+                    Layout.alignment: Qt.AlignVCenter
+                }
+                Label {
+                    text: "OAUTH PROJECTS"
+                    color: Theme.accent
+                    font.pixelSize: 20
+                    font.bold: true
+                }
             }
+            Item { Layout.fillWidth: true }
             Label {
                 text: (projectModel ? projectModel.rowCount : 0) + " / ?"
                 color: Theme.textMuted
-                font.pixelSize: 11
+                font.pixelSize: 16
             }
-            Button {
-                text: "Test tất cả"
+            IconButton {
+                iconName: "play"
+                label: "Test tất cả"
+                iconSize: 12
+                Layout.minimumWidth: 90
                 onClicked: projectModel.test_all(backend)
             }
-            Button {
-                text: "Sửa tất cả"
+            IconButton {
+                iconName: "retry"
+                label: "Sửa tất cả"
+                iconSize: 12
+                Layout.minimumWidth: 90
                 onClicked: projectModel.batch_repair(backend)
             }
         }
@@ -55,42 +70,58 @@ Rectangle {
                     anchors.margins: 4
                     spacing: 8
 
-                    Rectangle {
-                        Layout.preferredWidth: 8
-                        Layout.preferredHeight: 8
-                        radius: 4
-                        color: model.healthy ? Theme.success
-                             : model.error ? Theme.error : Theme.textMuted
+                    StatusDot {
+                        state: model.healthy ? "running" : (model.errorText ? "error" : "idle")
+                        size: 8
+                        showRing: model.healthy
                     }
                     Label {
                         text: model.name || model.id
                         color: Theme.text
-                        font.pixelSize: 11
+                        font.pixelSize: 16
                         font.bold: true
-                        Layout.preferredWidth: 140
+                        Layout.minimumWidth: 60
+                        Layout.maximumWidth: 140
                         elide: Text.ElideRight
                     }
                     Label {
                         text: model.quotaUsed + " / " + model.quotaLimit
                         color: model.quotaUsed / Math.max(1, model.quotaLimit) > 0.9
                               ? Theme.error : Theme.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: 15
                         font.family: "monospace"
+                        Layout.minimumWidth: 60
                     }
-                    Item { Layout.fillWidth: true }
-                    Label {
-                        text: model.error
-                        color: Theme.error
-                        font.pixelSize: 9
-                        elide: Text.ElideRight
-                        Layout.preferredWidth: 120
+                    Item { Layout.fillWidth: true; Layout.minimumWidth: 4 }
+                    RowLayout {
+                        spacing: 2
+                        Icon {
+                            visible: model.errorText !== ""
+                            name: "warning"
+                            size: 11
+                            color: Theme.error
+                        }
+                        Label {
+                            text: model.errorText
+                            color: Theme.error
+                            font.pixelSize: 14
+                            elide: Text.ElideRight
+                            Layout.maximumWidth: 90
+                            visible: model.errorText !== ""
+                        }
                     }
-                    Button {
-                        text: "Sửa"
+                    IconButton {
+                        iconName: "edit"
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 24
+                        iconSize: 12
                         onClicked: projectModel.repair(backend, model.id)
                     }
-                    Button {
-                        text: "×"
+                    IconButton {
+                        iconName: "delete"
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 24
+                        iconSize: 12
                         onClicked: projectModel.remove(backend, model.id)
                     }
                 }
@@ -100,7 +131,7 @@ Rectangle {
                 visible: !projectModel || projectModel.rowCount === 0
                 text: "Chưa có project nào — OAuth Flow để thêm"
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: 15
             }
         }
     }

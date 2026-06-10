@@ -1,6 +1,6 @@
 // innertube_helper.js — Spawned by Rust InnertubeClient for youtubei.js v17
-// JSON-RPC: stdin requests -> stdout responses
-// Multi-strategy extraction with LockupView handling
+// JSON-RPC: stdin requests -> stdout OR temp file responses
+// v3 — LockupView extraction + handle→UC ID resolution + temp file support
 
 const { Innertube } = require('youtubei.js');
 
@@ -8,87 +8,76 @@ let yt = null;
 
 async function ensureClient(cookieStr) {
   if (yt) return yt;
-  yt = await Innertube.create({
-    cookie: cookieStr,
-    retrieve_player: false,
-  });
+  yt = await Innertube.create({ cookie: cookieStr, retrieve_player: false });
   return yt;
 }
 
-/**
- * Extract timestamp from LockupView or any video response format.
- */
-function extractPublishedAt(v) {
-  // Strategy 1: direct structured timestamp
-  if (v.published && v.published.timestamp) return v.published.timestamp;
-
-  // Strategy 2: published_time_text
-  if (v.published_time_text) {
-    const m = String(v.published_time_text).match(/(\d+)\s*(minute|hour|day|second)/);
-    if (m) {
-      const now = Math.floor(Date.now() / 1000);
-      const val = parseInt(m[1], 10);
-      if (m[2].startsWith('second')) return now - val;
-      if (m[2].startsWith('minute')) return now - val * 60;
-      if (m[2].startsWith('hour')) return now - val * 3600;
-      if (m[2].startsWith('day')) return now - val * 86400;
-    }
-  }
-
-  // Strategy 3: lockupMetadata deep scan
-  const meta = v.lockupMetadata;
-  if (meta) {
-    // Try content metadata parts
-    const parts = meta.metadata?.metadata?.metadata_parts || [];
-    for (const part of parts) {
-      const text = part.text?.text || '';
-      const m = text.match(/(\d+)\s*(minute|hour|day|second)/);
-      if (m) return relativeToTs(m);
-    }
-    // Fallback: JSON stringify scan
-    try {
-      const raw = JSON.stringify(meta);
-      const m = raw.match(/"(\d+)\s*(minute|hour|day|second)"/);
-      if (m) return relativeToTs(m);
-    } catch (_) {}
-  }
-
-  // Strategy 4: scan top-level stringified
+async function resolveChannelId(yt, rawId) {
+  const id = rawId.replace(/^@/, '');
+  if (id.startsWith('UC') && id.length >= 22) return id;
   try {
-    const raw = JSON.stringify(v);
-    const m = raw.match(/"(\d+)\s*(minute|hour|day|second)"/);
-    if (m) return relativeToTs(m);
+    const results = await yt.search(id);
+    if (results.channels?.[0]?.id) return results.channels[0].id;
   } catch (_) {}
-
-  return 0;
+  try {
+    const resp = await fetch(`https://www.youtube.com/@${id}`);
+    if (resp.ok) {
+      const html = await resp.text();
+      const m = html.match(/\/channel\/(UC[\w-]{20,})/);
+      if (m) return m[1];
+    }
+  } catch (_) {}
+  return rawId;
 }
 
-function relativeToTs(m) {
-  const now = Math.floor(Date.now() / 1000);
-  const val = parseInt(m[1], 10);
-  if (m[2].startsWith('second')) return now - val;
-  if (m[2].startsWith('minute')) return now - val * 60;
-  if (m[2].startsWith('hour')) return now - val * 3600;
-  if (m[2].startsWith('day')) return now - val * 86400;
-  return now - val * 60;
-}
+// ─── LockupView extraction ──────────────────────────────────
 
-function extractDuration(v) {
-  if (v.duration && v.duration.seconds) return v.duration.seconds;
-  if (v.duration_seconds) return v.duration_seconds;
-  if (v.lengthSeconds) return parseInt(v.lengthSeconds, 10) || 0;
-  if (v.length_seconds) return parseInt(v.length_seconds, 10) || 0;
-  return 0;
-}
-
-function extractThumbnail(v) {
-  if (v.thumbnails && v.thumbnails.length > 0) {
-    const sorted = [...v.thumbnails].sort((a, b) => (b.width || 0) - (a.width || 0));
-    return sorted[0].url || '';
+function extractFromLockupView(lv) {
+  const videoId = lv.content_id;
+  if (!videoId) return null;
+  const title = lv.metadata?.title?.text || '';
+  let publishedAt = 0;
+  const md = lv.metadata?.metadata;
+  if (md?.metadata_rows) {
+    for (const row of md.metadata_rows) {
+      if (!row?.metadata_parts) continue;
+      for (const part of row.metadata_parts) {
+        const text = (part.text && part.text.text) || '';
+        if (publishedAt) continue;
+        const m = text.match(/(\d+)\s*(second|minute|hour|day)/);
+        if (m) {
+          const now = Math.floor(Date.now() / 1000);
+          const v = parseInt(m[1], 10);
+          if      (m[2].startsWith('second')) publishedAt = now - v;
+          else if (m[2].startsWith('minute')) publishedAt = now - v * 60;
+          else if (m[2].startsWith('hour'))   publishedAt = now - v * 3600;
+          else if (m[2].startsWith('day'))    publishedAt = now - v * 86400;
+        }
+      }
+    }
   }
-  if (v.bestThumbnail && v.bestThumbnail.url) return v.bestThumbnail.url;
-  if (v.thumbnail && v.thumbnail.url) return v.thumbnail.url;
-  return '';
+  let durationSec = 0;
+  const overlays = lv.content_image?.overlays || [];
+  for (const overlay of overlays) {
+    if (overlay.badges?.length > 0) {
+      const t = overlay.badges[0].text || '';
+      if (!t.includes(':')) continue;
+      const p = t.split(':');
+      if (p.length === 2) durationSec = parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+    }
+  }
+  let thumbnailUrl = '';
+  const sources = lv.content_image?.image?.sources || [];
+  if (sources.length > 0) thumbnailUrl = sources[0].url || '';
+  return { videoId, title, publishedAt, thumbnailUrl, durationSec };
+}
+
+function extractPublishedAt(v) {
+  if (v.published && v.published.timestamp) {
+    const ts = Number(v.published.timestamp);
+    return ts > 1e12 ? Math.floor(ts / 1000) : ts;
+  }
+  return 0;
 }
 
 function normalizeVideo(v) {
@@ -96,111 +85,76 @@ function normalizeVideo(v) {
     videoId: v.id || v.videoId || '',
     title: (v.title && v.title.text) || v.title || '',
     publishedAt: extractPublishedAt(v),
-    thumbnailUrl: extractThumbnail(v),
-    durationSec: extractDuration(v),
+    thumbnailUrl: (() => { try { const s = [...(v.thumbnails||[])].sort((a,b)=>(b.width||0)-(a.width||0)); return s[0]?.url||''; } catch(_){return'';}})(),
+    durationSec: (() => { try { return v.duration?.seconds||v.duration_seconds||0; } catch(_){return 0;} })(),
   };
 }
-
-// ─── Strategies ──────────────────────────────────────────────
 
 async function strategyGetVideos(channel) {
   try {
     const videos = await channel.getVideos();
-    return (videos.videos || []).map(normalizeVideo).filter(v => v.videoId);
-  } catch (_) {
+    const normal = (videos.videos || []).map(normalizeVideo).filter(v => v.videoId);
+    if (normal.length > 0) return normal;
+    const memo = videos.page?.contents_memo;
+    if (memo) {
+      const lockups = memo.get('LockupView') || [];
+      return lockups.map(extractFromLockupView).filter(v => v !== null);
+    }
     return [];
-  }
+  } catch (_) { return []; }
 }
 
 async function strategySearch(channel) {
   try {
-    const result = await channel.search('');
-    if (result && result.videos) {
-      return result.videos.map(normalizeVideo).filter(v => v.videoId);
-    }
-    return [];
-  } catch (_) {
-    return [];
-  }
+    const r = await channel.search('');
+    return (r.videos || []).map(normalizeVideo).filter(v => v.videoId);
+  } catch (_) { return []; }
 }
-
-async function strategyRss(channelId) {
-  try {
-    const resp = await fetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`);
-    if (!resp.ok) return [];
-    const text = await resp.text();
-    const ids = [...text.matchAll(/<yt:videoId>([^<]+)<\/yt:videoId>/g)].map(m => m[1]);
-    const titles = [...text.matchAll(/<title[^>]*>([^<]+)<\/title>/g)].map(m => m[1]);
-    const published = [...text.matchAll(/<published>([^<]+)<\/published>/g)].map(m => m[1]);
-
-    const results = [];
-    for (let i = 0; i < Math.min(5, ids.length); i++) {
-      const ts = published[i + 1]
-        ? Math.floor(new Date(published[i + 1]).getTime() / 1000)
-        : Math.floor(Date.now() / 1000);
-      results.push({
-        videoId: ids[i],
-        title: titles[i + 1] || '',
-        publishedAt: ts,
-        thumbnailUrl: `https://i.ytimg.com/vi/${ids[i]}/maxresdefault.jpg`,
-        durationSec: 0,
-      });
-    }
-    return results;
-  } catch (_) {
-    return [];
-  }
-}
-
-// ─── Multi-strategy extraction ───────────────────────────────
 
 async function getLatestVideo(channelId, cookieStr) {
   try {
     const client = await ensureClient(cookieStr);
-    const channel = await client.getChannel(channelId);
-
-    // Strategy 1: getVideos (primary)
+    const resolvedId = await resolveChannelId(client, channelId);
+    const channel = await client.getChannel(resolvedId);
     let videos = await strategyGetVideos(channel);
-    if (videos.length >= 2) {
-      return { ok: true, videos: videos.slice(0, 5) };
-    }
-
-    // Strategy 2: search
+    if (videos.length >= 1) return { ok: true, videos: videos.slice(0, 5) };
     videos = await strategySearch(channel);
-    if (videos.length >= 1) {
-      return { ok: true, videos: videos.slice(0, 5) };
-    }
-
-    // Strategy 3: RSS (last resort)
-    videos = await strategyRss(channelId);
-    if (videos.length >= 1) {
-      return { ok: true, videos: videos.slice(0, 5) };
-    }
-
+    if (videos.length >= 1) return { ok: true, videos: videos.slice(0, 5) };
     return { ok: true, videos: [] };
   } catch (e) {
     return { ok: false, error: e.message || String(e) };
   }
 }
 
-// JSON-RPC over stdin/stdout
+// Write response to temp file (HYPERCLIP_RESPONSE_FILE) or stdout (fallback)
+function writeResponse(obj) {
+  const msg = JSON.stringify(obj) + '\n';
+  const respFile = process.env.HYPERCLIP_RESPONSE_FILE;
+  if (respFile) {
+    require('fs').writeFileSync(respFile, msg, 'utf-8');
+  } else {
+    require('fs').writeSync(1, msg);
+  }
+}
+
 process.stdin.setEncoding('utf8');
 let buffer = '';
 process.stdin.on('data', async (chunk) => {
   buffer += chunk;
   const lines = buffer.split('\n');
   buffer = lines.pop();
-
   for (const line of lines) {
     if (!line.trim()) continue;
     try {
       const req = JSON.parse(line);
       const result = await getLatestVideo(req.channelId, req.cookie);
-      process.stdout.write(JSON.stringify({ id: req.id, ...result }) + '\n');
+      writeResponse({ id: req.id, ...result });
     } catch (e) {
-      process.stdout.write(JSON.stringify({ id: null, ok: false, error: e.message }) + '\n');
+      writeResponse({ id: null, ok: false, error: e.message });
     }
   }
 });
 
-process.stdin.on('end', () => process.exit(0));
+// NO on('end') handler — Rust closes stdin (take()) to signal EOF, but
+// process.exit(0) would kill the process before async handlers complete.
+// Rust force-kills after reading the response.

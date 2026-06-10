@@ -1,5 +1,5 @@
 // src/ui/qml/SettingsPage.qml
-// Tabbed settings page: General / Operation / Sessions / System / Logs / Update
+// Tabbed settings page: General / Detection / Auth / System / Logs / Update
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -9,6 +9,17 @@ Rectangle {
     color: Theme.bg
 
     property string activeTab: "general"
+
+    onActiveTabChanged: {
+        // Discard unsaved changes — reload from backend
+        settings.load_from_backend(backend)
+    }
+
+    onVisibleChanged: {
+        if (visible) {
+            Qt.callLater(settings.load_from_backend, backend)
+        }
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -28,8 +39,8 @@ Rectangle {
                 Repeater {
                     model: [
                         {key: "general", label: "Chung"},
-                        {key: "operation", label: "Vận hành"},
-                        {key: "sessions", label: "Sessions"},
+                        {key: "detection", label: "Phát hiện"},
+                        {key: "auth", label: "Xác thực"},
                         {key: "system", label: "Hệ thống"},
                         {key: "logs", label: "Nhật ký"},
                         {key: "update", label: "Cập nhật"},
@@ -64,8 +75,8 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             sourceComponent: {
-                if (page.activeTab === "operation") return operationComp
-                if (page.activeTab === "sessions") return sessionsComp
+                if (page.activeTab === "detection") return detectionComp
+                if (page.activeTab === "auth") return authComp
                 if (page.activeTab === "system") return systemComp
                 if (page.activeTab === "logs") return logsComp
                 if (page.activeTab === "update") return updateComp
@@ -74,18 +85,8 @@ Rectangle {
         }
 
         Component { id: generalComp; SettingsPanel {} }
-        Component { id: operationComp; OperationPanel {} }
-        Component { id: sessionsComp
-            Rectangle {
-                color: Theme.bg
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 12
-                    SessionsPanel { Layout.fillWidth: true }
-                }
-            }
-        }
+        Component { id: detectionComp; DetectionPanel {} }
+        Component { id: authComp; AuthOverviewPanel {} }
         Component { id: systemComp
             Rectangle {
                 color: Theme.bg
@@ -93,8 +94,7 @@ Rectangle {
                     anchors.fill: parent
                     anchors.margins: 12
                     spacing: 12
-                    PollerPanel { Layout.fillWidth: true }
-                    AuthPanel { Layout.fillWidth: true }
+                    SystemCard { Layout.fillWidth: true }
                 }
             }
         }
@@ -106,8 +106,11 @@ Rectangle {
                     anchors.margins: 12
                     spacing: 12
                     ActivityLogCard { Layout.fillWidth: true; Layout.preferredHeight: 400 }
-                    Button {
-                        text: "Xuất nhật ký"
+                    IconButton {
+                        iconName: "folder"
+                        label: "Xuất nhật ký"
+                        iconSize: 12
+                        Layout.minimumWidth: 110
                         onClicked: backend.send_command("logs:export")
                     }
                 }

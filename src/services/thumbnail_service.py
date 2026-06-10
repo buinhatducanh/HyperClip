@@ -6,8 +6,7 @@ from typing import Optional
 
 def get_thumbnail_dir() -> str:
     """Get local thumbnail storage dir."""
-    app_data = os.environ.get("APPDATA", os.path.expanduser("~/.config"))
-    thumb_dir = os.path.join(app_data, "HyperClip", "thumbnails")
+    thumb_dir = "D:/HyperClip-Data/thumbnails"
     os.makedirs(thumb_dir, exist_ok=True)
     return thumb_dir
 

@@ -15,14 +15,14 @@ Rectangle {
 
     RowLayout {
         anchors.fill: parent; anchors.margins: 8; spacing: 8
-        Label { text: root.label; color: "#888"; font.pixelSize: 11; Layout.preferredWidth: 80 }
+        Label { text: root.label; color: "#888"; font.pixelSize: 16; Layout.preferredWidth: 80 }
         TextField {
             text: root.value !== null ? root.value.toString() : ""
             Layout.fillWidth: true
             onEditingFinished: root.valueChanged(text)
-            color: "#fff"; font.pixelSize: 11
+            color: "#fff"; font.pixelSize: 16
             background: Rectangle { color: "#1e1e1e"; border.color: "#333"; radius: 2 }
         }
-        Label { text: root.unit; color: "#888"; font.pixelSize: 11; visible: root.unit !== "" }
+        Label { text: root.unit; color: "#888"; font.pixelSize: 16; visible: root.unit !== "" }
     }
 }

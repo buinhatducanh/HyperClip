@@ -13,10 +13,13 @@ SettingsCard {
 
         RowLayout {
             Layout.fillWidth: true
-            Button {
-                text: "Clear"
-                onClicked: activityModel.clear()
+            IconButton {
+                iconName: "delete"
+                label: "Clear"
+                iconSize: 12
                 Layout.alignment: Qt.AlignRight
+                Layout.minimumWidth: 80
+                onClicked: activityModel.clear()
             }
         }
 
@@ -39,7 +42,7 @@ SettingsCard {
                     Label {
                         text: model.time
                         color: Theme.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: 15
                         font.family: "monospace"
                         Layout.preferredWidth: 60
                     }
@@ -54,14 +57,14 @@ SettingsCard {
                     Label {
                         text: model.type
                         color: Theme.accent
-                        font.pixelSize: 10
+                        font.pixelSize: 15
                         font.bold: true
                         Layout.preferredWidth: 60
                     }
                     Label {
                         text: model.message
                         color: Theme.text
-                        font.pixelSize: 10
+                        font.pixelSize: 15
                         elide: Text.ElideRight
                         Layout.fillWidth: true
                     }
@@ -72,7 +75,7 @@ SettingsCard {
                 anchors.centerIn: parent
                 text: "Chưa có hoạt động nào"
                 color: Theme.textMuted
-                font.pixelSize: 11
+                font.pixelSize: 16
             }
         }
     }

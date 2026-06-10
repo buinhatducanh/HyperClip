@@ -7,9 +7,9 @@ class SettingsModel(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._output_folder: str = "C:/HyperClip-Data"
-        self._video_storage_path: str = "C:/HyperClip-Data/videos"
-        self._output_path: str = "C:/HyperClip-Data/output"
+        self._output_folder: str = "D:/HyperClip-Data"
+        self._video_storage_path: str = "D:/HyperClip-Data/videos"
+        self._output_path: str = "D:/HyperClip-Data/output"
         self._default_trim_limit: int = 10
         self._default_quality: int = 1080
         self._auto_download_quality: str = "1080"

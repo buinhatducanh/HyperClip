@@ -14,6 +14,7 @@ ColumnLayout {
         onAddClicked: function(url) {
             channelListModel.add_channel(url)
             activityModel.add_entry("channel", "Đang thêm: " + url, "info")
+            if (toastService) toastService.show("Đang thêm kênh", url, "info")
         }
     }
 
@@ -31,8 +32,10 @@ ColumnLayout {
             onPauseClicked: {
                 if (model.paused) {
                     backend.send_command("channel:resume", {"id": model.channelId})
+                    if (toastService) toastService.show("Kênh đã tiếp tục", model.name, "info")
                 } else {
                     backend.send_command("channel:pause", {"id": model.channelId})
+                    if (toastService) toastService.show("Kênh đã tạm dừng", model.name, "info")
                 }
                 channelListModel.toggle_pause(model.channelId)
             }
@@ -40,6 +43,7 @@ ColumnLayout {
                 backend.send_command("channel:remove", {"id": id})
                 activityModel.add_entry("channel", "Đã xóa: " + name, "info")
                 channelListModel.remove_channel(id)
+                toastService.show("Đã xóa", "Kênh " + name + " đã được xóa", "info")
             })
             onCompareClicked: compareModal.openFor(model.channelId, model.name)
         }
@@ -48,7 +52,7 @@ ColumnLayout {
             visible: chList.count === 0
             text: "Chưa có kênh nào"
             color: Theme.textMuted
-            font.pixelSize: 10
+            font.pixelSize: 15
         }
     }
 

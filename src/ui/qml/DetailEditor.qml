@@ -73,14 +73,14 @@ Rectangle {
                 Label {
                     text: "HyperClip"
                     color: Theme.accent
-                    font.pixelSize: 24
+                    font.pixelSize: 36
                     font.bold: true
                     Layout.alignment: Qt.AlignHCenter
                 }
                 Label {
                     text: "Chọn một workspace để xem chi tiết"
                     color: Theme.textMuted
-                    font.pixelSize: 11
+                    font.pixelSize: 16
                     Layout.alignment: Qt.AlignHCenter
                 }
             }

@@ -24,7 +24,7 @@ Rectangle {
             Layout.fillWidth: true
             placeholderText: "@handle hoặc URL kênh"
             color: Theme.text
-            font.pixelSize: 11
+            font.pixelSize: 16
             background: Rectangle { color: "transparent"; border.width: 0 }
             onAccepted: addBtn.clicked()
         }

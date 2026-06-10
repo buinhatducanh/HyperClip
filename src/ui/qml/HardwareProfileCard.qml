@@ -1,67 +1,67 @@
 // src/ui/qml/HardwareProfileCard.qml
+// Detected GPU + selectable quality preset.
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
 SettingsCard {
     title: "PHẦN CỨNG"
-    Layout.preferredHeight: 200
 
     ColumnLayout {
-        width: parent.width
-        spacing: 8
+        Layout.fillWidth: true
+        spacing: Theme.spacingMd
 
         Label {
-            text: "Phát hiện: " + hwProfile.detectedGpuName + " · " + hwProfile.detectedVramGb + "GB VRAM · " + hwProfile.detectedRamGb + "GB RAM"
+            Layout.fillWidth: true
+            text: hwProfile
+                  ? hwProfile.detectedGpuName + "  ·  " + hwProfile.detectedVramGb + " GB VRAM  ·  " + hwProfile.detectedRamGb + " GB RAM"
+                  : "Đang tải thông tin phần cứng..."
             color: Theme.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.textMd
+            elide: Text.ElideRight
         }
 
-        GridLayout {
+        RowLayout {
             Layout.fillWidth: true
-            columns: 5
-            rowSpacing: 6
-            columnSpacing: 6
-
+            spacing: Theme.spacingSm
             Repeater {
-                model: hwProfile.presets()
+                model: hwProfile ? hwProfile.presets() : []
                 delegate: Rectangle {
-                    property bool compatible: modelData.vramGB <= hwProfile.detectedVramGb
+                    readonly property bool isActive: hwProfile && modelData && modelData.id === hwProfile.activeId
+                    readonly property bool compatible: hwProfile && modelData
+                        ? modelData.vramGB <= hwProfile.detectedVramGb : false
                     Layout.fillWidth: true
                     Layout.preferredHeight: 56
-                    color: modelData.id === hwProfile.activeId ? Theme.hoverBg : Theme.cardBg
-                    border.color: modelData.id === hwProfile.activeId ? Theme.accent : Theme.border
+                    color: isActive ? Theme.hoverBg : Theme.inputBg
+                    border.color: isActive ? Theme.accent : Theme.border
                     border.width: 1
-                    opacity: compatible ? 1.0 : 0.4
+                    radius: Theme.radiusMd
+                    opacity: compatible ? 1.0 : 0.45
 
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: 4
+                        anchors.margins: Theme.spacingSm
+                        spacing: 2
                         Label {
-                            text: modelData.label
-                            color: modelData.id === hwProfile.activeId ? Theme.accent : Theme.text
-                            font.pixelSize: 11
+                            Layout.fillWidth: true
+                            text: modelData ? modelData.label : "—"
+                            color: isActive ? Theme.accent : Theme.text
+                            font.pixelSize: Theme.textMd
                             font.bold: true
+                            elide: Text.ElideRight
                         }
                         Label {
-                            text: modelData.vramGB + "GB · " + modelData.ramGB + "GB"
+                            Layout.fillWidth: true
+                            text: modelData ? modelData.vramGB + " GB  ·  " + modelData.sessions + " sess" : ""
                             color: Theme.textMuted
-                            font.pixelSize: 9
-                        }
-                        Label {
-                            text: modelData.sessions + " sess · " + modelData.chunkWorkers + " wk"
-                            color: Theme.textMuted
-                            font.pixelSize: 8
+                            font.pixelSize: Theme.textSm
+                            elide: Text.ElideRight
                         }
                     }
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: compatible ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        onClicked: {
-                            if (compatible) {
-                                hwProfile.select_preset(backend, modelData.id)
-                            }
-                        }
+                        onClicked: { if (compatible && hwProfile && modelData) hwProfile.select_preset(backend, modelData.id) }
                     }
                 }
             }
