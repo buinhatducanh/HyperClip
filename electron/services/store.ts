@@ -9,6 +9,7 @@ import {
   getChannelsDir,
   getProjectsDir,
   getDownloadsDir,
+  getChannelDownloadsDir,
 } from './paths.js'
 
 const STORE_DIR = getAppStoreDir()
@@ -45,6 +46,15 @@ function getKnownStorageDirs(): string[] {
   if (isRamDiskAvailable()) dirs.push(getRamDiskPath())
   // Primary storage — same fallback chain as getVideoStoragePath()
   dirs.push(getDownloadsDir())
+  // Per-channel subdirectories under downloads/ — scan for all channel folders
+  try {
+    const entries = fs.readdirSync(getDownloadsDir(), { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        dirs.push(path.join(getDownloadsDir(), entry.name))
+      }
+    }
+  } catch {}
   // Legacy store dir (D:\HyperClip-Data\app\downloads) — only add if different from primary
   const legacyDir = path.join(STORE_DIR, 'downloads')
   if (!dirs.includes(legacyDir)) dirs.push(legacyDir)

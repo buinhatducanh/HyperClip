@@ -165,6 +165,21 @@ export function getDownloadsDir(): string {
   return path.join(getHyperClipBaseDir(), 'downloads')
 }
 
+/** Per-channel download subdirectory: downloads/{sanitizedChannelName}/ */
+export function getChannelDownloadsDir(channelName: string, channelId?: string): string {
+  const safe = sanitizeDirName(channelName) || channelId || 'unknown'
+  return path.join(getDownloadsDir(), safe)
+}
+
+/** Sanitize a directory name: strip chars invalid on Windows, trim, limit length. */
+export function sanitizeDirName(name: string): string {
+  return name
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+    .replace(/\.\./g, '_')
+    .trim()
+    .slice(0, 100) || '_'
+}
+
 export function getBlurDir(): string {
   return path.join(getHyperClipBaseDir(), 'blur')
 }
@@ -174,9 +189,21 @@ export function getOutputDir(): string {
   return path.join(getHyperClipBaseDir(), 'output')
 }
 
+/** Per-channel output subdirectory for rendered files */
+export function getChannelOutputDir(channelName: string): string {
+  const safe = sanitizeDirName(channelName) || 'unknown'
+  return path.join(getOutputDir(), safe)
+}
+
 /** FINAL output — all rendered videos organized by month */
 export function getArchivedDir(): string {
   return path.join(getHyperClipBaseDir(), 'archived')
+}
+
+/** Per-channel archive subdirectory */
+export function getChannelArchivedDir(channelName: string): string {
+  const safe = sanitizeDirName(channelName) || 'unknown'
+  return path.join(getArchivedDir(), safe)
 }
 
 /** Monthly archive subdirectory */

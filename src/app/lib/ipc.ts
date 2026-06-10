@@ -374,7 +374,7 @@ export const ipc = {
   },
 
   async addSession() {
-    return window.electronAPI?.addSession() ?? { success: false, error: 'electronAPI not available' }
+    return window.electronAPI?.addSession() ?? { success: false, error: 'electronAPI not available', profileId: undefined }
   },
 
   // ─── Rendered Videos ────────────────────────────────────────────────────────────

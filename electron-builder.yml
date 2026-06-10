@@ -10,9 +10,6 @@ files:
   - next.config.mjs
   - package.json
   - .next/**/*
-  - servers/**/*
-  - console-window.html
-  - electron/console-preload.js
 extraResources:
   - from: resources/ffmpeg/bin/
     to: ffmpeg/bin/

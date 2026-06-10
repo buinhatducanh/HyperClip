@@ -75,7 +75,7 @@ youtubei.js dùng **Innertube API** — API nội bộ của YouTube, không có
 - Round-robin với 10s cooldown trên session lỗi
 - **Session suspension (2026-05-27):** Nếu session trả empty timestamp cho tất cả videos trong 5 poll liên tiếp (dấu hiệu LockupView format không tương thích), session bị suspend. Tự động thử lại sau 5 phút. Điều này ngăn session hỏng làm chậm detection pipeline.
 
-**Service:** `electron/services/innertube_client.ts` — InnertubeClientPool
+**Service:** `crates/hyperclip_ipc/src/innertube_client.rs` — InnertubeClientPool
 
 ### OAuth Fallback — Only when Innertube Fails
 
@@ -114,8 +114,8 @@ return latest
 ```
 
 **Code files:**
-- `electron/services/innertube_client.ts`: `getLatestVideo(channelId, seenVideoIds)` — top-1 video, dedup + age ≤ 10 min
-- `electron/services/subscription_feed.ts`: `fetchChannelWithInnertube()` — gọi getLatestVideo per channel
+- `crates/hyperclip_ipc/src/innertube_*.rs`: `getLatestVideo(channelId, seenVideoIds)` — top-1 video, dedup + age ≤ 10 min
+- `crates/hyperclip_ipc/src/detection.rs`: `fetchChannelWithInnertube()` — gọi getLatestVideo per channel
 
 ### Optimizations (2026-05-04)
 
@@ -161,7 +161,7 @@ Chưa được dùng trực tiếp — dự phòng tương lai.
 
 ### youtubei.js — Chi tiết kỹ thuật
 
-`electron/services/innertube_client.ts` — InnertubeClientPool
+`crates/hyperclip_ipc/src/innertube_client.rs` — InnertubeClientPool
 
 #### Cookie format
 
@@ -268,12 +268,10 @@ Settings page → Chrome Sessions section:
 
 | Layer | Technology |
 |-------|-----------|
-| Desktop Shell | Electron |
-| Frontend | Next.js 14 (App Router) |
-| State | Zustand (flat, NO context cascade) |
-| Canvas | React-Konva (GPU compositing, 60fps) |
-| Styling | Tailwind CSS v3 + inline styles |
-| Backend | Node.js (Electron main process) |
+| Desktop Shell | PySide6 QML/QtQuick |
+| Frontend | QML (QtQuick) |
+| State | Python models + Rust backend |
+| Backend | Rust binary (`hyperclip-tauri.exe`) — stdin/stdout JSON-RPC |
 | Detection Primary | youtubei.js v17 (Innertube, 30 Chrome sessions, NO quota) |
 | Detection Fallback | OAuth 2.0 Data API v3 (TokenManager, N GCP projects) |
 | Downloader | yt-dlp + Direct IP Binding |
@@ -294,44 +292,43 @@ Settings page → Chrome Sessions section:
 7. **Pre-render text overlay** — drawtext chạy 1 lần → PNG → overlay PNG mỗi frame (GPU fast)
 8. **Trim optimization** — decode chỉ `outputDuration/speed` thay vì toàn bộ source
 9. **Speed options** — 1.1x/1.2x encode ít frame hơn → decode + encode nhanh hơn
-10. **Zustand flat state** — NO context cascade, chỉ re-render component cần
+10. **Python models + Rust state** — NO context cascade, chỉ update QML khi data change
 
 ---
 
 ## 6. Cấu trúc thư mục
 
 ```
-electron/
-  main.ts              — Entry point, window, tray, IPC handlers, bootstrap
-  preload.ts           — IPC bridge (window.electronAPI)
-  ipc/
-    channels.ts        — IPC channel constants
-  services/
-    youtube_poller.ts   — Subscription feed poller (5s ± 1s jitter)
-    cookie_manager.ts   — OAuth token management
-    key_manager.ts      — API keys pool — quota tracking, dynamic CRUD
-    token_manager.ts    — OAuth tokens — smart rotation, refresh, per-project storage
-    subscription_feed.ts — Full scan all channels via playlistItems (parallel, 20 concurrent)
-    youtube.ts          — yt-dlp wrapper (download, getVideoInfo, getChannelId)
-    ffmpeg.ts           — FFmpeg + NVENC render pipeline
-    ffmpeg-paths.ts     — FFmpeg binary resolution
-    worker-pool.ts      — Concurrent FFmpeg process management
-    ramdisk.ts          — Storage path management
-    store.ts            — Persistent JSON store (workspaces, channels, seen-videos)
-    system.ts           — System stats collector (GPU, RAM, workers)
+src/                     — Python + QML
+  main.py                — Launcher: QGuiApplication + spawn Rust binary
+  backend/
+    client.py            — RustClient (stdin/stdout JSON-RPC)
+  models/                — Python → QML context models
+  ui/qml/               — QML views
 
-src/app/               — Next.js App Router
-  page.tsx             — Dashboard (3-pane layout)
-  layout.tsx           — Root layout
-  globals.css          — Tailwind v3 + custom styles
-  components/
-    Sidebar.tsx         — Navigation + System Monitor
-    WorkspaceQueue.tsx  — Video workspace list (grouped by status)
-    WorkspaceCard.tsx   — Individual workspace card
-    DetailEditor.tsx    — Editor panel (trim, speed, background, overlay, export)
-    RenderQueueBar.tsx   — Floating render queue (bottom)
-  lib/
-    store.ts            — Zustand (flat state)
+crates/hyperclip_ipc/   — Rust IPC crate
+  src/
+    cookies.rs           — DPAPI decrypt + SQLite parser, SOCS=CAI injection
+    cookies_sqlite.rs    — SQLite reader (%youtube.com + .youtube.com filter)
+    detection.rs         — Detection pipeline + health monitor
+    ffmpeg.rs            — FFmpeg filter chain + NVENC params
+    innertube_pool.rs    — 30 sessions, atomic round-robin, 10s cooldown
+    innertube_client.rs  — Node subprocess wrapper (youtubei.js via JSON-RPC)
+    poller.rs            — Async polling loop (5s ± 20% jitter)
+    store.rs             — Persistent JSON store (workspaces, channels, settings)
+    system.rs            — GPU detection + system stats
+    youtube.rs           — yt-dlp arg builder + download orchestration
+
+src-tauri/
+  src/
+    main.rs             — Rust binary: stdin/stdout JSON-RPC loop
+    commands.rs         — ~80 IPC command handlers
+
+docs/
+  MIGRATION_NOTES.md    — Logic từ Electron cần verify trên Rust
+
+HYPERCLIP_RULES.md      — Source of truth nghiệp vụ + kỹ thuật
+```
     ipc.ts              — IPC client wrapper
     constants.ts        — Theme colors, speed config
     types.ts            — TypeScript types
@@ -361,45 +358,36 @@ HYPERCLIP_RULES.md     — File này — source of truth
 ## 8. Commands
 
 ```bash
-npm run dev          # Next.js dev server (localhost:3000)
-npm run electron:dev # Dev: Next.js + Electron window
-npm run electron:build  # Production .exe
+python src/main.py             # Run QML app (spawns Rust binary)
+cargo build -p hyperclip-tauri  # Build Rust binary
+cargo test -p hyperclip-ipc     # Run Rust tests
+cargo clippy -p hyperclip-ipc   # Lint Rust code
 ```
-
-**Build fix:** `.next` cache corrupt → `Remove-Item -Recurse -Force .next`
 
 ---
 
 ## 9. UI Rules
 
-- Layout: 3-pane (Sidebar 220px | Center (flex-1) | Right Editor)
+- Layout: 3-pane (Sidebar 220px | Center | Right Editor)
 - Theme: Background `#121212`, Accent `#00B4FF`, `#00FF88`
 - Flat design: NO shadows, NO gradients, NO decorative UI
 - Font: Inter
-- **`use client`** là bắt buộc cho mọi React component trong `src/app/`
 
 ---
 
-## 10. IPC Protocol
+## 10. IPC Protocol (Python ↔ Rust — stdin/stdout JSON-RPC)
 
-### Renderer → Main (invoke)
-- `tracker:add/remove/list` — YouTube tracker management
-- `workspace:list/update/delete` — Workspace CRUD
-- `render:start/cancel/chunked` — FFmpeg render control
-- `system:stats` — System stats
-- `channel:list/add/update/remove` — Channel CRUD
-- `poller:status` — YouTubePoller state (active, channel count, errors)
-- `settings:get/update` — App settings
-- `key:list/add/remove/reset` — API key management (dynamic)
-- `auth:oauth-start/set-creds/get-creds` — OAuth flow per project
+**Python → Rust (stdin):**
+- `{"id": 1, "cmd": "workspace:list", "params": {}}`
 
-### Main → Renderer (events)
-- `workspace:update-event` — Workspace state changed
-- `render:progress-event` — FFmpeg render progress
-- `system:stats-update` — Periodic system stats (5s)
-- `notification` — Toast notification
-- `autodownload` — New video auto-downloaded
-- `channel:synced-event` — Subscription list synced (15 min interval)
+**Rust → Python (stdout):**
+- Response: `{"id": 1, "ok": true, "result": {...}}`
+- Push event: `{"method": "workspace:update", "params": {...}}` (no `id`)
+
+**Key commands (80+ handlers trong `commands.rs`):**
+- `workspace:*`, `channel:*`, `render:*`, `video:*`
+- `auth:*`, `key:*`, `session:*`, `project:*`
+- `poller:*`, `system:*`, `logs:*`, `update:*`, `storage:*`
 
 ---
 
@@ -407,9 +395,8 @@ npm run electron:build  # Production .exe
 
 | File/Code | Lý do |
 |-----------|--------|
-| `electron/services/websub.ts` | WebSub không còn dùng — polling thay thế |
-| `startCloudflaredTunnel()` | Không cần tunnel nữa |
-| `activities?home=true` | DEPRECATED by Google — xóa hoàn toàn |
+| `electron/`, `src/app/` | Đã archive (2026-06-09) — chuyển sang QML/Rust |
+| `docs/MIGRATION_NOTES.md` | Logic từ Electron cần verify trên Rust |
 
 ---
 
@@ -421,11 +408,11 @@ npm run electron:build  # Production .exe
 
 | Tác vụ | Công nghệ | Ghi chú |
 |--------|-----------|---------|
-| **Xác thực / Đăng nhập** | OAuth 2.0 (N lần, mỗi project 1 lần) | Refresh token tự động. Credentials lưu trong `oauth_tokens.json`. |
+| **Xác thực / Đăng nhập** | OAuth 2.0 (N lần, mỗi project 1 lần) | Refresh token tự động. Credentials lưu trong store. |
 | **Lấy danh sách kênh đăng ký** | YouTube Data API v3 (`/subscriptions`) | Chỉ gọi **1 lần** khi setup → lưu vào store. **KHÔNG gọi lại** sau khi setup xong. |
-| **Phát hiện video mới (PRIMARY)** | **Innertube (youtubei.js) — 30 Chrome sessions, NO quota** | InnertubeClientPool round-robin, health check on first use |
+| **Phát hiện video mới (PRIMARY)** | **Innertube (youtubei.js) — 30 Chrome sessions, NO quota** | InnertubePool round-robin, health check on first use |
 | **Fallback detection** | OAuth Data API v3 playlistItems per channel | TokenManager smart rotation, 9,500 units/day per project, only when Innertube fails |
-| **Download video** | yt-dlp + OAuth auth + `--download-sections` | Trim chỉ N phút (user config), bypass VPN. |
+| **Download video** | yt-dlp + cookies + `--download-sections` | Trim chỉ N phút (user config), bypass VPN. |
 | **Render video** | FFmpeg + NVENC (GPU tối đa) | Hardware encode, KHÔNG x264. |
 
 ### Settings — Quản lý Chrome Sessions + Google Projects
@@ -446,12 +433,11 @@ npm run electron:build  # Production .exe
 
 ```
 App khởi động
-  ├─ Load OAuth tokens từ oauth_tokens.json (N projects)
-  ├─ Load API keys từ api_keys.json (N keys)
-  ├─ Pre-warm InnertubeClientPool (30 Chrome profiles, batch 5)
-  └─ Poller loop (5s ± 1s jitter)
-        ├─ Innertube (youtubei.js) per channel (max 5 concurrent)
-        │     └─ InnertubeClientPool.getLatestVideo(channelId) — top-1, dedup + age ≤ 10 min
+  ├─ Rust binary startup → load channels/settings từ store
+  ├─ Pre-warm InnertubePool (30 Chrome profiles, batch 5)
+  └─ Poller loop (5s ± 20% jitter)
+        ├─ Innertube (youtubei.js) per channel (max 10 concurrent)
+        │     └─ getLatestVideo(channelId) — top N, dedup + age ≤ 10 min
         │     └─ Early termination: stop after 5 new videos found
         ├─ OAuth fallback: only if Innertube pool = 0 sessions ready
         └─ Filter: unseen (seenVideoIds), not deleted
@@ -517,7 +503,7 @@ App khởi động
   - Evidence: `Stream: h264 (High), 1920x1080, 60fps, 4943 kb/s`
 - **Auto-render pipeline** (2026-05-15): sau download xong → check `settings.autoRender=true` → `preScaleVideo()` → render với `p1+ull` preset → pre-scaled cleanup. `autoRenderAttempted` flag ngăn infinite loop.
 - **Channel add UI** (2026-05-15): Sidebar có add bar trực tiếp. ChannelsStep trong onboarding có validation + duplicate check.
-- **`DEV_LOG=1`** trong `electron:dev` script.
+- **`DEV_LOG=1`** trong `electron:dev` script (legacy Electron, giữ reference cho history).
 
 ### Changes 2026-05-13 — Skip unparseable age + Download quality fix + Preview fix
 - **`publishedAt=0` → OAuth verify** (2026-05-13). Innertube trả empty `published_time_text` cho video mới (YouTube cache lag < 1 phút). Fix: khi Innertube trả `publishedAt=0`, gọi OAuth `/videos?id=...&part=snippet` để lấy real `publishedAt`. Accept nếu ≤ 10 phút, skip nếu > 10 phút hoặc error. OAuth chỉ trigger khi Innertube chính nó trả empty timestamp → quota cost ≈ 3-5 calls/poll × ~100 polls/day ≈ 300-500 units/ngày ≪ 313,500 quota.
@@ -528,7 +514,13 @@ App khởi động
 - **Kết quả**: OAuth quota ≈ 0 consumption. OAuth chỉ dùng khi Innertube pool = 0.
 - **Download quality (SUPERSEDED 2026-05-15)**: Xem section mới ở trên.
 
-### Changes 2026-05-12 (2 fixes)
+### Changes 2026-06-09 — Electron → QML/Rust migration
+- **Chuyển hoàn toàn khỏi Electron/Next.js**: `electron/` và `src/app/` đã archive.
+- **UI mới**: PySide6 QML/QtQuick + Rust backend (`hyperclip-tauri.exe`).
+- **IPC mới**: stdin/stdout JSON-RPC giữa Python ↔ Rust (thay vì Electron IPC).
+- **Logic đã port**: cookie extraction, detection pipeline, download, render, store, poller.
+- **Cần verify**: health alerts, token management, auto-render catchup — xem `docs/MIGRATION_NOTES.md`.
+- **Code cũ**: `../HyperClip-Electron-Archive/`. Git history giữ đầy đủ.
 - **Fix #1 — Dedup bug (2026-05-12):** `return null` → `continue` trong `getLatestVideo()` và `getLatestVideoPriority()`. Bug: khi top-1 đã nằm trong `seenVideoIds`, code cũ trả `null` và skip cả channel → không bao giờ thử top-2..top-5 → sau poll đầu tiên thành công, poll tiếp theo luôn trả 0 cho tất cả channels → OAuth health check chỉ test 1 channel → OAuth fallback không được trigger. Fix: đổi `return null` → `continue` để thử video tiếp theo khi top-1 đã seen.
 - **Fix #2 — OAuth age verification (2026-05-12): SUPERSEDED 2026-05-13.** `publishedAt=0` → accept → OAuth verify → skip nếu > 10 phút. Bug: Innertube trả empty `published_time_text` cho video mới upload (< 2 phút) NHƯNG CŨNG cho video cũ mà YouTube chưa cache timestamp. Sau khi analyze log thực tế: 100% video `publishedAt=0` đều là video cũ (từ vài ngày đến vài năm). Video mới upload luôn có `published_time_text` parseable → fix mới: skip hoàn toàn `publishedAt=0` thay vì verify qua OAuth.
 

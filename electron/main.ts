@@ -37,7 +37,7 @@ import { renderVideo, renderChunked, generateBlurBackground, extractVideoThumbna
 import { cancelFfmpeg, cancelAllFfmpeg, getPoolStatus } from './services/worker-pool.js'
 import { getFfmpegPath, validateFfmpeg } from './services/ffmpeg-paths.js'
 import { getAppStoreDir, getHyperClipBaseDir, getDownloadsDir, getLegacyDataPath } from './services/paths.js'
-import { getVideoStoragePath, getOutputPath, generateWorkspacePaths, cleanupWorkspace, ensureStorageDirs, loadSettings, saveSettings, archiveRenderedFile, getArchivePath, openArchiveFolder, showInFolder, getFreeDiskSpace, getRamDiskInfo } from './services/ramdisk.js'
+import { getVideoStoragePath, getOutputPath, generateWorkspacePaths, cleanupWorkspace, ensureStorageDirs, loadSettings, saveSettings, archiveRenderedFile, getArchivePath, openArchiveFolder, showInFolder, getFreeDiskSpace, getRamDiskInfo, ensureChannelVideoDir, ensureChannelOutputDir } from './services/ramdisk.js'
 import { createYouTubePoller, stopYouTubePoller, getYouTubePoller } from './services/youtube_poller.js'
 import { refreshChannelCache } from './services/subscription_feed.js'
 import { initCookieManager, getCookieManager, authEvents, channelEvents } from './services/cookie_manager.js'
@@ -355,7 +355,7 @@ function executeRenderJob(job: typeof renderQueue[0]): void {
     workspaceId,
   })
 
-  const outputDir = getOutputPath()
+  const outputDir = ensureChannelOutputDir(workspace.channelName)
   ensureStorageDirs()
 
   // Build resolved metadata with workspace state merged in:
@@ -587,6 +587,8 @@ async function autoDownloadFromWebSub(
 ) {
   try {
     const storagePath = getVideoStoragePath()
+    // Download into a per-channel subdirectory for easy file management
+    const channelOutputDir = ensureChannelVideoDir(channelName, channelId)
     ensureStorageDirs()
 
     const settings = loadSettings()
@@ -697,7 +699,7 @@ async function autoDownloadFromWebSub(
       const dlResult = await downloadSectionsAsSeparate({
         workspaceId: ws.id,
         videoUrl,
-        outputDir: storagePath,
+        outputDir: channelOutputDir,
         quality: autoQuality,
         sections,
         ytCookiesFile: splitYtCookiesFile,
@@ -910,7 +912,7 @@ async function autoDownloadFromWebSub(
     let result: Awaited<ReturnType<typeof downloadVideo>> = fastResult ?? await downloadVideo({
       workspaceId: ws.id,
       videoUrl,
-      outputDir: storagePath,
+      outputDir: channelOutputDir,
       trimLimit: autoTrimLimit,
       quality: autoQuality,
       ytCookiesFile,
@@ -1183,7 +1185,7 @@ async function autoDownloadFromWebSub(
           const gpuCaps = getGPUCapabilities()
           const chunked = await renderChunked(
             autoMetadata,
-            getOutputPath(),
+            ensureChannelOutputDir(ws.channelName),
             {
               workers: gpuCaps.maxChunkWorkers,
               chunkDuration: splitChunkDuration,
@@ -1249,6 +1251,7 @@ async function retryAutoDownload(ws: WorkspaceData): Promise<void> {
 
 async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
   const storagePath = getVideoStoragePath()
+  const channelOutputDir = ensureChannelVideoDir(ws.channelName, ws.channelId)
   const videoUrl = ws.videoUrl || (ws.videoId ? `https://www.youtube.com/watch?v=${ws.videoId}` : null)
   if (!videoUrl) {
     console.warn(`[Retry] No URL for workspace ${ws.id}`)
@@ -1279,7 +1282,7 @@ async function doRetryAutoDownload(ws: WorkspaceData): Promise<void> {
   const result = await downloadVideo({
     workspaceId: ws.id,
     videoUrl,
-    outputDir: storagePath,
+    outputDir: channelOutputDir,
     trimLimit: ws.trimLimit || 10,
     quality: retryQuality,
     ytCookiesFile,
@@ -1580,21 +1583,31 @@ function scanExistingDownloadedFiles(): void {
   for (const storagePath of pathsToScan) {
     try {
       if (!fs.existsSync(storagePath)) continue
-      const files = fs.readdirSync(storagePath).filter(f => f.endsWith('.mp4'))
-      if (files.length === 0) continue
-      devLog(`[HyperClip] Scanning ${files.length} file(s) in ${storagePath}`)
 
-      for (const file of files) {
-        // Pattern: ws-{timestamp}-{random}_{videoId}.mp4
-        const match = file.match(/^ws-\d+-[a-z0-9]+_(.+)\.mp4$/)
-        if (match && !seen.has(match[1])) {
-          const videoId = match[1]
-          seen.add(videoId)
-          const channels = getChannels()
-          for (const ch of channels) {
-            if (ch.channelId) markVideoSeen(ch.channelId, videoId)
+      // Gather files from flat dir + any channel subdirectories
+      const scanDirs = [storagePath]
+      try {
+        for (const entry of fs.readdirSync(storagePath, { withFileTypes: true })) {
+          if (entry.isDirectory()) scanDirs.push(path.join(storagePath, entry.name))
+        }
+      } catch {}
+
+      for (const dir of scanDirs) {
+        const files = fs.readdirSync(dir).filter(f => f.endsWith('.mp4'))
+        if (files.length === 0) continue
+        devLog(`[HyperClip] Scanning ${files.length} file(s) in ${dir}`)
+        for (const file of files) {
+          // Pattern: ws-{timestamp}-{random}_{videoId}.mp4
+          const match = file.match(/^ws-\d+-[a-z0-9]+_(.+)\.mp4$/)
+          if (match && !seen.has(match[1])) {
+            const videoId = match[1]
+            seen.add(videoId)
+            const channels = getChannels()
+            for (const ch of channels) {
+              if (ch.channelId) markVideoSeen(ch.channelId, videoId)
+            }
+            totalRegistered++
           }
-          totalRegistered++
         }
       }
     } catch (e) {
@@ -1831,8 +1844,18 @@ async function createWindow() {
   })
 
   mainWindow.once('ready-to-show', () => {
+    devLog('[HyperClip] ready-to-show fired — showing window')
     mainWindow?.show()
   })
+
+  // Fallback: ready-to-show can fail to fire on some Windows GPU configs.
+  // Force-show after 3s if window is still hidden.
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      devLog('[HyperClip] ready-to-show did not fire in 3s — force-showing window')
+      mainWindow.show()
+    }
+  }, 3000)
 
   mainWindow.on('close', (e) => {
     if (_isQuitting) return
@@ -2010,21 +2033,32 @@ function showWindowsToast(title: string, body: string) {
     const activeWsId = getActiveWorkspaceId()
     if (activeWsId) activeIds.add(activeWsId)
     let cleaned = 0
-    for (const entry of fs.readdirSync(storagePath)) {
-      if (entry.startsWith('blur_')) continue
-      const ext = path.extname(entry).toLowerCase()
-      if (!['.mp4', '.mkv', '.webm', '.avi', '.mov'].includes(ext)) continue
-      const entryBase = entry.replace(/\.\w+$/, '')
-      const isActive = Array.from(activeIds).some(id => entryBase.startsWith(id + '_') || entryBase === id)
-      if (isActive) continue
-      const fullPath = path.join(storagePath, entry)
-      try {
-        const stat = fs.statSync(fullPath)
-        if (stat.mtimeMs < cutoff) {
-          fs.unlinkSync(fullPath)
-          cleaned++
-        }
-      } catch {}
+
+    // Collect dirs to scan: flat storage + any channel subdirectories
+    const scanDirs = [storagePath]
+    try {
+      for (const entry of fs.readdirSync(storagePath, { withFileTypes: true })) {
+        if (entry.isDirectory()) scanDirs.push(path.join(storagePath, entry.name))
+      }
+    } catch {}
+
+    for (const dir of scanDirs) {
+      for (const entry of fs.readdirSync(dir)) {
+        if (entry.startsWith('blur_')) continue
+        const ext = path.extname(entry).toLowerCase()
+        if (!['.mp4', '.mkv', '.webm', '.avi', '.mov'].includes(ext)) continue
+        const entryBase = entry.replace(/\.\w+$/, '')
+        const isActive = Array.from(activeIds).some(id => entryBase.startsWith(id + '_') || entryBase === id)
+        if (isActive) continue
+        const fullPath = path.join(dir, entry)
+        try {
+          const stat = fs.statSync(fullPath)
+          if (stat.mtimeMs < cutoff) {
+            fs.unlinkSync(fullPath)
+            cleaned++
+          }
+        } catch {}
+      }
     }
     if (cleaned > 0) devLog(`[AutoCleanup] Removed ${cleaned} old video files`)
   } catch {}
@@ -2567,19 +2601,30 @@ void app.whenReady().then(async () => {
           const activeWsId = getActiveWorkspaceId()
           if (activeWsId) activeIds.add(activeWsId)
           let cleaned = 0
-          for (const entry of fs.readdirSync(storagePath)) {
-            if (entry.startsWith('blur_')) continue
-            const ext = path.extname(entry).toLowerCase()
-            if (!['.mp4', '.mkv', '.webm', '.avi', '.mov'].includes(ext)) continue
-            // Skip if this file belongs to an active workspace
-            const entryBase = entry.replace(/\.\w+$/, '')
-            const isActive = Array.from(activeIds).some(id => entryBase.startsWith(id + '_') || entryBase === id)
-            if (isActive) continue
-            const fullPath = path.join(storagePath, entry)
-            try {
-              const stat = fs.statSync(fullPath)
-              if (stat.mtimeMs < cutoff) { fs.unlinkSync(fullPath); cleaned++ }
-            } catch {}
+
+          // Scan flat storage + channel subdirectories
+          const cleanupDirs = [storagePath]
+          try {
+            for (const entry of fs.readdirSync(storagePath, { withFileTypes: true })) {
+              if (entry.isDirectory()) cleanupDirs.push(path.join(storagePath, entry.name))
+            }
+          } catch {}
+
+          for (const dir of cleanupDirs) {
+            for (const entry of fs.readdirSync(dir)) {
+              if (entry.startsWith('blur_')) continue
+              const ext = path.extname(entry).toLowerCase()
+              if (!['.mp4', '.mkv', '.webm', '.avi', '.mov'].includes(ext)) continue
+              // Skip if this file belongs to an active workspace
+              const entryBase = entry.replace(/\.\w+$/, '')
+              const isActive = Array.from(activeIds).some(id => entryBase.startsWith(id + '_') || entryBase === id)
+              if (isActive) continue
+              const fullPath = path.join(dir, entry)
+              try {
+                const stat = fs.statSync(fullPath)
+                if (stat.mtimeMs < cutoff) { fs.unlinkSync(fullPath); cleaned++ }
+              } catch {}
+            }
           }
           if (cleaned > 0) devLog(`[PeriodicCleanup] Removed ${cleaned} old video files`)
         } catch {}

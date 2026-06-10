@@ -15,13 +15,20 @@ import { devLog } from '../../services/unified_log.js'
 
 // Scan known storage directories for a downloaded video file by workspaceId.
 function findDownloadedFileAbs(workspaceId: string): string | null {
-  const dirs = [
+  const baseDirs = [
     getVideoStoragePath(),
+    getDownloadsDir(),
     path.join(getAppStoreDir(), 'downloads'),
     path.join(getAppStoreDir(), 'videos'),
-    getDownloadsDir(),
   ]
-  for (const dir of dirs) {
+  // Also scan any channel subdirectories under downloads/
+  try {
+    const entries = fs.readdirSync(getDownloadsDir(), { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.isDirectory()) baseDirs.push(path.join(getDownloadsDir(), entry.name))
+    }
+  } catch {}
+  for (const dir of baseDirs) {
     try {
       const entries = fs.readdirSync(dir)
       const found = entries.find((f) => {

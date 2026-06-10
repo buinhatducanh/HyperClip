@@ -7,3 +7,29 @@ out/
 *.tmp
 *.tmp-*
 tmp/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# npm lockfile (project uses pnpm, see pnpm-lock.yaml)
+package-lock.json
+
+# Local runtime data (NOT source — lives in user profile, not repo)
+.hyperclip/
+
+# Abandoned experiment dirs (build artifacts only, no source)
+src-tauri/
+hyperclip/
+electron/dist/   # stale TS compile output (project compiles to dist-electron/)
+
+# Sub-agent worktrees (ephemeral, can be 10+ GB)
+.claude/worktrees/
+__pycache__/
+*.pyc
+src/__pycache__/
+src/backend/__pycache__/
+src/models/__pycache__/
+src/services/__pycache__/
+src/ui/__pycache__/
+target/
+package-lock.json

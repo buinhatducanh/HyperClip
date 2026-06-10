@@ -29,20 +29,31 @@ export function registerStorageHandlers(
       let downloadSize = 0
       let blurSize = 0
 
+      // Collect dirs: flat + channel subdirectories
+      const scanDirs = [storagePath]
       try {
-        const entries = fs.readdirSync(storagePath)
+        const entries = fs.readdirSync(storagePath, { withFileTypes: true })
         for (const entry of entries) {
-          const fullPath = path.join(storagePath, entry)
-          try {
-            const stat = fs.statSync(fullPath)
-            if (entry.startsWith('blur_')) {
-              blurSize += stat.size
-            } else if (entry.endsWith('.mp4') || entry.endsWith('.mkv') || entry.endsWith('.webm')) {
-              downloadSize += stat.size
-            }
-          } catch {}
+          if (entry.isDirectory()) scanDirs.push(path.join(storagePath, entry.name))
         }
       } catch {}
+
+      for (const dir of scanDirs) {
+        try {
+          const entries = fs.readdirSync(dir)
+          for (const entry of entries) {
+            const fullPath = path.join(dir, entry)
+            try {
+              const stat = fs.statSync(fullPath)
+              if (entry.startsWith('blur_')) {
+                blurSize += stat.size
+              } else if (entry.endsWith('.mp4') || entry.endsWith('.mkv') || entry.endsWith('.webm')) {
+                downloadSize += stat.size
+              }
+            } catch {}
+          }
+        } catch {}
+      }
 
       return {
         downloads: parseFloat((downloadSize / (1024 ** 2)).toFixed(1)),
