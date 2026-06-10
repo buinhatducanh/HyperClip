@@ -44,7 +44,7 @@ function extractFromLockupView(lv) {
       for (const part of row.metadata_parts) {
         const text = (part.text && part.text.text) || '';
         if (publishedAt) continue;
-        const m = text.match(/(\d+)\s*(second|minute|hour|day)/);
+        const m = text.match(/(\d+)\s*(seconds?|minutes?|hours?|days?)\b/);
         if (m) {
           const now = Math.floor(Date.now() / 1000);
           const v = parseInt(m[1], 10);

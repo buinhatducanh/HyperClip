@@ -62,6 +62,26 @@ impl CookieExtractionResult {
 
         parts.join("; ")
     }
+
+    /// Build Netscape-format cookie file content for yt-dlp.
+    /// Format: "domain\tTRUE\tpath\tsecure\texpiry\tname\tvalue"
+    pub fn build_netscape_file(&self) -> String {
+        let mut lines = vec!["# Netscape HTTP Cookie File".to_string()];
+        let expiry = "2147483647"; // far future
+        let mut has_socs = false;
+        for c in &self.cookies {
+            if c.value.is_empty() { continue; }
+            let domain = if c.domain.starts_with('.') { c.domain.clone() } else { format!(".{}", c.domain) };
+            if c.name == "SOCS" { has_socs = true; }
+            lines.push(format!("{}\tTRUE\t/\tTRUE\t{}\t{}\t{}", domain, expiry, c.name, c.value));
+        }
+        // Force-inject SOCS=CAI
+        if !has_socs {
+            lines.push(format!(".youtube.com\tTRUE\t/\tTRUE\t{}\tSOCS\tCAI", expiry));
+        }
+        lines.push(String::new()); // trailing newline
+        lines.join("\r\n")
+    }
 }
 
 /// Try to read cookies from the persisted JSON file (fast path, no lock contention).

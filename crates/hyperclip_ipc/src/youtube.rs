@@ -99,18 +99,21 @@ pub fn download_video_streaming<F>(
     output_path: &str,
     cookies_path: &str,
     trim_minutes: u32,
+    quality: u32,
     mut on_progress: F,
 ) -> Result<DownloadResult, String>
 where
     F: FnMut(DownloadProgress),
 {
+    let fmt = format!("bestvideo[height<=?{height}]+bestaudio[acodec=aac]/best[height<=?{height}]/worst", height = quality);
     let ytdlp = find_ytdlp_path();
 
     let mut cmd = Command::new(&ytdlp);
     cmd.args([
+        "--js-runtimes", "node",
         "--extractor-args", "youtube:player_client=tv_embedded,web,ios",
         "--cookies", cookies_path,
-        "-f", "bestvideo[height<=?1080]+bestaudio[acodec=aac]/bestvideo+bestaudio",
+        "-f", &fmt,
         "--download-sections",
         &format!("*00:00:00-00:{:02}:00", trim_minutes),
         "--concurrent-fragments", "16",
@@ -227,14 +230,17 @@ pub fn download_video(
     output_path: &str,
     cookies_path: &str,
     trim_minutes: u32,
+    quality: u32,
 ) -> Result<DownloadResult, String> {
+    let fmt = format!("bestvideo[height<=?{height}]+bestaudio[acodec=aac]/best[height<=?{height}]/worst", height = quality);
     let ytdlp = find_ytdlp_path();
 
     let mut cmd = Command::new(&ytdlp);
     cmd.args([
+        "--js-runtimes", "node",
         "--extractor-args", "youtube:player_client=tv_embedded,web,ios",
         "--cookies", cookies_path,
-        "-f", "bestvideo[height<=?1080]+bestaudio[acodec=aac]/bestvideo+bestaudio",
+        "-f", &fmt,
         "--download-sections",
         &format!("*00:00:00-00:{:02}:00", trim_minutes),
         "--concurrent-fragments", "16",
@@ -279,6 +285,7 @@ pub fn probe_formats(url: &str, cookies_path: &str) -> Result<Vec<u32>, String> 
 
     let output = Command::new(&ytdlp)
         .args([
+            "--js-runtimes", "node",
             "--extractor-args", "youtube:player_client=tv_embedded",
             "--cookies", cookies_path,
             "--dump-json",
@@ -321,6 +328,7 @@ pub fn get_video_info(url: &str, cookies_path: &str) -> Result<YtdlpVideoInfo, S
 
     let output = Command::new(&ytdlp)
         .args([
+            "--js-runtimes", "node",
             "--extractor-args", "youtube:player_client=tv_embedded,web,ios",
             "--cookies", cookies_path,
             "--dump-json",

@@ -1,4 +1,5 @@
-use hyperclip_ipc::{get_system_stats, ChannelStore, WorkspaceStore, get_workspaces_path, get_channels_path, get_seen_videos_path, SettingsStore, get_settings_path, RenderedStore, get_rendered_videos_path, KeyStore, get_keys_path, ProjectStore, get_projects_path, KeyEntry, ProjectEntry};
+use hyperclip_ipc::{get_system_stats, ChannelStore, WorkspaceStore, get_workspaces_path, get_channels_path, get_seen_videos_path, SettingsStore, get_settings_path, RenderedStore, get_rendered_videos_path, KeyStore, get_keys_path, ProjectStore, get_projects_path, KeyEntry, ProjectEntry, get_store_dir};
+use hyperclip_ipc::store::SeenVideos;
 
 use hyperclip_ipc::cookies::{extract_chrome_cookies, get_chrome_user_data_dir};
 
@@ -17,7 +18,7 @@ use hyperclip_ipc::system::get_gpu_config;
 
 use hyperclip_ipc::Channel;
 
-use serde::Serialize;
+use serde::{Serialize};
 use serde_json::{json, Value};
 
 use std::sync::Arc;
@@ -78,21 +79,38 @@ impl AppState {
 
             let pool = Arc::new(InnertubeClientPool::initialize(pool_config).unwrap());
 
-            // Load cookies into pool from disk
+            // ─── Migrate old data and ensure store dirs ────────────────
+            migrate_old_data();
+
+            // ─── Auto-extract cookies from Chrome if none exist ──────
             let cookies_path = get_cookies_path();
+            let netscape_path = get_cookies_netscape_path();
+            let needs_extract = !cookies_path.exists()
+                || std::fs::metadata(&cookies_path).map(|m| m.len() == 0).unwrap_or(true)
+                || !netscape_path.exists();
+            if needs_extract {
+                tracing::info!("[AppState] {} — attempting auto-extract from Chrome",
+                    if !cookies_path.exists() { "No cookies file" } else { "Netscape file missing" });
+                match extract_and_feed_cookies() {
+                    Ok(_) => tracing::info!("[AppState] Auto-extracted cookies at startup"),
+                    Err(e) => tracing::warn!("[AppState] Auto-extract failed: {} — sessions may be anonymous", e),
+                }
+            }
+            // Re-check: load whatever cookies we have into pool
             if cookies_path.exists() {
                 if let Ok(cookie_str) = std::fs::read_to_string(&cookies_path) {
                     let trimmed = cookie_str.trim().to_string();
                     if !trimmed.is_empty() {
+                        let trimmed_len = trimmed.len();
                         pool.set_cookies(trimmed);
-                        tracing::info!("[AppState] Loaded cookies into Innertube pool from {:?}", cookies_path);
+                        tracing::info!("[AppState] Loaded cookies into Innertube pool from {:?} ({}B)", cookies_path, trimmed_len);
                     }
                 }
             } else {
                 tracing::warn!("[AppState] No cookies file at {:?} — Innertube sessions will be anonymous", cookies_path);
             }
 
-            // Load channels from disk store
+            // Load channels from disk store (new path, may be freshly migrated)
             let ch_path = get_channels_path();
             let ch_store = ChannelStore::load(&ch_path);
             let v: Vec<hyperclip_ipc::Channel> = ch_store.channels.iter().map(|c| {
@@ -185,7 +203,7 @@ impl AppState {
 
                 // 4. Spawn download thread
                 let url = format!("https://youtube.com/watch?v={}", event.video_id);
-                let cookies_path = get_cookies_path();
+                let cookies_path = get_cookies_netscape_path();
                 let video_dir = ensure_channel_video_dir(&event.channel_name, &event.channel_id);
                 let _ = std::fs::create_dir_all(&video_dir);
                 let output_path = video_dir.join(format!("{}.mp4", ws_id));
@@ -206,9 +224,15 @@ impl AppState {
                 let _ = writeln!(std::io::stdout(), "{}", serde_json::to_string(&dl_event).unwrap_or_default());
                 let _ = std::io::stdout().flush();
 
+                let auto_dl_quality = s_store.settings
+                    .get("autoDownloadQuality")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .unwrap_or(360); // default 360p for speed
+
                 let ch_name = event.channel_name.clone();
                 std::thread::spawn(move || {
-                    match download_video_streaming(&url, &output_str, &cookies_str, trim_minutes, |progress| {
+                    match download_video_streaming(&url, &output_str, &cookies_str, trim_minutes, auto_dl_quality, |progress| {
                         emit_download_progress(&tid, &progress);
                     }) {
                         Ok(result) => {
@@ -445,8 +469,8 @@ fn poller_sync_channels() {
     }).collect();
     let state = AppState::get_or_init();
     let channels = state.channels_ref();
-    if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        handle.spawn(async move {
+    if let Some(rt) = POLLER_RT.get() {
+        rt.block_on(async {
             let mut ch = channels.write().await;
             *ch = v;
         });
@@ -488,6 +512,11 @@ fn detection_events_store() -> &'static Mutex<VecDeque<DetectionEvent>> {
 /// Eagerly init POLLER_RT at startup so start_poller() never panics
 pub fn init_poller_runtime() {
     POLLER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
+}
+
+/// Eagerly init AppState at startup — triggers data migration + cookie extraction.
+pub fn init_appstate() {
+    AppState::get_or_init();
 }
 
 
@@ -606,6 +635,11 @@ fn get_cookies_path() -> PathBuf {
     PathBuf::from("D:/HyperClip-Data/cookies.txt")
 }
 
+/// Netscape-format cookie file for yt-dlp (yt-dlp requires Netscape format).
+fn get_cookies_netscape_path() -> PathBuf {
+    PathBuf::from("D:/HyperClip-Data/cookies_netscape.txt")
+}
+
 /// Extract cookies from Chrome Default profile → save to cookies.txt → feed Innertube pool.
 /// Returns the cookie string on success.
 fn extract_and_feed_cookies() -> Result<String, String> {
@@ -618,6 +652,12 @@ fn extract_and_feed_cookies() -> Result<String, String> {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     std::fs::write(&cookies_path, &cookie_string).map_err(|e| e.to_string())?;
+
+    // Also write Netscape-format file for yt-dlp
+    let netscape = result.build_netscape_file();
+    let netscape_path = cookies_path.parent().unwrap().join("cookies_netscape.txt");
+    std::fs::write(&netscape_path, netscape).map_err(|e| e.to_string())?;
+
     AppState::get_or_init().pool.set_cookies(cookie_string.clone());
     tracing::info!(
         "[Cookies] Extracted {} cookies, {} bytes fed into pool (SAPISID: {})",
@@ -1090,8 +1130,6 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
 
 
 
-            let cookies_path = get_cookies_path();
-
             let video_dir = get_video_storage_path();
 
             std::fs::create_dir_all(&video_dir).ok();
@@ -1103,6 +1141,10 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                 .and_then(|v| v.as_u64())
 
                 .unwrap_or(10) as u32;
+
+            let quality: u32 = params.get("quality")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(360) as u32;
 
 
 
@@ -1120,13 +1162,14 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
 
             let url = video_url.clone();
 
-            let cookies_str = cookies_path.to_string_lossy().to_string();
+            let netscape_path = get_cookies_netscape_path();
+            let cookies_str = netscape_path.to_string_lossy().to_string();
 
             let out_str = output_str.clone();
 
             std::thread::spawn(move || {
 
-                match download_video(&url, &out_str, &cookies_str, trim_minutes) {
+                match download_video(&url, &out_str, &cookies_str, trim_minutes, quality) {
 
                     Ok(result) => {
 
@@ -1170,7 +1213,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
         "workspace:autoDownload" => {
             let id = p(params, "id").unwrap_or_default();
             let video_url = p(params, "url").or_else(|| p(params, "videoUrl")).unwrap_or_default();
-            let cookies_path = get_cookies_path();
+            let netscape_path = get_cookies_netscape_path();
             let video_dir = get_video_storage_path();
             std::fs::create_dir_all(&video_dir).ok();
             let trim_minutes = params.get("trimMinutes").and_then(|v| v.as_u64()).unwrap_or(10) as u32;
@@ -1179,10 +1222,11 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             emit_workspace_event(&id, "downloading", None);
             let tid = id.clone();
             let url = video_url.clone();
-            let cookies_str = cookies_path.to_string_lossy().to_string();
+            let cookies_str = netscape_path.to_string_lossy().to_string();
+            let dl_quality: u32 = params.get("quality").and_then(|v| v.as_u64()).unwrap_or(360) as u32;
             let out_str = output_str.clone();
             std::thread::spawn(move || {
-                download_video_streaming(&url, &out_str, &cookies_str, trim_minutes, |progress| {
+                download_video_streaming(&url, &out_str, &cookies_str, trim_minutes, dl_quality, |progress| {
                     emit_download_progress(&tid, &progress);
                 })
                 .map(|result| {
@@ -1257,7 +1301,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             if id.is_empty() || video_url.is_empty() {
                 return CommandResult::Ok(json!({ "ok": false, "error": "requires id and url params" }));
             }
-            let cookies_path = get_cookies_path();
+            let netscape_path = get_cookies_netscape_path();
             let video_dir = get_video_storage_path();
             std::fs::create_dir_all(&video_dir).ok();
             let output_path = video_dir.join(format!("{}.mp4", id));
@@ -1265,10 +1309,10 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             emit_workspace_event(&id, "downloading", None);
             let tid = id.clone();
             let url = video_url.clone();
-            let cookies_str = cookies_path.to_string_lossy().to_string();
+            let cookies_str = netscape_path.to_string_lossy().to_string();
             let out_str = output_str.clone();
             std::thread::spawn(move || {
-                download_video_streaming(&url, &out_str, &cookies_str, 10, |progress| {
+                download_video_streaming(&url, &out_str, &cookies_str, 10, 1080, |progress| {
                     emit_download_progress(&tid, &progress);
                 })
                 .map(|result| {
@@ -2444,3 +2488,88 @@ fn load_channels() -> Value {
 
 }
 
+// ─── Data migration ──────────────────────────────────────────────
+
+/// Migrate old Electron-era data files into the new `.hyperclip/` store layout.
+/// Safe to run multiple times — checks new path first.
+fn migrate_old_data() {
+    let store_dir = get_store_dir();
+    let channels_dir = store_dir.join("channels");
+
+    // Always ensure store directories exist
+    let _ = std::fs::create_dir_all(&channels_dir);
+    let _ = std::fs::create_dir_all(&store_dir);
+
+    // 1. Migrate channels: old D:/HyperClip-Data/channels/list.json -> new format
+    let new_ch_path = get_channels_path();
+    if !new_ch_path.exists() {
+        let old_ch_path = PathBuf::from("D:/HyperClip-Data/channels/list.json");
+        if old_ch_path.exists() {
+            tracing::info!("[Migrate] Found old channels at {:?}, migrating...", old_ch_path);
+            if let Ok(content) = std::fs::read_to_string(&old_ch_path) {
+                // Old format is a bare JSON array
+                if let Ok(old_channels) = serde_json::from_str::<Vec<serde_json::Value>>(&content) {
+                    let mapped: Vec<hyperclip_ipc::store::Channel> = old_channels.iter().map(|c| {
+                        let handle_raw = c.get("handle").and_then(|v| v.as_str()).unwrap_or("");
+                        // Extract @handle from full URL if needed
+                        let handle = if handle_raw.contains("youtube.com/") {
+                            handle_raw.trim_start_matches("https://www.youtube.com/").to_string()
+                        } else if handle_raw.starts_with('@') {
+                            handle_raw.to_string()
+                        } else {
+                            format!("@{}", handle_raw)
+                        };
+                        hyperclip_ipc::store::Channel {
+                            id: c.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            name: c.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            handle,
+                            avatar_color: c.get("avatarColor").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            channel_id: c.get("channelId").and_then(|v| v.as_str()).map(String::from),
+                            avatar_url: c.get("avatarUrl").and_then(|v| v.as_str()).map(String::from),
+                            created_at: c.get("createdAt").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            paused: c.get("paused").and_then(|v| v.as_bool()).unwrap_or(false),
+                            ..Default::default()
+                        }
+                    }).collect();
+                    let store = hyperclip_ipc::store::ChannelStore { channels: mapped };
+                    let _ = store.save(&new_ch_path);
+                    tracing::info!("[Migrate] Migrated {} channels", store.channels.len());
+                } else {
+                    tracing::warn!("[Migrate] Failed to parse old channels.json");
+                }
+            }
+        } else {
+            tracing::debug!("[Migrate] No old channels file, skipping");
+        }
+    }
+
+    // 2. Migrate seen IDs: old D:/HyperClip-Data/channels/seen-ids.json -> new format
+    let new_seen_path = get_seen_videos_path();
+    if !new_seen_path.exists() {
+        let old_seen_path = PathBuf::from("D:/HyperClip-Data/channels/seen-ids.json");
+        if old_seen_path.exists() {
+            tracing::info!("[Migrate] Found old seen-ids at {:?}, migrating...", old_seen_path);
+            if let Ok(content) = std::fs::read_to_string(&old_seen_path) {
+                if let Ok(ids) = serde_json::from_str::<Vec<String>>(&content) {
+                    let store = SeenVideos { seen: ids };
+                    let _ = store.save(&new_seen_path);
+                    tracing::info!("[Migrate] Migrated {} seen IDs", store.seen.len());
+                }
+            }
+        }
+    }
+
+    // 3. Migrate old seen-videos.json (alternative old path)
+    let alt_seen = PathBuf::from("D:/HyperClip-Data/channels/seen-videos.json");
+    if !new_seen_path.exists() && alt_seen.exists() {
+        if let Ok(content) = std::fs::read_to_string(&alt_seen) {
+            if let Ok(ids) = serde_json::from_str::<Vec<String>>(&content) {
+                let store = SeenVideos { seen: ids };
+                let _ = store.save(&new_seen_path);
+                tracing::info!("[Migrate] Migrated {} seen IDs from seen-videos.json", store.seen.len());
+            }
+        }
+    }
+
+    tracing::info!("[Migrate] Store directory at {:?}", store_dir);
+}

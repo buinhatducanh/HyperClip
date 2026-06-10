@@ -14,8 +14,10 @@ fn main() {
         .init();
     tracing::info!("hyperclip backend started");
 
-    // Eagerly init POLLER_RT before any IPC call that needs it
+    // Eagerly init POLLER_RT and AppState (triggers migration + cookies)
     commands::init_poller_runtime();
+    commands::init_appstate();
+    tracing::info!("[AppState] AppState initialized at startup");
 
     // Create a Tokio runtime for async operations (pool, innertube, etc.)
     let _rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
