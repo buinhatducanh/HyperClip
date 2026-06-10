@@ -37,6 +37,8 @@ import threading
 from PySide6.QtCore import QObject, Signal, Slot, Qt, QEventLoop, QTimer
 
 
+from src.data_dir import get_data_dir
+
 def find_hyperclip_backend():
     candidates = [
         os.path.join("target", "debug", "hyperclip-tauri.exe"),
@@ -77,12 +79,16 @@ class RustClient(QObject):
 
     def _start(self):
         try:
+            env = os.environ.copy()
+            data_dir = get_data_dir()
+            env["HYPERCLIP_DATA_DIR"] = os.path.abspath(data_dir)
             self._proc = subprocess.Popen(
                 [self._binary_path],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 bufsize=0,
+                env=env,
             )
         except FileNotFoundError as e:
             raise RuntimeError("Backend binary not found: " + str(self._binary_path)) from e

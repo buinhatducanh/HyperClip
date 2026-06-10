@@ -614,62 +614,75 @@ fn emit_workspace_event(id: &str, status: &str, error: Option<String>) {
 
 
 
-/// Base media directory — all channel assets organized by channel_id.
+// ─── Path helpers — all delegate to centralized store.rs ──────────
+
 fn get_media_dir() -> PathBuf {
-    PathBuf::from("D:/HyperClip-Data/media")
+    hyperclip_ipc::store::get_media_dir()
 }
 
-/// Sanitize a directory name (remove path-invalid characters).
-fn sanitize_dir_name(name: &str) -> String {
-    name.chars()
-        .map(|c| match c { '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_', _ => c })
-        .take(100)
-        .collect::<String>()
-        .trim()
-        .to_string()
-}
-
-/// Resolve channel folder name: prefer channel_id, fall back to sanitized channel_name.
-fn channel_folder_name(channel_id: &str, channel_name: &str) -> String {
-    if !channel_id.is_empty() {
-        channel_id.to_string()
-    } else {
-        let s = sanitize_dir_name(channel_name);
-        if s.is_empty() { "unknown".to_string() } else { s }
-    }
-}
-
-/// Per-channel media root, e.g. media/{channel_id}/
 fn channel_media_dir(channel_id: &str, channel_name: &str) -> PathBuf {
-    get_media_dir().join(channel_folder_name(channel_id, channel_name))
+    hyperclip_ipc::store::channel_media_dir(channel_id, channel_name)
 }
 
-/// media/{channel_id}/downloads/
 fn channel_downloads_dir(channel_id: &str, channel_name: &str) -> PathBuf {
-    let dir = channel_media_dir(channel_id, channel_name).join("downloads");
-    std::fs::create_dir_all(&dir).ok();
-    dir
+    hyperclip_ipc::store::channel_downloads_dir(channel_id, channel_name)
 }
 
-/// media/{channel_id}/thumbnails/
 fn channel_thumbnails_dir(channel_id: &str, channel_name: &str) -> PathBuf {
-    let dir = channel_media_dir(channel_id, channel_name).join("thumbnails");
-    std::fs::create_dir_all(&dir).ok();
-    dir
+    hyperclip_ipc::store::channel_thumbnails_dir(channel_id, channel_name)
 }
 
-/// media/{channel_id}/renders/
-fn channel_renders_dir(channel_id: &str, channel_name: &str) -> PathBuf {
-    let dir = channel_media_dir(channel_id, channel_name).join("renders");
-    std::fs::create_dir_all(&dir).ok();
-    dir
-}
-
-/// media/{channel_id}/renders/{ws_id}/  (contains final.mp4 + params.json)
 fn render_output_dir(channel_id: &str, channel_name: &str, ws_id: &str) -> PathBuf {
-    let dir = channel_renders_dir(channel_id, channel_name).join(ws_id);
-    std::fs::create_dir_all(&dir).ok();
-    dir
+    hyperclip_ipc::store::render_output_dir(channel_id, channel_name, ws_id)
+}
+
+fn build_download_path(channel_id: &str, channel_name: &str, video_id: &str, timestamp_ms: i64) -> PathBuf {
+    hyperclip_ipc::store::build_download_path(channel_id, channel_name, video_id, timestamp_ms)
+}
+
+fn build_render_path(channel_id: &str, channel_name: &str, ws_id: &str) -> PathBuf {
+    hyperclip_ipc::store::build_render_path(channel_id, channel_name, ws_id)
+}
+
+fn get_thumbnail_path(channel_id: &str, channel_name: &str, video_id: &str) -> PathBuf {
+    hyperclip_ipc::store::get_thumbnail_path(channel_id, channel_name, video_id)
+}
+
+fn get_video_storage_path() -> PathBuf {
+    hyperclip_ipc::store::get_legacy_downloads_dir()
+}
+
+fn ensure_channel_video_dir(channel_name: &str, channel_id: &str) -> PathBuf {
+    hyperclip_ipc::store::channel_downloads_dir(channel_id, channel_name)
+}
+
+fn get_output_path() -> PathBuf {
+    hyperclip_ipc::store::get_legacy_output_dir()
+}
+
+fn ensure_channel_output_dir_fn(channel_name: &str) -> PathBuf {
+    let cid = if channel_name.is_empty() { "unknown".to_string() } else { channel_name.to_string() };
+    hyperclip_ipc::store::channel_renders_dir(&cid, "")
+}
+
+fn get_cookies_path() -> PathBuf {
+    hyperclip_ipc::store::get_cookies_path()
+}
+
+fn get_cookies_netscape_path() -> PathBuf {
+    hyperclip_ipc::store::get_cookies_netscape_path()
+}
+
+fn get_legacy_output_dir() -> PathBuf {
+    hyperclip_ipc::store::get_legacy_output_dir()
+}
+
+fn get_legacy_downloads_dir() -> PathBuf {
+    hyperclip_ipc::store::get_legacy_downloads_dir()
+}
+
+fn get_logs_dir() -> PathBuf {
+    hyperclip_ipc::store::get_logs_dir()
 }
 
 /// Look up (channel_id, channel_name, video_id) from workspace store.
@@ -684,74 +697,6 @@ fn lookup_channel_ids(ws_id: &str) -> (String, String, String) {
     } else {
         ("unknown".to_string(), String::new(), String::new())
     }
-}
-
-/// Build download file path: media/{channel_id}/downloads/{video_id}_{timestamp}.mp4
-fn build_download_path(channel_id: &str, channel_name: &str, video_id: &str, timestamp_ms: i64) -> PathBuf {
-    channel_downloads_dir(channel_id, channel_name).join(format!("{}_{}.mp4", video_id, timestamp_ms))
-}
-
-/// Build render output path: media/{channel_id}/renders/{ws_id}/final.mp4
-fn build_render_path(channel_id: &str, channel_name: &str, ws_id: &str) -> PathBuf {
-    render_output_dir(channel_id, channel_name, ws_id).join("final.mp4")
-}
-
-/// Get a thumbnail file path for a video under a channel.
-fn get_thumbnail_path(channel_id: &str, channel_name: &str, video_id: &str) -> PathBuf {
-    channel_thumbnails_dir(channel_id, channel_name).join(format!("{}.jpg", video_id))
-}
-
-// ─── Legacy flat helpers (keep for backward compat, migrate gradually) ───
-
-fn get_video_storage_path() -> PathBuf {
-    PathBuf::from("D:/HyperClip-Data/downloads")
-}
-
-/// Get or create a per-channel download subdirectory.
-/// Falls back to flat get_video_storage_path() if channel name is empty.
-fn ensure_channel_video_dir(channel_name: &str, channel_id: &str) -> PathBuf {
-    if channel_name.is_empty() && channel_id.is_empty() {
-        return get_video_storage_path();
-    }
-    let safe_name: String = channel_name
-        .chars()
-        .map(|c| match c { '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_', _ => c })
-        .take(100)
-        .collect();
-    let safe_name = if safe_name.trim().is_empty() { channel_id.to_string() } else { safe_name.trim().to_string() };
-    let dir = get_video_storage_path().join(&safe_name);
-    std::fs::create_dir_all(&dir).ok();
-    dir
-}
-
-#[allow(dead_code)]
-fn get_output_path() -> PathBuf {
-    PathBuf::from("D:/HyperClip-Data/output")
-}
-
-/// Per-channel output subdirectory for rendered files.
-fn ensure_channel_output_dir_fn(channel_name: &str) -> PathBuf {
-    if channel_name.is_empty() {
-        return get_output_path();
-    }
-    let safe_name: String = channel_name
-        .chars()
-        .map(|c| match c { '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_', _ => c })
-        .take(100)
-        .collect();
-    let safe_name = if safe_name.trim().is_empty() { "unknown".to_string() } else { safe_name.trim().to_string() };
-    let dir = get_output_path().join(&safe_name);
-    std::fs::create_dir_all(&dir).ok();
-    dir
-}
-
-fn get_cookies_path() -> PathBuf {
-    PathBuf::from("D:/HyperClip-Data/cookies.txt")
-}
-
-/// Netscape-format cookie file for yt-dlp (yt-dlp requires Netscape format).
-fn get_cookies_netscape_path() -> PathBuf {
-    PathBuf::from("D:/HyperClip-Data/cookies_netscape.txt")
 }
 
 /// Extract cookies from Chrome Default profile → save to cookies.txt → feed Innertube pool.
@@ -1597,7 +1542,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                         let out_path = if !cid_split.is_empty() || !cname_split.is_empty() {
                             build_render_path(&cid_split, &cname_split, &rid)
                         } else {
-                            let legacy_out = PathBuf::from("D:/HyperClip-Data/output");
+                            let legacy_out = get_legacy_output_dir();
                             std::fs::create_dir_all(&legacy_out).ok();
                             legacy_out.join(format!("{}.mp4", rid))
                         };

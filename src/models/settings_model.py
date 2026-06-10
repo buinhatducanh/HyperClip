@@ -1,5 +1,6 @@
 """SettingsModel — exposes AppSettings fields to QML via explicit Properties."""
 from PySide6.QtCore import QObject, Signal, Slot, Property
+from src.data_dir import get_data_dir
 
 
 class SettingsModel(QObject):
@@ -7,9 +8,10 @@ class SettingsModel(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._output_folder: str = "D:/HyperClip-Data"
-        self._video_storage_path: str = "D:/HyperClip-Data/videos"
-        self._output_path: str = "D:/HyperClip-Data/output"
+        base = get_data_dir()
+        self._output_folder: str = base
+        self._video_storage_path: str = base
+        self._output_path: str = base
         self._default_trim_limit: int = 10
         self._default_quality: int = 1080
         self._auto_download_quality: str = "1080"
@@ -89,6 +91,7 @@ class SettingsModel(QObject):
             "defaultTrimLimit": "_default_trim_limit",
             "defaultQuality": "_default_quality",
             "autoDownloadQuality": "_auto_download_quality",
+            "autoDownloadMaxAgeMinutes": "_auto_download_max_age_minutes",
             "autoDownloadEnabled": "_auto_download_enabled",
             "pollingEnabled": "_polling_enabled",
             "autoRender": "_auto_render",
@@ -130,6 +133,7 @@ class SettingsModel(QObject):
             "defaultTrimLimit": self._default_trim_limit,
             "defaultQuality": self._default_quality,
             "autoDownloadQuality": self._auto_download_quality,
+            "autoDownloadMaxAgeMinutes": self._auto_download_max_age_minutes,
             "autoDownloadEnabled": self._auto_download_enabled,
             "pollingEnabled": self._polling_enabled,
             "autoRender": self._auto_render,

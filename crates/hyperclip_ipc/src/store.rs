@@ -299,9 +299,19 @@ impl SeenVideos {
     }
 }
 
-/// Get the store directory (D:/HyperClip-Data/.hyperclip)
+/// Determine data directory (env HYPERCLIP_DATA_DIR, or ./data/ relative to cwd).
+/// Central single point — all data (media, settings, logs) lives under here.
+pub fn get_data_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("HYPERCLIP_DATA_DIR") {
+        return PathBuf::from(dir);
+    }
+    // Default: relative to project root (Rust binary is spawned from project root)
+    PathBuf::from("data")
+}
+
+/// Store directory (internal JSON state, not user-visible media).
 pub fn get_store_dir() -> PathBuf {
-    PathBuf::from("D:/HyperClip-Data/.hyperclip")
+    get_data_dir().join(".hyperclip")
 }
 
 pub fn get_workspaces_path() -> PathBuf {
@@ -318,6 +328,111 @@ pub fn get_seen_videos_path() -> PathBuf {
 
 pub fn get_settings_path() -> PathBuf {
     get_store_dir().join("settings.json")
+}
+
+/// Media root — all channel assets organized by channel_id.
+pub fn get_media_dir() -> PathBuf {
+    get_data_dir().join("media")
+}
+
+/// Per-channel media root, e.g. data/media/{channel_id}/
+pub fn channel_media_dir(channel_id: &str, channel_name: &str) -> PathBuf {
+    get_media_dir().join(channel_folder_name(channel_id, channel_name))
+}
+
+/// data/media/{channel_id}/downloads/
+pub fn channel_downloads_dir(channel_id: &str, channel_name: &str) -> PathBuf {
+    let dir = channel_media_dir(channel_id, channel_name).join("downloads");
+    std::fs::create_dir_all(&dir).ok();
+    dir
+}
+
+/// data/media/{channel_id}/thumbnails/
+pub fn channel_thumbnails_dir(channel_id: &str, channel_name: &str) -> PathBuf {
+    let dir = channel_media_dir(channel_id, channel_name).join("thumbnails");
+    std::fs::create_dir_all(&dir).ok();
+    dir
+}
+
+/// data/media/{channel_id}/renders/
+pub fn channel_renders_dir(channel_id: &str, channel_name: &str) -> PathBuf {
+    let dir = channel_media_dir(channel_id, channel_name).join("renders");
+    std::fs::create_dir_all(&dir).ok();
+    dir
+}
+
+/// data/media/{channel_id}/renders/{ws_id}/
+pub fn render_output_dir(channel_id: &str, channel_name: &str, ws_id: &str) -> PathBuf {
+    let dir = channel_renders_dir(channel_id, channel_name).join(ws_id);
+    std::fs::create_dir_all(&dir).ok();
+    dir
+}
+
+/// Build download path: data/media/{channel_id}/downloads/{video_id}_{timestamp}.mp4
+pub fn build_download_path(channel_id: &str, channel_name: &str, video_id: &str, timestamp_ms: i64) -> PathBuf {
+    channel_downloads_dir(channel_id, channel_name).join(format!("{}_{}.mp4", video_id, timestamp_ms))
+}
+
+/// Build render output path: data/media/{channel_id}/renders/{ws_id}/final.mp4
+pub fn build_render_path(channel_id: &str, channel_name: &str, ws_id: &str) -> PathBuf {
+    render_output_dir(channel_id, channel_name, ws_id).join("final.mp4")
+}
+
+/// Thumbnail path: data/media/{channel_id}/thumbnails/{video_id}.jpg
+pub fn get_thumbnail_path(channel_id: &str, channel_name: &str, video_id: &str) -> PathBuf {
+    channel_thumbnails_dir(channel_id, channel_name).join(format!("{}.jpg", video_id))
+}
+
+/// Legacy flat-thumbnails dir (deprecated, keep for backward compat).
+pub fn get_legacy_thumbnails_dir() -> PathBuf {
+    get_data_dir().join("thumbnails")
+}
+
+/// Legacy flat-downloads dir (deprecated, keep for backward compat).
+pub fn get_legacy_downloads_dir() -> PathBuf {
+    get_data_dir().join("downloads")
+}
+
+/// Legacy flat-output dir (deprecated, keep for backward compat).
+pub fn get_legacy_output_dir() -> PathBuf {
+    get_data_dir().join("output")
+}
+
+/// Cookies file for yt-dlp (Netscape format).
+pub fn get_cookies_netscape_path() -> PathBuf {
+    get_data_dir().join("cookies_netscape.txt")
+}
+
+/// Raw cookies file.
+pub fn get_cookies_path() -> PathBuf {
+    get_data_dir().join("cookies.txt")
+}
+
+/// Logs directory.
+pub fn get_logs_dir() -> PathBuf {
+    let dir = get_data_dir().join("logs");
+    std::fs::create_dir_all(&dir).ok();
+    dir
+}
+
+/// Sanitize a directory name (remove path-invalid characters).
+fn sanitize_dir_name(name: &str) -> String {
+    name.chars()
+        .map(|c| match c { '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_', _ => c })
+        .take(100)
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+/// Resolve channel folder name: channel_id first, fall back to sanitized channel_name.
+fn channel_folder_name(channel_id: &str, channel_name: &str) -> String {
+    if !channel_id.is_empty() {
+        channel_id.to_string()
+    } else {
+        let s = sanitize_dir_name(channel_name);
+        if s.is_empty() { "unknown".to_string() } else { s }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

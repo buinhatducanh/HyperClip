@@ -14,8 +14,14 @@ tmp/
 # npm lockfile (project uses pnpm, see pnpm-lock.yaml)
 package-lock.json
 
-# Local runtime data (NOT source — lives in user profile, not repo)
-.hyperclip/
+# Local runtime data — media files only (videos, renders, thumbnails)
+# These are auto-generated and can be multiple GB
+data/media/
+data/downloads/
+data/output/
+data/thumbnails/
+data/logs/
+data/cookies*.txt
 
 # Claude Code — machine-specific overrides (each machine creates its own)
 .claude/settings.local.json

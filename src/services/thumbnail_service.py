@@ -2,11 +2,12 @@
 import os
 import urllib.request
 from typing import Optional
+from src.data_dir import get_thumbnails_dir
 
 
 def get_thumbnail_dir() -> str:
     """Get local thumbnail storage dir."""
-    thumb_dir = "D:/HyperClip-Data/thumbnails"
+    thumb_dir = get_thumbnails_dir()
     os.makedirs(thumb_dir, exist_ok=True)
     return thumb_dir
 

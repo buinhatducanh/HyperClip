@@ -25,10 +25,10 @@ pub fn download_youtube_thumbnail_to(video_id: &str, output_path: &Path) -> Opti
     None
 }
 
-/// Legacy — download to flat D:/HyperClip-Data/thumbnails dir.
+/// Legacy — download to flat data/thumbnails dir.
 /// Kept for backward compat.
 pub fn download_youtube_thumbnail(video_id: &str) -> Option<String> {
-    let dir = PathBuf::from("D:/HyperClip-Data/thumbnails");
+    let dir = super::store::get_legacy_thumbnails_dir();
     let output = dir.join(format!("{}.jpg", video_id));
     download_youtube_thumbnail_to(video_id, &output)
 }

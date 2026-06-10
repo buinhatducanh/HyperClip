@@ -4,7 +4,6 @@ use crate::types::Channel;
 use rand::Rng;
 use serde::Serialize;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -27,6 +26,7 @@ pub struct Poller {
     poll_interval_ms: u64,
     max_videos_per_poll: usize,
     max_age_ms: i64,
+    min_duration_sec: u32,
     process_fn: Arc<dyn Fn(NewVideoEvent) + Send + Sync>,
 }
 
@@ -36,6 +36,7 @@ impl Poller {
         channels: Arc<RwLock<Vec<Channel>>>,
         poll_interval_ms: u64,
         max_age_minutes: u64,
+        min_duration_sec: u32,
         process_fn: impl Fn(NewVideoEvent) + Send + Sync + 'static,
     ) -> Self {
         Self {
@@ -45,6 +46,7 @@ impl Poller {
             poll_interval_ms,
             max_videos_per_poll: 5,
             max_age_ms: (max_age_minutes as i64) * 60 * 1000,
+            min_duration_sec,
             process_fn: Arc::new(process_fn),
         }
     }
@@ -136,7 +138,6 @@ impl Poller {
             match cc.client.get_latest_videos(&lookup_id, &cc.cookie).await {
                 Ok(videos) => {
                     tracing::info!("[Poller] get_latest_videos returned {} videos for {cid}", videos.len());
-                    // Return client to pool and mark success
                     self.pool.return_client(session_idx, cc.client);
                     self.pool.mark_success(session_idx);
 
@@ -150,11 +151,11 @@ impl Poller {
                         }
                         if !Self::is_within_age_limit(video.published_at, now_ms, self.max_age_ms) {
                             let age_s = (now_ms - video.published_at) / 1000;
-                            tracing::info!("[Poller] SKIP {cid} video {} (age={age_s}s > 600s, published_at={})", video.video_id, video.published_at);
+                            tracing::info!("[Poller] SKIP {cid} video {} (age={age_s}s > {}min, published_at={})", video.video_id, self.max_age_ms / 60000, video.published_at);
                             continue;
                         }
-                        if video.duration_sec > 0.0 && video.duration_sec < 60.0 {
-                            tracing::info!("[Poller] SKIP {cid} video {} (short {:.0}s)", video.video_id, video.duration_sec);
+                        if self.min_duration_sec > 0 && video.duration_sec > 0.0 && video.duration_sec < self.min_duration_sec as f64 {
+                            tracing::info!("[Poller] SKIP {cid} video {} (short {:.0}s < {}s)", video.video_id, video.duration_sec, self.min_duration_sec);
                             continue;
                         }
                         if video.width > 0 && video.height > 0 {
@@ -179,7 +180,6 @@ impl Poller {
                 }
                 Err(e) => {
                     tracing::warn!("[Poller] Innertube error for {cid} (session {session_idx}): {e}");
-                    // Don't return client on error — pool.mark_failed invalidates it
                     self.pool.mark_failed(session_idx);
                 }
             }
