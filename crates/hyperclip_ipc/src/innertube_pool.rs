@@ -92,6 +92,13 @@ impl InnertubeClientPool {
         }
     }
 
+    pub fn mark_success(&self, session_idx: usize) {
+        if let Some(s) = self.sessions.lock().unwrap().get_mut(session_idx) {
+            s.cooldown_until = None;
+            s.suspended_until = None;
+        }
+    }
+
     pub fn suspend(&self, session_idx: usize, duration: Duration) {
         if let Some(s) = self.sessions.lock().unwrap().get_mut(session_idx) {
             s.suspended_until = Some(Instant::now() + duration);
@@ -134,7 +141,7 @@ impl InnertubeClientPool {
             let idx = self.next_session();
             if let Some(s) = sessions.get(idx) {
                 if s.cooldown_until.map_or(true, |t| now >= t)
-                    && s.suspended_until.map_or(true, |t| now < t)
+                    && s.suspended_until.map_or(true, |t| now >= t)
                 {
                     return Some(idx);
                 }
@@ -156,7 +163,10 @@ impl InnertubeClientPool {
         let s = sessions.get_mut(session_idx)?;
 
         if s.client.is_none() {
-            let cfg = crate::innertube_client::ClientConfig::default();
+            let cfg = crate::innertube_client::ClientConfig {
+                timeout_sec: 15,
+                ..Default::default()
+            };
             if let Ok(c) = crate::innertube_client::InnertubeClient::new(cfg) {
                 s.client = Some(c);
             } else {
@@ -168,6 +178,14 @@ impl InnertubeClientPool {
         let client = s.client.take()?;
         let cookie = s.cookie.clone();
         Some(SessionClient { client, cookie })
+    }
+
+    /// Return a client back to its session slot so it can be reused.
+    pub fn return_client(&self, session_idx: usize, client: crate::innertube_client::InnertubeClient) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(s) = sessions.get_mut(session_idx) {
+            s.client = Some(client);
+        }
     }
 }
 

@@ -53,4 +53,14 @@ fn main() {
             commands::CommandResult::Err(e) => emit(hyperclip_ipc::IpcResponse::err(id, e)),
         }
     }
+
+    // stdin EOF — keep alive if poller is active
+    tracing::info!("[main] stdin EOF — keeping alive for background tasks");
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        if !commands::is_poller_active() {
+            break;
+        }
+    }
+    tracing::info!("[main] poller inactive — shutting down");
 }

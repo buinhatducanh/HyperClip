@@ -18,7 +18,7 @@ impl Default for ClientConfig {
     fn default() -> Self {
         Self {
             node_path: "node".to_string(),
-            helper_script: PathBuf::from("crates/hyperclip_ipc/src/innertube_helper.js"),
+            helper_script: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/innertube_helper.js"),
             timeout_sec: 30,
         }
     }
@@ -81,36 +81,61 @@ impl InnertubeClient {
     }
 
     fn call_node(node_path: &str, helper: &PathBuf, channel_id: &str, cookie: &str) -> Result<Vec<VideoInfo>> {
-        let resp_file = std::env::temp_dir().join(format!("hc_response_{channel_id}.json"));
+        let temp_dir = std::env::temp_dir();
+        let req_file = temp_dir.join(format!("hc_request_{channel_id}.json"));
+        let resp_file = temp_dir.join(format!("hc_response_{channel_id}.json"));
+        let req_path = req_file.to_string_lossy().to_string();
         let resp_path = resp_file.to_string_lossy().to_string();
+
+        // Write request to file (avoids Windows pipe buffering issues)
+        let req = serde_json::json!({"id":1,"channelId":channel_id,"cookie":cookie}).to_string();
+        if let Err(e) = std::fs::write(&req_file, &req) {
+            let _ = std::fs::remove_file(&req_file);
+            return Err(HyperclipError::BackendCrashed(format!("Failed to write request file: {e}")));
+        }
         let _ = std::fs::remove_file(&resp_file);
+
+        let start = std::time::Instant::now();
+        let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent().unwrap()
+            .parent().unwrap()
+            .to_path_buf();
+        tracing::debug!("[Innertube] Spawn Node for {channel_id} (helper={:?}, cwd={:?}, req_file={:?})",
+            helper, project_root, req_file);
 
         let mut child = match Command::new(node_path)
             .arg(helper)
+            .arg(&req_path)      // Pass request file as CLI arg
             .env("HYPERCLIP_RESPONSE_FILE", &resp_path)
-            .stdin(Stdio::piped())
+            .current_dir(&project_root)
+            .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
         {
             Ok(c) => c,
-            Err(e) => return Err(HyperclipError::BackendCrashed(format!("Node spawn failed: {e}"))),
+            Err(e) => {
+                let _ = std::fs::remove_file(&req_file);
+                return Err(HyperclipError::BackendCrashed(format!("Node spawn failed: {e}")));
+            }
         };
-
-        let req = serde_json::json!({"id":1,"channelId":channel_id,"cookie":cookie}).to_string() + "\n";
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(req.as_bytes());
-        }
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         loop {
             if std::time::Instant::now() > deadline {
                 let _ = child.kill(); let _ = child.wait();
-                return Err(HyperclipError::InnertubeTransient(format!("Node timed out for {channel_id}")));
+                let _ = std::fs::remove_file(&req_file);
+                return Err(HyperclipError::InnertubeTransient(
+                    format!("Node timed out for {channel_id} (resp_file exists={})",
+                        resp_file.exists())
+                ));
             }
             match std::fs::read_to_string(&resp_file) {
                 Ok(c) if !c.is_empty() => {
+                    let elapsed = start.elapsed().as_secs_f64();
+                    tracing::debug!("[Innertube] Node responded in {elapsed:.1}s for {channel_id}");
                     let _ = child.kill(); let _ = child.wait();
+                    let _ = std::fs::remove_file(&req_file);
                     let _ = std::fs::remove_file(&resp_file);
                     match serde_json::from_str::<NodeResponse>(&c) {
                         Ok(r) if r.ok => return Ok(r.videos.unwrap_or_default().into_iter().map(|v| VideoInfo {

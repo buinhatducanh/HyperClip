@@ -509,7 +509,7 @@ fn detection_events_store() -> &'static Mutex<VecDeque<DetectionEvent>> {
     STORE.get_or_init(|| Mutex::new(VecDeque::new()))
 }
 
-/// Eagerly init POLLER_RT at startup so start_poller() never panics
+/// Eagerly init POLLER_RT and AppState at startup.
 pub fn init_poller_runtime() {
     POLLER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
 }
@@ -517,6 +517,12 @@ pub fn init_poller_runtime() {
 /// Eagerly init AppState at startup — triggers data migration + cookie extraction.
 pub fn init_appstate() {
     AppState::get_or_init();
+}
+
+/// Check if poller is still running (for main loop keep-alive).
+pub fn is_poller_active() -> bool {
+    let state = AppState::get_or_init();
+    state.poller_active()
 }
 
 

@@ -101,7 +101,7 @@ pub fn build_short_filter(
         String::new()
     };
     let video_chain = format!(
-        "[0:v]fps=30,{}{}setpts=PTS-STARTPTS,{}scale=-2:{},{}crop={}:{}:{}:0[vid]",
+        "[0:v]fps=30,{}{}setpts=PTS-STARTPTS,{}=-2:{}{},crop={}:{}:{}:0[vid]",
         speed_tag,
         trim_tag,
         scale,
@@ -249,7 +249,7 @@ pub fn build_landscape_filter(
 
     let video_chain = if crop_x_num >= 0 {
         format!(
-            "[0:v]fps=30,{}{}setpts=PTS-STARTPTS,{}scale=-2:{},{}crop={}:{}:{}:0[vid]",
+            "[0:v]fps=30,{}{}setpts=PTS-STARTPTS,{}=-2:{}{},crop={}:{}:{}:0[vid]",
             speed_tag, trim_tag,
             scale,
             video_h,
@@ -261,7 +261,7 @@ pub fn build_landscape_filter(
     } else {
         let crop_y = ((canvas_w as f64 * 9.0 / 16.0) - (video_h as f64)).round() as i32 / 2 + video_top as i32;
         format!(
-            "[0:v]fps=30,{}{}setpts=PTS-STARTPTS,{}scale={}:-2{} ,crop={}:{}:0:{} [vid]",
+            "[0:v]fps=30,{}{}setpts=PTS-STARTPTS,{}={}:-2{},crop={}:{}:0:{} [vid]",
             speed_tag, trim_tag,
             scale,
             canvas_w,
@@ -431,6 +431,7 @@ pub fn spawn_render(
 use crate::error::{HyperclipError, Result};
 use crate::render_progress::parse_ffmpeg_stderr;
 use crate::system::GPUTier;
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command as TokioCommand;
 
@@ -459,7 +460,11 @@ pub async fn spawn_render_async<F>(
 ) -> Result<PathBuf>
 where F: FnMut(f64) + Send + 'static {
     let speed = opts.speed;
-    let (canvas_w, canvas_h) = parse_resolution(&opts.resolution);
+    let (mut canvas_w, mut canvas_h) = parse_resolution(&opts.resolution);
+    // Short (9:16) needs portrait — swap if landscape was returned
+    if matches!(opts.filter_chain, FilterChain::Short) && canvas_w > canvas_h {
+        std::mem::swap(&mut canvas_w, &mut canvas_h);
+    }
     let (header_h, bottom_bar_h) = (canvas_h / 5, canvas_h / 10);
     let use_cuda = matches!(opts.gpu_tier, GPUTier::High | GPUTier::Mid);
 
@@ -505,6 +510,10 @@ where F: FnMut(f64) + Send + 'static {
     };
     let bufsize = maxrate;
 
+    let total_duration = (opts.trim_end - opts.trim_start) / speed;
+    // Ensure at least 1s for lavfi color inputs
+    let total_duration_str = format!("{:.2}", total_duration.max(1.0));
+
     let mut cmd = TokioCommand::new(get_ffmpeg_path());
     let mut args: Vec<String> = vec![
         "-hide_banner".into(), "-y".into(),
@@ -514,9 +523,31 @@ where F: FnMut(f64) + Send + 'static {
         args.extend_from_slice(&["-hwaccel".into(), "cuda".into(), "-hwaccel_output_format".into(), "cuda".into()]);
     }
 
+    // Input [0]: source video
+    args.extend_from_slice(&["-i".into(), opts.input_path.to_str().unwrap().to_string()]);
+
+    // Inputs [1]..[3]: overlay layers (bg, bottom_bar, header) as lavfi colors.
+    // Filter chain uses [1:v] for background, [2:v] for bottom_bar, [3:v] for header.
+    // Duration matches the source (trim is handled by the filter chain).
+    let dur_str = format!("d={}", total_duration_str);
+    let bg_color = "0x2d2d2d";  // dark gray bg
+    let bb_color = "0x1a1a1a";  // bottom bar
+    let hd_color = "0x0d0d0d";  // header
+
+    for (color, w, h) in [
+        (bg_color, canvas_w, canvas_h),
+        (bb_color, canvas_w, bottom_bar_h),
+        (hd_color, canvas_w, header_h),
+    ] {
+        args.extend_from_slice(&[
+            "-f".into(), "lavfi".into(),
+            "-i".into(), format!("color=c={}:s={}x{}:{}", color, w, h, dur_str),
+        ]);
+    }
+
     args.extend_from_slice(&[
-        "-i".into(), opts.input_path.to_str().unwrap().to_string(),
         "-filter_complex".into(), complete_filter,
+        "-t".into(), total_duration_str.clone(),
         "-map".into(), "[final]".into(),
         "-map".into(), audio_map.into(),
         "-c:v".into(), codec.to_string(),
@@ -540,7 +571,10 @@ where F: FnMut(f64) + Send + 'static {
     let mut child = cmd.spawn().map_err(|e| HyperclipError::FFmpegNotFound(e.to_string()))?;
     let stderr = child.stderr.take().unwrap();
     let mut reader = BufReader::new(stderr);
-    let total_duration = (opts.trim_end - opts.trim_start) / speed;
+
+    // Read stderr into a buffer for error reporting
+    let stderr_buf: Arc<std::sync::Mutex<String>> = Arc::new(std::sync::Mutex::new(String::new()));
+    let stderr_buf_clone = stderr_buf.clone();
 
     tokio::spawn(async move {
         let mut line = String::new();
@@ -552,6 +586,9 @@ where F: FnMut(f64) + Send + 'static {
                     if let Some(p) = parse_ffmpeg_stderr(line.trim(), total_duration) {
                         on_progress(p);
                     }
+                    if let Ok(mut buf) = stderr_buf_clone.lock() {
+                        buf.push_str(&line);
+                    }
                 }
                 Err(_) => break,
             }
@@ -560,7 +597,10 @@ where F: FnMut(f64) + Send + 'static {
 
     let status = child.wait().await.map_err(HyperclipError::Io)?;
     if !status.success() {
-        return Err(HyperclipError::BackendCrashed(format!("FFmpeg exit {:?}", status.code())));
+        let err_detail = stderr_buf.lock().map(|b| b.clone()).unwrap_or_default();
+        return Err(HyperclipError::BackendCrashed(
+            format!("FFmpeg exit {:?}. Stderr:\n{}", status.code(), err_detail)
+        ));
     }
     Ok(opts.output_path)
 }

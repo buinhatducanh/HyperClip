@@ -155,6 +155,43 @@ process.stdin.on('data', async (chunk) => {
   }
 });
 
-// NO on('end') handler — Rust closes stdin (take()) to signal EOF, but
-// process.exit(0) would kill the process before async handlers complete.
-// Rust force-kills after reading the response.
+// ─── Entry point ──────────────────────────────────────────────
+
+// If a CLI argument is provided, treat it as a request file path (file-based mode,
+// avoids Windows stdin pipe buffering issues).
+if (process.argv[2]) {
+  const reqPath = process.argv[2];
+  (async () => {
+    try {
+      const content = require('fs').readFileSync(reqPath, 'utf-8');
+      const req = JSON.parse(content);
+      const result = await getLatestVideo(req.channelId, req.cookie);
+      writeResponse({ id: req.id, ...result });
+    } catch (e) {
+      writeResponse({ id: null, ok: false, error: e.message });
+    }
+    process.exit(0);
+  })();
+} else {
+  // stdin-based mode (fallback, used when spawned without args)
+  process.stdin.setEncoding('utf8');
+  let buffer = '';
+  process.stdin.on('data', async (chunk) => {
+    buffer += chunk;
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const req = JSON.parse(line);
+        const result = await getLatestVideo(req.channelId, req.cookie);
+        writeResponse({ id: req.id, ...result });
+      } catch (e) {
+        writeResponse({ id: null, ok: false, error: e.message });
+      }
+    }
+  });
+  // NO on('end') handler — Rust closes stdin (take()) to signal EOF, but
+  // process.exit(0) would kill the process before async handlers complete.
+  // Rust force-kills after reading the response.
+}

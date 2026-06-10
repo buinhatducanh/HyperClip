@@ -128,6 +128,10 @@ impl Poller {
 
             match cc.client.get_latest_videos(&lookup_id, &cc.cookie).await {
                 Ok(videos) => {
+                    // Return client to pool and mark success
+                    self.pool.return_client(session_idx, cc.client);
+                    self.pool.mark_success(session_idx);
+
                     if videos.is_empty() {
                         tracing::debug!("[Poller] Channel {cid} — 0 videos");
                     }
@@ -154,6 +158,7 @@ impl Poller {
                 }
                 Err(e) => {
                     tracing::warn!("[Poller] Innertube error for {cid} (session {session_idx}): {e}");
+                    // Don't return client on error — pool.mark_failed invalidates it
                     self.pool.mark_failed(session_idx);
                 }
             }
