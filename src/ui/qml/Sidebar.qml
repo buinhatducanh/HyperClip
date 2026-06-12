@@ -349,7 +349,6 @@ Rectangle {
                     }
                 }
             }
-        }
 
         Label {
             anchors.centerIn: parent

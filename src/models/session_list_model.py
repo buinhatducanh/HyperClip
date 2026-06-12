@@ -4,6 +4,7 @@ Incremental model: _ids_identical check avoids gratuitous beginResetModel on
 periodic refresh. When the list is structurally unchanged only dataChanged is
 emitted.
 """
+import json
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot, QObject
 
 
@@ -130,3 +131,12 @@ class SessionListModel(QAbstractListModel):
                 error = response.get("error", "unknown") if isinstance(response, dict) else "unknown"
                 results.append({"profile": profile_name, "ok": False, "error": error})
         return results
+
+    def export_to_file(self, file_path: str):
+        """Export sessions to JSON file."""
+        try:
+            data = {"sessions": self._items}
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"[SessionListModel] export error: {e}")

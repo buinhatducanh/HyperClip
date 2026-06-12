@@ -2,7 +2,8 @@
 
 Incremental model: _ids_identical check avoids gratuitous beginResetModel.
 """
-from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot
+import json
+from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot, QObject
 
 
 class ProjectListModel(QAbstractListModel):
@@ -99,14 +100,53 @@ class ProjectListModel(QAbstractListModel):
         if not backend: return
         backend.send_command("project:reauthorize", {"projectId": project_id})
 
-    @Slot()
+    @Slot('QVariant')
     def batch_repair(self, backend):
         if not backend: return
         ids = [p.get("projectId", "") for p in self._items]
         backend.send_command("project:batchRepair", {"projectIds": ids})
 
-    @Slot()
+    @Slot('QVariant')
     def test_all(self, backend):
         if not backend: return
-        backend.send_command("project:testAll")
+        resp = backend.send_command("project:testAll")
+        if resp and resp.get("ok") is not False:
+            projects = resp.get("result", {}).get("projects", [])
+            checked = resp.get("result", {}).get("checkedAt", 0)
+            from src.services.toast_service import get_toast_service
+            toast = get_toast_service()
+            if toast:
+                toast.show("Test Projects", f"Đã kiểm tra {len(projects)} projects", "info")
+        self.load_from_backend(backend)
+
+    @Slot(str, 'QVariant')
+    def import_from_file(self, file_url: str, backend):
+        """Import projects from JSON file."""
+        if not backend: return
+        try:
+            from PySide6.QtCore import QUrl
+            path = QUrl(file_url).toLocalFile()
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            projects = data.get("projects", [])
+            for p in projects:
+                backend.send_command("project:add", p)
+            self.load_from_backend(backend)
+        except Exception as e:
+            print(f"[ProjectListModel] import error: {e}")
+
+    def export_to_file(self, file_path: str):
+        """Export projects to JSON file."""
+        try:
+            data = {"projects": self._items}
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"[ProjectListModel] export error: {e}")
+
+    @Slot()
+    def clear_all(self, backend):
+        if not backend: return
+        for p in self._items:
+            backend.send_command("project:remove", {"projectId": p.get("projectId", "")})
         self.load_from_backend(backend)

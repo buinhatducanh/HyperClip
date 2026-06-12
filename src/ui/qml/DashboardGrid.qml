@@ -8,7 +8,6 @@ Rectangle {
     id: root
     color: Theme.bg
 
-    property string globalSearchText: ""
     property string filterChannelId: ""
     signal openDetail(string type, string id)  // "workspace" | "rendered"
 
@@ -33,7 +32,6 @@ Rectangle {
                     id: queue
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    globalSearchText: root.globalSearchText
                     channelFilter: root.filterChannelId
                 }
 

@@ -1,0 +1,364 @@
+{
+  "projects": [
+    {
+      "projectId": "animated-rope-494804-m1",
+      "name": "animated-rope-494804-m1",
+      "clientId": "307872922332-nuq21tj9kp34ufq32tmvnhqht7s0ph0p.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 1780478483
+    },
+    {
+      "projectId": "cosmic-facility-494812-n0",
+      "name": "cosmic-facility-494812-n0",
+      "clientId": "590270275716-00kt2kp7m904ocf7v483angiq6o16a39.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 1779769792
+    },
+    {
+      "projectId": "cyper-clip",
+      "name": "cyper-clip",
+      "clientId": "1011864613739-tlom4f4gf6q0a53jgrd03b2b1jf0gh9a.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "deft-envoy-494805-a0",
+      "name": "deft-envoy-494805-a0",
+      "clientId": "54953904749-i0okh5di7d36movjs8769f8tj8bpubsb.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "enhanced-kiln-494912-q3",
+      "name": "enhanced-kiln-494912-q3",
+      "clientId": "388091054737-o9sjje7v9l4fu102ma5ghamskltqrt7c.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "feisty-tempest-494805-g9",
+      "name": "feisty-tempest-494805-g9",
+      "clientId": "975853156393-8snbceg41n10ca6klsdt0g5jv8nnai79.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "glass-sequence-494818-c9",
+      "name": "glass-sequence-494818-c9",
+      "clientId": "642816324309-bdcfga1k6ldr8knud0e745vtj7h2r9ea.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "hyperclip1a",
+      "name": "hyperclip1a",
+      "clientId": "296037912945-a17d1d11psjilf4gncjs2uttlbd9lgeq.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 1778792494
+    },
+    {
+      "projectId": "hyperclip2a",
+      "name": "hyperclip2a",
+      "clientId": "402413121986-kgqcktk90s3cai7pke1c6h7p6sdprd20.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "inner-deck-494913-m6",
+      "name": "inner-deck-494913-m6",
+      "clientId": "833331234143-c7ohr2m25akmjjrnm5jlji4fkig1kusn.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "iron-atom-494817-u9",
+      "name": "iron-atom-494817-u9",
+      "clientId": "186824722217-mp32576o8r4cffmm7b4so8pvbg7trdpr.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "kczilk-495779978021",
+      "name": "kczilk-495779978021",
+      "clientId": "495779978021-hed4khk9ui0uvq7kubfgjfmljmd12sll.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "kuhdf72387932",
+      "name": "kuhdf72387932",
+      "clientId": "296037912945-a17d1d11psjilf4gncjs2uttlbd9lgeq.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "metal-filament-494812-q4",
+      "name": "metal-filament-494812-q4",
+      "clientId": "497850284773-p2thm44nndos5ug6hfk1korpngal14t2.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "nguyentunguyen1333",
+      "name": "nguyentunguyen1333",
+      "clientId": "52619104247-45e7gvntblolco0am7vsj1dk3paa3ce9.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "proj-01",
+      "name": "proj-01",
+      "clientId": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "sanguine-tome-494805-j2",
+      "name": "sanguine-tome-494805-j2",
+      "clientId": "1046313180305-1ddhgu0p64iuasg28r1v0mlcic1ng2j3.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "sigma-chemist-494913-b4",
+      "name": "sigma-chemist-494913-b4",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "sound-aileron-494913-c7",
+      "name": "sound-aileron-494913-c7",
+      "clientId": "971758623530-l21bmfq47d7ced55ant73not2mgeuncp.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "stalwart-realm-494807-u6",
+      "name": "stalwart-realm-494807-u6",
+      "clientId": "915464993076-nr8no92e0huql2jgdocn4cb56o32up6s.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "tduong83st",
+      "name": "tduong83st",
+      "clientId": "803793492338-t20ghr6r49991k6lcmro8uluqjif33ss.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "tdvt83",
+      "name": "tdvt83",
+      "clientId": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "test-2-494912",
+      "name": "test-2-494912",
+      "clientId": "565523727760-r921ptb2aofkrgbagi346u5pdt5v97e8.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "test-3-494913",
+      "name": "test-3-494913",
+      "clientId": "1077137708106-5qrvfo43jlgfnkvv7j4iar3sq2kainul.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "thinking-leaf-494813-u7",
+      "name": "thinking-leaf-494813-u7",
+      "clientId": "526726243863-ch1gdh0q4h0mp0vpar56su29nb7g0e1h.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "thuyduongq143",
+      "name": "thuyduongq143",
+      "clientId": "294100569567-70c9u75k919845bacm6o9io3fkva84bv.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "vast-reality-494804-r6",
+      "name": "vast-reality-494804-r6",
+      "clientId": "687571691838-12jci06pl1efkjlepheu4dnusu8patjk.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "vocal-messenger-494807-d8",
+      "name": "vocal-messenger-494807-d8",
+      "clientId": "634834004239-87t61abka1ich9409404ec6rj1fmj2g0.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "weighty-treat-494812-b5",
+      "name": "weighty-treat-494812-b5",
+      "clientId": "292534362955-qqbnagv31jfhvecpb1h7lino42tfsgdj.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "airy-deployment-496401-p7",
+      "name": "airy-deployment-496401-p7",
+      "clientId": "79626994743-2rq43ka7c9ip9g8dbf7fbo8c8fari3sh.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "rare-shuttle-496403-m8",
+      "name": "rare-shuttle-496403-m8",
+      "clientId": "234848361711-hr2qa9p81hd4b3koj3g7fun9c8nr737m.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "inlaid-subset-496403-i8",
+      "name": "inlaid-subset-496403-i8",
+      "clientId": "315264118358-kb0to0t9hr17ou4bseh73oqinmk8k29p.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "regal-stone-496407-j8",
+      "name": "regal-stone-496407-j8",
+      "clientId": "244073209638-lom2i69kds4de1erbp4948e8fl2c6e8r.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "rare-journey-496407-g3",
+      "name": "rare-journey-496407-g3",
+      "clientId": "160692430109-52rp8ol7j7einqgt9fi9e070ut96lit2.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "groovy-pager-496407-c3",
+      "name": "groovy-pager-496407-c3",
+      "clientId": "307599659457-flu7dko8opcca0uodnbqvv2u5bk00rko.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "storied-link-496408-p0",
+      "name": "storied-link-496408-p0",
+      "clientId": "629245460293-700dmljnkjth308pcs4tir0a16ikmaag.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    }
+  ]
+}

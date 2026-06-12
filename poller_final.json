@@ -1,0 +1,16 @@
+{
+  "id": 1,
+  "ok": true,
+  "result": {
+    "active": true,
+    "averageLatencyMs": 0.0,
+    "detectionsToday": 0,
+    "innertubeDegraded": false,
+    "lastDetectionLatencyMs": 0,
+    "lastError": "",
+    "lastPollAt": 1781185142618,
+    "newVideoCount": 0,
+    "pollIntervalMs": 5000,
+    "slaPercent": 100.0
+  }
+}

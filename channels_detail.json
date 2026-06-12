@@ -1,0 +1,46 @@
+{
+  "id": 1,
+  "ok": true,
+  "result": {
+    "channels": [
+      {
+        "avatarColor": "#00B4FF",
+        "avatarUrl": "https://yt3.googleusercontent.com/ytc/AIdro_kd0r3DkBHA_FEYSuZkgW6bMCXbJaOGe7fMb-WQ3tiGsgo=s100-c-k-c0x00ffffff-no-rj",
+        "channelId": "UCcGsDTH1Bypd8gWH1US1b4g",
+        "createdAt": "2026-05-14T14:51:25.853Z",
+        "enabled": true,
+        "errorCount": 0,
+        "handle": "@nhatucanhbui3670",
+        "id": "ch1778770285853",
+        "lastChecked": null,
+        "lastPollAt": null,
+        "lastVideoId": null,
+        "name": "Nhật Đức Anh Bùi",
+        "newCount": 0,
+        "paused": false,
+        "playlistCacheExpiry": null,
+        "totalVideosDownloaded": 0,
+        "uploadPlaylistId": null
+      },
+      {
+        "avatarColor": "#00FF88",
+        "avatarUrl": "https://yt3.googleusercontent.com/ytc/AIdro_m7R8HpYVoN1PnVNHuYWZsk63a6XWhajG3-VUN21Ss=s100-c-k-c0x00ffffff-no-rj",
+        "channelId": "UCP0XXnFnS3hgAaQl0DrJgvA",
+        "createdAt": "2026-05-25T03:02:43.236Z",
+        "enabled": true,
+        "errorCount": 0,
+        "handle": "@zilkkay6971",
+        "id": "ch1779678163236",
+        "lastChecked": null,
+        "lastPollAt": null,
+        "lastVideoId": null,
+        "name": "Zilk Kay",
+        "newCount": 0,
+        "paused": false,
+        "playlistCacheExpiry": null,
+        "totalVideosDownloaded": 0,
+        "uploadPlaylistId": null
+      }
+    ]
+  }
+}

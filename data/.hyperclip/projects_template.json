@@ -1,0 +1,454 @@
+{
+  "projects": [
+    {
+      "projectId": "animated-rope-494804-m1",
+      "name": "animated-rope-494804-m1",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 1780478483,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/animated-rope-494804-m1"
+      }
+    },
+    {
+      "projectId": "cosmic-facility-494812-n0",
+      "name": "cosmic-facility-494812-n0",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 1779769792,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/cosmic-facility-494812-n0"
+      }
+    },
+    {
+      "projectId": "cyper-clip",
+      "name": "cyper-clip",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/cyper-clip"
+      }
+    },
+    {
+      "projectId": "deft-envoy-494805-a0",
+      "name": "deft-envoy-494805-a0",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/deft-envoy-494805-a0"
+      }
+    },
+    {
+      "projectId": "enhanced-kiln-494912-q3",
+      "name": "enhanced-kiln-494912-q3",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/enhanced-kiln-494912-q3"
+      }
+    },
+    {
+      "projectId": "feisty-tempest-494805-g9",
+      "name": "feisty-tempest-494805-g9",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/feisty-tempest-494805-g9"
+      }
+    },
+    {
+      "projectId": "glass-sequence-494818-c9",
+      "name": "glass-sequence-494818-c9",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/glass-sequence-494818-c9"
+      }
+    },
+    {
+      "projectId": "hyperclip1a",
+      "name": "hyperclip1a",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 1778792494,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/hyperclip1a"
+      }
+    },
+    {
+      "projectId": "hyperclip2a",
+      "name": "hyperclip2a",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/hyperclip2a"
+      }
+    },
+    {
+      "projectId": "inner-deck-494913-m6",
+      "name": "inner-deck-494913-m6",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/inner-deck-494913-m6"
+      }
+    },
+    {
+      "projectId": "iron-atom-494817-u9",
+      "name": "iron-atom-494817-u9",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/iron-atom-494817-u9"
+      }
+    },
+    {
+      "projectId": "kczilk-495779978021",
+      "name": "kczilk-495779978021",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/kczilk-495779978021"
+      }
+    },
+    {
+      "projectId": "kuhdf72387932",
+      "name": "kuhdf72387932",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/kuhdf72387932"
+      }
+    },
+    {
+      "projectId": "metal-filament-494812-q4",
+      "name": "metal-filament-494812-q4",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/metal-filament-494812-q4"
+      }
+    },
+    {
+      "projectId": "nguyentunguyen1333",
+      "name": "nguyentunguyen1333",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/nguyentunguyen1333"
+      }
+    },
+    {
+      "projectId": "proj-01",
+      "name": "proj-01",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/proj-01"
+      }
+    },
+    {
+      "projectId": "sanguine-tome-494805-j2",
+      "name": "sanguine-tome-494805-j2",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/sanguine-tome-494805-j2"
+      }
+    },
+    {
+      "projectId": "sigma-chemist-494913-b4",
+      "name": "sigma-chemist-494913-b4",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/sigma-chemist-494913-b4"
+      }
+    },
+    {
+      "projectId": "sound-aileron-494913-c7",
+      "name": "sound-aileron-494913-c7",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/sound-aileron-494913-c7"
+      }
+    },
+    {
+      "projectId": "stalwart-realm-494807-u6",
+      "name": "stalwart-realm-494807-u6",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/stalwart-realm-494807-u6"
+      }
+    },
+    {
+      "projectId": "starry-braid-494805-e1",
+      "name": "starry-braid-494805-e1",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/starry-braid-494805-e1"
+      }
+    },
+    {
+      "projectId": "tduong83st",
+      "name": "tduong83st",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/tduong83st"
+      }
+    },
+    {
+      "projectId": "tdvt83",
+      "name": "tdvt83",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/tdvt83"
+      }
+    },
+    {
+      "projectId": "test-2-494912",
+      "name": "test-2-494912",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/test-2-494912"
+      }
+    },
+    {
+      "projectId": "test-3-494913",
+      "name": "test-3-494913",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/test-3-494913"
+      }
+    },
+    {
+      "projectId": "thinking-leaf-494813-u7",
+      "name": "thinking-leaf-494813-u7",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/thinking-leaf-494813-u7"
+      }
+    },
+    {
+      "projectId": "thuyduongq143",
+      "name": "thuyduongq143",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/thuyduongq143"
+      }
+    },
+    {
+      "projectId": "vast-reality-494804-r6",
+      "name": "vast-reality-494804-r6",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/vast-reality-494804-r6"
+      }
+    },
+    {
+      "projectId": "vocal-messenger-494807-d8",
+      "name": "vocal-messenger-494807-d8",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/vocal-messenger-494807-d8"
+      }
+    },
+    {
+      "projectId": "weighty-treat-494812-b5",
+      "name": "weighty-treat-494812-b5",
+      "clientId": "",
+      "clientSecret": "",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0,
+      "_notes": {
+        "originalMachineId": "64d78436...52d3",
+        "source": "D:/HyperClip-Data/projects/weighty-treat-494812-b5"
+      }
+    }
+  ]
+}

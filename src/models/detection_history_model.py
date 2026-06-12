@@ -24,6 +24,8 @@ class DetectionHistoryModel(QAbstractListModel):
     DetectedTimeStrRole = Qt.UserRole + 16
     LatencyStrRole = Qt.UserRole + 17
     AgeAtDetectionRole = Qt.UserRole + 18
+    PublishedDateStrRole = Qt.UserRole + 19
+    DetectedDateStrRole = Qt.UserRole + 20
 
     def __init__(self, parent=None, max_entries: int = 50):
         super().__init__(parent)
@@ -100,10 +102,26 @@ class DetectionHistoryModel(QAbstractListModel):
             lat = e.get("latencyMs", 0)
             age_sec = lat / 1000
             if age_sec < 60:
-                return f"< {age_sec:.0f}s"
+                return f"{int(age_sec)}s"
             if age_sec < 3600:
-                return f"< {age_sec / 60:.0f}m"
-            return f"> {age_sec / 3600:.0f}h"
+                return f"{int(age_sec / 60)}p"
+            if age_sec < 86400:
+                return f"{int(age_sec / 3600)}g"
+            return f"{int(age_sec / 86400)}n trước"
+        if role == self.PublishedDateStrRole:
+            pub = e.get("publishedAt", 0)
+            if not pub:
+                return "—"
+            pub_sec = pub // 1000
+            lt = time.localtime(pub_sec)
+            return f"{lt.tm_mday:02d}/{lt.tm_mon:02d}/{lt.tm_year}"
+        if role == self.DetectedDateStrRole:
+            detected = e.get("detectedAt", 0)
+            if not detected:
+                return "—"
+            detected_sec = detected // 1000
+            lt = time.localtime(detected_sec)
+            return f"{lt.tm_mday:02d}/{lt.tm_mon:02d}/{lt.tm_year}"
         return None
 
     def roleNames(self):
@@ -126,6 +144,8 @@ class DetectionHistoryModel(QAbstractListModel):
             self.DetectedTimeStrRole: QByteArray(b"detectedTimeStr"),
             self.LatencyStrRole: QByteArray(b"latencyStr"),
             self.AgeAtDetectionRole: QByteArray(b"ageAtDetection"),
+            self.PublishedDateStrRole: QByteArray(b"publishedDateStr"),
+            self.DetectedDateStrRole: QByteArray(b"detectedDateStr"),
         }
 
     @Slot(str, str, str, int, int, float, str)

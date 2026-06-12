@@ -9,6 +9,7 @@ ScrollView {
     clip: true
 
     ColumnLayout {
+        id: contentLayout
         width: root.width - 24
         spacing: 12
         x: 12
@@ -22,9 +23,9 @@ ScrollView {
             Layout.bottomMargin: 8
         }
 
-        AuthPanel { Layout.fillWidth: true }
-        SessionsPanel { Layout.fillWidth: true }
-        ProjectsPanel { Layout.fillWidth: true }
-        KeysPanel { Layout.fillWidth: true }
+        AuthPanel { Layout.fillWidth: true; Layout.preferredHeight: 220 }
+        SessionsPanel { Layout.fillWidth: true; Layout.preferredHeight: 320 }
+        ProjectsPanel { Layout.fillWidth: true; Layout.preferredHeight: 280 }
+        KeysPanel { Layout.fillWidth: true; Layout.preferredHeight: 280 }
     }
 }

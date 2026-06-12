@@ -13,6 +13,8 @@ fn test_build_ytdlp_args_tv_embedded() {
         client_priority: vec!["tv_embedded".into(), "web".into()],
         concurrent_fragments: 16,
         cookies_file: None,
+        multi_instance: 1,
+        simulated_progress: false,
     };
     let args = build_ytdlp_args(&opts);
     assert!(args.iter().any(|a| a.contains("tv_embedded")), "Should contain tv_embedded: {:?}", args);
@@ -31,6 +33,8 @@ fn test_build_ytdlp_args_no_trim_when_empty() {
         client_priority: vec!["tv_embedded".into()],
         concurrent_fragments: 8,
         cookies_file: None,
+        multi_instance: 1,
+        simulated_progress: false,
     };
     let args = build_ytdlp_args(&opts);
     assert!(!args.iter().any(|a| a.starts_with("*")), "No trim sections when empty: {:?}", args);

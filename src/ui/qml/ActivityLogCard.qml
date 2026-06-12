@@ -1,32 +1,50 @@
 // src/ui/qml/ActivityLogCard.qml
+// Activity log — standalone card, no SettingsCard wrapper
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
-SettingsCard {
-    title: "ACTIVITY LOG"
-    Layout.preferredHeight: 280
+Rectangle {
+    id: card
+    color: Theme.cardBg
+    border.color: Theme.border
+    border.width: 1
+    radius: Theme.radiusLg
 
     ColumnLayout {
-        width: parent.width
-        spacing: 8
+        anchors.fill: parent
+        anchors.margins: Theme.spacingLg
+        spacing: Theme.spacingSm
 
+        // ─── Title + Clear button ─────────────────────────────
         RowLayout {
             Layout.fillWidth: true
+            Layout.preferredHeight: 20
+
+            Label {
+                text: "ACTIVITY LOG"
+                color: Theme.accent
+                font.pixelSize: Theme.textLg
+                font.bold: true
+                font.letterSpacing: 0.8
+                Layout.fillWidth: true
+            }
+
             IconButton {
                 iconName: "delete"
                 label: "Clear"
                 iconSize: 12
-                Layout.alignment: Qt.AlignRight
                 Layout.minimumWidth: 80
                 onClicked: activityModel.clear()
             }
         }
 
+        // ─── Log list ─────────────────────────────────────────
         ListView {
             id: logList
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.minimumHeight: 80
             model: activityModel
             clip: true
             spacing: 1
@@ -42,7 +60,7 @@ SettingsCard {
                     Label {
                         text: model.time
                         color: Theme.textMuted
-                        font.pixelSize: 15
+                        font.pixelSize: 14
                         font.family: "monospace"
                         Layout.preferredWidth: 60
                     }
@@ -57,14 +75,14 @@ SettingsCard {
                     Label {
                         text: model.type
                         color: Theme.accent
-                        font.pixelSize: 15
+                        font.pixelSize: 14
                         font.bold: true
                         Layout.preferredWidth: 60
                     }
                     Label {
                         text: model.message
                         color: Theme.text
-                        font.pixelSize: 15
+                        font.pixelSize: 14
                         elide: Text.ElideRight
                         Layout.fillWidth: true
                     }
@@ -75,7 +93,7 @@ SettingsCard {
                 anchors.centerIn: parent
                 text: "Chưa có hoạt động nào"
                 color: Theme.textMuted
-                font.pixelSize: 16
+                font.pixelSize: 15
             }
         }
     }

@@ -5,53 +5,68 @@ import QtQuick.Layouts
 import QtQuick.Controls
 
 Rectangle {
+    id: panel
     color: Theme.bg
     border.color: Theme.border
     border.width: 1
+    clip: true
     Layout.preferredHeight: 320
+    Layout.minimumHeight: 200
+    Layout.fillHeight: true
 
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 12
         spacing: 8
+        Layout.fillHeight: true
 
         RowLayout {
             Layout.fillWidth: true
-            RowLayout {
-                spacing: 6
-                Icon {
-                    name: "settings"
-                    size: 14
-                    color: Theme.accent
-                    Layout.alignment: Qt.AlignVCenter
-                }
-                Label {
-                    text: "CHROME SESSIONS"
-                    color: Theme.accent
-                    font.pixelSize: 20
-                    font.bold: true
-                }
+            spacing: 6
+            Icon {
+                name: "settings"
+                size: 14
+                color: Theme.accent
+                Layout.alignment: Qt.AlignVCenter
             }
-            Item { Layout.fillWidth: true }
+            Label {
+                text: "CHROME SESSIONS"
+                color: Theme.accent
+                font.pixelSize: 18
+                font.bold: true
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                elide: Text.ElideRight
+            }
+            Item { Layout.fillWidth: false; Layout.preferredWidth: 0 }
             IconButton {
                 iconName: "add"
-                label: "Thêm"
                 iconSize: 12
-                Layout.minimumWidth: 60
+                Layout.preferredWidth: 28
+                Layout.preferredHeight: 24
+                ToolTip.text: "Thêm session"
+                ToolTip.visible: hovered
+                ToolTip.delay: 400
                 onClicked: sessionModel.add_session(backend)
             }
             IconButton {
                 iconName: "folder"
-                label: "Sao chép"
                 iconSize: 12
-                Layout.minimumWidth: 80
+                Layout.preferredWidth: 28
+                Layout.preferredHeight: 24
+                ToolTip.text: "Sao chép session"
+                ToolTip.visible: hovered
+                ToolTip.delay: 400
                 onClicked: sessionModel.clone_one(backend)
             }
             IconButton {
                 iconName: "refresh"
-                label: "Làm mới"
                 iconSize: 12
-                Layout.minimumWidth: 80
+                Layout.preferredWidth: 28
+                Layout.preferredHeight: 24
+                ToolTip.text: "Làm mới tất cả"
+                ToolTip.visible: hovered
+                ToolTip.delay: 400
                 onClicked: sessionModel.refresh_all(backend)
             }
         }
@@ -59,6 +74,7 @@ Rectangle {
         ListView {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.minimumHeight: 100
             model: sessionModel
             clip: true
             spacing: 1
@@ -114,16 +130,19 @@ Rectangle {
                     Item { Layout.fillWidth: true; Layout.minimumWidth: 4 }
                     IconButton {
                         iconName: "play"
-                        label: "Đăng nhập"
                         iconSize: 12
-                        Layout.minimumWidth: 96
+                        Layout.preferredWidth: 28
+                        Layout.preferredHeight: 24
+                        ToolTip.text: "Đăng nhập session này"
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 400
                         onClicked: sessionModel.open_login(backend, model.id)
                     }
                 }
             }
             Label {
                 anchors.centerIn: parent
-                visible: !sessionModel || sessionModel.rowCount === 0
+                visible: !sessionModel || sessionModel.rowCount() === 0
                 text: "Chưa có session nào — bấm Thêm để tạo"
                 color: Theme.textMuted
                 font.pixelSize: 15

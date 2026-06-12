@@ -2,7 +2,8 @@
 
 Incremental model: _ids_identical check avoids gratuitous beginResetModel.
 """
-from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot
+import json
+from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot, QObject
 
 
 class KeyListModel(QAbstractListModel):
@@ -102,14 +103,52 @@ class KeyListModel(QAbstractListModel):
         backend.send_command("key:remove", {"key": key})
         self.load_from_backend(backend)
 
-    @Slot()
+    @Slot('QVariant')
     def test_all(self, backend):
         if not backend: return
-        backend.send_command("key:testAll")
+        resp = backend.send_command("key:testAll")
+        if resp and resp.get("ok") is not False:
+            keys = resp.get("result", {}).get("keys", [])
+            from src.services.toast_service import get_toast_service
+            toast = get_toast_service()
+            if toast:
+                toast.show("Test API Keys", f"Đã kiểm tra {len(keys)} keys", "info")
         self.load_from_backend(backend)
 
-    @Slot()
+    @Slot('QVariant')
     def reset(self, backend, key: str = ""):
         if not backend: return
         backend.send_command("key:reset", {"key": key} if key else {})
+        self.load_from_backend(backend)
+
+    @Slot(str, 'QVariant')
+    def import_from_file(self, file_url: str, backend):
+        """Import keys from JSON file."""
+        if not backend: return
+        try:
+            from PySide6.QtCore import QUrl
+            path = QUrl(file_url).toLocalFile()
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            keys = data.get("keys", [])
+            for k in keys:
+                backend.send_command("key:add", k)
+            self.load_from_backend(backend)
+        except Exception as e:
+            print(f"[KeyListModel] import error: {e}")
+
+    def export_to_file(self, file_path: str):
+        """Export keys to JSON file."""
+        try:
+            data = {"keys": self._items}
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"[KeyListModel] export error: {e}")
+
+    @Slot()
+    def clear_all(self, backend):
+        if not backend: return
+        for k in self._items:
+            backend.send_command("key:remove", {"key": k.get("key", "")})
         self.load_from_backend(backend)

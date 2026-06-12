@@ -1,0 +1,349 @@
+{
+  "id": 1,
+  "ok": true,
+  "result": {
+    "consentedCount": 30,
+    "health": {
+      "degradedCount": 0,
+      "healthPct": 100,
+      "level": "healthy",
+      "oldestCookieAgeHours": 0,
+      "staleCount": 0
+    },
+    "loggedInCount": 30,
+    "ready": true,
+    "sessionCount": 30,
+    "sessions": [
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-1",
+        "profileName": "Profile 1",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-2",
+        "profileName": "Profile 2",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-3",
+        "profileName": "Profile 3",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-4",
+        "profileName": "Profile 4",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-5",
+        "profileName": "Profile 5",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-6",
+        "profileName": "Profile 6",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-7",
+        "profileName": "Profile 7",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-8",
+        "profileName": "Profile 8",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-9",
+        "profileName": "Profile 9",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-10",
+        "profileName": "Profile 10",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-11",
+        "profileName": "Profile 11",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-12",
+        "profileName": "Profile 12",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-13",
+        "profileName": "Profile 13",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-14",
+        "profileName": "Profile 14",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-15",
+        "profileName": "Profile 15",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-16",
+        "profileName": "Profile 16",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-17",
+        "profileName": "Profile 17",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-18",
+        "profileName": "Profile 18",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-19",
+        "profileName": "Profile 19",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-20",
+        "profileName": "Profile 20",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-21",
+        "profileName": "Profile 21",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-22",
+        "profileName": "Profile 22",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-23",
+        "profileName": "Profile 23",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-24",
+        "profileName": "Profile 24",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-25",
+        "profileName": "Profile 25",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-26",
+        "profileName": "Profile 26",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-27",
+        "profileName": "Profile 27",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-28",
+        "profileName": "Profile 28",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-29",
+        "profileName": "Profile 29",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      },
+      {
+        "error": "",
+        "hasCookies": true,
+        "isConsented": true,
+        "isLoggedIn": true,
+        "lastUsed": 0,
+        "profileId": "HyperClip-Profile-30",
+        "profileName": "Profile 30",
+        "refreshFailCount": 0,
+        "usedToday": 0
+      }
+    ]
+  }
+}

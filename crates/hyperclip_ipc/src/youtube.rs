@@ -23,17 +23,6 @@ pub struct YtdlpVideoInfo {
     pub resolution: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DownloadResult {
-    pub path: String,
-    pub duration: f64,
-    pub width: u32,
-    pub height: u32,
-    pub file_size: u64,
-    pub codec: String,
-    pub fps: f64,
-}
-
 #[derive(Debug, Clone)]
 pub struct DownloadOptions {
     pub url: String,
@@ -44,6 +33,32 @@ pub struct DownloadOptions {
     pub client_priority: Vec<String>,
     pub concurrent_fragments: u32,
     pub cookies_file: Option<PathBuf>,
+    /// Number of parallel instances for multi-instance download (RAM-aware)
+    pub multi_instance: u32,
+    /// Enable simulated progress for better UX while yt-dlp is initializing
+    pub simulated_progress: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DownloadFailureType {
+    Permanent,    // Private, deleted, region-locked - mark seen and don't retry
+    Retryable,    // Network error, rate limit, timeout - retry with backoff
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadResult {
+    pub path: String,
+    pub duration: f64,
+    pub width: u32,
+    pub height: u32,
+    pub file_size: u64,
+    pub codec: String,
+    pub fps: f64,
+    /// Type of failure if download failed
+    pub failure_type: Option<DownloadFailureType>,
+    /// Seconds until retry is recommended (for retryable failures)
+    pub retry_after_sec: Option<u64>,
 }
 
 pub fn build_ytdlp_args(opts: &DownloadOptions) -> Vec<String> {
@@ -165,6 +180,8 @@ where
         file_size,
         codec,
         fps,
+        failure_type: None,
+        retry_after_sec: None,
     })
 }
 
@@ -276,6 +293,8 @@ pub fn download_video(
         file_size,
         codec,
         fps,
+        failure_type: None,
+        retry_after_sec: None,
     })
 }
 
@@ -359,6 +378,104 @@ pub fn get_video_info(url: &str, cookies_path: &str) -> Result<YtdlpVideoInfo, S
     })
 }
 
+/// Pre-check video availability before downloading (ported from electron/services/youtube.ts)
+/// Returns (available: bool, error_reason: Option<String>, video_info: Option<YtdlpVideoInfo>)
+pub fn probe_video_availability(url: &str, cookies_path: &str) -> Result<(bool, Option<String>, Option<YtdlpVideoInfo>), String> {
+    let ytdlp = find_ytdlp_path();
+
+    // Check with all three clients in parallel for robustness
+    let clients = ["tv_embedded", "web", "ios"];
+    let mut handles = Vec::new();
+
+    for client in clients {
+        let ytdlp = ytdlp.clone();
+        let url = url.to_string();
+        let cookies = cookies_path.to_string();
+        let client = client.to_string();
+
+        handles.push(std::thread::spawn(move || {
+            let output = Command::new(&ytdlp)
+                .args([
+                    "--js-runtimes", "node",
+                    "--extractor-args", &format!("youtube:player_client={}", client),
+                    "--cookies", &cookies,
+                    "--dump-json",
+                    "--no-download",
+                    &url,
+                ])
+                .output();
+
+            match output {
+                Ok(out) if out.status.success() => {
+                    let json_str = String::from_utf8_lossy(&out.stdout);
+                    if let Ok(data) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                        // Check for private/deleted/unavailable
+                        let availability = data.get("availability").and_then(|v| v.as_str()).unwrap_or("public");
+                        let is_private = data.get("is_private").and_then(|v| v.as_bool()).unwrap_or(false);
+                        let age_limit = data.get("age_limit").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let live_status = data.get("live_status").and_then(|v| v.as_str()).unwrap_or("not_live");
+
+                        let error_reason = if availability != "public" || is_private {
+                            Some(format!("Video unavailable: {}", availability))
+                        } else if live_status == "is_live" {
+                            Some("Live stream not supported".to_string())
+                        } else if age_limit > 0 {
+                            Some("Age-restricted video".to_string())
+                        } else {
+                            None
+                        };
+
+                        let info = YtdlpVideoInfo {
+                            id: data.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            title: data.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            thumbnail: data.get("thumbnail").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            duration: data.get("duration").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                            channel_name: data.get("channel").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            channel_id: data.get("channel_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            upload_date: data.get("upload_date").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            file_size: data.get("filesize").and_then(|v| v.as_u64()).unwrap_or(0),
+                            resolution: "".to_string(),
+                        };
+
+                        Some((client, error_reason, info))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }
+        }));
+    }
+
+    // Wait for all probes to complete
+    let mut results = Vec::new();
+    for handle in handles {
+        if let Ok(Some(result)) = handle.join() {
+            results.push(result);
+        }
+    }
+
+    // Analyze results
+    let available_results: Vec<_> = results.iter().filter(|(_, err, _)| err.is_none()).collect();
+    let error_results: Vec<_> = results.iter().filter(|(_, err, _)| err.is_some()).collect();
+
+    if !available_results.is_empty() {
+        // At least one client reports available - use the first successful one
+        let (client, _, info) = &available_results[0];
+        tracing::info!("[Probe] Video available via {}", client);
+        Ok((true, None, Some(info.clone())))
+    } else if !error_results.is_empty() {
+        // All clients failed with specific errors
+        let (client, err, _) = &error_results[0];
+        tracing::warn!("[Probe] Video unavailable via {}: {:?}", client, err);
+        Ok((false, err.clone(), None))
+    } else {
+        // All probes failed (network error, timeout, etc.)
+        tracing::warn!("[Probe] All probe attempts failed for {}", url);
+        Ok((false, Some("Probe failed - network/timeout".to_string()), None))
+    }
+}
+
 /// Find ffprobe executable
 fn find_ffprobe_path() -> String {
     let candidates = [
@@ -435,6 +552,8 @@ mod tests {
             client_priority: vec!["tv_embedded".into(), "web".into()],
             concurrent_fragments: 16,
             cookies_file: None,
+            multi_instance: 1,
+            simulated_progress: false,
         };
         let args = build_ytdlp_args(&opts);
         assert!(args.iter().any(|a| a.contains("tv_embedded")), "Should contain tv_embedded: {:?}", args);
@@ -453,6 +572,8 @@ mod tests {
             client_priority: vec!["tv_embedded".into()],
             concurrent_fragments: 8,
             cookies_file: None,
+            multi_instance: 1,
+            simulated_progress: false,
         };
         let args = build_ytdlp_args(&opts);
         assert!(!args.iter().any(|a| a.starts_with("*")), "No trim sections when empty: {:?}", args);

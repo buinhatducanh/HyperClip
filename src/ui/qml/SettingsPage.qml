@@ -72,6 +72,7 @@ Rectangle {
 
         // Tab content
         Loader {
+            id: tabLoader
             Layout.fillWidth: true
             Layout.fillHeight: true
             sourceComponent: {
@@ -82,43 +83,46 @@ Rectangle {
                 if (page.activeTab === "update") return updateComp
                 return generalComp
             }
+            onStatusChanged: {
+                if (status === Loader.Ready && item) {
+                    item.Layout.fillWidth = true
+                    item.Layout.fillHeight = true
+                }
+            }
         }
 
-        Component { id: generalComp; SettingsPanel {} }
-        Component { id: detectionComp; DetectionPanel {} }
-        Component { id: authComp; AuthOverviewPanel {} }
+        Component { id: generalComp; SettingsPanel { Layout.fillWidth: true; Layout.fillHeight: true } }
+        Component { id: detectionComp; DetectionPanel { Layout.fillWidth: true; Layout.fillHeight: true } }
+        Component { id: authComp; AuthOverviewPanel { Layout.fillWidth: true; Layout.fillHeight: true } }
         Component { id: systemComp
             Rectangle {
                 color: Theme.bg
+                Layout.fillWidth: true
+                Layout.fillHeight: true
                 ColumnLayout {
                     anchors.fill: parent
                     anchors.margins: 12
                     spacing: 12
-                    SystemCard { Layout.fillWidth: true }
+                    SystemCard { Layout.fillWidth: true; Layout.fillHeight: true }
                 }
             }
         }
         Component { id: logsComp
             Rectangle {
                 color: Theme.bg
+                Layout.fillWidth: true
+                Layout.fillHeight: true
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 12
-                    ActivityLogCard { Layout.fillWidth: true; Layout.preferredHeight: 400 }
-                    IconButton {
-                        iconName: "folder"
-                        label: "Xuất nhật ký"
-                        iconSize: 12
-                        Layout.minimumWidth: 110
-                        onClicked: backend.send_command("logs:export")
-                    }
+                    LogViewer { Layout.fillWidth: true; Layout.fillHeight: true }
                 }
             }
         }
         Component { id: updateComp
             Rectangle {
                 color: Theme.bg
+                Layout.fillWidth: true
+                Layout.fillHeight: true
                 ColumnLayout {
                     anchors.fill: parent
                     anchors.margins: 12

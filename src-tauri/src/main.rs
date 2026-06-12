@@ -1,6 +1,7 @@
 mod commands;
 
 use std::io::{self, BufRead, Write};
+use hyperclip_ipc::store::get_logs_dir;
 
 fn emit(resp: hyperclip_ipc::IpcResponse) {
     let s = serde_json::to_string(&resp).unwrap();
@@ -8,10 +9,32 @@ fn emit(resp: hyperclip_ipc::IpcResponse) {
     let _ = io::stdout().flush();
 }
 
-fn main() {
+fn setup_logging() {
+    let logs_dir = get_logs_dir();
+    std::fs::create_dir_all(&logs_dir).ok();
+
+    // File appender (rotated daily, keep 14 days)
+    let file_appender = tracing_appender::rolling::daily(&logs_dir, "hyperclip.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    // Filter: RUST_LOG env var, default "info"
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+
     tracing_subscriber::fmt()
-        .with_writer(io::stderr)
+        .with_env_filter(filter)
+        .with_writer(non_blocking)
+        .with_thread_ids(true)
+        .with_file(true)
+        .with_line_number(true)
+        .with_ansi(false)
         .init();
+
+    tracing::info!("Logging initialized — dir: {}", logs_dir.display());
+}
+
+fn main() {
+    setup_logging();
     tracing::info!("hyperclip backend started");
 
     // Eagerly init POLLER_RT and AppState (triggers migration + cookies)

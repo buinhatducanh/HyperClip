@@ -1,5 +1,5 @@
 // src/ui/qml/WorkspaceQueue.qml
-// Queue: status filter + workspace list (search from TopMenuBar)
+// Queue: status filter + workspace list
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -10,7 +10,6 @@ Rectangle {
     border.color: Theme.border
     border.width: 1
 
-    property string globalSearchText: ""
     property string channelFilter: ""
     property string statusFilter: "all"
     signal openWorkspace(string ws_id)
@@ -20,11 +19,6 @@ Rectangle {
             return false
         if (channelFilter && channelFilter !== itemChannel)
             return false
-        if (globalSearchText) {
-            const title = (itemTitle || "").toLowerCase()
-            if (!title.includes(globalSearchText.toLowerCase()))
-                return false
-        }
         return true
     }
 

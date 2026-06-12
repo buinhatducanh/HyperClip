@@ -17,7 +17,7 @@ class SettingsModel(QObject):
         self._auto_download_quality: str = "1080"
         self._auto_download_max_age_minutes: int = 1440
         self._auto_download_enabled: bool = True
-        self._polling_enabled: bool = True
+        self._polling_enabled: bool = True  # default true to match Rust
         self._auto_render: bool = True
         self._auto_render_resolution: str = "1080p"
         self._auto_render_fps: int = 30

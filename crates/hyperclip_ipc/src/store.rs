@@ -164,6 +164,8 @@ pub struct Channel {
     pub enabled: bool,
     #[serde(rename = "uploadPlaylistId")]
     pub upload_playlist_id: Option<String>,
+    #[serde(rename = "playlistCacheExpiry")]
+    pub playlist_cache_expiry: Option<i64>,
     #[serde(default)]
     pub paused: bool,
     #[serde(rename = "newCount", default)]
@@ -191,6 +193,7 @@ impl Default for Channel {
             last_checked: None,
             enabled: true,
             upload_playlist_id: None,
+            playlist_cache_expiry: None,
             paused: false,
             new_video_count: 0,
             total_videos_downloaded: 0,
@@ -271,7 +274,16 @@ impl ChannelStore {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SeenVideos {
-    pub seen: Vec<String>,
+    /// Per-channel seen videos with TTL (48h expiry)
+    pub channels: std::collections::HashMap<String, ChannelSeenVideos>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChannelSeenVideos {
+    pub ids: Vec<String>,
+    /// Unix timestamp in seconds when this entry expires
+    #[serde(rename = "expiresAt")]
+    pub expires_at: i64,
 }
 
 impl SeenVideos {
@@ -292,10 +304,91 @@ impl SeenVideos {
         fs::write(path, content).map_err(|e| e.to_string())
     }
 
-    pub fn mark_seen(&mut self, video_id: &str) {
-        if !self.seen.contains(&video_id.to_string()) {
-            self.seen.push(video_id.to_string());
+    /// Mark video as seen for a channel, with 48h TTL
+    pub fn mark_seen(&mut self, channel_id: &str, video_id: &str) {
+        let now = crate::detection::current_unix_ts();
+        let expires_at = now + 48 * 3600; // 48 hours
+        let entry = self.channels.entry(channel_id.to_string()).or_insert(ChannelSeenVideos {
+            ids: Vec::new(),
+            expires_at,
+        });
+        if !entry.ids.contains(&video_id.to_string()) {
+            entry.ids.push(video_id.to_string());
         }
+        entry.expires_at = expires_at; // Refresh TTL on each mark
+    }
+
+    /// Check if video is seen for a channel (respects TTL)
+    pub fn is_seen(&self, channel_id: &str, video_id: &str) -> bool {
+        if let Some(entry) = self.channels.get(channel_id) {
+            let now = crate::detection::current_unix_ts();
+            if now > entry.expires_at {
+                return false; // Expired
+            }
+            entry.ids.contains(&video_id.to_string())
+        } else {
+            false
+        }
+    }
+
+    /// Clean up expired entries
+    pub fn cleanup_expired(&mut self) {
+        let now = crate::detection::current_unix_ts();
+        self.channels.retain(|_, v| v.expires_at > now);
+    }
+}
+
+/// Upload playlist ID cache (24h TTL)
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UploadsCache {
+    pub entries: std::collections::HashMap<String, CacheEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheEntry {
+    #[serde(rename = "playlistId")]
+    pub playlist_id: String,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: i64,
+}
+
+impl UploadsCache {
+    pub fn load(path: &Path) -> Self {
+        if path.exists() {
+            let content = fs::read_to_string(path).unwrap_or_default();
+            serde_json::from_str(&content).unwrap_or_default()
+        } else {
+            Self::default()
+        }
+    }
+
+    pub fn save(&self, path: &Path) -> Result<(), String> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let content = serde_json::to_string(self).map_err(|e| e.to_string())?;
+        fs::write(path, content).map_err(|e| e.to_string())
+    }
+
+    pub fn get(&self, channel_id: &str) -> Option<String> {
+        if let Some(entry) = self.entries.get(channel_id) {
+            let now = crate::detection::current_unix_ts();
+            if now < entry.expires_at {
+                return Some(entry.playlist_id.clone());
+            }
+        }
+        None
+    }
+
+    pub fn set(&mut self, channel_id: &str, playlist_id: String) {
+        let now = crate::detection::current_unix_ts();
+        let expires_at = now + 24 * 3600; // 24 hours
+        self.entries.insert(channel_id.to_string(), CacheEntry { playlist_id, expires_at });
+    }
+
+    pub fn cleanup_expired(&mut self) {
+        let now = crate::detection::current_unix_ts();
+        self.entries.retain(|_, v| v.expires_at > now);
     }
 }
 
@@ -324,6 +417,10 @@ pub fn get_channels_path() -> PathBuf {
 
 pub fn get_seen_videos_path() -> PathBuf {
     get_store_dir().join("channels").join("seen.json")
+}
+
+pub fn get_uploads_cache_path() -> PathBuf {
+    get_store_dir().join("channels").join("uploads-cache.json")
 }
 
 pub fn get_settings_path() -> PathBuf {

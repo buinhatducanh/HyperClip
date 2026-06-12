@@ -9,7 +9,7 @@ ScrollView {
     clip: true
 
     ColumnLayout {
-        width: root.availableWidth - Theme.spacingLg * 2
+        width: root.width - Theme.spacingLg * 2
         spacing: Theme.spacingMd
         x: Theme.spacingLg
         y: Theme.spacingLg
@@ -23,16 +23,16 @@ ScrollView {
             Layout.bottomMargin: Theme.spacingXs
         }
 
-        HardwareProfileCard { Layout.fillWidth: true }
+        HardwareProfileCard { Layout.fillWidth: true; Layout.preferredHeight: 120 }
 
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacingMd
-            DownloadCard { Layout.fillWidth: true; Layout.preferredWidth: 1 }
-            AutoRenderCard { Layout.fillWidth: true; Layout.preferredWidth: 1 }
+            DownloadCard { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.preferredHeight: 280 }
+            AutoRenderCard { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.preferredHeight: 280 }
         }
 
-        StorageCard { Layout.fillWidth: true }
+        StorageCard { Layout.fillWidth: true; Layout.preferredHeight: 200 }
 
         // Action bar
         Rectangle {

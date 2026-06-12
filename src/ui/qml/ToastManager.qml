@@ -27,12 +27,11 @@ Item {
             stack.children[0].dismiss()
             stack.children[0].destroy()
         }
-        const t = toastComponent.createObject(root, {
+        const t = toastComponent.createObject(stack, {
             title: title || "",
             message: message || "",
             level: level || "info"
         })
-        stack.addItem(t)
         t.show()
     }
 

@@ -4,6 +4,7 @@ Incremental model: uses _id_index + _is_identical_set to avoid gratuitous
 beginResetModel on periodic refresh.  When the list is structurally unchanged
 only dataChanged is emitted.
 """
+import json
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot
 
 
@@ -116,3 +117,28 @@ class ChannelListModel(QAbstractListModel):
                 idx = self.index(i)
                 self.dataChanged.emit(idx, idx, [self.PausedRole])
                 return
+
+    @Slot(str, 'QVariant')
+    def import_from_file(self, file_url: str, backend):
+        """Import channels from JSON file."""
+        if not backend: return
+        try:
+            from PySide6.QtCore import QUrl
+            path = QUrl(file_url).toLocalFile()
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            channels = data.get("channels", [])
+            for ch in channels:
+                backend.send_command("channel:add", ch)
+            self.load_from_backend(backend)
+        except Exception as e:
+            print(f"[ChannelListModel] import error: {e}")
+
+    def export_to_file(self, file_path: str):
+        """Export channels to JSON file."""
+        try:
+            data = {"channels": self._items}
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"[ChannelListModel] export error: {e}")

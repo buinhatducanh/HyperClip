@@ -221,7 +221,7 @@ pub struct Settings {
 impl Settings {
     pub fn defaults() -> Self {
         Self {
-            polling_enabled: false,
+            polling_enabled: true,
             poll_interval_ms: 5000,
             video_min_duration_sec: 60,
             video_max_duration_sec: 3600,

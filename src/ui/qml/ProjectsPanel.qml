@@ -5,51 +5,64 @@ import QtQuick.Layouts
 import QtQuick.Controls
 
 Rectangle {
+    id: panel
     color: Theme.bg
     border.color: Theme.border
     border.width: 1
+    clip: true
     Layout.preferredHeight: 280
+    Layout.minimumHeight: 200
+    Layout.fillHeight: true
 
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 12
         spacing: 8
+        Layout.fillHeight: true
 
         RowLayout {
             Layout.fillWidth: true
-            RowLayout {
-                spacing: 6
-                Icon {
-                    name: "settings"
-                    size: 14
-                    color: Theme.accent
-                    Layout.alignment: Qt.AlignVCenter
-                }
-                Label {
-                    text: "OAUTH PROJECTS"
-                    color: Theme.accent
-                    font.pixelSize: 20
-                    font.bold: true
-                }
+            spacing: 6
+            Icon {
+                name: "settings"
+                size: 14
+                color: Theme.accent
+                Layout.alignment: Qt.AlignVCenter
             }
-            Item { Layout.fillWidth: true }
             Label {
-                text: (projectModel ? projectModel.rowCount : 0) + " / ?"
+                text: "OAUTH PROJECTS"
+                color: Theme.accent
+                font.pixelSize: 18
+                font.bold: true
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                elide: Text.ElideRight
+            }
+            Item { Layout.fillWidth: false; Layout.preferredWidth: 0 }
+            Label {
+                text: (projectModel ? projectModel.rowCount() : 0) + " / ?"
                 color: Theme.textMuted
-                font.pixelSize: 16
+                font.pixelSize: 14
+                Layout.alignment: Qt.AlignVCenter
             }
             IconButton {
                 iconName: "play"
-                label: "Test tất cả"
                 iconSize: 12
-                Layout.minimumWidth: 90
+                Layout.preferredWidth: 28
+                Layout.preferredHeight: 24
+                ToolTip.text: "Test tất cả project"
+                ToolTip.visible: hovered
+                ToolTip.delay: 400
                 onClicked: projectModel.test_all(backend)
             }
             IconButton {
                 iconName: "retry"
-                label: "Sửa tất cả"
                 iconSize: 12
-                Layout.minimumWidth: 90
+                Layout.preferredWidth: 28
+                Layout.preferredHeight: 24
+                ToolTip.text: "Sửa tất cả project lỗi"
+                ToolTip.visible: hovered
+                ToolTip.delay: 400
                 onClicked: projectModel.batch_repair(backend)
             }
         }
@@ -57,6 +70,7 @@ Rectangle {
         ListView {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.minimumHeight: 100
             model: projectModel
             clip: true
             spacing: 1
@@ -95,19 +109,20 @@ Rectangle {
                     Item { Layout.fillWidth: true; Layout.minimumWidth: 4 }
                     RowLayout {
                         spacing: 2
+                        Layout.maximumWidth: 70
+                        visible: (model.errorText || "") !== ""
                         Icon {
-                            visible: model.errorText !== ""
                             name: "warning"
                             size: 11
                             color: Theme.error
                         }
                         Label {
-                            text: model.errorText
+                            text: model.errorText || ""
                             color: Theme.error
-                            font.pixelSize: 14
+                            font.pixelSize: 12
                             elide: Text.ElideRight
-                            Layout.maximumWidth: 90
-                            visible: model.errorText !== ""
+                            Layout.fillWidth: true
+                            Layout.maximumWidth: 50
                         }
                     }
                     IconButton {
@@ -128,7 +143,7 @@ Rectangle {
             }
             Label {
                 anchors.centerIn: parent
-                visible: !projectModel || projectModel.rowCount === 0
+                visible: !projectModel || projectModel.rowCount() === 0
                 text: "Chưa có project nào — OAuth Flow để thêm"
                 color: Theme.textMuted
                 font.pixelSize: 15

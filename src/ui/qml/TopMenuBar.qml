@@ -12,9 +12,7 @@ Rectangle {
     height: 40
 
     property string centerView: "settings"
-    property string globalSearchText: ""
     signal navigateToView(string view)
-    signal searchTextChanged(string text)
 
     // Bottom border line
     Rectangle {
@@ -162,18 +160,35 @@ Rectangle {
                         onClicked: bar.navigateToView("operation")
                     }
                 }
+                Rectangle {
+                    Layout.preferredHeight: 22
+                    Layout.preferredWidth: 78
+                    color: bar.centerView === "management" ? Theme.accent : "transparent"
+                    radius: 2
+                    RowLayout {
+                        anchors.centerIn: parent
+                        spacing: 4
+                        Icon {
+                            name: "kebab"
+                            size: 12
+                            color: bar.centerView === "management" ? "white" : Theme.textMuted
+                        }
+                        Label {
+                            text: "Quản lí"
+                            color: bar.centerView === "management" ? "white" : Theme.textMuted
+                            font.pixelSize: 10
+                            font.bold: bar.centerView === "management"
+                        }
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: bar.navigateToView("management")
+                    }
+                }
             }
         }
 
         Item { Layout.fillWidth: true }
-
-        // ─── Global search (compact) ───────────────────────────
-        SearchBar {
-            id: search
-            Layout.preferredWidth: 240
-            placeholderText: "Tìm video..."
-            onSearchChanged: function(text) { bar.searchTextChanged(text) }
-            onClearClicked: bar.searchTextChanged("")
-        }
     }
 }

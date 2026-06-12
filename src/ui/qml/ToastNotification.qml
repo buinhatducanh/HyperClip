@@ -31,7 +31,7 @@ Rectangle {
 
     // Slide-in animation
     x: parent ? parent.width - width - 16 : 0
-    y: parent ? parent.height - height - 16 - (toast.parent ? toast.parent.attribute("offset") || 0 : 0) : 0
+    y: parent ? parent.height - height - 16 - (toast.parent ? toast.parent.toastOffset || 0 : 0) : 0
 
     Behavior on x { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
     Behavior on opacity { NumberAnimation { duration: 200 } }

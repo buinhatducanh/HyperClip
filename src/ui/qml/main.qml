@@ -10,13 +10,14 @@ ApplicationWindow {
     id: root
     width: 1280
     height: 800
+    minimumWidth: 900
+    minimumHeight: 600
     visible: true
     title: "HyperClip"
     color: Theme.bg
 
-    // Center pane view state: "settings" | "workspace" | "rendered" | "operation"
+    // Center pane view state: "settings" | "workspace" | "rendered" | "operation" | "management"
     property string centerView: "settings"
-    property string globalSearchText: ""
     property string filterChannelId: ""
 
     ColumnLayout {
@@ -27,12 +28,9 @@ ApplicationWindow {
         TopMenuBar {
             id: topBar
             Layout.fillWidth: true
-            centerView: (root.centerView === "operation") ? "operation" : "settings"
+            centerView: root.centerView
             onNavigateToView: function(view) {
                 root.centerView = view
-            }
-            onSearchTextChanged: function(text) {
-                root.globalSearchText = text
             }
         }
 
@@ -42,11 +40,12 @@ ApplicationWindow {
             Layout.fillHeight: true
             spacing: 0
 
-            // Left: Sidebar (fixed 220px)
+            // Left: Sidebar (fixed 220px) — HIDDEN in Operation / Management view
             Sidebar {
                 id: sideBar
                 Layout.fillHeight: true
-                Layout.preferredWidth: 220
+                Layout.preferredWidth: (root.centerView === "operation" || root.centerView === "management") ? 0 : 220
+                visible: root.centerView !== "operation" && root.centerView !== "management"
                 activeChannelId: root.filterChannelId
                 onChannelSelected: function(id) {
                     root.filterChannelId = id
@@ -65,7 +64,7 @@ ApplicationWindow {
                 id: centerPane
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.minimumWidth: 400
+                Layout.minimumWidth: (root.centerView === "operation" || root.centerView === "management") ? 600 : 400
                 color: Theme.bg
 
                 Loader {
@@ -75,6 +74,7 @@ ApplicationWindow {
                         if (root.centerView === "workspace") return workspaceView
                         if (root.centerView === "rendered") return renderedView
                         if (root.centerView === "operation") return operationView
+                        if (root.centerView === "management") return managementView
                         return settingsView
                     }
                 }
@@ -89,15 +89,16 @@ ApplicationWindow {
                     videoData: detailEditor.currentRenderedData
                 } }
                 Component { id: operationView; OperationPanel {} }
+                Component { id: managementView; ManagementPanel {} }
             }
 
-            // Right: WorkspaceQueue (240-400px) + rendered mini above
+            // Right: WorkspaceQueue (240-400px) + rendered mini above — HIDDEN in Operation / Management view
             Rectangle {
-                Layout.preferredWidth: 320
-                Layout.minimumWidth: 240
-                Layout.maximumWidth: 400
+                Layout.preferredWidth: (root.centerView === "operation" || root.centerView === "management") ? 0 : 320
+                Layout.minimumWidth: (root.centerView === "operation" || root.centerView === "management") ? 0 : 240
+                Layout.maximumWidth: (root.centerView === "operation" || root.centerView === "management") ? 0 : 400
                 Layout.fillHeight: true
-                visible: root.centerView !== "settings"
+                visible: root.centerView !== "settings" && root.centerView !== "operation" && root.centerView !== "management"
                 color: Theme.bg
                 border.color: Theme.border
                 border.width: 0
@@ -232,7 +233,6 @@ ApplicationWindow {
                         id: queue
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        globalSearchText: root.globalSearchText
                         channelFilter: root.filterChannelId
                         onOpenWorkspace: function(ws_id) {
                             // Switch view immediately with model data

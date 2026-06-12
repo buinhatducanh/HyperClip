@@ -83,6 +83,6 @@ ScrollView {
         }
 
         // ─── Poller monitoring + activity log ──────────────
-        PollerPanel { Layout.fillWidth: true }
+        PollerPanel { Layout.fillWidth: true; Layout.preferredHeight: 380 }
     }
 }

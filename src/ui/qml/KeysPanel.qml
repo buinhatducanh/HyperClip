@@ -5,44 +5,54 @@ import QtQuick.Layouts
 import QtQuick.Controls
 
 Rectangle {
+    id: panel
     color: Theme.bg
     border.color: Theme.border
     border.width: 1
+    clip: true
     Layout.preferredHeight: 280
+    Layout.minimumHeight: 200
+    Layout.fillHeight: true
 
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 12
         spacing: 8
+        Layout.fillHeight: true
 
         RowLayout {
             Layout.fillWidth: true
-            RowLayout {
-                spacing: 6
-                Icon {
-                    name: "settings"
-                    size: 14
-                    color: Theme.accent
-                    Layout.alignment: Qt.AlignVCenter
-                }
-                Label {
-                    text: "API KEYS"
-                    color: Theme.accent
-                    font.pixelSize: 20
-                    font.bold: true
-                }
+            spacing: 6
+            Icon {
+                name: "settings"
+                size: 14
+                color: Theme.accent
+                Layout.alignment: Qt.AlignVCenter
             }
-            Item { Layout.fillWidth: true }
             Label {
-                text: (keyModel ? keyModel.rowCount : 0) + " / 30"
+                text: "API KEYS"
+                color: Theme.accent
+                font.pixelSize: 18
+                font.bold: true
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                elide: Text.ElideRight
+            }
+            Item { Layout.fillWidth: false; Layout.preferredWidth: 0 }
+            Label {
+                text: (keyModel ? keyModel.rowCount() : 0) + " / 30"
                 color: Theme.textMuted
-                font.pixelSize: 16
+                font.pixelSize: 14
+                Layout.alignment: Qt.AlignVCenter
             }
             IconButton {
                 iconName: "play"
-                label: "Test tất cả"
                 iconSize: 12
-                Layout.minimumWidth: 90
+                Layout.preferredWidth: 28
+                Layout.preferredHeight: 24
+                ToolTip.text: "Test tất cả key"
+                ToolTip.visible: hovered
+                ToolTip.delay: 400
                 onClicked: keyModel.test_all(backend)
             }
         }
@@ -50,6 +60,7 @@ Rectangle {
         ListView {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.minimumHeight: 100
             model: keyModel
             clip: true
             spacing: 1
@@ -96,7 +107,7 @@ Rectangle {
             }
             Label {
                 anchors.centerIn: parent
-                visible: !keyModel || keyModel.rowCount === 0
+                visible: !keyModel || keyModel.rowCount() === 0
                 text: "Chưa có API key nào"
                 color: Theme.textMuted
                 font.pixelSize: 15

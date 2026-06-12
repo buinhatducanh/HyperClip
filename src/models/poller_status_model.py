@@ -41,13 +41,13 @@ class PollerStatusModel(QObject):
         if result:
             self.load_from_dict(result)
 
-    @Slot()
+    @Slot('QVariant')
     def resume(self, backend):
         if not backend:
             return
         backend.send_command("poller:resume")
 
-    @Slot()
+    @Slot('QVariant')
     def pause(self, backend):
         if not backend:
             return

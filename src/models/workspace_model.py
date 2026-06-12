@@ -12,6 +12,11 @@ class WorkspaceModel(QAbstractListModel):
     ThumbnailRole = Qt.UserRole + 7
     RenderedRole = Qt.UserRole + 8
     IsShortRole = Qt.UserRole + 9
+    DurationRole = Qt.UserRole + 10
+    QualityRole = Qt.UserRole + 11
+    SpeedRole = Qt.UserRole + 12
+    FileSizeRole = Qt.UserRole + 13
+    AgeLabelRole = Qt.UserRole + 14
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -47,6 +52,34 @@ class WorkspaceModel(QAbstractListModel):
             return ws.get("renderedPath", "")
         if role == self.IsShortRole:
             return ws.get("isShort", True)
+        if role == self.DurationRole:
+            return ws.get("durationSec") or ws.get("duration_sec", 0)
+        if role == self.QualityRole:
+            return ws.get("quality", 1080)
+        if role == self.SpeedRole:
+            return ws.get("speed", 1.0)
+        if role == self.FileSizeRole:
+            size = ws.get("downloadedSize") or ws.get("fileSize") or ws.get("file_size", 0)
+            if size > 1024 * 1024:
+                return f"{size / (1024 * 1024):.1f}MB"
+            elif size > 1024:
+                return f"{size / 1024:.1f}KB"
+            return f"{size}B"
+        if role == self.AgeLabelRole:
+            # Calculate age from detectedAt or createdAt
+            detected = ws.get("detectedAt") or ws.get("detected_at") or ws.get("created_at", 0)
+            if detected > 0:
+                from time import time
+                age_sec = int(time() * 1000 - detected)
+                if age_sec < 60000:
+                    return f"{age_sec // 1000}s"
+                elif age_sec < 3600000:
+                    return f"{age_sec // 60000}m"
+                elif age_sec < 86400000:
+                    return f"{age_sec // 3600000}h"
+                else:
+                    return f"{age_sec // 86400000}d"
+            return ""
         return None
 
     def roleNames(self):
@@ -60,6 +93,11 @@ class WorkspaceModel(QAbstractListModel):
             self.ThumbnailRole: QByteArray(b"thumbnail"),
             self.RenderedRole: QByteArray(b"renderedPath"),
             self.IsShortRole: QByteArray(b"isShort"),
+            self.DurationRole: QByteArray(b"durationSec"),
+            self.QualityRole: QByteArray(b"quality"),
+            self.SpeedRole: QByteArray(b"speed"),
+            self.FileSizeRole: QByteArray(b"fileSize"),
+            self.AgeLabelRole: QByteArray(b"ageLabel"),
         }
 
     # ── Index maintenance ──────────────────────────────────────────
@@ -71,11 +109,35 @@ class WorkspaceModel(QAbstractListModel):
         try:
             resp = backend.send_command("workspace:list")
             workspaces = resp.get("result", {}).get("workspaces", [])
+            # Normalize fields from Rust format (camelCase) to model format
+            normalized_workspaces = []
+            for ws in workspaces:
+                normalized = {
+                    "id": ws.get("id", ""),
+                    "status": ws.get("status", "pending"),
+                    "title": ws.get("title", ""),
+                    "progress": ws.get("progress"),
+                    "channel_name": ws.get("channelName", ""),
+                    "thumbnail": ws.get("thumbnailLocal", "") or ws.get("thumbnail", "") or ws.get("thumbnailUrl", ""),
+                    "created_at": ws.get("createdAt", 0),
+                    "published_at": ws.get("publishedAt", 0),
+                    "durationSec": ws.get("durationSec", 0),
+                    "quality": ws.get("quality", 1080),
+                    "speed": ws.get("video_speed", 1.0),
+                    "isShort": ws.get("isShort", True),
+                    "downloadedPath": ws.get("downloadedPath", ""),
+                    "downloadedSize": ws.get("fileSize", 0) or ws.get("file_size", 0),
+                    "renderedPath": ws.get("renderedPath", ""),
+                    "width": ws.get("width", 0),
+                    "height": ws.get("height", 0),
+                }
+                normalized_workspaces.append(normalized)
+
             # Check if it's the same set — fast-path: no-op
-            if self._is_identical_set(workspaces):
+            if self._is_identical_set(normalized_workspaces):
                 return
             self.beginResetModel()
-            self._workspaces = workspaces
+            self._workspaces = normalized_workspaces
             self._rebuild_index()
             self.endResetModel()
         except Exception as e:
@@ -93,9 +155,40 @@ class WorkspaceModel(QAbstractListModel):
     def update_workspace(self, ws_id: str, data: dict):
         row = self._id_index.get(ws_id)
         if row is not None and row < len(self._workspaces):
-            self._workspaces[row].update(data)
+            # Normalize field names from camelCase (Rust) to snake_case (model)
+            normalized = {}
+            for k, v in data.items():
+                if k == "downloadedPath":
+                    normalized["downloadedPath"] = v
+                elif k == "downloadedSize":
+                    normalized["downloadedSize"] = v
+                elif k == "thumbnailLocal":
+                    normalized["thumbnailLocal"] = v
+                elif k == "width":
+                    normalized["width"] = v
+                elif k == "height":
+                    normalized["height"] = v
+                elif k == "renderedPath":
+                    normalized["renderedPath"] = v
+                elif k == "video_speed":
+                    normalized["speed"] = v
+                elif k == "trim_start":
+                    normalized["trimStart"] = v
+                elif k == "trim_end":
+                    normalized["trimEnd"] = v
+                elif k == "is_short":
+                    normalized["isShort"] = v
+                else:
+                    normalized[k] = v
+
+            self._workspaces[row].update(normalized)
             idx = self.index(row)
-            self.dataChanged.emit(idx, idx, [self.StatusRole, self.ProgressRole])
+            # Emit all roles that could have changed
+            self.dataChanged.emit(idx, idx, [
+                self.StatusRole, self.ProgressRole, self.ThumbnailRole,
+                self.RenderedRole, self.DurationRole, self.QualityRole,
+                self.SpeedRole, self.FileSizeRole, self.IsShortRole
+            ])
             return
         # Not found — add
         self.add_workspace({"id": ws_id, **data})

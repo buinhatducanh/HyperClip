@@ -179,7 +179,7 @@ pub fn get_system_stats() -> SystemStats {
         ram_total: 0,
         network_ip: "127.0.0.1".to_string(),
         is_online: true,
-        vram_total_gb: (cached.vram_mb / 1024) as u32,
+        vram_total_gb: ((cached.vram_mb + 512) / 1024) as u32,
     }
 }
 

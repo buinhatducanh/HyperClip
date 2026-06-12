@@ -1,0 +1,40 @@
+{
+  "channels": [
+    {
+      "id": "ch1778770285853",
+      "name": "Nhật Đức Anh Bùi",
+      "handle": "@nhatucanhbui3670",
+      "avatarColor": "#00B4FF",
+      "channelId": "UCcGsDTH1Bypd8gWH1US1b4g",
+      "avatarUrl": "https://yt3.googleusercontent.com/ytc/AIdro_kd0r3DkBHA_FEYSuZkgW6bMCXbJaOGe7fMb-WQ3tiGsgo=s100-c-k-c0x00ffffff-no-rj",
+      "createdAt": "2026-05-14T14:51:25.853Z",
+      "lastChecked": null,
+      "enabled": true,
+      "uploadPlaylistId": null,
+      "paused": false,
+      "newCount": 0,
+      "totalVideosDownloaded": 0,
+      "errorCount": 0,
+      "lastVideoId": null,
+      "lastPollAt": null
+    },
+    {
+      "id": "ch1779678163236",
+      "name": "Zilk Kay",
+      "handle": "@zilkkay6971",
+      "avatarColor": "#00FF88",
+      "channelId": "UCP0XXnFnS3hgAaQl0DrJgvA",
+      "avatarUrl": "https://yt3.googleusercontent.com/ytc/AIdro_m7R8HpYVoN1PnVNHuYWZsk63a6XWhajG3-VUN21Ss=s100-c-k-c0x00ffffff-no-rj",
+      "createdAt": "2026-05-25T03:02:43.236Z",
+      "lastChecked": null,
+      "enabled": true,
+      "uploadPlaylistId": null,
+      "paused": false,
+      "newCount": 0,
+      "totalVideosDownloaded": 0,
+      "errorCount": 0,
+      "lastVideoId": null,
+      "lastPollAt": null
+    }
+  ]
+}
