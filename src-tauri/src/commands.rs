@@ -1104,7 +1104,9 @@ fn launch_chrome_profile_async(profile_id: &str) {
 
         // Try to connect to Chrome debugging port to check if it's already running
         let cdp_url = "http://127.0.0.1:9222/json";
-        let agent = ureq::Agent::new();
+        let agent = ureq::AgentBuilder::new()
+            .try_proxy_from_env(false)
+            .build();
         
         #[derive(serde::Deserialize, Debug)]
         struct CdpTab {

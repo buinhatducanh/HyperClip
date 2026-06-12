@@ -72,6 +72,12 @@ Khi người dùng mở một video YouTube trên trình duyệt Chrome (đượ
 - **Node.js Helper Scan (innertube_helper.js):** Lát cắt lấy video từ danh sách phát của kênh YouTube được tăng từ 5 lên **15 video mới nhất** để tránh bỏ sót khi quét tab kênh lúc user tải nhiều video liên tiếp.
 - **Hiệu quả thực tế:** Rút ngắn thời gian phát hiện video từ lúc user mở trên Chrome xuống mức **tức thời (~0s)**.
 
+- **Nguyên tắc đóng gói & di chuyển máy khách (Portability & Packaging):**
+  1. **Không sử dụng `localhost`:** Tất cả các lệnh kết nối CDP nội bộ trong mã nguồn Rust (HTTP client) và JavaScript (Node.js helper) bắt buộc sử dụng IP loopback tĩnh `127.0.0.1` để tránh phân giải DNS bị treo trên máy khách hàng.
+  2. **Bypass Proxy cục bộ:** Toàn bộ request kết nối CDP từ Rust (`reqwest` và `ureq`) bắt buộc cấu hình bỏ qua proxy hệ thống (`no_proxy()` và `.try_proxy_from_env(false)`). Điều này đảm bảo khi máy khách hàng bật VPN hoặc Proxy hệ thống (để fake IP tải video), kết nối CDP nội bộ đến Chrome không bị lỗi.
+  3. **Không ghi cứng đường dẫn đĩa tuyệt đối của nhà phát triển:** Đường dẫn đến Chrome User Data và file cookies phải tự động phân giải qua thư mục dữ liệu động của ứng dụng (`get_data_dir()`), mặc định sử dụng thư mục dữ liệu cục bộ ẩn `%APPDATA%\HyperClip` trên Windows hoặc thư mục local dự phòng.
+  4. **Kiểm tra cổng debug 9222:** Trình duyệt Chrome của Profile 1 (hoặc các profile login) phải được khởi chạy với cờ `--remote-debugging-port=9222`. Trước khi mở Chrome, ứng dụng tự động kiểm tra xem cổng 9222 đã hoạt động chưa. Nếu chưa, nó sẽ kích hoạt tiến trình Chrome mới với đầy đủ tham số debug cần thiết.
+
 ### Innertube Detection (youtubei.js) — PRIMARY (2026-05-04)
 
 youtubei.js dùng **Innertube API** — API nội bộ của YouTube, không có quota limit.
