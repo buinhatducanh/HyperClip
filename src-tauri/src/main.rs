@@ -9,13 +9,18 @@ fn emit(resp: hyperclip_ipc::IpcResponse) {
     let _ = io::stdout().flush();
 }
 
-fn setup_logging() {
+fn setup_logging() -> tracing_appender::non_blocking::WorkerGuard {
     let logs_dir = get_logs_dir();
     std::fs::create_dir_all(&logs_dir).ok();
 
-    // File appender (rotated daily, keep 14 days)
-    let file_appender = tracing_appender::rolling::daily(&logs_dir, "hyperclip.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    // File appender (rotated daily, keep 14 days max)
+    let file_appender = tracing_appender::rolling::Builder::new()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_prefix("hyperclip.log")
+        .max_log_files(14)
+        .build(&logs_dir)
+        .expect("Failed to create rolling file appender");
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
     // Filter: RUST_LOG env var, default "info"
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
@@ -31,10 +36,12 @@ fn setup_logging() {
         .init();
 
     tracing::info!("Logging initialized — dir: {}", logs_dir.display());
+    guard
 }
 
 fn main() {
-    setup_logging();
+    // IMPORTANT: _log_guard MUST live until main() exits, otherwise tracing output is lost
+    let _log_guard = setup_logging();
     tracing::info!("hyperclip backend started");
 
     // Eagerly init POLLER_RT and AppState (triggers migration + cookies)

@@ -1,6 +1,8 @@
 """DetectionHistoryModel — structured log of detected videos + download outcomes."""
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Property, Signal, Slot
 import time
+import json
+import os
 
 
 class DetectionHistoryModel(QAbstractListModel):
@@ -36,6 +38,34 @@ class DetectionHistoryModel(QAbstractListModel):
         # Counters
         self._today_count: int = 0
         self._today_date: str = ""
+        self._history_file = os.path.abspath(os.path.join("data", "history.json"))
+        # DO NOT auto load here to avoid blocking UI thread; load from main.py
+
+    def load_from_disk(self):
+        if not os.path.exists(self._history_file):
+            return
+        try:
+            with open(self._history_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                self.beginResetModel()
+                self._entries = data.get("entries", [])
+                self._download_data = data.get("download_data", {})
+                self._today_count = self._count_today()
+                self.endResetModel()
+                self.changed.emit()
+        except Exception as e:
+            print(f"[DetectionHistory] Failed to load history: {e}")
+
+    def save_to_disk(self):
+        try:
+            os.makedirs(os.path.dirname(self._history_file), exist_ok=True)
+            with open(self._history_file, 'w', encoding='utf-8') as f:
+                json.dump({
+                    "entries": self._entries,
+                    "download_data": self._download_data
+                }, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"[DetectionHistory] Failed to save history: {e}")
 
     def rowCount(self, parent=QModelIndex()):
         if parent.isValid():
@@ -182,6 +212,7 @@ class DetectionHistoryModel(QAbstractListModel):
 
         self._today_count += 1
         self.changed.emit()
+        self.save_to_disk()
 
     @Slot(str, str)
     def update_download_status(self, ws_id: str, status: str):
@@ -200,7 +231,14 @@ class DetectionHistoryModel(QAbstractListModel):
 
         data["status"] = status
         self._today_count = max(self._today_count, self._count_today())
+        
+        row = self._find_row(ws_id)
+        if row >= 0:
+            idx = self.index(row, 0)
+            self.dataChanged.emit(idx, idx)
+            
         self.changed.emit()
+        self.save_to_disk()
 
     @Slot(str, int, int, int)
     def update_download_result(self, ws_id: str, file_size: int, width: int, height: int):
@@ -214,8 +252,9 @@ class DetectionHistoryModel(QAbstractListModel):
         })
         row = self._find_row(ws_id)
         if row >= 0:
-            idx = self.index(row)
-            self.dataChanged.emit(idx, idx, [self.DownloadSizeRole, self.WidthRole, self.HeightRole])
+            idx = self.index(row, 0)
+            self.dataChanged.emit(idx, idx)
+        self.save_to_disk()
 
     def _find_row(self, ws_id: str) -> int:
         for i, e in enumerate(self._entries):
@@ -273,3 +312,4 @@ class DetectionHistoryModel(QAbstractListModel):
         self._today_count = 0
         self.endResetModel()
         self.changed.emit()
+        self.save_to_disk()

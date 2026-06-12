@@ -28,7 +28,10 @@ ScrollView {
             }
         }
 
-        WorkspaceMetrics { workspaceData: root.workspaceData }
+        WorkspaceMetrics {
+            Layout.fillWidth: true
+            workspaceData: root.workspaceData
+        }
 
         // ─── EDIT Section ──────────────────────────────────────
         GroupBox {
@@ -39,6 +42,7 @@ ScrollView {
             label: Label { text: parent.title; color: Theme.accent; font.pixelSize: Theme.textSm; font.bold: true }
 
             WorkspaceEditForm {
+                anchors.fill: parent
                 workspaceId: root.workspaceId
                 workspaceData: root.workspaceData
             }

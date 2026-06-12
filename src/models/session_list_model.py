@@ -39,7 +39,7 @@ class SessionListModel(QAbstractListModel):
         if role == self.UsedTodayRole: return int(s.get("usedToday", 0))
         if role == self.LastUsedRole: return int(s.get("lastUsed", 0))
         if role == self.ErrorRole: return s.get("error", "")
-        if role == self.HealthRole: return s.get("refreshFailCount", 0)
+        if role == self.HealthRole: return int(s.get("refreshFailCount", 0))
         return None
 
     def roleNames(self):
@@ -66,6 +66,8 @@ class SessionListModel(QAbstractListModel):
         return True
 
     def load_from_backend(self, backend):
+        if not backend:
+            return
         try:
             resp = backend.send_command("session:status")
             result = resp.get("result", {})

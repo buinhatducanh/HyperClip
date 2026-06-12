@@ -8,6 +8,12 @@ ScrollView {
     id: root
     clip: true
 
+    Component.onCompleted: {
+        if (typeof sessionModel !== 'undefined' && sessionModel) sessionModel.refresh(backend)
+        if (typeof projectModel !== 'undefined' && projectModel) projectModel.refresh(backend)
+        if (typeof keyModel !== 'undefined' && keyModel) keyModel.refresh(backend)
+    }
+
     ColumnLayout {
         id: contentLayout
         width: root.width - 24

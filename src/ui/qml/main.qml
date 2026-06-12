@@ -241,7 +241,7 @@ ApplicationWindow {
                             // Async fetch full data from Rust
                             var resp = backend.send_command("workspace:get", {"id": ws_id})
                             if (resp && resp.ok !== false) {
-                                detailEditor.currentWorkspaceData = resp.result
+                                detailEditor.currentWorkspaceData = detailEditor.normalizeWorkspaceData(resp.result)
                             }
                         }
                     }

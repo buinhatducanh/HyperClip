@@ -43,7 +43,8 @@ SettingsCard {
             from: 1
             to: 1440
             value: settings.autoDownloadMaxAgeMinutes
-            onValueChanged: settings.autoDownloadMaxAgeMinutes = value
+            editable: true
+            onValueModified: settings.autoDownloadMaxAgeMinutes = value
         }
 
         Label { text: "Cắt tối đa (phút)"; color: Theme.textMuted; font.pixelSize: Theme.textMd }
@@ -53,7 +54,8 @@ SettingsCard {
             from: 1
             to: 999
             value: settings.defaultTrimLimit
-            onValueChanged: settings.defaultTrimLimit = value
+            editable: true
+            onValueModified: settings.defaultTrimLimit = value
         }
 
         Label { text: "Tải đồng thời"; color: Theme.textMuted; font.pixelSize: Theme.textMd }
@@ -63,7 +65,8 @@ SettingsCard {
             from: 1
             to: 16
             value: settings.maxConcurrentDownloads
-            onValueChanged: settings.maxConcurrentDownloads = value
+            editable: true
+            onValueModified: settings.maxConcurrentDownloads = value
         }
     }
 }

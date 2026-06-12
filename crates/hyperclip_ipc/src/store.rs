@@ -16,6 +16,8 @@ pub struct Workspace {
     pub downloaded_path: Option<String>,
     #[serde(rename = "downloadedAt")]
     pub downloaded_at: Option<i64>,
+    #[serde(rename = "downloadStartedAt")]
+    pub download_started_at: Option<i64>,
     #[serde(rename = "createdAt")]
     pub created_at: i64,
     #[serde(rename = "publishedAt")]
@@ -128,6 +130,12 @@ impl WorkspaceStore {
             }
             if let Some(err) = data.get("error").and_then(|v| v.as_str()) {
                 ws.error = Some(err.to_string());
+            }
+            if let Some(started) = data.get("downloadStartedAt").and_then(|v| v.as_i64()) {
+                ws.download_started_at = Some(started);
+            }
+            if let Some(downloaded) = data.get("downloadedAt").and_then(|v| v.as_i64()) {
+                ws.downloaded_at = Some(downloaded);
             }
             Ok(())
         } else {
@@ -329,6 +337,17 @@ impl SeenVideos {
         } else {
             false
         }
+    }
+
+    /// Check if video is seen in ANY channel (respects TTL)
+    pub fn is_any_seen(&self, video_id: &str) -> bool {
+        let now = crate::detection::current_unix_ts();
+        for entry in self.channels.values() {
+            if now <= entry.expires_at && entry.ids.contains(&video_id.to_string()) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Clean up expired entries

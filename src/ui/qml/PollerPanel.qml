@@ -108,26 +108,25 @@ SettingsCard {
         delegate: Rectangle {
             id: item
             width: detList.width
-            height: compactRow.height + (expanded ? detailRow.height + 8 : 0)
+            height: layout.implicitHeight + 16
             color: expanded ? Theme.cardBg : (index % 2 === 0 ? Theme.rowEven : "transparent")
             radius: 3
 
             property bool expanded: false
 
             ColumnLayout {
-                anchors.fill: parent; anchors.margins: 8; spacing: 6
+                id: layout
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: 8
+                spacing: 6
 
                 // Compact row
                 RowLayout {
                     id: compactRow
                     Layout.fillWidth: true
                     spacing: 8
-
-                    MouseArea {
-                        anchors.fill: parent
-                        Layout.fillWidth: true
-                        onClicked: item.expanded = !item.expanded
-                    }
 
                     // Time column
                     Label {
@@ -145,13 +144,21 @@ SettingsCard {
                     }
                     // Status badge
                     Label {
-                        text: model.status || "—"
+                        text: {
+                            switch(model.status) {
+                                case "waiting": return "Chờ"
+                                case "downloading": return "Đang tải"
+                                case "ready": return "Sẵn sàng"
+                                case "error": return "Lỗi"
+                                default: return model.status || "—"
+                            }
+                        }
                         color: model.status === "ready" ? Theme.success
                              : model.status === "error" ? Theme.error
                              : model.status === "downloading" ? "#FFD93D"
                              : Theme.textMuted
                         font.pixelSize: 14; font.bold: true
-                        Layout.preferredWidth: 55
+                        Layout.preferredWidth: 70
                     }
                     // Title
                     Label {
@@ -186,6 +193,12 @@ SettingsCard {
                         Label { text: model.width > 0 ? model.width+"×"+model.height : ""; color: Theme.textMuted; font.pixelSize: 12 }
                     }
                 }
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: item.expanded = !item.expanded
+                z: -1
             }
         }
 

@@ -59,6 +59,11 @@ Rectangle {
                 channel_name: model.channel_name
                 thumbnail: model.thumbnail
                 isShort: model.isShort
+                durationSec: model.durationSec || 0
+                quality: model.quality || 1080
+                speed: model.speed || 1.0
+                fileSize: model.fileSize || ""
+                ageLabel: model.ageLabel || ""
                 onWorkspaceClicked: function(id) {
                     root.openWorkspace(id)
                 }

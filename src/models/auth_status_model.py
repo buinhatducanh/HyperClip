@@ -36,9 +36,12 @@ class AuthStatusModel(QObject):
 
     @Slot(QObject)
     def start_oauth(self, backend):
+        print("[AuthStatusModel] start_oauth called!", flush=True)
         if not backend:
+            print("[AuthStatusModel] backend is None!", flush=True)
             return
-        resp = backend.send_command("auth:startOAuth")
+        resp = backend.send_command("auth:startOAuth", {}, timeout=15.0)
+        print(f"[AuthStatusModel] auth:startOAuth response: {resp}", flush=True)
         result = resp.get("result", {})
         if result:
             self.load_from_dict(result)

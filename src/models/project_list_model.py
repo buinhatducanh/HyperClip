@@ -61,6 +61,8 @@ class ProjectListModel(QAbstractListModel):
         return True
 
     def load_from_backend(self, backend):
+        if not backend:
+            return
         try:
             resp = backend.send_command("project:list")
             projects = resp.get("result", [])
@@ -80,33 +82,33 @@ class ProjectListModel(QAbstractListModel):
         except Exception as e:
             print(f"[ProjectListModel] load error: {e}")
 
-    @Slot()
+    @Slot(QObject)
     def refresh(self, backend):
         self.load_from_backend(backend)
 
-    @Slot(str)
+    @Slot(QObject, str)
     def remove(self, backend, project_id: str):
         if not backend: return
         backend.send_command("project:remove", {"projectId": project_id})
         self.load_from_backend(backend)
 
-    @Slot(str)
+    @Slot(QObject, str)
     def repair(self, backend, project_id: str):
         if not backend: return
         backend.send_command("project:repair", {"projectId": project_id})
 
-    @Slot(str)
+    @Slot(QObject, str)
     def reauthorize(self, backend, project_id: str):
         if not backend: return
         backend.send_command("project:reauthorize", {"projectId": project_id})
 
-    @Slot('QVariant')
+    @Slot(QObject)
     def batch_repair(self, backend):
         if not backend: return
         ids = [p.get("projectId", "") for p in self._items]
         backend.send_command("project:batchRepair", {"projectIds": ids})
 
-    @Slot('QVariant')
+    @Slot(QObject)
     def test_all(self, backend):
         if not backend: return
         resp = backend.send_command("project:testAll")
@@ -119,7 +121,7 @@ class ProjectListModel(QAbstractListModel):
                 toast.show("Test Projects", f"Đã kiểm tra {len(projects)} projects", "info")
         self.load_from_backend(backend)
 
-    @Slot(str, 'QVariant')
+    @Slot(str, QObject)
     def import_from_file(self, file_url: str, backend):
         """Import projects from JSON file."""
         if not backend: return
@@ -144,7 +146,7 @@ class ProjectListModel(QAbstractListModel):
         except Exception as e:
             print(f"[ProjectListModel] export error: {e}")
 
-    @Slot()
+    @Slot(QObject)
     def clear_all(self, backend):
         if not backend: return
         for p in self._items:

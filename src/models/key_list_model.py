@@ -68,6 +68,8 @@ class KeyListModel(QAbstractListModel):
         return True
 
     def load_from_backend(self, backend):
+        if not backend:
+            return
         try:
             resp = backend.send_command("key:list")
             keys = resp.get("result", [])
@@ -87,23 +89,23 @@ class KeyListModel(QAbstractListModel):
         except Exception as e:
             print(f"[KeyListModel] load error: {e}")
 
-    @Slot()
+    @Slot(QObject)
     def refresh(self, backend):
         self.load_from_backend(backend)
 
-    @Slot(str, str, str)
+    @Slot(QObject, str, str, str)
     def add(self, backend, key: str, project_id: str, name: str):
         if not backend: return
         backend.send_command("key:add", {"key": key, "projectId": project_id, "name": name})
         self.load_from_backend(backend)
 
-    @Slot(str)
+    @Slot(QObject, str)
     def remove(self, backend, key: str):
         if not backend: return
         backend.send_command("key:remove", {"key": key})
         self.load_from_backend(backend)
 
-    @Slot('QVariant')
+    @Slot(QObject)
     def test_all(self, backend):
         if not backend: return
         resp = backend.send_command("key:testAll")
@@ -115,13 +117,13 @@ class KeyListModel(QAbstractListModel):
                 toast.show("Test API Keys", f"Đã kiểm tra {len(keys)} keys", "info")
         self.load_from_backend(backend)
 
-    @Slot('QVariant')
+    @Slot(QObject, str)
     def reset(self, backend, key: str = ""):
         if not backend: return
         backend.send_command("key:reset", {"key": key} if key else {})
         self.load_from_backend(backend)
 
-    @Slot(str, 'QVariant')
+    @Slot(str, QObject)
     def import_from_file(self, file_url: str, backend):
         """Import keys from JSON file."""
         if not backend: return
@@ -146,7 +148,7 @@ class KeyListModel(QAbstractListModel):
         except Exception as e:
             print(f"[KeyListModel] export error: {e}")
 
-    @Slot()
+    @Slot(QObject)
     def clear_all(self, backend):
         if not backend: return
         for k in self._items:

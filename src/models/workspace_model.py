@@ -45,19 +45,25 @@ class WorkspaceModel(QAbstractListModel):
         if role == self.ChannelRole:
             return ws.get("channel_name") or ws.get("channelId", "")
         if role == self.CreatedAtRole:
-            return ws.get("created_at", 0)
+            return int(ws.get("created_at", 0))
         if role == self.ThumbnailRole:
-            return ws.get("thumbnailLocal") or ws.get("thumbnail") or ws.get("thumbnailUrl") or ""
+            t = ws.get("thumbnailLocal") or ws.get("thumbnail") or ws.get("thumbnailUrl") or ""
+            if t and not (t.startswith("http") or t.startswith("file://") or t.startswith("qrc:")):
+                return "file:///" + t.replace("\\", "/")
+            return t
         if role == self.RenderedRole:
-            return ws.get("renderedPath", "")
+            t = ws.get("renderedPath", "")
+            if t and not (t.startswith("http") or t.startswith("file://") or t.startswith("qrc:")):
+                return "file:///" + t.replace("\\", "/")
+            return t
         if role == self.IsShortRole:
-            return ws.get("isShort", True)
+            return bool(ws.get("isShort", True))
         if role == self.DurationRole:
-            return ws.get("durationSec") or ws.get("duration_sec", 0)
+            return int(ws.get("durationSec") or ws.get("duration_sec", 0))
         if role == self.QualityRole:
-            return ws.get("quality", 1080)
+            return int(ws.get("quality", 1080))
         if role == self.SpeedRole:
-            return ws.get("speed", 1.0)
+            return float(ws.get("speed", 1.0))
         if role == self.FileSizeRole:
             size = ws.get("downloadedSize") or ws.get("fileSize") or ws.get("file_size", 0)
             if size > 1024 * 1024:
@@ -123,7 +129,7 @@ class WorkspaceModel(QAbstractListModel):
                     "published_at": ws.get("publishedAt", 0),
                     "durationSec": ws.get("durationSec", 0),
                     "quality": ws.get("quality", 1080),
-                    "speed": ws.get("video_speed", 1.0),
+                    "speed": ws.get("videoSpeed") if ws.get("videoSpeed") is not None else ws.get("video_speed", 1.0),
                     "isShort": ws.get("isShort", True),
                     "downloadedPath": ws.get("downloadedPath", ""),
                     "downloadedSize": ws.get("fileSize", 0) or ws.get("file_size", 0),
@@ -158,26 +164,34 @@ class WorkspaceModel(QAbstractListModel):
             # Normalize field names from camelCase (Rust) to snake_case (model)
             normalized = {}
             for k, v in data.items():
-                if k == "downloadedPath":
+                if k in ("downloadedPath", "downloaded_path"):
                     normalized["downloadedPath"] = v
-                elif k == "downloadedSize":
+                elif k in ("downloadedSize", "downloaded_size", "fileSize", "file_size"):
                     normalized["downloadedSize"] = v
-                elif k == "thumbnailLocal":
+                elif k in ("thumbnailLocal", "thumbnail_local"):
                     normalized["thumbnailLocal"] = v
                 elif k == "width":
                     normalized["width"] = v
                 elif k == "height":
                     normalized["height"] = v
-                elif k == "renderedPath":
+                elif k in ("renderedPath", "rendered_path"):
                     normalized["renderedPath"] = v
-                elif k == "video_speed":
+                elif k in ("videoSpeed", "video_speed"):
                     normalized["speed"] = v
-                elif k == "trim_start":
+                elif k in ("trimStart", "trim_start"):
                     normalized["trimStart"] = v
-                elif k == "trim_end":
+                elif k in ("trimEnd", "trim_end"):
                     normalized["trimEnd"] = v
-                elif k == "is_short":
+                elif k in ("isShort", "is_short"):
                     normalized["isShort"] = v
+                elif k in ("durationSec", "duration_sec"):
+                    normalized["durationSec"] = v
+                elif k in ("channelName", "channel_name"):
+                    normalized["channel_name"] = v
+                elif k in ("createdAt", "created_at"):
+                    normalized["created_at"] = v
+                elif k in ("publishedAt", "published_at"):
+                    normalized["published_at"] = v
                 else:
                     normalized[k] = v
 
@@ -199,9 +213,9 @@ class WorkspaceModel(QAbstractListModel):
             # Update in-place instead of duplicate
             self.update_workspace(ws_id, ws)
             return
-        self.beginInsertRows(QModelIndex(), len(self._workspaces), len(self._workspaces))
-        self._workspaces.append(ws)
-        self._id_index[ws_id] = len(self._workspaces) - 1
+        self.beginInsertRows(QModelIndex(), 0, 0)
+        self._workspaces.insert(0, ws)
+        self._rebuild_index()
         self.endInsertRows()
 
     def set_progress(self, ws_id: str, progress: float):
@@ -211,7 +225,7 @@ class WorkspaceModel(QAbstractListModel):
             idx = self.index(row)
             self.dataChanged.emit(idx, idx, [self.ProgressRole])
 
-    @Slot(str, str, str, object)
+    @Slot(str, str, 'QVariant', object)
     def update_field(self, workspace_id: str, field: str, value, client=None):
         field_map = {
             "title": "title",

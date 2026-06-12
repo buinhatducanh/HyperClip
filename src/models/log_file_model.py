@@ -84,7 +84,7 @@ class LogFilesListModel(QAbstractListModel):
         if role == self.NameRole:
             return f.get("name", "")
         if role == self.SizeRole:
-            return f.get("size", 0)
+            return int(f.get("size", 0))
         if role == self.ModifiedRole:
             return f.get("modified", "")
         return None

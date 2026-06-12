@@ -14,7 +14,7 @@ ColumnLayout {
     EditField {
         label: "Tiêu đề"
         value: workspaceData.title || ""
-        onValueChanged: (newVal) => {
+        onValueModified: (newVal) => {
             workspaceModel.update_field(workspaceId, "title", newVal, backend)
         }
     }
@@ -55,7 +55,7 @@ ColumnLayout {
             from: 0; to: (workspaceData.durationSec || 3600)
             value: workspaceData.trimStart || 0
             editable: true; Layout.fillWidth: true
-            onValueChanged: workspaceModel.update_field(workspaceId, "trimStart", value, backend)
+            onValueModified: workspaceModel.update_field(workspaceId, "trimStart", value, backend)
         }
         Label { text: "→"; color: Theme.text; font.pixelSize: Theme.textSm }
         SpinBox {
@@ -63,7 +63,7 @@ ColumnLayout {
             from: 0; to: (workspaceData.durationSec || 3600)
             value: workspaceData.trimEnd || (workspaceData.durationSec || 60)
             editable: true; Layout.fillWidth: true
-            onValueChanged: workspaceModel.update_field(workspaceId, "trimEnd", value, backend)
+            onValueModified: workspaceModel.update_field(workspaceId, "trimEnd", value, backend)
         }
         Label { text: "giây"; color: Theme.textMuted; font.pixelSize: Theme.textXs }
     }

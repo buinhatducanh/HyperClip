@@ -34,7 +34,8 @@ SettingsCard {
             font.pixelSize: Theme.textMd
             from: 0; to: 365
             value: settings.downloadsCleanupDays
-            onValueChanged: settings.downloadsCleanupDays = value
+            editable: true
+            onValueModified: settings.downloadsCleanupDays = value
         }
 
         Label { text: "Render đồng thời"; color: Theme.textMuted; font.pixelSize: Theme.textMd }
@@ -43,7 +44,8 @@ SettingsCard {
             font.pixelSize: Theme.textMd
             from: 1; to: 16
             value: settings.maxConcurrentRenders
-            onValueChanged: settings.maxConcurrentRenders = value
+            editable: true
+            onValueModified: settings.maxConcurrentRenders = value
         }
     }
 

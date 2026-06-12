@@ -10,12 +10,10 @@
 
 ### NGUYÊN LÝ HOẠT ĐỘNG CỐT LÕI (ĐỂ ĐẠT ĐƯỢC MỤC TIÊU TRÊN)
 
-1. **Detection: Innertube (youtubei.js) PRIMARY — no quota limit:**
-   - Uses 30 Chrome sessions as cookie source (ChromeSessionManager)
-   - youtubei.js → Innertube API → no quota, ~200ms/request
-   - Full scan all channels per poll (5 concurrent)
-   - Early termination once 5 new videos found
-   - OAuth Data API v3 only as **fallback** (when Innertube pool has 0 ready sessions)
+1. **Detection: Song song 2 cơ chế (Chrome CDP Tab Watcher + Innertube Poller):**
+   - **Chrome CDP Tab Watcher (Tức thời):** Quét cổng remote debugging (`localhost:9222/json`) của Chrome mỗi 1.5s. Nếu phát hiện tab đang mở URL video YouTube (watch/shorts), trích xuất Video ID và kích hoạt tải xuống ngay lập tức (< 11s E2E).
+   - **Innertube Poller (Bản tin định kỳ):** Quét tất cả kênh đăng ký song song trong nền (chu kỳ 5s ± 20% jitter) để phát hiện video vừa publish. Sử dụng 30 Chrome sessions làm cookie source, gọi Innertube API không tốn quota.
+   - **OAuth Data API v3 (Dự phòng):** Chỉ kích hoạt khi toàn bộ 30 Chrome sessions của Innertube bị lỗi hoặc trả về 0 video.
 2. **Auto-download Window: 30 phút** — chỉ tải video upload trong vòng 30 phút trở lại (cho yt-dlp trim). Không block detection.
 3. **Tải xuống siêu tốc:** yt-dlp + `--download-sections *00:00:00-MM:SS` (chỉ tải đúng số phút cần thiết), Direct IP binding.
 4. **Render ép phần cứng:** FFmpeg + NVENC (GPU), không x264.
@@ -26,7 +24,7 @@
 
 | # | Tầng | Công nghệ | Target |
 |---|-------|-----------|--------|
-| 1 | **Trigger** | Innertube (youtubei.js) + OAuth fallback (TokenManager) | < 5s |
+| 1 | **Trigger** | Chrome CDP Tab Watcher + Innertube (youtubei.js) + OAuth fallback | < 11s (CDP) / < 20s (Poller) |
 | 2 | **Download** | yt-dlp + `--download-sections` (chỉ tải N phút) + 4×32-fragment multi-instance (RAM ≥ 16GB) | < 40s |
 | 3 | **Pre-process** | Static blur (1 frame, cache vĩnh viễn) | < 3s |
 | 4 | **Edit** | React-Konva Canvas 2D (60fps) | < 16ms/frame |
@@ -58,6 +56,21 @@ Filter: unseen (seenVideoIds dedup), not deleted/private
          ↓
 autoDownload() → yt-dlp --download-sections (chỉ N phút cần thiết, tv_embedded client → H.264 720p/1080p)
 ```
+
+### Chrome CDP Tab Watcher — Công nghệ Phát hiện Tức thời (~0s)
+
+Khi người dùng mở một video YouTube trên trình duyệt Chrome (được chạy với tham số `--remote-debugging-port=9222`), HyperClip sử dụng Chrome DevTools Protocol (CDP) để phát hiện tức thời:
+
+- **Địa chỉ quét:** `http://127.0.0.1:9222/json` (Bắt buộc dùng IP loopback `127.0.0.1` thay vì `localhost` để triệt tiêu hoàn toàn độ trễ phân giải DNS ~47s trên hệ điều hành Windows).
+- **Chu kỳ quét:** Mỗi 500ms (giúp đạt tốc độ phản hồi tức thì 0s).
+- **Cơ chế:**
+  1. Gửi request HTTP GET đến endpoint `/json` của Chrome để lấy danh sách các tab đang hoạt động. Request này được thực hiện qua HTTP client cấu hình **bỏ qua proxy hệ thống** (`no_proxy()`) để tránh việc VPN/Proxy can thiệp vào đường truyền loopback cục bộ.
+  2. Lọc các tab có kiểu là `"page"` và có URL chứa định dạng YouTube (`youtube.com/watch`, `youtu.be/`, `youtube.com/shorts/`).
+  3. Trích xuất `video_id` từ URL.
+  4. Đối chiếu với bộ nhớ Seen Videos dùng chung `Arc<tokio::sync::RwLock<SeenVideos>>` (chia sẻ trực tiếp giữa Poller và ChromeTabWatcher để tránh trùng lặp dữ liệu trên RAM). Các thao tác ghi đè trạng thái được spawn bất đồng bộ thông qua `tokio::runtime::Handle` thay vì dùng block_write đồng bộ (ngăn ngừa deadlock luồng worker).
+  5. Nếu video chưa từng được xử lý, ngay lập tức đẩy một `NewVideoEvent` vào pipeline tải xuống mà không cần đợi chu kỳ quét của YouTubePoller.
+- **Node.js Helper Scan (innertube_helper.js):** Lát cắt lấy video từ danh sách phát của kênh YouTube được tăng từ 5 lên **15 video mới nhất** để tránh bỏ sót khi quét tab kênh lúc user tải nhiều video liên tiếp.
+- **Hiệu quả thực tế:** Rút ngắn thời gian phát hiện video từ lúc user mở trên Chrome xuống mức **tức thời (~0s)**.
 
 ### Innertube Detection (youtubei.js) — PRIMARY (2026-05-04)
 

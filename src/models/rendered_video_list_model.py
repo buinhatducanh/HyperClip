@@ -1,5 +1,5 @@
 """RenderedVideoListModel — completed rendered outputs, incremental model."""
-from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot
+from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot, QObject
 
 
 class RenderedVideoListModel(QAbstractListModel):
@@ -85,23 +85,23 @@ class RenderedVideoListModel(QAbstractListModel):
         except Exception as e:
             print(f"[RenderedVideoListModel] load error: {e}")
 
-    @Slot()
+    @Slot(QObject)
     def refresh(self, backend):
         self.load_from_backend(backend)
 
-    @Slot(str)
+    @Slot(QObject, str)
     def archive(self, backend, video_id: str):
         if not backend: return
         backend.send_command("rendered:archive", {"id": video_id})
         self.load_from_backend(backend)
 
-    @Slot(str)
+    @Slot(QObject, str)
     def remove(self, backend, video_id: str):
         if not backend: return
         backend.send_command("rendered:remove", {"id": video_id})
         self.load_from_backend(backend)
 
-    @Slot()
+    @Slot(QObject, str)
     def open_folder(self, backend, video_id: str = ""):
         if not backend: return
         backend.send_command("rendered:openFolder", {"id": video_id} if video_id else {})

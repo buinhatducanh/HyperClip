@@ -1,11 +1,17 @@
 // crates/hyperclip_ipc/src/innertube_client.rs
+//
+// Persistent Node.js worker for YouTube Innertube API.
+// Instead of spawning a new Node process per poll, keeps one alive
+// communicating via stdin/stdout JSON-RPC.
 
 use crate::error::{HyperclipError, Result};
 use crate::types::VideoInfo;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
 
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
@@ -24,23 +30,70 @@ impl Default for ClientConfig {
     }
 }
 
-#[derive(Debug)]
-pub struct InnertubeClient { config: ClientConfig }
-
-#[derive(Serialize)]
-struct NodeRequest { id: u64, channelId: String, cookie: String }
+/// Response from Node daemon for a poll request
+#[derive(Deserialize)]
+struct NodeResponse {
+    id: Option<u64>,
+    #[serde(default)]
+    ok: bool,
+    videos: Option<Vec<NodeVideo>>,
+    error: Option<String>,
+    // Daemon lifecycle fields
+    #[serde(default)]
+    daemon: bool,
+    #[serde(default)]
+    cmd: Option<String>,
+}
 
 #[derive(Deserialize)]
-struct NodeResponse { id: Option<u64>, ok: bool, videos: Option<Vec<NodeVideo>>, error: Option<String> }
+struct NodeVideo {
+    #[serde(rename = "videoId")]
+    video_id: String,
+    title: String,
+    #[serde(rename = "publishedAt", default)]
+    published_at: i64,
+    #[serde(rename = "thumbnailUrl", default)]
+    thumbnail_url: String,
+    #[serde(rename = "durationSec", default)]
+    duration_sec: f64,
+}
 
-#[derive(Deserialize)]
-struct NodeVideo { videoId: String, title: String, publishedAt: i64, thumbnailUrl: String, durationSec: f64 }
+/// A persistent Node.js worker that communicates via stdin/stdout.
+/// The child process is spawned once with `--daemon` and kept alive.
+/// A background reader thread continuously reads stdout lines into a channel.
+pub struct InnertubeClient {
+    config: ClientConfig,
+    child: Option<Child>,
+    stdin: Option<ChildStdin>,
+    /// Channel receiver for lines read by the background reader thread
+    line_rx: Option<mpsc::Receiver<String>>,
+    req_counter: AtomicU64,
+}
+
+unsafe impl Send for InnertubeClient {}
+unsafe impl Sync for InnertubeClient {}
+
+impl std::fmt::Debug for InnertubeClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InnertubeClient")
+            .field("alive", &self.child.is_some())
+            .finish()
+    }
+}
+
+impl Drop for InnertubeClient {
+    fn drop(&mut self) {
+        self.kill_child();
+    }
+}
 
 impl InnertubeClient {
     pub fn find_node() -> Result<PathBuf> {
         for c in &["node", "node.exe", r"C:\Program Files\nodejs\node.exe"] {
             if let Ok(o) = Command::new(c).arg("--version").output() {
-                if o.status.success() { return Ok(PathBuf::from(*c)); }
+                if o.status.success() {
+                    return Ok(PathBuf::from(*c));
+                }
             }
         }
         Err(HyperclipError::BackendCrashed("Node.js not found".into()))
@@ -48,109 +101,371 @@ impl InnertubeClient {
 
     pub fn new(config: ClientConfig) -> Result<Self> {
         Self::find_node()?;
-        Ok(Self { config })
+        Ok(Self {
+            config,
+            child: None,
+            stdin: None,
+            line_rx: None,
+            req_counter: AtomicU64::new(1),
+        })
     }
 
-    /// Uses temp file to avoid Windows pipe buffering deadlocks.
-    pub async fn get_latest_videos(&self, channel_id: &str, cookie: &str) -> Result<Vec<VideoInfo>> {
+    /// Spawn the Node.js daemon if not already running.
+    fn ensure_daemon(&mut self) -> Result<()> {
+        if self.child.is_some() {
+            if let Some(ref mut child) = self.child {
+                match child.try_wait() {
+                    Ok(Some(_)) => {
+                        tracing::warn!("[InnertubeClient] Daemon exited, respawning...");
+                        self.kill_child();
+                    }
+                    Ok(None) => return Ok(()),
+                    Err(_) => {
+                        self.kill_child();
+                    }
+                }
+            }
+        }
+
         let helper = if self.config.helper_script.exists() {
             self.config.helper_script.clone()
         } else {
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/innertube_helper.js")
         };
-        let ch = channel_id.to_string();
-        let ch_err = ch.clone();
-        let ck = cookie.to_string();
-        let np = self.config.node_path.clone();
 
-        let result = std::sync::Arc::new(std::sync::Mutex::new(None::<Result<Vec<VideoInfo>>>));
-        let r2 = result.clone();
-        std::thread::spawn(move || {
-            let r = Self::call_node(&np, &helper, &ch, &ck);
-            *r2.lock().unwrap() = Some(r);
-        });
+        let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf();
 
-        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
-        loop {
-            if let Some(r) = result.lock().unwrap().take() { return r; }
-            if tokio::time::Instant::now() > deadline {
-                return Err(HyperclipError::InnertubeTransient(format!("Node timed out for {ch_err}")));
+        tracing::info!(
+            "[InnertubeClient] Spawning persistent daemon: {} {} --daemon (cwd={:?})",
+            self.config.node_path,
+            helper.display(),
+            project_root
+        );
+
+        let mut child = Command::new(&self.config.node_path)
+            .arg(&helper)
+            .arg("--daemon")
+            .current_dir(&project_root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| HyperclipError::BackendCrashed(format!("Node daemon spawn failed: {e}")))?;
+
+        let stdin = child.stdin.take().ok_or_else(|| {
+            HyperclipError::BackendCrashed("Failed to capture daemon stdin".into())
+        })?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            HyperclipError::BackendCrashed("Failed to capture daemon stdout".into())
+        })?;
+
+        // Spawn a background reader thread that reads lines from stdout
+        // and sends them through a channel. This avoids Windows pipe buffering issues
+        // with BufReader::read_line blocking in the main thread.
+        let (tx, rx) = mpsc::channel::<String>();
+        std::thread::Builder::new()
+            .name("node-daemon-reader".into())
+            .spawn(move || {
+                use std::io::Read;
+                let mut stdout = stdout;
+                let mut buf = Vec::with_capacity(4096);
+                let mut tmp = [0u8; 4096];
+                loop {
+                    match stdout.read(&mut tmp) {
+                        Ok(0) => break, // EOF
+                        Ok(n) => {
+                            buf.extend_from_slice(&tmp[..n]);
+                            // Extract complete lines
+                            while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+                                let line_bytes: Vec<u8> = buf.drain(..=pos).collect();
+                                let line = String::from_utf8_lossy(&line_bytes).trim().to_string();
+                                if !line.is_empty() {
+                                    if tx.send(line).is_err() {
+                                        return; // receiver dropped
+                                    }
+                                }
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+            })
+            .map_err(|e| HyperclipError::BackendCrashed(format!("Failed to spawn reader thread: {e}")))?;
+
+        self.child = Some(child);
+        self.stdin = Some(stdin);
+        self.line_rx = Some(rx);
+
+        // Wait for the "ready" signal from the daemon (with timeout)
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_secs(15);
+
+        match self.recv_line(timeout) {
+            Ok(line) => {
+                if let Ok(resp) = serde_json::from_str::<NodeResponse>(&line) {
+                    if resp.daemon {
+                        tracing::info!(
+                            "[InnertubeClient] Daemon ready in {:.1}s",
+                            start.elapsed().as_secs_f64()
+                        );
+                        return Ok(());
+                    }
+                }
+                tracing::error!(
+                    "[InnertubeClient] Unexpected first message from daemon: {}",
+                    &line[..line.len().min(200)]
+                );
+                self.kill_child();
+                Err(HyperclipError::BackendCrashed(
+                    "Daemon sent unexpected first message".into(),
+                ))
             }
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            Err(e) => {
+                tracing::error!("[InnertubeClient] Error reading daemon startup: {}", e);
+                self.kill_child();
+                Err(e)
+            }
         }
     }
 
-    fn call_node(node_path: &str, helper: &PathBuf, channel_id: &str, cookie: &str) -> Result<Vec<VideoInfo>> {
-        let temp_dir = std::env::temp_dir();
-        let req_file = temp_dir.join(format!("hc_request_{channel_id}.json"));
-        let resp_file = temp_dir.join(format!("hc_response_{channel_id}.json"));
-        let req_path = req_file.to_string_lossy().to_string();
-        let resp_path = resp_file.to_string_lossy().to_string();
-
-        // Write request to file (avoids Windows pipe buffering issues)
-        let req = serde_json::json!({"id":1,"channelId":channel_id,"cookie":cookie}).to_string();
-        if let Err(e) = std::fs::write(&req_file, &req) {
-            let _ = std::fs::remove_file(&req_file);
-            return Err(HyperclipError::BackendCrashed(format!("Failed to write request file: {e}")));
+    /// Receive one line from the reader channel with a timeout.
+    fn recv_line(&self, timeout: std::time::Duration) -> Result<String> {
+        if let Some(ref rx) = self.line_rx {
+            rx.recv_timeout(timeout).map_err(|e| match e {
+                mpsc::RecvTimeoutError::Timeout => {
+                    HyperclipError::InnertubeTransient("Daemon response timeout".into())
+                }
+                mpsc::RecvTimeoutError::Disconnected => {
+                    HyperclipError::BackendCrashed("Daemon reader thread disconnected".into())
+                }
+            })
+        } else {
+            Err(HyperclipError::BackendCrashed(
+                "Daemon reader not available".into(),
+            ))
         }
-        let _ = std::fs::remove_file(&resp_file);
+    }
+
+    /// Send a JSON request to the daemon's stdin.
+    fn send_request(&mut self, json: &str) -> Result<()> {
+        if let Some(ref mut stdin) = self.stdin {
+            writeln!(stdin, "{}", json).map_err(|e| {
+                HyperclipError::BackendCrashed(format!("Failed to write to daemon stdin: {e}"))
+            })?;
+            stdin.flush().map_err(|e| {
+                HyperclipError::BackendCrashed(format!("Failed to flush daemon stdin: {e}"))
+            })?;
+            Ok(())
+        } else {
+            Err(HyperclipError::BackendCrashed(
+                "Daemon stdin not available".into(),
+            ))
+        }
+    }
+
+    /// Kill the child process and clean up handles.
+    fn kill_child(&mut self) {
+        self.stdin = None;
+        self.line_rx = None;
+        if let Some(ref mut child) = self.child {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        self.child = None;
+    }
+
+    /// Send a setCookie command to the running daemon.
+    pub fn update_cookie(&mut self, cookie: &str) -> Result<()> {
+        self.ensure_daemon()?;
+        let id = self.req_counter.fetch_add(1, Ordering::SeqCst);
+        let req = serde_json::json!({
+            "id": id,
+            "cmd": "setCookie",
+            "cookie": cookie,
+        });
+        self.send_request(&req.to_string())?;
+        let timeout = std::time::Duration::from_secs(10);
+        let line = self.recv_line(timeout)?;
+        match serde_json::from_str::<NodeResponse>(&line) {
+            Ok(r) if r.ok => {
+                tracing::info!("[InnertubeClient] Cookie updated successfully");
+                Ok(())
+            }
+            Ok(r) => Err(HyperclipError::BackendCrashed(format!(
+                "setCookie failed: {}",
+                r.error.unwrap_or_default()
+            ))),
+            Err(e) => Err(HyperclipError::Json(e)),
+        }
+    }
+
+    /// Fetch latest videos for a channel. Uses the persistent daemon.
+    pub async fn get_latest_videos(
+        &mut self,
+        channel_id: &str,
+        cookie: &str,
+    ) -> Result<Vec<VideoInfo>> {
+        self.ensure_daemon()?;
+
+        let id = self.req_counter.fetch_add(1, Ordering::SeqCst);
+        let req = serde_json::json!({
+            "id": id,
+            "channelId": channel_id,
+            "cookie": cookie,
+        });
 
         let start = std::time::Instant::now();
-        let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent().unwrap()
-            .parent().unwrap()
-            .to_path_buf();
-        tracing::info!("[Node] Spawning {} {} (cwd={:?}, req={:?}, cookie_len={})",
-            node_path, helper.display(), project_root, req_file, cookie.len());
+        self.send_request(&req.to_string())?;
 
-        let mut child = match Command::new(node_path)
-            .arg(helper)
-            .arg(&req_path)
-            .env("HYPERCLIP_RESPONSE_FILE", &resp_path)
-            .current_dir(&project_root)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-        {
-            Ok(c) => c,
-            Err(e) => {
-                let _ = std::fs::remove_file(&req_file);
-                return Err(HyperclipError::BackendCrashed(format!("Node spawn failed: {e}")));
-            }
-        };
-
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let timeout = std::time::Duration::from_secs(self.config.timeout_sec);
         loop {
-            if std::time::Instant::now() > deadline {
-                let _ = child.kill(); let _ = child.wait();
-                let _ = std::fs::remove_file(&req_file);
+            let remaining = timeout.saturating_sub(start.elapsed());
+            if remaining.is_zero() {
+                tracing::error!(
+                    "[InnertubeClient] Timeout waiting for response (id={}, channel={})",
+                    id,
+                    channel_id
+                );
+                return Err(HyperclipError::InnertubeTransient(format!(
+                    "Daemon response timeout for {channel_id}"
+                )));
+            }
+
+            let line = match self.recv_line(remaining) {
+                Ok(l) => l,
+                Err(e) => {
+                    // If timeout or disconnect, don't kill daemon (might recover)
+                    return Err(e);
+                }
+            };
+
+            match serde_json::from_str::<NodeResponse>(&line) {
+                Ok(r) => {
+                    if r.daemon {
+                        continue;
+                    }
+                    if r.cmd.as_deref() == Some("setCookie") || r.cmd.as_deref() == Some("pong") {
+                        continue;
+                    }
+                    if r.id == Some(id) {
+                        let elapsed = start.elapsed().as_secs_f64();
+                        if r.ok {
+                            let videos: Vec<VideoInfo> = r
+                                .videos
+                                .unwrap_or_default()
+                                .into_iter()
+                                .map(|v| VideoInfo {
+                                    video_id: v.video_id,
+                                    title: v.title,
+                                    published_at: v.published_at * 1000,
+                                    thumbnail_url: v.thumbnail_url,
+                                    duration_sec: v.duration_sec,
+                                    width: 0,
+                                    height: 0,
+                                })
+                                .collect();
+                            tracing::info!(
+                                "[InnertubeClient] Got {} videos for {} in {:.1}s (daemon)",
+                                videos.len(),
+                                channel_id,
+                                elapsed
+                            );
+                            return Ok(videos);
+                        } else {
+                            return Err(HyperclipError::InnertubeTransient(
+                                r.error.unwrap_or_default(),
+                            ));
+                        }
+                    }
+                    tracing::debug!(
+                        "[InnertubeClient] Skipping response for id={:?} (waiting for {})",
+                        r.id,
+                        id
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "[InnertubeClient] Failed to parse daemon response: {} (line: {})",
+                        e,
+                        &line[..line.len().min(200)]
+                    );
+                }
+            }
+        }
+    }
+
+    /// Check and evaluate open Chrome channel tabs. Uses the persistent daemon.
+    pub async fn check_chrome_tabs(&mut self) -> Result<Vec<VideoInfo>> {
+        self.ensure_daemon()?;
+
+        let id = self.req_counter.fetch_add(1, Ordering::SeqCst);
+        let req = serde_json::json!({
+            "id": id,
+            "cmd": "checkChromeTabs",
+        });
+
+        let start = std::time::Instant::now();
+        self.send_request(&req.to_string())?;
+
+        let timeout = std::time::Duration::from_secs(10);
+        loop {
+            let remaining = timeout.saturating_sub(start.elapsed());
+            if remaining.is_zero() {
                 return Err(HyperclipError::InnertubeTransient(
-                    format!("Node timed out for {channel_id} (resp_file exists={})",
-                        resp_file.exists())
+                    "Timeout waiting for checkChromeTabs response".into()
                 ));
             }
-            match std::fs::read_to_string(&resp_file) {
-                Ok(c) if !c.is_empty() => {
-                    let elapsed = start.elapsed().as_secs_f64();
-                    tracing::debug!("[Innertube] Node responded in {elapsed:.1}s for {channel_id}");
-                    let _ = child.kill(); let _ = child.wait();
-                    let _ = std::fs::remove_file(&req_file);
-                    let _ = std::fs::remove_file(&resp_file);
-                    match serde_json::from_str::<NodeResponse>(&c) {
-                        Ok(r) if r.ok => return Ok(r.videos.unwrap_or_default().into_iter().map(|v| VideoInfo {
-                            video_id: v.videoId, title: v.title,
-                            published_at: v.publishedAt * 1000,
-                            thumbnail_url: v.thumbnailUrl, duration_sec: v.durationSec,
-                            width: 0, height: 0,
-                        }).collect()),
-                        Ok(r) => return Err(HyperclipError::InnertubeTransient(r.error.unwrap_or_default())),
-                        Err(e) => return Err(HyperclipError::Json(e)),
+
+            let line = match self.recv_line(remaining) {
+                Ok(l) => l,
+                Err(e) => return Err(e),
+            };
+
+            match serde_json::from_str::<NodeResponse>(&line) {
+                Ok(r) => {
+                    if r.daemon {
+                        continue;
+                    }
+                    if r.cmd.as_deref() == Some("setCookie") || r.cmd.as_deref() == Some("pong") {
+                        continue;
+                    }
+                    if r.id == Some(id) {
+                        if r.ok {
+                            let videos: Vec<VideoInfo> = r
+                                .videos
+                                .unwrap_or_default()
+                                .into_iter()
+                                .map(|v| VideoInfo {
+                                    video_id: v.video_id,
+                                    title: v.title,
+                                    published_at: v.published_at * 1000,
+                                    thumbnail_url: v.thumbnail_url,
+                                    duration_sec: v.duration_sec,
+                                    width: 0,
+                                    height: 0,
+                                })
+                                .collect();
+                            return Ok(videos);
+                        } else {
+                            return Err(HyperclipError::InnertubeTransient(
+                                r.error.unwrap_or_default(),
+                            ));
+                        }
                     }
                 }
-                _ => {}
+                Err(e) => {
+                    tracing::warn!(
+                        "[InnertubeClient] Failed to parse daemon response: {} (line: {})",
+                        e,
+                        &line[..line.len().min(200)]
+                    );
+                }
             }
-            std::thread::sleep(std::time::Duration::from_millis(200));
         }
     }
 }
@@ -158,6 +473,14 @@ impl InnertubeClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test] fn test_config() { let c = ClientConfig::default(); assert_eq!(c.timeout_sec, 30); }
-    #[test] fn test_node() { let r = InnertubeClient::find_node(); assert!(r.is_ok() || r.is_err()); }
+    #[test]
+    fn test_config() {
+        let c = ClientConfig::default();
+        assert_eq!(c.timeout_sec, 30);
+    }
+    #[test]
+    fn test_node() {
+        let r = InnertubeClient::find_node();
+        assert!(r.is_ok() || r.is_err());
+    }
 }

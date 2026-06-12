@@ -10,6 +10,7 @@ use std::io::Write;
 use std::sync::atomic::{AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
+use futures::stream::{self, StreamExt};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct NewVideoEvent {
@@ -43,6 +44,7 @@ impl Poller {
     pub fn new(
         pool: Arc<InnertubeClientPool>,
         channels: Arc<RwLock<Vec<Channel>>>,
+        seen_videos: Arc<tokio::sync::RwLock<SeenVideos>>,
         poll_interval_ms: u64,
         max_age_minutes: u64,
         min_duration_sec: u32,
@@ -51,7 +53,7 @@ impl Poller {
         Self {
             pool,
             channels,
-            seen_videos: Arc::new(tokio::sync::RwLock::new(SeenVideos::default())),
+            seen_videos,
             uploads_cache: Arc::new(tokio::sync::RwLock::new(UploadsCache::default())),
             oauth_detector: Arc::new(Mutex::new(None)),
             health_monitor: Arc::new(Mutex::new(HealthMonitor::new())),
@@ -163,6 +165,12 @@ impl Poller {
     }
 
     pub async fn run(self: Arc<Self>, cancel: tokio_util::sync::CancellationToken) {
+        // Poll immediately on startup (no initial sleep)
+        tracing::info!("[Poller] Firing initial poll immediately");
+        if let Err(e) = self.poll_once().await {
+            tracing::error!("Initial poll error: {}", e);
+        }
+
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => {
@@ -198,97 +206,81 @@ impl Poller {
         let total = self.pool.size();
         tracing::info!("[Poller] Pool ready={ready}/{total}");
 
-        // Phase 1: Try Innertube (primary, no quota)
-        let mut innertube_channels = Vec::new();
-        let mut oauth_channels = Vec::new();
+        // Phase 1: Try Innertube (primary bulk polling)
+        let mut oauth_channels: Vec<&Channel> = active_channels.clone();
 
         if ready > 0 {
-            innertube_channels = active_channels;
-        } else {
-            // Innertube pool exhausted — fallback to OAuth
-            tracing::warn!("[Poller] Innertube pool exhausted — 0/{total} sessions ready, falling back to OAuth");
-            oauth_channels = active_channels;
-        }
+            let polled_successfully = Arc::new(Mutex::new(std::collections::HashSet::new()));
+            let mut futures = Vec::new();
+            for channel in active_channels.iter() {
+                let polled_successfully = Arc::clone(&polled_successfully);
+                futures.push(Box::pin(async move {
+                    tracing::info!("[Poller] Acquiring session for {}", channel.id);
+                    let session_idx = match self.pool.acquire_session() {
+                        Some(i) => i,
+                        None => { tracing::info!("[Poller] No ready session for {}", channel.id); return; }
+                    };
 
-        // Process Innertube channels
-        for channel in innertube_channels.iter() {
-            tracing::info!("[Poller] Acquiring session for {}", channel.id);
-            let session_idx = match self.pool.acquire_session() {
-                Some(i) => i,
-                None => { tracing::info!("[Poller] No ready session for {}", channel.id); continue; }
-            };
+                    tracing::info!("[Poller] Got session {session_idx} for {}, taking client...", channel.id);
+                    let mut cc = match self.pool.take_client_for_session(session_idx) {
+                        Some(v) => v,
+                        None => { tracing::warn!("[Poller] take_client_for_session failed for session {session_idx} (channel {})", channel.id); self.pool.mark_failed(session_idx); return; }
+                    };
 
-            tracing::info!("[Poller] Got session {session_idx} for {}, taking client...", channel.id);
-            let cc = match self.pool.take_client_for_session(session_idx) {
-                Some(v) => v,
-                None => { tracing::warn!("[Poller] take_client_for_session failed for session {session_idx} (channel {})", channel.id); self.pool.mark_failed(session_idx); continue; }
-            };
+                    let lookup_id = if !channel.channel_id.is_empty() {
+                        channel.channel_id.clone()
+                    } else { channel.id.clone() };
+                    let cid = channel.id.clone();
 
-            let lookup_id = if !channel.channel_id.is_empty() {
-                channel.channel_id.clone()
-            } else { channel.id.clone() };
-            let cid = channel.id.clone();
+                    tracing::info!("[Poller] Calling get_latest_videos for {cid}...");
+                    match cc.client.get_latest_videos(&lookup_id, &cc.cookie).await {
+                        Ok(videos) => {
+                            tracing::info!("[Poller] get_latest_videos returned {} videos for {cid}", videos.len());
+                            self.pool.return_client(session_idx, cc.client);
+                            self.pool.mark_success(session_idx);
 
-            tracing::info!("[Poller] Calling get_latest_videos for {cid}...");
-            match cc.client.get_latest_videos(&lookup_id, &cc.cookie).await {
-                Ok(videos) => {
-                    tracing::info!("[Poller] get_latest_videos returned {} videos for {cid}", videos.len());
-                    self.pool.return_client(session_idx, cc.client);
-                    self.pool.mark_success(session_idx);
+                            polled_successfully.lock().unwrap().insert(cid.clone());
 
-                    if videos.is_empty() {
-                        tracing::debug!("[Poller] Channel {cid} — 0 videos");
-                    }
-                    for video in videos.iter() {
-                        let seen_videos = self.seen_videos.read().await;
-                        let is_seen = seen_videos.is_seen(&cid, &video.video_id);
-                        drop(seen_videos);
+                            for video in videos.iter() {
+                                let seen_videos = self.seen_videos.read().await;
+                                let is_seen = seen_videos.is_seen(&cid, &video.video_id);
+                                drop(seen_videos);
 
-                        if is_seen {
-                            tracing::info!("[Poller] SKIP {cid} video {} (seen)", video.video_id);
-                            continue;
-                        }
-                        if !Self::is_within_age_limit(video.published_at, now_ms, max_age_ms) {
-                            let age_s = (now_ms - video.published_at) / 1000;
-                            tracing::info!("[Poller] SKIP {cid} video {} (age={age_s}s > {}min, published_at={})", video.video_id, max_age_ms / 60000, video.published_at);
-                            continue;
-                        }
-                        if min_duration_sec > 0 && video.duration_sec > 0.0 && video.duration_sec < min_duration_sec as f64 {
-                            tracing::info!("[Poller] SKIP {cid} video {} (short {:.0}s < {}s)", video.video_id, video.duration_sec, min_duration_sec);
-                            continue;
-                        }
-                        if video.width > 0 && video.height > 0 {
-                            let ratio = video.width as f64 / video.height as f64;
-                            if ratio < 0.6 {
-                                tracing::info!("[Poller] SKIP {cid} video {} (vertical ratio={:.2})", video.video_id, ratio);
-                                continue;
+                                if is_seen { continue; }
+                                if !Self::is_within_age_limit(video.published_at, now_ms, max_age_ms) { continue; }
+                                if min_duration_sec > 0 && video.duration_sec > 0.0 && video.duration_sec < min_duration_sec as f64 { continue; }
+                                if video.width > 0 && video.height > 0 {
+                                    let ratio = video.width as f64 / video.height as f64;
+                                    if ratio < 0.6 { continue; }
+                                }
+
+                                let mut seen_videos = self.seen_videos.write().await;
+                                seen_videos.mark_seen(&cid, &video.video_id);
+                                drop(seen_videos);
+
+                                let event = NewVideoEvent {
+                                    channel_id: cid.clone(), channel_name: channel.name.clone(),
+                                    video_id: video.video_id.clone(), title: video.title.clone(),
+                                    thumbnail_url: video.thumbnail_url.clone(),
+                                    published_at: video.published_at, duration_sec: video.duration_sec,
+                                    detected_at: chrono::Utc::now().timestamp_millis(),
+                                };
+                                self.record_detection();
+                                (self.process_fn)(event);
                             }
                         }
-
-                        // Mark as seen
-                        let mut seen_videos = self.seen_videos.write().await;
-                        seen_videos.mark_seen(&cid, &video.video_id);
-                        drop(seen_videos);
-
-                        let event = NewVideoEvent {
-                            channel_id: cid.clone(), channel_name: channel.name.clone(),
-                            video_id: video.video_id.clone(), title: video.title.clone(),
-                            thumbnail_url: video.thumbnail_url.clone(),
-                            published_at: video.published_at, duration_sec: video.duration_sec,
-                            detected_at: chrono::Utc::now().timestamp_millis(),
-                        };
-                        tracing::info!("[Poller] NEW VIDEO [{cid}] [{id}] \"{title}\" ({dur:.0}s)",
-                            id = video.video_id, title = video.title, dur = video.duration_sec);
-                        // Record detection time for health monitoring
-                        self.record_detection();
-                        (self.process_fn)(event);
+                        Err(e) => {
+                            tracing::warn!("[Poller] Innertube error for {cid} (session {session_idx}): {e}");
+                            self.pool.mark_failed(session_idx);
+                        }
                     }
-                }
-                Err(e) => {
-                    tracing::warn!("[Poller] Innertube error for {cid} (session {session_idx}): {e}");
-                    self.pool.mark_failed(session_idx);
-                }
+                }));
             }
+            futures::future::join_all(futures).await;
+            let polled_set = polled_successfully.lock().unwrap();
+            oauth_channels.retain(|c| !polled_set.contains(&c.id));
+        } else {
+            tracing::warn!("[Poller] Innertube pool exhausted — 0/{total} sessions ready, relying entirely on OAuth");
         }
 
         // Check health after Innertube phase

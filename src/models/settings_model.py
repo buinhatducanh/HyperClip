@@ -37,7 +37,7 @@ class SettingsModel(QObject):
         self._video_max_duration_sec: int = 3600
         self._minimize_to_tray: bool = True
         self._quit_on_close: bool = False
-        self._poll_interval_ms: int = 5000
+        self._poll_interval_ms: int = 3000
         self._onboarding_complete: bool = False
         self._hardware_vram_gb: int = 0
         self._hardware_ram_gb: int = 0
@@ -116,9 +116,61 @@ class SettingsModel(QObject):
             "pollIntervalMs": "_poll_interval_ms",
             "onboardingComplete": "_onboarding_complete",
         }
+        types = {
+            "_output_folder": str,
+            "_video_storage_path": str,
+            "_output_path": str,
+            "_default_trim_limit": int,
+            "_default_quality": int,
+            "_auto_download_quality": str,
+            "_auto_download_max_age_minutes": int,
+            "_auto_download_enabled": bool,
+            "_polling_enabled": bool,
+            "_auto_render": bool,
+            "_auto_render_resolution": str,
+            "_auto_render_fps": int,
+            "_auto_render_speed": float,
+            "_auto_split_parts": int,
+            "_auto_split_minutes": int,
+            "_auto_render_title_template": str,
+            "_downloads_cleanup_days": int,
+            "_max_concurrent_renders": int,
+            "_proxy_enabled": bool,
+            "_proxy_host": str,
+            "_proxy_port": int,
+            "_proxy_username": str,
+            "_proxy_password": str,
+            "_max_concurrent_downloads": int,
+            "_video_min_duration_sec": int,
+            "_video_max_duration_sec": int,
+            "_minimize_to_tray": bool,
+            "_quit_on_close": bool,
+            "_poll_interval_ms": int,
+            "_onboarding_complete": bool,
+        }
         for k, attr in m.items():
             if k in d:
-                setattr(self, attr, d[k])
+                val = d[k]
+                t = types.get(attr)
+                if val is not None and t is not None:
+                    if t is int:
+                        val = int(val)
+                    elif t is bool:
+                        val = bool(val)
+                    elif t is float:
+                        val = float(val)
+                    elif t is str:
+                        val = str(val)
+                if attr == "_auto_download_quality" and val is not None:
+                    val_str = str(val)
+                    if "." in val_str:
+                        try:
+                            val = str(int(float(val_str)))
+                        except ValueError:
+                            val = val_str
+                    else:
+                        val = val_str
+                setattr(self, attr, val)
         if "hardwareProfile" in d and d["hardwareProfile"]:
             p = d["hardwareProfile"]
             self._hardware_vram_gb = int(p.get("vramGB", 0))
@@ -160,14 +212,14 @@ class SettingsModel(QObject):
             "hardwareProfile": {"vramGB": self._hardware_vram_gb, "ramGB": self._hardware_ram_gb} if self._hardware_vram_gb else None,
         }
 
-    @Slot(result=bool)
+    @Slot(QObject, result=bool)
     def save_to_backend(self, backend) -> bool:
         if not backend:
             return False
         resp = backend.send_command("settings:update", self.to_dict())
         return resp.get("ok", False)
 
-    @Slot(result=bool)
+    @Slot(QObject, result=bool)
     def load_from_backend(self, backend) -> bool:
         if not backend:
             return False

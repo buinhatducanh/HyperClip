@@ -58,6 +58,7 @@ src/
   ui/qml/                — QML views (PollerPanel, WorkspaceQueue, etc.)
 
 crates/hyperclip_ipc/src/
+  chrome_watcher.rs       — Chrome CDP watcher (127.0.0.1:9222/json, 500ms, instant ~0s detection)
   cookies.rs              — DPAPI decrypt + SQLite parser, SOCS=CAI injection
   cookies_sqlite.rs       — SQLite reader (%youtube.com + .youtube.com filter)
   detection.rs            — Detection pipeline + health monitor

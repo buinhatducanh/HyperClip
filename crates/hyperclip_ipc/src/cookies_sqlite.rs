@@ -97,7 +97,14 @@ pub fn parse_cookies_file(db_path: &Path, domain_filter: &str) -> Result<Vec<Raw
         let ext = db_path.extension().unwrap_or_default();
         let stem = db_path.file_stem().unwrap_or_default();
         let mut tmp = std::env::temp_dir();
-        tmp.push(format!("{}-copy.{}", stem.to_string_lossy(), ext.to_string_lossy()));
+        
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        db_path.hash(&mut hasher);
+        let path_hash = hasher.finish();
+
+        tmp.push(format!("{}-{:x}-copy.{}", stem.to_string_lossy(), path_hash, ext.to_string_lossy()));
         let _ = std::fs::remove_file(&tmp);
 
         let max_retries = 5;

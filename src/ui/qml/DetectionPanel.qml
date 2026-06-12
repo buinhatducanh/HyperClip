@@ -55,7 +55,8 @@ ScrollView {
                         Layout.fillWidth: true
                         from: 1000; to: 60000; stepSize: 500
                         value: settings.pollIntervalMs
-                        onValueChanged: settings.pollIntervalMs = value
+                        editable: true
+                        onValueModified: settings.pollIntervalMs = value
                     }
 
                     Label { text: "TG tối thiểu (s)"; color: Theme.textMuted; font.pixelSize: 11 }
@@ -63,15 +64,21 @@ ScrollView {
                         Layout.fillWidth: true
                         from: 0; to: 3600
                         value: settings.videoMinDurationSec
-                        onValueChanged: settings.videoMinDurationSec = value
+                        editable: true
+                        onValueModified: settings.videoMinDurationSec = value
                     }
 
-                    Label { text: "TG tối đa (s)"; color: Theme.textMuted; font.pixelSize: 11 }
-                    SpinBox {
+                    Label { text: "TG tối đa (phút)"; color: Theme.textMuted; font.pixelSize: 11 }
+                    TextField {
                         Layout.fillWidth: true
-                        from: 60; to: 7200
-                        value: settings.videoMaxDurationSec
-                        onValueChanged: settings.videoMaxDurationSec = value
+                        text: Math.round(settings.videoMaxDurationSec / 60).toString()
+                        validator: IntValidator { bottom: 1; top: 120 }
+                        onEditingFinished: {
+                            let mins = parseInt(text)
+                            if (!isNaN(mins)) {
+                                settings.videoMaxDurationSec = mins * 60
+                            }
+                        }
                     }
                 }
 

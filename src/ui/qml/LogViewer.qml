@@ -12,6 +12,10 @@ SettingsCard {
 
     property var currentFile: ""
 
+    Component.onCompleted: {
+        logFilesModel.refresh()
+    }
+
     // File selector
     RowLayout {
         Layout.fillWidth: true
@@ -30,9 +34,8 @@ SettingsCard {
             model: logFilesModel
             textRole: "name"
             onCurrentIndexChanged: {
-                if (currentIndex >= 0) {
-                    var name = model.get(currentIndex).name
-                    logFileModel.load(name, 500)
+                if (currentIndex >= 0 && currentText) {
+                    logFileModel.load(currentText, 500)
                 }
             }
         }

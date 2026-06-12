@@ -88,12 +88,14 @@ impl CookieExtractionResult {
 /// Electron/CDP writes `_hyperclip_cookies.json` after a successful Chrome login,
 /// so this file is always available when the user has logged in via the app.
 fn try_persisted_json(profile_dir: &Path) -> Option<CookieExtractionResult> {
-    // Check both locations where CDP writes the file:
+    // Check locations where CDP/HyperClip writes the file:
     //   1. profile_dir/_hyperclip_cookies.json (HyperClip profiles 2-30)
     //   2. profile_dir/../_hyperclip_cookies.json (Default Chrome profile, parent = User Data)
+    //   3. profile_dir/../../_hyperclip_cookies.json (chrome-profiles/profile-N/_hyperclip_cookies.json)
     let candidates = [
         profile_dir.join("_hyperclip_cookies.json"),
         profile_dir.join("..").join("_hyperclip_cookies.json"),
+        profile_dir.join("..").join("..").join("_hyperclip_cookies.json"),
     ];
 
     for path in &candidates {

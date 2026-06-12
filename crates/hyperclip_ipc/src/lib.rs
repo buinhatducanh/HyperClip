@@ -15,6 +15,7 @@ pub mod detection;
 pub mod innertube_client;
 pub mod innertube_pool;
 pub mod poller;
+pub mod chrome_watcher;
 pub mod token_manager;
 
 pub mod thumbnail;

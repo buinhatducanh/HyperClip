@@ -19,7 +19,7 @@ Rectangle {
         TextField {
             text: root.value !== null ? root.value.toString() : ""
             Layout.fillWidth: true
-            onEditingFinished: root.valueChanged(text)
+            onEditingFinished: root.valueModified(text)
             color: "#fff"; font.pixelSize: 16
             background: Rectangle { color: "#1e1e1e"; border.color: "#333"; radius: 2 }
         }

@@ -41,9 +41,10 @@ from src.data_dir import get_data_dir
 
 def find_hyperclip_backend():
     candidates = [
+        os.path.join("target", "release", "hyperclip-tauri.exe"),
+        os.path.join("src-tauri", "target", "release", "hyperclip-tauri.exe"),
         os.path.join("target", "debug", "hyperclip-tauri.exe"),
         os.path.join("src-tauri", "target", "debug", "hyperclip-tauri.exe"),
-        os.path.join("target", "release", "hyperclip-tauri.exe"),
         "hyperclip-tauri.exe",
         "hyperclip.exe",
     ]
@@ -52,6 +53,16 @@ def find_hyperclip_backend():
             return os.path.abspath(c)
     return "hyperclip-tauri.exe"
 
+
+def _sanitize_for_qml(obj):
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_qml(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_sanitize_for_qml(v) for v in obj]
+    elif isinstance(obj, int) and not isinstance(obj, bool):
+        # Always use float to map to JS Number directly, avoiding PySide6 integer copy-convert issues
+        return float(obj)
+    return obj
 
 class RustClient(QObject):
     """Subprocess JSON-RPC client with non-blocking API."""
@@ -129,7 +140,7 @@ class RustClient(QObject):
                 self._invoke_callback_async(callback, err)
         return req_id
 
-    @Slot(str)
+    @Slot(str, result='QVariantMap')
     @Slot(str, 'QVariantMap', result='QVariantMap')
     def send_command(self, cmd, params={}, timeout=5.0) -> dict:
         """Synchronous send. Callable from both Python and QML (@Slot overload for 1 or 2 args)."""
@@ -192,6 +203,7 @@ class RustClient(QObject):
                     continue
                 try:
                     msg = json.loads(line)
+                    msg = _sanitize_for_qml(msg)
                 except json.JSONDecodeError:
                     sys.stderr.write("[RustClient] invalid JSON: " + line[:200] + "\n")
                     continue
@@ -235,7 +247,7 @@ class RustClient(QObject):
             if method == "workspace:update":
                 bus.workspace_updated.emit(params)
             elif method == "render:progress":
-                bus.render_progress.emit(params.get("id", ""), params.get("progress", 0.0))
+                bus.render_progress.emit(params.get("id", ""), float(params.get("progress", 0.0)))
             elif method == "system:stats":
                 bus.system_stats_updated.emit(params)
             elif method == "notification":
@@ -245,9 +257,9 @@ class RustClient(QObject):
             elif method == "download:progress-event":
                 bus.download_progress.emit(
                     params.get("workspace_id", ""),
-                    params.get("percent", 0.0),
-                    params.get("speed_mbps", 0.0),
-                    params.get("eta_sec", 0),
+                    float(params.get("percent", 0.0)),
+                    float(params.get("speed_mbps", 0.0)),
+                    float(params.get("eta_sec", 0.0)),
                 )
             elif method == "poller:status":
                 bus.poller_status_changed.emit(params)

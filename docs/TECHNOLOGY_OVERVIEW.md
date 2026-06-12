@@ -17,6 +17,12 @@ Renderer (Next.js) ←→ preload.ts (IPC bridge) ←→ Main (Electron)
 
 ## 2. Detection Pipeline
 
+### Instant: Chrome CDP Tab Watcher (New Video Trigger)
+- **Port:** `localhost:9222/json`
+- **Interval:** 1.5 seconds
+- **Mechanism:** Polls Chrome remote debugging active tab URLs. Detects YouTube video URLs (`watch`, `shorts`, `youtu.be`) instantly when opened in Chrome by the user. Seeds seen IDs from workspaces/SeenVideos store on start to prevent duplicate triggers.
+- **Performance:** Achieves E2E detection in < 11 seconds.
+
 ### Primary: Innertube (youtubei.js) — NO QUOTA
 - 30 Chrome sessions with SAPISIDHASH auth
 - Sessions: `D:\HyperClip-Data\chrome-profiles\profile-N\_hyperclip_cookies.json`

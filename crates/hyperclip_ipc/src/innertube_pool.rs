@@ -77,6 +77,35 @@ impl InnertubeClientPool {
         }
     }
 
+    /// Load distinct cookies for a specific session index.
+    pub fn set_session_cookie(&self, idx: usize, cookie_string: String) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(s) = sessions.get_mut(idx) {
+            s.cookie = cookie_string;
+            s.client = None; // drop old client so next call re-creates it with fresh config
+        }
+    }
+
+    /// Check if a session cookie contains valid YouTube credentials.
+    pub fn is_session_logged_in(&self, idx: usize) -> bool {
+        let sessions = self.sessions.lock().unwrap();
+        if let Some(s) = sessions.get(idx) {
+            s.cookie.contains("SAPISID") || s.cookie.contains("__Secure-3PAPISID")
+        } else {
+            false
+        }
+    }
+
+    /// Get the cookie string for a specific session index.
+    pub fn get_session_cookie_string(&self, idx: usize) -> String {
+        let sessions = self.sessions.lock().unwrap();
+        if let Some(s) = sessions.get(idx) {
+            s.cookie.clone()
+        } else {
+            String::new()
+        }
+    }
+
     pub fn size(&self) -> usize {
         self.sessions.lock().unwrap().len()
     }

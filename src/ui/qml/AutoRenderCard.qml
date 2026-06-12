@@ -69,7 +69,8 @@ SettingsCard {
             font.pixelSize: Theme.textMd
             from: 1; to: 10
             value: settings.autoSplitParts
-            onValueChanged: settings.autoSplitParts = value
+            editable: true
+            onValueModified: settings.autoSplitParts = value
         }
 
         Label { text: "Hoặc số phút"; color: Theme.textMuted; font.pixelSize: Theme.textMd }
@@ -78,7 +79,8 @@ SettingsCard {
             font.pixelSize: Theme.textMd
             from: 0; to: 120
             value: settings.autoSplitMinutes
-            onValueChanged: settings.autoSplitMinutes = value
+            editable: true
+            onValueModified: settings.autoSplitMinutes = value
         }
 
         Label { text: "Mẫu tiêu đề"; color: Theme.textMuted; font.pixelSize: Theme.textMd }

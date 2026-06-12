@@ -122,8 +122,12 @@ def main():
             split_parts.append({"start": start, "end": end})
         client.send_command("workspace:split", {"id": ws_id, "autoRender": False, "parts": split_parts})
 
-    bus.workspace_updated.connect(_maybe_auto_split)
+    bus.workspace_updated.connect(lambda d: (
+        workspace_model.update_workspace(d.get("id", ""), d),
+        _maybe_auto_split(d)
+    ))
     bus.render_progress.connect(lambda ws_id, prog: workspace_model.set_progress(ws_id, prog))
+    bus.download_progress.connect(lambda ws_id, pct, speed, eta: workspace_model.set_progress(ws_id, pct / 100.0 if pct > 1.0 else pct))
     bus.system_stats_updated.connect(lambda d: stats_model.update_from_dict(d))
     bus.new_video_detected.connect(lambda d: (
         workspace_model.add_workspace({
@@ -160,6 +164,9 @@ def main():
         poller_model.refresh_from_backend(client),
         auth_model.refresh_from_backend(client),
         rendered_model.load_from_backend(client),
+        session_model.load_from_backend(client),
+        project_model.load_from_backend(client),
+        key_model.load_from_backend(client),
     ))
 
     # Wire notification signal → activity log
@@ -186,12 +193,25 @@ def main():
     # Auto-start poller once after UI is ready (respect pollingEnabled setting)
     def start_poller():
         if client:
-            # Check pollingEnabled from settings model
+            # Eagerly load models from backend — the channel:synced event that
+            # normally triggers this may have been missed (it fires before the
+            # event bus is connected in Python).
+            settings_model.load_from_backend(client)
+            workspace_model.load_from_backend(client)
+            channel_list_model.load_from_backend(client)
+            session_model.load_from_backend(client)
+            project_model.load_from_backend(client)
+            key_model.load_from_backend(client)
+            detection_history_model.load_from_disk()
+
+            # Check pollingEnabled from freshly-loaded settings
             if settings_model.pollingEnabled:
                 client.send_command_async("poller:start")
                 sys.stderr.write("[main] Poller auto-started\n")
             else:
                 sys.stderr.write("[main] Polling disabled in settings, skipping auto-start\n")
+            # Refresh poller status after a short delay so UI shows correct state
+            QTimer.singleShot(500, lambda: poller_model.refresh_from_backend(client))
             # Refresh auth once poller is initialized (backend state is stable)
             # This avoids the 15s wait for LoginScreen to dismiss
             QTimer.singleShot(500, lambda: auth_model.refresh_from_backend(client))

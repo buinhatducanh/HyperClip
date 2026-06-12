@@ -1,4 +1,5 @@
 use hyperclip_ipc::{get_system_stats, ChannelStore, WorkspaceStore, get_workspaces_path, get_channels_path, get_seen_videos_path, SettingsStore, get_settings_path, RenderedStore, get_rendered_videos_path, KeyStore, get_keys_path, ProjectStore, get_projects_path, KeyEntry, ProjectEntry, get_store_dir, get_uploads_cache_path, get_data_dir};
+use std::sync::atomic::AtomicBool;
 use hyperclip_ipc::store::{SeenVideos, UploadsCache};
 
 use hyperclip_ipc::cookies::{extract_chrome_cookies, get_chrome_user_data_dir};
@@ -6,6 +7,7 @@ use hyperclip_ipc::cookies::{extract_chrome_cookies, get_chrome_user_data_dir};
 use hyperclip_ipc::innertube_pool::{InnertubeClientPool, PoolConfig};
 
 use hyperclip_ipc::poller::{Poller, NewVideoEvent};
+use hyperclip_ipc::chrome_watcher::ChromeTabWatcher;
 
 use hyperclip_ipc::ffmpeg::{spawn_render_async, RenderOptions, FilterChain};
 
@@ -58,14 +60,21 @@ struct AppState {
 
     poller: Arc<Poller>,
 
+    chrome_watcher: Arc<ChromeTabWatcher>,
+
     poller_cancel: Mutex<CancellationToken>,
+
+    /// Tracks whether the poller thread has actually been started.
+    /// Without this, `poller_active()` would return true even before start_poller() is called,
+    /// because a fresh CancellationToken is not cancelled.
+    poller_started: AtomicBool,
 
     _channels: Arc<RwLock<Vec<Channel>>>,
 
     pool: Arc<InnertubeClientPool>,
 
     // Holds NewVideoEvent callback so it lives for the program lifetime
-    _process_handle: Box<dyn Fn(NewVideoEvent) + Send + Sync>,
+    _process_handle: Arc<dyn Fn(NewVideoEvent) + Send + Sync>,
 
 }
 
@@ -86,33 +95,8 @@ impl AppState {
             // ─── Migrate old data and ensure store dirs ────────────────
             migrate_old_data();
 
-            // ─── Auto-extract cookies from Chrome if none exist ──────
-            let cookies_path = get_cookies_path();
-            let netscape_path = get_cookies_netscape_path();
-            let needs_extract = !cookies_path.exists()
-                || std::fs::metadata(&cookies_path).map(|m| m.len() == 0).unwrap_or(true)
-                || !netscape_path.exists();
-            if needs_extract {
-                tracing::info!("[AppState] {} — attempting auto-extract from Chrome",
-                    if !cookies_path.exists() { "No cookies file" } else { "Netscape file missing" });
-                match extract_and_feed_cookies() {
-                    Ok(_) => tracing::info!("[AppState] Auto-extracted cookies at startup"),
-                    Err(e) => tracing::warn!("[AppState] Auto-extract failed: {} — sessions may be anonymous", e),
-                }
-            }
-            // Re-check: load whatever cookies we have into pool
-            if cookies_path.exists() {
-                if let Ok(cookie_str) = std::fs::read_to_string(&cookies_path) {
-                    let trimmed = cookie_str.trim().to_string();
-                    if !trimmed.is_empty() {
-                        let trimmed_len = trimmed.len();
-                        pool.set_cookies(trimmed);
-                        tracing::info!("[AppState] Loaded cookies into Innertube pool from {:?} ({}B)", cookies_path, trimmed_len);
-                    }
-                }
-            } else {
-                tracing::warn!("[AppState] No cookies file at {:?} — Innertube sessions will be anonymous", cookies_path);
-            }
+            // NOTE: Cookie pre-population moved to background thread in init_appstate()
+            // so the stdin command loop can start immediately.
 
             // Load channels from disk store (new path, may be freshly migrated)
             let ch_path = get_channels_path();
@@ -131,8 +115,14 @@ impl AppState {
             tracing::info!("[AppState] Loaded {} channels from disk", v.len());
             let channels = Arc::new(RwLock::new(v));
 
+            // Load seen videos from disk (per-channel with TTL) and wrap in shared RwLock
+            let seen_path = get_seen_videos_path();
+            let seen_store = hyperclip_ipc::store::SeenVideos::load(&seen_path);
+            let seen_videos = Arc::new(tokio::sync::RwLock::new(seen_store));
+
             // Process function: runs for each new video detected by the poller
             let _channels_clone = channels.clone();
+            let seen_videos_clone = seen_videos.clone();
             let process_fn = move |event: NewVideoEvent| {
                 let ws_id = format!("ws-ch-{}", event.detected_at);
 
@@ -179,6 +169,19 @@ impl AppState {
                 seen_store.mark_seen(&event.channel_id, &event.video_id);
                 seen_store.save(&seen_path).ok();
 
+                // Update shared memory seen list immediately
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    let seen_videos_clone = seen_videos_clone.clone();
+                    let cid = event.channel_id.clone();
+                    let vid = event.video_id.clone();
+                    handle.spawn(async move {
+                        let mut seen_guard = seen_videos_clone.write().await;
+                        seen_guard.mark_seen(&cid, &vid);
+                    });
+                } else {
+                    seen_videos_clone.blocking_write().mark_seen(&event.channel_id, &event.video_id);
+                }
+
                 // 2. Emit new_video_detected event to stdout (Python/QML catches this)
                 let event_json = serde_json::json!({
                     "method": "new_video_detected",
@@ -220,26 +223,40 @@ impl AppState {
                 let tid = ws_id.clone();
 
                 let trim_minutes = s_store.settings
-                    .get("default_trim_limit_minutes")
+                    .get("defaultTrimLimit")
                     .and_then(|v| v.as_u64())
+                    .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_f64()).map(|f| f as u64))
+                    .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok()).map(|f| f as u64))
+                    .or_else(|| s_store.settings.get("default_trim_limit_minutes").and_then(|v| v.as_u64()))
                     .unwrap_or(10) as u32;
+
+                // Update workspace store with status and downloadStartedAt
+                let ws_path = get_workspaces_path();
+                let mut ws_store = WorkspaceStore::load(&ws_path);
+                let now_ms = chrono::Utc::now().timestamp_millis();
+                ws_store.update(&tid, serde_json::json!({
+                    "status": "downloading",
+                    "downloadStartedAt": now_ms,
+                })).ok();
+                ws_store.save(&ws_path).ok();
 
                 // Emit downloading status
                 let dl_event = serde_json::json!({
                     "method": "workspace:update",
-                    "params": {"id": tid, "status": "downloading"}
+                    "params": {"id": tid, "status": "downloading", "downloadStartedAt": now_ms}
                 });
                 let _ = writeln!(std::io::stdout(), "{}", serde_json::to_string(&dl_event).unwrap_or_default());
                 let _ = std::io::stdout().flush();
 
-                // Read quality from settings, default 360p for speed
+                // Read quality from settings
                 let auto_dl_quality: u32 = s_store.settings
                     .get("autoDownloadQuality")
                     .and_then(|v| v.as_str())
-                    .and_then(|s| s.parse::<u32>().ok())
+                    .and_then(|s| s.parse::<f64>().ok().map(|f| f as u32))
+                    .or_else(|| s_store.settings.get("autoDownloadQuality").and_then(|v| v.as_f64()).map(|f| f as u32))
                     .or_else(|| s_store.settings.get("autoDownloadQuality").and_then(|v| v.as_u64()).map(|n| n as u32))
                     .or_else(|| s_store.settings.get("defaultQuality").and_then(|v| v.as_u64()).map(|n| n as u32))
-                    .unwrap_or(360);
+                    .unwrap_or(1080);
 
                 let ch_name = event.channel_name.clone();
                 let cid = event.channel_id.clone();
@@ -260,12 +277,22 @@ impl AppState {
                             // Update workspace store
                             let ws_path = get_workspaces_path();
                             let mut ws_store = WorkspaceStore::load(&ws_path);
+                            let now_ms = chrono::Utc::now().timestamp_millis();
                             ws_store.update(&tid, serde_json::json!({
                                 "status": "ready",
                                 "downloadedPath": result.path,
                                 "thumbnailLocal": thumb_str,
+                                "downloadedAt": now_ms,
                             })).ok();
                             ws_store.save(&ws_path).ok();
+                            
+                            crate::emit(hyperclip_ipc::IpcResponse::event("workspace:update", serde_json::json!({
+                                "id": tid,
+                                "status": "ready",
+                                "downloadedPath": result.path,
+                                "thumbnailLocal": thumb_str,
+                                "downloadedAt": now_ms,
+                            })));
 
                             // Emit ready event
                             let done_event = serde_json::json!({
@@ -338,6 +365,8 @@ impl AppState {
                 });
             };
 
+            let process_fn_arc: Arc<dyn Fn(NewVideoEvent) + Send + Sync> = Arc::new(process_fn);
+
             // Load settings for poller config
             let s_path = get_settings_path();
             let s_store = SettingsStore::load(&s_path);
@@ -354,24 +383,27 @@ impl AppState {
                 .and_then(|v| v.as_u64())
                 .unwrap_or(60) as u32;
 
+            let poller_process_fn = {
+                let process_fn_arc = process_fn_arc.clone();
+                move |event| process_fn_arc(event)
+            };
+
             let poller = Arc::new(Poller::new(
                 pool.clone(),
                 channels.clone(),
+                seen_videos.clone(),
                 poll_interval_ms,
                 max_age_minutes,
                 min_duration_sec,
-                process_fn,
+                poller_process_fn,
             ));
 
-            // Load seen videos from disk (per-channel with TTL)
-            let seen_path = get_seen_videos_path();
-            let seen_store = hyperclip_ipc::store::SeenVideos::load(&seen_path);
-            let poller_clone = poller.clone();
-            if let Ok(rt) = tokio::runtime::Handle::try_current() {
-                rt.spawn(async move {
-                    poller_clone.load_seen_ids(seen_store).await;
-                });
-            }
+            let chrome_watcher = Arc::new(ChromeTabWatcher::new(
+                None, // default port (9222)
+                None, // default poll interval
+                seen_videos.clone(),
+                process_fn_arc.clone(),
+            ));
 
             // Load uploads cache
             let uploads_cache_path = get_uploads_cache_path();
@@ -407,12 +439,13 @@ impl AppState {
 
             AppState {
                 poller,
+                chrome_watcher,
                 poller_cancel: Mutex::new(CancellationToken::new()),
+                poller_started: AtomicBool::new(false),
                 _channels: channels,
                 pool,
-                _process_handle: Box::new(process_fn),
+                _process_handle: process_fn_arc,
             }
-
         });
 
         INSTANCE.get().unwrap()
@@ -420,8 +453,14 @@ impl AppState {
     }
 
     fn start_poller(&self) {
+        // Cancel the old poller thread first (if any) to prevent duplicate polling threads
+        {
+            let old_guard = self.poller_cancel.lock().unwrap();
+            old_guard.cancel();
+        }
+
         let poller = self.poller.clone();
-        // Create a fresh token (in case the old one was cancelled)
+        // Create a fresh token for the new poller run
         let cancel = CancellationToken::new();
         {
             let mut guard = self.poller_cancel.lock().unwrap();
@@ -499,26 +538,38 @@ impl AppState {
             }
         }
 
+        let chrome_watcher = self.chrome_watcher.clone();
+
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async move {
                 poller.load_seen_ids(seen_store).await;
                 poller.set_uploads_cache(uploads_cache).await;
-                poller.run(cancel).await;
+                
+                let poller_cancel = cancel.clone();
+                let watcher_cancel = cancel.clone();
+
+                let poller_fut = poller.run(poller_cancel);
+                let watcher_fut = chrome_watcher.run(watcher_cancel);
+
+                tokio::join!(poller_fut, watcher_fut);
             });
         });
+        self.poller_started.store(true, std::sync::atomic::Ordering::SeqCst);
         tracing::info!("[AppState] Poller started with startup catch-up");
     }
 
     fn stop_poller(&self) {
         let guard = self.poller_cancel.lock().unwrap();
         guard.cancel();
+        self.poller_started.store(false, std::sync::atomic::Ordering::SeqCst);
         tracing::info!("[AppState] Poller stopped");
     }
 
     fn poller_active(&self) -> bool {
+        let started = self.poller_started.load(std::sync::atomic::Ordering::SeqCst);
         let guard = self.poller_cancel.lock().unwrap();
-        !guard.is_cancelled()
+        started && !guard.is_cancelled()
     }
 
     fn reload_poller_config(&self) {
@@ -669,7 +720,48 @@ pub fn init_poller_runtime() {
 
 /// Eagerly init AppState at startup — triggers data migration + cookie extraction.
 pub fn init_appstate() {
+    // Initialize AppState (pool, channels, process_fn) — now returns quickly
+    // because cookie pre-population was moved to the background thread below.
     AppState::get_or_init();
+
+    // Spawn a background thread that pre-populates the pool with cookies
+    // from all 30 profiles. This runs in parallel with the stdin command loop
+    // so Python commands are not blocked.
+    std::thread::Builder::new()
+        .name("cookie-preload".into())
+        .spawn(|| {
+            tracing::info!("[cookie-preload] Starting background cookie extraction for 30 profiles");
+            let mut valid_sessions = 0;
+            for i in 1..=30 {
+                let profile_id = format!("HyperClip-Profile-{}", i);
+                match extract_profile_cookies_and_feed(&profile_id) {
+                    Ok(cookie_str) => {
+                        if cookie_str.contains("SAPISID") || cookie_str.contains("__Secure-3PAPISID") {
+                            valid_sessions += 1;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!("[cookie-preload] Profile {} extraction failed: {}", i, e);
+                    }
+                }
+            }
+            // Also try Default profile
+            let _ = extract_profile_cookies_and_feed("Default");
+            tracing::info!("[cookie-preload] Done: {}/30 profiles have valid sessions", valid_sessions);
+
+            // After all profiles are loaded, check if Profile-1 needs Chrome login
+            let profile_1_ok = match extract_profile_cookies("HyperClip-Profile-1") {
+                Ok(c) => c.contains("SAPISID") || c.contains("__Secure-3PAPISID"),
+                Err(_) => false,
+            };
+            if !profile_1_ok {
+                tracing::warn!("[cookie-preload] Profile 1 has no valid cookies — launching Chrome to prompt login");
+            } else {
+                tracing::info!("[cookie-preload] Profile 1 has valid cookies — launching Chrome to observe channel tabs");
+            }
+            launch_chrome_profile_async("HyperClip-Profile-1");
+        })
+        .expect("Failed to spawn cookie-preload thread");
 }
 
 /// Check if poller is still running (for main loop keep-alive).
@@ -833,33 +925,320 @@ fn lookup_channel_ids(ws_id: &str) -> (String, String, String) {
     }
 }
 
-/// Extract cookies from Chrome Default profile → save to cookies.txt → feed Innertube pool.
-/// Returns the cookie string on success.
-fn extract_and_feed_cookies() -> Result<String, String> {
-    let profile_dir = get_chrome_user_data_dir().join("Default");
-    let result = extract_chrome_cookies(&profile_dir, "Default")
+fn get_chrome_executable_path() -> PathBuf {
+    let path_standard = PathBuf::from("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe");
+    if path_standard.exists() {
+        return path_standard;
+    }
+    let path_x86 = PathBuf::from("C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe");
+    if path_x86.exists() {
+        return path_x86;
+    }
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        let path_user = PathBuf::from(local_app_data)
+            .join("Google")
+            .join("Chrome")
+            .join("Application")
+            .join("chrome.exe");
+        if path_user.exists() {
+            return path_user;
+        }
+    }
+    PathBuf::from("chrome.exe")
+}
+
+fn map_profile_id_to_dir_name(profile_id: &str) -> String {
+    if profile_id == "Default" {
+        return "Default".to_string();
+    }
+    if profile_id.starts_with("HyperClip-Profile-") {
+        if let Ok(num) = profile_id["HyperClip-Profile-".len()..].parse::<u32>() {
+            return format!("Profile.{}", num + 1);
+        }
+    }
+    profile_id.to_string()
+}
+
+fn get_chrome_profiles_root() -> PathBuf {
+    let d_path = PathBuf::from("D:\\HyperClip-Data\\chrome-profiles");
+    if d_path.exists() {
+        return d_path;
+    }
+    if let Some(app_data) = std::env::var_os("APPDATA") {
+        let appdata_path = PathBuf::from(app_data)
+            .join("HyperClip")
+            .join("HyperClip-Data")
+            .join("chrome-profiles");
+        if appdata_path.exists() {
+            return appdata_path;
+        }
+    }
+    // Fallback to workspace local data dir
+    get_data_dir().join("chrome-profiles")
+}
+
+fn resolve_profile_dir(profile_id: &str) -> PathBuf {
+    if profile_id == "Default" {
+        return get_chrome_user_data_dir().join("Default");
+    }
+    if profile_id.starts_with("HyperClip-Profile-") {
+        if let Ok(num) = profile_id["HyperClip-Profile-".len()..].parse::<u32>() {
+            let root = get_chrome_profiles_root();
+            // D:\HyperClip-Data\chrome-profiles\profile-N\Default\Default
+            return root.join(format!("profile-{}", num)).join("Default").join("Default");
+        }
+    }
+    // Fallback
+    let dir_name = map_profile_id_to_dir_name(profile_id);
+    get_chrome_user_data_dir().join(dir_name)
+}
+
+fn get_chrome_launch_args(profile_id: &str) -> (PathBuf, String) {
+    if profile_id == "Default" {
+        return (get_chrome_user_data_dir(), "Default".to_string());
+    }
+    if profile_id.starts_with("HyperClip-Profile-") {
+        if let Ok(num) = profile_id["HyperClip-Profile-".len()..].parse::<u32>() {
+            let root = get_chrome_profiles_root();
+            // D:\HyperClip-Data\chrome-profiles\profile-N\Default
+            let user_data_dir = root.join(format!("profile-{}", num)).join("Default");
+            return (user_data_dir, "Default".to_string());
+        }
+    }
+    // Fallback
+    (get_chrome_user_data_dir(), map_profile_id_to_dir_name(profile_id))
+}
+
+fn extract_profile_cookies(profile_id: &str) -> Result<String, String> {
+    let profile_dir = resolve_profile_dir(profile_id);
+    match extract_chrome_cookies(&profile_dir, profile_id) {
+        Ok(result) => {
+            let cookie_str = result.build_cookie_string();
+            Ok(cookie_str)
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+fn extract_profile_cookies_and_feed(profile_id: &str) -> Result<String, String> {
+    let profile_dir = resolve_profile_dir(profile_id);
+    let result = extract_chrome_cookies(&profile_dir, profile_id)
         .map_err(|e| format!("Cookie extraction failed: {}", e))?;
     let cookie_string = result.build_cookie_string();
-    let cookies_path = get_cookies_path();
-    if let Some(parent) = cookies_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+
+    // If it's HyperClip-Profile-N (1..=30), feed it into the pool at index N-1
+    if profile_id.starts_with("HyperClip-Profile-") {
+        if let Ok(num) = profile_id["HyperClip-Profile-".len()..].parse::<usize>() {
+            if num >= 1 && num <= 30 {
+                AppState::get_or_init().pool.set_session_cookie(num - 1, cookie_string.clone());
+                tracing::info!("[Cookies] Extracted and loaded cookies into pool index {} for {}", num - 1, profile_id);
+            }
+        }
+    } else {
+        // Fallback for "Default" or others
+        AppState::get_or_init().pool.set_session_cookie(0, cookie_string.clone());
     }
-    std::fs::write(&cookies_path, &cookie_string).map_err(|e| e.to_string())?;
 
-    // Also write Netscape-format file for yt-dlp
-    let netscape = result.build_netscape_file();
-    let netscape_path = cookies_path.parent().unwrap().join("cookies_netscape.txt");
-    std::fs::write(&netscape_path, netscape).map_err(|e| e.to_string())?;
+    // Write to the global cookies files if this is Profile 1 or Default (to keep downloads working)
+    if profile_id == "Default" || profile_id == "HyperClip-Profile-1" {
+        let cookies_path = get_cookies_path();
+        if let Some(parent) = cookies_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&cookies_path, &cookie_string).map_err(|e| e.to_string())?;
 
-    AppState::get_or_init().pool.set_cookies(cookie_string.clone());
-    tracing::info!(
-        "[Cookies] Extracted {} cookies, {} bytes fed into pool (SAPISID: {})",
-        result.cookies.len(),
-        cookie_string.len(),
-        cookie_string.contains("SAPISID") || cookie_string.contains("__Secure-3PAPISID")
-    );
+        let netscape = result.build_netscape_file();
+        let netscape_path = cookies_path.parent().unwrap().join("cookies_netscape.txt");
+        std::fs::write(&netscape_path, netscape).map_err(|e| e.to_string())?;
+        tracing::info!("[Cookies] Updated global cookies.txt and cookies_netscape.txt from {}", profile_id);
+    }
+
     Ok(cookie_string)
 }
+
+fn refresh_all_profiles_cookies() -> Result<usize, String> {
+    let mut success_count = 0;
+    for i in 1..=30 {
+        let profile_id = format!("HyperClip-Profile-{}", i);
+        match extract_profile_cookies_and_feed(&profile_id) {
+            Ok(_) => {
+                success_count += 1;
+            }
+            Err(e) => {
+                tracing::warn!("[Cookies] Refresh failed for {}: {}", profile_id, e);
+            }
+        }
+    }
+    // Also try Default as fallback/complement
+    let _ = extract_profile_cookies_and_feed("Default");
+    Ok(success_count)
+}
+
+fn launch_chrome_profile_async(profile_id: &str) {
+    let (user_data_dir, profile_dir_name) = get_chrome_launch_args(profile_id);
+    let chrome_path = get_chrome_executable_path();
+    let profile_id_owned = profile_id.to_string();
+
+    std::thread::spawn(move || {
+        let mut urls = vec!["https://www.youtube.com".to_string()];
+        if profile_id_owned == "HyperClip-Profile-1" {
+            let ch_path = get_channels_path();
+            let ch_store = ChannelStore::load(&ch_path);
+            for ch in ch_store.channels.iter() {
+                if ch.enabled && !ch.paused {
+                    if !ch.handle.is_empty() {
+                        let handle = if ch.handle.starts_with('@') {
+                            ch.handle.clone()
+                        } else {
+                            format!("@{}", ch.handle)
+                        };
+                        urls.push(format!("https://www.youtube.com/{}/videos", handle));
+                    } else if let Some(ref channel_id) = ch.channel_id {
+                        if !channel_id.is_empty() {
+                            urls.push(format!("https://www.youtube.com/channel/{}/videos", channel_id));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Try to connect to Chrome debugging port to check if it's already running
+        let cdp_url = "http://127.0.0.1:9222/json";
+        let agent = ureq::Agent::new();
+        
+        #[derive(serde::Deserialize, Debug)]
+        struct CdpTab {
+            url: Option<String>,
+            #[serde(rename = "type")]
+            tab_type: Option<String>,
+        }
+
+        let tabs_result: Result<Vec<CdpTab>, String> = agent.get(cdp_url)
+            .timeout(std::time::Duration::from_millis(1500))
+            .call()
+            .map_err(|e| e.to_string())
+            .and_then(|resp| {
+                serde_json::from_reader(resp.into_reader()).map_err(|e| e.to_string())
+            });
+
+        match tabs_result {
+            Ok(open_tabs) => {
+                tracing::info!("[Chrome] Chrome is already running with remote debugging port active. Checking open tabs...");
+                
+                fn extract_youtube_key(url: &str) -> Option<String> {
+                    if url.contains("youtube.com/@") {
+                        let parts: Vec<&str> = url.split("youtube.com/").collect();
+                        if parts.len() > 1 {
+                            let rest = parts[1];
+                            let handle = rest.split('/').next().unwrap_or("");
+                            if handle.starts_with('@') {
+                                return Some(handle.to_string());
+                            }
+                        }
+                    } else if url.contains("youtube.com/channel/") {
+                        let parts: Vec<&str> = url.split("youtube.com/channel/").collect();
+                        if parts.len() > 1 {
+                            let rest = parts[1];
+                            let chan_id = rest.split('/').next().unwrap_or("");
+                            if !chan_id.is_empty() {
+                                return Some(chan_id.to_string());
+                            }
+                        }
+                    }
+                    None
+                }
+
+                // Check each target URL
+                for url in &urls {
+                    let is_open = if let Some(target_key) = extract_youtube_key(url) {
+                        // It's a channel URL. Check if any open tab contains this channel's key
+                        open_tabs.iter().any(|tab| {
+                            tab.tab_type.as_deref() == Some("page") && 
+                            tab.url.as_ref().map(|u| u.contains(&target_key)).unwrap_or(false)
+                        })
+                    } else {
+                        // It's the homepage or other non-channel URL
+                        open_tabs.iter().any(|tab| {
+                            tab.tab_type.as_deref() == Some("page") && 
+                            tab.url.as_ref().map(|u| u == url || u == &format!("{}/", url)).unwrap_or(false)
+                        })
+                    };
+
+                    if !is_open {
+                        tracing::info!("[Chrome] Channel/URL not open in Chrome. Opening new tab: {}", url);
+                        let encoded_url = urlencoding::encode(url);
+                        let new_tab_url = format!("http://127.0.0.1:9222/json/new?url={}", encoded_url);
+                        if let Err(e) = agent.get(&new_tab_url).call() {
+                            tracing::warn!("[Chrome] Failed to open new tab via CDP: {}", e);
+                        }
+                    } else {
+                        tracing::info!("[Chrome] Tab already open, skipping: {}", url);
+                    }
+                }
+
+                // Chrome is already open, so we extract cookies immediately and return
+                match extract_profile_cookies_and_feed(&profile_id_owned) {
+                    Ok(_) => {
+                        tracing::info!("[Chrome] Successfully extracted and updated cookies for existing Chrome profile {}", profile_id_owned);
+                        crate::emit(hyperclip_ipc::IpcResponse::event("channel:synced", serde_json::json!({})));
+                    }
+                    Err(e) => {
+                        tracing::error!("[Chrome] Failed to extract cookies for existing Chrome: {}", e);
+                    }
+                }
+                return;
+            }
+            Err(e) => {
+                tracing::info!("[Chrome] Port check failed (Chrome likely not running on port 9222): {}", e);
+            }
+        }
+
+        // Chrome is not running or port is closed, spawn it normally
+        tracing::info!("[Chrome] Launching new Chrome process for profile: {}", profile_id_owned);
+        let mut cmd = std::process::Command::new(chrome_path);
+        cmd.arg(format!("--user-data-dir={}", user_data_dir.to_string_lossy()));
+        cmd.arg(format!("--profile-directory={}", profile_dir_name));
+        cmd.arg("--remote-debugging-port=9222");
+        cmd.arg("--disable-background-timer-throttling");
+        cmd.arg("--disable-backgrounding-occluded-windows");
+        cmd.arg("--disable-renderer-backgrounding");
+        for url in urls {
+            cmd.arg(url);
+        }
+
+        tracing::info!("[Chrome] Running Command: {:?}", cmd);
+        
+        match cmd.spawn() {
+            Ok(mut child) => {
+                tracing::info!("[Chrome] Process spawned successfully, PID: {:?}", child.id());
+                match child.wait() {
+                    Ok(status) => {
+                        tracing::info!("[Chrome] Chrome window closed with status: {:?}", status);
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        
+                        match extract_profile_cookies_and_feed(&profile_id_owned) {
+                            Ok(_) => {
+                                tracing::info!("[Chrome] Successfully extracted and updated cookies for profile {}", profile_id_owned);
+                                crate::emit(hyperclip_ipc::IpcResponse::event("channel:synced", serde_json::json!({})));
+                            }
+                            Err(e) => {
+                                tracing::error!("[Chrome] Failed to extract cookies after Chrome closed: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("[Chrome] Error waiting for Chrome process: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!("[Chrome] Failed to spawn Chrome: {}", e);
+            }
+        }
+    });
+}
+
+
 
 /// Check whether cookies.txt exists and has content.
 fn cookies_file_has_content() -> bool {
@@ -1314,7 +1693,6 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             let mut store = WorkspaceStore::load(&ws_path);
             let mut bytes_freed: u64 = 0;
             let mut files_deleted: u32 = 0;
-
             // Look up channel info to find new-path files
             let (cid, cname, _) = lookup_channel_ids(&id);
             let maybe_ws = store.workspaces.iter().find(|w| w.id == id).cloned();
@@ -1359,32 +1737,48 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             Ok(json!({"success": true, "bytesFreed": bytes_freed, "filesDeleted": files_deleted}))
         }
 
-        // Task 3: workspace:retry - calls yt-dlp download_video
-
         "workspace:retry" => {
-
             let id = p(params, "id").unwrap_or_default();
-
-            let video_url = p(params, "url").or_else(|| p(params, "videoUrl")).unwrap_or_default();
-
-
+            let mut video_url = p(params, "url").or_else(|| p(params, "videoUrl")).unwrap_or_default();
 
             if id.is_empty() {
-
                 return CommandResult::Ok(json!({ "ok": false, "error": "workspace:retry requires id param" }));
-
             }
 
             if video_url.is_empty() {
-
-                return CommandResult::Ok(json!({ "ok": false, "error": "workspace:retry requires url or videoUrl param" }));
-
+                let ws_path = get_workspaces_path();
+                let store = WorkspaceStore::load(&ws_path);
+                if let Some(ws) = store.get(&id) {
+                    video_url = format!("https://youtube.com/watch?v={}", ws.video_id);
+                }
             }
 
-
+            if video_url.is_empty() {
+                return CommandResult::Ok(json!({ "ok": false, "error": "workspace:retry requires url or videoUrl param" }));
+            }
 
             // Use new media structure
             let (cid, cname, _) = lookup_channel_ids(&id);
+
+            // Read quality & trim from settings store, allow param overrides
+            let s_path = get_settings_path();
+            let s_store = SettingsStore::load(&s_path);
+
+            let quality: u32 = params.get("quality").and_then(|v| v.as_u64())
+                .or_else(|| s_store.settings.get("autoDownloadQuality")
+                    .and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok().map(|f| f as u64)))
+                .or_else(|| s_store.settings.get("autoDownloadQuality").and_then(|v| v.as_f64()).map(|f| f as u64))
+                .or_else(|| s_store.settings.get("autoDownloadQuality").and_then(|v| v.as_u64()))
+                .or_else(|| s_store.settings.get("defaultQuality").and_then(|v| v.as_u64()))
+                .unwrap_or(1080) as u32;
+
+            let trim_minutes = params.get("trimMinutes").and_then(|v| v.as_u64())
+                .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_u64()))
+                .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_f64()).map(|f| f as u64))
+                .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok()).map(|f| f as u64))
+                .or_else(|| s_store.settings.get("default_trim_limit_minutes").and_then(|v| v.as_u64()))
+                .unwrap_or(10) as u32;
+
             let timestamp = chrono::Utc::now().timestamp_millis();
             let output_path = if !cid.is_empty() || !cname.is_empty() {
                 let video_id = video_url.rsplit('=').next().unwrap_or(&id).to_string();
@@ -1395,18 +1789,18 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
 
             let output_str = output_path.to_string_lossy().to_string();
 
-            let quality: u32 = params.get("quality")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(360) as u32;
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            let ws_path = get_workspaces_path();
+            let mut ws_store = WorkspaceStore::load(&ws_path);
+            ws_store.update(&id, serde_json::json!({
+                "status": "downloading",
+                "downloadStartedAt": now_ms,
+            })).ok();
+            ws_store.save(&ws_path).ok();
 
-            let trim_minutes = params.get("trimMinutes")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(10) as u32;
-
-
+            emit_workspace_event(&id, "downloading", None);
 
             let tid = id.clone();
-
             let netscape_path = get_cookies_netscape_path();
             let cookies_str = netscape_path.to_string_lossy().to_string();
 
@@ -1417,41 +1811,40 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             let url2 = video_url.clone();
 
             std::thread::spawn(move || {
-
                 match download_video(&url2, &out_str, &cookies_str, trim_minutes, quality) {
-
                     Ok(result) => {
-
                         // Download thumbnail
                         let thumb_path = get_thumbnail_path(&cid2, &cname2, &vid2);
                         let thumb_str = download_youtube_thumbnail_to(&vid2, &thumb_path);
 
-                        // Persist thumbnail to store
+                        // Persist thumbnail, status, downloadedPath and downloadedAt to store
                         let ws_path = get_workspaces_path();
                         let mut ws_store = WorkspaceStore::load(&ws_path);
+                        let now_ms = chrono::Utc::now().timestamp_millis();
                         ws_store.update(&tid, serde_json::json!({
                             "thumbnailLocal": thumb_str,
+                            "status": "ready",
+                            "downloadedPath": result.path,
+                            "downloadedAt": now_ms,
                         })).ok();
                         ws_store.save(&ws_path).ok();
 
                         tracing::info!("workspace:retry download complete: {} -> {} ({} bytes)",
-
                             tid, result.path, result.file_size);
 
-                        emit_workspace_event(&tid, "ready", None);
-
+                        crate::emit(hyperclip_ipc::IpcResponse::event("workspace:update", serde_json::json!({
+                            "id": tid,
+                            "status": "ready",
+                            "downloadedPath": result.path,
+                            "thumbnailLocal": thumb_str,
+                            "downloadedAt": now_ms,
+                        })));
                     }
-
                     Err(e) => {
-
                         tracing::error!("workspace::retry download failed for {}: {}", tid, e);
-
                         emit_workspace_event(&tid, "error", Some(e));
-
                     }
-
                 }
-
             });
 
 
@@ -1475,7 +1868,17 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             let id = p(params, "id").unwrap_or_default();
             let video_url = p(params, "url").or_else(|| p(params, "videoUrl")).unwrap_or_default();
             let netscape_path = get_cookies_netscape_path();
-            let trim_minutes = params.get("trimMinutes").and_then(|v| v.as_u64()).unwrap_or(10) as u32;
+
+            // Read trim & quality from settings store (not params) — frontend doesn't send these
+            let s_path = get_settings_path();
+            let s_store = SettingsStore::load(&s_path);
+            let trim_minutes = params.get("trimMinutes").and_then(|v| v.as_u64())
+                .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_u64()))
+                .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_f64()).map(|f| f as u64))
+                .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok()).map(|f| f as u64))
+                .or_else(|| s_store.settings.get("default_trim_limit_minutes").and_then(|v| v.as_u64()))
+                .unwrap_or(10) as u32;
+
             let (cid, cname, _) = lookup_channel_ids(&id);
             let timestamp = chrono::Utc::now().timestamp_millis();
             let output_path = if !cid.is_empty() || !cname.is_empty() {
@@ -1485,11 +1888,26 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                 get_video_storage_path().join(format!("{}.mp4", id))
             };
             let output_str = output_path.to_string_lossy().to_string();
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            let ws_path = get_workspaces_path();
+            let mut ws_store = WorkspaceStore::load(&ws_path);
+            ws_store.update(&id, serde_json::json!({
+                "status": "downloading",
+                "downloadStartedAt": now_ms,
+            })).ok();
+            ws_store.save(&ws_path).ok();
+
             emit_workspace_event(&id, "downloading", None);
             let tid = id.clone();
             let url = video_url.clone();
             let cookies_str = netscape_path.to_string_lossy().to_string();
-            let dl_quality: u32 = params.get("quality").and_then(|v| v.as_u64()).unwrap_or(360) as u32;
+            let dl_quality: u32 = params.get("quality").and_then(|v| v.as_u64())
+                .or_else(|| s_store.settings.get("autoDownloadQuality")
+                    .and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok().map(|f| f as u64)))
+                .or_else(|| s_store.settings.get("autoDownloadQuality").and_then(|v| v.as_f64()).map(|f| f as u64))
+                .or_else(|| s_store.settings.get("autoDownloadQuality").and_then(|v| v.as_u64()))
+                .or_else(|| s_store.settings.get("defaultQuality").and_then(|v| v.as_u64()))
+                .unwrap_or(1080) as u32;
             let out_str = output_str.clone();
             let cid2 = cid.clone();
             let cname2 = cname.clone();
@@ -1507,6 +1925,18 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     let _ = download_youtube_thumbnail_to(&video_id, &thumb_path);
                     let thumb_str = if thumb_path.exists() { Some(thumb_path.to_string_lossy().to_string()) } else { None };
 
+                    // Update workspace store
+                    let ws_path = get_workspaces_path();
+                    let mut ws_store = WorkspaceStore::load(&ws_path);
+                    let now_ms = chrono::Utc::now().timestamp_millis();
+                    ws_store.update(&tid, serde_json::json!({
+                        "status": "ready",
+                        "downloadedPath": result.path,
+                        "thumbnailLocal": thumb_str,
+                        "downloadedAt": now_ms,
+                    })).ok();
+                    ws_store.save(&ws_path).ok();
+
                     let event = json!({
                         "method": "workspace:update",
                         "params": {
@@ -1517,6 +1947,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                             "width": result.width,
                             "height": result.height,
                             "thumbnailLocal": thumb_str,
+                            "downloadedAt": now_ms,
                         }
                     });
                     let s = serde_json::to_string(&event).unwrap();
@@ -1583,6 +2014,15 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                 get_video_storage_path().join(format!("{}.mp4", id))
             };
             let output_str = output_path.to_string_lossy().to_string();
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            let ws_path = get_workspaces_path();
+            let mut ws_store = WorkspaceStore::load(&ws_path);
+            ws_store.update(&id, serde_json::json!({
+                "status": "downloading",
+                "downloadStartedAt": now_ms,
+            })).ok();
+            ws_store.save(&ws_path).ok();
+
             emit_workspace_event(&id, "downloading", None);
             let tid = id.clone();
             let url = video_url.clone();
@@ -1590,8 +2030,16 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             let out_str = output_str.clone();
             let cid2 = cid.clone();
             let cname2 = cname.clone();
+            // Read trim from settings
+            let s_path = get_settings_path();
+            let s_store = SettingsStore::load(&s_path);
+            let trim_minutes = s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_u64())
+                .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_f64()).map(|f| f as u64))
+                .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok()).map(|f| f as u64))
+                .or_else(|| s_store.settings.get("default_trim_limit_minutes").and_then(|v| v.as_u64()))
+                .unwrap_or(10) as u32;
             std::thread::spawn(move || {
-                download_video_streaming(&url, &out_str, &cookies_str, 10, 1080, |progress| {
+                download_video_streaming(&url, &out_str, &cookies_str, trim_minutes, 1080, |progress| {
                     emit_download_progress(&tid, &progress);
                 })
                 .map(|result| {
@@ -1599,6 +2047,16 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     let video_id = url.rsplit('=').next().unwrap_or(&tid).to_string();
                     let thumb_path = get_thumbnail_path(&cid2, &cname2, &video_id);
                     let _ = download_youtube_thumbnail_to(&video_id, &thumb_path);
+
+                    // Update workspace store
+                    let ws_path = get_workspaces_path();
+                    let mut ws_store = WorkspaceStore::load(&ws_path);
+                    let now_ms = chrono::Utc::now().timestamp_millis();
+                    ws_store.update(&tid, serde_json::json!({
+                        "status": "ready",
+                        "downloadedAt": now_ms,
+                    })).ok();
+                    ws_store.save(&ws_path).ok();
 
                     emit_workspace_event(&tid, "ready", None);
                     tracing::info!("redownloadHd complete: {} ({}x{}, {} bytes)",
@@ -2223,28 +2681,22 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
         // ─── Auth ───────────────────────────────────────────────────
 
         "auth:status" => {
-            use hyperclip_ipc::cookies::{extract_chrome_cookies, get_chrome_user_data_dir};
-            let profile = p(params, "profile").unwrap_or_else(|| "Default".to_string());
-            let profile_dir = get_chrome_user_data_dir().join(&profile);
-            match extract_chrome_cookies(&profile_dir, &profile) {
-                Ok(data) => {
-                    let sapisid_count = data.cookies.iter()
-                        .filter(|c| c.name == "SAPISID")
-                        .count();
-                    Ok(json!({
-                        "isReady": sapisid_count > 0,
-                        "cookieCount": data.cookies.len(),
-                        "loggedOut": sapisid_count == 0,
-                        "accountName": profile,
-                        "oauthReady": false,
-                    }))
-                }
-                Err(e) => Ok(json!({
-                    "isReady": false, "cookieCount": 0, "loggedOut": true,
-                    "accountName": "", "oauthReady": false,
-                    "cookieError": e.to_string(), "cookieCritical": true,
-                })),
-            }
+            let pool = &AppState::get_or_init().pool;
+            let is_ready = pool.is_session_logged_in(0); // Profile 1 maps to slot 0
+            let cookie_str = pool.get_session_cookie_string(0);
+            let cookie_count = if cookie_str.is_empty() {
+                0
+            } else {
+                cookie_str.matches(';').count() + 1
+            };
+
+            Ok(json!({
+                "isReady": is_ready,
+                "cookieCount": cookie_count,
+                "loggedOut": !is_ready,
+                "accountName": "HyperClip-Profile-1",
+                "oauthReady": false,
+            }))
         }
 
         "auth:extractCookies" => {
@@ -2296,35 +2748,29 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
         }
 
         "auth:startOAuth" => {
-            match extract_and_feed_cookies() {
-                Ok(cookie_string) => {
-                    let sapisid = cookie_string.contains("SAPISID") || cookie_string.contains("__Secure-3PAPISID");
-                    let cookie_count = cookie_string.matches(';').count() + 1;
-                    Ok(json!({
-                        "isReady": sapisid,
-                        "cookieCount": cookie_count,
-                        "loggedOut": !sapisid,
-                        "accountName": "Default",
-                        "oauthReady": false,
-                        "cookieCritical": false,
-                    }))
-                }
-                Err(e) => {
-                    tracing::error!("[auth:startOAuth] {}", e);
-                    Ok(json!({
-                        "isReady": false, "cookieCount": 0, "loggedOut": true,
-                        "accountName": "", "oauthReady": false,
-                        "cookieCritical": true, "cookieError": e,
-                    }))
-                }
-            }
+            launch_chrome_profile_async("HyperClip-Profile-1");
+            let pool = &AppState::get_or_init().pool;
+            let is_ready = pool.is_session_logged_in(0);
+            let cookie_str = pool.get_session_cookie_string(0);
+            let cookie_count = if cookie_str.is_empty() {
+                0
+            } else {
+                cookie_str.matches(';').count() + 1
+            };
+            Ok(json!({
+                "isReady": is_ready,
+                "cookieCount": cookie_count,
+                "loggedOut": !is_ready,
+                "accountName": "HyperClip-Profile-1",
+                "oauthReady": false,
+                "cookieCritical": false,
+            }))
         }
 
         "auth:startChromeLogin" => {
-            match extract_and_feed_cookies() {
-                Ok(_) => Ok(json!({"success": true, "profileId": "Default"})),
-                Err(e) => Ok(json!({"success": false, "profileId": "", "error": e})),
-            }
+            let profile = p(params, "profile").unwrap_or_else(|| "Default".to_string());
+            launch_chrome_profile_async(&profile);
+            Ok(json!({"success": true, "profileId": profile}))
         }
 
         "auth:setCredentials" => Ok(json!({"success": true})),
@@ -2402,53 +2848,62 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
         // ─── Chrome sessions ────────────────────────────────────────
 
         "session:status" => {
-            let has_cookies = cookies_file_has_content();
-            let sapisid_ok = has_cookies && {
-                let c = std::fs::read_to_string(get_cookies_path()).unwrap_or_default();
-                c.contains("SAPISID") || c.contains("__Secure-3PAPISID")
-            };
-            let pool_size = AppState::get_or_init().pool.size() as u64;
-            let ready_ok = AppState::get_or_init().pool.ready_count() > 0 && sapisid_ok;
-            let session_count = pool_size;
-            let logged_in = if sapisid_ok { pool_size } else { 0u64 };
-            let consented = if sapisid_ok { pool_size } else { 0u64 };
+            let pool = &AppState::get_or_init().pool;
+            let mut logged_in_count = 0u64;
+            let mut consented_count = 0u64;
+            let mut sessions = Vec::new();
 
-            // Build 30 session entries matching SessionListModel expectations
-            let sessions: Vec<Value> = (1..=session_count.min(30) as u64).map(|i| {
+            for i in 1..=30 {
                 let profile_id = format!("HyperClip-Profile-{}", i);
-                json!({
+                let profile_sapisid_ok = pool.is_session_logged_in(i - 1);
+
+                if profile_sapisid_ok {
+                    logged_in_count += 1;
+                    consented_count += 1;
+                }
+
+                sessions.push(json!({
                     "profileId": profile_id,
                     "profileName": format!("Profile {}", i),
-                    "isLoggedIn": sapisid_ok,
-                    "isConsented": sapisid_ok,
+                    "isLoggedIn": profile_sapisid_ok,
+                    "isConsented": profile_sapisid_ok,
                     "usedToday": 0i64,
                     "lastUsed": 0i64,
                     "error": "",
                     "refreshFailCount": 0u64,
-                    "hasCookies": sapisid_ok,
-                })
-            }).collect();
+                    "hasCookies": profile_sapisid_ok,
+                }));
+            }
 
-            let health_pct = if sapisid_ok { 100u64 } else { 0u64 };
+            let ready_ok = AppState::get_or_init().pool.ready_count() > 0 && logged_in_count > 0;
+            let health_pct = ((logged_in_count * 100) / 30) as u64;
+            let level = if logged_in_count >= 15 {
+                "healthy"
+            } else if logged_in_count > 0 {
+                "degraded"
+            } else {
+                "critical"
+            };
+
             Ok(json!({
                 "ready": ready_ok,
-                "sessionCount": session_count,
-                "loggedInCount": logged_in,
-                "consentedCount": consented,
+                "sessionCount": 30u64,
+                "loggedInCount": logged_in_count,
+                "consentedCount": consented_count,
                 "sessions": sessions,
                 "health": {
                     "healthPct": health_pct,
-                    "degradedCount": 0u64,
+                    "degradedCount": (30u64 - logged_in_count),
                     "staleCount": 0u64,
                     "oldestCookieAgeHours": 0u64,
-                    "level": if sapisid_ok { "healthy" } else { "critical" },
+                    "level": level,
                 },
             }))
         }
 
         "session:refreshAll" => {
-            match extract_and_feed_cookies() {
-                Ok(_) => Ok(json!({"success": true, "refreshedCount": 30})),
+            match refresh_all_profiles_cookies() {
+                Ok(count) => Ok(json!({"success": true, "refreshedCount": count})),
                 Err(e) => {
                     tracing::error!("[session:refreshAll] {}", e);
                     Ok(json!({"success": false, "refreshedCount": 0, "error": e}))
@@ -2457,25 +2912,23 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
         }
 
         "session:openLogin" => {
-            let _profile = p(params, "profileId").unwrap_or_else(|| "Default".to_string());
-            match extract_and_feed_cookies() {
-                Ok(_) => Ok(json!({"success": true, "profileId": _profile})),
-                Err(e) => Ok(json!({"success": false, "error": e})),
-            }
+            let profile = p(params, "profileId").unwrap_or_else(|| "Default".to_string());
+            launch_chrome_profile_async(&profile);
+            Ok(json!({"success": true, "profileId": profile}))
         }
 
         "session:cloneOne" => {
-            // Clone from Default Chrome profile into pool
-            match extract_and_feed_cookies() {
-                Ok(_) => Ok(json!({"success": true, "clonedCount": 30})),
+            let profile = p(params, "profileId").unwrap_or_else(|| "Default".to_string());
+            match extract_profile_cookies_and_feed(&profile) {
+                Ok(_) => Ok(json!({"success": true, "clonedCount": 1})),
                 Err(e) => Ok(json!({"success": false, "error": e})),
             }
         }
 
         "session:add" => {
-            // Add = create fresh session (just re-extract cookies)
-            match extract_and_feed_cookies() {
-                Ok(_) => Ok(json!({"success": true, "profileId": "Default"})),
+            let profile = p(params, "profileId").unwrap_or_else(|| "Default".to_string());
+            match extract_profile_cookies_and_feed(&profile) {
+                Ok(_) => Ok(json!({"success": true, "profileId": profile})),
                 Err(e) => Ok(json!({"success": false, "error": e})),
             }
         }
@@ -2970,8 +3423,10 @@ fn enrich_workspace_for_management(ws: &hyperclip_ipc::store::Workspace) -> Valu
     // Pick the best "download finished" timestamp: file mtime takes priority,
     // fall back to the persisted downloadedAt (set by the download flow).
     let download_finished = downloaded_mtime.or(ws.downloaded_at);
+    // Use download_started_at as the start time, fall back to created_at if not set.
+    let download_start = ws.download_started_at.unwrap_or(ws.created_at);
     let download_duration_sec = match download_finished {
-        Some(t) if ws.created_at > 0 => ((t - ws.created_at).max(0) as f64) / 1000.0,
+        Some(t) if download_start > 0 => ((t - download_start).max(0) as f64) / 1000.0,
         _ => 0.0,
     };
     let render_duration_sec = match (download_finished, rendered_mtime) {
@@ -3124,6 +3579,54 @@ fn migrate_old_data() {
                 }
                 let _ = store.save(&new_seen_path);
                 tracing::info!("[Migrate] Migrated {} seen IDs from seen-videos.json", ids.len());
+            }
+        }
+    }
+
+    // 4. Migrate keys.json, projects.json, settings.json from AppData Roaming (if migrate-projects.mjs wrote there)
+    if let Some(appdata) = std::env::var_os("APPDATA") {
+        let appdata_store = PathBuf::from(appdata).join("HyperClip").join(".hyperclip");
+        if appdata_store.exists() {
+            // Migrate keys.json: copy if target doesn't exist, or has no keys
+            let target_keys = store_dir.join("keys.json");
+            let source_keys = appdata_store.join("keys.json");
+            let needs_keys_copy = !target_keys.exists() || {
+                let content = std::fs::read_to_string(&target_keys).unwrap_or_default();
+                content.trim() == "{\"keys\": []}" || content.trim() == "{\"keys\":[]}" || content.trim().is_empty()
+            };
+            if source_keys.exists() && needs_keys_copy {
+                tracing::info!("[Migrate] Copying keys.json from AppData to {:?}", target_keys);
+                if let Err(e) = std::fs::copy(&source_keys, &target_keys) {
+                    tracing::error!("[Migrate] Failed to copy keys.json: {}", e);
+                }
+            }
+
+            // Migrate projects.json: copy if target doesn't exist, or has no projects
+            let target_projects = store_dir.join("projects.json");
+            let source_projects = appdata_store.join("projects.json");
+            let needs_projects_copy = !target_projects.exists() || {
+                let content = std::fs::read_to_string(&target_projects).unwrap_or_default();
+                content.trim() == "{\"projects\": []}" || content.trim() == "{\"projects\":[]}" || content.trim().is_empty()
+            };
+            if source_projects.exists() && needs_projects_copy {
+                tracing::info!("[Migrate] Copying projects.json from AppData to {:?}", target_projects);
+                if let Err(e) = std::fs::copy(&source_projects, &target_projects) {
+                    tracing::error!("[Migrate] Failed to copy projects.json: {}", e);
+                }
+            }
+
+            // Migrate settings.json: copy if target settings file is empty or missing
+            let target_settings = store_dir.join("settings.json");
+            let source_settings = appdata_store.join("settings.json");
+            let needs_settings_copy = !target_settings.exists() || {
+                let content = std::fs::read_to_string(&target_settings).unwrap_or_default();
+                content.trim().is_empty()
+            };
+            if source_settings.exists() && needs_settings_copy {
+                tracing::info!("[Migrate] Copying settings.json from AppData to {:?}", target_settings);
+                if let Err(e) = std::fs::copy(&source_settings, &target_settings) {
+                    tracing::error!("[Migrate] Failed to copy settings.json: {}", e);
+                }
             }
         }
     }

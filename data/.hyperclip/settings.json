@@ -2,15 +2,38 @@
   "settings": {
     "autoDownloadEnabled": true,
     "autoDownloadMaxAgeMinutes": 1440,
-    "autoDownloadQuality": 1080,
+    "autoDownloadQuality": "360",
+    "autoRender": false,
+    "autoRenderFPS": 30,
+    "autoRenderResolution": "1080p",
+    "autoRenderSpeed": 1.0,
+    "autoRenderTitleTemplate": "{title}",
+    "autoSplitMinutes": 0,
+    "autoSplitParts": 1,
+    "defaultQuality": 1080,
+    "defaultTrimLimit": 5,
     "defaultTrimLimitMinutes": 10,
+    "downloadsCleanupDays": 7,
     "hardwareProfile": {
       "ramGB": 24,
       "vramGB": 6
     },
+    "maxConcurrentDownloads": 1,
+    "maxConcurrentRenders": 2,
+    "minimizeToTray": true,
+    "onboardingComplete": false,
+    "outputFolder": "D:\\LOOP_COMPANY\\HyperClip\\data",
+    "outputPath": "D:\\LOOP_COMPANY\\HyperClip\\data",
     "pollIntervalMs": 5000,
     "pollingEnabled": true,
+    "proxyEnabled": false,
+    "proxyHost": "",
+    "proxyPassword": "",
+    "proxyPort": 0,
+    "proxyUsername": "",
+    "quitOnClose": false,
     "videoMaxDurationSec": 3600,
-    "videoMinDurationSec": 60
+    "videoMinDurationSec": 60,
+    "videoStoragePath": "D:\\LOOP_COMPANY\\HyperClip\\data"
   }
 }
