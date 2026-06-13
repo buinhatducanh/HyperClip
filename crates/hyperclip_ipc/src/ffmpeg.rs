@@ -75,6 +75,7 @@ pub fn build_short_filter(
     header_h: u32,
     bottom_bar_h: u32,
     use_cuda: bool,
+    fps: u32,
 ) -> String {
     let scale = if use_cuda { "scale_cuda" } else { "scale" };
     let overlay = if use_cuda { "overlay_cuda" } else { "overlay" };
@@ -101,7 +102,8 @@ pub fn build_short_filter(
         String::new()
     };
     let video_chain = format!(
-        "[0:v]fps=30,{}{}setpts=PTS-STARTPTS,{}=-2:{}{},crop={}:{}:{}:0,format=yuv420p[vid]",
+        "[0:v]fps={},{}{}setpts=PTS-STARTPTS,{}=-2:{}{},crop={}:{}:{}:0,format=yuv420p[vid]",
+        fps,
         speed_tag,
         trim_tag,
         scale,
@@ -167,6 +169,7 @@ pub fn build_short_filter_cuda(
     canvas_h: u32,
     header_h: u32,
     bottom_bar_h: u32,
+    fps: u32,
 ) -> String {
     let video_h = canvas_h - header_h - bottom_bar_h;
     let video_top = header_h;
@@ -184,8 +187,8 @@ pub fn build_short_filter_cuda(
         String::new()
     };
     let video_chain = format!(
-        "[0:v]fps=30,{}{}setpts=PTS-STARTPTS,scale_cuda=-2:{},crop_cuda={}:{}:{}:0[vid]",
-        speed_tag, trim_tag, video_h, canvas_w, video_h, crop_x
+        "[0:v]fps={},{}{}setpts=PTS-STARTPTS,scale_cuda=-2:{},crop_cuda={}:{}:{}:0[vid]",
+        fps, speed_tag, trim_tag, video_h, canvas_w, video_h, crop_x
     );
 
     let bg_chain = format!(
@@ -219,6 +222,7 @@ pub fn build_landscape_filter(
     video_h: u32,
     video_top: u32,
     use_cuda: bool,
+    fps: u32,
 ) -> String {
     let scale = if use_cuda { "scale_cuda" } else { "scale" };
     let overlay = if use_cuda { "overlay_cuda" } else { "overlay" };
@@ -242,7 +246,8 @@ pub fn build_landscape_filter(
 
     let video_chain = if crop_x_num >= 0 {
         format!(
-            "[0:v]fps=30,{}{}setpts=PTS-STARTPTS,{}=-2:{}{},crop={}:{}:{}:0[vid]",
+            "[0:v]fps={},{}{}setpts=PTS-STARTPTS,{}=-2:{}{},crop={}:{}:{}:0[vid]",
+            fps,
             speed_tag, trim_tag,
             scale,
             video_h,
@@ -254,7 +259,8 @@ pub fn build_landscape_filter(
     } else {
         let crop_y = ((canvas_w as f64 * 9.0 / 16.0) - (video_h as f64)).round() as i32 / 2 + video_top as i32;
         format!(
-            "[0:v]fps=30,{}{}setpts=PTS-STARTPTS,{}={}:-2{},crop={}:{}:0:{} [vid]",
+            "[0:v]fps={},{}{}setpts=PTS-STARTPTS,{}={}:-2{},crop={}:{}:0:{} [vid]",
+            fps,
             speed_tag, trim_tag,
             scale,
             canvas_w,
@@ -276,9 +282,36 @@ pub fn build_landscape_filter(
     );
 
     // Video over bg
+    let vz_chain = format!(
+        "[bg][vid]{}=0:{} [vz]",
+        overlay,
+        video_top
+    );
+
+    // Header at top (y=0) - [2:v] is header
+    let header_h = canvas_h / 5;
+    let crop = if use_cuda { "crop_cuda" } else { "crop" };
+    let format_tag = if use_cuda { "" } else { ",format=yuv420p" };
+    let hd_chain = format!(
+        "[2:v]{}={}:{}:force_original_aspect_ratio=increase,{}={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1{}[hd]",
+        scale,
+        canvas_w,
+        header_h,
+        crop,
+        canvas_w,
+        header_h,
+        format_tag
+    );
+
+    // Header on top of vz
+    let final_chain = format!(
+        "[vz][hd]{}=0:0 [final]",
+        overlay
+    );
+
     format!(
-        "{}; {}; [bg][vid]{}=0:{} [vz]",
-        video_chain, bg_chain, overlay, video_top
+        "{}; {}; {}; {}; {}",
+        video_chain, bg_chain, vz_chain, hd_chain, final_chain
     )
 }
 
@@ -475,17 +508,18 @@ where F: FnMut(f64) + Send + 'static {
     let use_cuda = matches!(opts.gpu_tier, GPUTier::High | GPUTier::Mid) && use_cuda_filters;
 
     // 1. Build video filter chain
+    let fps = if opts.fps == 0 { 30 } else { opts.fps };
     let video_filter = match opts.filter_chain {
         FilterChain::Short => {
             if use_cuda {
-                build_short_filter_cuda(opts.trim_start, opts.trim_end - opts.trim_start, speed, canvas_w, canvas_h, header_h, bottom_bar_h)
+                build_short_filter_cuda(opts.trim_start, opts.trim_end - opts.trim_start, speed, canvas_w, canvas_h, header_h, bottom_bar_h, fps)
             } else {
-                build_short_filter(opts.trim_start, opts.trim_end - opts.trim_start, speed, canvas_w, canvas_h, header_h, bottom_bar_h, false)
+                build_short_filter(opts.trim_start, opts.trim_end - opts.trim_start, speed, canvas_w, canvas_h, header_h, bottom_bar_h, false, fps)
             }
         }
         FilterChain::Landscape => {
             let video_h = canvas_h - header_h - bottom_bar_h;
-            build_landscape_filter(opts.trim_start, opts.trim_end - opts.trim_start, speed, canvas_w, canvas_h, video_h, 0, use_cuda)
+            build_landscape_filter(opts.trim_start, opts.trim_end - opts.trim_start, speed, canvas_w, canvas_h, video_h, header_h, use_cuda, fps)
         }
     };
 

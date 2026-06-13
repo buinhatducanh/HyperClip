@@ -49,7 +49,14 @@ class WorkspaceModel(QAbstractListModel):
         if role == self.ThumbnailRole:
             t = ws.get("thumbnailLocal") or ws.get("thumbnail") or ws.get("thumbnailUrl") or ""
             if t and not (t.startswith("http") or t.startswith("file://") or t.startswith("qrc:")):
-                return "file:///" + t.replace("\\", "/")
+                import os
+                if os.path.exists(t):
+                    return "file:///" + t.replace("\\", "/")
+                else:
+                    video_id = ws.get("video_id") or ws.get("videoId")
+                    if video_id:
+                        return f"https://img.youtube.com/vi/{video_id}/mqdefault.jpg"
+                    return ""
             return t
         if role == self.RenderedRole:
             t = ws.get("renderedPath", "")

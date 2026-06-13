@@ -147,8 +147,12 @@ impl WorkspaceStore {
             if let Some(path) = data.get("thumbnailLocal").and_then(|v| v.as_str()) {
                 ws.thumbnail_local = Some(path.to_string());
             }
-            if let Some(err) = data.get("error").and_then(|v| v.as_str()) {
-                ws.error = Some(err.to_string());
+            if let Some(err_val) = data.get("error") {
+                if err_val.is_null() {
+                    ws.error = None;
+                } else if let Some(err) = err_val.as_str() {
+                    ws.error = Some(err.to_string());
+                }
             }
             if let Some(started) = data.get("downloadStartedAt").and_then(|v| v.as_i64()) {
                 ws.download_started_at = Some(started);
@@ -167,6 +171,18 @@ impl WorkspaceStore {
             }
             if let Some(codec) = data.get("renderCodec").and_then(|v| v.as_str()) {
                 ws.render_codec = Some(codec.to_string());
+            }
+            if let Some(is_short) = data.get("isShort").and_then(|v| v.as_bool()) {
+                ws.is_short = is_short;
+            }
+            if let Some(quality) = data.get("quality").and_then(|v| v.as_u64()) {
+                ws.quality = Some(quality as u32);
+            }
+            if let Some(file_size) = data.get("fileSize").and_then(|v| v.as_u64()) {
+                ws.file_size = Some(file_size);
+            }
+            if let Some(duration_sec) = data.get("durationSec").and_then(|v| v.as_u64()) {
+                ws.duration_sec = Some(duration_sec);
             }
             Ok(())
         } else {
@@ -563,9 +579,40 @@ pub fn build_download_path(channel_id: &str, channel_name: &str, video_id: &str,
     channel_downloads_dir(channel_id, channel_name).join(format!("{}_{}.mp4", video_id, time_str))
 }
 
-/// Build render output path: data/media/{channel_id}/renders/{ws_id}/final.mp4
+/// Build render output path: data/media/{channel_id}/renders/{ws_id}/{filename}.mp4
 pub fn build_render_path(channel_id: &str, channel_name: &str, ws_id: &str) -> PathBuf {
-    render_output_dir(channel_id, channel_name, ws_id).join("final.mp4")
+    // 1. Load settings to get template
+    let s_path = get_settings_path();
+    let s_store = SettingsStore::load(&s_path);
+    let mut template = s_store.settings.get("autoRenderTitleTemplate")
+        .or_else(|| s_store.settings.get("auto_render_title_template"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("{title}")
+        .to_string();
+    if template.is_empty() {
+        template = "{title}".to_string();
+    }
+
+    // 2. Load workspaces to get title and other info
+    let ws_path = get_workspaces_path();
+    let ws_store = WorkspaceStore::load(&ws_path);
+    let workspace = ws_store.workspaces.iter().find(|w| w.id == ws_id);
+
+    let filename = if let Some(ws) = workspace {
+        let channel_name_val = ws.channel_name.as_deref().unwrap_or("");
+        let title_val = if !ws.title.is_empty() { &ws.title } else { ws_id };
+        let resolved = template
+            .replace("{title}", title_val)
+            .replace("{channel}", channel_name_val)
+            .replace("{video_id}", &ws.video_id);
+        sanitize_dir_name(&resolved)
+    } else {
+        sanitize_dir_name(&template.replace("{title}", ws_id))
+    };
+
+    let filename = if filename.is_empty() { "final".to_string() } else { filename };
+
+    render_output_dir(channel_id, channel_name, ws_id).join(format!("{}.mp4", filename))
 }
 
 /// Thumbnail path: data/media/{channel_id}/thumbnails/{video_id}.jpg

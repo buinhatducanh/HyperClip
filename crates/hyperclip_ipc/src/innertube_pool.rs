@@ -30,6 +30,8 @@ struct Session {
     client: Option<crate::innertube_client::InnertubeClient>,
     /// SAPISID-based auth cookie string for this session.
     cookie: String,
+    /// Whether the session is currently checking a channel.
+    busy: bool,
 }
 
 /// A checked-out client + cookie pair.  The pool's internal state is not
@@ -58,6 +60,7 @@ impl InnertubeClientPool {
                 suspended_until: None,
                 client: None,
                 cookie: String::new(),
+                busy: false,
             })
             .collect();
         Ok(Self {
@@ -118,6 +121,7 @@ impl InnertubeClientPool {
         if let Some(s) = self.sessions.lock().unwrap().get_mut(session_idx) {
             s.cooldown_until = Some(Instant::now() + self.config.cooldown_duration);
             s.client = None; // invalidate client so a fresh one is created next time
+            s.busy = false;
         }
     }
 
@@ -125,6 +129,7 @@ impl InnertubeClientPool {
         if let Some(s) = self.sessions.lock().unwrap().get_mut(session_idx) {
             s.cooldown_until = None;
             s.suspended_until = None;
+            s.busy = false;
         }
     }
 
@@ -166,13 +171,15 @@ impl InnertubeClientPool {
     pub fn get_ready_session(&self) -> Option<usize> {
         let now = Instant::now();
         let len = self.size(); // get size BEFORE locking to avoid deadlock with next_session() -> size()
-        let sessions = self.sessions.lock().unwrap();
+        let mut sessions = self.sessions.lock().unwrap();
         for _ in 0..len {
             let idx = self.next_session_unlocked(&sessions);
-            if let Some(s) = sessions.get(idx) {
-                if s.cooldown_until.map_or(true, |t| now >= t)
+            if let Some(s) = sessions.get_mut(idx) {
+                if !s.busy
+                    && s.cooldown_until.map_or(true, |t| now >= t)
                     && s.suspended_until.map_or(true, |t| now >= t)
                 {
+                    s.busy = true;
                     return Some(idx);
                 }
             }
@@ -219,6 +226,7 @@ impl InnertubeClientPool {
         let mut sessions = self.sessions.lock().unwrap();
         if let Some(s) = sessions.get_mut(session_idx) {
             s.client = Some(client);
+            s.busy = false;
         }
     }
 }

@@ -306,11 +306,20 @@ impl AppState {
                             let ws_path = get_workspaces_path();
                             let mut ws_store = WorkspaceStore::load(&ws_path);
                             let now_ms = chrono::Utc::now().timestamp_millis();
+                            let is_short_val = result.width < result.height || result.duration <= 60.0;
+                            let quality_val = result.height;
+                            let duration_sec_val = result.duration.round() as u64;
+                            let file_size_val = result.file_size;
+
                             ws_store.update(&tid, serde_json::json!({
                                 "status": "ready",
                                 "downloadedPath": result.path,
                                 "thumbnailLocal": thumb_str,
                                 "downloadedAt": now_ms,
+                                "isShort": is_short_val,
+                                "quality": quality_val,
+                                "fileSize": file_size_val,
+                                "durationSec": duration_sec_val,
                             })).ok();
                             ws_store.save(&ws_path).ok();
                             
@@ -320,6 +329,10 @@ impl AppState {
                                 "downloadedPath": result.path,
                                 "thumbnailLocal": thumb_str,
                                 "downloadedAt": now_ms,
+                                "isShort": is_short_val,
+                                "quality": quality_val,
+                                "fileSize": file_size_val,
+                                "durationSec": duration_sec_val,
                             })));
 
                             // Emit ready event
@@ -356,6 +369,8 @@ impl AppState {
                                     .unwrap_or(1.0);
                                 let render_res = s_store.settings.get("autoRenderResolution").or_else(|| s_store.settings.get("auto_render_resolution")).and_then(|v| v.as_str()).unwrap_or("1080p").to_string();
                                 let render_fps = s_store.settings.get("autoRenderFPS").or_else(|| s_store.settings.get("auto_render_fps")).and_then(|v| v.as_u64()).unwrap_or(30) as u32;
+                                let auto_trim_end = if is_short_val { result.duration.min(60.0) } else { result.duration };
+                                let filter_chain = if is_short_val { hyperclip_ipc::ffmpeg::FilterChain::Short } else { hyperclip_ipc::ffmpeg::FilterChain::Landscape };
                                 let opts = hyperclip_ipc::ffmpeg::RenderOptions {
                                     workspace_id: tid.clone(),
                                     input_path: std::path::PathBuf::from(&in_path),
@@ -364,10 +379,10 @@ impl AppState {
                                     fps: render_fps,
                                     speed: auto_render_speed,
                                     trim_start: 0.0,
-                                    trim_end: 60.0,
+                                    trim_end: auto_trim_end,
                                     gpu_tier: get_gpu_config().tier,
                                     preset: "p1".into(),
-                                    filter_chain: hyperclip_ipc::ffmpeg::FilterChain::Short,
+                                    filter_chain,
                                     chunked: false,
                                     chunk_duration_sec: 120,
                                 };
@@ -381,7 +396,7 @@ impl AppState {
                                     "fpsTarget": render_fps,
                                     "exportResolution": render_res,
                                     "trimStart": 0.0,
-                                    "trimEnd": 60.0,
+                                    "trimEnd": auto_trim_end,
                                 })).ok();
                                 ws_store.save(&ws_path).ok();
                                 emit_workspace_event(&tid, "rendering", None);
@@ -406,21 +421,27 @@ impl AppState {
                                  let mut update_data = serde_json::json!({
                                      "status": status,
                                  });
-                                 if let Ok((ref final_out_path, fps)) = render_res {
-                                     update_data["renderedPath"] = serde_json::json!(final_out_path.to_string_lossy().to_string());
-                                     update_data["renderFps"] = serde_json::json!(fps);
-                                     
-                                     let gpu_config = get_gpu_config();
-                                     let codec = if gpu_config.tier == hyperclip_ipc::system::GPUTier::High {
-                                         "hevc_nvenc"
-                                     } else if matches!(gpu_config.tier, hyperclip_ipc::system::GPUTier::Mid | hyperclip_ipc::system::GPUTier::Low) {
-                                         "h264_nvenc"
-                                     } else {
-                                         "libx264"
-                                     };
-                                     update_data["renderCodec"] = serde_json::json!(codec);
-                                     update_data["renderPreset"] = serde_json::json!("p1");
-                                     update_data["renderWorkers"] = serde_json::json!(gpu_config.max_workers);
+                                 match &render_res {
+                                     Ok((ref final_out_path, fps)) => {
+                                         update_data["renderedPath"] = serde_json::json!(final_out_path.to_string_lossy().to_string());
+                                         update_data["renderFps"] = serde_json::json!(fps);
+                                         
+                                         let gpu_config = get_gpu_config();
+                                         let codec = if gpu_config.tier == hyperclip_ipc::system::GPUTier::High {
+                                             "hevc_nvenc"
+                                         } else if matches!(gpu_config.tier, hyperclip_ipc::system::GPUTier::Mid | hyperclip_ipc::system::GPUTier::Low) {
+                                             "h264_nvenc"
+                                         } else {
+                                             "libx264"
+                                         };
+                                         update_data["renderCodec"] = serde_json::json!(codec);
+                                         update_data["renderPreset"] = serde_json::json!("p1");
+                                         update_data["renderWorkers"] = serde_json::json!(gpu_config.max_workers);
+                                         update_data["error"] = serde_json::Value::Null;
+                                     }
+                                     Err(e) => {
+                                         update_data["error"] = serde_json::json!(e.to_string());
+                                     }
                                  }
                                  ws_store.update(&tid, update_data).ok();
                                  ws_store.save(&ws_path).ok();
@@ -1706,7 +1727,17 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
             let id = p(params, "id").unwrap_or_default();
             let store = WorkspaceStore::load(&get_workspaces_path());
             match store.get(&id) {
-                Some(ws) => Ok(json!(ws)),
+                Some(ws) => {
+                    let mut ws_val = serde_json::to_value(ws).unwrap_or(Value::Null);
+                    if let Value::Object(ref mut map) = ws_val {
+                        if let Some(t_path) = ws.thumbnail_local.as_ref() {
+                            if !std::path::Path::new(t_path).exists() {
+                                map.insert("thumbnailLocal".into(), Value::Null);
+                            }
+                        }
+                    }
+                    Ok(ws_val)
+                }
                 None => Ok(json!({"ok": false, "error": "not found", "id": id})),
             }
         }
@@ -1805,12 +1836,15 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
 
             // Delete render directory (new structure)
             if !cid.is_empty() {
-                let render_dir = render_output_dir(&cid, &cname, &id);
-                if render_dir.exists() {
-                    if let Ok(meta) = std::fs::metadata(render_dir.join("final.mp4")) {
+                let render_path = build_render_path(&cid, &cname, &id);
+                if render_path.exists() {
+                    if let Ok(meta) = std::fs::metadata(&render_path) {
                         bytes_freed += meta.len();
                         files_deleted += 1;
                     }
+                }
+                let render_dir = render_output_dir(&cid, &cname, &id);
+                if render_dir.exists() {
                     std::fs::remove_dir_all(&render_dir).ok();
                 }
             }
@@ -1910,11 +1944,20 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                         let ws_path = get_workspaces_path();
                         let mut ws_store = WorkspaceStore::load(&ws_path);
                         let now_ms = chrono::Utc::now().timestamp_millis();
+                        let is_short_val = result.width < result.height || result.duration <= 60.0;
+                        let quality_val = result.height;
+                        let duration_sec_val = result.duration.round() as u64;
+                        let file_size_val = result.file_size;
+
                         ws_store.update(&tid, serde_json::json!({
                             "thumbnailLocal": thumb_str,
                             "status": "ready",
                             "downloadedPath": result.path,
                             "downloadedAt": now_ms,
+                            "isShort": is_short_val,
+                            "quality": quality_val,
+                            "fileSize": file_size_val,
+                            "durationSec": duration_sec_val,
                         })).ok();
                         ws_store.save(&ws_path).ok();
 
@@ -1927,6 +1970,10 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                             "downloadedPath": result.path,
                             "thumbnailLocal": thumb_str,
                             "downloadedAt": now_ms,
+                            "isShort": is_short_val,
+                            "quality": quality_val,
+                            "fileSize": file_size_val,
+                            "durationSec": duration_sec_val,
                         })));
                     }
                     Err(e) => {
@@ -2014,6 +2061,11 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     let _ = download_youtube_thumbnail_to(&video_id, &thumb_path);
                     let thumb_str = if thumb_path.exists() { Some(thumb_path.to_string_lossy().to_string()) } else { None };
 
+                    let is_short_val = result.width < result.height || result.duration <= 60.0;
+                    let quality_val = result.height;
+                    let duration_sec_val = result.duration.round() as u64;
+                    let file_size_val = result.file_size;
+
                     // Update workspace store
                     let ws_path = get_workspaces_path();
                     let mut ws_store = WorkspaceStore::load(&ws_path);
@@ -2023,6 +2075,10 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                         "downloadedPath": result.path,
                         "thumbnailLocal": thumb_str,
                         "downloadedAt": now_ms,
+                        "isShort": is_short_val,
+                        "quality": quality_val,
+                        "fileSize": file_size_val,
+                        "durationSec": duration_sec_val,
                     })).ok();
                     ws_store.save(&ws_path).ok();
 
@@ -2037,6 +2093,10 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                             "height": result.height,
                             "thumbnailLocal": thumb_str,
                             "downloadedAt": now_ms,
+                            "isShort": is_short_val,
+                            "quality": quality_val,
+                            "fileSize": file_size_val,
+                            "durationSec": duration_sec_val,
                         }
                     });
                     let s = serde_json::to_string(&event).unwrap();
@@ -2057,6 +2117,8 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                         // Update database status to rendering
                         let ws_path = get_workspaces_path();
                         let mut ws_store = WorkspaceStore::load(&ws_path);
+                        let auto_trim_end = if is_short_val { result.duration.min(60.0) } else { result.duration };
+                        let filter_chain = if is_short_val { FilterChain::Short } else { FilterChain::Landscape };
                         ws_store.update(&rid, serde_json::json!({
                             "status": "rendering",
                             "autoRender": true,
@@ -2064,7 +2126,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                             "fpsTarget": auto_fps2,
                             "exportResolution": auto_res2,
                             "trimStart": 0.0,
-                            "trimEnd": 60.0,
+                            "trimEnd": auto_trim_end,
                         })).ok();
                         ws_store.save(&ws_path).ok();
                         emit_workspace_event(&rid, "rendering", None);
@@ -2078,10 +2140,10 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                             resolution: auto_res2,
                             fps: auto_fps2,
                             speed: auto_speed2,
-                            trim_start: 0.0, trim_end: 60.0,
+                            trim_start: 0.0, trim_end: auto_trim_end,
                             gpu_tier: get_gpu_config().tier,
                             preset: "p1".into(),
-                            filter_chain: FilterChain::Short,
+                            filter_chain,
                             chunked: false, chunk_duration_sec: 120,
                         };
                         let pid = rid.clone();
@@ -2099,21 +2161,27 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                         let mut update_data = serde_json::json!({
                             "status": status,
                         });
-                        if let Ok((ref final_out_path, fps)) = result {
-                            update_data["renderedPath"] = serde_json::json!(final_out_path.to_string_lossy().to_string());
-                            update_data["renderFps"] = serde_json::json!(fps);
-                            
-                            let gpu_config = get_gpu_config();
-                            let codec = if gpu_config.tier == hyperclip_ipc::system::GPUTier::High {
-                                "hevc_nvenc"
-                            } else if matches!(gpu_config.tier, hyperclip_ipc::system::GPUTier::Mid | hyperclip_ipc::system::GPUTier::Low) {
-                                "h264_nvenc"
-                            } else {
-                                "libx264"
-                            };
-                            update_data["renderCodec"] = serde_json::json!(codec);
-                            update_data["renderPreset"] = serde_json::json!("p1");
-                            update_data["renderWorkers"] = serde_json::json!(gpu_config.max_workers);
+                        match &result {
+                            Ok((ref final_out_path, fps)) => {
+                                update_data["renderedPath"] = serde_json::json!(final_out_path.to_string_lossy().to_string());
+                                update_data["renderFps"] = serde_json::json!(fps);
+                                
+                                let gpu_config = get_gpu_config();
+                                let codec = if gpu_config.tier == hyperclip_ipc::system::GPUTier::High {
+                                    "hevc_nvenc"
+                                } else if matches!(gpu_config.tier, hyperclip_ipc::system::GPUTier::Mid | hyperclip_ipc::system::GPUTier::Low) {
+                                    "h264_nvenc"
+                                } else {
+                                    "libx264"
+                                };
+                                update_data["renderCodec"] = serde_json::json!(codec);
+                                update_data["renderPreset"] = serde_json::json!("p1");
+                                update_data["renderWorkers"] = serde_json::json!(gpu_config.max_workers);
+                                update_data["error"] = serde_json::Value::Null;
+                            }
+                            Err(e) => {
+                                update_data["error"] = serde_json::json!(e.to_string());
+                            }
                         }
                         ws_store.update(&rid, update_data).ok();
                         ws_store.save(&ws_path).ok();
@@ -2183,9 +2251,18 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     let ws_path = get_workspaces_path();
                     let mut ws_store = WorkspaceStore::load(&ws_path);
                     let now_ms = chrono::Utc::now().timestamp_millis();
+                    let is_short_val = result.width < result.height || result.duration <= 60.0;
+                    let quality_val = result.height;
+                    let duration_sec_val = result.duration.round() as u64;
+                    let file_size_val = result.file_size;
+
                     ws_store.update(&tid, serde_json::json!({
                         "status": "ready",
                         "downloadedAt": now_ms,
+                        "isShort": is_short_val,
+                        "quality": quality_val,
+                        "fileSize": file_size_val,
+                        "durationSec": duration_sec_val,
                     })).ok();
                     ws_store.save(&ws_path).ok();
 
@@ -2200,16 +2277,18 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     rt.spawn(async move {
                         let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
                         let _permit = pool.acquire().await;
+                        let auto_trim_end = if is_short_val { result.duration.min(60.0) } else { result.duration };
+                        let filter_chain = if is_short_val { FilterChain::Short } else { FilterChain::Landscape };
                         let opts = RenderOptions {
                             workspace_id: rid.clone(),
                             input_path: PathBuf::from(&in_path),
                             output_path: out_path.clone(),
                             resolution: "1080p".into(),
                             fps: 30, speed: 1.0,
-                            trim_start: 0.0, trim_end: 60.0,
+                            trim_start: 0.0, trim_end: auto_trim_end,
                             gpu_tier: get_gpu_config().tier,
                             preset: "p1".into(),
-                            filter_chain: FilterChain::Short,
+                            filter_chain,
                             chunked: false, chunk_duration_sec: 120,
                         };
                         let pid = rid.clone();
@@ -2300,6 +2379,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                         let res = render_res.clone();
                         let fps = render_fps;
                         let speed = render_speed;
+                        let src_is_short = src.is_short;
                         rt.spawn(async move {
                             let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
                             let _permit = pool.acquire().await;
@@ -2313,7 +2393,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                                 trim_start, trim_end,
                                 gpu_tier: get_gpu_config().tier,
                                 preset: "p1".into(),
-                                filter_chain: FilterChain::Short,
+                                filter_chain: if src_is_short { FilterChain::Short } else { FilterChain::Landscape },
                                 chunked: false, chunk_duration_sec: 120,
                             };
                             let pid = rid.clone();
@@ -2494,6 +2574,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     if w.export_resolution.is_empty() { None } else { Some(w.export_resolution.clone()) }
                 }).unwrap_or_else(|| "1080p".to_string());
                 let ws_fps = store.workspaces.iter().find(|w| w.id == tid).map(|w| w.fps_target).unwrap_or(30);
+                let ws_is_short = store.workspaces.iter().find(|w| w.id == tid).map(|w| w.is_short).unwrap_or(false);
 
                 store.update(&tid, serde_json::json!({
                     "status": "rendering",
@@ -2537,7 +2618,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     trim_end: ws_trim_end,
                     gpu_tier: get_gpu_config().tier,
                     preset: "p1".into(),
-                    filter_chain: FilterChain::Short,
+                    filter_chain: if ws_is_short { FilterChain::Short } else { FilterChain::Landscape },
                     chunked: false,
                     chunk_duration_sec: 120,
                 };
@@ -2556,21 +2637,27 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                 let mut update_data = serde_json::json!({
                     "status": status,
                 });
-                if let Ok((ref final_out_path, fps)) = result {
-                    update_data["renderedPath"] = serde_json::json!(final_out_path.to_string_lossy().to_string());
-                    update_data["renderFps"] = serde_json::json!(fps);
-                    
-                    let gpu_config = get_gpu_config();
-                    let codec = if gpu_config.tier == hyperclip_ipc::system::GPUTier::High {
-                        "hevc_nvenc"
-                    } else if matches!(gpu_config.tier, hyperclip_ipc::system::GPUTier::Mid | hyperclip_ipc::system::GPUTier::Low) {
-                        "h264_nvenc"
-                    } else {
-                        "libx264"
-                    };
-                    update_data["renderCodec"] = serde_json::json!(codec);
-                    update_data["renderPreset"] = serde_json::json!("p1");
-                    update_data["renderWorkers"] = serde_json::json!(gpu_config.max_workers);
+                match &result {
+                    Ok((ref final_out_path, fps)) => {
+                        update_data["renderedPath"] = serde_json::json!(final_out_path.to_string_lossy().to_string());
+                        update_data["renderFps"] = serde_json::json!(fps);
+                        
+                        let gpu_config = get_gpu_config();
+                        let codec = if gpu_config.tier == hyperclip_ipc::system::GPUTier::High {
+                            "hevc_nvenc"
+                        } else if matches!(gpu_config.tier, hyperclip_ipc::system::GPUTier::Mid | hyperclip_ipc::system::GPUTier::Low) {
+                            "h264_nvenc"
+                        } else {
+                            "libx264"
+                        };
+                        update_data["renderCodec"] = serde_json::json!(codec);
+                        update_data["renderPreset"] = serde_json::json!("p1");
+                        update_data["renderWorkers"] = serde_json::json!(gpu_config.max_workers);
+                        update_data["error"] = serde_json::Value::Null;
+                    }
+                    Err(e) => {
+                        update_data["error"] = serde_json::json!(e.to_string());
+                    }
                 }
                 store.update(&tid, update_data).ok();
                 store.save(&ws_path).ok();
@@ -2623,6 +2710,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                 if w.export_resolution.is_empty() { None } else { Some(w.export_resolution.clone()) }
             }).unwrap_or_else(|| "1080p".to_string());
             let ws_fps = store.workspaces.iter().find(|w| w.id == id).map(|w| w.fps_target).unwrap_or(30);
+            let ws_is_short = store.workspaces.iter().find(|w| w.id == id).map(|w| w.is_short).unwrap_or(false);
 
             store.update(&id, serde_json::json!({
                 "status": "rendering",
@@ -2665,7 +2753,7 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
                     trim_start: ws_trim_start, trim_end: ws_trim_end,
                     gpu_tier: get_gpu_config().tier,
                     preset: "p1".into(),
-                    filter_chain: FilterChain::Short,
+                    filter_chain: if ws_is_short { FilterChain::Short } else { FilterChain::Landscape },
                     chunked: true,
                     chunk_duration_sec: chunk_duration as u32,
                 };
@@ -3588,11 +3676,20 @@ fn find_ytdlp() -> String {
 }
 
 fn load_workspaces() -> Value {
-
     let store = WorkspaceStore::load(&get_workspaces_path());
-
-    json!({ "workspaces": store.workspaces })
-
+    let mut workspaces_enriched = Vec::new();
+    for ws in &store.workspaces {
+        let mut ws_val = serde_json::to_value(ws).unwrap_or(Value::Null);
+        if let Value::Object(ref mut map) = ws_val {
+            if let Some(t_path) = ws.thumbnail_local.as_ref() {
+                if !std::path::Path::new(t_path).exists() {
+                    map.insert("thumbnailLocal".into(), Value::Null);
+                }
+            }
+        }
+        workspaces_enriched.push(ws_val);
+    }
+    json!({ "workspaces": workspaces_enriched })
 }
 
 /// Stat a file and return its modified time as Unix millis. Returns `None` if
@@ -3631,6 +3728,12 @@ fn enrich_workspace_for_management(ws: &hyperclip_ipc::store::Workspace) -> Valu
     // Merge persisted workspace fields + computed enrichments into a single JSON object.
     let base = serde_json::to_value(ws).unwrap_or(Value::Null);
     if let Value::Object(mut map) = base {
+        // Verify local thumbnail exists on disk, otherwise nullify to force fallback
+        if let Some(t_path) = ws.thumbnail_local.as_ref() {
+            if !std::path::Path::new(t_path).exists() {
+                map.insert("thumbnailLocal".into(), Value::Null);
+            }
+        }
         map.insert("downloadedMtime".into(), json!(downloaded_mtime));
         map.insert("renderedMtime".into(), json!(rendered_mtime));
         map.insert("downloadDurationSec".into(), json!(download_duration_sec));
@@ -3924,11 +4027,11 @@ fn migrate_media_folders_and_workspaces() {
         // 3.3 Update renderedPath & rename render folder/file
         if let Some(ref old_path_str) = ws.rendered_path {
             let old_path = PathBuf::from(old_path_str);
-            let target_render_path = media_dir
-                .join(&ch_folder)
-                .join("renders")
-                .join(&ws.id)
-                .join("final.mp4");
+            let target_render_path = build_render_path(
+                &ws.channel_id,
+                ws.channel_name.as_deref().unwrap_or(""),
+                &ws.id,
+            );
 
             let mut source_path_opt: Option<PathBuf> = None;
             if old_path.exists() {
@@ -3941,6 +4044,8 @@ fn migrate_media_folders_and_workspaces() {
                     .join("final.mp4");
                 if alt_path.exists() {
                     source_path_opt = Some(alt_path);
+                } else if target_render_path.exists() {
+                    source_path_opt = Some(target_render_path.clone());
                 }
             }
 

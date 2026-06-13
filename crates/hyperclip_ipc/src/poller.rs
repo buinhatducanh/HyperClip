@@ -167,7 +167,7 @@ impl Poller {
     pub async fn run(self: Arc<Self>, cancel: tokio_util::sync::CancellationToken) {
         // Poll immediately on startup (no initial sleep)
         tracing::info!("[Poller] Firing initial poll immediately");
-        if let Err(e) = self.poll_once().await {
+        if let Err(e) = self.clone().poll_once().await {
             tracing::error!("Initial poll error: {}", e);
         }
 
@@ -180,7 +180,7 @@ impl Poller {
                 _ = tokio::time::sleep(std::time::Duration::from_millis(
                     Self::next_poll_delay_ms(self.poll_interval_ms.load(Ordering::Relaxed)),
                 )) => {
-                    if let Err(e) = self.poll_once().await {
+                    if let Err(e) = self.clone().poll_once().await {
                         tracing::error!("Poll error: {}", e);
                     }
                 }
@@ -188,18 +188,18 @@ impl Poller {
         }
     }
 
-    async fn poll_once(&self) -> Result<()> {
+    async fn poll_once(self: Arc<Self>) -> Result<()> {
         let now_ms = chrono::Utc::now().timestamp_millis();
         let max_age_ms = self.max_age_ms.load(Ordering::Relaxed);
         let min_duration_sec = self.min_duration_sec.load(Ordering::Relaxed);
         let channels = self.channels.read().await.clone();
-        let active_channels: Vec<_> = channels.iter().filter(|c| !c.paused).collect();
+        let active_channels: Vec<Channel> = channels.into_iter().filter(|c| !c.paused).collect();
 
         if active_channels.is_empty() { return Ok(()); }
 
         tracing::info!(
             "[Poller] Polling {} active channels ({} total)",
-            active_channels.len(), channels.len()
+            active_channels.len(), self.channels.read().await.len()
         );
 
         let ready = self.pool.ready_count();
@@ -207,24 +207,26 @@ impl Poller {
         tracing::info!("[Poller] Pool ready={ready}/{total}");
 
         // Phase 1: Try Innertube (primary bulk polling)
-        let mut oauth_channels: Vec<&Channel> = active_channels.clone();
+        let mut oauth_channels = active_channels.clone();
 
         if ready > 0 {
             let polled_successfully = Arc::new(Mutex::new(std::collections::HashSet::new()));
-            let mut futures = Vec::new();
-            for channel in active_channels.iter() {
+            let mut handles = Vec::new();
+            for channel in active_channels {
                 let polled_successfully = Arc::clone(&polled_successfully);
-                futures.push(Box::pin(async move {
+                let poller = self.clone();
+
+                let handle = tokio::spawn(async move {
                     tracing::info!("[Poller] Acquiring session for {}", channel.id);
-                    let session_idx = match self.pool.acquire_session() {
+                    let session_idx = match poller.pool.acquire_session() {
                         Some(i) => i,
                         None => { tracing::info!("[Poller] No ready session for {}", channel.id); return; }
                     };
 
                     tracing::info!("[Poller] Got session {session_idx} for {}, taking client...", channel.id);
-                    let mut cc = match self.pool.take_client_for_session(session_idx) {
+                    let mut cc = match poller.pool.take_client_for_session(session_idx) {
                         Some(v) => v,
-                        None => { tracing::warn!("[Poller] take_client_for_session failed for session {session_idx} (channel {})", channel.id); self.pool.mark_failed(session_idx); return; }
+                        None => { tracing::warn!("[Poller] take_client_for_session failed for session {session_idx} (channel {})", channel.id); poller.pool.mark_failed(session_idx); return; }
                     };
 
                     let lookup_id = if !channel.channel_id.is_empty() {
@@ -236,13 +238,13 @@ impl Poller {
                     match cc.client.get_latest_videos(&lookup_id, &cc.cookie).await {
                         Ok(videos) => {
                             tracing::info!("[Poller] get_latest_videos returned {} videos for {cid}", videos.len());
-                            self.pool.return_client(session_idx, cc.client);
-                            self.pool.mark_success(session_idx);
+                            poller.pool.return_client(session_idx, cc.client);
+                            poller.pool.mark_success(session_idx);
 
                             polled_successfully.lock().unwrap().insert(cid.clone());
 
                             for video in videos.iter() {
-                                let seen_videos = self.seen_videos.read().await;
+                                let seen_videos = poller.seen_videos.read().await;
                                 let is_seen = seen_videos.is_seen(&cid, &video.video_id);
                                 drop(seen_videos);
 
@@ -254,7 +256,7 @@ impl Poller {
                                     if ratio < 0.6 { continue; }
                                 }
 
-                                let mut seen_videos = self.seen_videos.write().await;
+                                let mut seen_videos = poller.seen_videos.write().await;
                                 seen_videos.mark_seen(&cid, &video.video_id);
                                 drop(seen_videos);
 
@@ -265,18 +267,19 @@ impl Poller {
                                     published_at: video.published_at, duration_sec: video.duration_sec,
                                     detected_at: chrono::Utc::now().timestamp_millis(),
                                 };
-                                self.record_detection();
-                                (self.process_fn)(event);
+                                poller.record_detection();
+                                (poller.process_fn)(event);
                             }
                         }
                         Err(e) => {
                             tracing::warn!("[Poller] Innertube error for {cid} (session {session_idx}): {e}");
-                            self.pool.mark_failed(session_idx);
+                            poller.pool.mark_failed(session_idx);
                         }
                     }
-                }));
+                });
+                handles.push(handle);
             }
-            futures::future::join_all(futures).await;
+            futures::future::join_all(handles).await;
             let polled_set = polled_successfully.lock().unwrap();
             oauth_channels.retain(|c| !polled_set.contains(&c.id));
         } else {

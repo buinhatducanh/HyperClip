@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 #[test]
 fn test_build_short_filter_vertical() {
-    let filter = build_short_filter(0.0, 60.0, 1.0, 1080, 1920, 384, 192, false);
+    let filter = build_short_filter(0.0, 60.0, 1.0, 1080, 1920, 384, 192, false, 30);
     assert!(filter.contains("scale="), "should use sw scale: {}", filter);
     assert!(filter.contains("crop="), "should use sw crop: {}", filter);
     assert!(filter.contains("overlay="), "should use sw overlay: {}", filter);
@@ -15,14 +15,14 @@ fn test_build_short_filter_vertical() {
 
 #[test]
 fn test_build_short_filter_vertical_with_speed() {
-    let filter = build_short_filter(0.0, 60.0, 1.5, 1080, 1920, 384, 192, false);
+    let filter = build_short_filter(0.0, 60.0, 1.5, 1080, 1920, 384, 192, false, 30);
     assert!(filter.contains("setpts=0.6666666666666666*PTS"), "should have speed setpts: {}", filter);
     assert!(filter.contains("trim=start=0:duration=40"), "trim should be speed-adjusted: {}", filter);
 }
 
 #[test]
 fn test_build_short_filter_cuda() {
-    let filter = build_short_filter_cuda(0.0, 60.0, 1.0, 1080, 1920, 384, 192);
+    let filter = build_short_filter_cuda(0.0, 60.0, 1.0, 1080, 1920, 384, 192, 30);
     assert!(filter.contains("scale_cuda"), "CUDA filter: {}", filter);
     assert!(filter.contains("crop_cuda"), "CUDA crop: {}", filter);
     assert!(filter.contains("overlay_cuda"), "CUDA overlay: {}", filter);
@@ -30,23 +30,26 @@ fn test_build_short_filter_cuda() {
 
 #[test]
 fn test_build_short_filter_cuda_with_speed() {
-    let filter = build_short_filter_cuda(0.0, 60.0, 2.0, 1080, 1920, 384, 192);
+    let filter = build_short_filter_cuda(0.0, 60.0, 2.0, 1080, 1920, 384, 192, 30);
     assert!(filter.contains("setpts=0.5*PTS"), "should have speed setpts: {}", filter);
     assert!(filter.contains("trim=start=0:duration=30"), "trim should be speed-adjusted: {}", filter);
 }
 
 #[test]
 fn test_build_landscape_filter() {
-    let filter = build_landscape_filter(0.0, 60.0, 1.0, 1920, 1080, 900, 0, false);
+    let filter = build_landscape_filter(0.0, 60.0, 1.0, 1920, 1080, 900, 216, false, 30);
     assert!(filter.contains("scale="), "landscape sw scale: {}", filter);
     assert!(filter.contains("crop="), "landscape sw crop: {}", filter);
+    assert!(filter.contains("overlay="), "landscape sw overlay: {}", filter);
+    assert!(filter.contains("[final]"), "should end with [final]");
 }
 
 #[test]
 fn test_build_landscape_filter_with_speed() {
-    let filter = build_landscape_filter(0.0, 60.0, 1.2, 1920, 1080, 900, 0, false);
+    let filter = build_landscape_filter(0.0, 60.0, 1.2, 1920, 1080, 900, 216, false, 30);
     assert!(filter.contains("setpts=0.8333333333333334*PTS"), "should have exact speed setpts: {}", filter);
     assert!(filter.contains("trim=start=0:duration=50"), "trim should be speed-adjusted: {}", filter);
+    assert!(filter.contains("[final]"), "should end with [final]");
 }
 
 #[test]
@@ -167,7 +170,7 @@ fn test_render_integration_real_file() {
 
     // First verify: the exact same args work via std::process::Command
     let ffmpeg = get_ffmpeg_path();
-    let filter = build_short_filter(0.0, 5.0, 1.0, 1080, 1920, 384, 192, false);
+    let filter = build_short_filter(0.0, 5.0, 1.0, 1080, 1920, 384, 192, false, 30);
     let mut cmd = std::process::Command::new(&ffmpeg);
     cmd.args(["-hide_banner", "-y",
         "-i", &input,
