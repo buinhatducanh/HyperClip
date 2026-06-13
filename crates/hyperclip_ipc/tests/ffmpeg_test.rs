@@ -152,25 +152,28 @@ fn test_render_progress_parse() {
 
 #[test]
 fn test_render_integration_real_file() {
-    let input = "D:/HyperClip-Data/downloads/ws-zilk-test.mp4";
-    let output = "D:/HyperClip-Data/downloads/ws-zilk-test-rust-rendered.mp4";
+    let data_dir = hyperclip_ipc::get_data_dir();
+    let input_path = data_dir.join("downloads/ws-zilk-test.mp4");
+    let output_path = data_dir.join("downloads/ws-zilk-test-rust-rendered.mp4");
+    let input = input_path.to_string_lossy().into_owned();
+    let output = output_path.to_string_lossy().into_owned();
 
-    if !std::path::Path::new(input).exists() {
+    if !input_path.exists() {
         eprintln!("SKIP: input file not found: {}", input);
         return;
     }
 
-    let _ = std::fs::remove_file(output);
+    let _ = std::fs::remove_file(&output);
 
     // First verify: the exact same args work via std::process::Command
     let ffmpeg = get_ffmpeg_path();
     let filter = build_short_filter(0.0, 5.0, 1.0, 1080, 1920, 384, 192, false);
     let mut cmd = std::process::Command::new(&ffmpeg);
     cmd.args(["-hide_banner", "-y",
-        "-i", input,
+        "-i", &input,
         "-f", "lavfi", "-i", "color=c=0x2d2d2d:s=1080x1920:d=5.00",
-        "-f", "lavfi", "-i", "color=c=0x1a1a1a:s=1080x192:d=5.00",
         "-f", "lavfi", "-i", "color=c=0x0d0d0d:s=1080x384:d=5.00",
+        "-f", "lavfi", "-i", "color=c=0x1a1a1a:s=1080x192:d=5.00",
         "-filter_complex", &filter,
         "-map", "[final]", "-map", "0:a?",
         "-c:v", "h264_nvenc", "-preset", "p1",
@@ -178,13 +181,13 @@ fn test_render_integration_real_file() {
         "-bf", "0", "-refs", "1", "-g", "30",
         "-maxrate", "12M", "-bufsize", "12M",
         "-c:a", "aac", "-b:a", "192k",
-        output]);
+        &output]);
     cmd.stdout(std::process::Stdio::null());
     cmd.stderr(std::process::Stdio::piped());
     let output_handle = cmd.output().expect("ffmpeg pre-check");
     let stderr = String::from_utf8_lossy(&output_handle.stderr);
     assert!(output_handle.status.success(), "ffmpeg pre-check failed:\n{}", stderr);
-    let _ = std::fs::remove_file(output);
+    let _ = std::fs::remove_file(&output);
 
     // Now test via spawn_render_async in a dedicated thread with its own tokio runtime
     let (tx, rx) = std::sync::mpsc::channel();
@@ -192,14 +195,16 @@ fn test_render_integration_real_file() {
     let pv = Arc::new(Mutex::new(Vec::new()));
     let pv2 = pv.clone();
 
+    let thread_input = input.clone();
+    let thread_output = output.clone();
     std::thread::spawn(move || {
         use tokio::runtime::Builder;
         let rt = Builder::new_current_thread().enable_all().build().unwrap();
         let result = rt.block_on(async {
             let opts = RenderOptions {
                 workspace_id: "test-integration".into(),
-                input_path: PathBuf::from(input),
-                output_path: PathBuf::from(output),
+                input_path: PathBuf::from(thread_input),
+                output_path: PathBuf::from(thread_output),
                 resolution: "1080p".into(),
                 fps: 30,
                 speed: 1.0,
@@ -215,7 +220,7 @@ fn test_render_integration_real_file() {
                 if let Ok(mut v) = pv2.lock() {
                     v.push(p);
                 }
-            }).await
+            }).await.map(|(path, _)| path)
         });
         result_tx.send(result).ok();
     });
@@ -224,12 +229,12 @@ fn test_render_integration_real_file() {
         .expect("timeout waiting for async render (60s)")
         .expect("spawn_render_async returned error");
 
-    assert_eq!(result, PathBuf::from(output));
-    assert!(std::path::Path::new(output).exists(), "output file missing");
+    assert_eq!(result, PathBuf::from(&output));
+    assert!(std::path::Path::new(&output).exists(), "output file missing");
 
     // Verify output dimensions
     let ffprobe = std::process::Command::new("ffprobe")
-        .args(["-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", output])
+        .args(["-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", &output])
         .output().expect("ffprobe");
     let info: serde_json::Value = serde_json::from_slice(&ffprobe.stdout).expect("ffprobe json");
     let streams = info["streams"].as_array().expect("streams array");
@@ -243,5 +248,5 @@ fn test_render_integration_real_file() {
     let pv = pv.lock().unwrap();
     assert!(!pv.is_empty(), "should have progress values, got {} samples", pv.len());
 
-    let _ = std::fs::remove_file(output);
+    let _ = std::fs::remove_file(&output);
 }

@@ -3,11 +3,50 @@
 Export project IDs from old HyperClip-Data/projects/ to a template JSON
 that can be filled with credentials and imported into new system.
 """
+import os
 import json
 from pathlib import Path
 
-OLD_PROJECTS_DIR = Path("D:/HyperClip-Data/projects")
-TEMPLATE_FILE = Path("data/.hyperclip/projects_template.json")
+def find_old_projects_dir() -> Path:
+    # 1. Try env var
+    env_dir = os.environ.get("HYPERCLIP_DATA_DIR")
+    if env_dir:
+        p = Path(env_dir) / "projects"
+        if p.exists():
+            return p
+    # 2. Try developer default
+    d_path = Path("D:/HyperClip-Data/projects")
+    if d_path.exists():
+        return d_path
+    # 3. Check largest available drive
+    if os.name == 'nt':
+        for letter in ['C', 'E', 'F', 'G', 'D']:
+            p = Path(f"{letter}:/HyperClip-Data/projects")
+            if p.exists():
+                return p
+    # 4. Check APPDATA
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        p = Path(appdata) / "HyperClip" / "HyperClip-Data" / "projects"
+        if p.exists():
+            return p
+    # Fallback default
+    return Path("data/projects")
+
+def get_target_data_dir() -> Path:
+    env_dir = os.environ.get("HYPERCLIP_DATA_DIR")
+    if env_dir:
+        return Path(env_dir)
+    local_data = Path("data")
+    if local_data.exists() and local_data.is_dir():
+        return local_data
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        return Path(appdata) / "HyperClip"
+    return local_data
+
+OLD_PROJECTS_DIR = find_old_projects_dir()
+TEMPLATE_FILE = get_target_data_dir() / ".hyperclip" / "projects_template.json"
 
 if not OLD_PROJECTS_DIR.exists():
     print(f"Old projects dir not found: {OLD_PROJECTS_DIR}")
@@ -59,7 +98,7 @@ for project_dir in OLD_PROJECTS_DIR.iterdir():
         "lastRefresh": int(stats.get('lastUsed', 0) / 1000) if stats.get('lastUsed') else 0,
         "_notes": {
             "originalMachineId": machine_id_short,
-            "source": "D:/HyperClip-Data/projects/" + project_id
+            "source": str(OLD_PROJECTS_DIR / project_id)
         }
     }
     projects.append(project)

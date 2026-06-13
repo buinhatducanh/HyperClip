@@ -17,6 +17,16 @@ pub fn parse_ffmpeg_stderr(line: &str, total_duration_sec: f64) -> Option<f64> {
     Some((current_sec as f64 / total_duration_sec).min(1.0))
 }
 
+fn fps_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"fps=\s*([\d\.]+)").unwrap())
+}
+
+pub fn parse_ffmpeg_fps(line: &str) -> Option<f64> {
+    let caps = fps_regex().captures(line)?;
+    caps.get(1)?.as_str().parse().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -26,6 +36,8 @@ mod tests {
         let line = "frame=  120 fps= 45 q=28.0 time=00:00:04.00 bitrate=2097.2kbits/s";
         let p = parse_ffmpeg_stderr(line, 30.0).unwrap();
         assert!((p - 0.133).abs() < 0.01);
+        let fps = parse_ffmpeg_fps(line).unwrap();
+        assert!((fps - 45.0).abs() < 0.01);
     }
 
     #[test]

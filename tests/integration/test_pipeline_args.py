@@ -3,7 +3,7 @@ import subprocess
 import sys
 import os
 
-PROJECT_ROOT = "D:/LOOP_COMPANY/HyperClip"
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def test_ytdlp_args():

@@ -1,6 +1,7 @@
 from PySide6.QtCore import QObject, Signal, Property, Slot, QUrl
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 import os
+from src.data_dir import get_data_dir
 
 
 class VideoPlayer(QObject):
@@ -38,7 +39,27 @@ class VideoPlayer(QObject):
             return ""
         if os.path.isabs(relative_path):
             return relative_path
-        return os.path.join("C:/HyperClip-Data/videos", relative_path)
+        
+        # 1. Try resolving relative to dynamic media/downloads dir
+        p1 = os.path.join(get_data_dir(), "media", relative_path)
+        if os.path.exists(p1):
+            return p1
+            
+        p2 = os.path.join(get_data_dir(), relative_path)
+        if os.path.exists(p2):
+            return p2
+            
+        # 2. Try relative to CWD
+        p3 = os.path.abspath(relative_path)
+        if os.path.exists(p3):
+            return p3
+            
+        # 3. Fallback to hardcoded C:/HyperClip-Data/videos if it exists, or p1
+        p4 = os.path.join("C:/HyperClip-Data/videos", relative_path)
+        if os.path.exists(p4):
+            return p4
+            
+        return p1
 
     @Slot()
     def play(self): self._player.play()

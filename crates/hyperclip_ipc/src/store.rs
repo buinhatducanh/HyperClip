@@ -2,6 +2,7 @@
 // Workspaces + channels + seen videos JSON persistence
 
 use serde::{Deserialize, Serialize};
+use chrono::TimeZone;
 use std::path::{Path, PathBuf};
 use std::fs;
 
@@ -32,9 +33,9 @@ pub struct Workspace {
     pub fps_target: u32,
     #[serde(rename = "exportResolution")]
     pub export_resolution: String,
-    #[serde(rename = "isShort")]
+    #[serde(rename = "isShort", default)]
     pub is_short: bool,
-    #[serde(rename = "autoRender")]
+    #[serde(rename = "autoRender", default)]
     pub auto_render: bool,
     pub progress: Option<f64>,
     pub error: Option<String>,
@@ -119,6 +120,24 @@ impl WorkspaceStore {
             if let Some(progress) = data.get("progress").and_then(|v| v.as_f64()) {
                 ws.progress = Some(progress);
             }
+            if let Some(auto_render) = data.get("autoRender").and_then(|v| v.as_bool()) {
+                ws.auto_render = auto_render;
+            }
+            if let Some(speed) = data.get("videoSpeed").and_then(|v| v.as_f64()) {
+                ws.video_speed = speed;
+            }
+            if let Some(fps) = data.get("fpsTarget").and_then(|v| v.as_u64()) {
+                ws.fps_target = fps as u32;
+            }
+            if let Some(resolution) = data.get("exportResolution").and_then(|v| v.as_str()) {
+                ws.export_resolution = resolution.to_string();
+            }
+            if let Some(trim_start) = data.get("trimStart").and_then(|v| v.as_f64()) {
+                ws.trim_start = trim_start;
+            }
+            if let Some(trim_end) = data.get("trimEnd").and_then(|v| v.as_f64()) {
+                ws.trim_end = trim_end;
+            }
             if let Some(path) = data.get("downloadedPath").and_then(|v| v.as_str()) {
                 ws.downloaded_path = Some(path.to_string());
             }
@@ -136,6 +155,18 @@ impl WorkspaceStore {
             }
             if let Some(downloaded) = data.get("downloadedAt").and_then(|v| v.as_i64()) {
                 ws.downloaded_at = Some(downloaded);
+            }
+            if let Some(fps) = data.get("renderFps").and_then(|v| v.as_f64()) {
+                ws.render_fps = Some(fps);
+            }
+            if let Some(workers) = data.get("renderWorkers").and_then(|v| v.as_u64()) {
+                ws.render_workers = Some(workers as u32);
+            }
+            if let Some(preset) = data.get("renderPreset").and_then(|v| v.as_str()) {
+                ws.render_preset = Some(preset.to_string());
+            }
+            if let Some(codec) = data.get("renderCodec").and_then(|v| v.as_str()) {
+                ws.render_codec = Some(codec.to_string());
             }
             Ok(())
         } else {
@@ -411,14 +442,52 @@ impl UploadsCache {
     }
 }
 
+/// Resolve resources directory path dynamically.
+/// Checks relative to the current executable directory, then relative to the current working directory.
+pub fn get_resources_dir() -> PathBuf {
+    // 1. Check relative to current executable directory
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let res_dir = exe_dir.join("resources");
+            if res_dir.exists() {
+                return res_dir;
+            }
+            // Traverse up parents to support target/debug or target/release dev builds
+            let mut parent = exe_dir.parent();
+            while let Some(p) = parent {
+                let res_dir = p.join("resources");
+                if res_dir.exists() {
+                    return res_dir;
+                }
+                parent = p.parent();
+            }
+        }
+    }
+    // 2. Check relative to current working directory
+    if let Ok(cwd) = std::env::current_dir() {
+        let res_dir = cwd.join("resources");
+        if res_dir.exists() {
+            return res_dir;
+        }
+    }
+    // 3. Fallback to "./resources" relative to CWD
+    PathBuf::from("resources")
+}
+
 /// Determine data directory (env HYPERCLIP_DATA_DIR, or ./data/ relative to cwd).
 /// Central single point — all data (media, settings, logs) lives under here.
 pub fn get_data_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("HYPERCLIP_DATA_DIR") {
         return PathBuf::from(dir);
     }
-    // Default: relative to project root (Rust binary is spawned from project root)
-    PathBuf::from("data")
+    let local_data = PathBuf::from("data");
+    if local_data.exists() && local_data.is_dir() {
+        return local_data;
+    }
+    if let Ok(app_data) = std::env::var("APPDATA") {
+        return PathBuf::from(app_data).join("HyperClip");
+    }
+    local_data
 }
 
 /// Store directory (internal JSON state, not user-visible media).
@@ -486,7 +555,12 @@ pub fn render_output_dir(channel_id: &str, channel_name: &str, ws_id: &str) -> P
 
 /// Build download path: data/media/{channel_id}/downloads/{video_id}_{timestamp}.mp4
 pub fn build_download_path(channel_id: &str, channel_name: &str, video_id: &str, timestamp_ms: i64) -> PathBuf {
-    channel_downloads_dir(channel_id, channel_name).join(format!("{}_{}.mp4", video_id, timestamp_ms))
+    let datetime = match chrono::Utc.timestamp_millis_opt(timestamp_ms) {
+        chrono::LocalResult::Single(dt) => dt,
+        _ => chrono::DateTime::<chrono::Utc>::from(std::time::SystemTime::UNIX_EPOCH),
+    };
+    let time_str = datetime.format("%Y%m%d_%H%M%S").to_string();
+    channel_downloads_dir(channel_id, channel_name).join(format!("{}_{}.mp4", video_id, time_str))
 }
 
 /// Build render output path: data/media/{channel_id}/renders/{ws_id}/final.mp4
@@ -532,7 +606,7 @@ pub fn get_logs_dir() -> PathBuf {
 }
 
 /// Sanitize a directory name (remove path-invalid characters).
-fn sanitize_dir_name(name: &str) -> String {
+pub fn sanitize_dir_name(name: &str) -> String {
     name.chars()
         .map(|c| match c { '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_', _ => c })
         .take(100)
@@ -541,13 +615,15 @@ fn sanitize_dir_name(name: &str) -> String {
         .to_string()
 }
 
-/// Resolve channel folder name: channel_id first, fall back to sanitized channel_name.
+/// Resolve channel folder name: sanitized channel_name first, fall back to channel_id.
 fn channel_folder_name(channel_id: &str, channel_name: &str) -> String {
-    if !channel_id.is_empty() {
+    let sanitized = sanitize_dir_name(channel_name);
+    if !sanitized.is_empty() {
+        sanitized
+    } else if !channel_id.is_empty() {
         channel_id.to_string()
     } else {
-        let s = sanitize_dir_name(channel_name);
-        if s.is_empty() { "unknown".to_string() } else { s }
+        "unknown".to_string()
     }
 }
 

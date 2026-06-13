@@ -18,12 +18,12 @@ if ($null -eq $nodeVersion) {
 }
 
 # Resolve paths
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $JsScript = Join-Path $ScriptDir "fix_claude_session.cjs"
 
 if (-not (Test-Path $JsScript)) {
-    # Try local dev workspace path
-    $JsScript = "D:\LOOP_COMPANY\HyperClip\scripts\maintenance\fix_claude_session.cjs"
+    # Check parent workspace
+    $JsScript = Resolve-Path (Join-Path $ScriptDir "..\..\scripts\maintenance\fix_claude_session.cjs") -ErrorAction SilentlyContinue
 }
 
 if (-not (Test-Path $JsScript)) {

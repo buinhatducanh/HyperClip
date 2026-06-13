@@ -18,8 +18,31 @@ if (-not (Test-Path $BackendExe)) {
 Write-Host "  Built: $BackendExe"
 
 Write-Host "[2/3] Verifying FFmpeg + yt-dlp..."
-$ffmpeg = "C:/Users/MSI/scoop/shims/ffmpeg.exe"
-$ytdlp = "C:/Users/MSI/AppData/Roaming/Python/Python312/Scripts/yt-dlp.exe"
+$ffmpeg = if (Get-Command ffmpeg -ErrorAction SilentlyContinue) { (Get-Command ffmpeg).Source } else {
+    $candidates = @(
+        "C:\Program Files\Agent\dlls\x64\ffmpeg.exe",
+        (Join-Path $env:USERPROFILE "scoop\shims\ffmpeg.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\scoop\shims\ffmpeg.exe")
+    )
+    $found = $null
+    foreach ($c in $candidates) {
+        if (Test-Path $c) { $found = $c; break }
+    }
+    if ($found) { $found } else { "ffmpeg.exe" }
+}
+
+$ytdlp = if (Get-Command yt-dlp -ErrorAction SilentlyContinue) { (Get-Command yt-dlp).Source } else {
+    $candidates = @(
+        (Join-Path $env:APPDATA "Python\Python312\Scripts\yt-dlp.exe"),
+        (Join-Path $env:APPDATA "Python\Python313\Scripts\yt-dlp.exe"),
+        (Join-Path $env:APPDATA "Python\Python314\Scripts\yt-dlp.exe")
+    )
+    $found = $null
+    foreach ($c in $candidates) {
+        if (Test-Path $c) { $found = $c; break }
+    }
+    if ($found) { $found } else { "yt-dlp.exe" }
+}
 foreach ($tool in @($ffmpeg, $ytdlp)) {
     if (Test-Path $tool) {
         Write-Host "  Found: $tool"

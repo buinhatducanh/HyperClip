@@ -5,7 +5,7 @@ Write-Host "========================================" -ForegroundColor Cyan
 $totalFreed = 0
 
 # 1. HyperClip log
-$logPath = "C:\Users\MSI\.hyperclip\logs\hyperclip.log"
+$logPath = Join-Path $env:USERPROFILE ".hyperclip\logs\hyperclip.log"
 if (Test-Path $logPath) {
     $size = (Get-Item $logPath).Length
     $sizeGB = [math]::Round($size/1GB, 2)
@@ -15,11 +15,12 @@ if (Test-Path $logPath) {
 }
 
 # 2. Project build artifacts
+$projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $folders = @(
-    "D:\LOOP_COMPANY\HyperClip\node_modules",
-    "D:\LOOP_COMPANY\HyperClip\.next",
-    "D:\LOOP_COMPANY\HyperClip\release",
-    "D:\LOOP_COMPANY\HyperClip\.hyperclip"
+    (Join-Path $projectRoot "node_modules"),
+    (Join-Path $projectRoot ".next"),
+    (Join-Path $projectRoot "release"),
+    (Join-Path $projectRoot ".hyperclip")
 )
 foreach ($f in $folders) {
     if (Test-Path $f) {
@@ -33,9 +34,9 @@ foreach ($f in $folders) {
 
 # 3. npm/pnpm cache
 $cachePaths = @(
-    "C:\Users\MSI\AppData\Local\npm-cache",
-    "C:\Users\MSI\AppData\Local\pnpm-cache",
-    "C:\Users\MSI\AppData\Roaming\npm"
+    (Join-Path $env:LOCALAPPDATA "npm-cache"),
+    (Join-Path $env:LOCALAPPDATA "pnpm-cache"),
+    (Join-Path $env:APPDATA "npm")
 )
 foreach ($c in $cachePaths) {
     if (Test-Path $c) {
@@ -49,7 +50,7 @@ foreach ($c in $cachePaths) {
 
 # 4. Windows temp
 $tempPaths = @(
-    "C:\Users\MSI\AppData\Local\Temp",
+    $env:TEMP,
     "C:\Windows\Temp"
 )
 foreach ($t in $tempPaths) {
@@ -65,7 +66,7 @@ foreach ($t in $tempPaths) {
 }
 
 # 5. electron-builder cache
-$eb = "C:\Users\MSI\AppData\Local\electron-builder"
+$eb = Join-Path $env:LOCALAPPDATA "electron-builder"
 if (Test-Path $eb) {
     $s = (Get-ChildItem $eb -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
     $sGB = [math]::Round($s/1GB, 2)
@@ -80,7 +81,7 @@ Write-Host ("  TOTAL FREED: " + [math]::Round($totalFreed/1GB, 2) + " GB") -Fore
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Sau khi cleanup, chay lai:" -ForegroundColor Yellow
-Write-Host "  cd D:\LOOP_COMPANY\HyperClip" -ForegroundColor White
+Write-Host "  cd $projectRoot" -ForegroundColor White
 Write-Host "  pnpm install" -ForegroundColor White
 Write-Host ""
 Write-Host "Manual (tuy chon):" -ForegroundColor Yellow

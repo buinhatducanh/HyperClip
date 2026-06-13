@@ -30,7 +30,7 @@ $fontSize = [Math]::Max(24, [int]($bottomH * 0.25))
 Write-Host "Core Render SHORT: ${CanvasW}x${CanvasH} Header=$headerH Video=$videoH Bottom=$bottomH"
 
 # Bottom bar PNG
-$barPng = "D:\HyperClip-Data\output\bottom_bar_overlay.png"
+$barPng = Join-Path $env:TEMP "bottom_bar_overlay.png"
 $bmp = New-Object System.Drawing.Bitmap($CanvasW, $bottomH)
 $g = [System.Drawing.Graphics]::FromImage($bmp)
 $g.SmoothingMode = 'AntiAlias'
@@ -68,7 +68,13 @@ $filter = "[0:v]fps=30,setpts=PTS-STARTPTS,scale=-2:$videoH,crop=$CanvasW`:$vide
           "[3:v]null[bb];" +
           "[fh][bb]overlay=0`:$bottomBarY[final]"
 
-$ffmpeg = "C:\Program Files\Agent\dlls\x64\ffmpeg.exe"
+$ffmpeg = if (Test-Path (Join-Path $PSScriptRoot "..\resources\ffmpeg\bin\ffmpeg.exe")) {
+    Join-Path $PSScriptRoot "..\resources\ffmpeg\bin\ffmpeg.exe"
+} elseif (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+    (Get-Command ffmpeg).Source
+} else {
+    "C:\Program Files\Agent\dlls\x64\ffmpeg.exe"
+}
 $args = @("-threads","8","-avoid_negative_ts","make_zero",
     "-i",$Video,"-loop","1","-i",$Blur,"-i",$Header,"-i",$barPng,
     "-filter_complex",$filter,

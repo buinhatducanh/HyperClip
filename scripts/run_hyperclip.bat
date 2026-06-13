@@ -7,7 +7,7 @@ taskkill /F /IM python.exe /T 2>nul
 timeout /t 2 /nobreak >nul
 
 echo Starting HyperClip...
-cd /d d:\LOOP_COMPANY\HyperClip
+cd /d "%~dp0.."
 python src\main.py
 
 echo.

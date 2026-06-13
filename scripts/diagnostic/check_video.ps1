@@ -1,8 +1,18 @@
-$ffprobe = "D:\LOOP_COMPANY\HyperClip\resources\ffmpeg\bin\ffprobe.exe"
-$ffmpeg = "D:\LOOP_COMPANY\HyperClip\resources\ffmpeg\bin\ffmpeg.exe"
+$ffprobe = Join-Path $PSScriptRoot "..\..\resources\ffmpeg\bin\ffprobe.exe"
+$ffmpeg = Join-Path $PSScriptRoot "..\..\resources\ffmpeg\bin\ffmpeg.exe"
 
 # Check archived dir
-$archived = "D:\HyperClip-Data\archived"
+$dataDir = $env:HYPERCLIP_DATA_DIR
+if (-not $dataDir) {
+    if (Test-Path "D:\HyperClip-Data") {
+        $dataDir = "D:\HyperClip-Data"
+    } elseif (Test-Path "C:\HyperClip-Data") {
+        $dataDir = "C:\HyperClip-Data"
+    } else {
+        $dataDir = Join-Path $PSScriptRoot "..\..\data"
+    }
+}
+$archived = Join-Path $dataDir "archived"
 if (Test-Path $archived) {
     $files = Get-ChildItem $archived -Filter "*.mp4" -EA SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 3
     if ($files) {
@@ -19,7 +29,7 @@ if (Test-Path $archived) {
 }
 
 # Check output dir
-$output = "D:\HyperClip-Data\output"
+$output = Join-Path $dataDir "output"
 if (Test-Path $output) {
     $outs = Get-ChildItem $output -Filter "*.mp4" -Recurse -EA SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 3
     if ($outs) {

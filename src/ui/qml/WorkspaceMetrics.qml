@@ -40,16 +40,16 @@ ColumnLayout {
 
         GridLayout {
             columns: 2; columnSpacing: 16; rowSpacing: 4; anchors.fill: parent
-            Label { text: "FPS"; color: Theme.textMuted; font.pixelSize: Theme.textXs }
-            Label { text: (workspaceData.renderFps || 0).toFixed(1); color: Theme.text; font.pixelSize: Theme.textXs; font.family: "monospace" }
+            Label { text: "FPS (thực tế)"; color: Theme.textMuted; font.pixelSize: Theme.textXs }
+            Label { text: workspaceData.renderFps ? workspaceData.renderFps.toFixed(1) + " fps" : "—"; color: Theme.text; font.pixelSize: Theme.textXs; font.family: "monospace" }
             Label { text: "Workers"; color: Theme.textMuted; font.pixelSize: Theme.textXs }
-            Label { text: workspaceData.renderWorkers || 1; color: Theme.text; font.pixelSize: Theme.textXs; font.family: "monospace" }
+            Label { text: workspaceData.renderWorkers ? "" + workspaceData.renderWorkers : "—"; color: Theme.text; font.pixelSize: Theme.textXs; font.family: "monospace" }
             Label { text: "Preset"; color: Theme.textMuted; font.pixelSize: Theme.textXs }
-            Label { text: workspaceData.renderPreset || "p1"; color: Theme.text; font.pixelSize: Theme.textXs; font.family: "monospace" }
+            Label { text: workspaceData.renderPreset || "—"; color: Theme.text; font.pixelSize: Theme.textXs; font.family: "monospace" }
             Label { text: "Codec"; color: Theme.textMuted; font.pixelSize: Theme.textXs }
-            Label { text: workspaceData.renderCodec || "hevc_nvenc"; color: Theme.text; font.pixelSize: Theme.textXs; font.family: "monospace" }
+            Label { text: workspaceData.renderCodec || "—"; color: Theme.text; font.pixelSize: Theme.textXs; font.family: "monospace" }
             Label { text: "Đầu ra"; color: Theme.textMuted; font.pixelSize: Theme.textXs }
-            Label { text: workspaceData.outputPath || "—"; color: Theme.text; font.pixelSize: Theme.textXs; font.family: "monospace"; elide: Text.ElideMiddle; Layout.fillWidth: true }
+            Label { text: (workspaceData.renderedPath || workspaceData.outputPath || "—"); color: Theme.text; font.pixelSize: Theme.textXs; font.family: "monospace"; elide: Text.ElideMiddle; Layout.fillWidth: true }
         }
     }
 

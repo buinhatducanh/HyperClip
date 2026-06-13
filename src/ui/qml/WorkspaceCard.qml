@@ -8,7 +8,7 @@ import QtQuick.Controls
 Rectangle {
     id: card
     color: "transparent"
-    height: 76
+    height: 82
 
     property string ws_id: ""
     property string status: "pending"
@@ -37,8 +37,10 @@ Rectangle {
         speed: card.speed
         fileSize: card.fileSize
         ageLabel: card.ageLabel
+        hovered: mouseArea.containsMouse
 
         MouseArea {
+            id: mouseArea
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor

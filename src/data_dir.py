@@ -14,7 +14,15 @@ def get_data_dir() -> str:
     if env:
         _DATA_DIR = env
     else:
-        _DATA_DIR = os.path.abspath("data")
+        local_data = os.path.abspath("data")
+        if os.path.isdir(local_data):
+            _DATA_DIR = local_data
+        else:
+            app_data = os.environ.get("APPDATA")
+            if app_data:
+                _DATA_DIR = os.path.join(app_data, "HyperClip")
+            else:
+                _DATA_DIR = local_data
     return _DATA_DIR
 
 def get_media_dir() -> str:

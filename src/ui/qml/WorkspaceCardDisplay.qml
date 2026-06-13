@@ -5,6 +5,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 
 Rectangle {
+    id: displayRoot
     property string status: "pending"
     property string title: ""
     property real progress: 0
@@ -16,14 +17,20 @@ Rectangle {
     property real speed: 1.0
     property string fileSize: ""
     property string ageLabel: ""
+    property bool hovered: false
 
-    color: Theme.cardBg
+    color: hovered ? Theme.hoverBg : Theme.cardBg
     border.color: status === "error" ? Theme.error
                 : status === "rendering" ? Theme.accent
-                : status === "done" ? Theme.success
+                : hovered ? Theme.accent
                 : Theme.border
     border.width: 1
-    height: 76
+    height: 82
+    radius: Theme.radiusLg
+    clip: true
+
+    Behavior on color { ColorAnimation { duration: 150 } }
+    Behavior on border.color { ColorAnimation { duration: 150 } }
 
     function statusIcon() {
         switch (status) {
@@ -38,6 +45,7 @@ Rectangle {
             default: return "?"
         }
     }
+    
     function statusLabel() {
         switch (status) {
             case "pending": return "Chờ"
@@ -52,10 +60,28 @@ Rectangle {
         }
     }
 
+    // Status strip on the left edge
+    Rectangle {
+        id: statusStrip
+        width: 4
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        color: status === "error" ? Theme.error
+             : status === "rendering" ? Theme.accent
+             : status === "done" ? Theme.success
+             : status === "downloading" ? "#FFA500"
+             : status === "ready" ? Theme.success
+             : "transparent"
+    }
+
     RowLayout {
         anchors.fill: parent
-        anchors.margins: 6
-        spacing: 8
+        anchors.leftMargin: 10
+        anchors.rightMargin: 8
+        anchors.topMargin: 8
+        anchors.bottomMargin: 8
+        spacing: 10
 
         // Thumbnail
         Rectangle {
@@ -63,7 +89,9 @@ Rectangle {
             Layout.preferredWidth: isShort ? 36 : 64
             Layout.preferredHeight: 64
             color: Theme.bg
-            border.color: Theme.border; border.width: 1
+            border.color: Theme.border
+            border.width: 1
+            radius: Theme.radiusMd
             clip: true
 
             Image {
@@ -76,14 +104,15 @@ Rectangle {
                 anchors.centerIn: parent
                 visible: thumbnail === ""
                 name: "play"
-                size: 21
+                size: 20
                 color: Theme.textMuted
             }
             // Duration badge
             Rectangle {
                 visible: durationSec > 0
-                anchors.bottom: parent.bottom; anchors.left: parent.left
-                color: "#000000BB"; height: 14
+                anchors.bottom: parent.bottom; anchors.right: parent.right; anchors.margins: 2
+                color: "#000000AA"; height: 14
+                radius: 2
                 width: durLabel.implicitWidth + 6
                 Label {
                     id: durLabel
@@ -93,7 +122,7 @@ Rectangle {
                         const s = durationSec % 60
                         return m + ":" + (s < 10 ? "0" : "") + s
                     }
-                    color: "white"; font.pixelSize: 12
+                    color: "white"; font.pixelSize: 10; font.bold: true
                 }
             }
         }
@@ -105,21 +134,25 @@ Rectangle {
             // Title + status badge
             RowLayout {
                 Layout.fillWidth: true
+                spacing: 8
                 Label {
                     text: title || "Chưa có tiêu đề"
-                    color: Theme.text; font.pixelSize: 18; font.bold: true
-                    elide: Text.ElideRight; Layout.fillWidth: true
+                    color: Theme.text
+                    font.pixelSize: Theme.textMd
+                    font.bold: true
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
                 }
-                // Status badge with icon + label
+                // Status badge
                 Rectangle {
                     Layout.preferredHeight: 18
-                    Layout.preferredWidth: badgeRow.implicitWidth + 14
-                    radius: 9
-                    color: status === "error" ? Theme.error + "30"
-                         : status === "rendering" ? Theme.accent + "30"
-                         : status === "done" ? Theme.success + "30"
-                         : status === "downloading" ? "#FFA50030"
-                         : status === "ready" ? Theme.success + "30"
+                    Layout.preferredWidth: badgeRow.implicitWidth + 10
+                    radius: Theme.radiusMd
+                    color: status === "error" ? Theme.error + "20"
+                         : status === "rendering" ? Theme.accent + "20"
+                         : status === "done" ? Theme.success + "20"
+                         : status === "downloading" ? "#FFA50020"
+                         : status === "ready" ? Theme.success + "20"
                          : "#2A2A2A"
                     border.color: status === "error" ? Theme.error
                                : status === "rendering" ? Theme.accent
@@ -131,7 +164,7 @@ Rectangle {
                     RowLayout {
                         id: badgeRow
                         anchors.centerIn: parent
-                        spacing: 3
+                        spacing: 4
                         StatusDot {
                             state: {
                                 if (status === "error") return "error"
@@ -152,37 +185,58 @@ Rectangle {
                                  : status === "downloading" ? "#FFA500"
                                  : status === "ready" ? Theme.success
                                  : Theme.text
-                            font.pixelSize: 11; font.bold: true
+                            font.pixelSize: 9; font.bold: true
                         }
                     }
                 }
             }
 
-            // Channel + meta
+            // Channel name row
             Label {
-                text: (channel_name || "—") +
-                      (ageLabel !== "" ? " · " + ageLabel : "") +
-                      (fileSize !== "" ? " · " + fileSize : "") +
-                      (durationSec > 0 ? " · " + Math.floor(durationSec/60) + ":" + (durationSec%60<10?"0":"") + (durationSec%60) : "")
-                color: Theme.textMuted; font.pixelSize: Theme.textXs
-                elide: Text.ElideRight; Layout.fillWidth: true
+                text: channel_name || "—"
+                color: Theme.accent
+                font.pixelSize: Theme.textSm
+                font.bold: true
+                elide: Text.ElideRight
+                Layout.fillWidth: true
             }
 
-            // Quality + speed
+            // Detailed metadata line
             Label {
-                text: quality + "p" + (speed > 1 ? " · " + speed.toFixed(1) + "x" : "")
-                color: Theme.textMuted; font.pixelSize: 12
+                text: (ageLabel !== "" ? ageLabel : "") +
+                      (fileSize !== "" ? " · " + fileSize : "") +
+                      (durationSec > 0 ? " · " + Math.floor(durationSec/60) + ":" + (durationSec%60<10?"0":"") + (durationSec%60) : "") +
+                      " · " + quality + "p" +
+                      (speed > 1 ? " · " + speed.toFixed(1) + "x" : "")
+                color: Theme.textMuted
+                font.pixelSize: Theme.textXs
+                elide: Text.ElideRight
+                Layout.fillWidth: true
             }
 
             // Progress bar
             Rectangle {
-                Layout.fillWidth: true; Layout.preferredHeight: 3
-                color: Theme.cardBg
+                Layout.fillWidth: true
+                Layout.preferredHeight: 4
+                Layout.topMargin: 2
+                radius: 2
+                color: "#242424"
                 visible: (status === "downloading" || status === "rendering") && progress > 0
                 Rectangle {
-                    anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom
+                    id: progressFill
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    radius: 2
                     width: parent.width * Math.min(progress, 100) / 100
                     color: status === "downloading" ? Theme.success : Theme.accent
+
+                    Behavior on width {
+                        NumberAnimation {
+                            duration: 250
+                            easing.type: Easing.OutQuad
+                        }
+                    }
                 }
             }
         }

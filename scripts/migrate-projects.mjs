@@ -18,7 +18,23 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 
-const APP_DIR = 'D:\\HyperClip-Data\\app'
+let APP_DIR = process.env.HYPERCLIP_DATA_DIR ? path.join(process.env.HYPERCLIP_DATA_DIR, 'app') : null;
+if (!APP_DIR || !fs.existsSync(APP_DIR)) {
+  const candidates = [
+    'D:\\HyperClip-Data\\app',
+    'C:\\HyperClip-Data\\app',
+    path.join(os.homedir(), 'AppData', 'Roaming', 'HyperClip', 'app')
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      APP_DIR = c;
+      break;
+    }
+  }
+  if (!APP_DIR) {
+    APP_DIR = candidates[0]; // fallback
+  }
+}
 const OUTPUT_DIR = path.join(os.homedir(), 'AppData', 'Roaming', 'HyperClip', '.hyperclip')
 
 const KEYS_FILE = path.join(APP_DIR, 'api_keys.json')

@@ -35,6 +35,59 @@ async function resolveChannelId(yt, rawId) {
 
 // ─── LockupView extraction ──────────────────────────────────
 
+function parseRelativeTime(text) {
+  if (!text) return 0;
+  const m = text.match(/(\d+)\s*(seconds?|minutes?|hours?|days?|weeks?|months?|years?|giây|phút|giờ|ngày|tuần|tháng|năm)\b/i);
+  if (m) {
+    const now = Math.floor(Date.now() / 1000);
+    const val = parseInt(m[1], 10);
+    const unit = m[2].toLowerCase();
+    if      (unit.startsWith('second') || unit.startsWith('giây')) return now - val;
+    else if (unit.startsWith('minute') || unit.startsWith('phút')) return now - val * 60;
+    else if (unit.startsWith('hour')   || unit.startsWith('giờ'))  return now - val * 3600;
+    else if (unit.startsWith('day')    || unit.startsWith('ngày')) return now - val * 86400;
+    else if (unit.startsWith('week')   || unit.startsWith('tuần')) return now - val * 604800;
+    else if (unit.startsWith('month')  || unit.startsWith('tháng')) return now - val * 2592000;
+    else if (unit.startsWith('year')   || unit.startsWith('năm'))  return now - val * 31536000;
+  }
+  return 0;
+}
+
+function extractPublishedAtFromLockup(lv) {
+  const metadata = lv.metadata?.lockupMetadataViewModel?.metadata?.contentMetadataViewModel;
+  if (metadata?.metadataRows) {
+    for (const row of metadata.metadataRows) {
+      if (!row?.metadataParts) continue;
+      for (const part of row.metadataParts) {
+        const text = part.text?.content || '';
+        const parsed = parseRelativeTime(text);
+        if (parsed > 0) return parsed;
+      }
+    }
+  }
+  return 0;
+}
+
+function extractDurationFromLockup(lv) {
+  let durationSec = 0;
+  const overlays = lv.contentImage?.lockupContentImageViewModel?.overlays || lv.contentImage?.overlays || [];
+  for (const overlay of overlays) {
+    const renderer = overlay.thumbnailOverlayTimeStatusRenderer;
+    if (renderer) {
+      const t = renderer.text?.simpleText || renderer.text?.content || '';
+      if (t.includes(':')) {
+        const p = t.split(':');
+        if (p.length === 2) {
+          durationSec = parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+        } else if (p.length === 3) {
+          durationSec = parseInt(p[0], 10) * 3600 + parseInt(p[1], 10) * 60 + parseInt(p[2], 10);
+        }
+      }
+    }
+  }
+  return durationSec;
+}
+
 function extractFromLockupView(lv) {
   const videoId = lv.content_id;
   if (!videoId) return null;
@@ -47,19 +100,8 @@ function extractFromLockupView(lv) {
       for (const part of row.metadata_parts) {
         const text = (part.text && part.text.text) || '';
         if (publishedAt) continue;
-        const m = text.match(/(\d+)\s*(seconds?|minutes?|hours?|days?|weeks?|months?|years?|giây|phút|giờ|ngày|tuần|tháng|năm)\b/i);
-        if (m) {
-          const now = Math.floor(Date.now() / 1000);
-          const v = parseInt(m[1], 10);
-          const unit = m[2].toLowerCase();
-          if      (unit.startsWith('second') || unit.startsWith('giây')) publishedAt = now - v;
-          else if (unit.startsWith('minute') || unit.startsWith('phút')) publishedAt = now - v * 60;
-          else if (unit.startsWith('hour')   || unit.startsWith('giờ'))  publishedAt = now - v * 3600;
-          else if (unit.startsWith('day')    || unit.startsWith('ngày')) publishedAt = now - v * 86400;
-          else if (unit.startsWith('week')   || unit.startsWith('tuần')) publishedAt = now - v * 604800;
-          else if (unit.startsWith('month')  || unit.startsWith('tháng')) publishedAt = now - v * 2592000;
-          else if (unit.startsWith('year')   || unit.startsWith('năm'))  publishedAt = now - v * 31536000;
-        }
+        const parsed = parseRelativeTime(text);
+        if (parsed > 0) publishedAt = parsed;
       }
     }
   }
@@ -88,23 +130,7 @@ function extractPublishedAt(v) {
   let text = '';
   if (v.published && v.published.text) text = v.published.text;
   else if (typeof v.published === 'string') text = v.published;
-  
-  if (text) {
-    const m = text.match(/(\d+)\s*(seconds?|minutes?|hours?|days?|weeks?|months?|years?|giây|phút|giờ|ngày|tuần|tháng|năm)\b/i);
-    if (m) {
-      const now = Math.floor(Date.now() / 1000);
-      const val = parseInt(m[1], 10);
-      const unit = m[2].toLowerCase();
-      if      (unit.startsWith('second') || unit.startsWith('giây')) return now - val;
-      else if (unit.startsWith('minute') || unit.startsWith('phút')) return now - val * 60;
-      else if (unit.startsWith('hour')   || unit.startsWith('giờ'))  return now - val * 3600;
-      else if (unit.startsWith('day')    || unit.startsWith('ngày')) return now - val * 86400;
-      else if (unit.startsWith('week')   || unit.startsWith('tuần')) return now - val * 604800;
-      else if (unit.startsWith('month')  || unit.startsWith('tháng')) return now - val * 2592000;
-      else if (unit.startsWith('year')   || unit.startsWith('năm'))  return now - val * 31536000;
-    }
-  }
-  return 0;
+  return parseRelativeTime(text);
 }
 
 function normalizeVideo(v) {
@@ -198,7 +224,9 @@ async function strategyPlaylistHTML(channelId, cookieStr) {
       if (!lv) return null;
       const videoId = lv.contentId;
       const title = lv.metadata?.lockupMetadataViewModel?.title?.content || '';
-      return { videoId, title, publishedAt: 0, thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, durationSec: 0 };
+      const publishedAt = extractPublishedAtFromLockup(lv);
+      const durationSec = extractDurationFromLockup(lv);
+      return { videoId, title, publishedAt, thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, durationSec };
     }).filter(v => v !== null);
   } catch (_) { return []; }
 }
@@ -252,13 +280,10 @@ async function getLatestVideo(channelId, cookieStr) {
         merged.set(v.videoId, v);
       }
       // Safely merge playlist results
-      if (fromRSSFast.length > 0) {
-        for (const v of fromPlaylistFast) {
-          if (!v.videoId) continue;
-          if (!merged.has(v.videoId)) {
-            v.publishedAt = Math.floor(Date.now() / 1000);
-            merged.set(v.videoId, v);
-          }
+      for (const v of fromPlaylistFast) {
+        if (!v.videoId) continue;
+        if (!merged.has(v.videoId)) {
+          merged.set(v.videoId, v);
         }
       }
       const all = Array.from(merged.values())
@@ -278,21 +303,16 @@ async function getLatestVideo(channelId, cookieStr) {
       }
     }
     // Merge playlist results from slow path
-    const reliableSourceSucceeded = slow.fromRSS.length > 0 || slow.fromGetVids.length > 0;
-    if (reliableSourceSucceeded) {
-      for (const v of slow.fromPlaylist) {
-        if (!v.videoId) continue;
-        if (!merged.has(v.videoId)) {
-          v.publishedAt = Math.floor(Date.now() / 1000);
-          merged.set(v.videoId, v);
-        }
+    for (const v of slow.fromPlaylist) {
+      if (!v.videoId) continue;
+      if (!merged.has(v.videoId)) {
+        merged.set(v.videoId, v);
       }
     }
     // Also merge fast playlist results if they exist
     for (const v of fromPlaylistFast) {
       if (!v.videoId) continue;
       if (!merged.has(v.videoId)) {
-        v.publishedAt = Math.floor(Date.now() / 1000);
         merged.set(v.videoId, v);
       }
     }

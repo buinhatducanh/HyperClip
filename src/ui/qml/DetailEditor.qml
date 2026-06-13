@@ -102,11 +102,11 @@ Rectangle {
         data.downloadTime = data.downloadTime || "—";
         data.downloadSpeed = data.downloadSpeed || "—";
         data.source = data.source || "yt-dlp";
-        data.renderFps = data.renderFps !== undefined ? data.renderFps : 0;
-        data.renderWorkers = data.renderWorkers !== undefined ? data.renderWorkers : 1;
-        data.renderPreset = data.renderPreset || "p1";
-        data.renderCodec = data.renderCodec || "hevc_nvenc";
-        data.outputPath = data.outputPath || "—";
+        data.renderFps = data.renderFps !== undefined ? data.renderFps : null;
+        data.renderWorkers = data.renderWorkers !== undefined ? data.renderWorkers : null;
+        data.renderPreset = data.renderPreset || "";
+        data.renderCodec = data.renderCodec || "";
+        data.outputPath = data.renderedPath || data.outputPath || "";
         
         return data;
     }

@@ -32,7 +32,8 @@ const artifactFile = args.file
 const cdnHost = process.env.CDN_HOST
 const cdnUser = process.env.CDN_USER || 'root'
 const cdnPath = process.env.CDN_PATH || '/var/www/cdn/updates'
-const cdnKeyPath = process.env.CDN_KEY_PATH || path.join(process.env.HOME || 'C:\\Users\\MSI', '.ssh', 'id_rsa')
+const userHome = process.env.HOME || process.env.USERPROFILE || 'C:\\Users\\Default';
+const cdnKeyPath = process.env.CDN_KEY_PATH || path.join(userHome, '.ssh', 'id_rsa')
 const dryRun = args['dry-run'] || false
 
 if (!version) { console.error('Missing --version'); process.exit(1) }

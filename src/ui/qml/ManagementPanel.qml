@@ -20,6 +20,65 @@ Rectangle {
 
     Component.onCompleted: refreshList()
 
+    Connections {
+        target: eventBus
+        function onWorkspace_updated(params) {
+            let updatedList = [];
+            let found = false;
+            for (let i = 0; i < root.workspaces.length; i++) {
+                let ws = root.workspaces[i];
+                if (ws.id === params.id) {
+                    let newWs = Object.assign({}, ws);
+                    if (params.field) {
+                        newWs[params.field] = params.value;
+                    } else {
+                        Object.assign(newWs, params);
+                    }
+                    updatedList.push(newWs);
+                    found = true;
+                    if (ws.id === root.currentVideoId) {
+                        let merged = Object.assign({}, root.currentVideoData, params);
+                        if (params.status === "done" || params.status === "ready" || !params.field) {
+                            Qt.callLater(function() {
+                                if (root.currentVideoId === params.id) {
+                                    const resp = backend.send_command("workspace:managementGet", {"id": params.id});
+                                    if (resp && resp.ok !== false && resp.result) {
+                                        root.currentVideoData = resp.result;
+                                    }
+                                }
+                            });
+                        } else {
+                            root.currentVideoData = merged;
+                        }
+                    }
+                } else {
+                    updatedList.push(ws);
+                }
+            }
+            if (found) {
+                root.workspaces = updatedList;
+            }
+        }
+        function onNew_video_detected(params) {
+            for (let i = 0; i < root.workspaces.length; i++) {
+                if (root.workspaces[i].id === params.id) return;
+            }
+            let newWs = {
+                "id": params.id,
+                "video_id": params.videoId,
+                "channel_id": params.channelId,
+                "channelName": params.channelName,
+                "title": params.title,
+                "status": params.status || "waiting",
+                "createdAt": params.detectedAt || Date.now(),
+                "thumbnailLocal": params.thumbnailUrl || ""
+            };
+            let list = [newWs].concat(root.workspaces);
+            root.workspaces = list;
+            root.totalCount = list.length;
+        }
+    }
+
     function refreshList() {
         listLoading = true
         errorText = ""
@@ -604,6 +663,7 @@ Rectangle {
                         // ─── 4. Render config ────────────────────────
                         SectionCard {
                             sectionTitle: "CẤU HÌNH RENDER"
+                            visible: !!root.currentVideoData.autoRender || !!root.currentVideoData.renderedPath || root.currentVideoData.status === "rendering" || root.currentVideoData.status === "done"
                             ColumnLayout {
                                 width: parent.width
                                 spacing: 4
@@ -621,16 +681,18 @@ Rectangle {
                                 }
                                 KVRow {
                                     keyText: "Trim end"
-                                    valueText: root.fmtClock(root.currentVideoData.trimEnd || 0)
+                                    valueText: root.currentVideoData.trimEnd ? root.fmtClock(root.currentVideoData.trimEnd) : "Hết video"
                                 }
                                 KVRow {
                                     keyText: "FPS target"
-                                    valueText: root.currentVideoData.fpsTarget
-                                        ? root.currentVideoData.fpsTarget + " fps" : "—"
+                                    valueText: {
+                                        const fps = root.currentVideoData.fpsTarget || (typeof settings !== "undefined" ? settings.autoRenderFPS : 30) || 30
+                                        return fps + " fps"
+                                    }
                                 }
                                 KVRow {
                                     keyText: "Export resolution"
-                                    valueText: root.currentVideoData.exportResolution || "—"
+                                    valueText: root.currentVideoData.exportResolution || (typeof settings !== "undefined" ? settings.autoRenderResolution : "1080p") || "1080p"
                                 }
                                 KVRow {
                                     keyText: "Render FPS (thực tế)"
@@ -734,7 +796,7 @@ Rectangle {
                                         }
                                         Label {
                                             text: root.fmtFullTime(root.currentVideoData.createdAt)
-                                                + "  ·  " + root.fmtTimeAgo(root.currentVideoData.createdAt)
+                                                + "  ·  mất " + root.fmtDuration(root.currentVideoData.detectionDurationSec || 0)
                                             color: Theme.text
                                             font.pixelSize: 11
                                         }

@@ -1,13 +1,13 @@
 {
   "settings": {
     "autoDownloadEnabled": true,
-    "autoDownloadMaxAgeMinutes": 1440,
+    "autoDownloadMaxAgeMinutes": 10,
     "autoDownloadQuality": "360",
-    "autoRender": false,
+    "autoRender": true,
     "autoRenderFPS": 30,
-    "autoRenderResolution": "1080p",
+    "autoRenderResolution": "360p",
     "autoRenderSpeed": 1.0,
-    "autoRenderTitleTemplate": "{title}",
+    "autoRenderTitleTemplate": "VIDEO TEST",
     "autoSplitMinutes": 0,
     "autoSplitParts": 1,
     "defaultQuality": 1080,

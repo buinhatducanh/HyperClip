@@ -73,14 +73,14 @@ pub fn build_short_filter(
     canvas_w: u32,
     canvas_h: u32,
     header_h: u32,
-    _bottom_bar_h: u32,
+    bottom_bar_h: u32,
     use_cuda: bool,
 ) -> String {
     let scale = if use_cuda { "scale_cuda" } else { "scale" };
     let overlay = if use_cuda { "overlay_cuda" } else { "overlay" };
     let scale_flags = if use_cuda { "" } else { ":flags=lanczos" };
 
-    let video_h = canvas_h - header_h - _bottom_bar_h;
+    let video_h = canvas_h - header_h - bottom_bar_h;
     let video_top = header_h;
     let scaled_w = ((video_h as f64) * 16.0 / 9.0).round() as u32;
     let crop_x = ((scaled_w - canvas_w) / 2).max(0);
@@ -101,7 +101,7 @@ pub fn build_short_filter(
         String::new()
     };
     let video_chain = format!(
-        "[0:v]fps=30,{}{}setpts=PTS-STARTPTS,{}=-2:{}{},crop={}:{}:{}:0[vid]",
+        "[0:v]fps=30,{}{}setpts=PTS-STARTPTS,{}=-2:{}{},crop={}:{}:{}:0,format=yuv420p[vid]",
         speed_tag,
         trim_tag,
         scale,
@@ -114,7 +114,7 @@ pub fn build_short_filter(
 
     // Background chain: fill canvas
     let bg_chain = format!(
-        "[1:v]{}={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1[bg]",
+        "[1:v]{}={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[bg]",
         scale,
         canvas_w,
         canvas_h,
@@ -129,39 +129,32 @@ pub fn build_short_filter(
         video_top
     );
 
-    // Bottom bar at bottom
-    let bb_y = canvas_h - _bottom_bar_h;
-    let bb_chain = format!(
-        "[2:v]{}={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2[bb]",
-        scale,
-        canvas_w,
-        _bottom_bar_h,
-        canvas_w,
-        _bottom_bar_h
-    );
-    let vb_chain = format!(
-        "[vz][bb]{}=0:{} [vb]",
-        overlay,
-        bb_y
-    );
-
-    // Header at top
+    // Header at top (y=0) - [2:v] is header
     let hd_chain = format!(
-        "[3:v]{}={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2[hd]",
+        "[2:v]{}={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[hd]",
         scale,
         canvas_w,
         header_h,
         canvas_w,
         header_h
     );
-    let final_chain = format!(
-        "[vb][hd]{}=0:0 [final]",
+    let vh_chain = format!(
+        "[vz][hd]{}=0:0 [vh]",
         overlay
+    );
+
+    // Bottom bar at bottom (bb_y) - [3:v] is bottom bar (pre-rendered PNG, no scaling/cropping)
+    let bb_y = canvas_h - bottom_bar_h;
+    let bb_chain = "[3:v]null[bb]".to_string();
+    let final_chain = format!(
+        "[vh][bb]{}=0:{} [final]",
+        overlay,
+        bb_y
     );
 
     format!(
         "{}; {}; {}; {}; {}; {}; {}",
-        video_chain, bg_chain, vz_chain, bb_chain, vb_chain, hd_chain, final_chain
+        video_chain, bg_chain, vz_chain, hd_chain, vh_chain, bb_chain, final_chain
     )
 }
 
@@ -201,19 +194,19 @@ pub fn build_short_filter_cuda(
     );
 
     let vz_chain = format!("[bg][vid]overlay_cuda=0:{} [vz]", video_top);
-    let bb_y = canvas_h - bottom_bar_h;
-    let bb_chain = format!(
-        "[2:v]scale_cuda={}:{}:force_original_aspect_ratio=increase,crop_cuda={}:{}:(ow-iw)/2:(oh-ih)/2[bb]",
-        canvas_w, bottom_bar_h, canvas_w, bottom_bar_h
-    );
-    let vb_chain = format!("[vz][bb]overlay_cuda=0:{} [vb]", bb_y);
     let hd_chain = format!(
-        "[3:v]scale_cuda={}:{}:force_original_aspect_ratio=increase,crop_cuda={}:{}:(ow-iw)/2:(oh-ih)/2[hd]",
+        "[2:v]scale_cuda={}:{}:force_original_aspect_ratio=increase,crop_cuda={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1[hd]",
         canvas_w, header_h, canvas_w, header_h
     );
-    let final_chain = format!("[vb][hd]overlay_cuda=0:0 [final]");
+    let vh_chain = format!("[vz][hd]overlay_cuda=0:0 [vh]");
+    let bb_y = canvas_h - bottom_bar_h;
+    let bb_chain = format!(
+        "[3:v]scale_cuda={}:{}:force_original_aspect_ratio=increase,crop_cuda={}:{}:(ow-iw)/2:(oh-ih)/2[bb]",
+        canvas_w, bottom_bar_h, canvas_w, bottom_bar_h
+    );
+    let final_chain = format!("[vh][bb]overlay_cuda=0:{} [final]", bb_y);
 
-    format!("{}; {}; {}; {}; {}; {}; {}", video_chain, bg_chain, vz_chain, bb_chain, vb_chain, hd_chain, final_chain)
+    format!("{}; {}; {}; {}; {}; {}; {}", video_chain, bg_chain, vz_chain, hd_chain, vh_chain, bb_chain, final_chain)
 }
 
 /// Build filter complex for LANDSCAPE layout
@@ -343,19 +336,29 @@ pub fn nvenc_codec_name(codec: EncodeCodec) -> &'static str {
 
 // ─── FFmpeg path resolution ────────────────────────────────────────────────────
 
-/// Get ffmpeg binary path (Windows: resolve backslash → forward slash for shell)
 pub fn get_ffmpeg_path() -> String {
-    let candidates = [
-        "C:/Users/MSI/scoop/shims/ffmpeg.exe",
-        "C:/Users/MSI/AppData/Local/Programs/scoop/shims/ffmpeg.exe",
-        "ffmpeg",
-    ];
+    // 1. Try bundled ffmpeg in resources first
+    let bundled = crate::store::get_resources_dir().join("ffmpeg/bin/ffmpeg.exe");
+    if bundled.exists() {
+        return bundled.to_string_lossy().replace('\\', "/");
+    }
+
+    // 2. Fallback candidates
+    let mut candidates = Vec::new();
+    if let Ok(userprofile) = std::env::var("USERPROFILE") {
+        candidates.push(format!("{}/scoop/shims/ffmpeg.exe", userprofile.replace('\\', "/")));
+    }
+    if let Ok(localappdata) = std::env::var("LOCALAPPDATA") {
+        candidates.push(format!("{}/Programs/scoop/shims/ffmpeg.exe", localappdata.replace('\\', "/")));
+    }
+    candidates.push("ffmpeg".to_string());
+
     for p in &candidates {
         if std::path::Path::new(p).exists() {
             return p.replace('\\', "/");
         }
     }
-    candidates.last().unwrap().replace('\\', "/")
+    "ffmpeg".to_string()
 }
 
 // ─── FFmpeg rendering ───────────────────────────────────────────────────────────
@@ -457,7 +460,7 @@ pub struct RenderOptions {
 pub async fn spawn_render_async<F>(
     opts: RenderOptions,
     mut on_progress: F,
-) -> Result<PathBuf>
+) -> Result<(PathBuf, f64)>
 where F: FnMut(f64) + Send + 'static {
     let speed = opts.speed;
     let (mut canvas_w, mut canvas_h) = parse_resolution(&opts.resolution);
@@ -466,7 +469,10 @@ where F: FnMut(f64) + Send + 'static {
         std::mem::swap(&mut canvas_w, &mut canvas_h);
     }
     let (header_h, bottom_bar_h) = (canvas_h / 5, canvas_h / 10);
-    let use_cuda = matches!(opts.gpu_tier, GPUTier::High | GPUTier::Mid);
+
+    // Disable GPU decoding and filter acceleration to avoid crop_cuda and pixel format issues
+    let use_cuda_filters = false;
+    let use_cuda = matches!(opts.gpu_tier, GPUTier::High | GPUTier::Mid) && use_cuda_filters;
 
     // 1. Build video filter chain
     let video_filter = match opts.filter_chain {
@@ -500,7 +506,8 @@ where F: FnMut(f64) + Send + 'static {
     // 4. Encode params
     let codec = match opts.gpu_tier {
         GPUTier::High => "hevc_nvenc",
-        _ => "h264_nvenc",
+        GPUTier::Mid | GPUTier::Low => "h264_nvenc",
+        _ => "libx264",
     };
     let crf = if opts.chunked { 20 } else { 18 };
     let maxrate = match opts.resolution.as_str() {
@@ -511,8 +518,139 @@ where F: FnMut(f64) + Send + 'static {
     let bufsize = maxrate;
 
     let total_duration = (opts.trim_end - opts.trim_start) / speed;
-    // Ensure at least 1s for lavfi color inputs
     let total_duration_str = format!("{:.2}", total_duration.max(1.0));
+
+    // Prepare real assets for Short Mode overlays if workspace database is present
+    let mut use_real_assets = false;
+    let mut blur_file = PathBuf::new();
+    let mut thumb_file = PathBuf::new();
+    let mut bar_file = PathBuf::new();
+
+    if matches!(opts.filter_chain, FilterChain::Short) {
+        let ws_path = crate::store::get_workspaces_path();
+        if ws_path.exists() {
+            let store = crate::store::WorkspaceStore::load(&ws_path);
+            if let Some(workspace) = store.workspaces.iter().find(|w| w.id == opts.workspace_id) {
+                let mut thumbnail_path = workspace
+                    .thumbnail_local
+                    .as_ref()
+                    .map(PathBuf::from)
+                    .unwrap_or_default();
+
+                if !thumbnail_path.exists() {
+                    // Extract thumbnail from the video itself
+                    let extracted_path = opts.input_path.with_file_name(format!("{}_thumb_fallback.jpg", opts.workspace_id));
+                    tracing::info!("[AppState] Thumbnail not found. Extracting to {:?}", extracted_path);
+                    let mut extract_cmd = std::process::Command::new(get_ffmpeg_path());
+                    extract_cmd.args([
+                        "-hide_banner", "-y",
+                        "-i", opts.input_path.to_str().unwrap(),
+                        "-vframes", "1",
+                        "-vf", "scale=1280:-2",
+                        "-q:v", "2",
+                        "-update", "1",
+                        extracted_path.to_str().unwrap()
+                    ]);
+                    if let Ok(mut child) = extract_cmd.spawn() {
+                        let _ = child.wait();
+                    }
+                    thumbnail_path = extracted_path;
+                }
+
+                if thumbnail_path.exists() {
+                    // Generate blur background
+                    let blur_path = opts.input_path.with_file_name(format!("{}_blur.jpg", opts.workspace_id));
+                    tracing::info!("[AppState] Generating blur background at {:?}", blur_path);
+                    let mut blur_cmd = std::process::Command::new(get_ffmpeg_path());
+                    blur_cmd.args([
+                        "-hide_banner", "-y",
+                        "-i", thumbnail_path.to_str().unwrap(),
+                        "-vf", "scale=32:18:flags=bilinear,scale=1080:1920:flags=bilinear",
+                        "-vframes", "1",
+                        "-update", "1",
+                        blur_path.to_str().unwrap()
+                    ]);
+                    if let Ok(mut child) = blur_cmd.spawn() {
+                        if let Ok(status) = child.wait() {
+                            if status.success() {
+                                // Generate bottom bar PNG via PowerShell GDI+
+                                let bottom_bar_path = opts.input_path.with_file_name(format!("{}_bottom_bar.png", opts.workspace_id));
+                                
+                                let s_path = crate::store::get_settings_path();
+                                let s_store = crate::store::SettingsStore::load(&s_path);
+                                let mut template = s_store.settings.get("autoRenderTitleTemplate")
+                                    .or_else(|| s_store.settings.get("auto_render_title_template"))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("{title}");
+                                if template.is_empty() {
+                                    template = "{title}";
+                                }
+
+                                let workspace_title = if !workspace.title.is_empty() { &workspace.title } else { "PART 1" };
+                                let channel_name = workspace.channel_name.as_deref().unwrap_or("");
+                                let text = template
+                                    .replace("{title}", workspace_title)
+                                    .replace("{channel}", channel_name)
+                                    .replace("{video_id}", &workspace.video_id);
+
+                                let clean_text = text.replace('"', "`\"");
+                                tracing::info!("[AppState] Generating bottom bar PNG at {:?}", bottom_bar_path);
+                                
+                                let mut ps_cmd = std::process::Command::new("powershell");
+                                let ps_script = format!(
+                                    r#"
+                                    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+                                    Add-Type -AssemblyName System.Drawing
+                                    $bmp = New-Object System.Drawing.Bitmap({canvas_w}, {bottom_bar_h})
+                                    $g = [System.Drawing.Graphics]::FromImage($bmp)
+                                    $g.SmoothingMode = 'AntiAlias'
+                                    $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAlias
+                                    $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 0, 180, 255))
+                                    $g.FillRectangle($brush, 0, 0, {canvas_w}, {bottom_bar_h})
+                                    $brush.Dispose()
+                                    $fontSize = [Math]::Max(24, [int]({bottom_bar_h} * 0.25))
+                                    $font = New-Object System.Drawing.Font("Arial", $fontSize, [System.Drawing.FontStyle]::Bold)
+                                    $sf = New-Object System.Drawing.StringFormat
+                                    $sf.Alignment = [System.Drawing.StringAlignment]::Center
+                                    $sf.LineAlignment = [System.Drawing.StringAlignment]::Center
+                                    $rect = New-Object System.Drawing.RectangleF(0, 0, {canvas_w}, {bottom_bar_h})
+                                    $g.DrawString("{text}", $font, (New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)), $rect, $sf)
+                                    $g.Dispose()
+                                    $font.Dispose()
+                                    $sf.Dispose()
+                                    $r = New-Object System.Drawing.Rectangle(0, 0, {canvas_w}, {bottom_bar_h})
+                                    $bd = $bmp.LockBits($r, [System.Drawing.Imaging.ImageLockMode]::ReadWrite, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+                                    $bytes = [byte[]]::new($bd.Stride * {bottom_bar_h})
+                                    [System.Runtime.InteropServices.Marshal]::Copy($bd.Scan0, $bytes, 0, $bytes.Length)
+                                    for ($i = 3; $i -lt $bytes.Length; $i += 4) {{ $bytes[$i] = 255 }}
+                                    [System.Runtime.InteropServices.Marshal]::Copy($bytes, 0, $bd.Scan0, $bytes.Length)
+                                    $bmp.UnlockBits($bd)
+                                    $bmp.Save("{output_path}", [System.Drawing.Imaging.ImageFormat]::Png)
+                                    $bmp.Dispose()
+                                    "#,
+                                    canvas_w = canvas_w,
+                                    bottom_bar_h = bottom_bar_h,
+                                    text = clean_text,
+                                    output_path = bottom_bar_path.to_str().unwrap().replace('\\', "/")
+                                );
+                                ps_cmd.arg("-Command").arg(&ps_script);
+                                if let Ok(mut child) = ps_cmd.spawn() {
+                                    if let Ok(status) = child.wait() {
+                                        if status.success() {
+                                            use_real_assets = true;
+                                            blur_file = blur_path;
+                                            thumb_file = thumbnail_path;
+                                            bar_file = bottom_bar_path;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     let mut cmd = TokioCommand::new(get_ffmpeg_path());
     let mut args: Vec<String> = vec![
@@ -526,23 +664,29 @@ where F: FnMut(f64) + Send + 'static {
     // Input [0]: source video
     args.extend_from_slice(&["-i".into(), opts.input_path.to_str().unwrap().to_string()]);
 
-    // Inputs [1]..[3]: overlay layers (bg, bottom_bar, header) as lavfi colors.
-    // Filter chain uses [1:v] for background, [2:v] for bottom_bar, [3:v] for header.
-    // Duration matches the source (trim is handled by the filter chain).
-    let dur_str = format!("d={}", total_duration_str);
-    let bg_color = "0x2d2d2d";  // dark gray bg
-    let bb_color = "0x1a1a1a";  // bottom bar
-    let hd_color = "0x0d0d0d";  // header
-
-    for (color, w, h) in [
-        (bg_color, canvas_w, canvas_h),
-        (bb_color, canvas_w, bottom_bar_h),
-        (hd_color, canvas_w, header_h),
-    ] {
+    if use_real_assets {
         args.extend_from_slice(&[
-            "-f".into(), "lavfi".into(),
-            "-i".into(), format!("color=c={}:s={}x{}:{}:r=30", color, w, h, dur_str),
+            "-loop".into(), "1".into(), "-i".into(), blur_file.to_str().unwrap().to_string(),
+            "-loop".into(), "1".into(), "-i".into(), thumb_file.to_str().unwrap().to_string(),
+            "-i".into(), bar_file.to_str().unwrap().to_string(),
         ]);
+    } else {
+        // Fallback to lavfi colors
+        let dur_str = format!("d={}", total_duration_str);
+        let bg_color = "0x2d2d2d";  // dark gray bg
+        let bb_color = "0x1a1a1a";  // bottom bar
+        let hd_color = "0x0d0d0d";  // header
+
+        for (color, w, h) in [
+            (bg_color, canvas_w, canvas_h),
+            (hd_color, canvas_w, header_h), // mapped to [2:v] in filter graph (Header)
+            (bb_color, canvas_w, bottom_bar_h), // mapped to [3:v] in filter graph (Bottom bar)
+        ] {
+            args.extend_from_slice(&[
+                "-f".into(), "lavfi".into(),
+                "-i".into(), format!("color=c={}:s={}x{}:{}:r=30", color, w, h, dur_str),
+            ]);
+        }
     }
 
     args.extend_from_slice(&[
@@ -550,21 +694,40 @@ where F: FnMut(f64) + Send + 'static {
         "-t".into(), total_duration_str.clone(),
         "-map".into(), "[final]".into(),
         "-map".into(), audio_map.into(),
-        "-c:v".into(), codec.to_string(),
-        "-preset".into(), opts.preset.clone(),
-        "-rc:v".into(), "vbr_hq".into(),
-        "-cq".into(), crf.to_string(),
-        "-tune".into(), "ull".into(),
-        "-bf".into(), "0".into(),
-        "-refs".into(), "1".into(),
-        "-g".into(), "30".into(),
-        "-maxrate".into(), maxrate.to_string(),
-        "-bufsize".into(), bufsize.to_string(),
-        "-c:a".into(), "aac".into(), "-b:a".into(), "192k".into(),
+    ]);
+
+    // Conditional encoder configuration based on codec type
+    if codec.contains("nvenc") {
+        args.extend_from_slice(&[
+            "-c:v".into(), codec.to_string(),
+            "-preset".into(), opts.preset.clone(),
+            "-rc:v".into(), "vbr_hq".into(),
+            "-cq".into(), crf.to_string(),
+            "-tune".into(), "ull".into(),
+            "-bf".into(), "0".into(),
+            "-refs".into(), "1".into(),
+            "-g".into(), "30".into(),
+            "-maxrate".into(), maxrate.to_string(),
+            "-bufsize".into(), bufsize.to_string(),
+        ]);
+    } else {
+        // CPU fallback (libx264)
+        args.extend_from_slice(&[
+            "-c:v".into(), "libx264".into(),
+            "-preset".into(), "medium".into(),
+            "-crf".into(), "23".into(),
+            "-pix_fmt".into(), "yuv420p".into(),
+        ]);
+    }
+
+    args.extend_from_slice(&[
+        "-c:a".into(), "aac".into(),
+        "-b:a".into(), "192k".into(),
         opts.output_path.to_str().unwrap().to_string(),
     ]);
 
     cmd.args(&args);
+    cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::null());
     cmd.stderr(std::process::Stdio::piped());
 
@@ -576,6 +739,9 @@ where F: FnMut(f64) + Send + 'static {
     let stderr_buf: Arc<std::sync::Mutex<String>> = Arc::new(std::sync::Mutex::new(String::new()));
     let stderr_buf_clone = stderr_buf.clone();
 
+    let last_fps = Arc::new(std::sync::Mutex::new(0.0));
+    let last_fps_clone = last_fps.clone();
+
     tokio::spawn(async move {
         let mut line = String::new();
         loop {
@@ -585,6 +751,11 @@ where F: FnMut(f64) + Send + 'static {
                 Ok(_) => {
                     if let Some(p) = parse_ffmpeg_stderr(line.trim(), total_duration) {
                         on_progress(p);
+                    }
+                    if let Some(fps) = crate::render_progress::parse_ffmpeg_fps(&line) {
+                        if let Ok(mut lock) = last_fps_clone.lock() {
+                            *lock = fps;
+                        }
                     }
                     if let Ok(mut buf) = stderr_buf_clone.lock() {
                         buf.push_str(&line);
@@ -602,7 +773,8 @@ where F: FnMut(f64) + Send + 'static {
             format!("FFmpeg exit {:?}. Stderr:\n{}", status.code(), err_detail)
         ));
     }
-    Ok(opts.output_path)
+    let final_fps = last_fps.lock().map(|l| *l).unwrap_or(0.0);
+    Ok((opts.output_path, final_fps))
 }
 
 fn parse_resolution(res: &str) -> (u32, u32) {

@@ -478,10 +478,19 @@ pub fn probe_video_availability(url: &str, cookies_path: &str) -> Result<(bool, 
 
 /// Find ffprobe executable
 fn find_ffprobe_path() -> String {
-    let candidates = [
-        "C:/Users/MSI/scoop/shims/ffprobe.exe",
-        "ffprobe",
-    ];
+    // 1. Try bundled ffprobe in resources first
+    let bundled = crate::store::get_resources_dir().join("ffmpeg/bin/ffprobe.exe");
+    if bundled.exists() {
+        return bundled.to_string_lossy().replace('\\', "/");
+    }
+
+    // 2. Fallback candidates
+    let mut candidates = Vec::new();
+    if let Ok(userprofile) = std::env::var("USERPROFILE") {
+        candidates.push(format!("{}/scoop/shims/ffprobe.exe", userprofile.replace('\\', "/")));
+    }
+    candidates.push("ffprobe".to_string());
+
     for p in &candidates {
         if std::path::Path::new(p).exists() {
             return p.replace('\\', "/");
@@ -492,12 +501,22 @@ fn find_ffprobe_path() -> String {
 
 /// Find yt-dlp executable
 fn find_ytdlp_path() -> String {
-    let candidates = [
-        "C:/Users/MSI/AppData/Roaming/Python/Python312/Scripts/yt-dlp.exe",
-        "C:/Users/MSI/AppData/Roaming/Python/Python313/Scripts/yt-dlp.exe",
-        "C:/Users/MSI/AppData/Roaming/Python/Python314/Scripts/yt-dlp.exe",
-        "yt-dlp",
-    ];
+    // 1. Try bundled yt-dlp in resources first
+    let bundled = crate::store::get_resources_dir().join("yt-dlp/yt-dlp.exe");
+    if bundled.exists() {
+        return bundled.to_string_lossy().to_string();
+    }
+
+    // 2. Fallback candidates
+    let mut candidates = Vec::new();
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let clean_appdata = appdata.replace('\\', "/");
+        candidates.push(format!("{}/Python/Python312/Scripts/yt-dlp.exe", clean_appdata));
+        candidates.push(format!("{}/Python/Python313/Scripts/yt-dlp.exe", clean_appdata));
+        candidates.push(format!("{}/Python/Python314/Scripts/yt-dlp.exe", clean_appdata));
+    }
+    candidates.push("yt-dlp".to_string());
+
     for p in &candidates {
         if std::path::Path::new(p).exists() {
             return p.to_string();

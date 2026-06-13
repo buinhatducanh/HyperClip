@@ -78,7 +78,7 @@ Dialog {
                         font.bold: true
                     }
                     Label {
-                        text: "Mở HyperClip-Data\\output\\" + dlg.channelName
+                        text: "Mở " + settings.outputPath + "/" + dlg.channelName
                         color: Theme.textMuted
                         font.pixelSize: 14
                         wrapMode: Text.Wrap
@@ -97,7 +97,7 @@ Dialog {
             Button {
                 text: "Mở folder output"
                 onClicked: backend.send_command("system:openFolder",
-                    {"path": "C:/HyperClip-Data/output"})
+                    {"path": settings.outputPath})
             }
             Item { Layout.fillWidth: true }
             Button {

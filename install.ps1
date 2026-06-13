@@ -121,6 +121,14 @@ if (Test-Path $ytDlpBin) {
 # ── 6. Copy demo GCP projects ───────────────────────────────────────────────────
 Write-Step "Cai dat GCP projects (30 projects)..."
 $HYPERCLIP_DATA = "D:\HyperClip-Data"
+if (-not (Test-Path "D:\")) {
+    $largestDrive = Get-Volume | Where-Object { $_.DriveLetter -and $_.DriveType -eq 'Fixed' } | Sort-Object SizeRemaining -Descending | Select-Object -First 1
+    if ($largestDrive) {
+        $HYPERCLIP_DATA = "$($largestDrive.DriveLetter):\HyperClip-Data"
+    } else {
+        $HYPERCLIP_DATA = "C:\HyperClip-Data"
+    }
+}
 $DEMO_PROJECTS_SRC = "$InstallPath\demo-data\projects"
 $DEMO_PROJECTS_DST = "$HYPERCLIP_DATA\projects"
 if (Test-Path $DEMO_PROJECTS_SRC) {

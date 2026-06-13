@@ -268,12 +268,6 @@ ApplicationWindow {
         anchors.fill: parent
         z: 9998
     }
-    Connections {
-        target: toastService
-        function onToastRequested(title, message, level) {
-            toastManager.show(title, message, level)
-        }
-    }
 
     // ─── LoginScreen overlay ─────────────────────────────────────
     LoginScreen {

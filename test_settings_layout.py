@@ -2,8 +2,7 @@
 import sys
 import os
 os.environ["QT_QUICK_CONTROLS_STYLE"] = "Fusion"
-os.environ["QT_QPA_PLATFORM"] = "offscreen"
-sys.path.insert(0, r"d:\LOOP_COMPANY\HyperClip")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PySide6.QtCore import QUrl, QTimer
 from PySide6.QtQml import QQmlApplicationEngine
@@ -31,7 +30,8 @@ ctx.setContextProperty("activityModel", None)
 ctx.setContextProperty("toastService", None)
 ctx.setContextProperty("statsModel", None)
 
-qml_dir = r"d:\LOOP_COMPANY\HyperClip\src\ui\qml"
+project_root = os.path.dirname(os.path.abspath(__file__))
+qml_dir = os.path.join(project_root, "src", "ui", "qml")
 engine.addImportPath(qml_dir)
 
 # Write a wrapper that renders just SettingsPage
@@ -67,7 +67,7 @@ def grab():
         if img.isNull():
             print("Image is null")
         else:
-            path = r"d:\LOOP_COMPANY\HyperClip\test_settings.png"
+            path = os.path.join(project_root, "test_settings.png")
             ok = img.save(path, "PNG")
             print(f"Saved: {path} ok={ok} size={img.width()}x{img.height()}")
     except Exception as e:

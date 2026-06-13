@@ -35,7 +35,7 @@ node --version
 
 ```powershell
 # Từ thư mục HyperClip project:
-cd D:\LOOP_COMPANY\HyperClip\scripts
+cd \path\to\HyperClip\scripts
 
 # Cơ bản:
 .\prepare-customer-package.ps1 -CustomerName "AcmeCorp"
@@ -43,8 +43,8 @@ cd D:\LOOP_COMPANY\HyperClip\scripts
 # Đầy đủ:
 .\prepare-customer-package.ps1 `
     -CustomerName "AcmeCorp" `
-    -OAuthTokensSource "D:\HyperClip-Data\app\oauth_tokens.json" `
-    -ChannelsSource "D:\HyperClip-Data\app\channels.json" `
+    -OAuthTokensSource "C:\path\to\oauth_tokens.json" `
+    -ChannelsSource "C:\path\to\channels.json" `
     -OutputDir ".\customer-packages" `
     -SessionCount 30
 ```

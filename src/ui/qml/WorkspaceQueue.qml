@@ -53,7 +53,7 @@ Rectangle {
                 ws_id: model.id
                 status: root.passFilter(model.status || "pending", model.title, model.channel_name) ? model.status || "pending" : "hidden"
                 visible: status !== "hidden"
-                height: status === "hidden" ? 0 : 76
+                height: status === "hidden" ? 0 : 82
                 title: model.title
                 progress: model.progress || 0
                 channel_name: model.channel_name

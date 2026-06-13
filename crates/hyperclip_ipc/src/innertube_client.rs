@@ -89,6 +89,13 @@ impl Drop for InnertubeClient {
 
 impl InnertubeClient {
     pub fn find_node() -> Result<PathBuf> {
+        // 1. Try bundled Node.js in resources first
+        let bundled = crate::store::get_resources_dir().join("node").join("node.exe");
+        if bundled.exists() {
+            return Ok(bundled);
+        }
+
+        // 2. Fallback to standard locations
         for c in &["node", "node.exe", r"C:\Program Files\nodejs\node.exe"] {
             if let Ok(o) = Command::new(c).arg("--version").output() {
                 if o.status.success() {
@@ -99,8 +106,9 @@ impl InnertubeClient {
         Err(HyperclipError::BackendCrashed("Node.js not found".into()))
     }
 
-    pub fn new(config: ClientConfig) -> Result<Self> {
-        Self::find_node()?;
+    pub fn new(mut config: ClientConfig) -> Result<Self> {
+        let node_bin = Self::find_node()?;
+        config.node_path = node_bin.to_string_lossy().to_string();
         Ok(Self {
             config,
             child: None,
@@ -127,18 +135,110 @@ impl InnertubeClient {
             }
         }
 
-        let helper = if self.config.helper_script.exists() {
+        let helper = if self.config.helper_script.exists() && !self.config.helper_script.to_string_lossy().contains("CARGO_MANIFEST_DIR") {
             self.config.helper_script.clone()
         } else {
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/innertube_helper.js")
+            // Dynamically search for helper script
+            let mut resolved = PathBuf::new();
+            let mut found = false;
+
+            // Check resources
+            let res_helper = crate::store::get_resources_dir().join("innertube_helper.js");
+            if res_helper.exists() {
+                resolved = res_helper;
+                found = true;
+            }
+
+            // Check relative to current exe dir walking up
+            if !found {
+                if let Ok(exe_path) = std::env::current_exe() {
+                    if let Some(exe_dir) = exe_path.parent() {
+                        let p = exe_dir.join("innertube_helper.js");
+                        if p.exists() {
+                            resolved = p;
+                            found = true;
+                        } else {
+                            let mut parent = exe_dir.parent();
+                            while let Some(p_dir) = parent {
+                                let h = p_dir.join("crates/hyperclip_ipc/src/innertube_helper.js");
+                                if h.exists() {
+                                    resolved = h;
+                                    found = true;
+                                    break;
+                                }
+                                parent = p_dir.parent();
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Check CWD fallbacks
+            if !found {
+                for p in &["crates/hyperclip_ipc/src/innertube_helper.js", "resources/innertube_helper.js", "innertube_helper.js"] {
+                    let pb = PathBuf::from(p);
+                    if pb.exists() {
+                        resolved = pb;
+                        found = true;
+                        break;
+                    }
+                }
+            }
+
+            if found {
+                resolved
+            } else {
+                // Compile-time dev fallback
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/innertube_helper.js")
+            }
         };
 
-        let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .to_path_buf();
+        let project_root = {
+            let mut resolved = None;
+            // 1. Check relative to current exe dir
+            if let Ok(exe_path) = std::env::current_exe() {
+                if let Some(exe_dir) = exe_path.parent() {
+                    if exe_dir.join("node_modules").exists() {
+                        resolved = Some(exe_dir.to_path_buf());
+                    } else {
+                        let mut parent = exe_dir.parent();
+                        while let Some(p) = parent {
+                            if p.join("node_modules").exists() {
+                                resolved = Some(p.to_path_buf());
+                                break;
+                            }
+                            parent = p.parent();
+                        }
+                    }
+                }
+            }
+            // 2. Check relative to CWD
+            if resolved.is_none() {
+                if let Ok(cwd) = std::env::current_dir() {
+                    if cwd.join("node_modules").exists() {
+                        resolved = Some(cwd);
+                    } else {
+                        let mut parent = cwd.parent();
+                        while let Some(p) = parent {
+                            if p.join("node_modules").exists() {
+                                resolved = Some(p.to_path_buf());
+                                break;
+                            }
+                            parent = p.parent();
+                        }
+                    }
+                }
+            }
+            // Fallback to dev manifest root parent
+            resolved.unwrap_or_else(|| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .parent()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .to_path_buf()
+            })
+        };
 
         tracing::info!(
             "[InnertubeClient] Spawning persistent daemon: {} {} --daemon (cwd={:?})",
