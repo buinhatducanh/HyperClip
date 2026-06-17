@@ -1,17 +1,17 @@
 {
   "settings": {
     "autoDownloadEnabled": true,
-    "autoDownloadMaxAgeMinutes": 10,
-    "autoDownloadQuality": "360",
+    "autoDownloadMaxAgeMinutes": 8,
+    "autoDownloadQuality": "1080",
     "autoRender": true,
     "autoRenderFPS": 30,
-    "autoRenderResolution": "360p",
-    "autoRenderSpeed": 1.0,
-    "autoRenderTitleTemplate": "VIDEO TEST",
+    "autoRenderResolution": "1080p",
+    "autoRenderSpeed": 1.2,
+    "autoRenderTitleTemplate": "VIDEO TEST 2",
     "autoSplitMinutes": 0,
-    "autoSplitParts": 1,
+    "autoSplitParts": 2,
     "defaultQuality": 1080,
-    "defaultTrimLimit": 5,
+    "defaultTrimLimit": 6,
     "defaultTrimLimitMinutes": 10,
     "downloadsCleanupDays": 7,
     "hardwareProfile": {
@@ -22,8 +22,8 @@
     "maxConcurrentRenders": 2,
     "minimizeToTray": true,
     "onboardingComplete": false,
-    "outputFolder": "D:\\LOOP_COMPANY\\HyperClip\\data",
-    "outputPath": "D:\\LOOP_COMPANY\\HyperClip\\data",
+    "outputFolder": "",
+    "outputPath": "",
     "pollIntervalMs": 5000,
     "pollingEnabled": true,
     "proxyEnabled": false,
@@ -34,6 +34,6 @@
     "quitOnClose": false,
     "videoMaxDurationSec": 3600,
     "videoMinDurationSec": 60,
-    "videoStoragePath": "D:\\LOOP_COMPANY\\HyperClip\\data"
+    "videoStoragePath": ""
   }
 }

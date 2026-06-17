@@ -32,7 +32,7 @@ class PollerStatusModel(QObject):
         self._sla_percent = float(d.get("slaPercent", 100.0))
         self.changed.emit()
 
-    @Slot()
+    @Slot('QVariant')
     def refresh_from_backend(self, backend):
         if not backend:
             return

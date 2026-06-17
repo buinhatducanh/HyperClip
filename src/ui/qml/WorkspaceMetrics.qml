@@ -9,6 +9,22 @@ ColumnLayout {
     property var workspaceData: ({})
     spacing: 8
 
+    function getSplitPartsFor(parentId) {
+        if (!parentId) return [];
+        let parts = [];
+        for (let i = 0; i < workspaceModel.rowCount(); i++) {
+            let idx = workspaceModel.index(i, 0);
+            let wsId = workspaceModel.data(idx, Qt.UserRole + 1); // IdRole
+            if (wsId && wsId.startsWith(parentId + "-part")) {
+                let title = workspaceModel.data(idx, Qt.UserRole + 3); // TitleRole
+                let rPath = workspaceModel.data(idx, Qt.UserRole + 8); // RenderedRole
+                parts.push({ "id": wsId, "title": title, "renderedPath": rPath });
+            }
+        }
+        parts.sort((a, b) => a.id.localeCompare(b.id));
+        return parts;
+    }
+
     // Download section
     GroupBox {
         Layout.fillWidth: true
@@ -48,8 +64,77 @@ ColumnLayout {
             Label { text: workspaceData.renderPreset || "—"; color: Theme.text; font.pixelSize: Theme.textXs; font.family: "monospace" }
             Label { text: "Codec"; color: Theme.textMuted; font.pixelSize: Theme.textXs }
             Label { text: workspaceData.renderCodec || "—"; color: Theme.text; font.pixelSize: Theme.textXs; font.family: "monospace" }
-            Label { text: "Đầu ra"; color: Theme.textMuted; font.pixelSize: Theme.textXs }
-            Label { text: (workspaceData.renderedPath || workspaceData.outputPath || "—"); color: Theme.text; font.pixelSize: Theme.textXs; font.family: "monospace"; elide: Text.ElideMiddle; Layout.fillWidth: true }
+            Label {
+                text: "Đầu ra"
+                color: Theme.textMuted
+                font.pixelSize: Theme.textXs
+                visible: root.getSplitPartsFor(workspaceData.id).length === 0
+            }
+            Label {
+                text: (workspaceData.renderedPath || workspaceData.outputPath || "—")
+                color: (workspaceData.renderedPath || workspaceData.outputPath) ? Theme.accent : Theme.text
+                font.pixelSize: Theme.textXs
+                font.family: "monospace"
+                font.underline: !!(workspaceData.renderedPath || workspaceData.outputPath)
+                elide: Text.ElideMiddle
+                Layout.fillWidth: true
+                visible: root.getSplitPartsFor(workspaceData.id).length === 0
+
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: !!(workspaceData.renderedPath || workspaceData.outputPath)
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        var p = workspaceData.renderedPath || workspaceData.outputPath;
+                        if (p) {
+                            backend.send_command("system:openFolder", {"path": p})
+                        }
+                    }
+                }
+            }
+
+            // Split parts layout
+            ColumnLayout {
+                Layout.columnSpan: 2
+                Layout.fillWidth: true
+                spacing: 4
+                visible: root.getSplitPartsFor(workspaceData.id).length > 0
+
+                Repeater {
+                    model: root.getSplitPartsFor(workspaceData.id)
+                    delegate: RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        Label {
+                            text: "Đầu ra (" + (modelData.title || modelData.id) + ")"
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.textXs
+                            Layout.preferredWidth: 120
+                            elide: Text.ElideRight
+                        }
+                        Label {
+                            text: modelData.renderedPath || "— (đang render...)"
+                            color: modelData.renderedPath ? Theme.accent : Theme.textMuted
+                            font.pixelSize: Theme.textXs
+                            font.family: "monospace"
+                            font.underline: !!modelData.renderedPath
+                            elide: Text.ElideMiddle
+                            Layout.fillWidth: true
+
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: !!modelData.renderedPath
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (modelData.renderedPath) {
+                                        backend.send_command("system:openFolder", {"path": modelData.renderedPath})
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 

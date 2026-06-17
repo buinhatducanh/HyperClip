@@ -41,8 +41,10 @@ class SettingsModel(QObject):
         self._onboarding_complete: bool = False
         self._hardware_vram_gb: int = 0
         self._hardware_ram_gb: int = 0
+        self._clean_snapshot = None
 
     # ─── Explicit Properties (PySide6 requires class-level descriptor) ──
+    dirty = Property(bool, lambda s: s.is_dirty, notify=changed)
     outputFolder = Property(str, lambda s: s._output_folder, lambda s, v: s._set("_output_folder", str, v), notify=changed)
     videoStoragePath = Property(str, lambda s: s._video_storage_path, lambda s, v: s._set("_video_storage_path", str, v), notify=changed)
     outputPath = Property(str, lambda s: s._output_path, lambda s, v: s._set("_output_path", str, v), notify=changed)
@@ -175,6 +177,7 @@ class SettingsModel(QObject):
             p = d["hardwareProfile"]
             self._hardware_vram_gb = int(p.get("vramGB", 0))
             self._hardware_ram_gb = int(p.get("ramGB", 0))
+        self._clean_snapshot = self.to_dict()
         self.changed.emit()
 
     def to_dict(self) -> dict:
@@ -212,12 +215,27 @@ class SettingsModel(QObject):
             "hardwareProfile": {"vramGB": self._hardware_vram_gb, "ramGB": self._hardware_ram_gb} if self._hardware_vram_gb else None,
         }
 
+    @property
+    def is_dirty(self) -> bool:
+        if not hasattr(self, "_clean_snapshot") or self._clean_snapshot is None:
+            return False
+        return self.to_dict() != self._clean_snapshot
+
+    @Slot()
+    def discard_changes(self):
+        if hasattr(self, "_clean_snapshot") and self._clean_snapshot is not None:
+            self.load_from_dict(self._clean_snapshot)
+
     @Slot(QObject, result=bool)
     def save_to_backend(self, backend) -> bool:
         if not backend:
             return False
         resp = backend.send_command("settings:update", self.to_dict())
-        return resp.get("ok", False)
+        ok = resp.get("ok", False)
+        if ok:
+            self._clean_snapshot = self.to_dict()
+            self.changed.emit()
+        return ok
 
     @Slot(QObject, result=bool)
     def load_from_backend(self, backend) -> bool:

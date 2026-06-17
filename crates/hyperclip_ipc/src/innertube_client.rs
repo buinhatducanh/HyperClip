@@ -10,6 +10,8 @@ use serde::Deserialize;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 
@@ -95,9 +97,14 @@ impl InnertubeClient {
             return Ok(bundled);
         }
 
-        // 2. Fallback to standard locations
         for c in &["node", "node.exe", r"C:\Program Files\nodejs\node.exe"] {
-            if let Ok(o) = Command::new(c).arg("--version").output() {
+            let mut cmd = Command::new(c);
+            cmd.arg("--version");
+            #[cfg(target_os = "windows")]
+            {
+                cmd.creation_flags(0x08000000);
+            }
+            if let Ok(o) = cmd.output() {
                 if o.status.success() {
                     return Ok(PathBuf::from(*c));
                 }
@@ -135,22 +142,18 @@ impl InnertubeClient {
             }
         }
 
-        let helper = if self.config.helper_script.exists() && !self.config.helper_script.to_string_lossy().contains("CARGO_MANIFEST_DIR") {
-            self.config.helper_script.clone()
-        } else {
-            // Dynamically search for helper script
-            let mut resolved = PathBuf::new();
-            let mut found = false;
-
-            // Check resources
+        let helper = {
             let res_helper = crate::store::get_resources_dir().join("innertube_helper.js");
             if res_helper.exists() {
-                resolved = res_helper;
-                found = true;
-            }
+                res_helper
+            } else if self.config.helper_script.exists() && !self.config.helper_script.to_string_lossy().contains("CARGO_MANIFEST_DIR") {
+                self.config.helper_script.clone()
+            } else {
+                // Dynamically search for helper script
+                let mut resolved = PathBuf::new();
+                let mut found = false;
 
-            // Check relative to current exe dir walking up
-            if !found {
+                // Check relative to current exe dir walking up
                 if let Ok(exe_path) = std::env::current_exe() {
                     if let Some(exe_dir) = exe_path.parent() {
                         let p = exe_dir.join("innertube_helper.js");
@@ -171,25 +174,25 @@ impl InnertubeClient {
                         }
                     }
                 }
-            }
 
-            // Check CWD fallbacks
-            if !found {
-                for p in &["crates/hyperclip_ipc/src/innertube_helper.js", "resources/innertube_helper.js", "innertube_helper.js"] {
-                    let pb = PathBuf::from(p);
-                    if pb.exists() {
-                        resolved = pb;
-                        found = true;
-                        break;
+                // Check CWD fallbacks
+                if !found {
+                    for p in &["crates/hyperclip_ipc/src/innertube_helper.js", "resources/innertube_helper.js", "innertube_helper.js"] {
+                        let pb = PathBuf::from(p);
+                        if pb.exists() {
+                            resolved = pb;
+                            found = true;
+                            break;
+                        }
                     }
                 }
-            }
 
-            if found {
-                resolved
-            } else {
-                // Compile-time dev fallback
-                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/innertube_helper.js")
+                if found {
+                    resolved
+                } else {
+                    // Compile-time dev fallback
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/innertube_helper.js")
+                }
             }
         };
 
@@ -247,14 +250,18 @@ impl InnertubeClient {
             project_root
         );
 
-        let mut child = Command::new(&self.config.node_path)
-            .arg(&helper)
+        let mut cmd = Command::new(&self.config.node_path);
+        cmd.arg(&helper)
             .arg("--daemon")
             .current_dir(&project_root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
+            .stderr(Stdio::null());
+        #[cfg(target_os = "windows")]
+        {
+            cmd.creation_flags(0x08000000);
+        }
+        let mut child = cmd.spawn()
             .map_err(|e| HyperclipError::BackendCrashed(format!("Node daemon spawn failed: {e}")))?;
 
         let stdin = child.stdin.take().ok_or_else(|| {

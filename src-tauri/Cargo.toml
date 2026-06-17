@@ -3,6 +3,14 @@ name = "hyperclip-tauri"
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "hyperclip-tauri"
+path = "src/main.rs"
+
+[[bin]]
+name = "hyperclip-launcher"
+path = "src/launcher.rs"
+
 [dependencies]
 hyperclip_ipc = { path = "../crates/hyperclip_ipc" }
 serde = { workspace = true }
@@ -15,4 +23,7 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "macros"] 
 tokio-util = "0.7"
 ureq = "2.12"
 urlencoding = "2.1"
+
+[build-dependencies]
+winres = "0.1"
 

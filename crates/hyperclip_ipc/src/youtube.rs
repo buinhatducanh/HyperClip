@@ -7,6 +7,8 @@ use serde_json::json;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 use crate::download_progress::{parse_ytdlp_stderr, DownloadProgress};
 
@@ -78,6 +80,17 @@ pub fn build_ytdlp_args(opts: &DownloadOptions) -> Vec<String> {
     let clients = opts.client_priority.join(",");
     args.push("--extractor-args".to_string());
     args.push(format!("youtube:player_client={}", clients));
+
+    // Use bundled Node JS runtime if available to prevent deprecation warning
+    args.push("--js-runtimes".to_string());
+    args.push(find_node_runtime_arg());
+
+    // Specify bundled ffmpeg location if available
+    if let Some(ffmpeg_dir) = find_ffmpeg_bin_dir() {
+        args.push("--ffmpeg-location".to_string());
+        args.push(ffmpeg_dir);
+    }
+
     if !opts.trim_start.is_empty() || !opts.trim_end.is_empty() {
         let end = if opts.trim_end.is_empty() { "99:00:00" } else { &opts.trim_end };
         args.push("--download-sections".to_string());
@@ -91,7 +104,7 @@ pub fn build_ytdlp_args(opts: &DownloadOptions) -> Vec<String> {
     args
 }
 
-/// Emit download progress event to Python via stdout JSON-RPC event.
+/// Emit download progress event via central emit_raw.
 /// Called by the progress callback during streaming download.
 pub fn emit_download_progress(workspace_id: &str, progress: &DownloadProgress) {
     let event = json!({
@@ -103,8 +116,7 @@ pub fn emit_download_progress(workspace_id: &str, progress: &DownloadProgress) {
             "eta_sec": progress.eta_sec,
         }
     });
-    println!("{}", serde_json::to_string(&event).unwrap_or_default());
-    std::io::stdout().flush().ok();
+    crate::emit_raw(&serde_json::to_string(&event).unwrap_or_default());
 }
 
 /// Async download with streaming progress via callback.
@@ -115,40 +127,51 @@ pub fn download_video_streaming<F>(
     cookies_path: &str,
     trim_minutes: u32,
     quality: u32,
+    concurrent_fragments: u32,
     mut on_progress: F,
 ) -> Result<DownloadResult, String>
 where
     F: FnMut(DownloadProgress),
 {
-    let fmt = format!("bestvideo[height<=?{height}]+bestaudio[acodec=aac]/best[height<=?{height}]/worst", height = quality);
+    let fmt = format!("bestvideo[height<=?{height}]+bestaudio/best[height<=?{height}]/worst", height = quality);
+    let clean_out = crate::store::clean_unc_path(output_path);
+    let clean_cookies = crate::store::clean_unc_path(cookies_path);
     let ytdlp = find_ytdlp_path();
-
     let mut cmd = Command::new(&ytdlp);
     cmd.args([
-        "--js-runtimes", "node",
-        "--extractor-args", "youtube:player_client=tv_embedded,web,ios",
-        "--cookies", cookies_path,
+        "--js-runtimes", &find_node_runtime_arg(),
+        "--extractor-args", "youtube:player_client=android_vr,web,ios",
+        "--cookies", &clean_cookies,
         "-f", &fmt,
-        "--download-sections",
-        &format!("*00:00:00-00:{:02}:00", trim_minutes),
-        "--concurrent-fragments", "16",
+        "--concurrent-fragments", &concurrent_fragments.to_string(),
         "--no-playlist",
         "--no-color",
         "--newline",
-        "-o", output_path,
-        url,
-    ])
+        "--remux-video", "mp4",
+        "-o", &clean_out,
+    ]);
+
+    if let Some(ffmpeg_dir) = find_ffmpeg_bin_dir() {
+        cmd.args(["--ffmpeg-location", &ffmpeg_dir]);
+    }
+
+    cmd.arg(url)
     .stdin(Stdio::null())
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
 
-    let mut child = cmd.spawn().map_err(|e| format!("yt-dlp spawn failed: {}", e))?;
-    let stderr = child.stderr.take().unwrap();
-    let reader = BufReader::new(stderr);
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(0x08000000);
+    }
 
-    // Read stderr line by line, parse progress
+    let mut child = cmd.spawn().map_err(|e| format!("yt-dlp spawn failed: {}", e))?;
+    let stdout = child.stdout.take().unwrap();
+    let reader = BufReader::new(stdout);
+
+    // Read stdout line by line, parse progress
     for line in reader.lines() {
-        let line = line.map_err(|e| format!("stderr read error: {}", e))?;
+        let line = line.map_err(|e| format!("stdout read error: {}", e))?;
         if let Some(progress) = parse_ytdlp_stderr(&line) {
             on_progress(progress);
         }
@@ -156,21 +179,29 @@ where
 
     let status = child.wait().map_err(|e| format!("wait failed: {}", e))?;
     if !status.success() {
-        // Read stdout for error details
-        let stdout = child.stdout.take().map(|o| {
+        // Read stderr for error details
+        let stderr = child.stderr.take().map(|o| {
             let mut buf = String::new();
             BufReader::new(o).read_to_string(&mut buf).ok();
             buf
         }).unwrap_or_default();
-        return Err(format!("yt-dlp failed (exit={:?}): {}", status.code(), stdout));
+        return Err(format!("yt-dlp failed (exit={:?}): {}", status.code(), stderr));
     }
+
+    let duration = match maybe_trim_file(output_path, trim_minutes) {
+        Ok(dur) => dur,
+        Err(e) => {
+            tracing::warn!("Local trimming failed: {}", e);
+            probe_media_file(output_path).0
+        }
+    };
 
     let file_size = std::fs::metadata(output_path)
         .map(|m| m.len())
         .unwrap_or(0);
 
     // Run ffprobe to get real metadata
-    let (duration, width, height, codec, fps) = probe_media_file(output_path);
+    let (_, width, height, codec, fps) = probe_media_file(output_path);
 
     Ok(DownloadResult {
         path: output_path.to_string(),
@@ -188,15 +219,20 @@ where
 /// ffprobe wrapper — extract duration, resolution, codec, fps from a media file.
 pub fn probe_media_file(path: &str) -> (f64, u32, u32, String, f64) {
     let ffprobe = find_ffprobe_path();
-    let output = Command::new(&ffprobe)
-        .args([
-            "-v", "quiet",
-            "-print_format", "json",
-            "-show_format",
-            "-show_streams",
-            path,
-        ])
-        .output();
+    let mut cmd = Command::new(&ffprobe);
+    let clean_path = crate::store::clean_unc_path(path);
+    cmd.args([
+        "-v", "quiet",
+        "-print_format", "json",
+        "-show_format",
+        "-show_streams",
+        &clean_path,
+    ]);
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(0x08000000);
+    }
+    let output = cmd.output();
 
     match output {
         Ok(out) if out.status.success() => {
@@ -248,27 +284,38 @@ pub fn download_video(
     cookies_path: &str,
     trim_minutes: u32,
     quality: u32,
+    concurrent_fragments: u32,
 ) -> Result<DownloadResult, String> {
-    let fmt = format!("bestvideo[height<=?{height}]+bestaudio[acodec=aac]/best[height<=?{height}]/worst", height = quality);
+    let fmt = format!("bestvideo[height<=?{height}]+bestaudio/best[height<=?{height}]/worst", height = quality);
+    let clean_out = crate::store::clean_unc_path(output_path);
+    let clean_cookies = crate::store::clean_unc_path(cookies_path);
     let ytdlp = find_ytdlp_path();
-
     let mut cmd = Command::new(&ytdlp);
     cmd.args([
-        "--js-runtimes", "node",
-        "--extractor-args", "youtube:player_client=tv_embedded,web,ios",
-        "--cookies", cookies_path,
+        "--js-runtimes", &find_node_runtime_arg(),
+        "--extractor-args", "youtube:player_client=android_vr,web,ios",
+        "--cookies", &clean_cookies,
         "-f", &fmt,
-        "--download-sections",
-        &format!("*00:00:00-00:{:02}:00", trim_minutes),
-        "--concurrent-fragments", "16",
+        "--concurrent-fragments", &concurrent_fragments.to_string(),
         "--no-playlist",
         "--no-color",
-        "-o", output_path,
-        url,
-    ])
+        "--remux-video", "mp4",
+        "-o", &clean_out,
+    ]);
+
+    if let Some(ffmpeg_dir) = find_ffmpeg_bin_dir() {
+        cmd.args(["--ffmpeg-location", &ffmpeg_dir]);
+    }
+
+    cmd.arg(url)
     .stdin(Stdio::null())
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(0x08000000);
+    }
 
     let output = cmd.output().map_err(|e| format!("yt-dlp spawn failed: {}", e))?;
 
@@ -277,13 +324,20 @@ pub fn download_video(
         return Err(format!("yt-dlp failed: {}", stderr));
     }
 
-    let duration = parse_duration_from_stderr(&String::from_utf8_lossy(&output.stderr));
+    let duration = match maybe_trim_file(output_path, trim_minutes) {
+        Ok(dur) => dur,
+        Err(e) => {
+            tracing::warn!("Local trimming failed: {}", e);
+            parse_duration_from_stderr(&String::from_utf8_lossy(&output.stderr))
+        }
+    };
+
     let file_size = std::fs::metadata(output_path)
         .map(|m| m.len())
         .unwrap_or(0);
 
     // Run ffprobe for real metadata
-    let (_ff_dur, width, height, codec, fps) = probe_media_file(output_path);
+    let (_, width, height, codec, fps) = probe_media_file(output_path);
 
     Ok(DownloadResult {
         path: output_path.to_string(),
@@ -302,16 +356,20 @@ pub fn download_video(
 pub fn probe_formats(url: &str, cookies_path: &str) -> Result<Vec<u32>, String> {
     let ytdlp = find_ytdlp_path();
 
-    let output = Command::new(&ytdlp)
-        .args([
-            "--js-runtimes", "node",
-            "--extractor-args", "youtube:player_client=tv_embedded",
-            "--cookies", cookies_path,
-            "--dump-json",
-            "--no-download",
-            url,
-        ])
-        .output()
+    let mut cmd = Command::new(&ytdlp);
+    cmd.args([
+        "--js-runtimes", "node",
+        "--extractor-args", "youtube:player_client=android_vr",
+        "--cookies", cookies_path,
+        "--dump-json",
+        "--no-download",
+        url,
+    ]);
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(0x08000000);
+    }
+    let output = cmd.output()
         .map_err(|e| e.to_string())?;
 
     if !output.status.success() {
@@ -345,16 +403,20 @@ pub fn probe_formats(url: &str, cookies_path: &str) -> Result<Vec<u32>, String> 
 pub fn get_video_info(url: &str, cookies_path: &str) -> Result<YtdlpVideoInfo, String> {
     let ytdlp = find_ytdlp_path();
 
-    let output = Command::new(&ytdlp)
-        .args([
-            "--js-runtimes", "node",
-            "--extractor-args", "youtube:player_client=tv_embedded,web,ios",
-            "--cookies", cookies_path,
-            "--dump-json",
-            "--no-download",
-            url,
-        ])
-        .output()
+    let mut cmd = Command::new(&ytdlp);
+    cmd.args([
+        "--js-runtimes", "node",
+        "--extractor-args", "youtube:player_client=android_vr,web,ios",
+        "--cookies", cookies_path,
+        "--dump-json",
+        "--no-download",
+        url,
+    ]);
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(0x08000000);
+    }
+    let output = cmd.output()
         .map_err(|e| e.to_string())?;
 
     if !output.status.success() {
@@ -384,7 +446,7 @@ pub fn probe_video_availability(url: &str, cookies_path: &str) -> Result<(bool, 
     let ytdlp = find_ytdlp_path();
 
     // Check with all three clients in parallel for robustness
-    let clients = ["tv_embedded", "web", "ios"];
+    let clients = ["android_vr", "web", "ios"];
     let mut handles = Vec::new();
 
     for client in clients {
@@ -394,16 +456,20 @@ pub fn probe_video_availability(url: &str, cookies_path: &str) -> Result<(bool, 
         let client = client.to_string();
 
         handles.push(std::thread::spawn(move || {
-            let output = Command::new(&ytdlp)
-                .args([
-                    "--js-runtimes", "node",
-                    "--extractor-args", &format!("youtube:player_client={}", client),
-                    "--cookies", &cookies,
-                    "--dump-json",
-                    "--no-download",
-                    &url,
-                ])
-                .output();
+            let mut cmd = Command::new(&ytdlp);
+            cmd.args([
+                "--js-runtimes", "node",
+                "--extractor-args", &format!("youtube:player_client={}", client),
+                "--cookies", &cookies,
+                "--dump-json",
+                "--no-download",
+                &url,
+            ]);
+            #[cfg(target_os = "windows")]
+            {
+                cmd.creation_flags(0x08000000);
+            }
+            let output = cmd.output();
 
             match output {
                 Ok(out) if out.status.success() => {
@@ -525,6 +591,82 @@ fn find_ytdlp_path() -> String {
     "yt-dlp".to_string()
 }
 
+/// Resolve the ffmpeg bin directory path to pass to yt-dlp.
+fn find_ffmpeg_bin_dir() -> Option<String> {
+    let path = crate::ffmpeg::get_ffmpeg_path();
+    if path == "ffmpeg" {
+        None
+    } else {
+        std::path::Path::new(&path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string().replace('\\', "/"))
+    }
+}
+
+/// Resolve the bundled Node.js path to pass to yt-dlp as JS runtime.
+fn find_node_runtime_arg() -> String {
+    let bundled = crate::store::get_resources_dir().join("node/node.exe");
+    if bundled.exists() {
+        format!("node:{}", bundled.to_string_lossy().to_string().replace('\\', "/"))
+    } else {
+        "node".to_string()
+    }
+}
+
+/// Trims the downloaded file to the limit locally using ffmpeg copy.
+fn maybe_trim_file(output_path: &str, trim_minutes: u32) -> Result<f64, String> {
+    let (duration, _, _, _, _) = probe_media_file(output_path);
+    let limit_sec = (trim_minutes * 60) as f64;
+
+    if trim_minutes > 0 && duration > limit_sec {
+        let temp_path = format!("{}.temp", output_path);
+        if let Err(e) = std::fs::rename(output_path, &temp_path) {
+            return Err(format!("Failed to rename file for trimming: {}", e));
+        }
+
+        let ffmpeg = crate::ffmpeg::get_ffmpeg_path();
+        let clean_temp = crate::store::clean_unc_path(&temp_path);
+        let clean_output = crate::store::clean_unc_path(output_path);
+
+        let mut cmd = Command::new(&ffmpeg);
+        cmd.args([
+            "-y",
+            "-i", &clean_temp,
+            "-ss", "00:00:00",
+            "-t", &format!("{}", trim_minutes * 60),
+            "-c", "copy",
+            &clean_output,
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+        #[cfg(target_os = "windows")]
+        {
+            cmd.creation_flags(0x08000000);
+        }
+
+        match cmd.output() {
+            Ok(out) if out.status.success() => {
+                let _ = std::fs::remove_file(&temp_path);
+                Ok(limit_sec)
+            }
+            Ok(out) => {
+                // Restore original file
+                let _ = std::fs::rename(&temp_path, output_path);
+                let err_msg = String::from_utf8_lossy(&out.stderr);
+                Err(format!("FFmpeg trimming failed (exit={:?}): {}", out.status.code(), err_msg))
+            }
+            Err(e) => {
+                // Restore original file
+                let _ = std::fs::rename(&temp_path, output_path);
+                Err(format!("FFmpeg trim spawn failed: {}", e))
+            }
+        }
+    } else {
+        Ok(duration)
+    }
+}
+
 /// Parse duration from yt-dlp stderr output
 fn parse_duration_from_stderr(stderr: &str) -> f64 {
     // Try "Duration: 00:05:30.50" format
@@ -568,14 +710,14 @@ mod tests {
             trim_start: "00:00:00".into(),
             trim_end: "00:10:00".into(),
             quality: 1080,
-            client_priority: vec!["tv_embedded".into(), "web".into()],
+            client_priority: vec!["android_vr".into(), "web".into()],
             concurrent_fragments: 16,
             cookies_file: None,
             multi_instance: 1,
             simulated_progress: false,
         };
         let args = build_ytdlp_args(&opts);
-        assert!(args.iter().any(|a| a.contains("tv_embedded")), "Should contain tv_embedded: {:?}", args);
+        assert!(args.iter().any(|a| a.contains("android_vr")), "Should contain android_vr: {:?}", args);
         assert!(args.iter().any(|a| a.starts_with("*00:00:00")), "Should have download-sections: {:?}", args);
         assert!(args.iter().any(|a| a == "16"), "Should have 16 fragments: {:?}", args);
     }
@@ -588,7 +730,7 @@ mod tests {
             trim_start: "".into(),
             trim_end: "".into(),
             quality: 720,
-            client_priority: vec!["tv_embedded".into()],
+            client_priority: vec!["android_vr".into()],
             concurrent_fragments: 8,
             cookies_file: None,
             multi_instance: 1,

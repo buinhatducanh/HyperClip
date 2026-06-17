@@ -65,6 +65,8 @@ pub struct Workspace {
     pub render_preset: Option<String>,
     #[serde(rename = "renderCodec", default)]
     pub render_codec: Option<String>,
+    #[serde(rename = "renderDurationSec", default)]
+    pub render_duration_sec: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -76,7 +78,38 @@ impl WorkspaceStore {
     pub fn load(path: &Path) -> Self {
         if path.exists() {
             let content = fs::read_to_string(path).unwrap_or_default();
-            serde_json::from_str(&content).unwrap_or_default()
+            let mut store: Self = serde_json::from_str(&content).unwrap_or_default();
+            
+            // Clean up legacy bug: remove workspaces with recursive split parts (containing multiple "-part")
+            store.workspaces.retain(|ws| {
+                let count = ws.id.matches("-part").count();
+                if count > 1 {
+                    tracing::warn!("[WorkspaceStore] Removing corrupt workspace with recursive parts: {}", ws.id);
+                    false
+                } else {
+                    true
+                }
+            });
+
+            let data_dir = get_data_dir();
+            for ws in &mut store.workspaces {
+                if let Some(ref p) = ws.downloaded_path {
+                    if is_relative_path(p) {
+                        ws.downloaded_path = Some(data_dir.join(p).to_string_lossy().to_string());
+                    }
+                }
+                if let Some(ref p) = ws.rendered_path {
+                    if is_relative_path(p) {
+                        ws.rendered_path = Some(data_dir.join(p).to_string_lossy().to_string());
+                    }
+                }
+                if let Some(ref p) = ws.thumbnail_local {
+                    if is_relative_path(p) {
+                        ws.thumbnail_local = Some(data_dir.join(p).to_string_lossy().to_string());
+                    }
+                }
+            }
+            store
         } else {
             Self::default()
         }
@@ -86,7 +119,26 @@ impl WorkspaceStore {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        let content = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        let data_dir = get_data_dir();
+        let mut store_to_save = self.clone();
+        for ws in &mut store_to_save.workspaces {
+            if let Some(ref p) = ws.downloaded_path {
+                if let Some(rel) = make_path_relative(&data_dir, p) {
+                    ws.downloaded_path = Some(rel);
+                }
+            }
+            if let Some(ref p) = ws.rendered_path {
+                if let Some(rel) = make_path_relative(&data_dir, p) {
+                    ws.rendered_path = Some(rel);
+                }
+            }
+            if let Some(ref p) = ws.thumbnail_local {
+                if let Some(rel) = make_path_relative(&data_dir, p) {
+                    ws.thumbnail_local = Some(rel);
+                }
+            }
+        }
+        let content = serde_json::to_string_pretty(&store_to_save).map_err(|e| e.to_string())?;
         fs::write(path, content).map_err(|e| e.to_string())
     }
 
@@ -183,6 +235,9 @@ impl WorkspaceStore {
             }
             if let Some(duration_sec) = data.get("durationSec").and_then(|v| v.as_u64()) {
                 ws.duration_sec = Some(duration_sec);
+            }
+            if let Some(render_dur) = data.get("renderDurationSec").and_then(|v| v.as_f64()) {
+                ws.render_duration_sec = Some(render_dur);
             }
             Ok(())
         } else {
@@ -542,8 +597,14 @@ pub fn channel_media_dir(channel_id: &str, channel_name: &str) -> PathBuf {
 }
 
 /// data/media/{channel_id}/downloads/
-pub fn channel_downloads_dir(channel_id: &str, channel_name: &str) -> PathBuf {
-    let dir = channel_media_dir(channel_id, channel_name).join("downloads");
+pub fn channel_downloads_dir(_channel_id: &str, _channel_name: &str) -> PathBuf {
+    let s_path = get_settings_path();
+    let s_store = SettingsStore::load(&s_path);
+    let base = s_store.settings.get("videoStoragePath")
+        .and_then(|v| v.as_str())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| get_data_dir());
+    let dir = base.join("downloads");
     std::fs::create_dir_all(&dir).ok();
     dir
 }
@@ -556,8 +617,15 @@ pub fn channel_thumbnails_dir(channel_id: &str, channel_name: &str) -> PathBuf {
 }
 
 /// data/media/{channel_id}/renders/
-pub fn channel_renders_dir(channel_id: &str, channel_name: &str) -> PathBuf {
-    let dir = channel_media_dir(channel_id, channel_name).join("renders");
+pub fn channel_renders_dir(_channel_id: &str, _channel_name: &str) -> PathBuf {
+    let s_path = get_settings_path();
+    let s_store = SettingsStore::load(&s_path);
+    let base = s_store.settings.get("outputPath")
+        .or_else(|| s_store.settings.get("outputFolder"))
+        .and_then(|v| v.as_str())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| get_data_dir());
+    let dir = base.join("renders");
     std::fs::create_dir_all(&dir).ok();
     dir
 }
@@ -601,18 +669,36 @@ pub fn build_render_path(channel_id: &str, channel_name: &str, ws_id: &str) -> P
     let filename = if let Some(ws) = workspace {
         let channel_name_val = ws.channel_name.as_deref().unwrap_or("");
         let title_val = if !ws.title.is_empty() { &ws.title } else { ws_id };
-        let resolved = template
+        let part_val = if let Some(idx) = ws.id.find("-part") {
+            ws.id.chars().skip(idx + 5).collect::<String>()
+        } else {
+            "".to_string()
+        };
+        let mut resolved = template
             .replace("{title}", title_val)
             .replace("{channel}", channel_name_val)
-            .replace("{video_id}", &ws.video_id);
+            .replace("{video_id}", &ws.video_id)
+            .replace("{part}", &part_val);
+        if !part_val.is_empty() && !template.contains("{part}") {
+            resolved = format!("{}_part{}", resolved, part_val);
+        }
         sanitize_dir_name(&resolved)
     } else {
-        sanitize_dir_name(&template.replace("{title}", ws_id))
+        let part_val = if let Some(idx) = ws_id.find("-part") {
+            ws_id.chars().skip(idx + 5).collect::<String>()
+        } else {
+            "".to_string()
+        };
+        let mut resolved = template.replace("{title}", ws_id).replace("{part}", &part_val);
+        if !part_val.is_empty() && !template.contains("{part}") {
+            resolved = format!("{}_part{}", resolved, part_val);
+        }
+        sanitize_dir_name(&resolved)
     };
 
     let filename = if filename.is_empty() { "final".to_string() } else { filename };
 
-    render_output_dir(channel_id, channel_name, ws_id).join(format!("{}.mp4", filename))
+    channel_renders_dir(channel_id, channel_name).join(format!("{}.mp4", filename))
 }
 
 /// Thumbnail path: data/media/{channel_id}/thumbnails/{video_id}.jpg
@@ -683,7 +769,18 @@ impl SettingsStore {
     pub fn load(path: &Path) -> Self {
         if path.exists() {
             let content = fs::read_to_string(path).unwrap_or_default();
-            serde_json::from_str(&content).unwrap_or_default()
+            let mut store: Self = serde_json::from_str(&content).unwrap_or_default();
+            let data_dir = get_data_dir();
+            if let Some(obj) = store.settings.as_object_mut() {
+                for key in &["outputPath", "outputFolder", "videoStoragePath"] {
+                    if let Some(val) = obj.get(*key).and_then(|v| v.as_str()) {
+                        if is_relative_path(val) {
+                            obj.insert(key.to_string(), serde_json::Value::String(data_dir.join(val).to_string_lossy().to_string()));
+                        }
+                    }
+                }
+            }
+            store
         } else {
             Self::default()
         }
@@ -693,7 +790,18 @@ impl SettingsStore {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        let content = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        let data_dir = get_data_dir();
+        let mut store_to_save = self.clone();
+        if let Some(obj) = store_to_save.settings.as_object_mut() {
+            for key in &["outputPath", "outputFolder", "videoStoragePath"] {
+                if let Some(val) = obj.get(*key).and_then(|v| v.as_str()) {
+                    if let Some(rel) = make_path_relative(&data_dir, val) {
+                        obj.insert(key.to_string(), serde_json::Value::String(rel));
+                    }
+                }
+            }
+        }
+        let content = serde_json::to_string_pretty(&store_to_save).map_err(|e| e.to_string())?;
         fs::write(path, content).map_err(|e| e.to_string())
     }
 }
@@ -729,7 +837,19 @@ impl RenderedStore {
     pub fn load(path: &Path) -> Self {
         if path.exists() {
             let content = fs::read_to_string(path).unwrap_or_default();
-            serde_json::from_str(&content).unwrap_or_default()
+            let mut store: Self = serde_json::from_str(&content).unwrap_or_default();
+            let data_dir = get_data_dir();
+            for v in &mut store.videos {
+                if is_relative_path(&v.output_path) {
+                    v.output_path = data_dir.join(&v.output_path).to_string_lossy().to_string();
+                }
+                if let Some(ref p) = v.thumbnail {
+                    if is_relative_path(p) {
+                        v.thumbnail = Some(data_dir.join(p).to_string_lossy().to_string());
+                    }
+                }
+            }
+            store
         } else {
             Self::default()
         }
@@ -739,7 +859,19 @@ impl RenderedStore {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        let content = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        let data_dir = get_data_dir();
+        let mut store_to_save = self.clone();
+        for v in &mut store_to_save.videos {
+            if let Some(rel) = make_path_relative(&data_dir, &v.output_path) {
+                v.output_path = rel;
+            }
+            if let Some(ref p) = v.thumbnail {
+                if let Some(rel) = make_path_relative(&data_dir, p) {
+                    v.thumbnail = Some(rel);
+                }
+            }
+        }
+        let content = serde_json::to_string_pretty(&store_to_save).map_err(|e| e.to_string())?;
         fs::write(path, content).map_err(|e| e.to_string())
     }
 
@@ -885,4 +1017,36 @@ impl ProjectStore {
 
 pub fn get_projects_path() -> PathBuf {
     get_store_dir().join("projects.json")
+}
+
+fn is_relative_path(p: &str) -> bool {
+    let path = Path::new(p);
+    path.is_relative() && !p.contains(":\\") && !p.contains(":/")
+}
+
+fn make_path_relative(data_dir: &Path, absolute_path_str: &str) -> Option<String> {
+    if absolute_path_str.is_empty() {
+        return None;
+    }
+    let data_dir_str = data_dir.to_string_lossy().to_string().replace('\\', "/").to_lowercase();
+    let abs_path_clean = absolute_path_str.replace('\\', "/");
+    let abs_path_lower = abs_path_clean.to_lowercase();
+
+    if abs_path_lower.starts_with(&data_dir_str) {
+        let mut rel = abs_path_clean[data_dir_str.len()..].to_string();
+        if rel.starts_with('/') {
+            rel = rel[1..].to_string();
+        }
+        Some(rel)
+    } else {
+        None
+    }
+}
+
+pub fn clean_unc_path(p: &str) -> String {
+    if p.starts_with(r"\\?\") {
+        p[4..].to_string()
+    } else {
+        p.to_string()
+    }
 }

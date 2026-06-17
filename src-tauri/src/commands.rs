@@ -1,3 +1,9 @@
+pub mod system;
+pub mod settings;
+pub mod channel;
+pub mod workspace;
+pub mod auth;
+
 use hyperclip_ipc::{get_system_stats, ChannelStore, WorkspaceStore, get_workspaces_path, get_channels_path, get_seen_videos_path, SettingsStore, get_settings_path, RenderedStore, get_rendered_videos_path, KeyStore, get_keys_path, ProjectStore, get_projects_path, KeyEntry, ProjectEntry, get_store_dir, get_uploads_cache_path, get_data_dir};
 use std::sync::atomic::AtomicBool;
 use hyperclip_ipc::store::{SeenVideos, UploadsCache};
@@ -187,6 +193,7 @@ impl AppState {
                     fps_target: auto_fps,
                     export_resolution: auto_res,
                     video_speed: auto_speed,
+                    is_short: true,
                     ..Default::default()
                 });
                 ws_store.save(&ws_path).ok();
@@ -226,8 +233,7 @@ impl AppState {
                         "status": "waiting",
                     }
                 });
-                let _ = writeln!(std::io::stdout(), "{}", serde_json::to_string(&event_json).unwrap_or_default());
-                let _ = std::io::stdout().flush();
+                hyperclip_ipc::emit_raw(&serde_json::to_string(&event_json).unwrap_or_default());
 
                 // 3. Load settings to check auto-download
                 let s_path = get_settings_path();
@@ -273,24 +279,19 @@ impl AppState {
                     "method": "workspace:update",
                     "params": {"id": tid, "status": "downloading", "downloadStartedAt": now_ms}
                 });
-                let _ = writeln!(std::io::stdout(), "{}", serde_json::to_string(&dl_event).unwrap_or_default());
-                let _ = std::io::stdout().flush();
+                hyperclip_ipc::emit_raw(&serde_json::to_string(&dl_event).unwrap_or_default());
 
                 // Read quality from settings
-                let auto_dl_quality: u32 = s_store.settings
-                    .get("autoDownloadQuality")
-                    .and_then(|v| v.as_str())
-                    .and_then(|s| s.parse::<f64>().ok().map(|f| f as u32))
-                    .or_else(|| s_store.settings.get("autoDownloadQuality").and_then(|v| v.as_f64()).map(|f| f as u32))
-                    .or_else(|| s_store.settings.get("autoDownloadQuality").and_then(|v| v.as_u64()).map(|n| n as u32))
-                    .or_else(|| s_store.settings.get("defaultQuality").and_then(|v| v.as_u64()).map(|n| n as u32))
+                let auto_dl_quality = parse_quality(s_store.settings.get("autoDownloadQuality"))
+                    .or_else(|| parse_quality(s_store.settings.get("defaultQuality")))
                     .unwrap_or(1080);
 
                 let ch_name = event.channel_name.clone();
                 let cid = event.channel_id.clone();
                 let video_id = event.video_id.clone();
+                let hw_cfg = get_resolved_hardware_config();
                 std::thread::spawn(move || {
-                    match download_video_streaming(&url, &output_str, &cookies_str, trim_minutes, auto_dl_quality, |progress| {
+                    match download_video_streaming(&url, &output_str, &cookies_str, trim_minutes, auto_dl_quality, hw_cfg.concurrent_fragments, |progress| {
                         emit_download_progress(&tid, &progress);
                     }) {
                         Ok(result) => {
@@ -306,7 +307,7 @@ impl AppState {
                             let ws_path = get_workspaces_path();
                             let mut ws_store = WorkspaceStore::load(&ws_path);
                             let now_ms = chrono::Utc::now().timestamp_millis();
-                            let is_short_val = result.width < result.height || result.duration <= 60.0;
+                            let is_short_val = ws_store.workspaces.iter().find(|w| w.id == tid).map(|w| w.is_short).unwrap_or(true) || result.width < result.height || result.duration <= 60.0;
                             let quality_val = result.height;
                             let duration_sec_val = result.duration.round() as u64;
                             let file_size_val = result.file_size;
@@ -348,8 +349,7 @@ impl AppState {
                                     "thumbnailLocal": thumb_str,
                                 }
                             });
-                            let _ = writeln!(std::io::stdout(), "{}", serde_json::to_string(&done_event).unwrap_or_default());
-                            let _ = std::io::stdout().flush();
+                            hyperclip_ipc::emit_raw(&serde_json::to_string(&done_event).unwrap_or_default());
 
                             // Auto-render if enabled
                             let s_path = get_settings_path();
@@ -362,92 +362,80 @@ impl AppState {
                             if auto_render {
                                 let in_path = result.path.clone();
                                 let out_path = build_render_path(&cid, &ch_name, &tid);
-                                let auto_render_speed = s_store.settings
-                                    .get("autoRenderSpeed")
-                                    .or_else(|| s_store.settings.get("auto_render_speed"))
-                                    .and_then(|v| v.as_f64())
-                                    .unwrap_or(1.0);
-                                let render_res = s_store.settings.get("autoRenderResolution").or_else(|| s_store.settings.get("auto_render_resolution")).and_then(|v| v.as_str()).unwrap_or("1080p").to_string();
-                                let render_fps = s_store.settings.get("autoRenderFPS").or_else(|| s_store.settings.get("auto_render_fps")).and_then(|v| v.as_u64()).unwrap_or(30) as u32;
-                                let auto_trim_end = if is_short_val { result.duration.min(60.0) } else { result.duration };
-                                let filter_chain = if is_short_val { hyperclip_ipc::ffmpeg::FilterChain::Short } else { hyperclip_ipc::ffmpeg::FilterChain::Landscape };
-                                let opts = hyperclip_ipc::ffmpeg::RenderOptions {
-                                    workspace_id: tid.clone(),
-                                    input_path: std::path::PathBuf::from(&in_path),
-                                    output_path: out_path.clone(),
-                                    resolution: render_res.clone(),
-                                    fps: render_fps,
-                                    speed: auto_render_speed,
-                                    trim_start: 0.0,
-                                    trim_end: auto_trim_end,
-                                    gpu_tier: get_gpu_config().tier,
-                                    preset: "p1".into(),
-                                    filter_chain,
-                                    chunked: false,
-                                    chunk_duration_sec: 120,
-                                };
-                                // Update database status to rendering
-                                let ws_path = get_workspaces_path();
-                                let mut ws_store = WorkspaceStore::load(&ws_path);
-                                ws_store.update(&tid, serde_json::json!({
-                                    "status": "rendering",
-                                    "autoRender": true,
-                                    "videoSpeed": auto_render_speed,
-                                    "fpsTarget": render_fps,
-                                    "exportResolution": render_res,
-                                    "trimStart": 0.0,
-                                    "trimEnd": auto_trim_end,
-                                })).ok();
-                                ws_store.save(&ws_path).ok();
-                                emit_workspace_event(&tid, "rendering", None);
+                                if out_path.exists() {
+                                    tracing::info!("[AppState] Render file already exists at {:?}, skipping auto-render (keeping old render)", out_path);
+                                    let ws_path = get_workspaces_path();
+                                    let mut ws_store = WorkspaceStore::load(&ws_path);
+                                    ws_store.update(&tid, serde_json::json!({
+                                        "status": "done",
+                                        "renderedPath": out_path.to_string_lossy().to_string(),
+                                    })).ok();
+                                    ws_store.save(&ws_path).ok();
+                                    emit_workspace_event(&tid, "done", None);
+                                } else {
+                                    let auto_render_speed = s_store.settings
+                                        .get("autoRenderSpeed")
+                                        .or_else(|| s_store.settings.get("auto_render_speed"))
+                                        .and_then(|v| v.as_f64())
+                                        .unwrap_or(1.0);
+                                    let render_res = s_store.settings.get("autoRenderResolution").or_else(|| s_store.settings.get("auto_render_resolution")).and_then(|v| v.as_str()).unwrap_or("1080p").to_string();
+                                    let render_fps = s_store.settings.get("autoRenderFPS").or_else(|| s_store.settings.get("auto_render_fps")).and_then(|v| v.as_u64()).unwrap_or(30) as u32;
+                                    let auto_trim_end = result.duration;
+                                    let filter_chain = if is_short_val { hyperclip_ipc::ffmpeg::FilterChain::Short } else { hyperclip_ipc::ffmpeg::FilterChain::Landscape };
+                                    let hw_cfg = get_resolved_hardware_config();
+                                    let opts = hyperclip_ipc::ffmpeg::RenderOptions {
+                                        workspace_id: tid.clone(),
+                                        input_path: std::path::PathBuf::from(&in_path),
+                                        output_path: out_path.clone(),
+                                        resolution: render_res.clone(),
+                                        fps: render_fps,
+                                        speed: auto_render_speed,
+                                        trim_start: 0.0,
+                                        trim_end: auto_trim_end,
+                                        gpu_tier: hw_cfg.gpu_tier,
+                                        preset: hw_cfg.nvenc_preset,
+                                        filter_chain,
+                                        chunked: false,
+                                        chunk_duration_sec: 120,
+                                    };
+                                    // Update database status to rendering
+                                    let ws_path = get_workspaces_path();
+                                    let mut ws_store = WorkspaceStore::load(&ws_path);
+                                    ws_store.update(&tid, serde_json::json!({
+                                        "status": "rendering",
+                                        "autoRender": true,
+                                        "videoSpeed": auto_render_speed,
+                                        "fpsTarget": render_fps,
+                                        "exportResolution": render_res,
+                                        "trimStart": 0.0,
+                                        "trimEnd": auto_trim_end,
+                                    })).ok();
+                                    ws_store.save(&ws_path).ok();
+                                    emit_workspace_event(&tid, "rendering", None);
 
-                                let pid = tid.clone();
-                                let render_fut = spawn_render_async(opts, move |progress| {
-                                    let e = serde_json::json!({"method": "render:progress", "params": {"id": pid, "progress": progress}});
-                                    let _ = writeln!(std::io::stdout(), "{}", serde_json::to_string(&e).unwrap_or_default());
-                                    let _ = std::io::stdout().flush();
-                                });
+                                    let pid = tid.clone();
+                                    let start_time = std::time::Instant::now();
+                                    let render_fut = spawn_render_async(opts, move |progress| {
+                                        let e = serde_json::json!({"method": "render:progress", "params": {"id": pid, "progress": progress}});
+                                        hyperclip_ipc::emit_raw(&serde_json::to_string(&e).unwrap_or_default());
+                                    });
 
-                                let render_res = tokio::runtime::Runtime::new()
-                                    .map(|rt| rt.block_on(render_fut))
-                                    .unwrap_or_else(|e| Err(hyperclip_ipc::HyperclipError::BackendCrashed(e.to_string())));
+                                    let pool = get_render_worker_pool();
+                                    let render_res = tokio::runtime::Runtime::new()
+                                        .map(|rt| rt.block_on(async {
+                                            let _permit = pool.acquire().await;
+                                            render_fut.await
+                                        }))
+                                        .unwrap_or_else(|e| Err(hyperclip_ipc::HyperclipError::BackendCrashed(e.to_string())));
+                                    let duration_secs = start_time.elapsed().as_secs_f64();
 
-                                if let Err(ref e) = render_res {
-                                    tracing::error!("[AppState] Auto-render failed for workspace {}: {:?}", tid, e);
+                                    if let Err(ref e) = render_res {
+                                        tracing::error!("[AppState] Auto-render failed for workspace {}: {:?}", tid, e);
+                                    }
+
+                                    handle_render_completion(&tid, render_res, duration_secs);
+                                    tracing::info!("[AppState] Auto-render completed for {}", tid);
                                 }
-
-                                 let status = if render_res.is_ok() { "done" } else { "error" };
-                                 let mut ws_store = WorkspaceStore::load(&ws_path);
-                                 let mut update_data = serde_json::json!({
-                                     "status": status,
-                                 });
-                                 match &render_res {
-                                     Ok((ref final_out_path, fps)) => {
-                                         update_data["renderedPath"] = serde_json::json!(final_out_path.to_string_lossy().to_string());
-                                         update_data["renderFps"] = serde_json::json!(fps);
-                                         
-                                         let gpu_config = get_gpu_config();
-                                         let codec = if gpu_config.tier == hyperclip_ipc::system::GPUTier::High {
-                                             "hevc_nvenc"
-                                         } else if matches!(gpu_config.tier, hyperclip_ipc::system::GPUTier::Mid | hyperclip_ipc::system::GPUTier::Low) {
-                                             "h264_nvenc"
-                                         } else {
-                                             "libx264"
-                                         };
-                                         update_data["renderCodec"] = serde_json::json!(codec);
-                                         update_data["renderPreset"] = serde_json::json!("p1");
-                                         update_data["renderWorkers"] = serde_json::json!(gpu_config.max_workers);
-                                         update_data["error"] = serde_json::Value::Null;
-                                     }
-                                     Err(e) => {
-                                         update_data["error"] = serde_json::json!(e.to_string());
-                                     }
-                                 }
-                                 ws_store.update(&tid, update_data).ok();
-                                 ws_store.save(&ws_path).ok();
-
-                                emit_workspace_event(&tid, status, render_res.as_ref().err().map(|e| e.to_string()));
-                                tracing::info!("[AppState] Auto-render completed for {} with status: {}", tid, status);
                             }
                         }
                         Err(e) => {
@@ -456,8 +444,7 @@ impl AppState {
                                 "method": "workspace:update",
                                 "params": {"id": tid, "status": "error", "error": e}
                             });
-                            let _ = writeln!(std::io::stdout(), "{}", serde_json::to_string(&err_event).unwrap_or_default());
-                            let _ = std::io::stdout().flush();
+                            hyperclip_ipc::emit_raw(&serde_json::to_string(&err_event).unwrap_or_default());
                         }
                     }
                 });
@@ -566,7 +553,7 @@ impl AppState {
         }
         // Load seen videos from disk (per-channel with TTL)
         let seen_path = get_seen_videos_path();
-        let seen_store = hyperclip_ipc::store::SeenVideos::load(&seen_path);
+        let mut seen_store = hyperclip_ipc::store::SeenVideos::load(&seen_path);
 
         // Load uploads cache
         let uploads_cache_path = get_uploads_cache_path();
@@ -580,6 +567,8 @@ impl AppState {
         let s_path = get_settings_path();
         let s_store = SettingsStore::load(&s_path);
         let auto_render = s_store.settings.get("autoRender").or_else(|| s_store.settings.get("auto_render")).and_then(|v| v.as_bool()).unwrap_or(false);
+
+        let mut workspaces_to_render = Vec::new();
 
         if media_dir.exists() {
             // Scan per-channel download directories
@@ -599,15 +588,12 @@ impl AppState {
                                                 if let Some(video_id) = filename.split('_').next() {
                                                     let channel_id = channel_dir.file_name().unwrap().to_string_lossy().to_string();
                                                     // Mark as seen in poller
-                                                    let mut seen = seen_store.clone();
-                                                    seen.mark_seen(&channel_id, video_id);
+                                                    seen_store.mark_seen(&channel_id, video_id);
                                                     // Also check if there's a workspace for this video that needs auto-render
                                                     if auto_render {
                                                         for ws in ws_store.workspaces.iter() {
                                                             if ws.video_id == video_id && ws.status == "ready" && ws.rendered_path.is_none() {
-                                                                // Trigger auto-render
-                                                                tracing::info!("[AppState] Startup catch-up: triggering auto-render for {}", ws.id);
-                                                                // Note: actual render triggering would need the poller to be running
+                                                                workspaces_to_render.push(ws.id.clone());
                                                             }
                                                         }
                                                     }
@@ -630,8 +616,21 @@ impl AppState {
         if auto_render {
             for ws in ws_store.workspaces.iter() {
                 if ws.status == "ready" && ws.downloaded_path.is_some() && ws.rendered_path.is_none() {
-                    tracing::info!("[AppState] Startup catch-up: workspace {} is ready for auto-render", ws.id);
-                    // Auto-render will be triggered when poller starts and processes the event
+                    workspaces_to_render.push(ws.id.clone());
+                }
+            }
+        }
+
+        // Deduplicate the list of workspace IDs to render
+        workspaces_to_render.sort();
+        workspaces_to_render.dedup();
+
+        // Trigger startup render for collected workspaces
+        if !workspaces_to_render.is_empty() {
+            let ws_store_to_find = WorkspaceStore::load(&ws_path);
+            for id_to_render in workspaces_to_render {
+                if let Some(ws) = ws_store_to_find.workspaces.iter().find(|w| w.id == id_to_render) {
+                    trigger_startup_render(ws);
                 }
             }
         }
@@ -801,7 +800,23 @@ fn poller_flush_seen_ids() {
 
 static CANCEL_TOKEN_MAP: OnceLock<Mutex<HashMap<String, CancellationToken>>> = OnceLock::new();
 
-static WORKER_POOL: OnceLock<WorkerPool> = OnceLock::new();
+static WORKER_POOL: Mutex<Option<Arc<WorkerPool>>> = Mutex::new(None);
+
+pub fn get_render_worker_pool() -> Arc<WorkerPool> {
+    let mut lock = WORKER_POOL.lock().unwrap();
+    let render_workers = get_resolved_hardware_config().render_workers;
+    let needs_init = match &*lock {
+        None => true,
+        Some(p) => p.max_workers() != render_workers,
+    };
+    if needs_init {
+        let new_pool = Arc::new(WorkerPool::new(render_workers));
+        *lock = Some(new_pool.clone());
+        new_pool
+    } else {
+        lock.as_ref().unwrap().clone()
+    }
+}
 
 static RENDER_RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
@@ -822,6 +837,9 @@ pub fn init_appstate() {
     // Initialize AppState (pool, channels, process_fn) — now returns quickly
     // because cookie pre-population was moved to the background thread below.
     AppState::get_or_init();
+
+    // Reset any stuck download/render tasks on startup
+    cleanup_stuck_workspaces();
 
     // Spawn a background thread that pre-populates the pool with cookies
     // from all 30 profiles. This runs in parallel with the stdin command loop
@@ -862,6 +880,33 @@ pub fn init_appstate() {
         })
         .expect("Failed to spawn cookie-preload thread");
 }
+
+fn cleanup_stuck_workspaces() {
+    let ws_path = get_workspaces_path();
+    if ws_path.exists() {
+        let mut ws_store = WorkspaceStore::load(&ws_path);
+        let mut modified = false;
+        for ws in &mut ws_store.workspaces {
+            if ws.status == "downloading" {
+                tracing::info!("[AppState] Startup cleanup: resetting stuck workspace '{}' from downloading to error", ws.id);
+                ws.status = "error".to_string();
+                ws.error = Some("Tải xuống bị gián đoạn (Ứng dụng đóng đột ngột)".to_string());
+                modified = true;
+            } else if ws.status == "rendering" {
+                tracing::info!("[AppState] Startup cleanup: resetting stuck workspace '{}' from rendering to error", ws.id);
+                ws.status = "error".to_string();
+                ws.error = Some("Render bị gián đoạn (Ứng dụng đóng đột ngột)".to_string());
+                modified = true;
+            }
+        }
+        if modified {
+            if let Err(e) = ws_store.save(&ws_path) {
+                tracing::error!("[AppState] Failed to save startup cleanup: {:?}", e);
+            }
+        }
+    }
+}
+
 
 /// Check if poller is still running (for main loop keep-alive).
 pub fn is_poller_active() -> bool {
@@ -905,6 +950,46 @@ impl CommandResult {
 
 
 
+fn handle_render_completion(
+    id: &str,
+    result: Result<(PathBuf, f64), hyperclip_ipc::HyperclipError>,
+    duration_secs: f64,
+) {
+    let ws_path = get_workspaces_path();
+    let mut ws_store = WorkspaceStore::load(&ws_path);
+    let status = if result.is_ok() { "done" } else { "error" };
+    let mut update_data = serde_json::json!({
+        "status": status,
+    });
+    match &result {
+        Ok((ref final_out_path, fps)) => {
+            update_data["renderedPath"] = serde_json::json!(final_out_path.to_string_lossy().to_string());
+            update_data["renderFps"] = serde_json::json!(fps);
+            update_data["renderDurationSec"] = serde_json::json!(duration_secs);
+            
+            let gpu_config = get_gpu_config();
+            let codec = if gpu_config.tier == hyperclip_ipc::system::GPUTier::High {
+                "hevc_nvenc"
+            } else if matches!(gpu_config.tier, hyperclip_ipc::system::GPUTier::Mid | hyperclip_ipc::system::GPUTier::Low) {
+                "h264_nvenc"
+            } else {
+                "libx264"
+            };
+            update_data["renderCodec"] = serde_json::json!(codec);
+            update_data["renderPreset"] = serde_json::json!("p1");
+            update_data["renderWorkers"] = serde_json::json!(gpu_config.max_workers);
+            update_data["error"] = serde_json::Value::Null;
+        }
+        Err(e) => {
+            update_data["error"] = serde_json::json!(e.to_string());
+        }
+    }
+    ws_store.update(id, update_data).ok();
+    ws_store.save(&ws_path).ok();
+
+    emit_workspace_event(id, status, result.as_ref().err().map(|e| e.to_string()));
+}
+
 fn emit_workspace_event(id: &str, status: &str, error: Option<String>) {
     let ws_path = get_workspaces_path();
     let store = WorkspaceStore::load(&ws_path);
@@ -930,8 +1015,7 @@ fn emit_workspace_event(id: &str, status: &str, error: Option<String>) {
     });
 
     let s = serde_json::to_string(&event).unwrap();
-    let _ = writeln!(io::stdout(), "{}", s);
-    let _ = io::stdout().flush();
+    hyperclip_ipc::emit_raw(&s);
 }
 
 
@@ -971,7 +1055,7 @@ fn get_thumbnail_path(channel_id: &str, channel_name: &str, video_id: &str) -> P
 }
 
 fn get_video_storage_path() -> PathBuf {
-    hyperclip_ipc::store::get_legacy_downloads_dir()
+    hyperclip_ipc::store::channel_downloads_dir("", "")
 }
 
 fn ensure_channel_video_dir(channel_name: &str, channel_id: &str) -> PathBuf {
@@ -979,7 +1063,7 @@ fn ensure_channel_video_dir(channel_name: &str, channel_id: &str) -> PathBuf {
 }
 
 fn get_output_path() -> PathBuf {
-    hyperclip_ipc::store::get_legacy_output_dir()
+    hyperclip_ipc::store::channel_renders_dir("", "")
 }
 
 fn ensure_channel_output_dir_fn(channel_name: &str) -> PathBuf {
@@ -1005,6 +1089,19 @@ fn get_legacy_downloads_dir() -> PathBuf {
 
 fn get_logs_dir() -> PathBuf {
     hyperclip_ipc::store::get_logs_dir()
+}
+
+fn parse_quality(quality_val: Option<&serde_json::Value>) -> Option<u32> {
+    quality_val.and_then(|v| {
+        if let Some(s) = v.as_str() {
+            let clean_s = s.replace("p", "");
+            clean_s.parse::<f64>().ok().map(|f| f as u32)
+        } else if let Some(f) = v.as_f64() {
+            Some(f as u32)
+        } else {
+            v.as_u64().map(|u| u as u32)
+        }
+    })
 }
 
 /// Look up (channel_id, channel_name, video_id) from workspace store.
@@ -1167,6 +1264,9 @@ fn refresh_all_profiles_cookies() -> Result<usize, String> {
 }
 
 fn launch_chrome_profile_async(profile_id: &str) {
+    if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
+        *lock = Some(profile_id.to_string());
+    }
     let (user_data_dir, profile_dir_name) = get_chrome_launch_args(profile_id);
     let chrome_path = get_chrome_executable_path();
     let profile_id_owned = profile_id.to_string();
@@ -1262,7 +1362,7 @@ fn launch_chrome_profile_async(profile_id: &str) {
                         tracing::info!("[Chrome] Channel/URL not open in Chrome. Opening new tab: {}", url);
                         let encoded_url = urlencoding::encode(url);
                         let new_tab_url = format!("http://127.0.0.1:9222/json/new?url={}", encoded_url);
-                        if let Err(e) = agent.get(&new_tab_url).call() {
+                        if let Err(e) = agent.put(&new_tab_url).call() {
                             tracing::warn!("[Chrome] Failed to open new tab via CDP: {}", e);
                         }
                     } else {
@@ -1275,9 +1375,84 @@ fn launch_chrome_profile_async(profile_id: &str) {
                     Ok(_) => {
                         tracing::info!("[Chrome] Successfully extracted and updated cookies for existing Chrome profile {}", profile_id_owned);
                         crate::emit(hyperclip_ipc::IpcResponse::event("channel:synced", serde_json::json!({})));
+                        if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
+                            if lock.as_deref() == Some(&profile_id_owned) {
+                                *lock = None;
+                            }
+                        }
                     }
                     Err(e) => {
                         tracing::error!("[Chrome] Failed to extract cookies for existing Chrome: {}", e);
+
+                        // Emit a friendly notification to guide the user
+                        crate::emit(hyperclip_ipc::IpcResponse::event("notification", serde_json::json!({
+                            "title": "Đăng nhập YouTube",
+                            "message": "Trình duyệt Chrome đang mở. Vui lòng đăng nhập và ĐÓNG trình duyệt Chrome để hoàn tất đồng bộ tài khoản."
+                        })));
+
+                        // Spawn a monitor thread to wait for Chrome to close, then auto-extract
+                        let profile_id_clone = profile_id_owned.clone();
+                        std::thread::spawn(move || {
+                            static MONITORED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
+                            let monitored_set = MONITORED.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+
+                            {
+                                let mut lock = monitored_set.lock().unwrap();
+                                if lock.contains(&profile_id_clone) {
+                                    tracing::info!("[Chrome Monitor] Profile {} is already being monitored", profile_id_clone);
+                                    return;
+                                }
+                                lock.insert(profile_id_clone.clone());
+                            }
+
+                            tracing::info!("[Chrome Monitor] Started monitoring Chrome (port 9222) for profile {}...", profile_id_clone);
+                            let agent = ureq::AgentBuilder::new()
+                                .try_proxy_from_env(false)
+                                .build();
+                            let check_url = "http://127.0.0.1:9222/json";
+
+                            loop {
+                                std::thread::sleep(std::time::Duration::from_millis(1000));
+                                let is_running = agent.get(check_url)
+                                    .timeout(std::time::Duration::from_millis(1000))
+                                    .call()
+                                    .is_ok();
+                                if !is_running {
+                                    tracing::info!("[Chrome Monitor] Chrome has closed. Waiting to extract cookies for profile {}...", profile_id_clone);
+                                    std::thread::sleep(std::time::Duration::from_millis(1000));
+
+                                    match extract_profile_cookies_and_feed(&profile_id_clone) {
+                                        Ok(_) => {
+                                            tracing::info!("[Chrome Monitor] Successfully extracted cookies for profile {}", profile_id_clone);
+                                            crate::emit(hyperclip_ipc::IpcResponse::event("channel:synced", serde_json::json!({})));
+                                            crate::emit(hyperclip_ipc::IpcResponse::event("notification", serde_json::json!({
+                                                "title": "Đồng bộ thành công",
+                                                "message": format!("Đã đồng bộ cookies thành công cho {}", profile_id_clone)
+                                            })));
+                                        }
+                                        Err(err) => {
+                                            let err_msg = format!("Failed to extract cookies after Chrome closed: {}", err);
+                                            tracing::error!("[Chrome Monitor] {}", err_msg);
+                                            crate::emit(hyperclip_ipc::IpcResponse::event("notification", serde_json::json!({
+                                                "title": "Lỗi đồng bộ Cookies",
+                                                "message": err_msg
+                                            })));
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
+
+                            // Remove from monitored set
+                            let mut lock = monitored_set.lock().unwrap();
+                            lock.remove(&profile_id_clone);
+
+                            if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
+                                if lock.as_deref() == Some(&profile_id_clone) {
+                                    *lock = None;
+                                }
+                            }
+                        });
                     }
                 }
                 return;
@@ -1316,17 +1491,42 @@ fn launch_chrome_profile_async(profile_id: &str) {
                                 crate::emit(hyperclip_ipc::IpcResponse::event("channel:synced", serde_json::json!({})));
                             }
                             Err(e) => {
-                                tracing::error!("[Chrome] Failed to extract cookies after Chrome closed: {}", e);
+                                let err_msg = format!("Failed to extract cookies after Chrome closed: {}", e);
+                                tracing::error!("[Chrome] {}", err_msg);
+                                crate::emit(hyperclip_ipc::IpcResponse::event("notification", serde_json::json!({
+                                    "title": "Cookie Extraction Error",
+                                    "message": err_msg
+                                })));
+                            }
+                        }
+                        if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
+                            if lock.as_deref() == Some(&profile_id_owned) {
+                                *lock = None;
                             }
                         }
                     }
                     Err(e) => {
                         tracing::error!("[Chrome] Error waiting for Chrome process: {}", e);
+                        if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
+                            if lock.as_deref() == Some(&profile_id_owned) {
+                                *lock = None;
+                            }
+                        }
                     }
                 }
             }
             Err(e) => {
-                tracing::error!("[Chrome] Failed to spawn Chrome: {}", e);
+                let err_msg = format!("Failed to launch Google Chrome: {}. Please make sure Google Chrome is installed on your system.", e);
+                tracing::error!("[Chrome] {}", err_msg);
+                crate::emit(hyperclip_ipc::IpcResponse::event("notification", serde_json::json!({
+                    "title": "Chrome Launch Error",
+                    "message": err_msg
+                })));
+                if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
+                    if lock.as_deref() == Some(&profile_id_owned) {
+                        *lock = None;
+                    }
+                }
             }
         }
     });
@@ -1421,2212 +1621,22 @@ fn dir_size_internal(path: &PathBuf) -> u64 {
 
 
 pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
-
     let cmd = req.command.as_str();
-
     let params = &req.params;
 
-
-
-    // Match by command name. Returns CommandResult for direct calls,
-
-    // or can be used to dispatch to background tasks / event emitters.
-
-    let result: Result<Value, String> = match cmd {
-
-        // ─── System ─────────────────────────────────────────────────
-
-        "system:stats" => Ok(json!(get_system_stats())),
-
-        "system:openFolder" => {
-            let path = p(params, "path").unwrap_or_default();
-            tracing::info!("openFolder: {}", path);
-            #[cfg(windows)]
-            {
-                let _ = std::process::Command::new("explorer").arg(&path).spawn();
-            }
-            Ok(json!({ "ok": true }))
-        }
-
-        "system:openUrl" => {
-            let url = p(params, "url").unwrap_or_default();
-            tracing::info!("openUrl: {}", url);
-            #[cfg(windows)]
-            {
-                let _ = std::process::Command::new("cmd").args(["/C", "start", &url]).spawn();
-            }
-            Ok(json!({ "ok": true }))
-        }
-
-        "system:pickFolder" => {
-            let current = p(params, "currentPath").unwrap_or_else(|| {
-                std::env::var("USERPROFILE").unwrap_or_else(|_| "C:/".to_string())
-            });
-            Ok(json!({"path": current}))
-        }
-
-        "system:runDiagnostics" => {
-            let mut results = vec![];
-            let ytdlp = std::process::Command::new("yt-dlp").arg("--version").output().ok();
-            results.push(json!({
-                "check": "yt-dlp", "ok": ytdlp.as_ref().map(|o| o.status.success()).unwrap_or(false),
-                "version": ytdlp.and_then(|o| String::from_utf8(o.stdout).ok()).map(|s| s.trim().to_string()).unwrap_or_else(|| "not found".to_string()),
-            }));
-            let ffmpeg = std::process::Command::new("ffmpeg").arg("-version").output().ok();
-            results.push(json!({
-                "check": "ffmpeg", "ok": ffmpeg.as_ref().map(|o| o.status.success()).unwrap_or(false),
-                "version": ffmpeg.and_then(|o| String::from_utf8(o.stdout).ok()).map(|s| s.lines().next().unwrap_or("?").to_string()).unwrap_or_else(|| "not found".to_string()),
-            }));
-            let node = std::process::Command::new("node").arg("--version").output().ok();
-            results.push(json!({
-                "check": "node", "ok": node.as_ref().map(|o| o.status.success()).unwrap_or(false),
-                "version": node.and_then(|o| String::from_utf8(o.stdout).ok()).map(|s| s.trim().to_string()).unwrap_or_else(|| "not found".to_string()),
-            }));
-            Ok(json!({"ok": true, "ts": chrono::Utc::now().timestamp(), "results": results}))
-        }
-
-
-
-        // ─── Settings ────────────────────────────────────────────────
-
-        "settings:get" => {
-            let s_path = get_settings_path();
-            let store = SettingsStore::load(&s_path);
-            Ok(store.settings.clone())
-        }
-
-        "settings:update" => {
-            let s_path = get_settings_path();
-            let mut store = SettingsStore::load(&s_path);
-            let old_polling = store.settings.get("pollingEnabled").and_then(|v| v.as_bool()).unwrap_or(false);
-            if let Some(obj) = store.settings.as_object_mut() {
-                if let Some(patch_obj) = params.as_object() {
-                    for (k, v) in patch_obj {
-                        obj.insert(k.clone(), v.clone());
-                    }
-                }
-            } else {
-                store.settings = params.clone();
-            }
-            store.save(&s_path).ok();
-            tracing::info!("settings:update saved");
-
-            // Handle pollingEnabled change
-            let new_polling = store.settings.get("pollingEnabled").and_then(|v| v.as_bool()).unwrap_or(false);
-            let state = AppState::get_or_init();
-            if new_polling != old_polling {
-                if new_polling {
-                    state.start_poller();
-                    tracing::info!("[Settings] pollingEnabled=true -> started poller");
-                } else {
-                    state.stop_poller();
-                    tracing::info!("[Settings] pollingEnabled=false -> stopped poller");
-                }
-            } else if new_polling && state.poller_active() {
-                state.reload_poller_config();
-            }
-            Ok(json!({"ok": true}))
-        }
-
-
-
-        // ─── Channels ───────────────────────────────────────────────
-
-        "channel:list" => Ok(load_channels()),
-
-        "channel:add" => {
-            let raw = p(params, "url").unwrap_or_default();
-            if raw.is_empty() {
-                return CommandResult::Ok(json!({"ok": false, "error": "url required"}));
-            }
-            let ch_path = get_channels_path();
-            let mut store = ChannelStore::load(&ch_path);
-
-            // 1. Normalize URL
-            let normalized = if raw.starts_with("http") {
-                raw.clone()
-            } else if raw.starts_with('@') {
-                format!("https://www.youtube.com/{}", raw)
-            } else {
-                format!("https://www.youtube.com/@{}", raw.trim_start_matches('@'))
-            };
-
-            // 2. Parse channel identifier from URL
-            let parsed_id: Option<String> = {
-                let path = normalized.trim_start_matches("https://").trim_start_matches("http://")
-                    .trim_start_matches("www.youtube.com")
-                    .trim_start_matches("m.youtube.com")
-                    .trim_start_matches("youtube.com");
-                let path = path.trim_start_matches('/');
-                if let Some(rest) = path.strip_prefix("channel/") {
-                    Some(rest.split('/').next().unwrap_or(rest).to_string())
-                } else if let Some(rest) = path.strip_prefix('@') {
-                    Some(rest.split('/').next().unwrap_or(rest).to_string())
-                } else if let Some(rest) = path.strip_prefix("c/") {
-                    Some(rest.split('/').next().unwrap_or(rest).to_string())
-                } else if let Some(rest) = path.strip_prefix("user/") {
-                    Some(rest.split('/').next().unwrap_or(rest).to_string())
-                } else if raw.starts_with("UC") && raw.len() >= 22 {
-                    Some(raw.clone())
-                } else {
-                    None
-                }
-            };
-
-            // 3. Duplicate check
-            let channel_id_str = parsed_id.as_deref().unwrap_or(&raw);
-            if store.channels.iter().any(|c| {
-                c.channel_id.as_deref() == Some(channel_id_str)
-                    || c.handle.as_str().trim_start_matches('@').eq_ignore_ascii_case(channel_id_str)
-            }) {
-                return CommandResult::Ok(json!({"ok": false, "error": "duplicate channel"}));
-            }
-
-            // 4. Try to resolve metadata via yt-dlp
-            let (resolved_name, resolved_id, resolved_avatar) = resolve_channel_metadata(&normalized);
-
-            let id = format!("ch-{}", chrono::Utc::now().timestamp_millis());
-            let final_name = resolved_name.unwrap_or_else(|| {
-                channel_id_str.trim_start_matches('@').to_string()
-            });
-            let final_channel_id = resolved_id.unwrap_or(channel_id_str.to_string());
-            let final_handle = if final_channel_id.starts_with("UC") {
-                format!("@{}", channel_id_str.trim_start_matches('@'))
-            } else {
-                format!("@{}", final_channel_id.trim_start_matches('@'))
-            };
-
-            store.add(hyperclip_ipc::store::Channel {
-                id: id.clone(),
-                name: final_name,
-                handle: final_handle.clone(),
-                channel_id: Some(final_channel_id),
-                avatar_url: resolved_avatar,
-                paused: false,
-                enabled: true,
-                ..Default::default()
-            });
-            store.save(&ch_path).ok();
-            tracing::info!("channel:add -> {} (handle={})", id, final_handle);
-            poller_sync_channels();
-            Ok(json!({"ok": true, "id": id}))
-        }
-
-        "channel:update" => {
-            let id = p(params, "id").unwrap_or_default();
-            let ch_path = get_channels_path();
-            let mut store = ChannelStore::load(&ch_path);
-            match store.update(&id, params) {
-                Ok(()) => { store.save(&ch_path).ok(); Ok(json!({"ok": true})) }
-                Err(e) => Ok(json!({"ok": false, "error": e})),
-            }
-        }
-
-        "channel:remove" => {
-            let id = p(params, "id").unwrap_or_default();
-            let ch_path = get_channels_path();
-            let mut store = ChannelStore::load(&ch_path);
-            store.remove(&id);
-            store.save(&ch_path).ok();
-            poller_sync_channels();
-            Ok(json!({"ok": true, "id": id}))
-        }
-
-        "channel:pause" => {
-            let id = p(params, "id").unwrap_or_default();
-            let ch_path = get_channels_path();
-            let mut store = ChannelStore::load(&ch_path);
-            match store.update(&id, &json!({"paused": true})) {
-                Ok(()) => { store.save(&ch_path).ok(); poller_sync_channels(); Ok(json!({"ok": true})) }
-                Err(e) => Ok(json!({"ok": false, "error": e})),
-            }
-        }
-
-        "channel:resume" => {
-            let id = p(params, "id").unwrap_or_default();
-            let ch_path = get_channels_path();
-            let mut store = ChannelStore::load(&ch_path);
-            match store.update(&id, &json!({"paused": false})) {
-                Ok(()) => { store.save(&ch_path).ok(); poller_sync_channels(); Ok(json!({"ok": true})) }
-                Err(e) => Ok(json!({"ok": false, "error": e})),
-            }
-        }
-
-        "channel:bulkPause" => {
-            let ids = params.get("ids").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-            let ch_path = get_channels_path();
-            let mut store = ChannelStore::load(&ch_path);
-            let mut count = 0u64;
-            for id_val in &ids {
-                if let Some(id) = id_val.as_str() {
-                    if store.update(id, &json!({"paused": true})).is_ok() {
-                        count += 1;
-                    }
-                }
-            }
-            if count > 0 { store.save(&ch_path).ok(); }
-            poller_sync_channels();
-            Ok(json!({"ok": true, "count": count, "ids": ids}))
-        }
-
-        "channel:bulkResume" => {
-            let ids = params.get("ids").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-            let ch_path = get_channels_path();
-            let mut store = ChannelStore::load(&ch_path);
-            let mut count = 0u64;
-            for id_val in &ids {
-                if let Some(id) = id_val.as_str() {
-                    if store.update(id, &json!({"paused": false})).is_ok() {
-                        count += 1;
-                    }
-                }
-            }
-            if count > 0 { store.save(&ch_path).ok(); }
-            poller_sync_channels();
-            Ok(json!({"ok": true, "count": count}))
-        }
-
-        "channel:bulkRemove" => {
-            let ids = params.get("ids").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-            let ch_path = get_channels_path();
-            let mut store = ChannelStore::load(&ch_path);
-            let mut count = 0u64;
-            for id_val in &ids {
-                if let Some(id) = id_val.as_str() {
-                    store.remove(id);
-                    count += 1;
-                }
-            }
-            store.save(&ch_path).ok();
-            poller_sync_channels();
-            Ok(json!({"ok": true, "count": count}))
-        }
-
-        "channel:sync" => {
-            let ch_path = get_channels_path();
-            let store = ChannelStore::load(&ch_path);
-            let count = store.channels.len() as u64;
-            let event = json!({"method": "channel:synced", "params": {"count": count}});
-            let s = serde_json::to_string(&event).unwrap();
-            let _ = writeln!(io::stdout(), "{}", s);
-            let _ = io::stdout().flush();
-            Ok(json!({"added": 0, "removed": 0}))
-        }
-
-        "channel:autoAssign" => Ok(json!({"success": true, "assigned": 0})),
-
-        "channel:getInfo" => Ok(json!({"channelId": p(params, "url").unwrap_or_default(), "name": "Unknown"})),
-
-
-
-        // ─── Workspaces ─────────────────────────────────────────────
-
-        "workspace:list" => Ok(load_workspaces()),
-
-        "workspace:get" => {
-            let id = p(params, "id").unwrap_or_default();
-            let store = WorkspaceStore::load(&get_workspaces_path());
-            match store.get(&id) {
-                Some(ws) => {
-                    let mut ws_val = serde_json::to_value(ws).unwrap_or(Value::Null);
-                    if let Value::Object(ref mut map) = ws_val {
-                        if let Some(t_path) = ws.thumbnail_local.as_ref() {
-                            if !std::path::Path::new(t_path).exists() {
-                                map.insert("thumbnailLocal".into(), Value::Null);
-                            }
-                        }
-                    }
-                    Ok(ws_val)
-                }
-                None => Ok(json!({"ok": false, "error": "not found", "id": id})),
-            }
-        }
-
-        "workspace:managementList" => Ok(load_management_workspaces()),
-
-        "workspace:managementGet" => {
-            let id = p(params, "id").unwrap_or_default();
-            Ok(load_management_workspace(&id))
-        }
-
-        "workspace:add" => { let url = p(params, "url").unwrap_or_default(); tracing::info!("workspace:add {}", url); Ok(json!({ "ok": true, "id": format!("ws-{}", chrono::Utc::now().timestamp_millis()) })) }
-
-        "workspace:update" => {
-
-            let id = p(params, "id").unwrap_or_default();
-
-            let field = p(params, "field").unwrap_or_default();
-
-            let value = params.get("value").cloned().unwrap_or(Value::Null);
-
-
-
-            let allowed: [&str; 5] = ["title", "speed", "trimStart", "trimEnd", "thumbnail"];
-
-            if !allowed.contains(&field.as_str()) {
-
-                return CommandResult::Ok(json!({"ok": false, "error": format!("invalid field: {}", field)}));
-
-            }
-
-            // Persist to workspace store
-            let ws_path = get_workspaces_path();
-            let mut store = WorkspaceStore::load(&ws_path);
-
-            // Check if rendering — emit warning
-            let mut warning: Option<String> = None;
-            if let Some(ws) = store.workspaces.iter().find(|w| w.id == id) {
-                if ws.status == "rendering" {
-                    warning = Some("Workspace is rendering — changes apply on next render".into());
-                }
-            }
-
-            match store.patch(&id, &field, value.clone()) {
-                Ok(()) => {
-                    store.save(&ws_path).ok();
-                }
-                Err(e) => {
-                    warning = Some(e);
-                }
-            };
-
-            // Emit update event for UI sync
-            let event = json!({
-                "method": "workspace:update",
-                "params": {"id": id, "field": field, "value": value}
-            });
-            let s = serde_json::to_string(&event).unwrap();
-            let _ = writeln!(io::stdout(), "{}", s);
-            let _ = io::stdout().flush();
-
-            if let Some(w) = warning {
-                Ok(json!({"ok": true, "warning": w}))
-            } else {
-                Ok(json!({"ok": true}))
-            }
-
-        }
-
-        "workspace:delete" => {
-            let id = p(params, "id").unwrap_or_default();
-            let ws_path = get_workspaces_path();
-            let mut store = WorkspaceStore::load(&ws_path);
-            let mut bytes_freed: u64 = 0;
-            let mut files_deleted: u32 = 0;
-            // Look up channel info to find new-path files
-            let (cid, cname, _) = lookup_channel_ids(&id);
-            let maybe_ws = store.workspaces.iter().find(|w| w.id == id).cloned();
-
-            // Delete downloaded file (try stored path first, then legacy, then new)
-            if let Some(ref ws) = maybe_ws {
-                if let Some(ref dl_path) = ws.downloaded_path {
-                    let p = PathBuf::from(dl_path);
-                    if p.exists() {
-                        if let Ok(meta) = std::fs::metadata(&p) { bytes_freed += meta.len(); files_deleted += 1; }
-                        std::fs::remove_file(&p).ok();
-                    }
-                }
-            }
-            // Also try legacy flat path
-            let legacy_file = get_video_storage_path().join(format!("{}.mp4", id));
-            if legacy_file.exists() {
-                if let Ok(meta) = std::fs::metadata(&legacy_file) { bytes_freed += meta.len(); files_deleted += 1; }
-                std::fs::remove_file(&legacy_file).ok();
-            }
-
-            // Delete render directory (new structure)
-            if !cid.is_empty() {
-                let render_path = build_render_path(&cid, &cname, &id);
-                if render_path.exists() {
-                    if let Ok(meta) = std::fs::metadata(&render_path) {
-                        bytes_freed += meta.len();
-                        files_deleted += 1;
-                    }
-                }
-                let render_dir = render_output_dir(&cid, &cname, &id);
-                if render_dir.exists() {
-                    std::fs::remove_dir_all(&render_dir).ok();
-                }
-            }
-            // Also try legacy flat output path
-            let legacy_out = get_output_path().join(format!("{}.mp4", id));
-            if legacy_out.exists() {
-                if let Ok(meta) = std::fs::metadata(&legacy_out) { bytes_freed += meta.len(); files_deleted += 1; }
-                std::fs::remove_file(&legacy_out).ok();
-            }
-
-            store.remove(&id);
-            store.save(&ws_path).ok();
-            Ok(json!({"success": true, "bytesFreed": bytes_freed, "filesDeleted": files_deleted}))
-        }
-
-        "workspace:retry" => {
-            let id = p(params, "id").unwrap_or_default();
-            let mut video_url = p(params, "url").or_else(|| p(params, "videoUrl")).unwrap_or_default();
-
-            if id.is_empty() {
-                return CommandResult::Ok(json!({ "ok": false, "error": "workspace:retry requires id param" }));
-            }
-
-            if video_url.is_empty() {
-                let ws_path = get_workspaces_path();
-                let store = WorkspaceStore::load(&ws_path);
-                if let Some(ws) = store.get(&id) {
-                    video_url = format!("https://youtube.com/watch?v={}", ws.video_id);
-                }
-            }
-
-            if video_url.is_empty() {
-                return CommandResult::Ok(json!({ "ok": false, "error": "workspace:retry requires url or videoUrl param" }));
-            }
-
-            // Use new media structure
-            let (cid, cname, _) = lookup_channel_ids(&id);
-
-            // Read quality & trim from settings store, allow param overrides
-            let s_path = get_settings_path();
-            let s_store = SettingsStore::load(&s_path);
-
-            let quality: u32 = params.get("quality").and_then(|v| v.as_u64())
-                .or_else(|| s_store.settings.get("autoDownloadQuality")
-                    .and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok().map(|f| f as u64)))
-                .or_else(|| s_store.settings.get("autoDownloadQuality").and_then(|v| v.as_f64()).map(|f| f as u64))
-                .or_else(|| s_store.settings.get("autoDownloadQuality").and_then(|v| v.as_u64()))
-                .or_else(|| s_store.settings.get("defaultQuality").and_then(|v| v.as_u64()))
-                .unwrap_or(1080) as u32;
-
-            let trim_minutes = params.get("trimMinutes").and_then(|v| v.as_u64())
-                .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_u64()))
-                .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_f64()).map(|f| f as u64))
-                .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok()).map(|f| f as u64))
-                .or_else(|| s_store.settings.get("default_trim_limit_minutes").and_then(|v| v.as_u64()))
-                .unwrap_or(10) as u32;
-
-            let timestamp = chrono::Utc::now().timestamp_millis();
-            let output_path = if !cid.is_empty() || !cname.is_empty() {
-                let video_id = video_url.rsplit('=').next().unwrap_or(&id).to_string();
-                build_download_path(&cid, &cname, &video_id, timestamp)
-            } else {
-                get_video_storage_path().join(format!("{}.mp4", id))
-            };
-
-            let output_str = output_path.to_string_lossy().to_string();
-
-            let now_ms = chrono::Utc::now().timestamp_millis();
-            let ws_path = get_workspaces_path();
-            let mut ws_store = WorkspaceStore::load(&ws_path);
-            ws_store.update(&id, serde_json::json!({
-                "status": "downloading",
-                "downloadStartedAt": now_ms,
-            })).ok();
-            ws_store.save(&ws_path).ok();
-
-            emit_workspace_event(&id, "downloading", None);
-
-            let tid = id.clone();
-            let netscape_path = get_cookies_netscape_path();
-            let cookies_str = netscape_path.to_string_lossy().to_string();
-
-            let out_str = output_str.clone();
-            let cid2 = cid.clone();
-            let cname2 = cname.clone();
-            let vid2 = video_url.rsplit('=').next().unwrap_or(&id).to_string();
-            let url2 = video_url.clone();
-
-            std::thread::spawn(move || {
-                match download_video(&url2, &out_str, &cookies_str, trim_minutes, quality) {
-                    Ok(result) => {
-                        // Download thumbnail
-                        let thumb_path = get_thumbnail_path(&cid2, &cname2, &vid2);
-                        let thumb_str = download_youtube_thumbnail_to(&vid2, &thumb_path);
-
-                        // Persist thumbnail, status, downloadedPath and downloadedAt to store
-                        let ws_path = get_workspaces_path();
-                        let mut ws_store = WorkspaceStore::load(&ws_path);
-                        let now_ms = chrono::Utc::now().timestamp_millis();
-                        let is_short_val = result.width < result.height || result.duration <= 60.0;
-                        let quality_val = result.height;
-                        let duration_sec_val = result.duration.round() as u64;
-                        let file_size_val = result.file_size;
-
-                        ws_store.update(&tid, serde_json::json!({
-                            "thumbnailLocal": thumb_str,
-                            "status": "ready",
-                            "downloadedPath": result.path,
-                            "downloadedAt": now_ms,
-                            "isShort": is_short_val,
-                            "quality": quality_val,
-                            "fileSize": file_size_val,
-                            "durationSec": duration_sec_val,
-                        })).ok();
-                        ws_store.save(&ws_path).ok();
-
-                        tracing::info!("workspace:retry download complete: {} -> {} ({} bytes)",
-                            tid, result.path, result.file_size);
-
-                        crate::emit(hyperclip_ipc::IpcResponse::event("workspace:update", serde_json::json!({
-                            "id": tid,
-                            "status": "ready",
-                            "downloadedPath": result.path,
-                            "thumbnailLocal": thumb_str,
-                            "downloadedAt": now_ms,
-                            "isShort": is_short_val,
-                            "quality": quality_val,
-                            "fileSize": file_size_val,
-                            "durationSec": duration_sec_val,
-                        })));
-                    }
-                    Err(e) => {
-                        tracing::error!("workspace::retry download failed for {}: {}", tid, e);
-                        emit_workspace_event(&tid, "error", Some(e));
-                    }
-                }
-            });
-
-
-
-            Ok(json!({
-
-                "ok": true,
-
-                "id": id,
-
-                "status": "downloading",
-
-                "outputPath": output_str,
-
-            }))
-
-        }
-
-        // Task 3 (WS3): workspace:autoDownload - triggered from frontend
-        "workspace:autoDownload" => {
-            let id = p(params, "id").unwrap_or_default();
-            let video_url = p(params, "url").or_else(|| p(params, "videoUrl")).unwrap_or_default();
-            let netscape_path = get_cookies_netscape_path();
-
-            // Read trim & quality from settings store (not params) — frontend doesn't send these
-            let s_path = get_settings_path();
-            let s_store = SettingsStore::load(&s_path);
-            let trim_minutes = params.get("trimMinutes").and_then(|v| v.as_u64())
-                .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_u64()))
-                .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_f64()).map(|f| f as u64))
-                .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok()).map(|f| f as u64))
-                .or_else(|| s_store.settings.get("default_trim_limit_minutes").and_then(|v| v.as_u64()))
-                .unwrap_or(10) as u32;
-
-            let (cid, cname, _) = lookup_channel_ids(&id);
-            let timestamp = chrono::Utc::now().timestamp_millis();
-            let output_path = if !cid.is_empty() || !cname.is_empty() {
-                let video_id = video_url.rsplit('=').next().unwrap_or(&id).to_string();
-                build_download_path(&cid, &cname, &video_id, timestamp)
-            } else {
-                get_video_storage_path().join(format!("{}.mp4", id))
-            };
-            let output_str = output_path.to_string_lossy().to_string();
-            let now_ms = chrono::Utc::now().timestamp_millis();
-            let ws_path = get_workspaces_path();
-            let mut ws_store = WorkspaceStore::load(&ws_path);
-            ws_store.update(&id, serde_json::json!({
-                "status": "downloading",
-                "downloadStartedAt": now_ms,
-            })).ok();
-            ws_store.save(&ws_path).ok();
-
-            emit_workspace_event(&id, "downloading", None);
-            let tid = id.clone();
-            let url = video_url.clone();
-            let cookies_str = netscape_path.to_string_lossy().to_string();
-            let dl_quality: u32 = params.get("quality").and_then(|v| v.as_u64())
-                .or_else(|| s_store.settings.get("autoDownloadQuality")
-                    .and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok().map(|f| f as u64)))
-                .or_else(|| s_store.settings.get("autoDownloadQuality").and_then(|v| v.as_f64()).map(|f| f as u64))
-                .or_else(|| s_store.settings.get("autoDownloadQuality").and_then(|v| v.as_u64()))
-                .or_else(|| s_store.settings.get("defaultQuality").and_then(|v| v.as_u64()))
-                .unwrap_or(1080) as u32;
-            let out_str = output_str.clone();
-            let cid2 = cid.clone();
-            let cname2 = cname.clone();
-            std::thread::spawn(move || {
-                download_video_streaming(&url, &out_str, &cookies_str, trim_minutes, dl_quality, |progress| {
-                    emit_download_progress(&tid, &progress);
-                })
-                .map(|result| {
-                    tracing::info!("workspace:autoDownload complete: {} -> {} ({} bytes)",
-                        tid, result.path, result.file_size);
-
-                    // Download thumbnail to per-channel dir
-                    let video_id = url.rsplit('=').next().unwrap_or(&tid).to_string();
-                    let thumb_path = get_thumbnail_path(&cid2, &cname2, &video_id);
-                    let _ = download_youtube_thumbnail_to(&video_id, &thumb_path);
-                    let thumb_str = if thumb_path.exists() { Some(thumb_path.to_string_lossy().to_string()) } else { None };
-
-                    let is_short_val = result.width < result.height || result.duration <= 60.0;
-                    let quality_val = result.height;
-                    let duration_sec_val = result.duration.round() as u64;
-                    let file_size_val = result.file_size;
-
-                    // Update workspace store
-                    let ws_path = get_workspaces_path();
-                    let mut ws_store = WorkspaceStore::load(&ws_path);
-                    let now_ms = chrono::Utc::now().timestamp_millis();
-                    ws_store.update(&tid, serde_json::json!({
-                        "status": "ready",
-                        "downloadedPath": result.path,
-                        "thumbnailLocal": thumb_str,
-                        "downloadedAt": now_ms,
-                        "isShort": is_short_val,
-                        "quality": quality_val,
-                        "fileSize": file_size_val,
-                        "durationSec": duration_sec_val,
-                    })).ok();
-                    ws_store.save(&ws_path).ok();
-
-                    let event = json!({
-                        "method": "workspace:update",
-                        "params": {
-                            "id": tid,
-                            "status": "ready",
-                            "downloadedPath": result.path,
-                            "downloadedSize": result.file_size,
-                            "width": result.width,
-                            "height": result.height,
-                            "thumbnailLocal": thumb_str,
-                            "downloadedAt": now_ms,
-                            "isShort": is_short_val,
-                            "quality": quality_val,
-                            "fileSize": file_size_val,
-                            "durationSec": duration_sec_val,
-                        }
-                    });
-                    let s = serde_json::to_string(&event).unwrap();
-                    let _ = writeln!(io::stdout(), "{}", s);
-                    let _ = io::stdout().flush();
-
-                    // Auto-render after successful download
-                    let rt = RENDER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
-                    let rid = tid.clone();
-                    let in_path = out_str.clone();
-                    let s_path2 = get_settings_path();
-                    let s_store2 = SettingsStore::load(&s_path2);
-                    let auto_speed2 = s_store2.settings.get("autoRenderSpeed").or_else(|| s_store2.settings.get("auto_render_speed")).and_then(|v| v.as_f64()).unwrap_or(1.0);
-                    let auto_res2 = s_store2.settings.get("autoRenderResolution").or_else(|| s_store2.settings.get("auto_render_resolution")).and_then(|v| v.as_str()).unwrap_or("1080p").to_string();
-                    let auto_fps2 = s_store2.settings.get("autoRenderFPS").or_else(|| s_store2.settings.get("auto_render_fps")).and_then(|v| v.as_u64()).unwrap_or(30) as u32;
-                    let out_path = build_render_path(&cid2, &cname2, &rid);
-                    rt.spawn(async move {
-                        // Update database status to rendering
-                        let ws_path = get_workspaces_path();
-                        let mut ws_store = WorkspaceStore::load(&ws_path);
-                        let auto_trim_end = if is_short_val { result.duration.min(60.0) } else { result.duration };
-                        let filter_chain = if is_short_val { FilterChain::Short } else { FilterChain::Landscape };
-                        ws_store.update(&rid, serde_json::json!({
-                            "status": "rendering",
-                            "autoRender": true,
-                            "videoSpeed": auto_speed2,
-                            "fpsTarget": auto_fps2,
-                            "exportResolution": auto_res2,
-                            "trimStart": 0.0,
-                            "trimEnd": auto_trim_end,
-                        })).ok();
-                        ws_store.save(&ws_path).ok();
-                        emit_workspace_event(&rid, "rendering", None);
-
-                        let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
-                        let _permit = pool.acquire().await;
-                        let opts = RenderOptions {
-                            workspace_id: rid.clone(),
-                            input_path: PathBuf::from(&in_path),
-                            output_path: out_path.clone(),
-                            resolution: auto_res2,
-                            fps: auto_fps2,
-                            speed: auto_speed2,
-                            trim_start: 0.0, trim_end: auto_trim_end,
-                            gpu_tier: get_gpu_config().tier,
-                            preset: "p1".into(),
-                            filter_chain,
-                            chunked: false, chunk_duration_sec: 120,
-                        };
-                        let pid = rid.clone();
-                        let result = spawn_render_async(opts, move |progress| {
-                            let e = json!({"method": "render:progress", "params": {"id": pid, "progress": progress}});
-                            let _ = writeln!(io::stdout(), "{}", serde_json::to_string(&e).unwrap());
-                            let _ = io::stdout().flush();
-                        }).await;
-                        if let Err(ref e) = result {
-                            tracing::error!("[AppState] Auto-render after download failed for workspace {}: {:?}", rid, e);
-                        }
-                        let status = if result.is_ok() { "done" } else { "error" };
-
-                        let mut ws_store = WorkspaceStore::load(&ws_path);
-                        let mut update_data = serde_json::json!({
-                            "status": status,
-                        });
-                        match &result {
-                            Ok((ref final_out_path, fps)) => {
-                                update_data["renderedPath"] = serde_json::json!(final_out_path.to_string_lossy().to_string());
-                                update_data["renderFps"] = serde_json::json!(fps);
-                                
-                                let gpu_config = get_gpu_config();
-                                let codec = if gpu_config.tier == hyperclip_ipc::system::GPUTier::High {
-                                    "hevc_nvenc"
-                                } else if matches!(gpu_config.tier, hyperclip_ipc::system::GPUTier::Mid | hyperclip_ipc::system::GPUTier::Low) {
-                                    "h264_nvenc"
-                                } else {
-                                    "libx264"
-                                };
-                                update_data["renderCodec"] = serde_json::json!(codec);
-                                update_data["renderPreset"] = serde_json::json!("p1");
-                                update_data["renderWorkers"] = serde_json::json!(gpu_config.max_workers);
-                                update_data["error"] = serde_json::Value::Null;
-                            }
-                            Err(e) => {
-                                update_data["error"] = serde_json::json!(e.to_string());
-                            }
-                        }
-                        ws_store.update(&rid, update_data).ok();
-                        ws_store.save(&ws_path).ok();
-
-                        emit_workspace_event(&rid, status, result.as_ref().err().map(|e| e.to_string()));
-                    });
-                })
-                .unwrap_or_else(|e| {
-                    tracing::error!("workspace:autoDownload failed for {}: {}", tid, e);
-                    emit_workspace_event(&tid, "error", Some(e));
-                });
-            });
-            Ok(json!({"ok": true, "id": id, "status": "downloading", "outputPath": output_str}))
-        }
-        // WS3: workspace:redownloadHd - re-download with higher quality
-        "workspace:redownloadHd" => {
-            let id = p(params, "id").unwrap_or_default();
-            let video_url = p(params, "url").or_else(|| p(params, "videoUrl")).unwrap_or_default();
-            if id.is_empty() || video_url.is_empty() {
-                return CommandResult::Ok(json!({ "ok": false, "error": "requires id and url params" }));
-            }
-            let netscape_path = get_cookies_netscape_path();
-            let (cid, cname, _) = lookup_channel_ids(&id);
-            let timestamp = chrono::Utc::now().timestamp_millis();
-            let output_path = if !cid.is_empty() || !cname.is_empty() {
-                let video_id = video_url.rsplit('=').next().unwrap_or(&id).to_string();
-                build_download_path(&cid, &cname, &video_id, timestamp)
-            } else {
-                get_video_storage_path().join(format!("{}.mp4", id))
-            };
-            let output_str = output_path.to_string_lossy().to_string();
-            let now_ms = chrono::Utc::now().timestamp_millis();
-            let ws_path = get_workspaces_path();
-            let mut ws_store = WorkspaceStore::load(&ws_path);
-            ws_store.update(&id, serde_json::json!({
-                "status": "downloading",
-                "downloadStartedAt": now_ms,
-            })).ok();
-            ws_store.save(&ws_path).ok();
-
-            emit_workspace_event(&id, "downloading", None);
-            let tid = id.clone();
-            let url = video_url.clone();
-            let cookies_str = netscape_path.to_string_lossy().to_string();
-            let out_str = output_str.clone();
-            let cid2 = cid.clone();
-            let cname2 = cname.clone();
-            // Read trim from settings
-            let s_path = get_settings_path();
-            let s_store = SettingsStore::load(&s_path);
-            let trim_minutes = s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_u64())
-                .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_f64()).map(|f| f as u64))
-                .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok()).map(|f| f as u64))
-                .or_else(|| s_store.settings.get("default_trim_limit_minutes").and_then(|v| v.as_u64()))
-                .unwrap_or(10) as u32;
-            std::thread::spawn(move || {
-                download_video_streaming(&url, &out_str, &cookies_str, trim_minutes, 1080, |progress| {
-                    emit_download_progress(&tid, &progress);
-                })
-                .map(|result| {
-                    // Download thumbnail
-                    let video_id = url.rsplit('=').next().unwrap_or(&tid).to_string();
-                    let thumb_path = get_thumbnail_path(&cid2, &cname2, &video_id);
-                    let _ = download_youtube_thumbnail_to(&video_id, &thumb_path);
-
-                    // Update workspace store
-                    let ws_path = get_workspaces_path();
-                    let mut ws_store = WorkspaceStore::load(&ws_path);
-                    let now_ms = chrono::Utc::now().timestamp_millis();
-                    let is_short_val = result.width < result.height || result.duration <= 60.0;
-                    let quality_val = result.height;
-                    let duration_sec_val = result.duration.round() as u64;
-                    let file_size_val = result.file_size;
-
-                    ws_store.update(&tid, serde_json::json!({
-                        "status": "ready",
-                        "downloadedAt": now_ms,
-                        "isShort": is_short_val,
-                        "quality": quality_val,
-                        "fileSize": file_size_val,
-                        "durationSec": duration_sec_val,
-                    })).ok();
-                    ws_store.save(&ws_path).ok();
-
-                    emit_workspace_event(&tid, "ready", None);
-                    tracing::info!("redownloadHd complete: {} ({}x{}, {} bytes)",
-                        tid, result.width, result.height, result.file_size);
-                    // Auto-render after redownload
-                    let rt = RENDER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
-                    let rid = tid.clone();
-                    let in_path = out_str.clone();
-                    let out_path = build_render_path(&cid2, &cname2, &rid);
-                    rt.spawn(async move {
-                        let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
-                        let _permit = pool.acquire().await;
-                        let auto_trim_end = if is_short_val { result.duration.min(60.0) } else { result.duration };
-                        let filter_chain = if is_short_val { FilterChain::Short } else { FilterChain::Landscape };
-                        let opts = RenderOptions {
-                            workspace_id: rid.clone(),
-                            input_path: PathBuf::from(&in_path),
-                            output_path: out_path.clone(),
-                            resolution: "1080p".into(),
-                            fps: 30, speed: 1.0,
-                            trim_start: 0.0, trim_end: auto_trim_end,
-                            gpu_tier: get_gpu_config().tier,
-                            preset: "p1".into(),
-                            filter_chain,
-                            chunked: false, chunk_duration_sec: 120,
-                        };
-                        let pid = rid.clone();
-                        let result = spawn_render_async(opts, move |progress| {
-                            let e = json!({"method": "render:progress", "params": {"id": pid, "progress": progress}});
-                            let _ = writeln!(io::stdout(), "{}", serde_json::to_string(&e).unwrap());
-                            let _ = io::stdout().flush();
-                        }).await;
-                        emit_workspace_event(&rid, if result.is_ok() { "done" } else { "error" },
-                            result.as_ref().err().map(|e| e.to_string()));
-                    });
-                })
-                .unwrap_or_else(|e| {
-                    emit_workspace_event(&tid, "error", Some(e));
-                });
-            });
-            Ok(json!({ "success": true, "id": id, "status": "downloading" }))
-        }
-
-        "workspace:regenerateBlur" => {
-            let id = p(params, "id").unwrap_or_default();
-            let video_dir = get_video_storage_path();
-            let video_path = video_dir.join(format!("{}.mp4", id));
-            if !video_path.exists() {
-                Ok(json!({"success": false, "error": "video file not found"}))
-            } else {
-                let blur_dir = get_video_storage_path().join("blur");
-                std::fs::create_dir_all(&blur_dir).ok();
-                let output = blur_dir.join(format!("{}.jpg", id));
-                let status = std::process::Command::new("ffmpeg")
-                    .args(&["-i", &video_path.to_string_lossy(), "-vf", "scale=160:90",
-                        "-frames:v", "1", "-y", &output.to_string_lossy()])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status().ok();
-                tracing::info!("regenerateBlur for {}: {:?}", id, status.map(|s| s.success()));
-                Ok(json!({"success": true, "path": output.to_string_lossy().to_string()}))
-            }
-        }
-
-        "workspace:split" => {
-            let id = p(params, "id").unwrap_or_default();
-            let parts = params.get("parts").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-            let ws_path = get_workspaces_path();
-            let mut store = WorkspaceStore::load(&ws_path);
-            let source = store.workspaces.iter().find(|w| w.id == id).cloned();
-            let mut new_ids = vec![];
-            if let Some(src) = source {
-                let auto_render = params.get("autoRender").and_then(|v| v.as_bool()).unwrap_or(false);
-                let render_res = params.get("renderResolution").and_then(|v| v.as_str()).unwrap_or("1080p").to_string();
-                let render_fps = params.get("renderFPS").and_then(|v| v.as_u64()).unwrap_or(30) as u32;
-                let render_speed = params.get("renderSpeed").and_then(|v| v.as_f64()).unwrap_or(1.0);
-
-                for (i, part) in parts.iter().enumerate() {
-                    let new_id = format!("{}-part{}", id, i + 1);
-                    let trim_start = part.get("start").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    let trim_end = part.get("end").and_then(|v| v.as_f64()).unwrap_or(60.0);
-                    let custom_title = part.get("title").and_then(|v| v.as_str()).unwrap_or("");
-                    let mut new_ws = src.clone();
-                    new_ws.id = new_id.clone();
-                    new_ws.title = if !custom_title.is_empty() {
-                        format!("{} - {}", src.title, custom_title)
-                    } else {
-                        format!("{} (Part {})", src.title, i + 1)
-                    };
-                    new_ws.trim_start = trim_start;
-                    new_ws.trim_end = trim_end;
-                    new_ws.status = if auto_render { "downloading" } else { "ready" }.to_string();
-                    new_ws.auto_render = auto_render;
-                    new_ws.fps_target = render_fps;
-                    new_ws.export_resolution = render_res.clone();
-                    new_ws.video_speed = render_speed;
-                    store.add(new_ws);
-
-                    // Trigger auto-render for each part
-                    if auto_render {
-                        let rid = new_id.clone();
-                        let in_path = get_video_storage_path().join(format!("{}.mp4", id));
-                        let (cid_split, cname_split, _) = lookup_channel_ids(&id);
-                        let out_path = if !cid_split.is_empty() || !cname_split.is_empty() {
-                            build_render_path(&cid_split, &cname_split, &rid)
-                        } else {
-                            let legacy_out = get_legacy_output_dir();
-                            std::fs::create_dir_all(&legacy_out).ok();
-                            legacy_out.join(format!("{}.mp4", rid))
-                        };
-                        let rt = RENDER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
-                        let res = render_res.clone();
-                        let fps = render_fps;
-                        let speed = render_speed;
-                        let src_is_short = src.is_short;
-                        rt.spawn(async move {
-                            let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
-                            let _permit = pool.acquire().await;
-                            let opts = RenderOptions {
-                                workspace_id: rid.clone(),
-                                input_path: in_path.clone(),
-                                output_path: out_path.clone(),
-                                resolution: res,
-                                fps,
-                                speed,
-                                trim_start, trim_end,
-                                gpu_tier: get_gpu_config().tier,
-                                preset: "p1".into(),
-                                filter_chain: if src_is_short { FilterChain::Short } else { FilterChain::Landscape },
-                                chunked: false, chunk_duration_sec: 120,
-                            };
-                            let pid = rid.clone();
-                            let result = spawn_render_async(opts, move |progress| {
-                                let e = serde_json::json!({"method": "render:progress", "params": {"id": pid, "progress": progress}});
-                                let _ = writeln!(io::stdout(), "{}", serde_json::to_string(&e).unwrap());
-                                let _ = io::stdout().flush();
-                            }).await;
-                            let event_method = if result.is_ok() { "done" } else { "error" };
-                            let err_msg = result.as_ref().err().map(|e| e.to_string());
-                            emit_workspace_event(&rid, event_method, err_msg);
-                        });
-                    }
-
-                    new_ids.push(new_id);
-                }
-                store.save(&ws_path).ok();
-            }
-            Ok(json!({"success": true, "newWorkspaces": new_ids}))
-        }
-
-        "workspace:splitPreview" => {
-            let id = p(params, "id").unwrap_or_default();
-            let split_min = params.get("splitMinutes").and_then(|v| v.as_u64()).unwrap_or(10);
-            let ws_path = get_workspaces_path();
-            let store = WorkspaceStore::load(&ws_path);
-            let source = store.workspaces.iter().find(|w| w.id == id);
-            if let Some(ws) = source {
-                let total_sec = if ws.trim_end > 0.0 { ws.trim_end } else { ws.progress.unwrap_or(0.0) }.max(60.0);
-                let split_sec = (split_min * 60) as f64;
-                let parts_count = (total_sec / split_sec).ceil() as u64;
-                let parts: Vec<serde_json::Value> = (0..parts_count).map(|i| {
-                    let start = i as f64 * split_sec;
-                    let end = ((i as f64 + 1.0) * split_sec).min(total_sec);
-                    json!({"index": i, "startSec": start, "endSec": end, "durationSec": end - start})
-                }).collect();
-                Ok(json!({"parts": parts, "numParts": parts_count, "totalSec": total_sec}))
-            } else {
-                Ok(json!({"parts": [], "numParts": 1, "totalSec": 0}))
-            }
-        }
-
-        "workspace:setActive" => {
-            let id = p(params, "id").unwrap_or_default();
-            tracing::info!("workspace:setActive -> {}", id);
-            Ok(json!({"success": true}))
-        }
-
-
-
-        // ─── Video file access ──────────────────────────────────────
-
-        "video:getFile" => {
-            let ws_id = p(params, "workspaceId").or_else(|| p(params, "id")).unwrap_or_default();
-            let ws_path = get_workspaces_path();
-            let store = WorkspaceStore::load(&ws_path);
-            if let Some(ws) = store.workspaces.iter().find(|w| w.id == ws_id) {
-                if let Some(ref dl_path) = ws.downloaded_path {
-                    let full_path = PathBuf::from(dl_path);
-                    if full_path.exists() {
-                        let url = format!("file:///{}", full_path.to_string_lossy().replace('\\', "/"));
-                        return CommandResult::Ok(json!({ "path": full_path.to_string_lossy(), "url": url }));
-                    }
-                }
-                let video_dir = get_video_storage_path();
-                let candidate = video_dir.join(format!("{}.mp4", ws_id));
-                if candidate.exists() {
-                    let url = format!("file:///{}", candidate.to_string_lossy().replace('\\', "/"));
-                    return CommandResult::Ok(json!({ "path": candidate.to_string_lossy(), "url": url }));
-                }
-            }
-            Ok(json!({ "path": "", "url": "" }))
-        }
-
-        "video:getBlob" => Ok(Value::Null),
-
-        "image:getFile" => {
-            let ws_id = p(params, "workspaceId").or_else(|| p(params, "id")).unwrap_or_default();
-            let ws_path = get_workspaces_path();
-            let store = WorkspaceStore::load(&ws_path);
-            if let Some(ws) = store.workspaces.iter().find(|w| w.id == ws_id) {
-                if let Some(ref thumb) = ws.thumbnail_local {
-                    let thumb_path = PathBuf::from(thumb);
-                    if thumb_path.exists() {
-                        let data_url = format!("data:image/jpeg;base64,{}",
-                            base64_encode_file(&thumb_path).unwrap_or_default());
-                        return CommandResult::Ok(json!({ "path": thumb_path.to_string_lossy(), "dataUrl": data_url }));
-                    }
-                }
-            }
-            Ok(json!({ "path": "", "dataUrl": "" }))
-        }
-
-        "video:saveBlob" => {
-            let filename = p(params, "filename").unwrap_or_else(|| "blob.bin".to_string());
-            if let Some(buf) = params.get("arrayBuffer").and_then(|v| v.as_array()) {
-                let video_dir = get_video_storage_path();
-                let disk_path = video_dir.join(&filename);
-                let bytes: Vec<u8> = buf.iter().filter_map(|v| v.as_u64().map(|n| n as u8)).collect();
-                std::fs::write(&disk_path, &bytes).ok();
-                Ok(json!({ "diskPath": disk_path.to_string_lossy() }))
-            } else if let Some(base64_str) = params.get("base64").and_then(|v| v.as_str()) {
-                let video_dir = get_video_storage_path();
-                let disk_path = video_dir.join(&filename);
-                if let Ok(bytes) = base64_decode(base64_str) {
-                    std::fs::write(&disk_path, &bytes).ok();
-                }
-                Ok(json!({ "diskPath": disk_path.to_string_lossy() }))
-            } else {
-                Ok(json!({ "diskPath": "" }))
-            }
-        }
-
-        "video:getAvailableFormats" => {
-            let video_id = p(params, "videoId").unwrap_or_default();
-            let video_url = p(params, "videoUrl").unwrap_or_default();
-            let mut formats = vec![360u32, 720, 1080];
-            if !video_url.is_empty() {
-                let output = std::process::Command::new("yt-dlp")
-                    .args(&["--socket-timeout", "10", "-J", "--no-download", &video_url])
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::null())
-                    .output().ok();
-                if let Some(out) = output {
-                    if let Ok(info) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
-                        if let Some(fmts) = info.get("formats").and_then(|v| v.as_array()) {
-                            let mut heights: Vec<u32> = fmts.iter()
-                                .filter_map(|f| f.get("height").and_then(|h| h.as_u64()))
-                                .map(|h| h as u32)
-                                .filter(|&h| h >= 360)
-                                .collect();
-                            heights.sort();
-                            heights.dedup();
-                            if !heights.is_empty() { formats = heights; }
-                        }
-                    }
-                }
-            }
-            Ok(json!({"videoId": video_id, "heights": formats}))
-        }
-
-
-
-        // ─── Render ─────────────────────────────────────────────────
-
-        "render:start" => {
-            let id = p(params, "id").unwrap_or_default();
-            if id.is_empty() {
-                return CommandResult::Err("render:start requires id param".into());
-            }
-            let cancel_map = CANCEL_TOKEN_MAP.get_or_init(|| Mutex::new(HashMap::new()));
-            let token = CancellationToken::new();
-            {
-                let mut map = cancel_map.lock().unwrap();
-                map.insert(id.clone(), token.clone());
-            }
-            let tid = id.clone();
-            let (cid, cname, _) = lookup_channel_ids(&id);
-            let rt = RENDER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
-            rt.spawn(async move {
-                let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
-                let _permit = pool.acquire().await;
-                let out_path = if !cid.is_empty() || !cname.is_empty() {
-                    build_render_path(&cid, &cname, &tid)
-                } else {
-                    let legacy_out = get_legacy_output_dir();
-                    std::fs::create_dir_all(&legacy_out).ok();
-                    legacy_out.join(format!("{}.mp4", tid))
-                };
-                // Resolve real input path from workspace store
-                let ws_path = get_workspaces_path();
-                let mut store = WorkspaceStore::load(&ws_path);
-
-                let ws_speed = store.workspaces.iter().find(|w| w.id == tid).map(|w| w.video_speed).unwrap_or(1.0);
-                let ws_trim_start = store.workspaces.iter().find(|w| w.id == tid).map(|w| w.trim_start).unwrap_or(0.0);
-                let ws_trim_end = store.workspaces.iter().find(|w| w.id == tid).map(|w| w.trim_end).unwrap_or(60.0);
-                let ws_resolution = store.workspaces.iter().find(|w| w.id == tid).and_then(|w| {
-                    if w.export_resolution.is_empty() { None } else { Some(w.export_resolution.clone()) }
-                }).unwrap_or_else(|| "1080p".to_string());
-                let ws_fps = store.workspaces.iter().find(|w| w.id == tid).map(|w| w.fps_target).unwrap_or(30);
-                let ws_is_short = store.workspaces.iter().find(|w| w.id == tid).map(|w| w.is_short).unwrap_or(false);
-
-                store.update(&tid, serde_json::json!({
-                    "status": "rendering",
-                    "videoSpeed": ws_speed,
-                    "fpsTarget": ws_fps,
-                    "exportResolution": ws_resolution,
-                    "trimStart": ws_trim_start,
-                    "trimEnd": ws_trim_end,
-                })).ok();
-                store.save(&ws_path).ok();
-                emit_workspace_event(&tid, "rendering", None);
-
-                let workspace = store.workspaces.iter().find(|w| w.id == tid);
-                let input_path = match workspace.and_then(|w| w.downloaded_path.clone()) {
-                    Some(path) => PathBuf::from(path),
-                    None => {
-                        let vid_dir = get_video_storage_path();
-                        let mut found = vid_dir.join(format!("{}.mp4", tid));
-                        if !found.exists() {
-                            if let Ok(entries) = std::fs::read_dir(&vid_dir) {
-                                for entry in entries.flatten() {
-                                    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                                        let candidate = entry.path().join(format!("{}.mp4", tid));
-                                        if candidate.exists() { found = candidate; break; }
-                                    }
-                                }
-                            }
-                        }
-                        found
-                    }
-                };
-                let tid_for_progress = tid.clone();
-                let opts = RenderOptions {
-                    workspace_id: tid_for_progress.clone(),
-                    input_path: input_path.clone(),
-                    output_path: out_path.clone(),
-                    resolution: ws_resolution,
-                    fps: ws_fps,
-                    speed: ws_speed,
-                    trim_start: ws_trim_start,
-                    trim_end: ws_trim_end,
-                    gpu_tier: get_gpu_config().tier,
-                    preset: "p1".into(),
-                    filter_chain: if ws_is_short { FilterChain::Short } else { FilterChain::Landscape },
-                    chunked: false,
-                    chunk_duration_sec: 120,
-                };
-                let tid_for_progress = tid.clone();
-                let result = spawn_render_async(opts, move |progress| {
-                    let event = json!({"method": "render:progress", "params": {"id": tid_for_progress, "progress": progress}});
-                    let s = serde_json::to_string(&event).unwrap();
-                    let _ = writeln!(io::stdout(), "{}", s);
-                    let _ = io::stdout().flush();
-                }).await;
-                if let Err(ref e) = result {
-                    tracing::error!("[AppState] Manual render failed for workspace {}: {:?}", tid, e);
-                }
-                let status = if result.is_ok() { "done" } else { "error" };
-                let mut store = WorkspaceStore::load(&ws_path);
-                let mut update_data = serde_json::json!({
-                    "status": status,
-                });
-                match &result {
-                    Ok((ref final_out_path, fps)) => {
-                        update_data["renderedPath"] = serde_json::json!(final_out_path.to_string_lossy().to_string());
-                        update_data["renderFps"] = serde_json::json!(fps);
-                        
-                        let gpu_config = get_gpu_config();
-                        let codec = if gpu_config.tier == hyperclip_ipc::system::GPUTier::High {
-                            "hevc_nvenc"
-                        } else if matches!(gpu_config.tier, hyperclip_ipc::system::GPUTier::Mid | hyperclip_ipc::system::GPUTier::Low) {
-                            "h264_nvenc"
-                        } else {
-                            "libx264"
-                        };
-                        update_data["renderCodec"] = serde_json::json!(codec);
-                        update_data["renderPreset"] = serde_json::json!("p1");
-                        update_data["renderWorkers"] = serde_json::json!(gpu_config.max_workers);
-                        update_data["error"] = serde_json::Value::Null;
-                    }
-                    Err(e) => {
-                        update_data["error"] = serde_json::json!(e.to_string());
-                    }
-                }
-                store.update(&tid, update_data).ok();
-                store.save(&ws_path).ok();
-                emit_workspace_event(&tid, status, result.as_ref().err().map(|e| e.to_string()));
-                if let Some(map) = CANCEL_TOKEN_MAP.get() {
-                    let mut map = map.lock().unwrap();
-                    map.remove(&tid);
-                }
-            });
-            Ok(json!({"ok": true, "id": id, "status": "rendering"}))
-        }
-        "render:cancel" => {
-
-            let id = p(params, "id").unwrap_or_default();
-
-            if let Some(map) = CANCEL_TOKEN_MAP.get() {
-
-                let mut map = map.lock().unwrap();
-
-                if let Some(_token) = map.remove(&id) {
-
-                    Ok(json!({ "ok": true, "id": id, "status": "cancelled" }))
-
-                } else {
-
-                    Ok(json!({ "ok": false, "error": "not rendering" }))
-
-                }
-
-            } else {
-
-                Ok(json!({ "ok": false, "error": "not rendering" }))
-
-            }
-
-        }
-
-        "render:chunked" => {
-            let id = p(params, "id").unwrap_or_default();
-            if id.is_empty() {
-                return CommandResult::Err("render:chunked requires id".into());
-            }
-            let chunk_duration = params.get("chunkDurationSec").and_then(|v| v.as_u64()).unwrap_or(120);
-            let ws_path = get_workspaces_path();
-            let mut store = WorkspaceStore::load(&ws_path);
-            let ws_speed = store.workspaces.iter().find(|w| w.id == id).map(|w| w.video_speed).unwrap_or(1.0);
-            let ws_trim_start = store.workspaces.iter().find(|w| w.id == id).map(|w| w.trim_start).unwrap_or(0.0);
-            let ws_trim_end = store.workspaces.iter().find(|w| w.id == id).map(|w| w.trim_end).unwrap_or(chunk_duration as f64);
-            let ws_resolution = store.workspaces.iter().find(|w| w.id == id).and_then(|w| {
-                if w.export_resolution.is_empty() { None } else { Some(w.export_resolution.clone()) }
-            }).unwrap_or_else(|| "1080p".to_string());
-            let ws_fps = store.workspaces.iter().find(|w| w.id == id).map(|w| w.fps_target).unwrap_or(30);
-            let ws_is_short = store.workspaces.iter().find(|w| w.id == id).map(|w| w.is_short).unwrap_or(false);
-
-            store.update(&id, serde_json::json!({
-                "status": "rendering",
-                "videoSpeed": ws_speed,
-                "fpsTarget": ws_fps,
-                "exportResolution": ws_resolution,
-                "trimStart": ws_trim_start,
-                "trimEnd": ws_trim_end,
-            })).ok();
-            store.save(&ws_path).ok();
-            emit_workspace_event(&id, "rendering", None);
-
-            let workspace = store.workspaces.iter().find(|w| w.id == id);
-            let input_path = match workspace.and_then(|w| w.downloaded_path.clone()) {
-                Some(path) => PathBuf::from(path),
-                None => get_video_storage_path().join(format!("{}.mp4", id)),
-            };
-            if !input_path.exists() {
-                return CommandResult::Err("input file not found for chunked render".into());
-            }
-            let (cid, cname, _) = lookup_channel_ids(&id);
-            let out_path = if !cid.is_empty() || !cname.is_empty() {
-                build_render_path(&cid, &cname, &id)
-            } else {
-                let legacy_out = get_legacy_output_dir();
-                std::fs::create_dir_all(&legacy_out).ok();
-                legacy_out.join(format!("{}.mp4", id))
-            };
-            let tid = id.clone();
-            let rt = RENDER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
-            rt.spawn(async move {
-                let pool = WORKER_POOL.get_or_init(|| WorkerPool::new(get_gpu_config().max_workers as usize));
-                let _permit = pool.acquire().await;
-                let opts = RenderOptions {
-                    workspace_id: tid.clone(),
-                    input_path,
-                    output_path: out_path,
-                    resolution: ws_resolution,
-                    fps: ws_fps, speed: ws_speed,
-                    trim_start: ws_trim_start, trim_end: ws_trim_end,
-                    gpu_tier: get_gpu_config().tier,
-                    preset: "p1".into(),
-                    filter_chain: if ws_is_short { FilterChain::Short } else { FilterChain::Landscape },
-                    chunked: true,
-                    chunk_duration_sec: chunk_duration as u32,
-                };
-                let pid = tid.clone();
-                let result = spawn_render_async(opts, move |progress| {
-                    let e = json!({"method": "render:progress", "params": {"id": pid, "progress": progress}});
-                    let _ = writeln!(io::stdout(), "{}", serde_json::to_string(&e).unwrap());
-                    let _ = io::stdout().flush();
-                }).await;
-                emit_workspace_event(&tid, if result.is_ok() { "done" } else { "error" },
-                    result.as_ref().err().map(|e| e.to_string()));
-            });
-            Ok(json!({"ok": true, "id": id, "status": "rendering"}))
-        }
-
-        "render:split" => Ok(json!({"ok": true})),
-
-        "render:splitPreview" => Ok(json!({"parts": []})),
-
-
-
-        // ─── Rendered videos ────────────────────────────────────────
-
-        "rendered:list" => {
-            let r_path = get_rendered_videos_path();
-            let store = RenderedStore::load(&r_path);
-            Ok(json!(store.videos))
-        }
-
-        "rendered:get" => {
-            let id = p(params, "id").unwrap_or_default();
-            let store = RenderedStore::load(&get_rendered_videos_path());
-            match store.get(&id) {
-                Some(v) => Ok(json!(v)),
-                None => Ok(json!({"ok": false, "error": "not found", "id": id})),
-            }
-        }
-
-        "rendered:archive" => {
-            let id = p(params, "id").unwrap_or_default();
-            let r_path = get_rendered_videos_path();
-            let mut store = RenderedStore::load(&r_path);
-            store.update(&id, &json!({"archived": true}));
-            store.save(&r_path).ok();
-            Ok(json!({"success": true}))
-        }
-
-        "rendered:remove" => {
-            let id = p(params, "id").unwrap_or_default();
-            let r_path = get_rendered_videos_path();
-            let mut store = RenderedStore::load(&r_path);
-            let mut bytes_freed: u64 = 0;
-            if let Some(v) = store.videos.iter().find(|v| v.id == id) {
-                let file_path = PathBuf::from(&v.output_path);
-                if file_path.exists() {
-                    if let Ok(meta) = std::fs::metadata(&file_path) { bytes_freed = meta.len(); }
-                    std::fs::remove_file(&file_path).ok();
-                }
-            }
-            store.remove(&id);
-            store.save(&r_path).ok();
-            Ok(json!({"success": true, "bytesFreed": bytes_freed}))
-        }
-
-        "rendered:openFolder" => {
-            let vid = p(params, "id").and_then(|v| if v.is_empty() { None } else { Some(v) });
-            if let Some(ref vid) = vid {
-                let r_path = get_rendered_videos_path();
-                let store = RenderedStore::load(&r_path);
-                if let Some(v) = store.videos.iter().find(|v| v.id.as_str() == vid) {
-                    if let Some(parent) = PathBuf::from(&v.output_path).parent() {
-                        std::process::Command::new("explorer").arg(parent.to_string_lossy().as_ref()).spawn().ok();
-                        return CommandResult::Ok(json!({"success": true}));
-                    }
-                }
-            }
-            let out_dir = get_legacy_output_dir();
-            if out_dir.exists() {
-                std::process::Command::new("explorer").arg(&out_dir.to_string_lossy().as_ref()).spawn().ok();
-            }
-            Ok(json!({"success": true}))
-        }
-
-        "rendered:setArchivePath" => {
-            let path = p(params, "path").unwrap_or_default();
-            let s_path = get_settings_path();
-            let mut store = SettingsStore::load(&s_path);
-            if let Some(obj) = store.settings.as_object_mut() {
-                obj.insert("archivePath".into(), json!(path));
-            }
-            store.save(&s_path).ok();
-            Ok(json!({"success": true}))
-        }
-
-
-
-        // ─── Storage ────────────────────────────────────────────────
-
-        "storage:getSize" => {
-            let media_dir = get_media_dir();
-            let base_dir = get_video_storage_path();
-            let out_dir = get_legacy_output_dir();
-            let blur_dir = base_dir.join("blur");
-            let mut downloads = dir_size_internal(&base_dir);
-            // Also scan per-channel subdirectories (legacy flat structure)
-            if let Ok(entries) = std::fs::read_dir(&base_dir) {
-                for entry in entries.flatten() {
-                    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) && entry.file_name() != "blur" {
-                        downloads += dir_size_internal(&entry.path());
-                    }
-                }
-            }
-            // New media structure
-            let media_downloads = if media_dir.exists() {
-                let mut total = 0u64;
-                if let Ok(entries) = std::fs::read_dir(&media_dir) {
-                    for entry in entries.flatten() {
-                        let dl_dir = entry.path().join("downloads");
-                        if dl_dir.exists() {
-                            total += dir_size_internal(&dl_dir);
-                        }
-                    }
-                }
-                total
-            } else { 0u64 };
-            let blur_size = dir_size_internal(&blur_dir);
-            let output = if media_dir.exists() {
-                let mut total = dir_size_internal(&out_dir);
-                if let Ok(entries) = std::fs::read_dir(&media_dir) {
-                    for entry in entries.flatten() {
-                        let render_dir = entry.path().join("renders");
-                        if render_dir.exists() {
-                            total += dir_size_internal(&render_dir);
-                        }
-                    }
-                }
-                total
-            } else {
-                dir_size_internal(&out_dir)
-            };
-            Ok(json!({
-                "downloads": downloads + media_downloads, "blur": blur_size, "total": downloads + media_downloads + output,
-                "downloadPath": base_dir.to_string_lossy().to_string(),
-                "outputPath": out_dir.to_string_lossy().to_string(),
-            }))
-        }
-
-        "storage:clearDownloads" => {
-            let video_dir = get_video_storage_path();
-            let mut freed = 0u64;
-            // Delete files in flat dir
-            if let Ok(entries) = std::fs::read_dir(&video_dir) {
-                for entry in entries.flatten() {
-                    if let Ok(meta) = entry.metadata() {
-                        if meta.is_file() {
-                            freed += meta.len();
-                            std::fs::remove_file(entry.path()).ok();
-                        }
-                    }
-                }
-            }
-            // Delete files in per-channel subdirectories
-            if let Ok(entries) = std::fs::read_dir(&video_dir) {
-                for entry in entries.flatten() {
-                    if let Ok(file_type) = entry.file_type() {
-                        if file_type.is_dir() {
-                            if let Ok(sub_entries) = std::fs::read_dir(entry.path()) {
-                                for sub in sub_entries.flatten() {
-                                    if let Ok(meta) = sub.metadata() {
-                                        if meta.is_file() {
-                                            freed += meta.len();
-                                            std::fs::remove_file(sub.path()).ok();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            Ok(json!({"success": true, "freedMB": (freed / (1024 * 1024)) as u64}))
-        }
-
-        "storage:clearBlur" => {
-            let blur_dir = get_video_storage_path().join("blur");
-            let mut freed = 0u64;
-            if let Ok(entries) = std::fs::read_dir(&blur_dir) {
-                for entry in entries.flatten() {
-                    if let Ok(meta) = entry.metadata() {
-                        if meta.is_file() {
-                            freed += meta.len();
-                            std::fs::remove_file(entry.path()).ok();
-                        }
-                    }
-                }
-            }
-            Ok(json!({"success": true, "freedMB": (freed / (1024 * 1024)) as u64}))
-        }
-
-        "storage:export" => Ok(json!({"success": true})),
-
-        "storage:import" => Ok(json!({"success": true})),
-
-
-
-        // ─── Auth ───────────────────────────────────────────────────
-
-        "auth:status" => {
-            let pool = &AppState::get_or_init().pool;
-            let is_ready = pool.is_session_logged_in(0); // Profile 1 maps to slot 0
-            let cookie_str = pool.get_session_cookie_string(0);
-            let cookie_count = if cookie_str.is_empty() {
-                0
-            } else {
-                cookie_str.matches(';').count() + 1
-            };
-
-            Ok(json!({
-                "isReady": is_ready,
-                "cookieCount": cookie_count,
-                "loggedOut": !is_ready,
-                "accountName": "HyperClip-Profile-1",
-                "oauthReady": false,
-            }))
-        }
-
-        "auth:extractCookies" => {
-
-            let profile_name = p(params, "profile_name").unwrap_or_else(|| "Default".to_string());
-
-            let profile_dir = get_chrome_user_data_dir().join(&profile_name);
-
-
-
-            match extract_chrome_cookies(&profile_dir, &profile_name) {
-
-                Ok(result) => Ok(json!({
-
-                    "ok": true,
-
-                    "data": {
-
-                        "cookies": result.cookies,
-
-                        "profile_name": result.profile_name,
-
-                        "domain": result.domain,
-
-                        "socs_value": result.socs_value,
-
-                    }
-
-                })),
-
-                Err(e) => Ok(json!({
-
-                    "ok": false,
-
-                    "error_code": format!("{:?}", e).split('(').next().unwrap_or("Unknown"),
-
-                    "error": e.to_string(),
-
-                })),
-
-            }
-
-        }
-
-        "auth:logout" => {
-            let cookies_path = get_cookies_path();
-            if cookies_path.exists() { std::fs::remove_file(&cookies_path).ok(); }
-            Ok(json!({"success": true}))
-        }
-
-        "auth:startOAuth" => {
-            launch_chrome_profile_async("HyperClip-Profile-1");
-            let pool = &AppState::get_or_init().pool;
-            let is_ready = pool.is_session_logged_in(0);
-            let cookie_str = pool.get_session_cookie_string(0);
-            let cookie_count = if cookie_str.is_empty() {
-                0
-            } else {
-                cookie_str.matches(';').count() + 1
-            };
-            Ok(json!({
-                "isReady": is_ready,
-                "cookieCount": cookie_count,
-                "loggedOut": !is_ready,
-                "accountName": "HyperClip-Profile-1",
-                "oauthReady": false,
-                "cookieCritical": false,
-            }))
-        }
-
-        "auth:startChromeLogin" => {
-            let profile = p(params, "profile").unwrap_or_else(|| "Default".to_string());
-            launch_chrome_profile_async(&profile);
-            Ok(json!({"success": true, "profileId": profile}))
-        }
-
-        "auth:setCredentials" => Ok(json!({"success": true})),
-
-        "auth:getCredentials" => Ok(json!({"clientId": ""})),
-
-
-
-        // ─── API keys ───────────────────────────────────────────────
-
-        // ─── API keys ───────────────────────────────────────────────
-
-        "key:list" => {
-            let k_path = get_keys_path();
-            let store = KeyStore::load(&k_path);
-            Ok(json!(store.keys))
-        }
-
-        "key:add" => {
-            let k_path = get_keys_path();
-            let mut store = KeyStore::load(&k_path);
-            store.add(KeyEntry {
-                key: p(params, "key").or_else(|| p(params, "apiKey")).unwrap_or_default(),
-                name: p(params, "name").unwrap_or_default(),
-                project_id: p(params, "projectId").unwrap_or_default(),
-                valid: true,
-                quota_used: 0,
-                quota_limit: 10000,
-                last_error: None,
-            });
-            store.save(&k_path).ok();
-            Ok(json!({"success": true, "keys": store.keys}))
-        }
-
-        "key:remove" => {
-            let k_path = get_keys_path();
-            let mut store = KeyStore::load(&k_path);
-            let key = p(params, "key").unwrap_or_default();
-            store.remove(&key);
-            store.save(&k_path).ok();
-            Ok(json!({"success": true, "keys": store.keys}))
-        }
-
-        "key:reset" => {
-            let k_path = get_keys_path();
-            let mut store = KeyStore::load(&k_path);
-            if let Some(key_str) = p(params, "key").filter(|k| !k.is_empty()) {
-                if let Some(k) = store.keys.iter_mut().find(|k| k.key == key_str) {
-                    k.quota_used = 0;
-                }
-            } else {
-                for k in store.keys.iter_mut() { k.quota_used = 0; }
-            }
-            store.save(&k_path).ok();
-            Ok(json!({"success": true, "keys": store.keys, "nextReset": 0}))
-        }
-
-        "key:test" => {
-            let key = p(params, "key").unwrap_or_default();
-            let valid = key.len() > 10 && key.starts_with("AIza");
-            Ok(json!({"valid": valid}))
-        }
-
-        "key:testAll" => {
-            let k_path = get_keys_path();
-            let store = KeyStore::load(&k_path);
-            let results: Vec<Value> = store.keys.iter().map(|k| {
-                json!({"key": k.key, "valid": k.valid})
-            }).collect();
-            Ok(json!({"results": results, "keys": store.keys}))
-        }
-
-
-
-        // ─── Chrome sessions ────────────────────────────────────────
-
-        "session:status" => {
-            let pool = &AppState::get_or_init().pool;
-            let mut logged_in_count = 0u64;
-            let mut consented_count = 0u64;
-            let mut sessions = Vec::new();
-
-            for i in 1..=30 {
-                let profile_id = format!("HyperClip-Profile-{}", i);
-                let profile_sapisid_ok = pool.is_session_logged_in(i - 1);
-
-                if profile_sapisid_ok {
-                    logged_in_count += 1;
-                    consented_count += 1;
-                }
-
-                sessions.push(json!({
-                    "profileId": profile_id,
-                    "profileName": format!("Profile {}", i),
-                    "isLoggedIn": profile_sapisid_ok,
-                    "isConsented": profile_sapisid_ok,
-                    "usedToday": 0i64,
-                    "lastUsed": 0i64,
-                    "error": "",
-                    "refreshFailCount": 0u64,
-                    "hasCookies": profile_sapisid_ok,
-                }));
-            }
-
-            let ready_ok = AppState::get_or_init().pool.ready_count() > 0 && logged_in_count > 0;
-            let health_pct = ((logged_in_count * 100) / 30) as u64;
-            let level = if logged_in_count >= 15 {
-                "healthy"
-            } else if logged_in_count > 0 {
-                "degraded"
-            } else {
-                "critical"
-            };
-
-            Ok(json!({
-                "ready": ready_ok,
-                "sessionCount": 30u64,
-                "loggedInCount": logged_in_count,
-                "consentedCount": consented_count,
-                "sessions": sessions,
-                "health": {
-                    "healthPct": health_pct,
-                    "degradedCount": (30u64 - logged_in_count),
-                    "staleCount": 0u64,
-                    "oldestCookieAgeHours": 0u64,
-                    "level": level,
-                },
-            }))
-        }
-
-        "session:refreshAll" => {
-            match refresh_all_profiles_cookies() {
-                Ok(count) => Ok(json!({"success": true, "refreshedCount": count})),
-                Err(e) => {
-                    tracing::error!("[session:refreshAll] {}", e);
-                    Ok(json!({"success": false, "refreshedCount": 0, "error": e}))
-                }
-            }
-        }
-
-        "session:openLogin" => {
-            let profile = p(params, "profileId").unwrap_or_else(|| "Default".to_string());
-            launch_chrome_profile_async(&profile);
-            Ok(json!({"success": true, "profileId": profile}))
-        }
-
-        "session:cloneOne" => {
-            let profile = p(params, "profileId").unwrap_or_else(|| "Default".to_string());
-            match extract_profile_cookies_and_feed(&profile) {
-                Ok(_) => Ok(json!({"success": true, "clonedCount": 1})),
-                Err(e) => Ok(json!({"success": false, "error": e})),
-            }
-        }
-
-        "session:add" => {
-            let profile = p(params, "profileId").unwrap_or_else(|| "Default".to_string());
-            match extract_profile_cookies_and_feed(&profile) {
-                Ok(_) => Ok(json!({"success": true, "profileId": profile})),
-                Err(e) => Ok(json!({"success": false, "error": e})),
-            }
-        }
-
-
-
-        // ─── OAuth projects ─────────────────────────────────────────
-
-        "project:list" => {
-            let p_path = get_projects_path();
-            let store = ProjectStore::load(&p_path);
-            Ok(json!(store.projects))
-        }
-
-        "project:tokenStatuses" => {
-            let p_path = get_projects_path();
-            let store = ProjectStore::load(&p_path);
-            Ok(json!(store.projects))
-        }
-
-        "project:add" => {
-            let p_path = get_projects_path();
-            let mut store = ProjectStore::load(&p_path);
-            let project_id = p(params, "projectId").or_else(|| p(params, "id")).unwrap_or_default();
-            store.add(ProjectEntry {
-                project_id: project_id.clone(),
-                name: p(params, "name").unwrap_or_default(),
-                client_id: p(params, "clientId").unwrap_or_default(),
-                healthy: true,
-                quota_used: 0,
-                quota_limit: 10000,
-                error: None,
-                last_refresh: chrono::Utc::now().timestamp(),
-            });
-            store.save(&p_path).ok();
-            Ok(json!({"success": true, "projectId": project_id}))
-        }
-
-        "project:remove" => {
-            let p_path = get_projects_path();
-            let mut store = ProjectStore::load(&p_path);
-            let project_id = p(params, "projectId").unwrap_or_default();
-            store.remove(&project_id);
-            store.save(&p_path).ok();
-            Ok(json!({"success": true}))
-        }
-
-        "project:resetQuota" => {
-            let p_path = get_projects_path();
-            let mut store = ProjectStore::load(&p_path);
-            let project_id = p(params, "projectId").unwrap_or_default();
-            if let Some(p) = store.projects.iter_mut().find(|p| p.project_id == project_id) {
-                p.quota_used = 0;
-            }
-            store.save(&p_path).ok();
-            Ok(json!({"success": true}))
-        }
-
-        "project:reauthorize" => Ok(json!({"success": true})),
-
-        "project:repair" => {
-            let p_path = get_projects_path();
-            let mut store = ProjectStore::load(&p_path);
-            let project_id = p(params, "projectId").unwrap_or_default();
-            if let Some(p) = store.projects.iter_mut().find(|p| p.project_id == project_id) {
-                p.healthy = true;
-                p.error = None;
-            }
-            store.save(&p_path).ok();
-            Ok(json!({"success": true}))
-        }
-
-        "project:testAll" => {
-            let p_path = get_projects_path();
-            let store = ProjectStore::load(&p_path);
-            Ok(json!({"projects": store.projects, "checkedAt": chrono::Utc::now().timestamp()}))
-        }
-
-        "project:batchRepair" => {
-            let p_path = get_projects_path();
-            let mut store = ProjectStore::load(&p_path);
-            for p in store.projects.iter_mut() {
-                p.healthy = true;
-                p.error = None;
-            }
-            store.save(&p_path).ok();
-            Ok(json!({"updated": store.projects.len()}))
-        }
-
-        "project:testToken" => Ok(json!({"valid": false})),
-
-
-
-        // ─── Poller ─────────────────────────────────────────────────
-
-        "poller:start" => {
-            // Check polling_enabled setting
-            let s_path = get_settings_path();
-            let s_store = SettingsStore::load(&s_path);
-            let polling_enabled = s_store.settings.get("pollingEnabled").and_then(|v| v.as_bool()).unwrap_or(false);
-
-            if polling_enabled {
-                AppState::get_or_init().start_poller();
-                Ok(json!({ "ok": true, "active": true }))
-            } else {
-                Ok(json!({ "ok": false, "active": false, "error": "polling_enabled is false in settings" }))
-            }
-        }
-
-        "poller:stop" => {
-
-            AppState::get_or_init().stop_poller();
-
-            Ok(json!({ "ok": true, "active": false }))
-
-        }
-
-        "poller:status" => {
-
-            let state = AppState::get_or_init();
-            let s_path = get_settings_path();
-            let s_store = SettingsStore::load(&s_path);
-            let _max_age = s_store.settings.get("autoDownloadMaxAgeMinutes").and_then(|v| v.as_u64()).unwrap_or(1440);
-            let poll_int = s_store.settings.get("pollIntervalMs").and_then(|v| v.as_u64()).unwrap_or(5000);
-            let _min_dur = s_store.settings.get("videoMinDurationSec").and_then(|v| v.as_u64()).unwrap_or(60);
-
-            let last_poll_at = chrono::Utc::now().timestamp_millis();
-
-            Ok(json!({
-
-                "active": state.poller_active(),
-
-                "pollIntervalMs": poll_int,
-
-                "lastPollAt": last_poll_at,
-
-                "newVideoCount": state.detections_today() as u64,
-
-                "lastError": "",
-
-                "innertubeDegraded": state.pool_ready_count() == 0,
-
-                "lastDetectionLatencyMs": state.last_detection_latency(),
-
-                "detectionsToday": state.detections_today(),
-
-                "averageLatencyMs": state.average_latency(),
-
-                "slaPercent": state.sla_percent(),
-
-            }))
-
-        }
-
-        "detection:history" => {
-
-            let state = AppState::get_or_init();
-            let events = state.detection_events();
-            // Transform to camelCase for Python/QML compatibility
-            let transformed: Vec<serde_json::Value> = events.into_iter().map(|e| {
-                json!({
-                    "wsId": e.ws_id,
-                    "videoId": e.video_id,
-                    "title": e.title,
-                    "channelName": e.channel_name,
-                    "publishedAt": e.published_at,
-                    "detectedAt": e.detected_at,
-                    "latencyMs": e.latency_ms,
-                    "durationSec": e.duration_sec,
-                    "status": e.status,
-                })
-            }).collect();
-            Ok(json!({ "events": transformed }))
-
-        }
-
-        "poller:resume" => {
-            // Check polling_enabled setting
-            let s_path = get_settings_path();
-            let s_store = SettingsStore::load(&s_path);
-            let polling_enabled = s_store.settings.get("pollingEnabled").and_then(|v| v.as_bool()).unwrap_or(false);
-
-            if polling_enabled {
-                AppState::get_or_init().start_poller();
-                Ok(json!({ "success": true }))
-            } else {
-                Ok(json!({ "success": false, "error": "polling_enabled is false in settings" }))
-            }
-        }
-
-
-
-        // ─── Resource alerts ────────────────────────────────────────
-
-        "resource:alert" => {
-            Ok(json!({"level": "ok", "freeDiskGB": 10.0}))
-        }
-
-
-
-        // ─── Logs ───────────────────────────────────────────────────
-
-        "logs:read" => {
-            let log_dir = get_logs_dir();
-            let file_param = p(params, "file").unwrap_or_default();
-            let max_lines = p_u64(params, "max_lines").unwrap_or(500) as usize;
-
-            let mut files = vec![];
-            let mut entries = vec![];
-            if log_dir.exists() {
-                if let Ok(dir) = std::fs::read_dir(&log_dir) {
-                    for entry in dir.flatten() {
-                        if let Ok(meta) = entry.metadata() {
-                            if meta.is_file() {
-                                files.push(entry.file_name().to_string_lossy().to_string());
-                            }
-                        }
-                    }
-                }
-                files.sort();
-                files.reverse();
-
-                let target_file = if file_param.is_empty() {
-                    files.first().cloned()
-                } else {
-                    Some(file_param)
-                };
-
-                if let Some(fname) = target_file {
-                    let log_path = log_dir.join(&fname);
-                    if let Ok(content) = std::fs::read_to_string(&log_path) {
-                        entries = content.lines().rev().take(max_lines).map(|l| l.to_string()).collect::<Vec<_>>();
-                        entries.reverse();
-                    }
-                }
-            }
-            Ok(json!({"files": files, "entries": entries}))
-        }
-
-        "logs:export" => {
-            let log_dir = get_logs_dir();
-            let export_dir = PathBuf::from(std::env::var("TEMP").unwrap_or_else(|_| "C:/temp".into()))
-                .join("HyperClip-Logs-Export");
-            std::fs::create_dir_all(&export_dir).ok();
-            if log_dir.exists() {
-                for entry in std::fs::read_dir(&log_dir).into_iter().flatten() {
-                    if let Ok(e) = entry {
-                        if e.file_type().map(|t| t.is_file()).unwrap_or(false) {
-                            let dest = export_dir.join(e.file_name());
-                            std::fs::copy(e.path(), &dest).ok();
-                        }
-                    }
-                }
-            }
-            Ok(json!({"success": true, "exportPath": export_dir.to_string_lossy().to_string()}))
-        }
-
-        "logs:list" => {
-            let log_dir = get_logs_dir();
-            let mut files = vec![];
-            if log_dir.exists() {
-                for entry in std::fs::read_dir(&log_dir).into_iter().flatten() {
-                    if let Ok(e) = entry {
-                        if let Ok(meta) = e.metadata() {
-                            if meta.is_file() {
-                                let modified = meta.modified().ok()
-                                    .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
-                                    .map(|d| d.as_secs())
-                                    .unwrap_or(0);
-                                files.push(json!({
-                                    "name": e.file_name().to_string_lossy().to_string(),
-                                    "size": meta.len(),
-                                    "modified": modified,
-                                }));
-                            }
-                        }
-                    }
-                }
-            }
-            files.sort_by(|a, b| b["modified"].as_u64().unwrap_or(0).cmp(&a["modified"].as_u64().unwrap_or(0)));
-            Ok(json!({"files": files}))
-        }
-
-        "logs:diskUsage" => {
-            let log_dir = get_logs_dir();
-            let mut total_bytes = 0u64;
-            let mut file_count = 0u64;
-            let mut oldest_age = 0u64;
-            if log_dir.exists() {
-                for entry in std::fs::read_dir(&log_dir).into_iter().flatten() {
-                    if let Ok(e) = entry {
-                        if let Ok(meta) = e.metadata() {
-                            if meta.is_file() {
-                                total_bytes += meta.len();
-                                file_count += 1;
-                                if let Ok(modified) = meta.modified() {
-                                    let age = std::time::SystemTime::now()
-                                        .duration_since(modified).map(|d| d.as_secs()).unwrap_or(0);
-                                    if age > oldest_age { oldest_age = age; }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            Ok(json!({"totalBytes": total_bytes, "fileCount": file_count, "oldestAge": oldest_age}))
-        }
-
-        "logs:cleanup" => {
-            let log_dir = get_logs_dir();
-            let mut deleted = 0u64;
-            let mut freed = 0u64;
-            if log_dir.exists() {
-                for entry in std::fs::read_dir(&log_dir).into_iter().flatten() {
-                    if let Ok(e) = entry {
-                        if let Ok(meta) = e.metadata() {
-                            if meta.is_file() && meta.len() > 1024 * 1024 {
-                                freed += meta.len();
-                                std::fs::remove_file(e.path()).ok();
-                                deleted += 1;
-                            }
-                        }
-                    }
-                }
-            }
-            Ok(json!({"deletedCount": deleted, "freedBytes": freed}))
-        }
-
-
-
-        // ─── Update ─────────────────────────────────────────────────
-
-        "update:check" => {
-            let update_ini = PathBuf::from(".").join("UPDATE.ini");
-            let available = update_ini.exists();
-            let version = if available {
-                std::fs::read_to_string(&update_ini).unwrap_or_else(|_| "0.0.0".to_string())
-            } else {
-                "0.0.0".to_string()
-            };
-            Ok(json!({
-                "available": available,
-                "version": version.trim(),
-                "releaseNotes": "",
-                "downloadUrl": null,
-                "downloadSize": 0,
-                "publishedAt": "",
-            }))
-        }
-
-        "update:download" => Ok(json!({"success": true})),
-
-        "update:install" => Ok(json!({"success": true})),
-
-        "update:status" => Ok(json!({
-            "available": false,
-            "version": "0.0.0",
-            "releaseNotes": "",
-            "downloadSize": 0,
-            "progress": 0,
-            "downloaded": false,
-            "downloadedPath": null,
-        })),
-
-        // ─── Hardware profile ───────────────────────────────────────
-
-        "hardware:profile" => {
-            let stats = get_system_stats();
-            // Read saved hardware profile from settings
-            let s_path = get_settings_path();
-            let s_store = SettingsStore::load(&s_path);
-            let active = s_store.settings.get("hardwareProfile")
-                .and_then(|v| v.get("vramGB"))
-                .and_then(|v| v.as_u64())
-                .map(|v| match v {
-                    16 => "ultra",
-                    12 => "high",
-                    8 => "medium",
-                    6 => "low",
-                    4 => "minimal",
-                    _ => "low",
-                })
-                .unwrap_or("low");
-            Ok(json!({
-                "detected": {
-                    "vramGB": stats.vram_total_gb,
-                    "ramGB": (stats.ram_total / (1024 * 1024 * 1024)) as u32,
-                    "gpuName": stats.gpu_name,
-                },
-                "active": active,
-            }))
-        }
-
-
-
-        // ─── Unknown command ────────────────────────────────────────
-
-        other => {
-
-            tracing::warn!("unknown command: {}", other);
-
-            Err(format!("unknown command: {}", other))
-
-        }
-
-    };
-
-
-
-    match result {
-
-        Ok(v) => CommandResult::Ok(v),
-
-        Err(e) => CommandResult::Err(e),
-
+    if cmd.starts_with("system:") || cmd.starts_with("hardware:") || cmd.starts_with("logs:") || cmd.starts_with("update:") {
+        system::handle(cmd, params)
+    } else if cmd.starts_with("settings:") {
+        settings::handle(cmd, params)
+    } else if cmd.starts_with("channel:") || cmd.starts_with("key:") || cmd.starts_with("poller:") || cmd.starts_with("detection:") {
+        channel::handle(cmd, params)
+    } else if cmd.starts_with("workspace:") || cmd.starts_with("video:") || cmd.starts_with("image:") || cmd.starts_with("render:") || cmd.starts_with("rendered:") || cmd.starts_with("storage:") || cmd == "resource:alert" {
+        workspace::handle(cmd, params)
+    } else if cmd.starts_with("auth:") || cmd.starts_with("session:") || cmd.starts_with("project:") {
+        auth::handle(cmd, params)
+    } else {
+        CommandResult::Err(format!("unknown command: {}", cmd))
     }
-
 }
 
 
@@ -3719,9 +1729,12 @@ fn enrich_workspace_for_management(ws: &hyperclip_ipc::store::Workspace) -> Valu
         Some(t) if download_start > 0 => ((t - download_start).max(0) as f64) / 1000.0,
         _ => 0.0,
     };
-    let render_duration_sec = match (download_finished, rendered_mtime) {
-        (Some(d), Some(r)) if r > d => ((r - d) as f64) / 1000.0,
-        _ => 0.0,
+    let render_duration_sec = match ws.render_duration_sec {
+        Some(sec) => sec,
+        None => match (download_finished, rendered_mtime) {
+            (Some(d), Some(r)) if r > d => ((r - d) as f64) / 1000.0,
+            _ => 0.0,
+        }
     };
     let detection_duration_sec = ((ws.created_at - ws.published_at).max(0) as f64) / 1000.0;
 
@@ -4222,4 +2235,165 @@ fn migrate_old_data() {
     migrate_media_folders_and_workspaces();
 
     tracing::info!("[Migrate] Store directory at {:?}", store_dir);
+}
+
+#[derive(Debug, Clone)]
+pub struct ResolvedHardwareConfig {
+    pub render_workers: usize,
+    pub chunk_workers: usize,
+    pub download_instances: usize,
+    pub nvenc_preset: String,
+    pub concurrent_fragments: u32,
+    pub gpu_tier: hyperclip_ipc::GPUTier,
+}
+
+pub fn get_resolved_hardware_config() -> ResolvedHardwareConfig {
+    let s_path = get_settings_path();
+    let s_store = SettingsStore::load(&s_path);
+    
+    let stats = get_system_stats();
+    let gpu = get_gpu_config();
+
+    // Determine target VRAM. Either from saved settings or fall back to auto-detected.
+    let vram = if let Some(profile) = s_store.settings.get("hardwareProfile") {
+        profile.get("vramGB").and_then(|v| v.as_u64()).unwrap_or(stats.vram_total_gb as u64)
+    } else {
+        stats.vram_total_gb as u64
+    };
+
+    // Default values if no profile match or software encoding
+    let mut render_workers = gpu.max_workers as usize;
+    let mut chunk_workers = 8;
+    let mut download_instances = 2;
+    let mut nvenc_preset = "p1".to_string();
+    let mut concurrent_fragments = 16;
+    let mut gpu_tier = gpu.tier;
+    
+    if gpu.tier != hyperclip_ipc::GPUTier::Software {
+        match vram {
+            v if v >= 16 => { // Ultra
+                render_workers = 6;
+                chunk_workers = 14;
+                download_instances = 6;
+                nvenc_preset = "p4".to_string(); // p4 is optimized high-quality, p7 is high quality but slower
+                concurrent_fragments = 64;
+                gpu_tier = hyperclip_ipc::GPUTier::High;
+            }
+            v if v >= 12 => { // High
+                render_workers = 3;
+                chunk_workers = 6;
+                download_instances = 2;
+                nvenc_preset = "p3".to_string();
+                concurrent_fragments = 32;
+                gpu_tier = hyperclip_ipc::GPUTier::High;
+            }
+            v if v >= 8 => { // Medium
+                render_workers = 2;
+                chunk_workers = 4;
+                download_instances = 2;
+                nvenc_preset = "p2".to_string();
+                concurrent_fragments = 16;
+                gpu_tier = hyperclip_ipc::GPUTier::Mid;
+            }
+            v if v >= 6 => { // Low
+                render_workers = 2;
+                chunk_workers = 2;
+                download_instances = 1;
+                nvenc_preset = "p1".to_string();
+                concurrent_fragments = 8;
+                gpu_tier = hyperclip_ipc::GPUTier::Low;
+            }
+            _ => { // Minimal
+                render_workers = 1;
+                chunk_workers = 1;
+                download_instances = 1;
+                nvenc_preset = "p1".to_string();
+                concurrent_fragments = 4;
+                gpu_tier = hyperclip_ipc::GPUTier::Low;
+            }
+        }
+    }
+    
+    ResolvedHardwareConfig {
+        render_workers,
+        chunk_workers,
+        download_instances,
+        nvenc_preset,
+        concurrent_fragments,
+        gpu_tier,
+    }
+}
+
+fn trigger_startup_render(ws: &hyperclip_ipc::store::Workspace) {
+    let rid = ws.id.clone();
+    let in_path = if let Some(ref path) = ws.downloaded_path {
+        PathBuf::from(path)
+    } else {
+        return;
+    };
+    let (cid_split, cname_split, _) = lookup_channel_ids(&ws.id);
+    let out_path = if !cid_split.is_empty() || !cname_split.is_empty() {
+        hyperclip_ipc::store::build_render_path(&cid_split, &cname_split, &rid)
+    } else {
+        let legacy_out = get_legacy_output_dir();
+        std::fs::create_dir_all(&legacy_out).ok();
+        legacy_out.join(format!("{}.mp4", rid))
+    };
+
+    if out_path.exists() {
+        tracing::info!("[AppState] Startup catch-up: Render file already exists at {:?}, skipping render", out_path);
+        let ws_path = get_workspaces_path();
+        let mut ws_store = WorkspaceStore::load(&ws_path);
+        ws_store.update(&rid, serde_json::json!({
+            "status": "done",
+            "renderedPath": out_path.to_string_lossy().to_string(),
+        })).ok();
+        ws_store.save(&ws_path).ok();
+        emit_workspace_event(&rid, "done", None);
+        return;
+    }
+
+    tracing::info!("[AppState] Startup catch-up: Spawning render for workspace: {}, input: {}, output: {}", rid, in_path.display(), out_path.display());
+
+    let ws_path = get_workspaces_path();
+    let mut ws_store = WorkspaceStore::load(&ws_path);
+    ws_store.update(&rid, serde_json::json!({
+        "status": "rendering",
+    })).ok();
+    ws_store.save(&ws_path).ok();
+    emit_workspace_event(&rid, "rendering", None);
+
+    let rt = RENDER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
+    let res = ws.export_resolution.clone();
+    let fps = ws.fps_target;
+    let speed = ws.video_speed;
+    let part_is_short = ws.is_short;
+    let trim_start = ws.trim_start;
+    let trim_end = ws.trim_end;
+    rt.spawn(async move {
+        let hw_cfg = get_resolved_hardware_config();
+        let pool = get_render_worker_pool();
+        let _permit = pool.acquire().await;
+        let opts = RenderOptions {
+            workspace_id: rid.clone(),
+            input_path: in_path.clone(),
+            output_path: out_path.clone(),
+            resolution: res,
+            fps,
+            speed,
+            trim_start, trim_end,
+            gpu_tier: hw_cfg.gpu_tier,
+            preset: hw_cfg.nvenc_preset,
+            filter_chain: if part_is_short { FilterChain::Short } else { FilterChain::Landscape },
+            chunked: false, chunk_duration_sec: 120,
+        };
+        let pid = rid.clone();
+        let start_time = std::time::Instant::now();
+        let result = spawn_render_async(opts, move |progress| {
+            let e = serde_json::json!({"method": "render:progress", "params": {"id": pid, "progress": progress}});
+            hyperclip_ipc::emit_raw(&serde_json::to_string(&e).unwrap_or_default());
+        }).await;
+        let duration_secs = start_time.elapsed().as_secs_f64();
+        handle_render_completion(&rid, result, duration_secs);
+    });
 }

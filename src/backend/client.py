@@ -34,12 +34,30 @@ import json
 import subprocess
 import threading
 
+# Prevent crashes when sys.stderr or sys.stdout are None in PyInstaller Windowed mode
+if sys.stderr is None:
+    class DummyWriter:
+        def write(self, *args, **kwargs): pass
+        def flush(self, *args, **kwargs): pass
+    sys.stderr = DummyWriter()
+if sys.stdout is None:
+    class DummyWriter:
+        def write(self, *args, **kwargs): pass
+        def flush(self, *args, **kwargs): pass
+    sys.stdout = DummyWriter()
+
 from PySide6.QtCore import QObject, Signal, Slot, Qt, QEventLoop, QTimer
 
 
 from src.data_dir import get_data_dir
 
 def find_hyperclip_backend():
+    if getattr(sys, 'frozen', False):
+        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        candidate = os.path.join(base_dir, "hyperclip-tauri.exe")
+        if os.path.exists(candidate):
+            return os.path.abspath(candidate)
+
     candidates = [
         os.path.join("target", "release", "hyperclip-tauri.exe"),
         os.path.join("src-tauri", "target", "release", "hyperclip-tauri.exe"),
@@ -85,24 +103,62 @@ class RustClient(QObject):
         self._stderr_thread = None
         self._stop_event = threading.Event()
 
+        self._conn_sock = None
+        self._conn_file = None
+
         self.eventReceived.connect(self._on_event_signal, Qt.QueuedConnection)
         self._start()
 
     def _start(self):
         try:
+            import socket
+            # 1. Bind server socket to free local port
+            server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server_sock.bind(('127.0.0.1', 0))
+            server_sock.listen(1)
+            port = server_sock.getsockname()[1]
+            sys.stderr.write(f"[RustClient] Listening on TCP port {port}\n")
+            sys.stderr.flush()
+
             env = os.environ.copy()
             data_dir = get_data_dir()
             env["HYPERCLIP_DATA_DIR"] = os.path.abspath(data_dir)
+
+            creationflags = 0
+            if sys.platform == "win32":
+                creationflags = 0x08000000 # CREATE_NO_WINDOW
+
+            # Start process, passing the port
             self._proc = subprocess.Popen(
-                [self._binary_path],
+                [self._binary_path, "--port", str(port)],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 bufsize=0,
                 env=env,
+                creationflags=creationflags,
             )
-        except FileNotFoundError as e:
-            raise RuntimeError("Backend binary not found: " + str(self._binary_path)) from e
+
+            # Wait for backend connection
+            server_sock.settimeout(5.0)
+            try:
+                self._conn_sock, addr = server_sock.accept()
+                self._conn_file = self._conn_sock.makefile('rwb', buffering=0)
+                sys.stderr.write(f"[RustClient] Connected to backend at {addr}\n")
+                sys.stderr.flush()
+            except socket.timeout as e:
+                raise RuntimeError("Timed out waiting for backend TCP connection") from e
+            finally:
+                server_sock.close()
+
+        except Exception as e:
+            if self._proc:
+                try:
+                    self._proc.terminate()
+                except Exception:
+                    pass
+            raise RuntimeError("Backend startup failed: " + str(e)) from e
+
         self._reader_thread = threading.Thread(
             target=self._read_stdout, daemon=True, name="rust-reader"
         )
@@ -129,9 +185,9 @@ class RustClient(QObject):
 
         try:
             with self._write_lock:
-                assert self._proc and self._proc.stdin
-                self._proc.stdin.write(line.encode("utf-8"))
-                self._proc.stdin.flush()
+                assert self._conn_file
+                self._conn_file.write(line.encode("utf-8"))
+                self._conn_file.flush()
         except (BrokenPipeError, OSError) as e:
             with self._pending_lock:
                 self._pending.pop(req_id, None)
@@ -172,33 +228,13 @@ class RustClient(QObject):
 
     # ── Reader thread ─────────────────────────────────────────────────
     def _read_stdout(self):
-        assert self._proc and self._proc.stdout
-        import os as _os
-        # Non-blocking raw read on the underlying fd. `read(n)` on a buffered
-        # text-mode file may wait for `n` bytes on Windows, which starves
-        # `send_command`'s QEventLoop when a small JSON response is in flight.
-        stdout_fd = self._proc.stdout.fileno()
-        try:
-            _os.set_blocking(stdout_fd, False)
-        except (OSError, ValueError):
-            pass
-
-        buf = b""
+        assert self._conn_file
         while not self._stop_event.is_set():
             try:
-                try:
-                    chunk = _os.read(stdout_fd, 4096)
-                except (BlockingIOError, OSError):
-                    self._stop_event.wait(0.01)
-                    continue
-                if not chunk:
+                line_bytes = self._conn_file.readline()
+                if not line_bytes:
                     break  # EOF
-            except ValueError:
-                break
-            buf += chunk
-            while b"\n" in buf:
-                raw, buf = buf.split(b"\n", 1)
-                line = raw.decode("utf-8", errors="replace").strip()
+                line = line_bytes.decode("utf-8", errors="replace").strip()
                 if not line:
                     continue
                 try:
@@ -220,6 +256,10 @@ class RustClient(QObject):
                             self._invoke_callback_async(cell[1], msg)
                 else:
                     self.eventReceived.emit(msg)
+            except Exception as e:
+                if not self._stop_event.is_set():
+                    sys.stderr.write(f"[RustClient] socket read error: {e}\n")
+                break
 
     def _invoke_callback_async(self, callback, msg):
         # We can't easily marshal Python callables through Qt's QueuedConnection
@@ -304,6 +344,16 @@ class RustClient(QObject):
 
     def stop(self):
         self._stop_event.set()
+        if self._conn_file:
+            try:
+                self._conn_file.close()
+            except Exception:
+                pass
+        if self._conn_sock:
+            try:
+                self._conn_sock.close()
+            except Exception:
+                pass
         if self._proc and self._proc.poll() is None:
             try:
                 self._proc.terminate()

@@ -57,6 +57,21 @@ Rectangle {
             }
             if (found) {
                 root.workspaces = updatedList;
+            } else {
+                if (params.id) {
+                    let newWs = {
+                        "id": params.id,
+                        "video_id": params.video_id || params.videoId || "",
+                        "channel_id": params.channel_id || params.channelId || "",
+                        "channelName": params.channelName || params.channel_name || "",
+                        "title": params.title || "",
+                        "status": params.status || "ready",
+                        "createdAt": params.createdAt || params.created_at || Date.now(),
+                        "thumbnailLocal": params.thumbnailLocal || params.thumbnail_local || ""
+                    };
+                    root.workspaces = [newWs].concat(root.workspaces);
+                    root.totalCount = root.workspaces.length;
+                }
             }
         }
         function onNew_video_detected(params) {
@@ -108,6 +123,19 @@ Rectangle {
         detailLoading = false
     }
 
+    function getSplitPartsFor(parentId) {
+        if (!parentId) return [];
+        let parts = [];
+        for (let i = 0; i < root.workspaces.length; i++) {
+            let ws = root.workspaces[i];
+            if (ws.id.startsWith(parentId + "-part")) {
+                parts.push(ws);
+            }
+        }
+        parts.sort((a, b) => a.id.localeCompare(b.id));
+        return parts;
+    }
+
     // ─── Time formatters ─────────────────────────────────────────────
     function fmtAbsTime(ms) {
         if (!ms || ms <= 0) return "—"
@@ -140,6 +168,16 @@ Rectangle {
         if (h > 0) return h + "h " + m + "m " + s + "s"
         if (m > 0) return m + "m " + s + "s"
         return s + "s"
+    }
+    function fmtDetectionDuration(sec) {
+        if (!sec || sec <= 0) return "—"
+        if (sec < 60) return sec.toFixed(1) + "s"
+        const h = Math.floor(sec / 3600)
+        const m = Math.floor((sec % 3600) / 60)
+        const s = sec % 60
+        if (h > 0) return h + "h " + m + "m " + s.toFixed(1) + "s"
+        if (m > 0) return m + "m " + s.toFixed(1) + "s"
+        return s.toFixed(1) + "s"
     }
     function fmtBytes(b) {
         if (!b || b <= 0) return "—"
@@ -209,12 +247,14 @@ Rectangle {
         }
     }
 
-    // ─── Reusable: key-value row ─────────────────────────────────────
     component KVRow: RowLayout {
+        id: kvRow
         property string keyText: ""
         property string valueText: ""
         property bool mono: false
         property bool multiline: false
+        property bool clickable: false
+        signal clicked()
         spacing: 12
         Layout.fillWidth: true
         Label {
@@ -226,12 +266,20 @@ Rectangle {
         }
         Label {
             text: valueText || "—"
-            color: valueText ? Theme.text : Theme.textMuted
+            color: clickable && valueText && valueText !== "—" ? Theme.accent : (valueText ? Theme.text : Theme.textMuted)
             font.pixelSize: 12
             font.family: mono ? "monospace" : "sans-serif"
+            font.underline: clickable && valueText && valueText !== "—"
             elide: multiline ? Text.ElideNone : Text.ElideRight
             wrapMode: multiline ? Text.WordWrap : Text.NoWrap
             Layout.fillWidth: true
+
+            MouseArea {
+                anchors.fill: parent
+                enabled: clickable && valueText && valueText !== "—"
+                cursorShape: Qt.PointingHandCursor
+                onClicked: kvRow.clicked()
+            }
         }
     }
 
@@ -582,6 +630,12 @@ Rectangle {
                                         ? "https://www.youtube.com/watch?v=" + root.currentVideoData.video_id
                                         : ""
                                     mono: true
+                                    clickable: true
+                                    onClicked: {
+                                        if (valueText) {
+                                            backend.send_command("system:openUrl", {"url": valueText})
+                                        }
+                                    }
                                 }
                                 KVRow {
                                     keyText: "Published"
@@ -656,6 +710,12 @@ Rectangle {
                                     valueText: root.currentVideoData.downloadedPath || ""
                                     mono: true
                                     multiline: true
+                                    clickable: true
+                                    onClicked: {
+                                        if (valueText) {
+                                            backend.send_command("system:openFolder", {"path": valueText})
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -725,6 +785,28 @@ Rectangle {
                                     valueText: root.currentVideoData.renderedPath || "—"
                                     mono: true
                                     multiline: true
+                                    clickable: true
+                                    visible: getSplitPartsFor(root.currentVideoId).length === 0
+                                    onClicked: {
+                                        if (valueText && valueText !== "—") {
+                                            backend.send_command("system:openFolder", {"path": valueText})
+                                        }
+                                    }
+                                }
+                                Repeater {
+                                    model: getSplitPartsFor(root.currentVideoId)
+                                    delegate: KVRow {
+                                        keyText: "Đầu ra (" + (modelData.title || modelData.id) + ")"
+                                        valueText: modelData.renderedPath || "— (đang render...)"
+                                        mono: true
+                                        multiline: true
+                                        clickable: !!modelData.renderedPath
+                                        onClicked: {
+                                            if (modelData.renderedPath) {
+                                                backend.send_command("system:openFolder", {"path": modelData.renderedPath})
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -796,7 +878,7 @@ Rectangle {
                                         }
                                         Label {
                                             text: root.fmtFullTime(root.currentVideoData.createdAt)
-                                                + "  ·  mất " + root.fmtDuration(root.currentVideoData.detectionDurationSec || 0)
+                                                + "  ·  mất " + root.fmtDetectionDuration(root.currentVideoData.detectionDurationSec || 0)
                                             color: Theme.text
                                             font.pixelSize: 11
                                         }

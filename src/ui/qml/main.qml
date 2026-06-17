@@ -19,6 +19,16 @@ ApplicationWindow {
     // Center pane view state: "settings" | "workspace" | "rendered" | "operation" | "management"
     property string centerView: "settings"
     property string filterChannelId: ""
+    property string pendingView: ""
+
+    function changeView(view) {
+        if (root.centerView === "settings" && view !== "settings" && settings.dirty) {
+            root.pendingView = view
+            unsavedDialog.open()
+        } else {
+            root.centerView = view
+        }
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -30,7 +40,7 @@ ApplicationWindow {
             Layout.fillWidth: true
             centerView: root.centerView
             onNavigateToView: function(view) {
-                root.centerView = view
+                root.changeView(view)
             }
         }
 
@@ -208,7 +218,7 @@ ApplicationWindow {
                                         cursorShape: Qt.PointingHandCursor
                                         onClicked: {
                                             detailEditor.loadRendered(model.id)
-                                            root.centerView = "rendered"
+                                            root.changeView("rendered")
                                             var resp = backend.send_command("rendered:get", {"id": model.id})
                                             if (resp && resp.ok !== false) {
                                                 detailEditor.currentRenderedData = resp.result
@@ -237,7 +247,7 @@ ApplicationWindow {
                         onOpenWorkspace: function(ws_id) {
                             // Switch view immediately with model data
                             detailEditor.loadWorkspace(ws_id)
-                            root.centerView = "workspace"
+                            root.changeView("workspace")
                             // Async fetch full data from Rust
                             var resp = backend.send_command("workspace:get", {"id": ws_id})
                             if (resp && resp.ok !== false) {
@@ -273,7 +283,7 @@ ApplicationWindow {
     LoginScreen {
         id: loginOverlay
         anchors.fill: parent
-        visible: !auth.isReady
+        visible: auth ? !auth.isReady : true
         z: 999
     }
 
@@ -294,6 +304,172 @@ ApplicationWindow {
             text: "🆕 Có bản cập nhật mới"
             color: Theme.accent
             font.pixelSize: 14
+        }
+    }
+
+    Dialog {
+        id: unsavedDialog
+        title: "Thay đổi chưa lưu"
+        modal: true
+        anchors.centerIn: parent
+        width: 420
+        standardButtons: Dialog.NoButton
+
+        background: Rectangle {
+            color: Theme.cardBg
+            border.color: Theme.border
+            border.width: 1
+            radius: 12
+            Rectangle {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 4
+                color: Theme.accent
+                radius: 12
+            }
+            Rectangle {
+                anchors.top: parent.top
+                anchors.topMargin: 2
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 10
+                color: Theme.cardBg
+                z: -1
+            }
+        }
+
+        header: Rectangle {
+            color: "transparent"
+            height: 56
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 20
+                anchors.rightMargin: 20
+                spacing: 10
+                Text {
+                    text: "⚠️"
+                    font.pixelSize: 20
+                }
+                Label {
+                    text: "Xác nhận chuyển trang"
+                    color: Theme.text
+                    font.pixelSize: 16
+                    font.bold: true
+                    Layout.fillWidth: true
+                }
+            }
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 20
+            
+            Label {
+                text: "Bạn có thay đổi cài đặt chưa lưu. Bạn có muốn lưu các thay đổi này trước khi chuyển trang không?"
+                color: "#CCCCCC"
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                Layout.leftMargin: 20
+                Layout.rightMargin: 20
+                lineHeight: 1.2
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                height: 1
+                color: Theme.border
+                Layout.leftMargin: 20
+                Layout.rightMargin: 20
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: 20
+                Layout.rightMargin: 20
+                Layout.bottomMargin: 16
+                spacing: 10
+
+                Button {
+                    id: cancelBtn
+                    text: "Hủy"
+                    contentItem: Text {
+                        text: cancelBtn.text
+                        font.pixelSize: 13
+                        font.bold: true
+                        color: cancelBtn.hovered ? "#FFFFFF" : Theme.textMuted
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        implicitWidth: 80
+                        implicitHeight: 36
+                        color: cancelBtn.hovered ? "#333333" : "transparent"
+                        border.color: cancelBtn.hovered ? "#444444" : "transparent"
+                        radius: 6
+                    }
+                    onClicked: {
+                        unsavedDialog.close()
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+
+                Button {
+                    id: discardBtn
+                    text: "Không lưu"
+                    contentItem: Text {
+                        text: discardBtn.text
+                        font.pixelSize: 13
+                        font.bold: true
+                        color: discardBtn.hovered ? "#FF6666" : "#FF4444"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        implicitWidth: 100
+                        implicitHeight: 36
+                        color: discardBtn.hovered ? "#2D1A1A" : "transparent"
+                        border.color: "#FF4444"
+                        border.width: 1
+                        radius: 6
+                    }
+                    onClicked: {
+                        settings.discard_changes()
+                        toastService.show("Đã huỷ thay đổi", "Các cài đặt đã được khôi phục", "info")
+                        root.centerView = root.pendingView
+                        unsavedDialog.close()
+                    }
+                }
+
+                Button {
+                    id: saveBtn
+                    text: "Lưu cài đặt"
+                    contentItem: Text {
+                        text: saveBtn.text
+                        font.pixelSize: 13
+                        font.bold: true
+                        color: "#FFFFFF"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        implicitWidth: 110
+                        implicitHeight: 36
+                        color: saveBtn.hovered ? "#00A4EF" : Theme.accent
+                        radius: 6
+                    }
+                    onClicked: {
+                        if (settings.save_to_backend(backend)) {
+                            toastService.show("Đã lưu", "Cài đặt đã được lưu thành công", "success")
+                            root.centerView = root.pendingView
+                        } else {
+                            toastService.show("Lỗi", "Không thể lưu cài đặt", "error")
+                        }
+                        unsavedDialog.close()
+                    }
+                }
+            }
         }
     }
 }

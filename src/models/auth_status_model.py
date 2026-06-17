@@ -25,7 +25,7 @@ class AuthStatusModel(QObject):
         self._cookie_error = d.get("cookieError") or ""
         self.changed.emit()
 
-    @Slot()
+    @Slot(QObject)
     def refresh_from_backend(self, backend):
         if not backend:
             return
@@ -46,7 +46,7 @@ class AuthStatusModel(QObject):
         if result:
             self.load_from_dict(result)
 
-    @Slot()
+    @Slot(QObject)
     def logout(self, backend):
         if not backend:
             return

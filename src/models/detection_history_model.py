@@ -130,14 +130,14 @@ class DetectionHistoryModel(QAbstractListModel):
             return f"~{lat / 1000:.1f}s"
         if role == self.AgeAtDetectionRole:
             lat = e.get("latencyMs", 0)
-            age_sec = lat / 1000
+            age_sec = lat / 1000.0
             if age_sec < 60:
-                return f"{int(age_sec)}s"
+                return f"{age_sec:.1f}s"
             if age_sec < 3600:
-                return f"{int(age_sec / 60)}p"
+                return f"{age_sec / 60.0:.1f}p"
             if age_sec < 86400:
-                return f"{int(age_sec / 3600)}g"
-            return f"{int(age_sec / 86400)}n trước"
+                return f"{age_sec / 3600.0:.1f}g"
+            return f"{age_sec / 86400.0:.1f}n trước"
         if role == self.PublishedDateStrRole:
             pub = e.get("publishedAt", 0)
             if not pub:

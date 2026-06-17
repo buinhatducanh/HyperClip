@@ -5,9 +5,11 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::cookies_dpapi::{decrypt_chrome_v10, is_encrypted_v10};
+use crate::cookies_dpapi::{decrypt_chrome_v10, decrypt_cookie_value, is_encrypted_v10};
 use crate::cookies_sqlite::parse_cookies_file;
 use crate::error::{HyperclipError, Result};
+
+pub static ACTIVE_CHROME_PROFILE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// JSON format that Electron/CDP persists after successful Chrome login
 /// (written to `_hyperclip_cookies.json`). Accessed without any NTFS lock
@@ -23,6 +25,7 @@ struct PersistedCookies {
     #[serde(rename = "PSIDTS")]
     psidts: Option<String>,
     socs: Option<String>,
+    raw_cookies: Option<Vec<ExtractedCookie>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,6 +115,23 @@ fn try_persisted_json(profile_dir: &Path) -> Option<CookieExtractionResult> {
             _ => continue,
         };
 
+        // If raw_cookies is present, return it immediately (supports full cookie caching)
+        if let Some(ref raw) = persisted.raw_cookies {
+            if !raw.is_empty() {
+                tracing::info!(
+                    "[Cookies] Loaded {} raw cookies from persisted JSON at {:?}",
+                    raw.len(),
+                    canonical
+                );
+                return Some(CookieExtractionResult {
+                    cookies: raw.clone(),
+                    profile_name: "Default".to_string(),
+                    domain: "youtube.com".to_string(),
+                    socs_value: raw.iter().find(|c| c.name == "SOCS").map(|c| c.value.clone()),
+                });
+            }
+        }
+
         let sapisid = persisted.sapisid.as_deref().unwrap_or("");
         let psid = persisted.psid.as_deref().unwrap_or("");
 
@@ -170,41 +190,387 @@ fn try_persisted_json(profile_dir: &Path) -> Option<CookieExtractionResult> {
     None
 }
 
-/// Main extraction function: try fast path JSON first, then SQLite + DPAPI.
+fn save_persisted_json(profile_dir: &Path, result: &CookieExtractionResult) -> std::io::Result<()> {
+    let path = profile_dir.join("_hyperclip_cookies.json");
+    
+    // Find matching keys for the legacy fields in PersistedCookies
+    let psid = result.cookies.iter().find(|c| c.name == "__Secure-1PSID" || c.name == "__Secure-3PSID").map(|c| c.value.clone());
+    let sapisid = result.cookies.iter().find(|c| c.name == "SAPISID" || c.name == "__Secure-3PAPISID").map(|c| c.value.clone());
+    let psidcc = result.cookies.iter().find(|c| c.name == "__Secure-1PSIDCC").map(|c| c.value.clone());
+    let psidts = result.cookies.iter().find(|c| c.name == "__Secure-1PSIDTS").map(|c| c.value.clone());
+    let socs = result.socs_value.clone();
+
+    let persisted = PersistedCookies {
+        psid,
+        sapisid,
+        psidcc,
+        psidts,
+        socs,
+        raw_cookies: Some(result.cookies.clone()),
+    };
+
+    let s = serde_json::to_string_pretty(&persisted)?;
+    std::fs::write(&path, s)?;
+    tracing::info!("[Cookies] Saved cookies JSON to {:?}", path);
+    Ok(())
+}
+
+fn extract_cookies_via_cdp(ws_url: &str) -> Result<Vec<ExtractedCookie>> {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+
+    let url_str = ws_url.trim_start_matches("ws://");
+    let (host, path) = match url_str.split_once('/') {
+        Some((h, p)) => (h, format!("/{}", p)),
+        None => (url_str, "/".to_string()),
+    };
+
+    let mut stream = TcpStream::connect_timeout(
+        &host.parse().unwrap_or_else(|_| "127.0.0.1:9222".parse().unwrap()),
+        std::time::Duration::from_millis(1000)
+    ).map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to connect to CDP: {}", e)))?;
+
+    stream.set_read_timeout(Some(std::time::Duration::from_millis(2000))).ok();
+    stream.set_write_timeout(Some(std::time::Duration::from_millis(2000))).ok();
+
+    let handshake_req = format!(
+        "GET {} HTTP/1.1\r\n\
+         Host: {}\r\n\
+         Upgrade: websocket\r\n\
+         Connection: Upgrade\r\n\
+         Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+         Sec-WebSocket-Version: 13\r\n\r\n",
+        path, host
+    );
+    stream.write_all(handshake_req.as_bytes())
+        .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to write handshake: {}", e)))?;
+    stream.flush().ok();
+
+    let mut resp_buf = Vec::new();
+    let mut temp = [0u8; 1];
+    while !resp_buf.windows(4).any(|w| w == b"\r\n\r\n") {
+        if stream.read_exact(&mut temp).is_err() {
+            break;
+        }
+        resp_buf.push(temp[0]);
+        if resp_buf.len() > 8192 {
+            return Err(HyperclipError::DatabaseCorruption("Handshake response too large".into()));
+        }
+    }
+
+    let headers_str = String::from_utf8_lossy(&resp_buf);
+    if !headers_str.contains(" 101 ") {
+        return Err(HyperclipError::DatabaseCorruption(format!("Invalid handshake response: {}", headers_str)));
+    }
+
+    let cmd = serde_json::json!({
+        "id": 1,
+        "method": "Storage.getCookies"
+    });
+    let cmd_str = cmd.to_string();
+    let payload = cmd_str.as_bytes();
+    let length = payload.len();
+
+    let mut frame = Vec::new();
+    frame.push(0x81);
+    if length <= 125 {
+        frame.push(0x80 | (length as u8));
+    } else if length <= 65535 {
+        frame.push(0x80 | 126);
+        frame.extend_from_slice(&(length as u16).to_be_bytes());
+    } else {
+        frame.push(0x80 | 127);
+        frame.extend_from_slice(&(length as u64).to_be_bytes());
+    }
+    frame.extend_from_slice(&[0, 0, 0, 0]);
+    frame.extend_from_slice(payload);
+
+    stream.write_all(&frame)
+        .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to send command: {}", e)))?;
+    stream.flush().ok();
+
+    let mut attempts = 0;
+    loop {
+        attempts += 1;
+        if attempts > 50 {
+            return Err(HyperclipError::DatabaseCorruption("Timed out waiting for Storage.getCookies response".into()));
+        }
+
+        let mut header = [0u8; 2];
+        stream.read_exact(&mut header)
+            .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to read frame header: {}", e)))?;
+
+        let is_masked = (header[1] & 0x80) != 0;
+        let mut len = (header[1] & 0x7F) as u64;
+
+        if len == 126 {
+            let mut len_bytes = [0u8; 2];
+            stream.read_exact(&mut len_bytes)
+                .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to read 16-bit length: {}", e)))?;
+            len = u16::from_be_bytes(len_bytes) as u64;
+        } else if len == 127 {
+            let mut len_bytes = [0u8; 8];
+            stream.read_exact(&mut len_bytes)
+                .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to read 64-bit length: {}", e)))?;
+            len = u64::from_be_bytes(len_bytes);
+        }
+
+        let mask = if is_masked {
+            let mut mask_bytes = [0u8; 4];
+            stream.read_exact(&mut mask_bytes)
+                .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to read mask: {}", e)))?;
+            Some(mask_bytes)
+        } else {
+            None
+        };
+
+        let mut payload_buf = vec![0u8; len as usize];
+        stream.read_exact(&mut payload_buf)
+            .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to read payload: {}", e)))?;
+
+        if let Some(mask_bytes) = mask {
+            for (i, byte) in payload_buf.iter_mut().enumerate() {
+                *byte ^= mask_bytes[i % 4];
+            }
+        }
+
+        if let Ok(resp_val) = serde_json::from_slice::<serde_json::Value>(&payload_buf) {
+            if resp_val["id"].as_i64() == Some(1) {
+                let cookies_arr = resp_val["result"]["cookies"]
+                    .as_array()
+                    .ok_or_else(|| HyperclipError::DatabaseCorruption("Missing cookies array in result".into()))?;
+
+                let mut extracted = Vec::new();
+                for c in cookies_arr {
+                    let name = c["name"].as_str().unwrap_or_default().to_string();
+                    let value = c["value"].as_str().unwrap_or_default().to_string();
+                    let domain = c["domain"].as_str().unwrap_or_default().to_string();
+
+                    if !name.is_empty() && domain.contains("youtube.com") {
+                        extracted.push(ExtractedCookie { name, value, domain });
+                    }
+                }
+                return Ok(extracted);
+            }
+        }
+    }
+}
+
+fn try_cdp_cookies() -> Result<Vec<ExtractedCookie>> {
+    let resp = ureq::AgentBuilder::new()
+        .try_proxy_from_env(false)
+        .build()
+        .get("http://127.0.0.1:9222/json/version")
+        .timeout(std::time::Duration::from_millis(500))
+        .call()
+        .map_err(|e| HyperclipError::DatabaseCorruption(format!("CDP port check failed: {}", e)))?;
+
+    let val: serde_json::Value = serde_json::from_reader(resp.into_reader())
+        .map_err(|e| HyperclipError::DatabaseCorruption(format!("CDP json parse failed: {}", e)))?;
+
+    let ws_url = val["webSocketDebuggerUrl"]
+        .as_str()
+        .ok_or_else(|| HyperclipError::DatabaseCorruption("webSocketDebuggerUrl missing".into()))?;
+
+    extract_cookies_via_cdp(ws_url)
+}
+
+/// Read and decrypt the AES key from the Chrome `Local State` file.
+/// On Windows, the key is encrypted using DPAPI and base64-encoded.
+fn get_aes_key(profile_dir: &std::path::Path) -> Result<Option<Vec<u8>>> {
+    #[cfg(target_os = "windows")]
+    {
+        // Search for Local State in parent directories first (which covers both Chrome and custom user data structures)
+        let mut local_state_path = None;
+        let mut current = profile_dir.to_path_buf();
+        for _ in 0..3 {
+            if let Some(parent) = current.parent() {
+                let candidate = parent.join("Local State");
+                if candidate.exists() {
+                    local_state_path = Some(candidate);
+                    break;
+                }
+                current = parent.to_path_buf();
+            } else {
+                break;
+            }
+        }
+
+        // Fallback to standard Chrome Local State path
+        let local_state_path = match local_state_path {
+            Some(p) => p,
+            None => {
+                let fallback = get_chrome_user_data_dir().join("Local State");
+                if fallback.exists() {
+                    fallback
+                } else {
+                    tracing::warn!("[Cookies] Local State not found near profile dir {:?} or at fallback {:?}", profile_dir, fallback);
+                    return Ok(None);
+                }
+            }
+        };
+
+        tracing::info!("[Cookies] Loading master key from Local State at {:?}", local_state_path);
+        let content = std::fs::read_to_string(&local_state_path)
+            .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to read Local State: {}", e)))?;
+
+        let json: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to parse Local State JSON: {}", e)))?;
+
+        let encrypted_key_b64 = match json.pointer("/os_crypt/encrypted_key").and_then(|v| v.as_str()) {
+            Some(k) => k,
+            None => {
+                tracing::warn!("[Cookies] os_crypt.encrypted_key not found in Local State");
+                return Ok(None);
+            }
+        };
+
+        use base64::{Engine as _, engine::general_purpose};
+        let encrypted_key = general_purpose::STANDARD.decode(encrypted_key_b64)
+            .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to decode base64 key: {}", e)))?;
+
+        if encrypted_key.len() < 5 || &encrypted_key[0..5] != b"DPAPI" {
+            return Err(HyperclipError::DatabaseCorruption("Invalid encrypted key prefix in Local State".into()));
+        }
+
+        let encrypted_blob = &encrypted_key[5..];
+        let decrypted_key = decrypt_chrome_v10(encrypted_blob)?;
+        Ok(Some(decrypted_key))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(None)
+    }
+}
+
+fn is_cookies_file_locked(profile_dir: &Path) -> bool {
+    let new_path = profile_dir.join("Network").join("Cookies");
+    let legacy_path = profile_dir.join("Cookies");
+    let path = if new_path.exists() {
+        new_path
+    } else if legacy_path.exists() {
+        legacy_path
+    } else {
+        return false;
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .is_err()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
+/// Main extraction function: try fast path JSON first, then SQLite + DPAPI/AES-GCM.
 pub fn extract_chrome_cookies(
     profile_dir: &std::path::Path,
     profile_name: &str,
 ) -> Result<CookieExtractionResult> {
-    // Fast path: read persisted JSON (no NTFS lock contention)
+    // 1. Fast path: read persisted JSON (no NTFS lock contention)
     if let Some(result) = try_persisted_json(profile_dir) {
         return Ok(result);
     }
 
-    tracing::info!("[Cookies] No persisted JSON found — falling back to SQLite");
+    // 2. Try to query via CDP WebSocket if Chrome is active and matches this profile
+    let should_try_cdp = {
+        let active_matches = if let Ok(lock) = ACTIVE_CHROME_PROFILE.lock() {
+            lock.as_deref() == Some(profile_name)
+        } else {
+            false
+        };
+        active_matches || is_cookies_file_locked(profile_dir)
+    };
+
+    if should_try_cdp {
+        match try_cdp_cookies() {
+            Ok(cookies) => {
+                if !cookies.is_empty() {
+                    let socs_value = cookies
+                        .iter()
+                        .find(|c| c.name == "SOCS")
+                        .map(|c| c.value.clone());
+
+                    let result = CookieExtractionResult {
+                        cookies: cookies.clone(),
+                        profile_name: profile_name.to_string(),
+                        domain: "youtube.com".to_string(),
+                        socs_value,
+                    };
+
+                    // Save to persisted JSON
+                    save_persisted_json(profile_dir, &result).ok();
+
+                    tracing::info!("[Cookies] Successfully extracted {} cookies via CDP and saved to JSON", cookies.len());
+                    return Ok(result);
+                }
+            }
+            Err(e) => {
+                tracing::info!("[Cookies] CDP cookie extraction not available for profile {}: {:?}", profile_name, e);
+            }
+        }
+    }
+
+    // 3. Fallback to SQLite
+    tracing::info!("[Cookies] Falling back to SQLite cookie extraction");
+    let master_key = get_aes_key(profile_dir)?;
+
     let new_path = profile_dir.join("Network").join("Cookies");
     let legacy_path = profile_dir.join("Cookies");
 
-    if new_path.exists() {
+    let res = if new_path.exists() {
         let raw = parse_cookies_file(&new_path, "youtube.com")?;
-        build_result(raw, profile_name)
+        build_result(raw, profile_name, master_key.as_deref(), profile_dir)
     } else if legacy_path.exists() {
         let raw = parse_cookies_file(&legacy_path, "youtube.com")?;
-        build_result(raw, profile_name)
+        build_result(raw, profile_name, master_key.as_deref(), profile_dir)
     } else {
         Err(HyperclipError::ProfileNotFound(
             format!("{:?} or {:?}", new_path, legacy_path)
         ))
-    }
+    };
+
+    res
 }
 
-fn build_result(raw_cookies: Vec<crate::cookies_sqlite::RawCookie>, profile_name: &str) -> Result<CookieExtractionResult> {
+fn build_result(
+    raw_cookies: Vec<crate::cookies_sqlite::RawCookie>,
+    profile_name: &str,
+    master_key: Option<&[u8]>,
+    profile_dir: &Path,
+) -> Result<CookieExtractionResult> {
     let mut cookies = Vec::new();
+
+    tracing::info!("[Cookies] build_result called for profile {}. Found {} raw cookies in SQLite", profile_name, raw_cookies.len());
+
+    for (idx, cookie) in raw_cookies.iter().enumerate() {
+        tracing::info!("[Cookies Debug] Cookie #{}: name='{}', domain='{}', val_len={}, enc_len={}",
+            idx, cookie.name, cookie.domain,
+            cookie.value.as_ref().map(|v| v.len()).unwrap_or(0),
+            cookie.encrypted_value.as_ref().map(|v| v.len()).unwrap_or(0)
+        );
+    }
 
     for cookie in raw_cookies {
         let value = if let Some(encrypted) = &cookie.encrypted_value {
             if is_encrypted_v10(encrypted) {
-                let decrypted = decrypt_chrome_v10(encrypted)?;
-                String::from_utf8(decrypted).unwrap_or_default()
+                match decrypt_cookie_value(encrypted, master_key) {
+                    Ok(decrypted) => String::from_utf8(decrypted).unwrap_or_default(),
+                    Err(e) => {
+                        tracing::warn!(
+                            "[Cookies] Decryption failed for cookie '{}' in profile {}: {:?}",
+                            cookie.name,
+                            profile_name,
+                            e
+                        );
+                        continue;
+                    }
+                }
             } else {
                 cookie.value.unwrap_or_default()
             }
@@ -221,17 +587,27 @@ fn build_result(raw_cookies: Vec<crate::cookies_sqlite::RawCookie>, profile_name
         }
     }
 
+    tracing::info!("[Cookies] Decrypted {} cookies for profile {}. Names: {:?}", 
+        cookies.len(), profile_name, cookies.iter().map(|c| &c.name).collect::<Vec<_>>());
+
     let socs_value = cookies
         .iter()
         .find(|c| c.name == "SOCS")
         .map(|c| c.value.clone());
 
-    Ok(CookieExtractionResult {
+    let result = CookieExtractionResult {
         cookies,
         profile_name: profile_name.to_string(),
         domain: "youtube.com".to_string(),
         socs_value,
-    })
+    };
+
+    // Save to persisted JSON
+    if !result.cookies.is_empty() {
+        save_persisted_json(profile_dir, &result).ok();
+    }
+
+    Ok(result)
 }
 
 /// Get Chrome user data directory on Windows

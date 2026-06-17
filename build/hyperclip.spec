@@ -11,7 +11,7 @@ a = Analysis(
     [os.path.join(PROJECT_ROOT, 'src', 'main.py')],
     pathex=[PROJECT_ROOT],
     binaries=[
-        (os.path.join(PROJECT_ROOT, 'src-tauri', 'target', 'release', 'hyperclip.exe'), '.'),
+        (os.path.join(PROJECT_ROOT, 'target', 'release', 'hyperclip-tauri.exe'), '.'),
     ],
     hiddenimports=[
         'PySide6.QtCore',
@@ -24,6 +24,8 @@ a = Analysis(
     ],
     datas=[
         (os.path.join(PROJECT_ROOT, 'src', 'ui', 'qml'), 'qml'),
+        (os.path.join(PROJECT_ROOT, 'resources'), 'resources'),
+        (os.path.join(PROJECT_ROOT, 'node_modules'), 'node_modules'),
     ],
     hookspath=[],
     runtime_hooks=[],
@@ -41,13 +43,13 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='hyperclip',
+    name='HyperClip',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
     console=False,
-    icon=None,
+    icon=os.path.join(PROJECT_ROOT, 'build', 'icon.ico'),
 )
 
 coll = COLLECT(

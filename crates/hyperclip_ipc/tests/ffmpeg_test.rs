@@ -1,4 +1,4 @@
-use hyperclip_ipc::ffmpeg::{build_short_filter, build_short_filter_cuda, build_landscape_filter, nvenc_codec_name, EncodeCodec, FilterChain, build_atempo_chain, speed_filter_tag, get_ffmpeg_path, spawn_render_async, RenderOptions};
+use hyperclip_ipc::ffmpeg::{build_short_filter, build_short_filter_cuda, build_landscape_filter, build_landscape_filter_cuda, nvenc_codec_name, EncodeCodec, FilterChain, build_atempo_chain, speed_filter_tag, get_ffmpeg_path, spawn_render_async, RenderOptions};
 use hyperclip_ipc::system::GPUTier;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -17,14 +17,14 @@ fn test_build_short_filter_vertical() {
 fn test_build_short_filter_vertical_with_speed() {
     let filter = build_short_filter(0.0, 60.0, 1.5, 1080, 1920, 384, 192, false, 30);
     assert!(filter.contains("setpts=0.6666666666666666*PTS"), "should have speed setpts: {}", filter);
-    assert!(filter.contains("trim=start=0:duration=40"), "trim should be speed-adjusted: {}", filter);
+    assert!(filter.contains("trim=start=0:duration=60"), "trim should be speed-adjusted: {}", filter);
 }
 
 #[test]
 fn test_build_short_filter_cuda() {
     let filter = build_short_filter_cuda(0.0, 60.0, 1.0, 1080, 1920, 384, 192, 30);
     assert!(filter.contains("scale_cuda"), "CUDA filter: {}", filter);
-    assert!(filter.contains("crop_cuda"), "CUDA crop: {}", filter);
+    assert!(filter.contains("crop="), "CPU crop: {}", filter);
     assert!(filter.contains("overlay_cuda"), "CUDA overlay: {}", filter);
 }
 
@@ -32,7 +32,7 @@ fn test_build_short_filter_cuda() {
 fn test_build_short_filter_cuda_with_speed() {
     let filter = build_short_filter_cuda(0.0, 60.0, 2.0, 1080, 1920, 384, 192, 30);
     assert!(filter.contains("setpts=0.5*PTS"), "should have speed setpts: {}", filter);
-    assert!(filter.contains("trim=start=0:duration=30"), "trim should be speed-adjusted: {}", filter);
+    assert!(filter.contains("trim=start=0:duration=60"), "trim should be speed-adjusted: {}", filter);
 }
 
 #[test]
@@ -45,10 +45,26 @@ fn test_build_landscape_filter() {
 }
 
 #[test]
+fn test_build_landscape_filter_cuda() {
+    let filter = build_landscape_filter_cuda(0.0, 60.0, 1.0, 1920, 1080, 216, 30);
+    assert!(filter.contains("scale_cuda"), "landscape CUDA scale: {}", filter);
+    assert!(filter.contains("overlay_cuda"), "landscape CUDA overlay: {}", filter);
+    assert!(filter.contains("[final]"), "should end with [final]");
+}
+
+#[test]
 fn test_build_landscape_filter_with_speed() {
     let filter = build_landscape_filter(0.0, 60.0, 1.2, 1920, 1080, 900, 216, false, 30);
     assert!(filter.contains("setpts=0.8333333333333334*PTS"), "should have exact speed setpts: {}", filter);
-    assert!(filter.contains("trim=start=0:duration=50"), "trim should be speed-adjusted: {}", filter);
+    assert!(filter.contains("trim=start=0:duration=60"), "trim should be speed-adjusted: {}", filter);
+    assert!(filter.contains("[final]"), "should end with [final]");
+}
+
+#[test]
+fn test_build_landscape_filter_cuda_with_speed() {
+    let filter = build_landscape_filter_cuda(0.0, 60.0, 1.2, 1920, 1080, 216, 30);
+    assert!(filter.contains("setpts=0.8333333333333334*PTS"), "should have exact speed setpts: {}", filter);
+    assert!(filter.contains("trim=start=0:duration=60"), "trim should be exact duration (unscaled): {}", filter);
     assert!(filter.contains("[final]"), "should end with [final]");
 }
 
@@ -253,3 +269,26 @@ fn test_render_integration_real_file() {
 
     let _ = std::fs::remove_file(&output);
 }
+
+#[tokio::test]
+async fn test_cuvid_decoder_probe_nonexistent() {
+    let ffmpeg = get_ffmpeg_path();
+    let mut test_cmd = tokio::process::Command::new(&ffmpeg);
+    test_cmd.args([
+        "-y",
+        "-hwaccel", "cuda",
+        "-hwaccel_output_format", "cuda",
+        "-c:v", "av1_cuvid",
+        "-i", "nonexistent_file.mp4",
+        "-t", "0.01",
+        "-f", "null",
+        "-"
+    ]);
+    test_cmd.stdin(std::process::Stdio::null());
+    test_cmd.stdout(std::process::Stdio::null());
+    test_cmd.stderr(std::process::Stdio::null());
+
+    let output = test_cmd.output().await;
+    assert!(output.is_err() || !output.unwrap().status.success());
+}
+

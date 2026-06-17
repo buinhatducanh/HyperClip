@@ -133,7 +133,7 @@ impl Poller {
     pub fn is_within_age_limit(published_at: i64, now_ms: i64, max_age_ms: i64) -> bool {
         if published_at == 0 { return false; }
         let age_ms = now_ms - published_at;
-        age_ms >= 0 && age_ms <= max_age_ms
+        age_ms >= -300_000 && age_ms <= max_age_ms
     }
 
     pub async fn load_seen_ids(&self, store: SeenVideos) {
@@ -293,7 +293,7 @@ impl Poller {
         let alerts = self.check_health(innertube_alive, oauth_pct, disk_free_gb);
         for alert in alerts {
             tracing::warn!("[Health] {}: {}", alert.code, alert.message);
-            // Emit health alert event to stdout for Python to pick up
+            // Emit health alert event via central emit_raw
             let alert_event = serde_json::json!({
                 "method": "health:alert",
                 "params": {
@@ -302,8 +302,7 @@ impl Poller {
                     "code": alert.code
                 }
             });
-            let _ = writeln!(std::io::stdout(), "{}", serde_json::to_string(&alert_event).unwrap_or_default());
-            let _ = std::io::stdout().flush();
+            crate::emit_raw(&serde_json::to_string(&alert_event).unwrap_or_default());
         }
 
         // Phase 2: OAuth fallback (only if we have detector and channels to check)
@@ -392,4 +391,9 @@ mod tests {
     fn test_age_custom_limit() { assert!(Poller::is_within_age_limit(1700000000000-30*60*1000, 1700000000000, 60*60*1000)); }
     #[test]
     fn test_age_custom_limit_over() { assert!(!Poller::is_within_age_limit(1700000000000-30*60*1000, 1700000000000, 10*60*1000)); }
+    #[test]
+    fn test_age_drift() {
+        assert!(Poller::is_within_age_limit(1700000000000+2*60*1000, 1700000000000, 10*60*1000)); // Future published_at (clock drift)
+        assert!(!Poller::is_within_age_limit(1700000000000+6*60*1000, 1700000000000, 10*60*1000)); // Too far in the future
+    }
 }

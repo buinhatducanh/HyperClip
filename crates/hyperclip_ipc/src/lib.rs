@@ -34,3 +34,23 @@ pub use cookies::*;
 pub use store::*;
 pub use detection::*;
 pub use poller::NewVideoEvent;
+
+use std::sync::OnceLock;
+
+pub type EmitHook = Box<dyn Fn(&str) + Send + Sync>;
+static EMIT_HOOK: OnceLock<EmitHook> = OnceLock::new();
+
+pub fn set_emit_hook(hook: impl Fn(&str) + Send + Sync + 'static) {
+    let _ = EMIT_HOOK.set(Box::new(hook));
+}
+
+pub fn emit_raw(json_str: &str) {
+    if let Some(hook) = EMIT_HOOK.get() {
+        hook(json_str);
+    } else {
+        use std::io::Write;
+        let _ = writeln!(std::io::stdout(), "{}", json_str);
+        let _ = std::io::stdout().flush();
+    }
+}
+

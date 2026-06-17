@@ -10,7 +10,7 @@ Push-Location "$ProjectRoot/src-tauri"
 cargo build --release
 Pop-Location
 
-$BackendExe = "$ProjectRoot/src-tauri/target/release/hyperclip.exe"
+$BackendExe = "$ProjectRoot/target/release/hyperclip-tauri.exe"
 if (-not (Test-Path $BackendExe)) {
     Write-Error "Backend build failed: $BackendExe not found"
     exit 1
@@ -51,12 +51,15 @@ foreach ($tool in @($ffmpeg, $ytdlp)) {
     }
 }
 
+Write-Host "Copying innertube_helper.js to resources/..."
+Copy-Item -Path "$ProjectRoot\crates\hyperclip_ipc\src\innertube_helper.js" -Destination "$ProjectRoot\resources\innertube_helper.js" -Force
+
 Write-Host "[3/3] Running PyInstaller..."
 Push-Location "$ProjectRoot/build"
-pyinstaller hyperclip.spec --clean --noconfirm
+python -m PyInstaller hyperclip.spec --clean --noconfirm
 Pop-Location
 
-$BundleExe = "$ProjectRoot/build/dist/hyperclip-bundle/hyperclip.exe"
+$BundleExe = "$ProjectRoot/build/dist/hyperclip-bundle/HyperClip.exe"
 if (Test-Path $BundleExe) {
     Write-Host ""
     Write-Host "Build complete: $BundleExe"

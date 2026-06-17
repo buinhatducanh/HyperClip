@@ -19,6 +19,7 @@ class HardwareProfileModel(QObject):
         self._detected_ram: int = 0
         self._detected_gpu: str = "—"
         self._active_id: str = ""
+        self._is_busy: bool = False
 
     def load_from_dict(self, d: dict):
         det = d.get("detected", {})
@@ -26,6 +27,7 @@ class HardwareProfileModel(QObject):
         self._detected_ram = int(det.get("ramGB", 0))
         self._detected_gpu = det.get("gpuName", "—")
         self._active_id = d.get("active") or ""
+        self._is_busy = False
         self.changed.emit()
 
     def active_preset(self) -> dict | None:
@@ -48,33 +50,48 @@ class HardwareProfileModel(QObject):
             if p["id"] == self._active_id:
                 return p["label"]
         return "Auto"
+    @Property(bool, notify=changed)
+    def isBusy(self): return self._is_busy
 
     @Slot(result="QVariantList")
     def presets(self):
         return self.PRESETS
 
-    @Slot(result=bool)
-    def select_preset(self, backend, preset_id: str):
+    @Slot(QObject, QObject, str, result=bool)
+    def select_preset(self, backend, settings_model, preset_id: str):
         if not backend:
             return False
         preset = next((p for p in self.PRESETS if p["id"] == preset_id), None)
         if not preset:
             return False
-        new_id = None if preset_id == self._active_id else preset_id
-        profile = {"vramGB": preset["vramGB"], "ramGB": preset["ramGB"]} if new_id else None
-        resp = backend.send_command("settings:update", {"hardwareProfile": profile})
-        if resp.get("ok"):
-            self._active_id = new_id or ""
+        self._is_busy = True
+        self.changed.emit()
+        try:
+            profile = {"vramGB": preset["vramGB"], "ramGB": preset["ramGB"]}
+            resp = backend.send_command("settings:update", {"hardwareProfile": profile})
+            if resp.get("ok"):
+                self._active_id = preset_id
+                self.changed.emit()
+                self.refresh_from_backend(backend)
+                if settings_model:
+                    settings_model.load_from_backend(backend)
+                return True
+            return False
+        finally:
+            self._is_busy = False
             self.changed.emit()
-            self.refresh_from_backend(backend)
-            return True
-        return False
 
-    @Slot()
+    @Slot(QObject)
     def refresh_from_backend(self, backend):
         if not backend:
             return
-        resp = backend.send_command("hardware:profile")
-        result = resp.get("result", {})
-        if result:
-            self.load_from_dict(result)
+        self._is_busy = True
+        self.changed.emit()
+        try:
+            resp = backend.send_command("hardware:profile")
+            result = resp.get("result", {})
+            if result:
+                self.load_from_dict(result)
+        finally:
+            self._is_busy = False
+            self.changed.emit()

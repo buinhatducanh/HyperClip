@@ -182,6 +182,15 @@ impl ChromeTabWatcher {
             if let Some(ref mut c) = client {
                 match c.check_chrome_tabs().await {
                     Ok(videos) => {
+                        let s_path = crate::store::get_settings_path();
+                        let s_store = crate::store::SettingsStore::load(&s_path);
+                        let max_age_minutes = s_store.settings
+                            .get("autoDownloadMaxAgeMinutes")
+                            .and_then(|val| val.as_u64())
+                            .unwrap_or(1440) as i64;
+                        let max_age_ms = max_age_minutes * 60 * 1000;
+                        let now_ms = chrono::Utc::now().timestamp_millis();
+
                         for v in videos {
                             let seen_guard = self.seen_videos.read().await;
                             let is_seen = seen_guard.is_any_seen(&v.video_id);
@@ -189,11 +198,30 @@ impl ChromeTabWatcher {
                             if is_seen {
                                 continue;
                             }
+
+                            if v.published_at == 0 {
+                                tracing::info!(
+                                    "[ChromeWatcher] Skipping video {} because published date is unknown (cannot parse from channel page)",
+                                    v.video_id
+                                );
+                                continue;
+                            }
+
+                            let age_ms = now_ms - v.published_at;
+                            if age_ms < -300_000 || age_ms > max_age_ms {
+                                tracing::info!(
+                                    "[ChromeWatcher] Skipping video {} because it is outside age limit (age: {}s, limit: {}s)",
+                                    v.video_id,
+                                    age_ms / 1000,
+                                    max_age_ms / 1000
+                                );
+                                continue;
+                            }
+
                             let mut seen_guard = self.seen_videos.write().await;
                             seen_guard.mark_seen("", &v.video_id);
                             drop(seen_guard);
 
-                            let now_ms = chrono::Utc::now().timestamp_millis();
                             tracing::info!(
                                 "[ChromeWatcher] NEW VIDEO detected from Chrome channel tab: {} \"{}\"",
                                 v.video_id,
@@ -206,7 +234,7 @@ impl ChromeTabWatcher {
                                 video_id: v.video_id.clone(),
                                 title: v.title.clone(),
                                 thumbnail_url: format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", v.video_id),
-                                published_at: now_ms,
+                                published_at: v.published_at,
                                 duration_sec: 0.0,
                                 detected_at: now_ms,
                             };

@@ -22,39 +22,53 @@ class SoundService(QObject):
         self._setup_tones()
 
     def _setup_tones(self):
-        """Generate 4 short tone WAV files in temp dir, load into QSoundEffect."""
+        """Generate 4 professional chime WAV files in temp dir, load into QSoundEffect."""
         import struct
         import wave
         import tempfile
+        import math
 
+        # CapCut/Apple style chimes using harmonic sine wave arpeggios
+        # Format: { name: (frequencies_list, duration, arpeggio_delay_sec) }
         tones = {
-            "info": (880, 0.08),      # A5 note, short
-            "success": (1320, 0.12),  # E6 note
-            "warn": (660, 0.18),      # E5 note, longer
-            "error": (440, 0.25),     # A4 note, longest
+            "info": ([523.25, 783.99], 0.25, 0.06),          # C5 -> G5 double chime (soft)
+            "success": ([523.25, 659.25, 783.99, 1046.50], 0.45, 0.035), # C5->E5->G5->C6 arpeggio (upward chime)
+            "warn": ([392.00, 493.88], 0.35, 0.08),           # G4 -> B4 double low chime
+            "error": ([220.00, 207.65], 0.40, 0.12),          # A3 -> G#3 dissonant warning chime
         }
 
         sample_rate = 22050
         temp_dir = tempfile.gettempdir()
-        os.makedirs(os.path.join(temp_dir, "hyperclip_sounds"), exist_ok=True)
+        sound_dir = os.path.join(temp_dir, "hyperclip_sounds_v2")
+        os.makedirs(sound_dir, exist_ok=True)
 
-        for name, (freq, duration) in tones.items():
-            file_path = os.path.join(temp_dir, "hyperclip_sounds", f"{name}.wav")
+        for name, (freqs, duration, delay) in tones.items():
+            file_path = os.path.join(sound_dir, f"{name}.wav")
             if not os.path.exists(file_path):
                 n_samples = int(sample_rate * duration)
                 with wave.open(file_path, "w") as w:
                     w.setnchannels(1)
                     w.setsampwidth(2)
                     w.setframerate(sample_rate)
+                    
                     for i in range(n_samples):
-                        # Sine wave with envelope (fade out)
-                        envelope = 1.0 - (i / n_samples) * 0.7
-                        sample = int(32767 * 0.3 * envelope *
-                                     (1 if (i // int(sample_rate / freq)) % 2 == 0 else -1))
+                        t = i / sample_rate
+                        val = 0.0
+                        for idx, freq in enumerate(freqs):
+                            note_delay = idx * delay
+                            if t > note_delay:
+                                note_t = t - note_delay
+                                # Exponential decay envelope
+                                env = math.exp(-8.0 * note_t)
+                                val += math.sin(2 * math.pi * freq * note_t) * env
+                        
+                        # Normalize and scale to safe amplitude (prevent clipping)
+                        val = val / max(len(freqs), 1)
+                        sample = int(32767 * 0.45 * val)
                         w.writeframes(struct.pack("<h", sample))
 
             self._effects[name].setSource(QUrl.fromLocalFile(file_path))
-            self._effects[name].setVolume(0.5)
+            self._effects[name].setVolume(0.55)
 
     @Slot(str)
     def play(self, level: str = "info"):

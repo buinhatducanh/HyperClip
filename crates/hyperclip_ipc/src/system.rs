@@ -3,6 +3,8 @@
 
 use serde::Serialize;
 use std::process::Command;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -131,9 +133,13 @@ fn cached_gpu() -> &'static CachedGpu {
 // ─── GPU detection ─────────────────────────────────────────────────────────────
 
 fn detect_gpu() -> CachedGpu {
-    let output = Command::new("nvidia-smi")
-        .args(["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"])
-        .output();
+    let mut cmd = Command::new("nvidia-smi");
+    cmd.args(["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"]);
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(0x08000000);
+    }
+    let output = cmd.output();
 
     match output {
         Ok(out) if out.status.success() => {

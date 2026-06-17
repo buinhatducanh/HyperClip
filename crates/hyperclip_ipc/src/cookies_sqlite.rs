@@ -25,6 +25,7 @@ pub struct RawCookie {
 #[cfg(windows)]
 fn copy_with_shared_access(src: &Path, dst: &Path) -> std::io::Result<()> {
     use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::process::CommandExt;
 
     // Strategy 1: Rust native with maximum sharing
     let native_ok = (|| -> std::io::Result<()> {
@@ -32,7 +33,10 @@ fn copy_with_shared_access(src: &Path, dst: &Path) -> std::io::Result<()> {
             .read(true)
             .share_mode(0x7) // FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
             .open(src)?;
-        std::io::copy(&mut file, &mut std::fs::File::create(dst)?)?;
+        let bytes_copied = std::io::copy(&mut file, &mut std::fs::File::create(dst)?)?;
+        if bytes_copied == 0 {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Copied 0 bytes from Chrome Cookies database"));
+        }
         Ok(())
     })();
 
@@ -46,23 +50,30 @@ fn copy_with_shared_access(src: &Path, dst: &Path) -> std::io::Result<()> {
     let src_s = src_abs.to_string_lossy().replace('\'', "''");
     let dst_s = dst_abs.to_string_lossy().replace('\'', "''");
 
-    // .NET File.ReadAllBytes → MemoryStream → File.Create → CopyTo
+    // .NET FileStream with FileShare.ReadWrite → CopyTo → Close
     let script = format!(
-        "$b=[System.IO.File]::ReadAllBytes('{}');\
-         $ms=[System.IO.MemoryStream]::new();\
-         $ms.Write($b,0,$b.Length);\
-         $ms.Position=0;\
-         $fs=[System.IO.File]::Create('{}');\
-         $ms.CopyTo($fs);\
-         $fs.Close()",
+        "$ErrorActionPreference = 'Stop';\
+         $fs = [System.IO.FileStream]::new('{}', [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite);\
+         $out = [System.IO.FileStream]::new('{}', [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None);\
+         $fs.CopyTo($out);\
+         $fs.Close();\
+         $out.Close()",
         src_s, dst_s
     );
 
-    let output = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .output()?;
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+    #[cfg(windows)]
+    {
+        cmd.creation_flags(0x08000000);
+    }
+    let output = cmd.output()?;
 
-    if output.status.success() {
+    let copy_success = output.status.success()
+        && dst.exists()
+        && std::fs::metadata(dst).map(|m| m.len() > 0).unwrap_or(false);
+
+    if copy_success {
         Ok(())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -107,8 +118,8 @@ pub fn parse_cookies_file(db_path: &Path, domain_filter: &str) -> Result<Vec<Raw
         tmp.push(format!("{}-{:x}-copy.{}", stem.to_string_lossy(), path_hash, ext.to_string_lossy()));
         let _ = std::fs::remove_file(&tmp);
 
-        let max_retries = 5;
-        let base_delay_ms = 1000; // 1s, matching Node.js: 1, 2, 4, 8s = 15s total
+        let max_retries = 4;
+        let base_delay_ms = 100; // 100ms, 200ms, 400ms = 700ms total
         let mut last_err = None;
         for attempt in 1..=max_retries {
             match copy_with_shared_access(db_path, &tmp) {

@@ -18,10 +18,13 @@ Dialog {
     function openFor(id, duration) {
         workspaceId = id
         totalDuration = duration || 600
-        // Default titles
-        for (var i = 0; i < titleInputs.length; i++)
-            titleInputs[i] = "Part " + (i + 1)
         numParts = 2
+        // Default titles - assign new array to trigger change notification
+        var arr = []
+        for (var i = 0; i < 3; i++) {
+            arr.push("Part " + (i + 1))
+        }
+        titleInputs = arr
         open()
     }
 
@@ -47,7 +50,7 @@ Dialog {
                     delegate: RadioButton {
                         text: modelData
                         checked: dlg.numParts === modelData
-                        onToggled: { if (checked) dlg.numParts = modelData }
+                        onClicked: { dlg.numParts = modelData }
                     }
                 }
             }

@@ -18,7 +18,8 @@ pub struct IpcRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IpcResponse {
-    pub id: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ok: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -33,14 +34,14 @@ pub struct IpcResponse {
 
 impl IpcResponse {
     pub fn ok(id: Value, result: Value) -> Self {
-        Self { id, ok: Some(true), result: Some(result), error: None, method: None, params: None }
+        Self { id: Some(id), ok: Some(true), result: Some(result), error: None, method: None, params: None }
     }
     pub fn err(id: Value, error: String) -> Self {
-        Self { id, ok: Some(false), result: None, error: Some(error), method: None, params: None }
+        Self { id: Some(id), ok: Some(false), result: None, error: Some(error), method: None, params: None }
     }
     pub fn event(method: &str, params: Value) -> Self {
         Self {
-            id: Value::Null,
+            id: None,
             ok: None,
             result: None,
             error: None,
@@ -233,7 +234,7 @@ impl Settings {
             default_quality: 1080,
             max_concurrent_downloads: 1,
             yt_dlp_client_priority: vec![
-                "tv_embedded".into(),
+                "android_vr".into(),
                 "web".into(),
                 "ios".into(),
             ],

@@ -72,6 +72,49 @@ pub fn decrypt_chrome_v10(encrypted: &[u8]) -> Result<Vec<u8>> {
     Ok(encrypted.to_vec())
 }
 
+/// Decrypt Chrome v80+ cookie (AES-GCM-256 encrypted with key from Local State)
+#[cfg(target_os = "windows")]
+pub fn decrypt_aes_gcm(encrypted: &[u8], key: &[u8]) -> Result<Vec<u8>> {
+    use aes_gcm::{Aes256Gcm, aead::{Aead, KeyInit}, Nonce};
+
+    if encrypted.len() < 15 {
+        return Err(HyperclipError::DatabaseCorruption(
+            "Encrypted cookie too short for AES-GCM".into()
+        ));
+    }
+
+    let nonce_bytes = &encrypted[3..15];
+    let ciphertext = &encrypted[15..];
+
+    let cipher = Aes256Gcm::new_from_slice(key)
+        .map_err(|e| HyperclipError::DatabaseCorruption(format!("Invalid key length for AES-GCM: {}", e)))?;
+    let nonce = Nonce::from_slice(nonce_bytes);
+
+    let decrypted = cipher.decrypt(nonce, ciphertext)
+        .map_err(|e| HyperclipError::DatabaseCorruption(format!("AES-GCM decryption failed: {}", e)))?;
+
+    Ok(decrypted)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn decrypt_aes_gcm(encrypted: &[u8], _key: &[u8]) -> Result<Vec<u8>> {
+    Ok(encrypted.to_vec())
+}
+
+/// Decrypt cookie value based on version and format.
+/// Supports both legacy DPAPI and modern AES-GCM (with "v10"/"v11" prefix).
+pub fn decrypt_cookie_value(encrypted: &[u8], master_key: Option<&[u8]>) -> Result<Vec<u8>> {
+    if encrypted.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    if (encrypted.starts_with(b"v10") || encrypted.starts_with(b"v11")) && master_key.is_some() {
+        decrypt_aes_gcm(encrypted, master_key.unwrap())
+    } else {
+        decrypt_chrome_v10(encrypted)
+    }
+}
+
 /// Detect cookie version based on `encrypted_value` field.
 /// v10: encrypted_value contains DPAPI blob (non-empty)
 /// v11: encrypted_value is empty, value is plaintext in the column
@@ -91,5 +134,16 @@ mod tests {
     #[test]
     fn test_is_encrypted_v10_empty() {
         assert!(!is_encrypted_v10(&[]));
+    }
+
+    #[test]
+    fn test_decrypt_cookie_value_fallback() {
+        // Since we don't pass a master key, it should fallback to decrypt_chrome_v10
+        #[cfg(not(target_os = "windows"))]
+        {
+            let data = b"v10_data";
+            let res = decrypt_cookie_value(data, None).unwrap();
+            assert_eq!(res, data);
+        }
     }
 }
