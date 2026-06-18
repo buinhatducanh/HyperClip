@@ -22,6 +22,10 @@ data/output/
 data/thumbnails/
 data/logs/
 data/cookies*.txt
+data/renders/
+*.mp4
+*.webm
+*.mkv
 
 # Claude Code — machine-specific overrides (each machine creates its own)
 .claude/settings.local.json

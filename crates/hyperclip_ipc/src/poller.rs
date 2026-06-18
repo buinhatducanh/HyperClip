@@ -245,7 +245,7 @@ impl Poller {
 
                             for video in videos.iter() {
                                 let seen_videos = poller.seen_videos.read().await;
-                                let is_seen = seen_videos.is_seen(&cid, &video.video_id);
+                                let is_seen = seen_videos.is_any_seen(&video.video_id);
                                 drop(seen_videos);
 
                                 if is_seen { continue; }

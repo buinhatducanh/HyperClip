@@ -17,7 +17,7 @@ use hyperclip_ipc::chrome_watcher::ChromeTabWatcher;
 
 use hyperclip_ipc::ffmpeg::{spawn_render_async, RenderOptions, FilterChain};
 
-use hyperclip_ipc::youtube::{download_video, download_video_streaming, emit_download_progress};
+use hyperclip_ipc::youtube::{download_video, download_video_streaming, emit_download_progress, find_ytdlp_path, find_node_runtime_arg};
 
 use hyperclip_ipc::thumbnail::download_youtube_thumbnail_to;
 
@@ -126,10 +126,33 @@ impl AppState {
             let seen_store = hyperclip_ipc::store::SeenVideos::load(&seen_path);
             let seen_videos = Arc::new(tokio::sync::RwLock::new(seen_store));
 
+            let processing_video_ids = Arc::new(std::sync::Mutex::new(std::collections::HashSet::<String>::new()));
+
             // Process function: runs for each new video detected by the poller
             let _channels_clone = channels.clone();
             let seen_videos_clone = seen_videos.clone();
+            let processing_video_ids_clone = processing_video_ids.clone();
             let process_fn = move |event: NewVideoEvent| {
+                // Thread-safe lock to prevent concurrent ingestion of the exact same video ID
+                {
+                    let mut guard = processing_video_ids_clone.lock().unwrap();
+                    if guard.contains(&event.video_id) {
+                        tracing::info!("[AppState] Skipping concurrent process for video_id {} (already processing)", event.video_id);
+                        return;
+                    }
+
+                    // Check if a workspace with this video_id already exists to prevent duplicate downloads/entries
+                    let ws_path = get_workspaces_path();
+                    let ws_store = WorkspaceStore::load(&ws_path);
+                    if ws_store.workspaces.iter().any(|w| w.video_id == event.video_id) {
+                        tracing::info!("[AppState] Ignoring detected video {} since it is already present in workspaces", event.video_id);
+                        return;
+                    }
+
+                    // Mark as in-progress
+                    guard.insert(event.video_id.clone());
+                }
+
                 let ws_id = format!("ws-ch-{}", event.detected_at);
 
                 // 0. Record detection event for UI history
@@ -359,83 +382,98 @@ impl AppState {
                                 .or_else(|| s_store.settings.get("auto_render"))
                                 .and_then(|v| v.as_bool())
                                 .unwrap_or(false);
-                            if auto_render {
+
+                            let auto_split_parts = s_store.settings.get("autoSplitParts")
+                                .or_else(|| s_store.settings.get("auto_split_parts"))
+                                .and_then(|v| {
+                                    v.as_u64()
+                                        .or_else(|| v.as_f64().map(|f| f as u64))
+                                        .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok().map(|f| f as u64)))
+                                })
+                                .unwrap_or(1);
+                            
+                            let auto_split_minutes = s_store.settings.get("autoSplitMinutes")
+                                .or_else(|| s_store.settings.get("auto_split_minutes"))
+                                .and_then(|v| {
+                                    v.as_u64()
+                                        .or_else(|| v.as_f64().map(|f| f as u64))
+                                        .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok().map(|f| f as u64)))
+                                })
+                                .unwrap_or(0);
+                            let duration_sec = result.duration;
+
+                            let is_split = auto_split_parts > 1 || (auto_split_minutes > 0 && duration_sec > (auto_split_minutes * 60) as f64);
+
+                            if auto_render && !is_split {
                                 let in_path = result.path.clone();
                                 let out_path = build_render_path(&cid, &ch_name, &tid);
-                                if out_path.exists() {
-                                    tracing::info!("[AppState] Render file already exists at {:?}, skipping auto-render (keeping old render)", out_path);
-                                    let ws_path = get_workspaces_path();
-                                    let mut ws_store = WorkspaceStore::load(&ws_path);
-                                    ws_store.update(&tid, serde_json::json!({
-                                        "status": "done",
-                                        "renderedPath": out_path.to_string_lossy().to_string(),
-                                    })).ok();
-                                    ws_store.save(&ws_path).ok();
-                                    emit_workspace_event(&tid, "done", None);
-                                } else {
-                                    let auto_render_speed = s_store.settings
-                                        .get("autoRenderSpeed")
-                                        .or_else(|| s_store.settings.get("auto_render_speed"))
-                                        .and_then(|v| v.as_f64())
-                                        .unwrap_or(1.0);
-                                    let render_res = s_store.settings.get("autoRenderResolution").or_else(|| s_store.settings.get("auto_render_resolution")).and_then(|v| v.as_str()).unwrap_or("1080p").to_string();
-                                    let render_fps = s_store.settings.get("autoRenderFPS").or_else(|| s_store.settings.get("auto_render_fps")).and_then(|v| v.as_u64()).unwrap_or(30) as u32;
-                                    let auto_trim_end = result.duration;
-                                    let filter_chain = if is_short_val { hyperclip_ipc::ffmpeg::FilterChain::Short } else { hyperclip_ipc::ffmpeg::FilterChain::Landscape };
-                                    let hw_cfg = get_resolved_hardware_config();
-                                    let opts = hyperclip_ipc::ffmpeg::RenderOptions {
-                                        workspace_id: tid.clone(),
-                                        input_path: std::path::PathBuf::from(&in_path),
-                                        output_path: out_path.clone(),
-                                        resolution: render_res.clone(),
-                                        fps: render_fps,
-                                        speed: auto_render_speed,
-                                        trim_start: 0.0,
-                                        trim_end: auto_trim_end,
-                                        gpu_tier: hw_cfg.gpu_tier,
-                                        preset: hw_cfg.nvenc_preset,
-                                        filter_chain,
-                                        chunked: false,
-                                        chunk_duration_sec: 120,
-                                    };
-                                    // Update database status to rendering
-                                    let ws_path = get_workspaces_path();
-                                    let mut ws_store = WorkspaceStore::load(&ws_path);
-                                    ws_store.update(&tid, serde_json::json!({
-                                        "status": "rendering",
-                                        "autoRender": true,
-                                        "videoSpeed": auto_render_speed,
-                                        "fpsTarget": render_fps,
-                                        "exportResolution": render_res,
-                                        "trimStart": 0.0,
-                                        "trimEnd": auto_trim_end,
-                                    })).ok();
-                                    ws_store.save(&ws_path).ok();
-                                    emit_workspace_event(&tid, "rendering", None);
+                                let auto_render_speed = s_store.settings
+                                    .get("autoRenderSpeed")
+                                    .or_else(|| s_store.settings.get("auto_render_speed"))
+                                    .and_then(|v| v.as_f64())
+                                    .unwrap_or(1.0);
+                                let render_res = s_store.settings.get("autoRenderResolution").or_else(|| s_store.settings.get("auto_render_resolution")).and_then(|v| v.as_str()).unwrap_or("1080p").to_string();
+                                let render_fps = s_store.settings.get("autoRenderFPS").or_else(|| s_store.settings.get("auto_render_fps")).and_then(|v| v.as_u64()).unwrap_or(30) as u32;
+                                let auto_trim_end = result.duration;
+                                let filter_chain = if is_short_val { hyperclip_ipc::ffmpeg::FilterChain::Short } else { hyperclip_ipc::ffmpeg::FilterChain::Landscape };
+                                let hw_cfg = get_resolved_hardware_config();
+                                let ws_path = get_workspaces_path();
+                                let ws_store = WorkspaceStore::load(&ws_path);
+                                let bottom_bar_color = ws_store.workspaces.iter()
+                                    .find(|w| w.id == tid)
+                                    .and_then(|w| w.bottom_bar_color.clone());
+                                let opts = hyperclip_ipc::ffmpeg::RenderOptions {
+                                    workspace_id: tid.clone(),
+                                    input_path: std::path::PathBuf::from(&in_path),
+                                    output_path: out_path.clone(),
+                                    resolution: render_res.clone(),
+                                    fps: render_fps,
+                                    speed: auto_render_speed,
+                                    trim_start: 0.0,
+                                    trim_end: auto_trim_end,
+                                    gpu_tier: hw_cfg.gpu_tier,
+                                    preset: hw_cfg.nvenc_preset,
+                                    filter_chain,
+                                    chunked: false,
+                                    chunk_duration_sec: 120,
+                                    bottom_bar_color,
+                                };
+                                // Update database status to rendering
+                                let ws_path = get_workspaces_path();
+                                let mut ws_store = WorkspaceStore::load(&ws_path);
+                                ws_store.update(&tid, serde_json::json!({
+                                    "status": "rendering",
+                                    "autoRender": true,
+                                    "videoSpeed": auto_render_speed,
+                                    "fpsTarget": render_fps,
+                                    "exportResolution": render_res,
+                                    "trimStart": 0.0,
+                                    "trimEnd": auto_trim_end,
+                                })).ok();
+                                ws_store.save(&ws_path).ok();
+                                emit_workspace_event(&tid, "rendering", None);
 
-                                    let pid = tid.clone();
-                                    let start_time = std::time::Instant::now();
-                                    let render_fut = spawn_render_async(opts, move |progress| {
-                                        let e = serde_json::json!({"method": "render:progress", "params": {"id": pid, "progress": progress}});
-                                        hyperclip_ipc::emit_raw(&serde_json::to_string(&e).unwrap_or_default());
-                                    });
+                                let pid = tid.clone();
+                                let start_time = std::time::Instant::now();
+                                let render_fut = spawn_render_async(opts, move |progress| {
+                                    let e = serde_json::json!({"method": "render:progress", "params": {"id": pid, "progress": progress}});
+                                    hyperclip_ipc::emit_raw(&serde_json::to_string(&e).unwrap_or_default());
+                                });
 
-                                    let pool = get_render_worker_pool();
-                                    let render_res = tokio::runtime::Runtime::new()
-                                        .map(|rt| rt.block_on(async {
-                                            let _permit = pool.acquire().await;
-                                            render_fut.await
-                                        }))
-                                        .unwrap_or_else(|e| Err(hyperclip_ipc::HyperclipError::BackendCrashed(e.to_string())));
-                                    let duration_secs = start_time.elapsed().as_secs_f64();
+                                let pool = get_render_worker_pool();
+                                let render_res = tokio::runtime::Runtime::new()
+                                    .map(|rt| rt.block_on(async {
+                                        let _permit = pool.acquire().await;
+                                        render_fut.await
+                                    }))
+                                    .unwrap_or_else(|e| Err(hyperclip_ipc::HyperclipError::BackendCrashed(e.to_string())));
+                                let duration_secs = start_time.elapsed().as_secs_f64();
 
-                                    if let Err(ref e) = render_res {
-                                        tracing::error!("[AppState] Auto-render failed for workspace {}: {:?}", tid, e);
-                                    }
-
-                                    handle_render_completion(&tid, render_res, duration_secs);
-                                    tracing::info!("[AppState] Auto-render completed for {}", tid);
+                                if let Err(ref e) = render_res {
+                                    tracing::error!("[AppState] Auto-render failed for workspace {}: {:?}", tid, e);
                                 }
+                                handle_render_completion(&tid, render_res, duration_secs);
+                                tracing::info!("[AppState] Auto-render completed for {}", tid);
                             }
                         }
                         Err(e) => {
@@ -448,6 +486,8 @@ impl AppState {
                         }
                     }
                 });
+
+                processing_video_ids_clone.lock().unwrap().remove(&event.video_id);
             };
 
             let process_fn_arc: Arc<dyn Fn(NewVideoEvent) + Send + Sync> = Arc::new(process_fn);
@@ -841,6 +881,12 @@ pub fn init_appstate() {
     // Reset any stuck download/render tasks on startup
     cleanup_stuck_workspaces();
 
+    // Clean up legacy rendering support files from downloads directories
+    cleanup_orphaned_download_dir_support_files();
+
+    // Clean up temporary files in renders directories
+    cleanup_renders_temp_files();
+
     // Spawn a background thread that pre-populates the pool with cookies
     // from all 30 profiles. This runs in parallel with the stdin command loop
     // so Python commands are not blocked.
@@ -902,6 +948,74 @@ fn cleanup_stuck_workspaces() {
         if modified {
             if let Err(e) = ws_store.save(&ws_path) {
                 tracing::error!("[AppState] Failed to save startup cleanup: {:?}", e);
+            }
+        }
+    }
+}
+
+fn cleanup_orphaned_download_dir_support_files() {
+    tracing::info!("[AppState] Starting cleanup of orphaned support files in downloads directory");
+    
+    // 1. Get legacy/default storage path
+    let base_dir = hyperclip_ipc::store::channel_downloads_dir("", "");
+    cleanup_support_files_in_dir(&base_dir);
+
+    // 2. Get per-channel download directories
+    let media_dir = hyperclip_ipc::store::get_media_dir();
+    if media_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&media_dir) {
+            for entry in entries.flatten() {
+                if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                    let downloads_dir = entry.path().join("downloads");
+                    if downloads_dir.exists() {
+                        cleanup_support_files_in_dir(&downloads_dir);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn cleanup_support_files_in_dir(dir: &std::path::Path) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            if let Ok(meta) = entry.metadata() {
+                if meta.is_file() {
+                    let filename = entry.file_name().to_string_lossy().to_string();
+                    if filename.contains("_blur.jpg")
+                        || filename.contains("_bottom_bar.png")
+                        || filename.contains("_bottom_bar.json")
+                        || filename.contains("_thumb_fallback.jpg")
+                    {
+                        tracing::info!("[AppState] Cleaning up orphaned support file in downloads: {:?}", entry.path());
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn cleanup_renders_temp_files() {
+    tracing::info!("[AppState] Starting cleanup of renders temp directory");
+    
+    // 1. Clean legacy renders temp directory
+    let legacy_temp = hyperclip_ipc::store::get_legacy_output_dir().join("temp");
+    if legacy_temp.exists() {
+        let _ = std::fs::remove_dir_all(&legacy_temp);
+    }
+    
+    // 2. Clean channel renders temp directories
+    let media_dir = hyperclip_ipc::store::get_media_dir();
+    if media_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&media_dir) {
+            for entry in entries.flatten() {
+                if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                    let renders_temp = entry.path().join("renders").join("temp");
+                    if renders_temp.exists() {
+                        let _ = std::fs::remove_dir_all(&renders_temp);
+                    }
+                }
             }
         }
     }
@@ -1643,14 +1757,18 @@ pub fn handle_command(req: hyperclip_ipc::IpcRequest) -> CommandResult {
 
 /// Resolve channel metadata via yt-dlp
 fn resolve_channel_metadata(url: &str) -> (Option<String>, Option<String>, Option<String>) {
-    let ytdlp = find_ytdlp();
+    let ytdlp = find_ytdlp_path();
+    let node_runtime = find_node_runtime_arg();
     let output = std::process::Command::new(&ytdlp)
         .args([
+            "--js-runtimes", &node_runtime,
             "--no-warnings",
             "--skip-download",
-            "--dump-json",
+            "--dump-single-json",
+            "--flat-playlist",
+            "--playlist-items", "0",
             "--extractor-args",
-            "youtube:player_client=web",
+            "youtube:player_client=android_vr",
             url,
         ])
         .output();
@@ -1659,9 +1777,41 @@ fn resolve_channel_metadata(url: &str) -> (Option<String>, Option<String>, Optio
         Ok(out) if out.status.success() => {
             let s = String::from_utf8_lossy(&out.stdout);
             if let Ok(data) = serde_json::from_str::<serde_json::Value>(&s) {
-                let name = data.get("channel").and_then(|v| v.as_str()).map(String::from);
-                let channel_id = data.get("channel_id").and_then(|v| v.as_str()).map(String::from);
-                let avatar = data.get("thumbnail").and_then(|v| v.as_str()).map(String::from);
+                let name = data.get("channel")
+                    .or_else(|| data.get("uploader"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let channel_id = data.get("channel_id")
+                    .or_else(|| data.get("id"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let avatar = data.get("thumbnail")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+                    .or_else(|| {
+                        let thumbnails = data.get("thumbnails").and_then(|v| v.as_array())?;
+                        // Find a square thumbnail representing the channel avatar
+                        let square_thumb = thumbnails.iter().find(|item| {
+                            let w = item.get("width").and_then(|v| v.as_u64());
+                            let h = item.get("height").and_then(|v| v.as_u64());
+                            w.is_some() && w == h && w.unwrap() > 0
+                        });
+                        
+                        if let Some(item) = square_thumb {
+                            item.get("url").and_then(|v| v.as_str()).map(String::from)
+                        } else {
+                            let avatar_by_url = thumbnails.iter().find(|item| {
+                                item.get("url").and_then(|v| v.as_str())
+                                    .map(|u| u.contains("-c-k-") || u.contains("=s"))
+                                    .unwrap_or(false)
+                            });
+                            if let Some(item) = avatar_by_url {
+                                item.get("url").and_then(|v| v.as_str()).map(String::from)
+                            } else {
+                                thumbnails.first().and_then(|item| item.get("url")).and_then(|v| v.as_str()).map(String::from)
+                            }
+                        }
+                    });
                 return (name, channel_id, avatar);
             }
             (None, None, None)
@@ -1670,20 +1820,7 @@ fn resolve_channel_metadata(url: &str) -> (Option<String>, Option<String>, Optio
     }
 }
 
-fn find_ytdlp() -> String {
-    let candidates = [
-        "C:/Users/MSI/AppData/Roaming/Python/Python312/Scripts/yt-dlp.exe",
-        "C:/Users/MSI/AppData/Roaming/Python/Python313/Scripts/yt-dlp.exe",
-        "C:/Users/MSI/AppData/Roaming/Python/Python314/Scripts/yt-dlp.exe",
-        "yt-dlp",
-    ];
-    for p in &candidates {
-        if std::path::Path::new(p).exists() {
-            return p.to_string();
-        }
-    }
-    "yt-dlp".to_string()
-}
+// find_ytdlp is imported from hyperclip_ipc::youtube
 
 fn load_workspaces() -> Value {
     let store = WorkspaceStore::load(&get_workspaces_path());
@@ -1923,6 +2060,12 @@ fn migrate_media_folders_and_workspaces() {
     let mut db_updated = false;
 
     for ws in &mut ws_store.workspaces {
+        // Migrate is_short to true for all existing workspaces by default
+        if !ws.is_short {
+            ws.is_short = true;
+            db_updated = true;
+        }
+
         // Resolve sanitized channel name
         let ch_name = ws.channel_name.clone().unwrap_or_default();
         let sanitized_ch = hyperclip_ipc::sanitize_dir_name(&ch_name);
@@ -2340,19 +2483,6 @@ fn trigger_startup_render(ws: &hyperclip_ipc::store::Workspace) {
         legacy_out.join(format!("{}.mp4", rid))
     };
 
-    if out_path.exists() {
-        tracing::info!("[AppState] Startup catch-up: Render file already exists at {:?}, skipping render", out_path);
-        let ws_path = get_workspaces_path();
-        let mut ws_store = WorkspaceStore::load(&ws_path);
-        ws_store.update(&rid, serde_json::json!({
-            "status": "done",
-            "renderedPath": out_path.to_string_lossy().to_string(),
-        })).ok();
-        ws_store.save(&ws_path).ok();
-        emit_workspace_event(&rid, "done", None);
-        return;
-    }
-
     tracing::info!("[AppState] Startup catch-up: Spawning render for workspace: {}, input: {}, output: {}", rid, in_path.display(), out_path.display());
 
     let ws_path = get_workspaces_path();
@@ -2370,6 +2500,7 @@ fn trigger_startup_render(ws: &hyperclip_ipc::store::Workspace) {
     let part_is_short = ws.is_short;
     let trim_start = ws.trim_start;
     let trim_end = ws.trim_end;
+    let bottom_bar_color = ws.bottom_bar_color.clone();
     rt.spawn(async move {
         let hw_cfg = get_resolved_hardware_config();
         let pool = get_render_worker_pool();
@@ -2386,6 +2517,7 @@ fn trigger_startup_render(ws: &hyperclip_ipc::store::Workspace) {
             preset: hw_cfg.nvenc_preset,
             filter_chain: if part_is_short { FilterChain::Short } else { FilterChain::Landscape },
             chunked: false, chunk_duration_sec: 120,
+            bottom_bar_color,
         };
         let pid = rid.clone();
         let start_time = std::time::Instant::now();

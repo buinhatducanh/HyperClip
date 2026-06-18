@@ -15,7 +15,15 @@ Rectangle {
     property var currentVideoData: ({})
     property bool listLoading: false
     property bool detailLoading: false
-    property int totalCount: 0
+    property int totalCount: {
+        let count = 0;
+        for (let i = 0; i < workspaces.length; i++) {
+            if (workspaces[i].id.indexOf("-part") === -1) {
+                count++;
+            }
+        }
+        return count;
+    }
     property string errorText: ""
 
     Component.onCompleted: refreshList()
@@ -36,20 +44,15 @@ Rectangle {
                     }
                     updatedList.push(newWs);
                     found = true;
-                    if (ws.id === root.currentVideoId) {
-                        let merged = Object.assign({}, root.currentVideoData, params);
-                        if (params.status === "done" || params.status === "ready" || !params.field) {
-                            Qt.callLater(function() {
-                                if (root.currentVideoId === params.id) {
-                                    const resp = backend.send_command("workspace:managementGet", {"id": params.id});
-                                    if (resp && resp.ok !== false && resp.result) {
-                                        root.currentVideoData = resp.result;
-                                    }
+                    if (ws.id === root.currentVideoId || ws.id.startsWith(root.currentVideoId + "-part")) {
+                        Qt.callLater(function() {
+                            if (root.currentVideoId) {
+                                const resp = backend.send_command("workspace:managementGet", {"id": root.currentVideoId});
+                                if (resp && resp.ok !== false && resp.result) {
+                                    root.currentVideoData = resp.result;
                                 }
-                            });
-                        } else {
-                            root.currentVideoData = merged;
-                        }
+                            }
+                        });
                     }
                 } else {
                     updatedList.push(ws);
@@ -70,7 +73,6 @@ Rectangle {
                         "thumbnailLocal": params.thumbnailLocal || params.thumbnail_local || ""
                     };
                     root.workspaces = [newWs].concat(root.workspaces);
-                    root.totalCount = root.workspaces.length;
                 }
             }
         }
@@ -90,7 +92,6 @@ Rectangle {
             };
             let list = [newWs].concat(root.workspaces);
             root.workspaces = list;
-            root.totalCount = list.length;
         }
     }
 
@@ -100,11 +101,9 @@ Rectangle {
         const resp = backend.send_command("workspace:managementList")
         if (resp && resp.ok !== false && resp.result) {
             workspaces = resp.result.workspaces || []
-            totalCount = resp.result.count || workspaces.length
         } else {
             errorText = (resp && resp.error) || "Không tải được danh sách"
             workspaces = []
-            totalCount = 0
         }
         listLoading = false
     }
@@ -136,7 +135,151 @@ Rectangle {
         return parts;
     }
 
+    function getAggregateStatus(ws) {
+        if (!ws || !ws.id) return "ready";
+        let parts = getSplitPartsFor(ws.id);
+        if (parts.length === 0) {
+            return ws.status;
+        }
+        let hasError = false;
+        let hasRendering = false;
+        let hasDownloading = false;
+        let hasWaiting = false;
+        let allDone = true;
+        for (let i = 0; i < parts.length; i++) {
+            let status = parts[i].status;
+            if (status === "error" || status === "failed") {
+                hasError = true;
+            }
+            if (status === "rendering") {
+                hasRendering = true;
+            }
+            if (status === "downloading") {
+                hasDownloading = true;
+            }
+            if (status === "waiting") {
+                hasWaiting = true;
+            }
+            if (status !== "done" && status !== "rendered") {
+                allDone = false;
+            }
+        }
+        if (hasError) return "error";
+        if (hasRendering) return "rendering";
+        if (hasDownloading) return "downloading";
+        if (hasWaiting) return "waiting";
+        if (allDone) return "done";
+        return "ready";
+    }
+
+    function getAggregateProgress(ws) {
+        if (!ws || !ws.id) return 0;
+        let parts = getSplitPartsFor(ws.id);
+        if (parts.length === 0) {
+            return ws.progress || 0;
+        }
+        let total = 0;
+        for (let i = 0; i < parts.length; i++) {
+            let status = parts[i].status;
+            if (status === "done" || status === "rendered") {
+                total += 100;
+            } else if (status === "rendering") {
+                total += parts[i].progress || 0;
+            }
+        }
+        return total / parts.length;
+    }
+
+    function getPartsSummary(wsId) {
+        let parts = getSplitPartsFor(wsId);
+        if (parts.length === 0) return "";
+        let doneCount = 0;
+        let renderingIndex = -1;
+        for (let i = 0; i < parts.length; i++) {
+            if (parts[i].status === "done" || parts[i].status === "rendered") {
+                doneCount++;
+            } else if (parts[i].status === "rendering" && renderingIndex === -1) {
+                renderingIndex = i + 1;
+            }
+        }
+        if (renderingIndex !== -1) {
+            return " · " + parts.length + " phần (Đang render P" + renderingIndex + ")";
+        }
+        if (doneCount === parts.length) {
+            return " · " + parts.length + " phần (Xong)";
+        }
+        return " · " + parts.length + " phần (" + doneCount + "/" + parts.length + ")";
+    }
+
+    // Returns whether rendering is complete (either the parent workspace is done, or all split parts are done)
+    function getIsRendered(wsData) {
+        if (!wsData || !wsData.id) return false;
+        let parts = getSplitPartsFor(wsData.id);
+        if (parts.length === 0) {
+            return !!wsData.renderedMtime;
+        }
+        for (let i = 0; i < parts.length; i++) {
+            if (parts[i].status !== "done" && parts[i].status !== "rendered") {
+                return false;
+            }
+            if (!parts[i].renderedPath) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    function getRenderedMtime(wsData) {
+        if (!wsData || !wsData.id) return 0;
+        let parts = getSplitPartsFor(wsData.id);
+        if (parts.length === 0) {
+            return wsData.renderedMtime || 0;
+        }
+        let maxMtime = 0;
+        for (let i = 0; i < parts.length; i++) {
+            if (parts[i].renderedMtime) {
+                maxMtime = Math.max(maxMtime, parts[i].renderedMtime);
+            } else {
+                return 0;
+            }
+        }
+        return maxMtime;
+    }
+
+    function getRenderDurationSec(wsData) {
+        if (!wsData || !wsData.id) return 0.0;
+        let parts = getSplitPartsFor(wsData.id);
+        if (parts.length === 0) {
+            return wsData.renderDurationSec || 0.0;
+        }
+        let totalDuration = 0.0;
+        for (let i = 0; i < parts.length; i++) {
+            totalDuration += parts[i].renderDurationSec || 0.0;
+        }
+        return totalDuration;
+    }
+
+    function getRenderStatusText(wsData) {
+        if (!wsData || !wsData.id) return "Chưa render";
+        let status = getAggregateStatus(wsData);
+        if (status === "rendering") return "Đang render...";
+        if (status === "error") return "Lỗi render";
+        
+        let mtime = getRenderedMtime(wsData);
+        if (mtime > 0) {
+            return fmtFullTime(mtime) + "  ·  mất " + fmtDuration(getRenderDurationSec(wsData));
+        }
+        return "Chưa render";
+    }
+
     // ─── Time formatters ─────────────────────────────────────────────
+    function fmtClockMS(sec) {
+        if (sec === undefined || sec === null || sec <= 0) return "0:00"
+        sec = Math.floor(sec)
+        const m = Math.floor(sec / 60)
+        const s = sec % 60
+        return m + ":" + (s < 10 ? "0" : "") + s
+    }
     function fmtAbsTime(ms) {
         if (!ms || ms <= 0) return "—"
         const d = new Date(ms)
@@ -216,6 +359,19 @@ Rectangle {
         })[s] || (s || "—").toUpperCase()
     }
 
+    function getThumbnailSource(thumbnailLocal, videoId) {
+        if (!thumbnailLocal) {
+            return videoId
+                ? "https://i.ytimg.com/vi/" + videoId + "/hqdefault.jpg"
+                : "";
+        }
+        let t = thumbnailLocal.trim();
+        if (t.indexOf("http://") === 0 || t.indexOf("https://") === 0 || t.indexOf("file://") === 0 || t.indexOf("qrc:") === 0) {
+            return t;
+        }
+        return "file:///" + t.replace(/\\/g, "/");
+    }
+
     // ─── Reusable: detail section card ───────────────────────────────
     // Pass children as `data: [...]` or as default-property children via JS array.
     component SectionCard: Rectangle {
@@ -247,6 +403,74 @@ Rectangle {
         }
     }
 
+    component PremiumSpinner: Item {
+        id: spinnerRoot
+        implicitWidth: 24
+        implicitHeight: 24
+        property real angle: 0.0
+
+        NumberAnimation on angle {
+            from: 0
+            to: 360
+            duration: 1000
+            loops: Animation.Infinite
+            running: spinnerRoot.visible
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            radius: width / 2
+            color: "transparent"
+            border.color: "#222222"
+            border.width: 2.5
+        }
+
+        Item {
+            anchors.fill: parent
+            rotation: spinnerRoot.angle
+
+            Canvas {
+                anchors.fill: parent
+                onWidthChanged: requestPaint()
+                onHeightChanged: requestPaint()
+                onPaint: {
+                    var ctx = getContext("2d");
+                    ctx.reset();
+                    ctx.strokeStyle = Theme.accent;
+                    ctx.lineWidth = 2.5;
+                    ctx.lineCap = "round";
+                    ctx.beginPath();
+                    ctx.arc(width/2, height/2, width/2 - 1.25, 0, Math.PI * 0.6);
+                    ctx.stroke();
+                }
+            }
+        }
+    }
+
+    component PanelLoadingPlaceholder: Rectangle {
+        id: placeholderRoot
+        property string message: "Đang xử lý..."
+        color: "transparent"
+        width: parent ? parent.width : 0
+        implicitHeight: 80
+        height: visible ? implicitHeight : 0
+        visible: false
+
+        RowLayout {
+            anchors.centerIn: parent
+            spacing: 12
+            PremiumSpinner {
+                Layout.preferredWidth: 24
+                Layout.preferredHeight: 24
+            }
+            Label {
+                text: placeholderRoot.message
+                color: Theme.textMuted
+                font.pixelSize: 12
+            }
+        }
+    }
+
     component KVRow: RowLayout {
         id: kvRow
         property string keyText: ""
@@ -254,6 +478,7 @@ Rectangle {
         property bool mono: false
         property bool multiline: false
         property bool clickable: false
+        property var valueColor: null
         signal clicked()
         spacing: 12
         Layout.fillWidth: true
@@ -263,10 +488,11 @@ Rectangle {
             font.pixelSize: 12
             Layout.preferredWidth: 130
             Layout.alignment: multiline ? Qt.AlignTop : Qt.AlignVCenter
+            elide: Text.ElideRight
         }
         Label {
             text: valueText || "—"
-            color: clickable && valueText && valueText !== "—" ? Theme.accent : (valueText ? Theme.text : Theme.textMuted)
+            color: kvRow.valueColor !== null && kvRow.valueColor !== undefined ? kvRow.valueColor : (clickable && valueText && valueText !== "—" ? Theme.accent : (valueText ? Theme.text : Theme.textMuted))
             font.pixelSize: 12
             font.family: mono ? "monospace" : "sans-serif"
             font.underline: clickable && valueText && valueText !== "—"
@@ -358,7 +584,9 @@ Rectangle {
                         id: queueList
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        model: root.workspaces
+                        model: root.workspaces.filter(function(ws) {
+                            return ws.id.indexOf("-part") === -1;
+                        })
                         clip: true
                         spacing: 4
                         boundsBehavior: Flickable.StopAtBounds
@@ -399,11 +627,7 @@ Rectangle {
                                     clip: true
                                     Image {
                                         anchors.fill: parent
-                                        source: modelData.thumbnailLocal
-                                            ? "file:///" + modelData.thumbnailLocal.replace(/\\/g, "/")
-                                            : (modelData.video_id
-                                                ? "https://img.youtube.com/vi/" + modelData.video_id + "/mqdefault.jpg"
-                                                : "")
+                                        source: root.getThumbnailSource(modelData.thumbnailLocal, modelData.video_id)
                                         fillMode: Image.PreserveAspectCrop
                                         asynchronous: true
                                         cache: true
@@ -427,6 +651,7 @@ Rectangle {
                                     Label {
                                         text: (modelData.channelName || modelData.channel_id || "—")
                                             + " · " + root.fmtTimeAgo(modelData.createdAt)
+                                            + root.getPartsSummary(modelData.id)
                                         color: Theme.textMuted
                                         font.pixelSize: 10
                                         elide: Text.ElideRight
@@ -436,12 +661,12 @@ Rectangle {
                                     RowLayout {
                                         spacing: 6
                                         StatusDot {
-                                            state: root.statusToDotState(modelData.status)
+                                            state: root.statusToDotState(root.getAggregateStatus(modelData))
                                             size: 6
                                             showRing: false
                                         }
                                         Label {
-                                            text: root.statusLabel(modelData.status)
+                                            text: root.statusLabel(root.getAggregateStatus(modelData))
                                             color: Theme.textMuted
                                             font.pixelSize: 10
                                             font.bold: true
@@ -548,11 +773,7 @@ Rectangle {
                                     clip: true
                                     Image {
                                         anchors.fill: parent
-                                        source: root.currentVideoData.thumbnailLocal
-                                            ? "file:///" + root.currentVideoData.thumbnailLocal.replace(/\\/g, "/")
-                                            : (root.currentVideoData.video_id
-                                                ? "https://img.youtube.com/vi/" + root.currentVideoData.video_id + "/mqdefault.jpg"
-                                                : "")
+                                        source: root.getThumbnailSource(root.currentVideoData.thumbnailLocal, root.currentVideoData.video_id)
                                         fillMode: Image.PreserveAspectCrop
                                         asynchronous: true
                                         cache: true
@@ -647,7 +868,18 @@ Rectangle {
                                 }
                                 KVRow {
                                     keyText: "Duration (gốc)"
-                                    valueText: root.fmtDuration(root.currentVideoData.durationSec)
+                                    valueText: {
+                                        const original = root.fmtDuration(root.currentVideoData.durationSec)
+                                        const speed = root.currentVideoData.videoSpeed || 1.0
+                                        const s = root.currentVideoData.trimStart || 0
+                                        const e = root.currentVideoData.trimEnd || (root.currentVideoData.durationSec || 0)
+                                        const hasTrim = s > 0 || (root.currentVideoData.trimEnd && e < (root.currentVideoData.durationSec || 0))
+                                        if (speed !== 1.0 || hasTrim) {
+                                            const target = (e - s) / speed
+                                            return original + " (Đầu ra: " + root.fmtClockMS(target) + " do x" + speed + ")"
+                                        }
+                                        return original
+                                    }
                                 }
                             }
                         }
@@ -655,65 +887,85 @@ Rectangle {
                         // ─── 3. Download config ──────────────────────
                         SectionCard {
                             sectionTitle: "CẤU HÌNH TẢI VỀ"
-                            ColumnLayout {
+                            Item {
                                 width: parent.width
-                                spacing: 4
-                                KVRow {
-                                    keyText: "Quality target"
-                                    valueText: root.currentVideoData.quality
-                                        ? root.currentVideoData.quality + "p" : "—"
-                                }
-                                KVRow {
-                                    keyText: "Client priority"
-                                    valueText: {
-                                        const pri = (typeof settings !== "undefined" && settings.ytDlpClientPriority)
-                                            ? settings.ytDlpClientPriority.join(" → ")
-                                            : "tv_embedded → web → ios"
-                                        return pri
+                                height: loadingDownload.visible ? loadingDownload.height : contentDownload.height
+
+                                PanelLoadingPlaceholder {
+                                    id: loadingDownload
+                                    visible: {
+                                        const s = root.currentVideoData.status
+                                        return s === "downloading" || s === "waiting" || s === "pending" || s === "new"
                                     }
+                                    message: root.currentVideoData.status === "downloading"
+                                        ? "Đang tải video... " + (root.currentVideoData.progress ? Math.round(root.currentVideoData.progress) + "%" : "")
+                                        : "Đang chờ tải video..."
                                 }
-                                KVRow {
-                                    keyText: "Trim range"
-                                    valueText: {
-                                        const s = root.currentVideoData.trimStart || 0
-                                        const e = root.currentVideoData.trimEnd || 0
-                                        return (s > 0 || e > 0)
-                                            ? root.fmtClock(s) + " → " + root.fmtClock(e)
-                                            : "Không cắt"
+
+                                ColumnLayout {
+                                    id: contentDownload
+                                    width: parent.width
+                                    spacing: 4
+                                    visible: !loadingDownload.visible
+                                    height: visible ? implicitHeight : 0
+                                    clip: true
+                                    KVRow {
+                                        keyText: "Quality target"
+                                        valueText: root.currentVideoData.quality
+                                            ? root.currentVideoData.quality + "p" : "—"
                                     }
-                                }
-                                KVRow {
-                                    keyText: "Concurrent frag."
-                                    valueText: "16"
-                                }
-                                KVRow {
-                                    keyText: "File size"
-                                    valueText: root.fmtBytes(root.currentVideoData.fileSize
-                                        || root.currentVideoData.downloadedSize)
-                                }
-                                KVRow {
-                                    keyText: "Download speed"
-                                    valueText: root.currentVideoData.downloadSpeed || "—"
-                                }
-                                KVRow {
-                                    keyText: "Download time"
-                                    valueText: root.fmtDuration(root.currentVideoData.downloadDurationSec)
-                                }
-                                KVRow {
-                                    keyText: "Downloaded at"
-                                    valueText: root.fmtFullTime(
-                                        root.currentVideoData.downloadedMtime
-                                        || root.currentVideoData.downloadedAt)
-                                }
-                                KVRow {
-                                    keyText: "Path"
-                                    valueText: root.currentVideoData.downloadedPath || ""
-                                    mono: true
-                                    multiline: true
-                                    clickable: true
-                                    onClicked: {
-                                        if (valueText) {
-                                            backend.send_command("system:openFolder", {"path": valueText})
+                                    KVRow {
+                                        keyText: "Client priority"
+                                        valueText: {
+                                            const pri = (typeof settings !== "undefined" && settings !== null && settings.ytDlpClientPriority)
+                                                ? settings.ytDlpClientPriority.join(" → ")
+                                                : "tv_embedded → web → ios"
+                                            return pri
+                                        }
+                                    }
+                                    KVRow {
+                                        keyText: "Trim range"
+                                        valueText: {
+                                            const s = root.currentVideoData.trimStart || 0
+                                            const e = root.currentVideoData.trimEnd || 0
+                                            return (s > 0 || e > 0)
+                                                ? root.fmtClock(s) + " → " + root.fmtClock(e)
+                                                : "Không cắt"
+                                        }
+                                    }
+                                    KVRow {
+                                        keyText: "Concurrent frag."
+                                        valueText: "16"
+                                    }
+                                    KVRow {
+                                        keyText: "File size"
+                                        valueText: root.fmtBytes(root.currentVideoData.fileSize
+                                            || root.currentVideoData.downloadedSize)
+                                    }
+                                    KVRow {
+                                        keyText: "Download speed"
+                                        valueText: root.currentVideoData.downloadSpeed || "—"
+                                    }
+                                    KVRow {
+                                        keyText: "Download time"
+                                        valueText: root.fmtDuration(root.currentVideoData.downloadDurationSec)
+                                    }
+                                    KVRow {
+                                        keyText: "Downloaded at"
+                                        valueText: root.fmtFullTime(
+                                            root.currentVideoData.downloadedMtime
+                                            || root.currentVideoData.downloadedAt)
+                                    }
+                                    KVRow {
+                                        keyText: "Path"
+                                        valueText: root.currentVideoData.downloadedPath || ""
+                                        mono: true
+                                        multiline: true
+                                        clickable: true
+                                        onClicked: {
+                                            if (valueText) {
+                                                backend.send_command("system:openFolder", {"path": valueText})
+                                            }
                                         }
                                     }
                                 }
@@ -723,87 +975,128 @@ Rectangle {
                         // ─── 4. Render config ────────────────────────
                         SectionCard {
                             sectionTitle: "CẤU HÌNH RENDER"
-                            visible: !!root.currentVideoData.autoRender || !!root.currentVideoData.renderedPath || root.currentVideoData.status === "rendering" || root.currentVideoData.status === "done"
-                            ColumnLayout {
+                            visible: {
+                                const s = root.getAggregateStatus(root.currentVideoData)
+                                return s !== "new" && s !== "waiting" && s !== "pending" && s !== "downloading"
+                            }
+                            Item {
                                 width: parent.width
-                                spacing: 4
-                                KVRow {
-                                    keyText: "Auto render"
-                                    valueText: root.currentVideoData.autoRender ? "BẬT" : "TẮT"
+                                height: loadingRender.visible ? loadingRender.height : contentRender.height
+
+                                PanelLoadingPlaceholder {
+                                    id: loadingRender
+                                    visible: root.getAggregateStatus(root.currentVideoData) === "rendering"
+                                    message: "Đang render video... " + Math.round(root.getAggregateProgress(root.currentVideoData)) + "%"
                                 }
-                                KVRow {
-                                    keyText: "Speed (tăng tốc)"
-                                    valueText: (root.currentVideoData.videoSpeed || 1.0) + "×"
-                                }
-                                KVRow {
-                                    keyText: "Trim start"
-                                    valueText: root.fmtClock(root.currentVideoData.trimStart || 0)
-                                }
-                                KVRow {
-                                    keyText: "Trim end"
-                                    valueText: root.currentVideoData.trimEnd ? root.fmtClock(root.currentVideoData.trimEnd) : "Hết video"
-                                }
-                                KVRow {
-                                    keyText: "FPS target"
-                                    valueText: {
-                                        const fps = root.currentVideoData.fpsTarget || (typeof settings !== "undefined" ? settings.autoRenderFPS : 30) || 30
-                                        return fps + " fps"
+
+                                ColumnLayout {
+                                    id: contentRender
+                                    width: parent.width
+                                    spacing: 4
+                                    visible: !loadingRender.visible
+                                    height: visible ? implicitHeight : 0
+                                    clip: true
+                                    KVRow {
+                                        keyText: "Auto render"
+                                        valueText: root.currentVideoData.autoRender ? "BẬT" : "TẮT"
                                     }
-                                }
-                                KVRow {
-                                    keyText: "Export resolution"
-                                    valueText: root.currentVideoData.exportResolution || (typeof settings !== "undefined" ? settings.autoRenderResolution : "1080p") || "1080p"
-                                }
-                                KVRow {
-                                    keyText: "Render FPS (thực tế)"
-                                    valueText: root.currentVideoData.renderFps
-                                        ? root.currentVideoData.renderFps + " fps" : "—"
-                                }
-                                KVRow {
-                                    keyText: "Render preset"
-                                    valueText: root.currentVideoData.renderPreset || "—"
-                                }
-                                KVRow {
-                                    keyText: "Render codec"
-                                    valueText: root.currentVideoData.renderCodec || "—"
-                                }
-                                KVRow {
-                                    keyText: "Render workers"
-                                    valueText: root.currentVideoData.renderWorkers
-                                        ? "" + root.currentVideoData.renderWorkers : "—"
-                                }
-                                KVRow {
-                                    keyText: "Render time"
-                                    valueText: root.fmtDuration(root.currentVideoData.renderDurationSec)
-                                }
-                                KVRow {
-                                    keyText: "Rendered at"
-                                    valueText: root.fmtFullTime(root.currentVideoData.renderedMtime)
-                                }
-                                KVRow {
-                                    keyText: "Output path"
-                                    valueText: root.currentVideoData.renderedPath || "—"
-                                    mono: true
-                                    multiline: true
-                                    clickable: true
-                                    visible: getSplitPartsFor(root.currentVideoId).length === 0
-                                    onClicked: {
-                                        if (valueText && valueText !== "—") {
-                                            backend.send_command("system:openFolder", {"path": valueText})
+                                    KVRow {
+                                        keyText: "Speed (tăng tốc)"
+                                        valueText: (root.currentVideoData.videoSpeed || 1.0) + "×"
+                                    }
+                                    KVRow {
+                                        keyText: "Thời lượng đầu ra"
+                                        valueText: {
+                                            const speed = root.currentVideoData.videoSpeed || 1.0
+                                            const dur = root.currentVideoData.durationSec || 0
+                                            const s = root.currentVideoData.trimStart || 0
+                                            const e = root.currentVideoData.trimEnd || dur
+                                            const target = (e - s) / speed
+                                            return root.fmtClockMS(target)
                                         }
                                     }
-                                }
-                                Repeater {
-                                    model: getSplitPartsFor(root.currentVideoId)
-                                    delegate: KVRow {
-                                        keyText: "Đầu ra (" + (modelData.title || modelData.id) + ")"
-                                        valueText: modelData.renderedPath || "— (đang render...)"
+                                    KVRow {
+                                        keyText: "Trim start"
+                                        valueText: root.fmtClock(root.currentVideoData.trimStart || 0)
+                                    }
+                                    KVRow {
+                                        keyText: "Trim end"
+                                        valueText: root.currentVideoData.trimEnd ? root.fmtClock(root.currentVideoData.trimEnd) : "Hết video"
+                                    }
+                                    KVRow {
+                                        keyText: "FPS target"
+                                        valueText: {
+                                            const fps = root.currentVideoData.fpsTarget || (typeof settings !== "undefined" ? settings.autoRenderFPS : 30) || 30
+                                            return fps + " fps"
+                                        }
+                                    }
+                                    KVRow {
+                                        keyText: "Export resolution"
+                                        valueText: root.currentVideoData.exportResolution || (typeof settings !== "undefined" ? settings.autoRenderResolution : "1080p") || "1080p"
+                                    }
+                                    KVRow {
+                                        keyText: "Render FPS (thực tế)"
+                                        valueText: root.currentVideoData.renderFps
+                                            ? root.currentVideoData.renderFps + " fps" : "—"
+                                    }
+                                    KVRow {
+                                        keyText: "Render preset"
+                                        valueText: root.currentVideoData.renderPreset || "—"
+                                    }
+                                    KVRow {
+                                        keyText: "Render codec"
+                                        valueText: root.currentVideoData.renderCodec || "—"
+                                    }
+                                    KVRow {
+                                        keyText: "Render workers"
+                                        valueText: root.currentVideoData.renderWorkers
+                                            ? "" + root.currentVideoData.renderWorkers : "—"
+                                    }
+                                    KVRow {
+                                        keyText: "Render time"
+                                        valueText: root.fmtDuration(root.currentVideoData.renderDurationSec)
+                                    }
+                                    KVRow {
+                                        keyText: "Rendered at"
+                                        valueText: root.fmtFullTime(root.currentVideoData.renderedMtime)
+                                    }
+                                    KVRow {
+                                        keyText: "Output path"
+                                        valueText: {
+                                            if (root.currentVideoData.status === "error" || root.currentVideoData.status === "failed") {
+                                                return "— (Lỗi: " + (root.currentVideoData.error || "Không rõ nguyên nhân") + ")"
+                                            }
+                                            return root.currentVideoData.renderedPath || "—"
+                                        }
+                                        valueColor: (root.currentVideoData.status === "error" || root.currentVideoData.status === "failed") ? Theme.error : Theme.text
                                         mono: true
                                         multiline: true
-                                        clickable: !!modelData.renderedPath
+                                        clickable: !!root.currentVideoData.renderedPath && root.currentVideoData.status !== "error" && root.currentVideoData.status !== "failed"
+                                        visible: getSplitPartsFor(root.currentVideoId).length === 0
                                         onClicked: {
-                                            if (modelData.renderedPath) {
-                                                backend.send_command("system:openFolder", {"path": modelData.renderedPath})
+                                            if (root.currentVideoData.renderedPath && root.currentVideoData.status !== "error" && root.currentVideoData.status !== "failed") {
+                                                backend.send_command("system:openFolder", {"path": root.currentVideoData.renderedPath})
+                                            }
+                                        }
+                                    }
+                                    Repeater {
+                                        model: getSplitPartsFor(root.currentVideoId)
+                                        delegate: KVRow {
+                                            keyText: "Đầu ra (Phần " + (index + 1) + ")"
+                                            valueText: {
+                                                if (modelData.status === "error" || modelData.status === "failed") {
+                                                    return "— (Lỗi: " + (modelData.error || "Không rõ nguyên nhân") + ")"
+                                                }
+                                                return modelData.renderedPath || "— (đang render...)"
+                                            }
+                                            valueColor: (modelData.status === "error" || modelData.status === "failed") ? Theme.error : Theme.text
+                                            mono: true
+                                            multiline: true
+                                            clickable: !!modelData.renderedPath && modelData.status !== "error" && modelData.status !== "failed"
+                                            onClicked: {
+                                                if (modelData.renderedPath && modelData.status !== "error" && modelData.status !== "failed") {
+                                                    backend.send_command("system:openFolder", {"path": modelData.renderedPath})
+                                                }
                                             }
                                         }
                                     }
@@ -854,8 +1147,13 @@ Rectangle {
                                         Layout.preferredWidth: 12
                                         Layout.preferredHeight: 12
                                         radius: 6
-                                        color: root.currentVideoData.renderedMtime
-                                            ? Theme.success : Theme.textMuted
+                                        color: root.getIsRendered(root.currentVideoData)
+                                            ? Theme.success
+                                            : (root.getAggregateStatus(root.currentVideoData) === "rendering"
+                                                ? Theme.accent
+                                                : (root.getAggregateStatus(root.currentVideoData) === "error"
+                                                    ? Theme.error
+                                                    : Theme.textMuted))
                                         Layout.alignment: Qt.AlignHCenter
                                     }
                                 }
@@ -911,17 +1209,33 @@ Rectangle {
                                         spacing: 2
                                         Label {
                                             text: "③ Render xong"
-                                            color: root.currentVideoData.renderedMtime
-                                                ? Theme.success : Theme.textMuted
+                                            color: root.getIsRendered(root.currentVideoData)
+                                                ? Theme.success
+                                                : (root.getAggregateStatus(root.currentVideoData) === "rendering"
+                                                    ? Theme.accent
+                                                    : (root.getAggregateStatus(root.currentVideoData) === "error"
+                                                        ? Theme.error
+                                                        : Theme.textMuted))
                                             font.pixelSize: 12
                                             font.bold: true
                                         }
                                         Label {
-                                            text: root.currentVideoData.renderedMtime
-                                                ? (root.fmtFullTime(root.currentVideoData.renderedMtime)
-                                                    + "  ·  mất " + root.fmtDuration(root.currentVideoData.renderDurationSec))
-                                                : "Chưa render"
-                                            color: Theme.text
+                                            text: {
+                                                let statusText = root.getRenderStatusText(root.currentVideoData);
+                                                if (root.getAggregateStatus(root.currentVideoData) === "error") {
+                                                    let err = root.currentVideoData.error;
+                                                    let parts = root.getSplitPartsFor(root.currentVideoId);
+                                                    for (let i = 0; i < parts.length; i++) {
+                                                        if (parts[i].error) {
+                                                            err = "P" + (i+1) + ": " + parts[i].error;
+                                                            break;
+                                                        }
+                                                    }
+                                                    return "Lỗi: " + (err || "Không rõ nguyên nhân");
+                                                }
+                                                return statusText;
+                                            }
+                                            color: root.getAggregateStatus(root.currentVideoData) === "error" ? Theme.error : Theme.text
                                             font.pixelSize: 11
                                         }
                                     }

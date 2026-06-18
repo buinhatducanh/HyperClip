@@ -1,5 +1,5 @@
 // src/ui/qml/SettingsPage.qml
-// Tabbed settings page: General / Detection / Auth / System / Logs / Update
+// Consolidated settings page showing all panels in a single scrollable view.
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -8,141 +8,194 @@ Rectangle {
     id: page
     color: Theme.bg
 
-    property string activeTab: "general"
-
-    onActiveTabChanged: {
-        // Discard unsaved changes — reload from backend
-        settings.load_from_backend(backend)
-    }
-
     onVisibleChanged: {
         if (visible) {
             Qt.callLater(settings.load_from_backend, backend)
         }
     }
 
-    ColumnLayout {
+    ScrollView {
+        id: root
         anchors.fill: parent
-        spacing: 0
+        clip: true
 
-        // Tab bar
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 40
-            color: Theme.rowEven
-            border.color: Theme.border
-            border.width: 0
+        ColumnLayout {
+            width: root.width - Theme.spacingLg * 2
+            spacing: Theme.spacingMd
+            x: Theme.spacingLg
+            y: Theme.spacingLg
+
+            Label {
+                text: "Cài đặt"
+                color: Theme.text
+                font.pixelSize: Theme.textXl
+                font.bold: true
+                Layout.fillWidth: true
+                Layout.bottomMargin: Theme.spacingXs
+            }
+
             RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 8
-                spacing: 0
-                Repeater {
-                    model: [
-                        {key: "general", label: "Chung"},
-                        {key: "detection", label: "Phát hiện"},
-                        {key: "auth", label: "Xác thực"},
-                        {key: "system", label: "Hệ thống"},
-                        {key: "logs", label: "Nhật ký"},
-                        {key: "update", label: "Cập nhật"},
-                    ]
-                    delegate: Rectangle {
-                        Layout.fillHeight: true
-                        Layout.preferredWidth: 96
-                        color: page.activeTab === modelData.key ? Theme.hoverBg : "transparent"
-                        border.color: page.activeTab === modelData.key ? Theme.accent : "transparent"
-                        border.width: page.activeTab === modelData.key ? 1 : 0
+                Layout.fillWidth: true
+                spacing: Theme.spacingMd
+                DetectionPanel { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.fillHeight: true }
+                AuthPanel { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.preferredHeight: 220; Layout.fillHeight: true }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingMd
+                DownloadCard { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.fillHeight: true }
+                AutoRenderCard { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.fillHeight: true }
+            }
+
+            StorageCard { Layout.fillWidth: true }
+
+            HardwareProfileCard { Layout.fillWidth: true }
+
+            // Software Update
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 110
+                color: Theme.cardBg
+                border.color: Theme.border
+                border.width: 1
+                radius: Theme.radiusLg
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 16
+                    spacing: Theme.spacingMd
+
+                    RowLayout {
+                        spacing: 8
+                        Icon { name: "upload"; size: 13; color: Theme.accent }
                         Label {
-                            anchors.centerIn: parent
-                            text: modelData.label
-                            color: page.activeTab === modelData.key ? Theme.accent : Theme.textMuted
-                            font.pixelSize: 11
-                            font.bold: page.activeTab === modelData.key
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: page.activeTab = modelData.key
+                            text: "CẬP NHẬT PHẦN MỀM"
+                            color: Theme.accent
+                            font.pixelSize: Theme.textSm
+                            font.bold: true
+                            font.letterSpacing: 0.5
                         }
                     }
-                }
-                Item { Layout.fillWidth: true }
-            }
-        }
-        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
 
-        // Tab content
-        Loader {
-            id: tabLoader
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            sourceComponent: {
-                if (page.activeTab === "detection") return detectionComp
-                if (page.activeTab === "auth") return authComp
-                if (page.activeTab === "system") return systemComp
-                if (page.activeTab === "logs") return logsComp
-                if (page.activeTab === "update") return updateComp
-                return generalComp
-            }
-            onStatusChanged: {
-                if (status === Loader.Ready && item) {
-                    item.Layout.fillWidth = true
-                    item.Layout.fillHeight = true
-                }
-            }
-        }
+                    RowLayout {
+                        spacing: 12
+                        Layout.fillWidth: true
+                        
+                        Label {
+                            text: "Phiên bản hiện tại: v1.2.0-stable"
+                            color: Theme.text
+                            font.pixelSize: Theme.textMd
+                            Layout.fillWidth: true
+                        }
 
-        Component { id: generalComp; SettingsPanel { Layout.fillWidth: true; Layout.fillHeight: true } }
-        Component { id: detectionComp; DetectionPanel { Layout.fillWidth: true; Layout.fillHeight: true } }
-        Component { id: authComp; AuthOverviewPanel { Layout.fillWidth: true; Layout.fillHeight: true } }
-        Component { id: systemComp
-            Rectangle {
-                color: Theme.bg
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 12
-                    SystemCard { Layout.fillWidth: true; Layout.fillHeight: true }
+                        Button {
+                            text: "Kiểm tra cập nhật"
+                            highlighted: true
+                            onClicked: {
+                                backend.send_command("update:check")
+                                if (typeof toastService !== 'undefined' && toastService) {
+                                    toastService.show("Cập nhật", "Đang kết nối tới máy chủ cập nhật...", "info")
+                                }
+                            }
+                        }
+                    }
                 }
             }
-        }
-        Component { id: logsComp
+
+            // Diagnostics & Troubleshoot
             Rectangle {
-                color: Theme.bg
                 Layout.fillWidth: true
-                Layout.fillHeight: true
+                Layout.preferredHeight: 110
+                color: Theme.cardBg
+                border.color: Theme.border
+                border.width: 1
+                radius: Theme.radiusLg
+
                 ColumnLayout {
                     anchors.fill: parent
-                    LogViewer { Layout.fillWidth: true; Layout.fillHeight: true }
+                    anchors.margins: 16
+                    spacing: Theme.spacingMd
+
+                    RowLayout {
+                        spacing: 8
+                        Icon { name: "settings"; size: 13; color: Theme.accent }
+                        Label {
+                            text: "KHẮC PHỤC SỰ CỐ & CHẨN ĐOÁN"
+                            color: Theme.accent
+                            font.pixelSize: Theme.textSm
+                            font.bold: true
+                            font.letterSpacing: 0.5
+                        }
+                    }
+
+                    RowLayout {
+                        spacing: 12
+                        Layout.fillWidth: true
+                        
+                        Label {
+                            text: "Chạy phân tích chẩn đoán hiệu suất và kết nối mạng backend."
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.textMd
+                            Layout.fillWidth: true
+                        }
+
+                        Button {
+                            text: "Chạy chẩn đoán"
+                            onClicked: {
+                                backend.send_command("system:runDiagnostics")
+                                if (typeof toastService !== 'undefined' && toastService) {
+                                    toastService.show("Chẩn đoán", "Bắt đầu quét phần cứng hệ thống...", "info")
+                                }
+                            }
+                        }
+                    }
                 }
             }
-        }
-        Component { id: updateComp
+
+            // Action bar
             Rectangle {
-                color: Theme.bg
                 Layout.fillWidth: true
-                Layout.fillHeight: true
-                ColumnLayout {
+                Layout.topMargin: Theme.spacingSm
+                Layout.preferredHeight: 48
+                color: Theme.cardBg
+                border.color: Theme.border
+                border.width: 1
+                radius: Theme.radiusLg
+
+                RowLayout {
                     anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 12
-                    Label {
-                        text: "Cập nhật"
-                        color: Theme.text
-                        font.pixelSize: 20
-                        font.bold: true
+                    anchors.leftMargin: Theme.spacingLg
+                    anchors.rightMargin: Theme.spacingLg
+                    spacing: Theme.spacingSm
+
+                    Button {
+                        text: "Lưu"
+                        highlighted: true
+                        onClicked: {
+                            if (settings.save_to_backend(backend)) {
+                                toastService.show("Đã lưu", "Cài đặt đã được lưu thành công", "success")
+                            } else {
+                                toastService.show("Lỗi", "Không thể lưu cài đặt", "error")
+                            }
+                        }
                     }
                     Button {
-                        text: "Kiểm tra cập nhật"
-                        onClicked: backend.send_command("update:check")
+                        text: "Tải lại"
+                        onClicked: {
+                            settings.load_from_backend(backend)
+                            toastService.show("Đã tải lại", "Đã khôi phục cài đặt gần nhất", "info")
+                        }
                     }
-                    Button {
-                        text: "Chạy chẩn đoán"
-                        onClicked: backend.send_command("system:runDiagnostics")
-                    }
+                    Item { Layout.fillWidth: true }
                 }
+            }
+
+            // Bottom spacing margin to prevent overlapping scroll edge
+            Item {
+                Layout.preferredHeight: Theme.spacingLg
             }
         }
     }
 }
+

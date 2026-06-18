@@ -18,7 +18,9 @@ ColumnLayout {
             if (wsId && wsId.startsWith(parentId + "-part")) {
                 let title = workspaceModel.data(idx, Qt.UserRole + 3); // TitleRole
                 let rPath = workspaceModel.data(idx, Qt.UserRole + 8); // RenderedRole
-                parts.push({ "id": wsId, "title": title, "renderedPath": rPath });
+                let status = workspaceModel.data(idx, Qt.UserRole + 2); // StatusRole
+                let error = workspaceModel.data(idx, Qt.UserRole + 16); // ErrorRole
+                parts.push({ "id": wsId, "title": title, "renderedPath": rPath, "status": status, "error": error });
             }
         }
         parts.sort((a, b) => a.id.localeCompare(b.id));
@@ -71,18 +73,25 @@ ColumnLayout {
                 visible: root.getSplitPartsFor(workspaceData.id).length === 0
             }
             Label {
-                text: (workspaceData.renderedPath || workspaceData.outputPath || "—")
-                color: (workspaceData.renderedPath || workspaceData.outputPath) ? Theme.accent : Theme.text
+                text: {
+                    if (workspaceData.status === "error" || workspaceData.status === "failed") {
+                        return "— (Lỗi: " + (workspaceData.error || "Không rõ nguyên nhân") + ")";
+                    }
+                    return (workspaceData.renderedPath || workspaceData.outputPath || "—");
+                }
+                color: (workspaceData.status === "error" || workspaceData.status === "failed")
+                    ? Theme.error
+                    : ((workspaceData.renderedPath || workspaceData.outputPath) ? Theme.accent : Theme.text)
                 font.pixelSize: Theme.textXs
                 font.family: "monospace"
-                font.underline: !!(workspaceData.renderedPath || workspaceData.outputPath)
+                font.underline: !!(workspaceData.renderedPath || workspaceData.outputPath) && workspaceData.status !== "error" && workspaceData.status !== "failed"
                 elide: Text.ElideMiddle
                 Layout.fillWidth: true
                 visible: root.getSplitPartsFor(workspaceData.id).length === 0
 
                 MouseArea {
                     anchors.fill: parent
-                    enabled: !!(workspaceData.renderedPath || workspaceData.outputPath)
+                    enabled: !!(workspaceData.renderedPath || workspaceData.outputPath) && workspaceData.status !== "error" && workspaceData.status !== "failed"
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
                         var p = workspaceData.renderedPath || workspaceData.outputPath;
@@ -113,17 +122,24 @@ ColumnLayout {
                             elide: Text.ElideRight
                         }
                         Label {
-                            text: modelData.renderedPath || "— (đang render...)"
-                            color: modelData.renderedPath ? Theme.accent : Theme.textMuted
+                            text: {
+                                if (modelData.status === "error" || modelData.status === "failed" || (modelData.error && modelData.error !== "")) {
+                                    return "— (Lỗi: " + (modelData.error || "Không rõ nguyên nhân") + ")";
+                                }
+                                return modelData.renderedPath || "— (đang render...)";
+                            }
+                            color: (modelData.status === "error" || modelData.status === "failed" || (modelData.error && modelData.error !== ""))
+                                ? Theme.error
+                                : (modelData.renderedPath ? Theme.accent : Theme.textMuted)
                             font.pixelSize: Theme.textXs
                             font.family: "monospace"
-                            font.underline: !!modelData.renderedPath
+                            font.underline: !!modelData.renderedPath && modelData.status !== "error" && modelData.status !== "failed"
                             elide: Text.ElideMiddle
                             Layout.fillWidth: true
 
                             MouseArea {
                                 anchors.fill: parent
-                                enabled: !!modelData.renderedPath
+                                enabled: !!modelData.renderedPath && modelData.status !== "error" && modelData.status !== "failed"
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     if (modelData.renderedPath) {

@@ -1,8 +1,10 @@
 # src/models/workspace_model.py
-from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot
+from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot, Signal, Property
 
 
 class WorkspaceModel(QAbstractListModel):
+    activeTasksChanged = Signal()
+
     IdRole = Qt.UserRole + 1
     StatusRole = Qt.UserRole + 2
     TitleRole = Qt.UserRole + 3
@@ -17,6 +19,8 @@ class WorkspaceModel(QAbstractListModel):
     SpeedRole = Qt.UserRole + 12
     FileSizeRole = Qt.UserRole + 13
     AgeLabelRole = Qt.UserRole + 14
+    BottomBarColorRole = Qt.UserRole + 15
+    ErrorRole = Qt.UserRole + 16
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -45,7 +49,13 @@ class WorkspaceModel(QAbstractListModel):
         if role == self.ChannelRole:
             return ws.get("channel_name") or ws.get("channelId", "")
         if role == self.CreatedAtRole:
-            return int(ws.get("created_at", 0))
+            val = ws.get("created_at")
+            if val is None:
+                return 0
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                return 0
         if role == self.ThumbnailRole:
             t = ws.get("thumbnailLocal") or ws.get("thumbnail") or ws.get("thumbnailUrl") or ""
             if t and not (t.startswith("http") or t.startswith("file://") or t.startswith("qrc:")):
@@ -55,7 +65,7 @@ class WorkspaceModel(QAbstractListModel):
                 else:
                     video_id = ws.get("video_id") or ws.get("videoId")
                     if video_id:
-                        return f"https://img.youtube.com/vi/{video_id}/mqdefault.jpg"
+                        return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
                     return ""
             return t
         if role == self.RenderedRole:
@@ -66,33 +76,64 @@ class WorkspaceModel(QAbstractListModel):
         if role == self.IsShortRole:
             return bool(ws.get("isShort", True))
         if role == self.DurationRole:
-            return int(ws.get("durationSec") or ws.get("duration_sec", 0))
+            val = ws.get("durationSec") or ws.get("duration_sec")
+            if val is None:
+                return 0
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                return 0
         if role == self.QualityRole:
-            return int(ws.get("quality", 1080))
+            val = ws.get("quality")
+            if val is None:
+                return 1080
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                return 1080
         if role == self.SpeedRole:
-            return float(ws.get("speed", 1.0))
+            val = ws.get("speed")
+            if val is None:
+                return 1.0
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return 1.0
         if role == self.FileSizeRole:
             size = ws.get("downloadedSize") or ws.get("fileSize") or ws.get("file_size", 0)
-            if size > 1024 * 1024:
-                return f"{size / (1024 * 1024):.1f}MB"
-            elif size > 1024:
-                return f"{size / 1024:.1f}KB"
-            return f"{size}B"
+            if size is None:
+                return "0B"
+            try:
+                size_val = int(size)
+                if size_val > 1024 * 1024:
+                    return f"{size_val / (1024 * 1024):.1f}MB"
+                elif size_val > 1024:
+                    return f"{size_val / 1024:.1f}KB"
+                return f"{size_val}B"
+            except (ValueError, TypeError):
+                return "0B"
         if role == self.AgeLabelRole:
             # Calculate age from detectedAt or createdAt
             detected = ws.get("detectedAt") or ws.get("detected_at") or ws.get("created_at", 0)
-            if detected > 0:
+            if detected is not None and detected > 0:
                 from time import time
-                age_sec = int(time() * 1000 - detected)
-                if age_sec < 60000:
-                    return f"{age_sec // 1000}s"
-                elif age_sec < 3600000:
-                    return f"{age_sec // 60000}m"
-                elif age_sec < 86400000:
-                    return f"{age_sec // 3600000}h"
-                else:
-                    return f"{age_sec // 86400000}d"
-            return ""
+                try:
+                    age_sec = int(time() * 1000 - int(detected))
+                    if age_sec < 60000:
+                        return f"{age_sec // 1000}s"
+                    elif age_sec < 3600000:
+                        return f"{age_sec // 60000}m"
+                    elif age_sec < 86400000:
+                        return f"{age_sec // 3600000}h"
+                    else:
+                        return f"{age_sec // 86400000}d"
+                except (ValueError, TypeError):
+                    return "—"
+            return "—"
+        if role == self.BottomBarColorRole:
+            return ws.get("bottomBarColor") or ws.get("bottom_bar_color") or ""
+        if role == self.ErrorRole:
+            return ws.get("error") or ""
         return None
 
     def roleNames(self):
@@ -111,6 +152,8 @@ class WorkspaceModel(QAbstractListModel):
             self.SpeedRole: QByteArray(b"speed"),
             self.FileSizeRole: QByteArray(b"fileSize"),
             self.AgeLabelRole: QByteArray(b"ageLabel"),
+            self.BottomBarColorRole: QByteArray(b"bottomBarColor"),
+            self.ErrorRole: QByteArray(b"error"),
         }
 
     # ── Index maintenance ──────────────────────────────────────────
@@ -143,6 +186,8 @@ class WorkspaceModel(QAbstractListModel):
                     "renderedPath": ws.get("renderedPath", ""),
                     "width": ws.get("width", 0),
                     "height": ws.get("height", 0),
+                    "bottomBarColor": ws.get("bottomBarColor") or ws.get("bottom_bar_color") or "",
+                    "error": ws.get("error", ""),
                 }
                 normalized_workspaces.append(normalized)
 
@@ -153,6 +198,7 @@ class WorkspaceModel(QAbstractListModel):
             self._workspaces = normalized_workspaces
             self._rebuild_index()
             self.endResetModel()
+            self.activeTasksChanged.emit()
         except Exception as e:
             print(f"[WorkspaceModel] load error: {e}")
 
@@ -185,6 +231,8 @@ class WorkspaceModel(QAbstractListModel):
                     normalized["renderedPath"] = v
                 elif k in ("videoSpeed", "video_speed"):
                     normalized["speed"] = v
+                elif k in ("bottomBarColor", "bottom_bar_color"):
+                    normalized["bottomBarColor"] = v
                 elif k in ("trimStart", "trim_start"):
                     normalized["trimStart"] = v
                 elif k in ("trimEnd", "trim_end"):
@@ -208,8 +256,10 @@ class WorkspaceModel(QAbstractListModel):
             self.dataChanged.emit(idx, idx, [
                 self.StatusRole, self.ProgressRole, self.ThumbnailRole,
                 self.RenderedRole, self.DurationRole, self.QualityRole,
-                self.SpeedRole, self.FileSizeRole, self.IsShortRole
+                self.SpeedRole, self.FileSizeRole, self.IsShortRole,
+                self.BottomBarColorRole, self.ErrorRole
             ])
+            self.activeTasksChanged.emit()
             return
         # Not found — add
         self.add_workspace({"id": ws_id, **data})
@@ -224,6 +274,7 @@ class WorkspaceModel(QAbstractListModel):
         self._workspaces.insert(0, ws)
         self._rebuild_index()
         self.endInsertRows()
+        self.activeTasksChanged.emit()
 
     def set_progress(self, ws_id: str, progress: float):
         self._progress_map[ws_id] = progress
@@ -231,6 +282,35 @@ class WorkspaceModel(QAbstractListModel):
         if row is not None and row < len(self._workspaces):
             idx = self.index(row)
             self.dataChanged.emit(idx, idx, [self.ProgressRole])
+            self.activeTasksChanged.emit()
+
+    def set_download_progress(self, ws_id: str, progress: float, speed: float, eta: float):
+        self._progress_map[ws_id] = progress
+        row = self._id_index.get(ws_id)
+        if row is not None and row < len(self._workspaces):
+            ws = self._workspaces[row]
+            ws["download_speed"] = f"{speed:.1f} MB/s" if speed > 0 else ""
+            ws["download_eta"] = f"{int(eta)}s" if eta > 0 else ""
+            idx = self.index(row)
+            self.dataChanged.emit(idx, idx, [self.ProgressRole])
+            self.activeTasksChanged.emit()
+
+    @Property(list, notify=activeTasksChanged)
+    def activeTasks(self) -> list:
+        tasks = []
+        for ws in self._workspaces:
+            ws_id = ws.get("id", "")
+            status = ws.get("status", "")
+            if status in ("downloading", "rendering"):
+                tasks.append({
+                    "id": ws_id,
+                    "title": ws.get("title", "Unknown"),
+                    "status": status,
+                    "progress": self._progress_map.get(ws_id, ws.get("progress", 0.0)),
+                    "speed": ws.get("download_speed", ""),
+                    "eta": ws.get("download_eta", "")
+                })
+        return tasks
 
     @Slot(str, str, 'QVariant', object)
     def update_field(self, workspace_id: str, field: str, value, client=None):
@@ -240,6 +320,7 @@ class WorkspaceModel(QAbstractListModel):
             "trimStart": "trim_start",
             "trimEnd": "trim_end",
             "thumbnail": "thumbnail_local",
+            "bottomBarColor": "bottomBarColor",
         }
         local_key = field_map.get(field)
         if local_key is None:

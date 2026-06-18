@@ -24,6 +24,7 @@ Rectangle {
     readonly property int _roleChannel: Qt.UserRole + 5
     readonly property int _roleCreatedAt: Qt.UserRole + 6
     readonly property int _roleThumbnail: Qt.UserRole + 7
+    readonly property int _roleBottomBarColor: Qt.UserRole + 15
 
     function normalizeWorkspaceData(raw) {
         if (!raw) return {};
@@ -107,6 +108,11 @@ Rectangle {
         data.renderPreset = data.renderPreset || "";
         data.renderCodec = data.renderCodec || "";
         data.outputPath = data.renderedPath || data.outputPath || "";
+        if (data.bottomBarColor === undefined && data.bottom_bar_color !== undefined) {
+            data.bottomBarColor = data.bottom_bar_color;
+        } else if (data.bottomBarColor === undefined) {
+            data.bottomBarColor = "#00B4FF";
+        }
         
         return data;
     }
@@ -141,6 +147,7 @@ Rectangle {
                     "progress": workspaceModel.data(idx, root._roleProgress) || 0,
                     "thumbnail": workspaceModel.data(idx, root._roleThumbnail) || "",
                     "video_id": id,
+                    "bottomBarColor": workspaceModel.data(idx, root._roleBottomBarColor) || "",
                 })
                 return
             }

@@ -68,13 +68,14 @@ pub fn build_atempo_chain(speed: f64) -> Option<String> {
 pub fn build_audio_chain(trim_start: f64, trim_duration: f64, speed: f64) -> String {
     let mut parts = Vec::new();
     
-    // 1. Apply atrim if needed
+    // 1. Trim first on the original timeline
     if trim_start > 0.0 || trim_duration > 0.0 {
         let dur_str = if trim_duration > 0.0 { format!(":duration={}", trim_duration) } else { "".to_string() };
-        parts.push(format!("atrim=start={}{},asetpts=PTS-STARTPTS", trim_start, dur_str));
+        parts.push(format!("atrim=start={}{}", trim_start, dur_str));
+        parts.push("asetpts=PTS-STARTPTS".to_string());
     }
     
-    // 2. Apply atempo if speed is not 1.0
+    // 2. Speed second
     if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
         let mut temp_speed = speed;
         let mut factors = Vec::new();
@@ -117,27 +118,22 @@ pub fn build_short_filter(
     let video_h = canvas_h - header_h - bottom_bar_h;
     let video_top = header_h;
     
-    let trim_tag = if trim_start > 0.0 || trim_duration > 0.0 {
-        let dur = if trim_duration > 0.0 { trim_duration } else { 999.0 };
-        format!(
-            "trim=start={}:duration={},setpts=PTS-STARTPTS,",
-            trim_start, dur
-        )
-    } else {
-        String::new()
-    };
-    let speed_tag = speed_filter_tag(speed);
-    let video_chain = format!(
-        "[0:v]{1}{2}fps={0},setpts=PTS-STARTPTS,{3}=-2:{4}{5},crop={6}:{4}:{7}:0,format=yuv420p[vid]",
-        fps,
-        trim_tag,
-        speed_tag,
-        scale,
-        video_h,
-        scale_flags,
-        canvas_w,
-        ((((video_h as f64) * 16.0 / 9.0) - (canvas_w as f64)) / 2.0).round() as i32
-    );
+    let mut video_ops = Vec::new();
+    if trim_start > 0.0 || trim_duration > 0.0 {
+        let dur = if trim_duration > 0.0 { trim_duration } else { 9999.0 };
+        video_ops.push(format!("trim=start={}:duration={}", trim_start, dur));
+        video_ops.push("setpts=PTS-STARTPTS".to_string());
+    }
+    if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
+        video_ops.push(format!("setpts={}*PTS", 1.0 / speed));
+    }
+    video_ops.push(format!("fps={}", fps));
+    video_ops.push(format!("{}={}:{}{}", scale, "-2", video_h, scale_flags));
+    let crop_offset = ((((video_h as f64) * 16.0 / 9.0) - (canvas_w as f64)) / 2.0).round() as i32;
+    video_ops.push(format!("crop={}:{}:{}:0", canvas_w, video_h, crop_offset));
+    video_ops.push("format=yuv420p".to_string());
+
+    let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
 
     // Background chain: fill canvas
     let bg_chain = format!(
@@ -198,18 +194,18 @@ pub fn build_short_filter_cuda(
     let video_h = canvas_h - header_h - bottom_bar_h;
     let video_top = header_h;
 
-    let trim_tag = if trim_start > 0.0 || trim_duration > 0.0 {
-        let dur = if trim_duration > 0.0 { trim_duration } else { 999.0 };
-        format!("trim=start={}:duration={},setpts=PTS-STARTPTS,", trim_start, dur)
-    } else {
-        String::new()
-    };
-    let speed_tag = speed_filter_tag(speed);
-    
-    let video_chain = format!(
-        "[0:v]{1}{2}fps={0},setpts=PTS-STARTPTS[vid]",
-        fps, trim_tag, speed_tag
-    );
+    let mut video_ops = Vec::new();
+    if trim_start > 0.0 || trim_duration > 0.0 {
+        let dur = if trim_duration > 0.0 { trim_duration } else { 9999.0 };
+        video_ops.push(format!("trim=start={}:duration={}", trim_start, dur));
+        video_ops.push("setpts=PTS-STARTPTS".to_string());
+    }
+    if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
+        video_ops.push(format!("setpts={}*PTS", 1.0 / speed));
+    }
+    video_ops.push(format!("fps={}", fps));
+
+    let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
 
     let bg_chain = format!(
         "[1:v]fps={},scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,hwupload_cuda,scale_cuda=w={}:h={}:format=nv12[bg]",
@@ -249,19 +245,18 @@ pub fn build_landscape_filter_cuda(
     let video_h = canvas_h - header_h;
     let video_top = header_h;
 
-    let speed_tag = speed_filter_tag(speed);
+    let mut video_ops = Vec::new();
+    if trim_start > 0.0 || trim_duration > 0.0 {
+        let dur = if trim_duration > 0.0 { trim_duration } else { 9999.0 };
+        video_ops.push(format!("trim=start={}:duration={}", trim_start, dur));
+        video_ops.push("setpts=PTS-STARTPTS".to_string());
+    }
+    if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
+        video_ops.push(format!("setpts={}*PTS", 1.0 / speed));
+    }
+    video_ops.push(format!("fps={}", fps));
 
-    let trim_tag = if trim_start > 0.0 || trim_duration > 0.0 {
-        let dur = if trim_duration > 0.0 { trim_duration } else { 999.0 };
-        format!("trim=start={}:duration={},setpts=PTS-STARTPTS,", trim_start, dur)
-    } else {
-        String::new()
-    };
-    
-    let video_chain = format!(
-        "[0:v]{2}{1}fps={0},setpts=PTS-STARTPTS[vid]",
-        fps, speed_tag, trim_tag
-    );
+    let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
 
     let bg_chain = format!(
         "[1:v]fps={},scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,hwupload_cuda,scale_cuda=w={}:h={}:format=nv12[bg]",
@@ -282,7 +277,6 @@ pub fn build_landscape_filter_cuda(
     )
 }
 
-
 /// Build filter complex for LANDSCAPE layout
 pub fn build_landscape_filter(
     trim_start: f64,
@@ -301,43 +295,27 @@ pub fn build_landscape_filter(
 
     let crop_x_num = ((video_h as f64 * 16.0 / 9.0) - (canvas_w as f64)).round() as i32 / 2;
 
-    let trim_tag = if trim_start > 0.0 || trim_duration > 0.0 {
-        let dur = if trim_duration > 0.0 { trim_duration } else { 999.0 };
-        format!(
-            "trim=start={}:duration={},setpts=PTS-STARTPTS,",
-            trim_start, dur
-        )
-    } else {
-        String::new()
-    };
-    let speed_tag = speed_filter_tag(speed);
+    let mut video_ops = Vec::new();
+    if trim_start > 0.0 || trim_duration > 0.0 {
+        let dur = if trim_duration > 0.0 { trim_duration } else { 9999.0 };
+        video_ops.push(format!("trim=start={}:duration={}", trim_start, dur));
+        video_ops.push("setpts=PTS-STARTPTS".to_string());
+    }
+    if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
+        video_ops.push(format!("setpts={}*PTS", 1.0 / speed));
+    }
+    video_ops.push(format!("fps={}", fps));
 
-    let video_chain = if crop_x_num >= 0 {
-        format!(
-            "[0:v]{1}{2}fps={0},setpts=PTS-STARTPTS,{3}=-2:{4}{5},crop={6}:{7}:{8}:0[vid]",
-            fps,
-            trim_tag, speed_tag,
-            scale,
-            video_h,
-            scale_flags,
-            canvas_w,
-            video_h,
-            crop_x_num
-        )
+    if crop_x_num >= 0 {
+        video_ops.push(format!("{}={}:{}{}", scale, "-2", video_h, scale_flags));
+        video_ops.push(format!("crop={}:{}:{}:0", canvas_w, video_h, crop_x_num));
     } else {
         let crop_y = ((canvas_w as f64 * 9.0 / 16.0) - (video_h as f64)).round() as i32 / 2 + video_top as i32;
-        format!(
-            "[0:v]{1}{2}fps={0},setpts=PTS-STARTPTS,{3}={4}:-2{5},crop={6}:{7}:0:{8} [vid]",
-            fps,
-            trim_tag, speed_tag,
-            scale,
-            canvas_w,
-            scale_flags,
-            canvas_w,
-            video_h,
-            crop_y.max(0)
-        )
-    };
+        video_ops.push(format!("{}={}:{}{}", scale, canvas_w, "-2", scale_flags));
+        video_ops.push(format!("crop={}:{}:0:{}", canvas_w, video_h, crop_y.max(0)));
+    }
+
+    let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
 
     // Background: thumbnail fills canvas
     let bg_chain = format!(
@@ -519,6 +497,31 @@ pub fn probe_video_codec(path: &std::path::Path) -> String {
     "h264".to_string()
 }
 
+pub fn probe_video_start_time(path: &std::path::Path) -> f64 {
+    let ffprobe_path = get_ffprobe_path();
+    let mut cmd = std::process::Command::new(ffprobe_path);
+    let clean_path = crate::store::clean_unc_path(path.to_str().unwrap_or_default());
+    cmd.args([
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=start_time",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        &clean_path,
+    ]);
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(0x08000000);
+    }
+    if let Ok(output) = cmd.output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Ok(start) = stdout.trim().parse::<f64>() {
+            return start;
+        }
+    }
+    0.0
+}
+
+
 fn compute_cuvid_crop_resize(opts: &RenderOptions, input_path: &std::path::Path) -> Option<(String, String)> {
     let (wi, hi) = probe_video_dimensions(input_path)?;
     if wi == 0 || hi == 0 { return None; }
@@ -661,6 +664,7 @@ pub struct RenderOptions {
     pub filter_chain: FilterChain,
     pub chunked: bool,
     pub chunk_duration_sec: u32,
+    pub bottom_bar_color: Option<String>,
 }
 
 pub async fn spawn_render_async<F>(
@@ -686,6 +690,7 @@ where F: FnMut(f64) + Send + 'static {
     let mut blur_file = PathBuf::new();
     let mut thumb_file = PathBuf::new();
     let mut bar_file = PathBuf::new();
+    let mut cache_meta_file = PathBuf::new();
     let mut fallback_thumb_file: Option<PathBuf> = None;
 
     if matches!(opts.filter_chain, FilterChain::Short) {
@@ -693,6 +698,10 @@ where F: FnMut(f64) + Send + 'static {
         if ws_path.exists() {
             let store = crate::store::WorkspaceStore::load(&ws_path);
             if let Some(workspace) = store.workspaces.iter().find(|w| w.id == opts.workspace_id) {
+                let channel_id = &workspace.channel_id;
+                let channel_name = workspace.channel_name.as_deref().unwrap_or("");
+                let temp_dir = crate::store::render_temp_dir(channel_id, channel_name);
+
                 let mut thumbnail_path = workspace
                     .thumbnail_local
                     .as_ref()
@@ -701,7 +710,7 @@ where F: FnMut(f64) + Send + 'static {
 
                 if !thumbnail_path.exists() {
                     // Extract thumbnail from the video itself
-                    let extracted_path = opts.input_path.with_file_name(format!("{}_thumb_fallback.jpg", opts.workspace_id));
+                    let extracted_path = temp_dir.join(format!("{}_thumb_fallback.jpg", opts.workspace_id));
                     std::fs::remove_file(&extracted_path).ok();
                     tracing::info!("[AppState] Thumbnail not found. Extracting to {:?}", extracted_path);
                     let mut extract_cmd = std::process::Command::new(get_ffmpeg_path());
@@ -716,6 +725,9 @@ where F: FnMut(f64) + Send + 'static {
                         "-update", "1",
                         &clean_ext_path
                     ]);
+                    extract_cmd.stdin(std::process::Stdio::null());
+                    extract_cmd.stdout(std::process::Stdio::null());
+                    extract_cmd.stderr(std::process::Stdio::null());
                     #[cfg(target_os = "windows")]
                     {
                         extract_cmd.creation_flags(0x08000000);
@@ -729,7 +741,7 @@ where F: FnMut(f64) + Send + 'static {
 
                 if thumbnail_path.exists() {
                     // Generate blur background
-                    let blur_path = opts.input_path.with_file_name(format!("{}_blur.jpg", opts.workspace_id));
+                    let blur_path = temp_dir.join(format!("{}_blur.jpg", opts.workspace_id));
                     std::fs::remove_file(&blur_path).ok();
                     tracing::info!("[AppState] Generating blur background at {:?}", blur_path);
                     let mut blur_cmd = std::process::Command::new(get_ffmpeg_path());
@@ -743,6 +755,9 @@ where F: FnMut(f64) + Send + 'static {
                         "-update", "1",
                         &clean_blur_path
                     ]);
+                    blur_cmd.stdin(std::process::Stdio::null());
+                    blur_cmd.stdout(std::process::Stdio::null());
+                    blur_cmd.stderr(std::process::Stdio::null());
                     #[cfg(target_os = "windows")]
                     {
                         blur_cmd.creation_flags(0x08000000);
@@ -751,8 +766,12 @@ where F: FnMut(f64) + Send + 'static {
                         if let Ok(status) = child.wait() {
                             if status.success() {
                                 // Generate bottom bar PNG via PowerShell GDI+
-                                let bottom_bar_path = opts.input_path.with_file_name(format!("{}_bottom_bar.png", opts.workspace_id));
-                                std::fs::remove_file(&bottom_bar_path).ok();
+                                let bottom_bar_path = temp_dir.join(format!("{}_bottom_bar.png", opts.workspace_id));
+                                let cache_meta_path = temp_dir.join(format!("{}_bottom_bar.json", opts.workspace_id));
+                                
+                                let color_hex = opts.bottom_bar_color.as_deref()
+                                    .filter(|s| !s.is_empty())
+                                    .unwrap_or("#00B4FF");
                                 
                                 let s_path = crate::store::get_settings_path();
                                 let s_store = crate::store::SettingsStore::load(&s_path);
@@ -772,72 +791,110 @@ where F: FnMut(f64) + Send + 'static {
                                     .replace("{video_id}", &workspace.video_id);
 
                                 let clean_text = text.replace('"', "`\"");
-                                tracing::info!("[AppState] Generating bottom bar PNG at {:?}", bottom_bar_path);
                                 
-                                let mut ps_cmd = std::process::Command::new("powershell");
-                                let ps_script = format!(
-                                    r#"
-                                    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-                                    Add-Type -AssemblyName System.Drawing
-                                    $bmp = New-Object System.Drawing.Bitmap({canvas_w}, {bottom_bar_h})
-                                    $g = [System.Drawing.Graphics]::FromImage($bmp)
-                                    $g.SmoothingMode = 'AntiAlias'
-                                    $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAlias
-                                    $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 0, 180, 255))
-                                    $g.FillRectangle($brush, 0, 0, {canvas_w}, {bottom_bar_h})
-                                    $brush.Dispose()
-                                    
-                                    $fontSize = [Math]::Max(24, [int]({bottom_bar_h} * 0.25))
-                                    $font = New-Object System.Drawing.Font("Arial", $fontSize, [System.Drawing.FontStyle]::Bold)
-                                    $sf = New-Object System.Drawing.StringFormat
-                                    $sf.Alignment = [System.Drawing.StringAlignment]::Center
-                                    $sf.LineAlignment = [System.Drawing.StringAlignment]::Center
-                                    
-                                    # Dynamically adjust font size to make sure the entire text fits on one line
-                                    while ($fontSize -gt 8) {{
-                                        $size = $g.MeasureString("{text}", $font)
-                                        if ($size.Width -le ({canvas_w} * 0.95) -and $size.Height -le {bottom_bar_h}) {{
-                                            break
-                                        }}
-                                        $font.Dispose()
-                                        $fontSize -= 2
-                                        $font = New-Object System.Drawing.Font("Arial", $fontSize, [System.Drawing.FontStyle]::Bold)
-                                    }}
-                                    
-                                    $rect = New-Object System.Drawing.RectangleF(0, 0, {canvas_w}, {bottom_bar_h})
-                                    $g.DrawString("{text}", $font, (New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)), $rect, $sf)
-                                    $g.Dispose()
-                                    $font.Dispose()
-                                    $sf.Dispose()
-                                    $r = New-Object System.Drawing.Rectangle(0, 0, {canvas_w}, {bottom_bar_h})
-                                    $bd = $bmp.LockBits($r, [System.Drawing.Imaging.ImageLockMode]::ReadWrite, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-                                    $bytes = [byte[]]::new($bd.Stride * {bottom_bar_h})
-                                    [System.Runtime.InteropServices.Marshal]::Copy($bd.Scan0, $bytes, 0, $bytes.Length)
-                                    for ($i = 3; $i -lt $bytes.Length; $i += 4) {{ $bytes[$i] = 255 }}
-                                    [System.Runtime.InteropServices.Marshal]::Copy($bytes, 0, $bd.Scan0, $bytes.Length)
-                                    $bmp.UnlockBits($bd)
-                                    $bmp.Save("{output_path}", [System.Drawing.Imaging.ImageFormat]::Png)
-                                    $bmp.Dispose()
-                                    "#,
-                                    canvas_w = canvas_w,
-                                    bottom_bar_h = bottom_bar_h,
-                                    text = clean_text,
-                                    output_path = crate::store::clean_unc_path(bottom_bar_path.to_str().unwrap()).replace('\\', "/")
-                                );
-                                ps_cmd.arg("-Command").arg(&ps_script);
-                                #[cfg(target_os = "windows")]
-                                {
-                                    ps_cmd.creation_flags(0x08000000);
-                                }
-                                if let Ok(mut child) = ps_cmd.spawn() {
-                                    if let Ok(status) = child.wait() {
-                                        if status.success() {
-                                            use_real_assets = true;
-                                            blur_file = blur_path;
-                                            thumb_file = thumbnail_path;
-                                            bar_file = bottom_bar_path;
+                                // Check if cache matches
+                                let mut cache_hit = false;
+                                if bottom_bar_path.exists() && cache_meta_path.exists() {
+                                    if let Ok(meta_str) = std::fs::read_to_string(&cache_meta_path) {
+                                        if let Ok(meta_json) = serde_json::from_str::<serde_json::Value>(&meta_str) {
+                                            if meta_json["text"].as_str() == Some(&text)
+                                                && meta_json["color"].as_str() == Some(color_hex)
+                                                && meta_json["width"].as_u64() == Some(canvas_w as u64)
+                                                && meta_json["height"].as_u64() == Some(bottom_bar_h as u64)
+                                            {
+                                                cache_hit = true;
+                                                tracing::info!("[AppState] Bottom bar cache HIT for workspace {}", opts.workspace_id);
+                                            }
                                         }
                                     }
+                                }
+
+                                let mut success = false;
+                                if cache_hit {
+                                    success = true;
+                                } else {
+                                    std::fs::remove_file(&bottom_bar_path).ok();
+                                    std::fs::remove_file(&cache_meta_path).ok();
+                                    tracing::info!("[AppState] Bottom bar cache MISS. Generating bottom bar PNG at {:?}", bottom_bar_path);
+                                    
+                                    let mut ps_cmd = std::process::Command::new("powershell");
+                                    let clean_bar_path = bottom_bar_path.to_string_lossy().replace('\\', "/");
+                                    let ps_script = format!(
+                                        r#"
+                                        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+                                        Add-Type -AssemblyName System.Drawing
+                                        $bmp = New-Object System.Drawing.Bitmap({canvas_w}, {bottom_bar_h})
+                                        $g = [System.Drawing.Graphics]::FromImage($bmp)
+                                        $g.SmoothingMode = 'AntiAlias'
+                                        $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAlias
+                                        $barColor = [System.Drawing.Color]::FromHtml("{color_hex}")
+                                        $brush = New-Object System.Drawing.SolidBrush($barColor)
+                                        $g.FillRectangle($brush, 0, 0, {canvas_w}, {bottom_bar_h})
+                                        $brush.Dispose()
+                                        
+                                        $fontSize = [Math]::Max(24, [int]({bottom_bar_h} * 0.25))
+                                        $font = New-Object System.Drawing.Font("Arial", $fontSize, [System.Drawing.FontStyle]::Bold)
+                                        $sf = New-Object System.Drawing.StringFormat
+                                        $sf.Alignment = [System.Drawing.StringAlignment]::Center
+                                        $sf.LineAlignment = [System.Drawing.StringAlignment]::Center
+                                        
+                                        # Dynamically adjust font size to make sure the entire text fits on one line
+                                        while ($fontSize -gt 8) {{
+                                            $size = $g.MeasureString("{clean_text}", $font)
+                                            if ($size.Width -le ({canvas_w} * 0.95) -and $size.Height -le {bottom_bar_h}) {{
+                                                break
+                                            }}
+                                            $font.Dispose()
+                                            $fontSize -= 2
+                                            $font = New-Object System.Drawing.Font("Arial", $fontSize, [System.Drawing.FontStyle]::Bold)
+                                        }}
+                                        
+                                        $rect = New-Object System.Drawing.RectangleF(0, 0, {canvas_w}, {bottom_bar_h})
+                                        $g.DrawString("{clean_text}", $font, (New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)), $rect, $sf)
+                                        $g.Dispose()
+                                        $font.Dispose()
+                                        $bmp.Save("{clean_bar_path}", [System.Drawing.Imaging.ImageFormat]::Png)
+                                        $bmp.Dispose()
+                                        "#,
+                                        canvas_w = canvas_w,
+                                        bottom_bar_h = bottom_bar_h,
+                                        color_hex = color_hex,
+                                        clean_text = clean_text,
+                                        clean_bar_path = clean_bar_path
+                                    );
+                                    ps_cmd.arg("-NoProfile")
+                                          .arg("-Command")
+                                          .arg(&ps_script);
+                                    #[cfg(target_os = "windows")]
+                                    {
+                                        ps_cmd.creation_flags(0x08000000);
+                                    }
+                                    if let Ok(output) = ps_cmd.output() {
+                                        if output.status.success() && bottom_bar_path.exists() {
+                                            success = true;
+                                            // Save cache metadata sidecar
+                                            let meta_json = serde_json::json!({
+                                                "text": text,
+                                                "color": color_hex,
+                                                "width": canvas_w,
+                                                "height": bottom_bar_h,
+                                            });
+                                            if let Ok(meta_str) = serde_json::to_string(&meta_json) {
+                                                std::fs::write(&cache_meta_path, meta_str).ok();
+                                            }
+                                        } else {
+                                            let stderr = String::from_utf8_lossy(&output.stderr);
+                                            tracing::error!("[AppState] Bottom bar generation via PS failed: {}", stderr);
+                                        }
+                                    }
+                                }
+
+                                if success {
+                                    blur_file = blur_path;
+                                    thumb_file = thumbnail_path;
+                                    bar_file = bottom_bar_path;
+                                    cache_meta_file = cache_meta_path;
+                                    use_real_assets = true;
                                 }
                             }
                         }
@@ -849,31 +906,39 @@ where F: FnMut(f64) + Send + 'static {
 
     let use_cuda = matches!(opts.gpu_tier, GPUTier::High | GPUTier::Mid | GPUTier::Low);
 
+    let video_start_time = probe_video_start_time(&opts.input_path);
+    let adjusted_trim_start = f64::max(video_start_time, opts.trim_start);
+    let adjusted_trim_duration = if opts.trim_end > adjusted_trim_start {
+        opts.trim_end - adjusted_trim_start
+    } else {
+        0.0
+    };
+
     // 1. Build video filter chain
     let fps = if opts.fps == 0 { 30 } else { opts.fps };
     let video_filter = if use_cuda {
         match opts.filter_chain {
             FilterChain::Short => {
-                build_short_filter_cuda(opts.trim_start, opts.trim_end - opts.trim_start, speed, canvas_w, canvas_h, header_h, bottom_bar_h, fps)
+                build_short_filter_cuda(adjusted_trim_start, adjusted_trim_duration, speed, canvas_w, canvas_h, header_h, bottom_bar_h, fps)
             }
             FilterChain::Landscape => {
-                build_landscape_filter_cuda(opts.trim_start, opts.trim_end - opts.trim_start, speed, canvas_w, canvas_h, header_h, fps)
+                build_landscape_filter_cuda(adjusted_trim_start, adjusted_trim_duration, speed, canvas_w, canvas_h, header_h, fps)
             }
         }
     } else {
         match opts.filter_chain {
             FilterChain::Short => {
-                build_short_filter(opts.trim_start, opts.trim_end - opts.trim_start, speed, canvas_w, canvas_h, header_h, bottom_bar_h, false, fps)
+                build_short_filter(adjusted_trim_start, adjusted_trim_duration, speed, canvas_w, canvas_h, header_h, bottom_bar_h, false, fps)
             }
             FilterChain::Landscape => {
                 let video_h = canvas_h - header_h;
-                build_landscape_filter(opts.trim_start, opts.trim_end - opts.trim_start, speed, canvas_w, canvas_h, video_h, header_h, false, fps)
+                build_landscape_filter(adjusted_trim_start, adjusted_trim_duration, speed, canvas_w, canvas_h, video_h, header_h, false, fps)
             }
         }
     };
 
     // 2. Build audio filter chain (trim + speed)
-    let audio_filter = build_audio_chain(opts.trim_start, opts.trim_end - opts.trim_start, speed);
+    let audio_filter = build_audio_chain(adjusted_trim_start, adjusted_trim_duration, speed);
 
     // 3. Combine filter complex + determine mappings
     let complete_filter: String;
@@ -900,7 +965,7 @@ where F: FnMut(f64) + Send + 'static {
     };
     let bufsize = maxrate;
 
-    let total_duration = (opts.trim_end - opts.trim_start) / speed;
+    let total_duration = adjusted_trim_duration / speed;
     let total_duration_str = format!("{:.2}", total_duration.max(1.0));
 
     let mut cmd = TokioCommand::new(get_ffmpeg_path());
@@ -1062,6 +1127,7 @@ where F: FnMut(f64) + Send + 'static {
         if use_real_assets {
             if blur_file.exists() { let _ = std::fs::remove_file(&blur_file); }
             if bar_file.exists() { let _ = std::fs::remove_file(&bar_file); }
+            if cache_meta_file.exists() { let _ = std::fs::remove_file(&cache_meta_file); }
             if let Some(ref fallback_thumb) = fallback_thumb_file {
                 if fallback_thumb.exists() { let _ = std::fs::remove_file(fallback_thumb); }
             }
@@ -1111,6 +1177,7 @@ where F: FnMut(f64) + Send + 'static {
         if use_real_assets {
             if blur_file.exists() { let _ = std::fs::remove_file(&blur_file); }
             if bar_file.exists() { let _ = std::fs::remove_file(&bar_file); }
+            if cache_meta_file.exists() { let _ = std::fs::remove_file(&cache_meta_file); }
             if let Some(ref fallback_thumb) = fallback_thumb_file {
                 if fallback_thumb.exists() { let _ = std::fs::remove_file(fallback_thumb); }
             }
@@ -1122,6 +1189,7 @@ where F: FnMut(f64) + Send + 'static {
     if use_real_assets {
         if blur_file.exists() { let _ = std::fs::remove_file(&blur_file); }
         if bar_file.exists() { let _ = std::fs::remove_file(&bar_file); }
+        if cache_meta_file.exists() { let _ = std::fs::remove_file(&cache_meta_file); }
         if let Some(ref fallback_thumb) = fallback_thumb_file {
             if fallback_thumb.exists() { let _ = std::fs::remove_file(fallback_thumb); }
         }

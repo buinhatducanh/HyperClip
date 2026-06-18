@@ -41,22 +41,13 @@ ScrollView {
             }
         }
 
-        // ─── Row 1: Poller + Auth + Activity Log ─────────────────
+        // ─── Row 1: Poller + Auth ────────────────────────────────
         RowLayout {
             Layout.fillWidth: true
             spacing: 12
 
             PollerPanel { Layout.fillWidth: true; Layout.preferredHeight: 420; Layout.minimumWidth: 320 }
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 320
-                Layout.preferredHeight: 420
-                spacing: Theme.spacingMd
-
-                AuthPanel { Layout.fillWidth: true; Layout.preferredHeight: 200 }
-                ActivityLogCard { Layout.fillWidth: true; Layout.fillHeight: true; Layout.minimumHeight: 200 }
-            }
+            AuthPanel { Layout.fillWidth: true; Layout.preferredHeight: 420; Layout.minimumWidth: 320 }
         }
 
         // ─── Row 2: Sessions + Projects + Keys ───────────────────

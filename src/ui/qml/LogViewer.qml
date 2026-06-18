@@ -65,7 +65,7 @@ SettingsCard {
         Layout.fillWidth: true
         Layout.fillHeight: true
         Layout.minimumHeight: 150
-        color: Theme.bgDark
+        color: Theme.bg
         border.color: Theme.border
         border.width: 1
         radius: 4
@@ -80,7 +80,7 @@ SettingsCard {
             Text {
                 id: logContent
                 width: flick.width
-                text: logFileModel.loading ? "Loading..." : logFileModel.lines.join("\n")
+                text: logFileModel.loading ? "Loading..." : (logFileModel.lines ? logFileModel.lines.join("\n") : "")
                 color: Theme.text
                 font.family: "monospace"
                 font.pixelSize: 12
@@ -108,7 +108,7 @@ SettingsCard {
         }
         Label {
             Layout.alignment: Qt.AlignRight
-            text: logFileModel.loading ? "⟳ Loading..." : (logFileModel.lines.length > 0 ? qsTr("%1 lines").arg(logFileModel.lines.length) : "Empty")
+            text: logFileModel.loading ? "⟳ Loading..." : ((logFileModel.lines && logFileModel.lines.length > 0) ? qsTr("%1 lines").arg(logFileModel.lines.length) : "Empty")
             color: Theme.textMuted
             font.pixelSize: 12
         }

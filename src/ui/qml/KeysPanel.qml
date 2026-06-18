@@ -6,6 +6,9 @@ import QtQuick.Controls
 
 Rectangle {
     id: panel
+    Component.onDestruction: {
+        keysList.model = null
+    }
     color: Theme.bg
     border.color: Theme.border
     border.width: 1
@@ -58,6 +61,7 @@ Rectangle {
         }
 
         ListView {
+            id: keysList
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.minimumHeight: 100

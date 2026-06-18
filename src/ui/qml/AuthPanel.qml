@@ -121,5 +121,6 @@ Rectangle {
             }
             Item { Layout.fillWidth: true; Layout.minimumWidth: 4 }
         }
+        Item { Layout.fillHeight: true }
     }
 }

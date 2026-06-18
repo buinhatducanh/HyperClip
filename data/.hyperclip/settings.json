@@ -7,7 +7,7 @@
     "autoRenderFPS": 30,
     "autoRenderResolution": "1080p",
     "autoRenderSpeed": 1.2,
-    "autoRenderTitleTemplate": "VIDEO TEST 2",
+    "autoRenderTitleTemplate": "{title}",
     "autoSplitMinutes": 0,
     "autoSplitParts": 2,
     "defaultQuality": 1080,

@@ -6,6 +6,9 @@ import QtQuick.Controls
 
 Rectangle {
     id: panel
+    Component.onDestruction: {
+        sessionsList.model = null
+    }
     color: Theme.bg
     border.color: Theme.border
     border.width: 1
@@ -72,6 +75,7 @@ Rectangle {
         }
 
         ListView {
+            id: sessionsList
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.minimumHeight: 100

@@ -68,6 +68,74 @@ ColumnLayout {
         Label { text: "giây"; color: Theme.textMuted; font.pixelSize: Theme.textXs }
     }
 
+    // Bottom Bar Color Selection
+    RowLayout {
+        Layout.fillWidth: true
+        Layout.preferredHeight: 36
+        spacing: 8
+        Label {
+            text: "Màu thanh dưới"
+            color: "#888"
+            font.pixelSize: 16
+            Layout.preferredWidth: 80
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 6
+            property var colors: ["#00B4FF", "#FF007F", "#FFCC00", "#00FF66", "#FF3333"]
+            property string activeColor: workspaceData.bottomBarColor || "#00B4FF"
+
+            Repeater {
+                model: parent.colors
+                delegate: Rectangle {
+                    width: 24
+                    height: 24
+                    radius: 12
+                    color: modelData
+                    border.color: parent.activeColor.toLowerCase() === modelData.toLowerCase() ? (Theme.accent || "#00B4FF") : "transparent"
+                    border.width: 2
+                    scale: mouseArea.containsMouse ? 1.15 : 1.0
+                    Behavior on scale { NumberAnimation { duration: 100 } }
+
+                    MouseArea {
+                        id: mouseArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        onClicked: {
+                            workspaceModel.update_field(workspaceId, "bottomBarColor", modelData, backend)
+                            customColorInput.text = ""
+                        }
+                    }
+                }
+            }
+
+            TextField {
+                id: customColorInput
+                Layout.fillWidth: true
+                Layout.preferredHeight: 28
+                placeholderText: "Hex (VD: #00B4FF)"
+                font.pixelSize: 14
+                color: "#fff"
+                background: Rectangle {
+                    color: "#1e1e1e"
+                    border.color: customColorInput.activeFocus ? (Theme.accent || "#00B4FF") : "#333"
+                    border.width: 1
+                    radius: 2
+                }
+                text: {
+                    let cur = workspaceData.bottomBarColor || "#00B4FF"
+                    return parent.colors.indexOf(cur) === -1 ? cur : ""
+                }
+                onEditingFinished: {
+                    let val = text.trim()
+                    if (val.match(/^#[0-9A-Fa-f]{6}$/) || val.match(/^#[0-9A-Fa-f]{3}$/)) {
+                        workspaceModel.update_field(workspaceId, "bottomBarColor", val, backend)
+                    }
+                }
+            }
+        }
+    }
+
     // Thumbnail
     ThumbnailUploader {
         Layout.fillWidth: true

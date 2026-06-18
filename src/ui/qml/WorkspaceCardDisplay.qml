@@ -118,8 +118,9 @@ Rectangle {
                     id: durLabel
                     anchors.centerIn: parent
                     text: {
-                        const m = Math.floor(durationSec / 60)
-                        const s = durationSec % 60
+                        const actualDur = Math.round(durationSec / speed)
+                        const m = Math.floor(actualDur / 60)
+                        const s = actualDur % 60
                         return m + ":" + (s < 10 ? "0" : "") + s
                     }
                     color: "white"; font.pixelSize: 10; font.bold: true
@@ -205,7 +206,12 @@ Rectangle {
             Label {
                 text: (ageLabel !== "" ? ageLabel : "") +
                       (fileSize !== "" ? " · " + fileSize : "") +
-                      (durationSec > 0 ? " · " + Math.floor(durationSec/60) + ":" + (durationSec%60<10?"0":"") + (durationSec%60) : "") +
+                      (durationSec > 0 ? " · " + (function() {
+                          const actualDur = Math.round(durationSec / speed)
+                          const m = Math.floor(actualDur / 60)
+                          const s = actualDur % 60
+                          return m + ":" + (s < 10 ? "0" : "") + s
+                      })() : "") +
                       " · " + quality + "p" +
                       (speed > 1 ? " · " + speed.toFixed(1) + "x" : "")
                 color: Theme.textMuted

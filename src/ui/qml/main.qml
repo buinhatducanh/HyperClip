@@ -16,6 +16,11 @@ ApplicationWindow {
     title: "HyperClip"
     color: Theme.bg
 
+    palette.highlight: Theme.accent
+    palette.highlightedText: "#FFFFFF"
+    palette.window: Theme.bg
+    palette.windowText: Theme.text
+
     // Center pane view state: "settings" | "workspace" | "rendered" | "operation" | "management"
     property string centerView: "settings"
     property string filterChannelId: ""
@@ -89,7 +94,7 @@ ApplicationWindow {
                     }
                 }
 
-                Component { id: settingsView; SettingsPanel {} }
+                Component { id: settingsView; SettingsPage {} }
                 Component { id: workspaceView; VideoDetailPanel {
                     workspaceId: detailEditor.currentWorkspaceId
                     workspaceData: detailEditor.currentWorkspaceData
@@ -102,11 +107,11 @@ ApplicationWindow {
                 Component { id: managementView; ManagementPanel {} }
             }
 
-            // Right: WorkspaceQueue (240-400px) + rendered mini above — HIDDEN in Operation / Management view
+            // Right: WorkspaceQueue (240-400px) + rendered mini above — HIDDEN in Settings / Operation / Management view
             Rectangle {
-                Layout.preferredWidth: (root.centerView === "operation" || root.centerView === "management") ? 0 : 320
-                Layout.minimumWidth: (root.centerView === "operation" || root.centerView === "management") ? 0 : 240
-                Layout.maximumWidth: (root.centerView === "operation" || root.centerView === "management") ? 0 : 400
+                Layout.preferredWidth: (root.centerView === "settings" || root.centerView === "operation" || root.centerView === "management") ? 0 : 320
+                Layout.minimumWidth: (root.centerView === "settings" || root.centerView === "operation" || root.centerView === "management") ? 0 : 240
+                Layout.maximumWidth: (root.centerView === "settings" || root.centerView === "operation" || root.centerView === "management") ? 0 : 400
                 Layout.fillHeight: true
                 visible: root.centerView !== "settings" && root.centerView !== "operation" && root.centerView !== "management"
                 color: Theme.bg
@@ -126,10 +131,9 @@ ApplicationWindow {
                     anchors.fill: parent
                     spacing: 0
 
-                    // System monitor (compact, fixed height)
+                    // System monitor (compact, self-sizing)
                     SystemMonitor {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 110
                     }
 
                     // Rendered videos (compact list)

@@ -353,7 +353,7 @@ impl OAuthFallbackDetector {
                 .unwrap_or(0);
 
             for video in videos {
-                if seen_videos.is_seen(channel_id, &video.video_id) {
+                if seen_videos.is_any_seen(&video.video_id) {
                     continue;
                 }
                 let age_sec = now_sec - video.published_at / 1000;

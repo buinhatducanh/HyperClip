@@ -3,6 +3,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import Qt5Compat.GraphicalEffects
 
 Rectangle {
     id: item
@@ -27,15 +28,45 @@ Rectangle {
         spacing: 8
 
         Rectangle {
+            id: avatarWrapper
+            width: 22
+            height: 22
             Layout.preferredWidth: 22
             Layout.preferredHeight: 22
             radius: 11
-            color: item.isPaused ? Theme.textMuted : model.avatarColor || Theme.accent
+            color: item.isPaused ? Theme.textMuted : (model.avatarColor || Theme.accent) + "22"
+            border.color: item.isPaused ? Theme.textMuted : (model.avatarColor || Theme.accent)
+            border.width: 1
+
+            Image {
+                id: avatarImg
+                anchors.fill: parent
+                source: model.avatarUrl || ""
+                fillMode: Image.PreserveAspectCrop
+                visible: false
+                asynchronous: true
+            }
+
+            Rectangle {
+                id: roundMask
+                anchors.fill: parent
+                radius: 11
+                visible: false
+            }
+
+            OpacityMask {
+                anchors.fill: parent
+                source: avatarImg
+                maskSource: roundMask
+                visible: !!model.avatarUrl && avatarImg.status === Image.Ready
+            }
+
             Label {
                 anchors.centerIn: parent
+                visible: !model.avatarUrl || avatarImg.status !== Image.Ready
                 text: model.name ? model.name[0].toUpperCase() : "?"
-                color: "white"
-                font.pixelSize: 15
+                color: item.isPaused ? "white" : (model.avatarColor || Theme.accent)
+                font.pixelSize: 10
                 font.bold: true
             }
         }

@@ -29,7 +29,7 @@ SettingsCard {
             model: 5
             delegate: Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 64
+                Layout.preferredHeight: 80 // Match actual content state height
                 color: Theme.inputBg
                 radius: Theme.radiusLg
                 border.color: Theme.border
@@ -67,32 +67,43 @@ SettingsCard {
                     ? (hwProfile.detectedVramGb === 0 || modelData.vramGB <= hwProfile.detectedVramGb) : false
 
                 Layout.fillWidth: true
-                Layout.preferredHeight: 64
+                Layout.preferredHeight: 80 // Increased height from 64 to 80 to prevent any font clipping or overflow on high DPI
 
-                // Glassmorphic accent/disabled styling
+                // Glassmorphic premium card styling
                 color: isActive 
-                    ? Qt.rgba(0, 180, 255, 0.12)
-                    : (compatible ? Theme.inputBg : "#141414")
+                    ? Qt.rgba(0, 180, 255, 0.15)
+                    : (compatible ? Theme.inputBg : Qt.rgba(255, 68, 68, 0.03))
 
                 border.color: isActive 
                     ? Theme.accent 
-                    : (compatible ? Theme.border : "#222222")
-                border.width: isActive ? 1.5 : 1
+                    : (compatible ? (mouseArea.containsMouse ? Qt.rgba(0, 180, 255, 0.3) : Theme.border) : Qt.rgba(255, 68, 68, 0.2))
+                border.width: isActive ? 2 : 1
                 radius: Theme.radiusLg
                 opacity: compatible ? 1.0 : 0.5
+
+                // Glow effect for active profile
+                Rectangle {
+                    anchors.fill: parent
+                    radius: parent.radius
+                    color: "transparent"
+                    border.color: Theme.accent
+                    border.width: 1
+                    opacity: isActive ? 0.3 : 0.0
+                    visible: isActive
+                }
 
                 // Smooth hover transition
                 Rectangle {
                     anchors.fill: parent
-                    color: Qt.rgba(255, 255, 255, 0.03)
+                    color: Qt.rgba(255, 255, 255, 0.02)
                     visible: mouseArea.containsMouse && compatible && !isActive
                     radius: parent.radius
                 }
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: Theme.spacingMd
-                    spacing: 4
+                    anchors.margins: Theme.spacingSm // Reduced margin from Md (12) to Sm (8) to allow maximum vertical space
+                    spacing: Theme.spacingXs // Very small spacing to prevent label overlapping
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -100,21 +111,29 @@ SettingsCard {
 
                         Label {
                             text: modelData ? modelData.label : "—"
-                            color: isActive ? Theme.accent : (compatible ? Theme.text : Theme.textMuted)
+                            color: isActive ? "#FFFFFF" : (compatible ? Theme.text : Theme.textMuted)
                             font.pixelSize: Theme.textMd
                             font.bold: true
                             elide: Text.ElideRight
                             Layout.fillWidth: true
                         }
 
-                        // Neon active indicator dot
+                        // Status pill instead of simple dot
                         Rectangle {
-                            width: 6
-                            height: 6
-                            radius: 3
-                            color: Theme.accent
-                            visible: isActive
-                            Layout.alignment: Qt.AlignVCenter
+                            width: 42
+                            height: 16
+                            radius: 8
+                            color: isActive ? Theme.accent : "transparent"
+                            border.color: isActive ? "transparent" : (compatible ? "#333" : "transparent")
+                            border.width: 1
+                            visible: isActive || !compatible
+                            Label {
+                                anchors.centerIn: parent
+                                text: isActive ? "ACTIVE" : "YẾU"
+                                font.pixelSize: 8
+                                font.bold: true
+                                color: isActive ? "#FFFFFF" : Theme.error
+                            }
                         }
                     }
 
@@ -125,11 +144,13 @@ SettingsCard {
                             if (!compatible) {
                                 return "Cần " + modelData.vramGB + " GB VRAM"
                             }
-                            return modelData.vramGB + " GB  ·  " + modelData.sessions + " luồng"
+                            return modelData.vramGB + " GB VRAM  ·  " + modelData.sessions + " luồng"
                         }
-                        color: !compatible ? Theme.error : Theme.textMuted
+                        color: !compatible ? Theme.error : (isActive ? Qt.rgba(255, 255, 255, 0.7) : Theme.textMuted)
                         font.pixelSize: Theme.textSm
                         font.bold: !compatible
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 2
                         elide: Text.ElideRight
                     }
                 }

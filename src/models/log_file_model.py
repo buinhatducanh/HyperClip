@@ -1,5 +1,5 @@
 """LogFileModel — reads backend log files via IPC."""
-from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot, Signal, QObject
+from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot, Signal, QObject, Property
 
 
 class LogFileModel(QObject):
@@ -9,6 +9,11 @@ class LogFileModel(QObject):
     LinesRole = Qt.UserRole + 2
     LoadingRole = Qt.UserRole + 3
 
+    # Qt property signals
+    loadingChanged = Signal()
+    linesChanged = Signal()
+    fileNameChanged = Signal()
+
     def __init__(self, parent=None, backend=None):
         super().__init__(parent)
         self._backend = backend
@@ -16,15 +21,15 @@ class LogFileModel(QObject):
         self._loading = False
         self._file_name = ""
 
-    @property
+    @Property(list, notify=linesChanged)
     def lines(self):
         return self._lines
 
-    @property
+    @Property(bool, notify=loadingChanged)
     def loading(self):
         return self._loading
 
-    @property
+    @Property(str, notify=fileNameChanged)
     def file_name(self):
         return self._file_name
 
@@ -54,11 +59,6 @@ class LogFileModel(QObject):
         self._file_name = ""
         self.fileNameChanged.emit()
         self.linesChanged.emit()
-
-    # Qt property signals
-    loadingChanged = Signal()
-    linesChanged = Signal()
-    fileNameChanged = Signal()
 
 
 class LogFilesListModel(QAbstractListModel):

@@ -7,7 +7,7 @@ import tempfile
 
 project_root = os.path.dirname(os.path.abspath(__file__))
 APPDATA = os.path.join(project_root, 'data')
-TAURI = os.path.join(project_root, 'target', 'debug', 'hyperclip-tauri.exe')
+TAURI = os.path.join(project_root, 'target', 'release', 'hyperclip-tauri.exe')
 
 input_path = os.path.join(project_root, 'data', 'media', 'Zilk Kay', 'downloads', 'EThMKvMFvng_20260613_180820.mp4')
 assert os.path.exists(input_path), f"Test video not found at {input_path}"

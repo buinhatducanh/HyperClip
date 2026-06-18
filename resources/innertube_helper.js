@@ -224,7 +224,10 @@ async function strategyPlaylistHTML(channelId, cookieStr) {
       if (!lv) return null;
       const videoId = lv.contentId;
       const title = lv.metadata?.lockupMetadataViewModel?.title?.content || '';
-      const publishedAt = extractPublishedAtFromLockup(lv);
+      let publishedAt = extractPublishedAtFromLockup(lv);
+      if (publishedAt === 0) {
+        publishedAt = Math.floor(Date.now() / 1000);
+      }
       const durationSec = extractDurationFromLockup(lv);
       return { videoId, title, publishedAt, thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, durationSec };
     }).filter(v => v !== null);

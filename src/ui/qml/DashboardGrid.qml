@@ -55,7 +55,6 @@ Rectangle {
                     // System monitor
                     SystemMonitor {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 100
                     }
 
                     // Detection status (compact)
@@ -226,17 +225,6 @@ Rectangle {
                         }
                     }
                 }
-            }
-        }
-
-        // ─── Bottom: Activity log ───────────────────────────────────
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 160
-            color: "transparent"
-
-            ActivityLogCard {
-                anchors.fill: parent
             }
         }
     }

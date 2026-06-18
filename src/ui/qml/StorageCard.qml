@@ -12,15 +12,27 @@ SettingsCard {
         rowSpacing: Theme.spacingSm
         Layout.fillWidth: true
 
-        Label { text: "Thư mục video"; color: Theme.textMuted; font.pixelSize: Theme.textMd }
-        RowLayout {
+        Label {
+            text: "Thư mục video"
+            color: Theme.textMuted
+            font.pixelSize: Theme.textMd
             Layout.fillWidth: true
+        }
+        RowLayout {
+            Layout.preferredWidth: 320
+            Layout.alignment: Qt.AlignRight
             spacing: Theme.spacingSm
             TextField {
                 Layout.fillWidth: true
                 font.pixelSize: Theme.textMd
                 text: settings ? settings.videoStoragePath : ""
                 onEditingFinished: if (settings) settings.videoStoragePath = text
+                background: Rectangle {
+                    color: Theme.inputBg
+                    border.color: parent.activeFocus ? Theme.accent : Theme.border
+                    border.width: 1
+                    radius: Theme.radiusMd
+                }
             }
             Button {
                 text: "Mở"
@@ -28,15 +40,27 @@ SettingsCard {
             }
         }
  
-        Label { text: "Thư mục output"; color: Theme.textMuted; font.pixelSize: Theme.textMd }
-        RowLayout {
+        Label {
+            text: "Thư mục output"
+            color: Theme.textMuted
+            font.pixelSize: Theme.textMd
             Layout.fillWidth: true
+        }
+        RowLayout {
+            Layout.preferredWidth: 320
+            Layout.alignment: Qt.AlignRight
             spacing: Theme.spacingSm
             TextField {
                 Layout.fillWidth: true
                 font.pixelSize: Theme.textMd
                 text: settings ? settings.outputPath : ""
                 onEditingFinished: if (settings) settings.outputPath = text
+                background: Rectangle {
+                    color: Theme.inputBg
+                    border.color: parent.activeFocus ? Theme.accent : Theme.border
+                    border.width: 1
+                    radius: Theme.radiusMd
+                }
             }
             Button {
                 text: "Mở"
@@ -44,29 +68,26 @@ SettingsCard {
             }
         }
  
-        Label { text: "Dọn sau (ngày)"; color: Theme.textMuted; font.pixelSize: Theme.textMd }
-        SpinBox {
+        Label {
+            text: "Dọn sau (ngày)"
+            color: Theme.textMuted
+            font.pixelSize: Theme.textMd
             Layout.fillWidth: true
+        }
+        SpinBox {
+            Layout.preferredWidth: 180
+            Layout.alignment: Qt.AlignRight
             font.pixelSize: Theme.textMd
             from: 0; to: 365
             value: settings ? settings.downloadsCleanupDays : 7
             editable: true
             onValueModified: if (settings) settings.downloadsCleanupDays = value
         }
- 
-        Label { text: "Render đồng thời"; color: Theme.textMuted; font.pixelSize: Theme.textMd }
-        SpinBox {
-            Layout.fillWidth: true
-            font.pixelSize: Theme.textMd
-            from: 1; to: 16
-            value: settings ? settings.maxConcurrentRenders : 2
-            editable: true
-            onValueModified: if (settings) settings.maxConcurrentRenders = value
-        }
     }
-
+ 
     RowLayout {
         Layout.fillWidth: true
+        Layout.topMargin: Theme.spacingLg
         spacing: Theme.spacingSm
         Button {
             text: "Xóa video"

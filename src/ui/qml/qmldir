@@ -37,7 +37,6 @@ RenderedVideoDetail 1.0 RenderedVideoDetail.qml
 SessionsPanel 1.0 SessionsPanel.qml
 SettingsCard 1.0 SettingsCard.qml
 SettingsPage 1.0 SettingsPage.qml
-SettingsPanel 1.0 SettingsPanel.qml
 Sidebar 1.0 Sidebar.qml
 SplitModal 1.0 SplitModal.qml
 StatusBadge 1.0 StatusBadge.qml

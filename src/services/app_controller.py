@@ -90,12 +90,36 @@ class AppController(QObject):
 
         # Track download status changes for detection history
         if not d.get("field"):
-            self.detection_history_model.update_download_status(d.get("id", ""), d.get("status", ""))
+            ws_id = d.get("id", "")
+            status = d.get("status", "")
+            title = d.get("title", "") or ws_id
+
+            if not hasattr(self, "_last_logged_ws_status"):
+                self._last_logged_ws_status = {}
+
+            last_status = self._last_logged_ws_status.get(ws_id)
+            if status and status != last_status:
+                self._last_logged_ws_status[ws_id] = status
+                if "-part" in ws_id and status in ("downloading", "ready"):
+                    pass
+                else:
+                    if status == "downloading":
+                        self.activity_model.add_entry("download", f"Bắt đầu tải video: {title}", "info")
+                    elif status == "ready":
+                        self.activity_model.add_entry("download", f"Đã tải xong video: {title}", "info")
+                    elif status == "rendering":
+                        self.activity_model.add_entry("render", f"Bắt đầu render video: {title}", "info")
+                    elif status == "done":
+                        self.activity_model.add_entry("render", f"Đã render xong video: {title}", "info")
+                    elif status == "error":
+                        self.activity_model.add_entry("system", f"Lỗi xử lý video {title}: {d.get('error', 'Lỗi không xác định')}", "error")
+
+            self.detection_history_model.update_download_status(ws_id, status)
             
             # Track download completion results
-            if d.get("status") == "ready" and d.get("downloadedSize"):
+            if status == "ready" and d.get("downloadedSize"):
                 self.detection_history_model.update_download_result(
-                    d.get("id", ""), d.get("downloadedSize", 0),
+                    ws_id, d.get("downloadedSize", 0),
                     d.get("width", 0), d.get("height", 0),
                 )
             
@@ -108,22 +132,51 @@ class AppController(QObject):
         ws_id = d.get("id", "")
         if not ws_id or "-part" in ws_id:
             return
-        if self.settings_model.autoSplitParts <= 1 and not (self.settings_model.autoSplitMinutes > 0 and d.get("durationSec", 0) > self.settings_model.autoSplitMinutes * 60):
-            return
+
         self.settings_model.load_from_backend(self.client)
         parts = self.settings_model.autoSplitParts
         minutes = self.settings_model.autoSplitMinutes
         duration = d.get("durationSec", 600)
-        if minutes > 0:
-            part_sec = minutes * 60
-            parts = max(1, int(duration / part_sec))
-        part_sec = duration / parts
+
+        should_split = False
+        if parts > 1:
+            should_split = True
+        elif minutes > 0 and duration > (minutes * 60):
+            should_split = True
+
+        if not should_split:
+            return
+
+        auto_render = self.settings_model.autoRender
+        render_res = self.settings_model.autoRenderResolution
+        render_fps = self.settings_model.autoRenderFPS
+        render_speed = self.settings_model.autoRenderSpeed
+
         split_parts = []
-        for i in range(parts):
-            start = i * part_sec
-            end = min((i + 1) * part_sec, duration)
-            split_parts.append({"start": start, "end": end})
-        self.client.send_command("workspace:split", {"id": ws_id, "autoRender": False, "parts": split_parts})
+        if minutes > 0:
+            # Split into segments of fixed length (minutes * 60), last one holds the remainder
+            part_sec = minutes * 60
+            start = 0.0
+            while start < duration:
+                end = min(start + part_sec, duration)
+                split_parts.append({"start": start, "end": end})
+                start = end
+        else:
+            # Split into equal parts
+            part_sec = duration / parts
+            for i in range(parts):
+                start = i * part_sec
+                end = min((i + 1) * part_sec, duration)
+                split_parts.append({"start": start, "end": end})
+
+        self.client.send_command("workspace:split", {
+            "id": ws_id,
+            "autoRender": auto_render,
+            "renderResolution": render_res,
+            "renderFPS": render_fps,
+            "renderSpeed": render_speed,
+            "parts": split_parts
+        })
 
     def _on_render_progress(self, ws_id, prog):
         self.workspace_model.set_progress(ws_id, prog * 100.0)
@@ -132,23 +185,8 @@ class AppController(QObject):
         # Convert pct from 0.0-1.0 range to 0.0-100.0 range
         pct_percent = pct * 100.0
 
-        # Update progress
-        self.workspace_model.set_progress(ws_id, pct_percent)
-
-        # Throttled logging to avoid spamming the Activity Log
-        pct_int = int(pct_percent)
-        pct_bucket = (pct_int // 10) * 10
-        
-        # Defensive programming: coerce ws_id to string to avoid potential dict key lookup issues
-        ws_id_str = str(ws_id)
-
-        if not hasattr(self, "_last_logged_download_pct"):
-            self._last_logged_download_pct = {}
-            
-        last_bucket = self._last_logged_download_pct.get(ws_id_str)
-        if last_bucket is None or pct_bucket > last_bucket or pct_int >= 100:
-            self._last_logged_download_pct[ws_id_str] = pct_bucket
-            self.activity_model.add_entry("download", f"Downloading {ws_id_str}: {pct_int}% @ {speed:.1f} MB/s", "info")
+        # Update progress with speed and eta for visual loading bar
+        self.workspace_model.set_download_progress(ws_id, pct_percent, speed, eta)
 
     def _on_system_stats_updated(self, d):
         self.stats_model.update_from_dict(d)

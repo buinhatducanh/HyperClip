@@ -27,18 +27,30 @@ SettingsCard {
         rowSpacing: Theme.spacingSm
         Layout.fillWidth: true
  
-        Label { text: "Chất lượng"; color: Theme.textMuted; font.pixelSize: Theme.textMd }
-        ComboBox {
+        Label {
+            text: "Chất lượng"
+            color: Theme.textMuted
+            font.pixelSize: Theme.textMd
             Layout.fillWidth: true
+        }
+        ComboBox {
+            Layout.preferredWidth: 140
+            Layout.alignment: Qt.AlignRight
             font.pixelSize: Theme.textMd
             model: ["1080", "720", "480", "360"]
-            currentIndex: settings ? model.indexOf(settings.autoDownloadQuality) : 0
+            currentIndex: settings ? Math.max(0, model.indexOf(settings.autoDownloadQuality)) : 0
             onActivated: if (settings) settings.autoDownloadQuality = model[currentIndex]
         }
  
-        Label { text: "Tải video ≤ (phút)"; color: Theme.textMuted; font.pixelSize: Theme.textMd }
-        SpinBox {
+        Label {
+            text: "Tải video ≤ (phút)"
+            color: Theme.textMuted
+            font.pixelSize: Theme.textMd
             Layout.fillWidth: true
+        }
+        SpinBox {
+            Layout.preferredWidth: 140
+            Layout.alignment: Qt.AlignRight
             font.pixelSize: Theme.textMd
             from: 1
             to: 1440
@@ -47,9 +59,15 @@ SettingsCard {
             onValueModified: if (settings) settings.autoDownloadMaxAgeMinutes = value
         }
  
-        Label { text: "Cắt tối đa (phút)"; color: Theme.textMuted; font.pixelSize: Theme.textMd }
-        SpinBox {
+        Label {
+            text: "Cắt tối đa (phút)"
+            color: Theme.textMuted
+            font.pixelSize: Theme.textMd
             Layout.fillWidth: true
+        }
+        SpinBox {
+            Layout.preferredWidth: 140
+            Layout.alignment: Qt.AlignRight
             font.pixelSize: Theme.textMd
             from: 1
             to: 999
@@ -58,9 +76,15 @@ SettingsCard {
             onValueModified: if (settings) settings.defaultTrimLimit = value
         }
  
-        Label { text: "Tải đồng thời"; color: Theme.textMuted; font.pixelSize: Theme.textMd }
-        SpinBox {
+        Label {
+            text: "Tải đồng thời"
+            color: Theme.textMuted
+            font.pixelSize: Theme.textMd
             Layout.fillWidth: true
+        }
+        SpinBox {
+            Layout.preferredWidth: 140
+            Layout.alignment: Qt.AlignRight
             font.pixelSize: Theme.textMd
             from: 1
             to: 16

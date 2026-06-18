@@ -17,7 +17,7 @@ fn test_build_short_filter_vertical() {
 fn test_build_short_filter_vertical_with_speed() {
     let filter = build_short_filter(0.0, 60.0, 1.5, 1080, 1920, 384, 192, false, 30);
     assert!(filter.contains("setpts=0.6666666666666666*PTS"), "should have speed setpts: {}", filter);
-    assert!(filter.contains("trim=start=0:duration=60"), "trim should be speed-adjusted: {}", filter);
+    assert!(filter.contains("trim=start=0:duration=60"), "trim should be correct: {}", filter);
 }
 
 #[test]
@@ -32,7 +32,7 @@ fn test_build_short_filter_cuda() {
 fn test_build_short_filter_cuda_with_speed() {
     let filter = build_short_filter_cuda(0.0, 60.0, 2.0, 1080, 1920, 384, 192, 30);
     assert!(filter.contains("setpts=0.5*PTS"), "should have speed setpts: {}", filter);
-    assert!(filter.contains("trim=start=0:duration=60"), "trim should be speed-adjusted: {}", filter);
+    assert!(filter.contains("trim=start=0:duration=60"), "trim should be correct: {}", filter);
 }
 
 #[test]
@@ -56,7 +56,7 @@ fn test_build_landscape_filter_cuda() {
 fn test_build_landscape_filter_with_speed() {
     let filter = build_landscape_filter(0.0, 60.0, 1.2, 1920, 1080, 900, 216, false, 30);
     assert!(filter.contains("setpts=0.8333333333333334*PTS"), "should have exact speed setpts: {}", filter);
-    assert!(filter.contains("trim=start=0:duration=60"), "trim should be speed-adjusted: {}", filter);
+    assert!(filter.contains("trim=start=0:duration=60"), "trim should be correct: {}", filter);
     assert!(filter.contains("[final]"), "should end with [final]");
 }
 
@@ -64,8 +64,36 @@ fn test_build_landscape_filter_with_speed() {
 fn test_build_landscape_filter_cuda_with_speed() {
     let filter = build_landscape_filter_cuda(0.0, 60.0, 1.2, 1920, 1080, 216, 30);
     assert!(filter.contains("setpts=0.8333333333333334*PTS"), "should have exact speed setpts: {}", filter);
-    assert!(filter.contains("trim=start=0:duration=60"), "trim should be exact duration (unscaled): {}", filter);
+    assert!(filter.contains("trim=start=0:duration=60"), "trim should be correct: {}", filter);
     assert!(filter.contains("[final]"), "should end with [final]");
+}
+
+#[test]
+fn test_build_filters_with_trim_start_and_speed() {
+    // 1. Short Mode (CPU)
+    let filter_short = build_short_filter(30.0, 30.0, 1.2, 1080, 1920, 384, 192, false, 30);
+    assert!(!filter_short.contains(",,"), "Should not contain double commas: {}", filter_short);
+    let occurrences = filter_short.matches("setpts=PTS-STARTPTS").count();
+    assert_eq!(occurrences, 1, "Should contain setpts=PTS-STARTPTS exactly once: {}", filter_short);
+    assert!(filter_short.contains("trim=start=30:duration=30"), "trim should be correct: {}", filter_short);
+
+    // 2. Short Mode (CUDA)
+    let filter_short_cuda = build_short_filter_cuda(30.0, 30.0, 1.2, 1080, 1920, 384, 192, 30);
+    assert!(!filter_short_cuda.contains(",,"), "Should not contain double commas: {}", filter_short_cuda);
+    let occurrences = filter_short_cuda.matches("setpts=PTS-STARTPTS").count();
+    assert_eq!(occurrences, 1, "Should contain setpts=PTS-STARTPTS exactly once: {}", filter_short_cuda);
+
+    // 3. Landscape Mode (CPU)
+    let filter_land = build_landscape_filter(30.0, 30.0, 1.2, 1920, 1080, 900, 216, false, 30);
+    assert!(!filter_land.contains(",,"), "Should not contain double commas: {}", filter_land);
+    let occurrences = filter_land.matches("setpts=PTS-STARTPTS").count();
+    assert_eq!(occurrences, 1, "Should contain setpts=PTS-STARTPTS exactly once: {}", filter_land);
+
+    // 4. Landscape Mode (CUDA)
+    let filter_land_cuda = build_landscape_filter_cuda(30.0, 30.0, 1.2, 1920, 1080, 216, 30);
+    assert!(!filter_land_cuda.contains(",,"), "Should not contain double commas: {}", filter_land_cuda);
+    let occurrences = filter_land_cuda.matches("setpts=PTS-STARTPTS").count();
+    assert_eq!(occurrences, 1, "Should contain setpts=PTS-STARTPTS exactly once: {}", filter_land_cuda);
 }
 
 #[test]
@@ -155,6 +183,7 @@ fn test_render_options_fields() {
         filter_chain: FilterChain::Short,
         chunked: false,
         chunk_duration_sec: 120,
+        bottom_bar_color: None,
     };
     assert_eq!(opts.workspace_id, "test-ws");
     assert_eq!(opts.resolution, "1080p");
@@ -234,6 +263,7 @@ fn test_render_integration_real_file() {
                 filter_chain: FilterChain::Short,
                 chunked: false,
                 chunk_duration_sec: 120,
+                bottom_bar_color: None,
             };
             spawn_render_async(opts, move |p| {
                 if let Ok(mut v) = pv2.lock() {

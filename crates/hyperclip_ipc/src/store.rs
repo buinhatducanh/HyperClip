@@ -6,6 +6,10 @@ use chrono::TimeZone;
 use std::path::{Path, PathBuf};
 use std::fs;
 
+fn default_is_short() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Workspace {
     pub id: String,
@@ -33,7 +37,7 @@ pub struct Workspace {
     pub fps_target: u32,
     #[serde(rename = "exportResolution")]
     pub export_resolution: String,
-    #[serde(rename = "isShort", default)]
+    #[serde(rename = "isShort", default = "default_is_short")]
     pub is_short: bool,
     #[serde(rename = "autoRender", default)]
     pub auto_render: bool,
@@ -67,6 +71,8 @@ pub struct Workspace {
     pub render_codec: Option<String>,
     #[serde(rename = "renderDurationSec", default)]
     pub render_duration_sec: Option<f64>,
+    #[serde(rename = "bottomBarColor", default)]
+    pub bottom_bar_color: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -155,6 +161,7 @@ impl WorkspaceStore {
                 "trimStart" => ws.trim_start = value.as_f64().unwrap_or(0.0),
                 "trimEnd" => ws.trim_end = value.as_f64().unwrap_or(0.0),
                 "thumbnail" => ws.thumbnail_local = value.as_str().map(String::from),
+                "bottomBarColor" => ws.bottom_bar_color = value.as_str().map(String::from),
                 _ => return Err(format!("invalid field: {}", field)),
             }
             Ok(())
@@ -238,6 +245,9 @@ impl WorkspaceStore {
             }
             if let Some(render_dur) = data.get("renderDurationSec").and_then(|v| v.as_f64()) {
                 ws.render_duration_sec = Some(render_dur);
+            }
+            if let Some(color) = data.get("bottomBarColor").and_then(|v| v.as_str()) {
+                ws.bottom_bar_color = Some(color.to_string());
             }
             Ok(())
         } else {
@@ -602,6 +612,7 @@ pub fn channel_downloads_dir(_channel_id: &str, _channel_name: &str) -> PathBuf 
     let s_store = SettingsStore::load(&s_path);
     let base = s_store.settings.get("videoStoragePath")
         .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| get_data_dir());
     let dir = base.join("downloads");
@@ -623,6 +634,7 @@ pub fn channel_renders_dir(_channel_id: &str, _channel_name: &str) -> PathBuf {
     let base = s_store.settings.get("outputPath")
         .or_else(|| s_store.settings.get("outputFolder"))
         .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| get_data_dir());
     let dir = base.join("renders");
@@ -633,6 +645,17 @@ pub fn channel_renders_dir(_channel_id: &str, _channel_name: &str) -> PathBuf {
 /// data/media/{channel_id}/renders/{ws_id}/
 pub fn render_output_dir(channel_id: &str, channel_name: &str, ws_id: &str) -> PathBuf {
     let dir = channel_renders_dir(channel_id, channel_name).join(ws_id);
+    std::fs::create_dir_all(&dir).ok();
+    dir
+}
+
+/// data/media/{channel_id}/renders/temp/
+pub fn render_temp_dir(channel_id: &str, channel_name: &str) -> PathBuf {
+    let dir = if !channel_id.is_empty() || !channel_name.is_empty() {
+        channel_renders_dir(channel_id, channel_name).join("temp")
+    } else {
+        get_legacy_output_dir().join("temp")
+    };
     std::fs::create_dir_all(&dir).ok();
     dir
 }
@@ -668,17 +691,29 @@ pub fn build_render_path(channel_id: &str, channel_name: &str, ws_id: &str) -> P
 
     let filename = if let Some(ws) = workspace {
         let channel_name_val = ws.channel_name.as_deref().unwrap_or("");
-        let title_val = if !ws.title.is_empty() { &ws.title } else { ws_id };
         let part_val = if let Some(idx) = ws.id.find("-part") {
             ws.id.chars().skip(idx + 5).collect::<String>()
         } else {
             "".to_string()
         };
+        let parent_id = if let Some(idx) = ws.id.find("-part") {
+            &ws.id[..idx]
+        } else {
+            &ws.id
+        };
+        let parent_ws = ws_store.workspaces.iter().find(|w| w.id == parent_id);
+        let parent_title = parent_ws.map(|w| &w.title).unwrap_or(&ws.title);
+        let title_val = if !parent_title.is_empty() { parent_title } else { parent_id };
+
+        let has_unique_placeholder = template.contains("{title}") || template.contains("{video_id}");
         let mut resolved = template
             .replace("{title}", title_val)
             .replace("{channel}", channel_name_val)
             .replace("{video_id}", &ws.video_id)
             .replace("{part}", &part_val);
+        if !has_unique_placeholder {
+            resolved = format!("{}_{}", resolved, ws.video_id);
+        }
         if !part_val.is_empty() && !template.contains("{part}") {
             resolved = format!("{}_part{}", resolved, part_val);
         }
@@ -689,7 +724,20 @@ pub fn build_render_path(channel_id: &str, channel_name: &str, ws_id: &str) -> P
         } else {
             "".to_string()
         };
-        let mut resolved = template.replace("{title}", ws_id).replace("{part}", &part_val);
+        let parent_id = if let Some(idx) = ws_id.find("-part") {
+            &ws_id[..idx]
+        } else {
+            ws_id
+        };
+        let parent_ws = ws_store.workspaces.iter().find(|w| w.id == parent_id);
+        let parent_title = parent_ws.map(|w| &w.title).map(|s| s.as_str()).unwrap_or(parent_id);
+        let title_val = if !parent_title.is_empty() { parent_title } else { parent_id };
+
+        let has_unique_placeholder = template.contains("{title}") || template.contains("{video_id}");
+        let mut resolved = template.replace("{title}", title_val).replace("{part}", &part_val);
+        if !has_unique_placeholder {
+            resolved = format!("{}_{}", resolved, ws_id);
+        }
         if !part_val.is_empty() && !template.contains("{part}") {
             resolved = format!("{}_part{}", resolved, part_val);
         }
