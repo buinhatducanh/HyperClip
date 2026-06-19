@@ -66,9 +66,20 @@ def find_hyperclip_backend():
         "hyperclip-tauri.exe",
         "hyperclip.exe",
     ]
+    
+    existing = []
     for c in candidates:
         if os.path.exists(c):
-            return os.path.abspath(c)
+            try:
+                mtime = os.path.getmtime(c)
+                existing.append((c, mtime))
+            except OSError:
+                pass
+                
+    if existing:
+        existing.sort(key=lambda x: x[1], reverse=True)
+        return os.path.abspath(existing[0][0])
+        
     return "hyperclip-tauri.exe"
 
 

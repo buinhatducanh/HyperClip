@@ -262,7 +262,8 @@ impl AppState {
                 let s_path = get_settings_path();
                 let s_store = SettingsStore::load(&s_path);
                 let auto_download = s_store.settings
-                    .get("auto_download_enabled")
+                    .get("autoDownloadEnabled")
+                    .or_else(|| s_store.settings.get("auto_download_enabled"))
                     .and_then(|v| v.as_bool())
                     .unwrap_or(true);
 
@@ -478,6 +479,16 @@ impl AppState {
                         }
                         Err(e) => {
                             tracing::error!("[AppState] Auto-download failed for {}: {}", tid, e);
+                            
+                            // Update workspace store status to error to prevent stuck state
+                            let ws_path = get_workspaces_path();
+                            let mut ws_store = WorkspaceStore::load(&ws_path);
+                            ws_store.update(&tid, serde_json::json!({
+                                "status": "error",
+                                "error": e.clone(),
+                            })).ok();
+                            ws_store.save(&ws_path).ok();
+
                             let err_event = serde_json::json!({
                                 "method": "workspace:update",
                                 "params": {"id": tid, "status": "error", "error": e}
@@ -1108,10 +1119,7 @@ fn emit_workspace_event(id: &str, status: &str, error: Option<String>) {
     let ws_path = get_workspaces_path();
     let store = WorkspaceStore::load(&ws_path);
     let mut payload = if let Some(ws) = store.get(id) {
-        serde_json::to_value(ws).unwrap_or_else(|_| json!({
-            "id": id,
-            "status": status,
-        }))
+        enrich_workspace_for_management(ws)
     } else {
         json!({
             "id": id,
@@ -1585,6 +1593,10 @@ fn launch_chrome_profile_async(profile_id: &str) {
         cmd.arg("--disable-background-timer-throttling");
         cmd.arg("--disable-backgrounding-occluded-windows");
         cmd.arg("--disable-renderer-backgrounding");
+        cmd.arg("--disable-features=GCM");
+        cmd.arg("--disable-background-networking");
+        cmd.stdout(std::process::Stdio::null());
+        cmd.stderr(std::process::Stdio::null());
         for url in urls {
             cmd.arg(url);
         }
@@ -2398,13 +2410,18 @@ pub fn get_resolved_hardware_config() -> ResolvedHardwareConfig {
     let gpu = get_gpu_config();
 
     // Determine target VRAM. Either from saved settings or fall back to auto-detected.
-    let vram = if let Some(profile) = s_store.settings.get("hardwareProfile") {
+    let mut vram = if let Some(profile) = s_store.settings.get("hardwareProfile") {
         profile.get("vramGB").and_then(|v| v.as_u64()).unwrap_or(stats.vram_total_gb as u64)
     } else {
         stats.vram_total_gb as u64
     };
 
-    // Default values if no profile match or software encoding
+    // Clamp target VRAM to physically detected VRAM to avoid CUDA out-of-memory/over-allocation
+    if stats.vram_total_gb > 0 && vram > stats.vram_total_gb as u64 {
+        vram = stats.vram_total_gb as u64;
+    }
+
+    // Default values if no profile match
     let mut render_workers = gpu.max_workers as usize;
     let mut chunk_workers = 8;
     let mut download_instances = 2;
@@ -2412,49 +2429,83 @@ pub fn get_resolved_hardware_config() -> ResolvedHardwareConfig {
     let mut concurrent_fragments = 16;
     let mut gpu_tier = gpu.tier;
     
-    if gpu.tier != hyperclip_ipc::GPUTier::Software {
-        match vram {
-            v if v >= 16 => { // Ultra
-                render_workers = 6;
-                chunk_workers = 14;
-                download_instances = 6;
-                nvenc_preset = "p4".to_string(); // p4 is optimized high-quality, p7 is high quality but slower
-                concurrent_fragments = 64;
-                gpu_tier = hyperclip_ipc::GPUTier::High;
-            }
-            v if v >= 12 => { // High
-                render_workers = 3;
-                chunk_workers = 6;
-                download_instances = 2;
-                nvenc_preset = "p3".to_string();
-                concurrent_fragments = 32;
-                gpu_tier = hyperclip_ipc::GPUTier::High;
-            }
-            v if v >= 8 => { // Medium
-                render_workers = 2;
-                chunk_workers = 4;
-                download_instances = 2;
-                nvenc_preset = "p2".to_string();
-                concurrent_fragments = 16;
-                gpu_tier = hyperclip_ipc::GPUTier::Mid;
-            }
-            v if v >= 6 => { // Low
-                render_workers = 2;
-                chunk_workers = 2;
-                download_instances = 1;
-                nvenc_preset = "p1".to_string();
-                concurrent_fragments = 8;
-                gpu_tier = hyperclip_ipc::GPUTier::Low;
-            }
-            _ => { // Minimal
-                render_workers = 1;
-                chunk_workers = 1;
-                download_instances = 1;
-                nvenc_preset = "p1".to_string();
-                concurrent_fragments = 4;
-                gpu_tier = hyperclip_ipc::GPUTier::Low;
-            }
+    match vram {
+        v if v >= 16 => { // Ultra
+            render_workers = 6;
+            chunk_workers = 14;
+            download_instances = 6;
+            nvenc_preset = "p4".to_string(); // p4 is optimized high-quality, p7 is high quality but slower
+            concurrent_fragments = 64;
+            gpu_tier = hyperclip_ipc::GPUTier::High;
         }
+        v if v >= 12 => { // High
+            render_workers = 3;
+            chunk_workers = 6;
+            download_instances = 2;
+            nvenc_preset = "p3".to_string();
+            concurrent_fragments = 32;
+            gpu_tier = hyperclip_ipc::GPUTier::High;
+        }
+        v if v >= 8 => { // Medium
+            render_workers = 2;
+            chunk_workers = 4;
+            download_instances = 2;
+            nvenc_preset = "p2".to_string();
+            concurrent_fragments = 16;
+            gpu_tier = hyperclip_ipc::GPUTier::Mid;
+        }
+        v if v >= 6 => { // Low
+            render_workers = 2;
+            chunk_workers = 2;
+            download_instances = 1;
+            nvenc_preset = "p1".to_string();
+            concurrent_fragments = 8;
+            gpu_tier = hyperclip_ipc::GPUTier::Low;
+        }
+        _ => { // Minimal
+            render_workers = 1;
+            chunk_workers = 1;
+            download_instances = 1;
+            nvenc_preset = "p1".to_string();
+            concurrent_fragments = 4;
+            gpu_tier = hyperclip_ipc::GPUTier::Low;
+        }
+    }
+
+    // Cap workers and fragment limits based on physical RAM to prevent OOM
+    let ram_total_gb = (stats.ram_total / (1024 * 1024 * 1024)) as usize;
+    if ram_total_gb > 0 {
+        if ram_total_gb < 16 {
+            render_workers = render_workers.min(1);
+            chunk_workers = chunk_workers.min(2);
+            download_instances = download_instances.min(1);
+            concurrent_fragments = concurrent_fragments.min(8);
+        } else if ram_total_gb < 24 {
+            render_workers = render_workers.min(2);
+            chunk_workers = chunk_workers.min(4);
+            download_instances = download_instances.min(2);
+            concurrent_fragments = concurrent_fragments.min(16);
+        } else if ram_total_gb < 32 {
+            render_workers = render_workers.min(3);
+            chunk_workers = chunk_workers.min(6);
+            download_instances = download_instances.min(2);
+            concurrent_fragments = concurrent_fragments.min(16);
+        } else if ram_total_gb < 48 {
+            render_workers = render_workers.min(4);
+            chunk_workers = chunk_workers.min(8);
+            download_instances = download_instances.min(3);
+            concurrent_fragments = concurrent_fragments.min(32);
+        }
+    }
+
+    // Force Software encoding if no physical NVIDIA GPU is present
+    if gpu.tier == hyperclip_ipc::GPUTier::Software {
+        gpu_tier = hyperclip_ipc::GPUTier::Software;
+        // Strict capping for CPU-only (Software) mode to prevent CPU/memory exhaustion
+        render_workers = render_workers.min(gpu.max_workers as usize);
+        chunk_workers = chunk_workers.min(4);
+        download_instances = download_instances.min(2);
+        concurrent_fragments = concurrent_fragments.min(16);
     }
     
     ResolvedHardwareConfig {

@@ -165,16 +165,34 @@ where
     cmd.arg(url)
     .stdin(Stdio::null())
     .stdout(Stdio::piped())
-    .stderr(Stdio::null());
+    .stderr(Stdio::piped());
 
     #[cfg(target_os = "windows")]
     {
         cmd.creation_flags(0x08000000);
     }
 
+    tracing::info!("[Youtube] Spawning yt-dlp: {:?}", cmd);
+
     let mut child = cmd.spawn().map_err(|e| format!("yt-dlp spawn failed: {}", e))?;
     let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
     let reader = BufReader::new(stdout);
+
+    // Spawn a thread to read stderr to avoid blocking and capture any error messages
+    let stderr_handle = std::thread::spawn(move || {
+        let mut err_str = String::new();
+        let mut reader = BufReader::new(stderr);
+        let mut line = String::new();
+        while let Ok(n) = reader.read_line(&mut line) {
+            if n == 0 {
+                break;
+            }
+            err_str.push_str(&line);
+            line.clear();
+        }
+        err_str
+    });
 
     // Read stdout line by line, parse progress
     for line in reader.lines() {
@@ -185,8 +203,11 @@ where
     }
 
     let status = child.wait().map_err(|e| format!("wait failed: {}", e))?;
+    let stderr_output = stderr_handle.join().unwrap_or_else(|_| "Failed to join stderr thread".to_string());
+
     if !status.success() {
-        return Err(format!("yt-dlp failed (exit={:?})", status.code()));
+        tracing::error!("yt-dlp failed (exit={:?}). Stderr: {}", status.code(), stderr_output);
+        return Err(format!("yt-dlp failed (exit={:?}): {}", status.code(), stderr_output));
     }
 
     let duration = match maybe_trim_file(output_path, trim_minutes) {

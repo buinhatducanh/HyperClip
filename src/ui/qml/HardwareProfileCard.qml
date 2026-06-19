@@ -159,10 +159,10 @@ SettingsCard {
                     id: mouseArea
                     anchors.fill: parent
                     hoverEnabled: true
-                    enabled: compatible && hwProfile && !hwProfile.isBusy
+                    enabled: hwProfile && !hwProfile.isBusy
                     cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                     onClicked: {
-                        if (compatible && hwProfile && modelData) {
+                        if (hwProfile && modelData) {
                             hwProfile.select_preset(backend, settings, modelData.id)
                         }
                     }

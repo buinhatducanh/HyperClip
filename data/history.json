@@ -1,6 +1,83 @@
 {
   "entries": [
     {
+      "wsId": "ws-ch-1781901650662",
+      "videoId": "OzdXWb2Zc6Y",
+      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1781901645000.0,
+      "detectedAt": 1781901650662.0,
+      "latencyMs": 5662.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1781900024880",
+      "videoId": "WNBvLMnGSZU",
+      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
+      "channelName": "Nhật Đức Anh Bùi",
+      "publishedAt": 1781900019000.0,
+      "detectedAt": 1781900024880.0,
+      "latencyMs": 5880.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1781900024824",
+      "videoId": "_XQo3bTEsaw",
+      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R ( 1 )",
+      "channelName": "Nhật Đức Anh Bùi",
+      "publishedAt": 1781900019000.0,
+      "detectedAt": 1781900024824.0,
+      "latencyMs": 5824.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1781898395771",
+      "videoId": "CLoy8op-p3M",
+      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1781898391000.0,
+      "detectedAt": 1781898395771.0,
+      "latencyMs": 4771.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1781896744888",
+      "videoId": "bawSfZ97keM",
+      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1781896737000.0,
+      "detectedAt": 1781896744888.0,
+      "latencyMs": 7888.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1781893145271",
+      "videoId": "5HX6XS4SNJs",
+      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1781893139000.0,
+      "detectedAt": 1781893145271.0,
+      "latencyMs": 6271.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1781891110853",
+      "videoId": "Szp0QhEHmVs",
+      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1781891107000.0,
+      "detectedAt": 1781891110853.0,
+      "latencyMs": 3853.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
       "wsId": "ws-ch-1781785089909",
       "videoId": "237_3jyA-Ns",
       "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R ( F2 )",
@@ -470,83 +547,6 @@
       "publishedAt": 1781362366000.0,
       "detectedAt": 1781362371883.0,
       "latencyMs": 5883.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1781361564599",
-      "videoId": "6BdLP1EnsiU",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "BadyNone",
-      "publishedAt": 1781361555000.0,
-      "detectedAt": 1781361564599.0,
-      "latencyMs": 9599.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1781359014644",
-      "videoId": "Ke9DztD58aA",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "Zilk Kay",
-      "publishedAt": 1781358994000.0,
-      "detectedAt": 1781359014644.0,
-      "latencyMs": 20644.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1781358547287",
-      "videoId": "gDWO3nFQPs8",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "BadyNone",
-      "publishedAt": 1781358529000.0,
-      "detectedAt": 1781358547287.0,
-      "latencyMs": 18287.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1781358093658",
-      "videoId": "sqqvSe543O0",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "BadyNone",
-      "publishedAt": 1781358086000.0,
-      "detectedAt": 1781358093658.0,
-      "latencyMs": 7658.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1781356616769",
-      "videoId": "VZoCLMpKbu4",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "BadyNone",
-      "publishedAt": 1781356608000.0,
-      "detectedAt": 1781356616769.0,
-      "latencyMs": 8769.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1781353954510",
-      "videoId": "jNCUh7nWWFk",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "BadyNone",
-      "publishedAt": 1781353946000.0,
-      "detectedAt": 1781353954510.0,
-      "latencyMs": 8510.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1781352739519",
-      "videoId": "Z4NOu2jBs1E",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "BadyNone",
-      "publishedAt": 1781352732000.0,
-      "detectedAt": 1781352739519.0,
-      "latencyMs": 7519.0,
       "durationSec": 0.0,
       "status": "waiting"
     }
@@ -1506,7 +1506,7 @@
     },
     "ws-ch-1781785089909": {
       "downloadStartAt": 1781785089938,
-      "status": "ready",
+      "status": "done",
       "downloadCompleteAt": 1781785289895,
       "downloadedSize": 172739334.0,
       "width": 1920.0,
@@ -1517,6 +1517,88 @@
     },
     "ws-ch-1781785089909-part2": {
       "status": "done"
+    },
+    "ws-ch-1781891110853": {
+      "downloadStartAt": 1781891110964,
+      "status": "done",
+      "downloadCompleteAt": 1781891312471,
+      "downloadedSize": 172739333.0,
+      "width": 1920.0,
+      "height": 1080.0
+    },
+    "ws-ch-1781891110853-part1": {
+      "status": "error"
+    },
+    "ws-ch-1781891110853-part2": {
+      "status": "error"
+    },
+    "ws-ch-1781893145271": {
+      "downloadStartAt": 1781893145326,
+      "status": "done"
+    },
+    "ws-ch-1781896744888": {
+      "downloadStartAt": 1781896744928,
+      "status": "done",
+      "downloadCompleteAt": 1781896951971,
+      "downloadedSize": 172739334.0,
+      "width": 1920.0,
+      "height": 1080.0
+    },
+    "ws-ch-1781896744888-part1": {
+      "status": "done"
+    },
+    "ws-ch-1781896744888-part2": {
+      "status": "done"
+    },
+    "ws-ch-1781898395771": {
+      "downloadStartAt": 1781898395834,
+      "status": "done",
+      "downloadCompleteAt": 1781898598455,
+      "downloadedSize": 172739334.0,
+      "width": 1920.0,
+      "height": 1080.0
+    },
+    "ws-ch-1781898395771-part1": {
+      "status": "done"
+    },
+    "ws-ch-1781898395771-part2": {
+      "status": "done"
+    },
+    "ws-ch-1781900024824": {
+      "downloadStartAt": 1781900024909,
+      "status": "ready",
+      "downloadCompleteAt": 1781900154072,
+      "downloadedSize": 95945192.0,
+      "width": 1920.0,
+      "height": 1080.0
+    },
+    "ws-ch-1781900024880": {
+      "downloadStartAt": 1781900025854,
+      "status": "done",
+      "downloadCompleteAt": 1781900154096,
+      "downloadedSize": 97255716.0,
+      "width": 1920.0,
+      "height": 1080.0
+    },
+    "ws-ch-1781900024880-part1": {
+      "status": "done"
+    },
+    "ws-ch-1781900024880-part2": {
+      "status": "done"
+    },
+    "ws-ch-1781900024824-part1": {
+      "status": "error"
+    },
+    "ws-ch-1781900024824-part2": {
+      "status": "error"
+    },
+    "ws-ch-1781901650662": {
+      "downloadStartAt": 1781901650704,
+      "status": "done",
+      "downloadCompleteAt": 1781901844094,
+      "downloadedSize": 29263475.0,
+      "width": 640.0,
+      "height": 360.0
     }
   }
 }

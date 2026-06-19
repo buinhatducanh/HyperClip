@@ -667,6 +667,43 @@ pub struct RenderOptions {
     pub bottom_bar_color: Option<String>,
 }
 
+static _CUDA_SUPPORTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+pub fn is_cuda_supported() -> bool {
+    *_CUDA_SUPPORTED.get_or_init(|| {
+        let mut test_cmd = std::process::Command::new(get_ffmpeg_path());
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            test_cmd.creation_flags(0x08000000);
+        }
+        test_cmd.args([
+            "-y",
+            "-hwaccel", "cuda",
+            "-f", "lavfi",
+            "-i", "color=c=black:s=64x64:d=0.01",
+            "-c:v", "h264_nvenc",
+            "-f", "null",
+            "-"
+        ]);
+        test_cmd.stdin(std::process::Stdio::null());
+        test_cmd.stdout(std::process::Stdio::null());
+        test_cmd.stderr(std::process::Stdio::null());
+        
+        match test_cmd.output() {
+            Ok(output) => {
+                let success = output.status.success();
+                tracing::info!("[FFmpeg CUDA Check] CUDA + NVENC supported check result: {}", success);
+                success
+            }
+            Err(e) => {
+                tracing::warn!("[FFmpeg CUDA Check] Failed to run check command: {}", e);
+                false
+            }
+        }
+    })
+}
+
 pub async fn spawn_render_async<F>(
     opts: RenderOptions,
     mut on_progress: F,
@@ -904,7 +941,11 @@ where F: FnMut(f64) + Send + 'static {
         }
     }
 
-    let use_cuda = matches!(opts.gpu_tier, GPUTier::High | GPUTier::Mid | GPUTier::Low);
+    let mut use_cuda = matches!(opts.gpu_tier, GPUTier::High | GPUTier::Mid | GPUTier::Low);
+    if use_cuda && !is_cuda_supported() {
+        tracing::warn!("[FFmpeg Render] CUDA/NVENC hardware acceleration is not supported or accessible on this system. Falling back to CPU/Software encoding.");
+        use_cuda = false;
+    }
 
     let video_start_time = probe_video_start_time(&opts.input_path);
     let adjusted_trim_start = f64::max(video_start_time, opts.trim_start);
@@ -952,10 +993,14 @@ where F: FnMut(f64) + Send + 'static {
     }
 
     // 4. Encode params
-    let codec = match opts.gpu_tier {
-        GPUTier::High => "hevc_nvenc",
-        GPUTier::Mid | GPUTier::Low => "h264_nvenc",
-        _ => "libx264",
+    let codec = if use_cuda {
+        match opts.gpu_tier {
+            GPUTier::High => "hevc_nvenc",
+            GPUTier::Mid | GPUTier::Low => "h264_nvenc",
+            _ => "libx264",
+        }
+    } else {
+        "libx264"
     };
     let crf = if opts.chunked { 20 } else { 18 };
     let maxrate = match opts.resolution.as_str() {
@@ -1094,11 +1139,17 @@ where F: FnMut(f64) + Send + 'static {
         ]);
     } else {
         // CPU fallback (libx264)
+        let available_threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
+        let ffmpeg_threads = std::cmp::max(2, available_threads / 2).to_string();
+
         args.extend_from_slice(&[
             "-c:v".into(), "libx264".into(),
-            "-preset".into(), "medium".into(),
+            "-preset".into(), "veryfast".into(),
             "-crf".into(), "23".into(),
             "-pix_fmt".into(), "yuv420p".into(),
+            "-threads".into(), ffmpeg_threads,
         ]);
     }
 

@@ -7,7 +7,17 @@ fn time_regex() -> &'static Regex {
 }
 
 pub fn parse_ffmpeg_stderr(line: &str, total_duration_sec: f64) -> Option<f64> {
-    let caps = time_regex().captures(line)?;
+    // If the line contains carriage returns, process the last segment containing "time="
+    let target_line = if line.contains('\r') {
+        line.split('\r')
+            .filter(|s| s.contains("time="))
+            .last()
+            .unwrap_or(line)
+    } else {
+        line
+    };
+
+    let caps = time_regex().captures(target_line)?;
     let h: u64 = caps.get(1)?.as_str().parse().ok()?;
     let m: u64 = caps.get(2)?.as_str().parse().ok()?;
     let s: u64 = caps.get(3)?.as_str().parse().ok()?;
@@ -23,7 +33,15 @@ fn fps_regex() -> &'static Regex {
 }
 
 pub fn parse_ffmpeg_fps(line: &str) -> Option<f64> {
-    let caps = fps_regex().captures(line)?;
+    let target_line = if line.contains('\r') {
+        line.split('\r')
+            .filter(|s| s.contains("fps="))
+            .last()
+            .unwrap_or(line)
+    } else {
+        line
+    };
+    let caps = fps_regex().captures(target_line)?;
     caps.get(1)?.as_str().parse().ok()
 }
 
@@ -50,5 +68,15 @@ mod tests {
         let line = "frame=3600 time=00:01:00.00";
         let p = parse_ffmpeg_stderr(line, 120.0).unwrap();
         assert!((p - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_parse_carriage_return_line() {
+        let line = "frame=   10 fps= 10 q=29.0 size=    100KiB time=00:00:01.00\rframe=   20 fps= 20 q=29.0 size=    200KiB time=00:00:02.00\r";
+        let p = parse_ffmpeg_stderr(line, 10.0).unwrap();
+        assert!((p - 0.2).abs() < 0.01); // matches last time: 2.0s / 10.0s = 0.2
+        
+        let fps = parse_ffmpeg_fps(line).unwrap();
+        assert!((fps - 20.0).abs() < 0.01); // matches last fps: 20
     }
 }
