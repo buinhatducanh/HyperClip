@@ -13,10 +13,20 @@ SettingsCard {
         text: hwProfile
               ? hwProfile.detectedGpuName + "  ·  " + hwProfile.detectedVramGb + " GB VRAM  ·  " + hwProfile.detectedRamGb + " GB RAM"
               : "Đang tải thông tin phần cứng..."
-        color: Theme.textMuted
+        color: Theme.accent
         font.pixelSize: Theme.textMd
+        font.bold: true
         elide: Text.ElideRight
         Layout.bottomMargin: Theme.spacingXs
+    }
+
+    Label {
+        Layout.fillWidth: true
+        text: "Hệ thống tự động phát hiện GPU và bộ nhớ để phân loại cấu hình tối ưu. Lựa chọn preset cao sẽ cho phép chạy nhiều luồng tải và render song song bằng nhân đồ họa NVIDIA (NVENC)."
+        color: Theme.textMuted
+        font.pixelSize: 11
+        wrapMode: Text.WordWrap
+        Layout.bottomMargin: Theme.spacingSm
     }
 
     // --- SKELETON LOADER STATE ---

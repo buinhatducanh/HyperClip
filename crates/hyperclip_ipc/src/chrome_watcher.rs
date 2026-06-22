@@ -215,6 +215,10 @@ impl ChromeTabWatcher {
                                     age_ms / 1000,
                                     max_age_ms / 1000
                                 );
+                                // Mark as seen to prevent repeated scanning and logging flood
+                                let mut seen_guard = self.seen_videos.write().await;
+                                seen_guard.mark_seen("", &v.video_id);
+                                drop(seen_guard);
                                 continue;
                             }
 

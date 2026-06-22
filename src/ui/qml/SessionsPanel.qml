@@ -74,6 +74,35 @@ Rectangle {
             }
         }
 
+        // PO Warning Box
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 52
+            color: Qt.rgba(255, 68, 68, 0.08)
+            border.color: Theme.border
+            border.width: 1
+            radius: Theme.radiusMd
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 8
+                spacing: 8
+                Text {
+                    text: "⚠️"
+                    font.pixelSize: 16
+                    Layout.alignment: Qt.AlignVCenter
+                }
+                Label {
+                    text: "Đóng trình duyệt Chrome trước khi mở hoặc sao chép session. Bấm nút Play bên phải mỗi Profile để đăng nhập YouTube để lấy cookie bypass quota."
+                    color: Theme.text
+                    font.pixelSize: 11
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                    lineHeight: 1.15
+                }
+            }
+        }
+
         ListView {
             id: sessionsList
             Layout.fillWidth: true
@@ -116,6 +145,15 @@ Rectangle {
                         color: Theme.textMuted
                         font.pixelSize: 14
                         Layout.minimumWidth: 50
+                        
+                        ToolTip.text: "Trạng thái chấp thuận cookie YouTube (SOCS cookie)"
+                        ToolTip.visible: consentedMa.containsMouse
+                        ToolTip.delay: 300
+                        MouseArea {
+                            id: consentedMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                        }
                     }
                     RowLayout {
                         spacing: 2
@@ -129,6 +167,15 @@ Rectangle {
                             color: Theme.textMuted
                             font.pixelSize: 14
                             font.family: "monospace"
+                            
+                            ToolTip.text: "Số lượt gửi yêu cầu Innertube API thành công trong ngày"
+                            ToolTip.visible: usedTodayMa.containsMouse
+                            ToolTip.delay: 300
+                            MouseArea {
+                                id: usedTodayMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                            }
                         }
                     }
                     Item { Layout.fillWidth: true; Layout.minimumWidth: 4 }

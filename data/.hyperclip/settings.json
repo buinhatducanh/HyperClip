@@ -21,7 +21,7 @@
     "maxConcurrentDownloads": 1,
     "maxConcurrentRenders": 1,
     "minimizeToTray": true,
-    "onboardingComplete": false,
+    "onboardingComplete": true,
     "outputFolder": "",
     "outputPath": "",
     "pollIntervalMs": 5000,

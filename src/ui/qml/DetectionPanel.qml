@@ -33,14 +33,25 @@ SettingsCard {
     GridLayout {
         columns: 2
         columnSpacing: 16
-        rowSpacing: 6
+        rowSpacing: 12
         Layout.fillWidth: true
  
-        Label {
-            text: "Chu kỳ (ms)"
-            color: Theme.textMuted
-            font.pixelSize: Theme.textMd
+        ColumnLayout {
+            spacing: 2
             Layout.fillWidth: true
+            Label {
+                text: "Chu kỳ quét (ms)"
+                color: Theme.text
+                font.pixelSize: Theme.textMd
+                font.bold: true
+            }
+            Label {
+                text: "Tần suất truy vấn tìm video mới (mặc định 5000ms)."
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
         }
         SpinBox {
             Layout.preferredWidth: 180
@@ -49,28 +60,34 @@ SettingsCard {
             value: settings ? settings.pollIntervalMs : 5000
             editable: true
             onValueModified: if (settings) settings.pollIntervalMs = value
+            onActiveFocusChanged: {
+                if (!activeFocus) {
+                    var val = valueFromText(contentItem.text, locale)
+                    val = Math.max(from, Math.min(to, val))
+                    value = val
+                    if (settings) settings.pollIntervalMs = val
+                }
+            }
         }
  
-        Label {
-            text: "TG tối thiểu (s)"
-            color: Theme.textMuted
-            font.pixelSize: Theme.textMd
-            Layout.fillWidth: true
-        }
-        SpinBox {
-            Layout.preferredWidth: 180
-            Layout.alignment: Qt.AlignRight
-            from: 0; to: 3600
-            value: settings ? settings.videoMinDurationSec : 60
-            editable: true
-            onValueModified: if (settings) settings.videoMinDurationSec = value
-        }
+
  
-        Label {
-            text: "TG tối đa (phút)"
-            color: Theme.textMuted
-            font.pixelSize: Theme.textMd
+        ColumnLayout {
+            spacing: 2
             Layout.fillWidth: true
+            Label {
+                text: "TG tối đa (phút)"
+                color: Theme.text
+                font.pixelSize: Theme.textMd
+                font.bold: true
+            }
+            Label {
+                text: "Giới hạn thời lượng video tối đa để tự động tải."
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
         }
         TextField {
             Layout.preferredWidth: 180

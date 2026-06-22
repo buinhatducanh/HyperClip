@@ -449,11 +449,35 @@ function reloadTab(webSocketDebuggerUrl, ignoreCache) {
   });
 }
 
+function httpGetJson(url) {
+  return new Promise((resolve, reject) => {
+    const http = require('http');
+    const req = http.get(url, (res) => {
+      if (res.statusCode !== 200) {
+        reject(new Error(`Status: ${res.statusCode}`));
+        return;
+      }
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+    req.on('error', (err) => reject(err));
+    req.setTimeout(2000, () => {
+      req.destroy();
+      reject(new Error('Timeout'));
+    });
+  });
+}
+
 async function checkChromeChannelTabs() {
   try {
-    const res = await fetch('http://127.0.0.1:9222/json');
-    if (!res.ok) return [];
-    const tabs = await res.json();
+    const tabs = await httpGetJson('http://127.0.0.1:9222/json');
     
     const channelTabs = tabs.filter(tab => {
       if (tab.type !== 'page') return false;

@@ -46,17 +46,17 @@ SettingsCard {
                 value: settings.pollIntervalMs
                 editable: true
                 onValueModified: settings.pollIntervalMs = value
+                onActiveFocusChanged: {
+                    if (!activeFocus) {
+                        var val = valueFromText(contentItem.text, locale)
+                        val = Math.max(from, Math.min(to, val))
+                        value = val
+                        if (settings) settings.pollIntervalMs = val
+                    }
+                }
             }
 
-            Label { text: "TG tối thiểu (s)"; color: Theme.textMuted; font.pixelSize: 24 }
-            SpinBox {
-                Layout.fillWidth: true
-                font.pixelSize: 24
-                from: 0; to: 3600
-                value: settings.videoMinDurationSec
-                editable: true
-                onValueModified: settings.videoMinDurationSec = value
-            }
+
 
             Label { text: "TG tối đa (phút)"; color: Theme.textMuted; font.pixelSize: 24 }
             TextField {

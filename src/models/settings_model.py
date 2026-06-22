@@ -5,6 +5,7 @@ from src.data_dir import get_data_dir
 
 class SettingsModel(QObject):
     changed = Signal()
+    saved = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -235,6 +236,7 @@ class SettingsModel(QObject):
         if ok:
             self._clean_snapshot = self.to_dict()
             self.changed.emit()
+            self.saved.emit()
         return ok
 
     @Slot(QObject, result=bool)

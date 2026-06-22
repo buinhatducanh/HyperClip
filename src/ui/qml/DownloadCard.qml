@@ -24,14 +24,25 @@ SettingsCard {
     GridLayout {
         columns: 2
         columnSpacing: Theme.spacingLg
-        rowSpacing: Theme.spacingSm
+        rowSpacing: Theme.spacingMd
         Layout.fillWidth: true
  
-        Label {
-            text: "Chất lượng"
-            color: Theme.textMuted
-            font.pixelSize: Theme.textMd
+        ColumnLayout {
+            spacing: 2
             Layout.fillWidth: true
+            Label {
+                text: "Chất lượng tải"
+                color: Theme.text
+                font.pixelSize: Theme.textMd
+                font.bold: true
+            }
+            Label {
+                text: "Độ phân giải video mục tiêu (ví dụ 1080p, 720p)."
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
         }
         ComboBox {
             Layout.preferredWidth: 140
@@ -42,11 +53,22 @@ SettingsCard {
             onActivated: if (settings) settings.autoDownloadQuality = model[currentIndex]
         }
  
-        Label {
-            text: "Tải video ≤ (phút)"
-            color: Theme.textMuted
-            font.pixelSize: Theme.textMd
+        ColumnLayout {
+            spacing: 2
             Layout.fillWidth: true
+            Label {
+                text: "Độ tuổi video tối đa (phút)"
+                color: Theme.text
+                font.pixelSize: Theme.textMd
+                font.bold: true
+            }
+            Label {
+                text: "Chỉ tải video đăng tải trong N phút qua (1440 = 24h)."
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
         }
         SpinBox {
             Layout.preferredWidth: 140
@@ -59,11 +81,22 @@ SettingsCard {
             onValueModified: if (settings) settings.autoDownloadMaxAgeMinutes = value
         }
  
-        Label {
-            text: "Cắt tối đa (phút)"
-            color: Theme.textMuted
-            font.pixelSize: Theme.textMd
+        ColumnLayout {
+            spacing: 2
             Layout.fillWidth: true
+            Label {
+                text: "Cắt tối đa (phút)"
+                color: Theme.text
+                font.pixelSize: Theme.textMd
+                font.bold: true
+            }
+            Label {
+                text: "Chỉ tải N phút đầu của video để tiết kiệm dung lượng."
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
         }
         SpinBox {
             Layout.preferredWidth: 140
@@ -76,11 +109,22 @@ SettingsCard {
             onValueModified: if (settings) settings.defaultTrimLimit = value
         }
  
-        Label {
-            text: "Tải đồng thời"
-            color: Theme.textMuted
-            font.pixelSize: Theme.textMd
+        ColumnLayout {
+            spacing: 2
             Layout.fillWidth: true
+            Label {
+                text: "Tải đồng thời"
+                color: Theme.text
+                font.pixelSize: Theme.textMd
+                font.bold: true
+            }
+            Label {
+                text: "Số luồng tải yt-dlp song song tối đa."
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
         }
         SpinBox {
             Layout.preferredWidth: 140

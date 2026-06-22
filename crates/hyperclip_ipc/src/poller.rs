@@ -243,14 +243,20 @@ impl Poller {
 
                             polled_successfully.lock().unwrap().insert(cid.clone());
 
-                            for video in videos.iter() {
+                            for (index, video) in videos.iter().enumerate() {
                                 let seen_videos = poller.seen_videos.read().await;
                                 let is_seen = seen_videos.is_any_seen(&video.video_id);
+                                let channel_seen_exists = seen_videos.channels.get(&cid)
+                                    .map(|entry| !entry.ids.is_empty())
+                                    .unwrap_or(false);
                                 drop(seen_videos);
 
                                 if is_seen { continue; }
-                                if !Self::is_within_age_limit(video.published_at, now_ms, max_age_ms) { continue; }
-                                if min_duration_sec > 0 && video.duration_sec > 0.0 && video.duration_sec < min_duration_sec as f64 { continue; }
+                                
+                                let bypass_age_limit = !channel_seen_exists && index == 0;
+                                if !bypass_age_limit && !Self::is_within_age_limit(video.published_at, now_ms, max_age_ms) {
+                                    continue;
+                                }
                                 if video.width > 0 && video.height > 0 {
                                     let ratio = video.width as f64 / video.height as f64;
                                     if ratio < 0.6 { continue; }

@@ -20,18 +20,29 @@ SettingsCard {
             onToggled: if (settings) settings.autoRender = checked
         }
     }
- 
+
     GridLayout {
         columns: 2
         columnSpacing: Theme.spacingLg
-        rowSpacing: Theme.spacingSm
+        rowSpacing: Theme.spacingMd
         Layout.fillWidth: true
  
-        Label {
-            text: "Độ phân giải"
-            color: Theme.textMuted
-            font.pixelSize: Theme.textMd
+        ColumnLayout {
+            spacing: 2
             Layout.fillWidth: true
+            Label {
+                text: "Độ phân giải"
+                color: Theme.text
+                font.pixelSize: Theme.textMd
+                font.bold: true
+            }
+            Label {
+                text: "Độ phân giải video dọc đầu ra (ví dụ 1080p, 720p)."
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
         }
         ComboBox {
             Layout.preferredWidth: 180
@@ -42,11 +53,22 @@ SettingsCard {
             onActivated: if (settings) settings.autoRenderResolution = model[currentIndex]
         }
  
-        Label {
-            text: "FPS"
-            color: Theme.textMuted
-            font.pixelSize: Theme.textMd
+        ColumnLayout {
+            spacing: 2
             Layout.fillWidth: true
+            Label {
+                text: "Khung hình (FPS)"
+                color: Theme.text
+                font.pixelSize: Theme.textMd
+                font.bold: true
+            }
+            Label {
+                text: "Tốc độ khung hình đầu ra (30 hoặc 60 fps)."
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
         }
         ComboBox {
             Layout.preferredWidth: 180
@@ -57,11 +79,22 @@ SettingsCard {
             onActivated: if (settings) settings.autoRenderFPS = model[currentIndex]
         }
  
-        Label {
-            text: "Tốc độ"
-            color: Theme.textMuted
-            font.pixelSize: Theme.textMd
+        ColumnLayout {
+            spacing: 2
             Layout.fillWidth: true
+            Label {
+                text: "Tốc độ phát (Speed)"
+                color: Theme.text
+                font.pixelSize: Theme.textMd
+                font.bold: true
+            }
+            Label {
+                text: "Tự động tăng tốc độ video (lách bản quyền và tăng độ cuốn)."
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
         }
         RowLayout {
             Layout.preferredWidth: 180
@@ -81,11 +114,22 @@ SettingsCard {
             }
         }
  
-        Label {
-            text: "Số phần tách"
-            color: Theme.textMuted
-            font.pixelSize: Theme.textMd
+        ColumnLayout {
+            spacing: 2
             Layout.fillWidth: true
+            Label {
+                text: "Số phần tách"
+                color: Theme.text
+                font.pixelSize: Theme.textMd
+                font.bold: true
+            }
+            Label {
+                text: "Cắt video gốc thành N phần bằng nhau."
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
         }
         SpinBox {
             Layout.preferredWidth: 180
@@ -97,11 +141,22 @@ SettingsCard {
             onValueModified: if (settings) settings.autoSplitParts = value
         }
  
-        Label {
-            text: "Hoặc số phút"
-            color: Theme.textMuted
-            font.pixelSize: Theme.textMd
+        ColumnLayout {
+            spacing: 2
             Layout.fillWidth: true
+            Label {
+                text: "Hoặc số phút/phần"
+                color: Theme.text
+                font.pixelSize: Theme.textMd
+                font.bold: true
+            }
+            Label {
+                text: "Tách nhỏ video theo khoảng thời gian N phút (0 = tắt)."
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
         }
         SpinBox {
             Layout.preferredWidth: 180
@@ -113,11 +168,22 @@ SettingsCard {
             onValueModified: if (settings) settings.autoSplitMinutes = value
         }
  
-        Label {
-            text: "Mẫu tiêu đề"
-            color: Theme.textMuted
-            font.pixelSize: Theme.textMd
+        ColumnLayout {
+            spacing: 2
             Layout.fillWidth: true
+            Label {
+                text: "Mẫu đặt tên file"
+                color: Theme.text
+                font.pixelSize: Theme.textMd
+                font.bold: true
+            }
+            Label {
+                text: "Cấu hình tên file xuất ra (hỗ trợ thẻ {title}, {part})."
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
         }
         TextField {
             Layout.preferredWidth: 180
@@ -132,12 +198,23 @@ SettingsCard {
                 radius: Theme.radiusMd
             }
         }
-
-        Label {
-            text: "Render đồng thời"
-            color: Theme.textMuted
-            font.pixelSize: Theme.textMd
+ 
+        ColumnLayout {
+            spacing: 2
             Layout.fillWidth: true
+            Label {
+                text: "Render song song"
+                color: Theme.text
+                font.pixelSize: Theme.textMd
+                font.bold: true
+            }
+            Label {
+                text: "Số lượng tiến trình render FFmpeg chạy đồng thời (khuyên dùng 2)."
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
         }
         SpinBox {
             Layout.preferredWidth: 180

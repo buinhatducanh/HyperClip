@@ -45,30 +45,43 @@ Rectangle {
         Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
 
         // Step indicators
-        RowLayout {
-            Layout.fillWidth: true; Layout.preferredHeight: 60
-            Layout.leftMargin: 24; Layout.rightMargin: 24; spacing: 0
+        // Step indicators (fixed width alignment)
+        Row {
+            id: indicatorRow
+            Layout.fillWidth: true
+            Layout.preferredHeight: 65
+            Layout.leftMargin: 24; Layout.rightMargin: 24
+            
+            readonly property real itemWidth: (width - 48) / page.steps.length
+            
             Repeater {
                 model: page.steps
-                delegate: ColumnLayout {
-                    Layout.fillWidth: true; spacing: 4
-                    Rectangle {
-                        Layout.alignment: Qt.AlignHCenter
-                        Layout.preferredWidth: 28; Layout.preferredHeight: 28; radius: 14
-                        color: index <= page.currentStep ? Theme.accent : Theme.hoverBg
-                        Label {
-                            anchors.centerIn: parent
-                            text: index + 1
-                            color: index <= page.currentStep ? "white" : Theme.textMuted
-                            font.pixelSize: 16; font.bold: true
+                delegate: Item {
+                    width: indicatorRow.itemWidth
+                    height: 55
+                    
+                    ColumnLayout {
+                        anchors.fill: parent
+                        spacing: 4
+                        Rectangle {
+                            Layout.alignment: Qt.AlignHCenter
+                            Layout.preferredWidth: 28; Layout.preferredHeight: 28; radius: 14
+                            color: index <= page.currentStep ? Theme.accent : Theme.hoverBg
+                            Label {
+                                anchors.centerIn: parent
+                                text: index + 1
+                                color: index <= page.currentStep ? "white" : Theme.textMuted
+                                font.pixelSize: 16; font.bold: true
+                            }
                         }
-                    }
-                    Label {
-                        Layout.alignment: Qt.AlignHCenter
-                        text: modelData.label
-                        color: index === page.currentStep ? Theme.accent
-                             : index < page.currentStep ? Theme.success : Theme.textMuted
-                        font.pixelSize: Theme.textXs; font.bold: index === page.currentStep
+                        Label {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: modelData.label
+                            color: index === page.currentStep ? Theme.accent
+                                 : index < page.currentStep ? Theme.success : Theme.textMuted
+                            font.pixelSize: Theme.textSm; font.bold: index === page.currentStep
+                            elide: Text.ElideRight
+                        }
                     }
                 }
             }

@@ -70,6 +70,35 @@ Rectangle {
             }
         }
 
+        // PO Explanation Box
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 52
+            color: Theme.cardBg
+            border.color: Theme.border
+            border.width: 1
+            radius: Theme.radiusMd
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 8
+                spacing: 8
+                Text {
+                    text: "💡"
+                    font.pixelSize: 16
+                    Layout.alignment: Qt.AlignVCenter
+                }
+                Label {
+                    text: "Mỗi Google Cloud Project hỗ trợ 10,000 units Quota/ngày. Hệ thống tự động xoay vòng các project để duy trì hoạt động quét dự phòng khi Innertube gặp sự cố."
+                    color: Theme.textMuted
+                    font.pixelSize: 11
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                    lineHeight: 1.15
+                }
+            }
+        }
+
         ListView {
             id: projectsList
             Layout.fillWidth: true

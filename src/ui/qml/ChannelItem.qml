@@ -7,8 +7,8 @@ import Qt5Compat.GraphicalEffects
 
 Rectangle {
     id: item
-    Layout.fillWidth: true
-    Layout.preferredHeight: 36
+    width: parent ? parent.width : 200
+    height: 48
     color: hoverArea.containsMouse ? Theme.hoverBg : "transparent"
     border.color: Theme.cardBg
     border.width: 0

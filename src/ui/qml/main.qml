@@ -291,6 +291,14 @@ ApplicationWindow {
         z: 999
     }
 
+    // ─── Onboarding overlay ──────────────────────────────────────
+    OnboardingPage {
+        id: onboardingOverlay
+        anchors.fill: parent
+        visible: (auth && auth.isReady) && (settings ? !settings.onboardingComplete : true)
+        z: 998
+    }
+
     // ─── Update toast ────────────────────────────────────────────
     Rectangle {
         id: updateToast

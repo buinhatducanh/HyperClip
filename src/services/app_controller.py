@@ -63,6 +63,7 @@ class AppController(QObject):
         self.bus.new_video_detected.connect(self._on_new_video_detected)
         self.bus.channel_synced.connect(self._on_channel_synced)
         self.bus.notification.connect(self._on_notification)
+        self.settings_model.saved.connect(self._on_settings_saved)
 
         # 3. Setup and start timers
         self.stats_timer = QTimer(self)
@@ -241,6 +242,11 @@ class AppController(QObject):
             self.client.send_command_async("system:stats")
 
     def _poll_poller(self):
+        if self.client:
+            self.poller_model.refresh_from_backend(self.client)
+            self.auth_model.refresh_from_backend(self.client)
+
+    def _on_settings_saved(self):
         if self.client:
             self.poller_model.refresh_from_backend(self.client)
             self.auth_model.refresh_from_backend(self.client)
