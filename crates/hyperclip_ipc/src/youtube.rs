@@ -47,7 +47,7 @@ pub fn get_youtube_client_priority() -> String {
         }
     }
 
-    "tv_embedded,web,ios".to_string()
+    "android,ios,web,tv_embedded".to_string()
 }
 
 #[derive(Debug, Clone)]

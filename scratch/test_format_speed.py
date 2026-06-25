@@ -19,7 +19,7 @@ def test_download_format(name, format_str):
         "--remux-video", "mp4",
         "-o", out_file,
         "--ffmpeg-location", r"D:\LOOP_COMPANY\HyperClip\resources\ffmpeg\bin",
-        "--download-sections", "*00:00:00-00:00:15",
+        # no download sections
         "--js-runtimes", "node:D:/LOOP_COMPANY/HyperClip/resources/node/node.exe",
         "--extractor-args", "youtube:player_client=android,web",
         url
@@ -41,3 +41,6 @@ test_download_format("separate", "bestvideo[height<=?720]+bestaudio/best[height<
 
 # 2. Multiplexed preferred
 test_download_format("multiplexed", "best[height<=?720]/bestvideo[height<=?720]+bestaudio/best")
+
+# 3. Format 18
+test_download_format("format18", "18/best[height<=?360]")

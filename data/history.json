@@ -1,6 +1,28 @@
 {
   "entries": [
     {
+      "wsId": "ws-ch-1782404997875",
+      "videoId": "7hHssqAGjbM",
+      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
+      "channelName": "BadyNone",
+      "publishedAt": 1782404992000.0,
+      "detectedAt": 1782404997875.0,
+      "latencyMs": 5875.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1782404407723",
+      "videoId": "g1BY8few5HI",
+      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
+      "channelName": "",
+      "publishedAt": 1782404402000.0,
+      "detectedAt": 1782404407723.0,
+      "latencyMs": 5723.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
       "wsId": "ws-ch-1782403349868",
       "videoId": "4b4FVPOkWKY",
       "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
@@ -525,28 +547,6 @@
       "publishedAt": 1781778112000.0,
       "detectedAt": 1781778120633.0,
       "latencyMs": 8633.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1781750843704",
-      "videoId": "KSN9kLVgHeE",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "Zilk Kay",
-      "publishedAt": 1781750824000.0,
-      "detectedAt": 1781750843704.0,
-      "latencyMs": 19704.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1781749554344",
-      "videoId": "AV9xnMbRnYU",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "Zilk Kay",
-      "publishedAt": 1781749544000.0,
-      "detectedAt": 1781749554344.0,
-      "latencyMs": 10344.0,
       "durationSec": 0.0,
       "status": "waiting"
     }
@@ -1897,6 +1897,22 @@
       "downloadStartAt": 1782403349884,
       "status": "done",
       "downloadCompleteAt": 1782403360638,
+      "downloadedSize": 20036998.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782404407723": {
+      "downloadStartAt": 1782404407737,
+      "status": "done",
+      "downloadCompleteAt": 1782404421464,
+      "downloadedSize": 20036998.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782404997875": {
+      "downloadStartAt": 1782404997892,
+      "status": "done",
+      "downloadCompleteAt": 1782405007735,
       "downloadedSize": 20036998.0,
       "width": 640.0,
       "height": 360.0
