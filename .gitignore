@@ -45,3 +45,9 @@ src/services/__pycache__/
 src/ui/__pycache__/
 target/
 package-lock.json
+
+# Patches and zip files
+*.zip
+HyperClip-Patch-*/
+HyperClip-Patch-*
+
