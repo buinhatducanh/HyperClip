@@ -2,11 +2,11 @@
   "settings": {
     "autoDownloadEnabled": true,
     "autoDownloadMaxAgeMinutes": 90,
-    "autoDownloadQuality": "720",
+    "autoDownloadQuality": "360",
     "autoRender": true,
     "autoRenderFPS": 30,
     "autoRenderResolution": "720p",
-    "autoRenderSpeed": 1.2,
+    "autoRenderSpeed": 1.1,
     "autoRenderTitleTemplate": "{title}",
     "autoSplitEnabled": false,
     "autoSplitMinutes": 0,

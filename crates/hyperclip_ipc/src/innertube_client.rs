@@ -70,6 +70,8 @@ pub struct InnertubeClient {
     /// Channel receiver for lines read by the background reader thread
     line_rx: Option<mpsc::Receiver<String>>,
     req_counter: AtomicU64,
+    /// Active client counter to decrement on drop
+    pub drop_counter: Option<std::sync::Arc<std::sync::atomic::AtomicUsize>>,
 }
 
 unsafe impl Send for InnertubeClient {}
@@ -86,6 +88,9 @@ impl std::fmt::Debug for InnertubeClient {
 impl Drop for InnertubeClient {
     fn drop(&mut self) {
         self.kill_child();
+        if let Some(ref counter) = self.drop_counter {
+            counter.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
     }
 }
 
@@ -122,6 +127,7 @@ impl InnertubeClient {
             stdin: None,
             line_rx: None,
             req_counter: AtomicU64::new(1),
+            drop_counter: None,
         })
     }
 

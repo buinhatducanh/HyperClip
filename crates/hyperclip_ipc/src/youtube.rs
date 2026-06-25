@@ -173,7 +173,7 @@ where
     F: FnMut(DownloadProgress),
 {
     let fmt = if quality <= 360 {
-        format!("best[height<=?{height}]/bestvideo[height<=?{height}]+bestaudio/best[height<=?{height}]/worst", height = quality)
+        "18/best[height<=?360]/bestvideo[height<=?360]+bestaudio/best[height<=?360]/worst".to_string()
     } else {
         format!("bestvideo[height<=?{height}]+bestaudio/best[height<=?{height}]/worst", height = quality)
     };
@@ -204,11 +204,21 @@ where
         "-o", &clean_out,
     ]);
 
-    let use_download_sections = if let Some(dur) = actual_duration_sec {
+    let mut use_download_sections = if let Some(dur) = actual_duration_sec {
         trim_minutes > 0 && (dur == 0 || dur > ((trim_minutes * 60) as u64 + 30))
     } else {
         trim_minutes > 0
     };
+
+    // Optimization: bypass download sections if video quality is <= 360p or duration is <= 15 minutes (900s)
+    // because multi-threaded download of the whole file + local FFmpeg copy-trim is much faster than single-threaded download-sections.
+    if use_download_sections {
+        let is_short_or_low_quality = quality <= 360 || actual_duration_sec.map(|dur| dur <= 900).unwrap_or(trim_minutes <= 15);
+        if is_short_or_low_quality {
+            tracing::info!("[Youtube] Bypassing --download-sections for low quality/short duration video (quality: {}p, duration: {:?}s, trim: {}m). Using fast multi-threaded download + local trim.", quality, actual_duration_sec, trim_minutes);
+            use_download_sections = false;
+        }
+    }
 
     if use_download_sections {
         let hours = trim_minutes / 60;
@@ -369,7 +379,7 @@ pub fn download_video(
     concurrent_fragments: u32,
 ) -> Result<DownloadResult, String> {
     let fmt = if quality <= 360 {
-        format!("best[height<=?{height}]/bestvideo[height<=?{height}]+bestaudio/best[height<=?{height}]/worst", height = quality)
+        "18/best[height<=?360]/bestvideo[height<=?360]+bestaudio/best[height<=?360]/worst".to_string()
     } else {
         format!("bestvideo[height<=?{height}]+bestaudio/best[height<=?{height}]/worst", height = quality)
     };
@@ -399,11 +409,21 @@ pub fn download_video(
         "-o", &clean_out,
     ]);
 
-    let use_download_sections = if let Some(dur) = actual_duration_sec {
+    let mut use_download_sections = if let Some(dur) = actual_duration_sec {
         trim_minutes > 0 && (dur == 0 || dur > ((trim_minutes * 60) as u64 + 30))
     } else {
         trim_minutes > 0
     };
+
+    // Optimization: bypass download sections if video quality is <= 360p or duration is <= 15 minutes (900s)
+    // because multi-threaded download of the whole file + local FFmpeg copy-trim is much faster than single-threaded download-sections.
+    if use_download_sections {
+        let is_short_or_low_quality = quality <= 360 || actual_duration_sec.map(|dur| dur <= 900).unwrap_or(trim_minutes <= 15);
+        if is_short_or_low_quality {
+            tracing::info!("[Youtube] Bypassing --download-sections for low quality/short duration video (quality: {}p, duration: {:?}s, trim: {}m). Using fast multi-threaded download + local trim.", quality, actual_duration_sec, trim_minutes);
+            use_download_sections = false;
+        }
+    }
 
     if use_download_sections {
         let hours = trim_minutes / 60;

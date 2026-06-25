@@ -8,7 +8,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 ffmpeg = r"D:\LOOP_COMPANY\HyperClip\resources\ffmpeg\bin\ffmpeg.exe"
 ffprobe = r"D:\LOOP_COMPANY\HyperClip\resources\ffmpeg\bin\ffprobe.exe"
 
-input_video = r"d:\LOOP_COMPANY\HyperClip\data\media\Nhật Đức Anh Bùi\downloads\EqWMOrNVnjU_20260625_070440.mp4"
+input_video = r"d:\LOOP_COMPANY\HyperClip\data\media\Nhật Đức Anh Bùi\downloads\EqWMOrNVnjU_20260625_110529.mp4"
 out_no_loop = r"d:\LOOP_COMPANY\HyperClip\scratch\render_no_loop.mp4"
 out_with_loop = r"d:\LOOP_COMPANY\HyperClip\scratch\render_with_loop.mp4"
 
@@ -32,7 +32,7 @@ total_duration_str = "25.0" # with speed 1.2, 30.0 / 1.2 = 25.0
 # ----------------- Render WITHOUT Loop -----------------
 print("\n--- Running Render WITHOUT Loop ---")
 filter_no_loop = (
-    f"[0:v]trim=start={trim_start}:duration={trim_duration},setpts=PTS-STARTPTS,fps={fps}[vid]; "
+    f"[0:v]trim=start={trim_start}:duration={trim_duration},setpts=PTS-STARTPTS,fps={fps},hwupload_cuda[vid]; "
     f"[1:v]scale={canvas_w}:{canvas_h}:force_original_aspect_ratio=increase,crop={canvas_w}:{canvas_h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,fps={fps},hwupload_cuda,scale_cuda=w={canvas_w}:h={canvas_h}:format=nv12[bg]; "
     f"[bg][vid]overlay_cuda=0:{video_top} [vz]; "
     f"[2:v]scale={canvas_w}:{header_h}:force_original_aspect_ratio=increase,crop={canvas_w}:{header_h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,hwupload_cuda,scale_cuda=w={canvas_w}:h={header_h}:format=nv12[hd]; "
@@ -59,18 +59,18 @@ cmd_no_loop = [
     out_no_loop
 ]
 
-print("Executing: " + " ".join(cmd_no_loop))
-subprocess.run(cmd_no_loop, check=True)
+# print("Executing: " + " ".join(cmd_no_loop))
+# subprocess.run(cmd_no_loop, check=True)
 
 # ----------------- Render WITH Loop -----------------
 print("\n--- Running Render WITH Loop ---")
 filter_with_loop = (
-    f"[0:v]trim=start={trim_start}:duration={trim_duration},setpts=PTS-STARTPTS,fps={fps}[vid]; "
-    f"[1:v]loop=loop=-1:size=1:start=0,scale={canvas_w}:{canvas_h}:force_original_aspect_ratio=increase,crop={canvas_w}:{canvas_h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,fps={fps},hwupload_cuda,scale_cuda=w={canvas_w}:h={canvas_h}:format=nv12[bg]; "
+    f"[0:v]trim=start={trim_start}:duration={trim_duration},setpts=PTS-STARTPTS,fps={fps},hwupload_cuda[vid]; "
+    f"[1:v]scale={canvas_w}:{canvas_h}:force_original_aspect_ratio=increase,crop={canvas_w}:{canvas_h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,loop=loop=-1:size=1:start=0,fps={fps},hwupload_cuda,scale_cuda=w={canvas_w}:h={canvas_h}:format=nv12[bg]; "
     f"[bg][vid]overlay_cuda=0:{video_top} [vz]; "
-    f"[2:v]loop=loop=-1:size=1:start=0,scale={canvas_w}:{header_h}:force_original_aspect_ratio=increase,crop={canvas_w}:{header_h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,hwupload_cuda,scale_cuda=w={canvas_w}:h={header_h}:format=nv12[hd]; "
+    f"[2:v]scale={canvas_w}:{header_h}:force_original_aspect_ratio=increase,crop={canvas_w}:{header_h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,loop=loop=-1:size=1:start=0,hwupload_cuda,scale_cuda=w={canvas_w}:h={header_h}:format=nv12[hd]; "
     f"[vz][hd]overlay_cuda=0:0 [vh]; "
-    f"[3:v]loop=loop=-1:size=1:start=0,format=yuv420p,hwupload_cuda,scale_cuda=w={canvas_w}:h={bottom_bar_h}:format=nv12[bb]; "
+    f"[3:v]format=yuv420p,loop=loop=-1:size=1:start=0,hwupload_cuda,scale_cuda=w={canvas_w}:h={bottom_bar_h}:format=nv12[bb]; "
     f"[vh][bb]overlay_cuda=0:{canvas_h - bottom_bar_h},setsar=1 [vf]; "
     f"[vf]setpts=0.8333333333333334*PTS[final]; "
     f"[0:a]atrim=start={trim_start}:duration={trim_duration},asetpts=PTS-STARTPTS,atempo=1.2[a]"
@@ -78,6 +78,7 @@ filter_with_loop = (
 
 cmd_with_loop = [
     ffmpeg, "-hide_banner", "-y",
+    "-init_hw_device", "cuda=cuda", "-filter_hw_device", "cuda",
     "-hwaccel", "cuda", "-hwaccel_output_format", "cuda",
     "-c:v", "h264_cuvid", "-i", input_video,
     "-f", "lavfi", "-i", f"color=c=0x2d2d2d:s={canvas_w}x{canvas_h}:d=0.04",

@@ -59,7 +59,7 @@ if (Test-Path $zipPath) {
     Remove-Item $zipPath -Force
 }
 
-tar -a -cf $zipPath -C $ReleaseDir $patchFolderName
+tar -a -cf $zipPath -C $patchDir .
 Write-Host "Zipped successfully: $zipPath" -ForegroundColor Green
 
 # 4. Clean up temporary patch folder

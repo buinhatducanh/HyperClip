@@ -339,15 +339,6 @@ impl AppState {
                             let duration_sec_val = result.duration.round() as u64;
                             let file_size_val = result.file_size;
 
-                            // Probe formats to find original quality
-                            let original_quality = match probe_formats(&url, &cookies_str) {
-                                Ok(formats) => formats.last().cloned(),
-                                Err(e) => {
-                                    tracing::warn!("[AppState] Probe formats failed for {}: {}", url, e);
-                                    None
-                                }
-                            };
-
                             ws_store.update(&tid, serde_json::json!({
                                 "status": "ready",
                                 "downloadedPath": result.path,
@@ -357,7 +348,6 @@ impl AppState {
                                 "quality": quality_val,
                                 "fileSize": file_size_val,
                                 "durationSec": duration_sec_val,
-                                "originalQuality": original_quality,
                             })).ok();
                             ws_store.save(&ws_path).ok();
                             
@@ -387,6 +377,33 @@ impl AppState {
                                 }
                             });
                             hyperclip_ipc::emit_raw(&serde_json::to_string(&done_event).unwrap_or_default());
+
+                            // Spawn background thread to find original quality without blocking the ready/render status
+                            let url_clone = url.clone();
+                            let cookies_clone = cookies_str.clone();
+                            let tid_clone = tid.clone();
+                            let ws_path_clone = ws_path.clone();
+                            std::thread::spawn(move || {
+                                match probe_formats(&url_clone, &cookies_clone) {
+                                    Ok(formats) => {
+                                        if let Some(original_quality) = formats.last().cloned() {
+                                            let mut ws_store = WorkspaceStore::load(&ws_path_clone);
+                                            ws_store.update(&tid_clone, serde_json::json!({
+                                                "originalQuality": original_quality,
+                                            })).ok();
+                                            let _ = ws_store.save(&ws_path_clone);
+
+                                            crate::emit(hyperclip_ipc::IpcResponse::event("workspace:update", serde_json::json!({
+                                                "id": tid_clone,
+                                                "originalQuality": original_quality,
+                                            })));
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!("[AppState] Background probe formats failed for {}: {}", url_clone, e);
+                                    }
+                                }
+                            });
 
                             // Auto-render if enabled
                             let s_path = get_settings_path();
@@ -436,6 +453,12 @@ impl AppState {
                                 let bottom_bar_color = ws_store.workspaces.iter()
                                     .find(|w| w.id == tid)
                                     .and_then(|w| w.bottom_bar_color.clone());
+                                let auto_render_preset = s_store.settings
+                                    .get("autoRenderPreset")
+                                    .or_else(|| s_store.settings.get("auto_render_preset"))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("p1")
+                                    .to_string();
                                 let opts = hyperclip_ipc::ffmpeg::RenderOptions {
                                     workspace_id: tid.clone(),
                                     input_path: std::path::PathBuf::from(&in_path),
@@ -446,7 +469,7 @@ impl AppState {
                                     trim_start: 0.0,
                                     trim_end: auto_trim_end,
                                     gpu_tier: hw_cfg.gpu_tier,
-                                    preset: hw_cfg.nvenc_preset,
+                                    preset: auto_render_preset,
                                     filter_chain,
                                     chunked: false,
                                     chunk_duration_sec: 120,

@@ -23,8 +23,8 @@ fn test_build_short_filter_vertical_with_speed() {
 #[test]
 fn test_build_short_filter_cuda() {
     let filter = build_short_filter_cuda(0.0, 60.0, 1.0, 1080, 1920, 576, 576, 30);
-    assert!(filter.contains("scale_cuda"), "CUDA filter: {}", filter);
-    assert!(filter.contains("crop="), "CPU crop: {}", filter);
+    assert!(filter.contains("format=nv12"), "CUDA filter format: {}", filter);
+    assert!(filter.contains("hwupload_cuda"), "CUDA upload: {}", filter);
     assert!(filter.contains("overlay_cuda"), "CUDA overlay: {}", filter);
 }
 
@@ -47,7 +47,8 @@ fn test_build_landscape_filter() {
 #[test]
 fn test_build_landscape_filter_cuda() {
     let filter = build_landscape_filter_cuda(0.0, 60.0, 1.0, 1920, 1080, 216, 30);
-    assert!(filter.contains("scale_cuda"), "landscape CUDA scale: {}", filter);
+    assert!(filter.contains("format=nv12"), "landscape CUDA format: {}", filter);
+    assert!(filter.contains("hwupload_cuda"), "landscape CUDA upload: {}", filter);
     assert!(filter.contains("overlay_cuda"), "landscape CUDA overlay: {}", filter);
     assert!(filter.contains("[final]"), "should end with [final]");
 }

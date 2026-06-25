@@ -26,8 +26,6 @@ impl Default for PoolConfig {
 struct Session {
     cooldown_until: Option<Instant>,
     suspended_until: Option<Instant>,
-    /// InnertubeClient instance, lazily created on first use.
-    client: Option<crate::innertube_client::InnertubeClient>,
     /// SAPISID-based auth cookie string for this session.
     cookie: String,
     /// Whether the session is currently checking a channel.
@@ -48,6 +46,8 @@ pub struct InnertubeClientPool {
     sessions: Mutex<Vec<Session>>,
     round_robin_idx: AtomicUsize,
     config: PoolConfig,
+    clients: Mutex<Vec<crate::innertube_client::InnertubeClient>>,
+    active_clients_count: std::sync::Arc<AtomicUsize>,
 }
 
 impl InnertubeClientPool {
@@ -58,7 +58,6 @@ impl InnertubeClientPool {
             .map(|_| Session {
                 cooldown_until: None,
                 suspended_until: None,
-                client: None,
                 cookie: String::new(),
                 busy: false,
             })
@@ -67,6 +66,8 @@ impl InnertubeClientPool {
             sessions: Mutex::new(sessions),
             round_robin_idx: AtomicUsize::new(0),
             config,
+            clients: Mutex::new(Vec::new()),
+            active_clients_count: std::sync::Arc::new(AtomicUsize::new(0)),
         })
     }
 
@@ -76,8 +77,9 @@ impl InnertubeClientPool {
         let mut sessions = self.sessions.lock().unwrap();
         for s in sessions.iter_mut() {
             s.cookie = cookie_string.clone();
-            s.client = None; // drop old client so next call re-creates it with fresh config
         }
+        let mut clients = self.clients.lock().unwrap();
+        clients.clear();
     }
 
     /// Load distinct cookies for a specific session index.
@@ -85,8 +87,9 @@ impl InnertubeClientPool {
         let mut sessions = self.sessions.lock().unwrap();
         if let Some(s) = sessions.get_mut(idx) {
             s.cookie = cookie_string;
-            s.client = None; // drop old client so next call re-creates it with fresh config
         }
+        let mut clients = self.clients.lock().unwrap();
+        clients.clear();
     }
 
     /// Check if a session cookie contains valid YouTube credentials.
@@ -120,7 +123,6 @@ impl InnertubeClientPool {
     pub fn mark_failed(&self, session_idx: usize) {
         if let Some(s) = self.sessions.lock().unwrap().get_mut(session_idx) {
             s.cooldown_until = Some(Instant::now() + self.config.cooldown_duration);
-            s.client = None; // invalidate client so a fresh one is created next time
             s.busy = false;
         }
     }
@@ -176,8 +178,8 @@ impl InnertubeClientPool {
             let idx = self.next_session_unlocked(&sessions);
             if let Some(s) = sessions.get_mut(idx) {
                 if !s.busy
-                    && s.cooldown_until.map_or(true, |t| now >= t)
-                    && s.suspended_until.map_or(true, |t| now >= t)
+                     && s.cooldown_until.map_or(true, |t| now >= t)
+                     && s.suspended_until.map_or(true, |t| now >= t)
                 {
                     s.busy = true;
                     return Some(idx);
@@ -196,36 +198,59 @@ impl InnertubeClientPool {
         self.get_ready_session()
     }
 
-    /// Atomically take ownership of the client and cookie for the given session
-    /// index.  Returns None if the session index is out of range or the client
-    /// could not be created.
+    /// Atomically lease a client and cookie for the given session index.
+    /// If no client is available in the pool and count is under 4, a new one is spawned.
+    /// Returns None if limit is reached or spawning failed.
     pub fn take_client_for_session(&self, session_idx: usize) -> Option<SessionClient> {
-        let mut sessions = self.sessions.lock().unwrap();
-        let s = sessions.get_mut(session_idx)?;
+        let cookie = {
+            let mut sessions = self.sessions.lock().unwrap();
+            let s = sessions.get_mut(session_idx)?;
+            s.cookie.clone()
+        };
 
-        if s.client.is_none() {
-            let cfg = crate::innertube_client::ClientConfig {
-                timeout_sec: 15,
-                ..Default::default()
-            };
-            if let Ok(c) = crate::innertube_client::InnertubeClient::new(cfg) {
-                s.client = Some(c);
-            } else {
-                return None;
+        let mut client_opt = {
+            let mut clients_guard = self.clients.lock().unwrap();
+            clients_guard.pop()
+        };
+
+        if client_opt.is_none() {
+            let active = self.active_clients_count.load(Ordering::SeqCst);
+            if active < 4 {
+                self.active_clients_count.fetch_add(1, Ordering::SeqCst);
+                let cfg = crate::innertube_client::ClientConfig {
+                    timeout_sec: 15,
+                    ..Default::default()
+                };
+                match crate::innertube_client::InnertubeClient::new(cfg) {
+                    Ok(mut c) => {
+                        c.drop_counter = Some(self.active_clients_count.clone());
+                        client_opt = Some(c);
+                    }
+                    Err(_) => {
+                        self.active_clients_count.fetch_sub(1, Ordering::SeqCst);
+                    }
+                }
             }
         }
 
-        // Take ownership of both client and cookie so they can be held across await points
-        let client = s.client.take()?;
-        let cookie = s.cookie.clone();
+        let mut client = client_opt?;
+
+        if let Err(e) = client.update_cookie(&cookie) {
+            tracing::warn!("[InnertubeClientPool] Failed to update leased client cookie: {:?}", e);
+            return None;
+        }
+
         Some(SessionClient { client, cookie })
     }
 
-    /// Return a client back to its session slot so it can be reused.
+    /// Return a client back to the pool so it can be reused.
     pub fn return_client(&self, session_idx: usize, client: crate::innertube_client::InnertubeClient) {
+        {
+            let mut clients_guard = self.clients.lock().unwrap();
+            clients_guard.push(client);
+        }
         let mut sessions = self.sessions.lock().unwrap();
         if let Some(s) = sessions.get_mut(session_idx) {
-            s.client = Some(client);
             s.busy = false;
         }
     }

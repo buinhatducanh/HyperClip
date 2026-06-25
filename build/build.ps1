@@ -8,6 +8,10 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Write-Host "[1/3] Building Rust backend..."
 Push-Location "$ProjectRoot/src-tauri"
 cargo build --release
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Backend compilation failed with exit code $LASTEXITCODE"
+    exit 1
+}
 Pop-Location
 
 $BackendExe = "$ProjectRoot/target/release/hyperclip-tauri.exe"
