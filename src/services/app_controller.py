@@ -19,6 +19,7 @@ from src.models.log_file_model import LogFileModel, LogFilesListModel
 from src.services.video_player import VideoPlayer
 from src.services.thumbnail_qobject import ThumbnailService
 from src.services.toast_service import get_toast_service
+from src.services.sound_service import SoundService
 
 
 class AppController(QObject):
@@ -46,6 +47,7 @@ class AppController(QObject):
         self.video_player = VideoPlayer()
         self.thumbnail_service = ThumbnailService()
         self.toast_service = get_toast_service()
+        self.sound_service = SoundService(self)
 
         # Timers
         self.stats_timer = None
@@ -108,12 +110,15 @@ class AppController(QObject):
                         self.activity_model.add_entry("download", f"Bắt đầu tải video: {title}", "info")
                     elif status == "ready":
                         self.activity_model.add_entry("download", f"Đã tải xong video: {title}", "info")
+                        self.sound_service.play("success")
                     elif status == "rendering":
                         self.activity_model.add_entry("render", f"Bắt đầu render video: {title}", "info")
                     elif status == "done":
                         self.activity_model.add_entry("render", f"Đã render xong video: {title}", "info")
+                        self.sound_service.play("success")
                     elif status == "error":
                         self.activity_model.add_entry("system", f"Lỗi xử lý video {title}: {d.get('error', 'Lỗi không xác định')}", "error")
+                        self.sound_service.play("error")
 
             self.detection_history_model.update_download_status(ws_id, status)
             
@@ -222,6 +227,7 @@ class AppController(QObject):
             d.get("durationSec", 0.0),
             d.get("status", "waiting"),
         )
+        self.sound_service.play("info")
 
     def _on_channel_synced(self):
         self.workspace_model.load_from_backend(self.client)
@@ -240,6 +246,7 @@ class AppController(QObject):
         # Display visual toast notification
         level = "error" if "error" in title.lower() or "fail" in title.lower() else "info"
         self.toast_service.show(title, message, level)
+        self.sound_service.play(level)
 
     def _poll_stats(self):
         if self.client:

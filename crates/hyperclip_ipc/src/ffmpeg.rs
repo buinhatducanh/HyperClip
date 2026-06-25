@@ -207,20 +207,20 @@ pub fn build_short_filter_cuda(
     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
 
     let bg_chain = format!(
-        "[1:v]scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,fps={},hwupload_cuda,scale_cuda=w={}:h={}:format=nv12[bg]",
+        "[1:v]loop=loop=-1:size=1:start=0,scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,fps={},hwupload_cuda,scale_cuda=w={}:h={}:format=nv12[bg]",
         canvas_w, canvas_h, canvas_w, canvas_h, fps, canvas_w, canvas_h
     );
 
     let vz_chain = format!("[bg][vid]overlay_cuda=0:{} [vz]", video_top);
 
     let hd_chain = format!(
-        "[2:v]scale={0}:{1}:force_original_aspect_ratio=increase,crop={0}:{1}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,hwupload_cuda,scale_cuda=w={0}:h={1}:format=nv12[hd]",
+        "[2:v]loop=loop=-1:size=1:start=0,scale={0}:{1}:force_original_aspect_ratio=increase,crop={0}:{1}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,hwupload_cuda,scale_cuda=w={0}:h={1}:format=nv12[hd]",
         canvas_w, header_h
     );
     let vh_chain = format!("[vz][hd]overlay_cuda=0:0 [vh]");
     let bb_y = canvas_h - bottom_bar_h;
     let bb_chain = format!(
-        "[3:v]format=yuv420p,hwupload_cuda,scale_cuda=w={}:h={}:format=nv12[bb]",
+        "[3:v]loop=loop=-1:size=1:start=0,format=yuv420p,hwupload_cuda,scale_cuda=w={}:h={}:format=nv12[bb]",
         canvas_w, bottom_bar_h
     );
     let final_overlay = format!("[vh][bb]overlay_cuda=0:{},setsar=1 [vf]", bb_y);
@@ -260,14 +260,14 @@ pub fn build_landscape_filter_cuda(
     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
 
     let bg_chain = format!(
-        "[1:v]scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,fps={},hwupload_cuda,scale_cuda=w={}:h={}:format=nv12[bg]",
+        "[1:v]loop=loop=-1:size=1:start=0,scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,fps={},hwupload_cuda,scale_cuda=w={}:h={}:format=nv12[bg]",
         canvas_w, canvas_h, canvas_w, canvas_h, fps, canvas_w, canvas_h
     );
 
     let vz_chain = format!("[bg][vid]overlay_cuda=0:{} [vz]", video_top);
 
     let hd_chain = format!(
-        "[2:v]scale={0}:{1}:force_original_aspect_ratio=increase,crop={0}:{1}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,hwupload_cuda,scale_cuda=w={0}:h={1}:format=nv12[hd]",
+        "[2:v]loop=loop=-1:size=1:start=0,scale={0}:{1}:force_original_aspect_ratio=increase,crop={0}:{1}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,hwupload_cuda,scale_cuda=w={0}:h={1}:format=nv12[hd]",
         canvas_w, header_h
     );
     let final_overlay = format!("[vz][hd]overlay_cuda=0:0,setsar=1 [vf]");

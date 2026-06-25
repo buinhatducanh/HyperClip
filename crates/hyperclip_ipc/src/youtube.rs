@@ -103,7 +103,7 @@ pub fn build_ytdlp_args(opts: &DownloadOptions) -> Vec<String> {
         "mp4".to_string(),
     ];
     let clients = opts.client_priority.join(",");
-    if !clients.is_empty() && clients != "tv_embedded,web,ios" {
+    if !clients.is_empty() {
         args.push("--extractor-args".to_string());
         args.push(format!("youtube:player_client={}", clients));
     }
@@ -121,7 +121,11 @@ pub fn build_ytdlp_args(opts: &DownloadOptions) -> Vec<String> {
     if !opts.trim_start.is_empty() || !opts.trim_end.is_empty() {
         let end = if opts.trim_end.is_empty() { "99:00:00" } else { &opts.trim_end };
         args.push("--download-sections".to_string());
-        args.push(format!("*{}-{}", opts.trim_start, end));
+        if is_zero_timestamp(&opts.trim_start) {
+            args.push(format!("*00:00:00-{}", end));
+        } else {
+            args.push(format!("*{}-{}", opts.trim_start, end));
+        }
     }
     if let Some(cookies) = &opts.cookies_file {
         args.push("--cookies".to_string());
@@ -183,7 +187,7 @@ where
     cmd.args([
         "--js-runtimes", &find_node_runtime_arg(),
     ]);
-    if !clients.is_empty() && clients != "tv_embedded,web,ios" {
+    if !clients.is_empty() {
         cmd.args(["--extractor-args", &format!("youtube:player_client={}", clients)]);
     }
     cmd.args([
@@ -379,7 +383,7 @@ pub fn download_video(
     cmd.args([
         "--js-runtimes", &find_node_runtime_arg(),
     ]);
-    if !clients.is_empty() && clients != "tv_embedded,web,ios" {
+    if !clients.is_empty() {
         cmd.args(["--extractor-args", &format!("youtube:player_client={}", clients)]);
     }
     cmd.args([
@@ -470,7 +474,7 @@ pub fn probe_formats(url: &str, cookies_path: &str) -> Result<Vec<u32>, String> 
     cmd.args([
         "--js-runtimes", &node_runtime,
     ]);
-    if !clients.is_empty() && clients != "tv_embedded,web,ios" {
+    if !clients.is_empty() {
         cmd.args(["--extractor-args", &format!("youtube:player_client={}", clients)]);
     }
     cmd.args([
@@ -528,7 +532,7 @@ pub fn get_video_info(url: &str, cookies_path: &str) -> Result<YtdlpVideoInfo, S
     cmd.args([
         "--js-runtimes", &node_runtime,
     ]);
-    if !clients.is_empty() && clients != "tv_embedded,web,ios" {
+    if !clients.is_empty() {
         cmd.args(["--extractor-args", &format!("youtube:player_client={}", clients)]);
     }
     cmd.args([
@@ -581,7 +585,7 @@ pub fn probe_video_availability(url: &str, cookies_path: &str) -> Result<(bool, 
     cmd.args([
         "--js-runtimes", &node_runtime,
     ]);
-    if !clients.is_empty() && clients != "tv_embedded,web,ios" {
+    if !clients.is_empty() {
         cmd.args(["--extractor-args", &format!("youtube:player_client={}", clients)]);
     }
     cmd.args([
@@ -745,7 +749,6 @@ fn maybe_trim_file(output_path: &str, trim_minutes: u32) -> Result<f64, String> 
         cmd.args([
             "-y",
             "-i", &clean_temp,
-            "-ss", "00:00:00",
             "-t", &format!("{}", trim_minutes * 60),
             "-c", "copy",
             &clean_output,
@@ -811,6 +814,21 @@ fn parse_duration_from_stderr(stderr: &str) -> f64 {
     0.0
 }
 
+pub fn is_zero_timestamp(ts: &str) -> bool {
+    let clean = ts.trim();
+    if clean.is_empty() {
+        return true;
+    }
+    if let Ok(val) = clean.parse::<f64>() {
+        return val == 0.0;
+    }
+    let clean = clean.replace(':', "").replace('.', "").replace(',', "");
+    if !clean.is_empty() && clean.chars().all(|c| c == '0') {
+        return true;
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -831,7 +849,7 @@ mod tests {
         };
         let args = build_ytdlp_args(&opts);
         assert!(args.iter().any(|a| a.contains("tv_embedded")), "Should contain tv_embedded: {:?}", args);
-        assert!(args.iter().any(|a| a.starts_with("*00:00:00")), "Should have download-sections: {:?}", args);
+        assert!(args.iter().any(|a| a.starts_with("*00:00:00-")), "Should have download-sections starting from 0: {:?}", args);
         assert!(args.iter().any(|a| a == "16"), "Should have 16 fragments: {:?}", args);
     }
 

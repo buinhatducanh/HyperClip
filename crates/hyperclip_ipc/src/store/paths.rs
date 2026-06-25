@@ -103,14 +103,17 @@ pub fn channel_media_dir(channel_id: &str, channel_name: &str) -> PathBuf {
 pub fn channel_downloads_dir(_channel_id: &str, _channel_name: &str) -> PathBuf {
     let s_path = get_settings_path();
     let s_store = SettingsStore::load(&s_path);
-    let base = s_store.settings.get("videoStoragePath")
+    if let Some(path_str) = s_store.settings.get("videoStoragePath")
         .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| get_data_dir());
-    let dir = base.join("downloads");
-    std::fs::create_dir_all(&dir).ok();
-    dir
+        .filter(|s| !s.trim().is_empty()) {
+        let dir = PathBuf::from(path_str);
+        std::fs::create_dir_all(&dir).ok();
+        dir
+    } else {
+        let dir = get_data_dir().join("downloads");
+        std::fs::create_dir_all(&dir).ok();
+        dir
+    }
 }
 
 /// data/media/{channel_id}/thumbnails/
@@ -124,15 +127,18 @@ pub fn channel_thumbnails_dir(channel_id: &str, channel_name: &str) -> PathBuf {
 pub fn channel_renders_dir(_channel_id: &str, _channel_name: &str) -> PathBuf {
     let s_path = get_settings_path();
     let s_store = SettingsStore::load(&s_path);
-    let base = s_store.settings.get("outputPath")
+    if let Some(path_str) = s_store.settings.get("outputPath")
         .or_else(|| s_store.settings.get("outputFolder"))
         .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| get_data_dir());
-    let dir = base.join("renders");
-    std::fs::create_dir_all(&dir).ok();
-    dir
+        .filter(|s| !s.trim().is_empty()) {
+        let dir = PathBuf::from(path_str);
+        std::fs::create_dir_all(&dir).ok();
+        dir
+    } else {
+        let dir = get_data_dir().join("renders");
+        std::fs::create_dir_all(&dir).ok();
+        dir
+    }
 }
 
 /// data/media/{channel_id}/renders/{ws_id}/

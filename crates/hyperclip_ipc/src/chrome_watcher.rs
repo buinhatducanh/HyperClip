@@ -28,9 +28,10 @@ pub struct ChromeTabWatcher {
     seen_videos: Arc<tokio::sync::RwLock<crate::store::SeenVideos>>,
     process_fn: Arc<dyn Fn(NewVideoEvent) + Send + Sync>,
     /// Dedicated InnertubeClient for CDP — not shared with the Poller pool
-    dedicated_client: Mutex<Option<InnertubeClient>>,
+    dedicated_client: Arc<Mutex<Option<InnertubeClient>>>,
     http_client: reqwest::Client,
     was_connected: std::sync::atomic::AtomicBool,
+    last_channel_check: Mutex<std::time::Instant>,
 }
 
 impl ChromeTabWatcher {
@@ -46,14 +47,17 @@ impl ChromeTabWatcher {
             .build()
             .unwrap_or_default();
 
+        let past_instant = std::time::Instant::now() - std::time::Duration::from_secs(3600);
+
         Self {
             port: port.unwrap_or(DEFAULT_CDP_PORT),
             poll_interval_ms: std::sync::atomic::AtomicU64::new(poll_interval_ms.unwrap_or(DEFAULT_POLL_MS)),
             seen_videos,
             process_fn,
-            dedicated_client: Mutex::new(None),
+            dedicated_client: Arc::new(Mutex::new(None)),
             http_client,
             was_connected: std::sync::atomic::AtomicBool::new(false),
+            last_channel_check: Mutex::new(past_instant),
         }
     }
 
@@ -65,19 +69,18 @@ impl ChromeTabWatcher {
     /// Run the watcher loop until cancelled.
     pub async fn run(&self, cancel: CancellationToken) {
         tracing::info!(
-            "[ChromeWatcher] Started — polling 127.0.0.1:{} every {}ms",
+            "[ChromeWatcher] Started — polling 127.0.0.1:{} every 500ms (channel check throttled to {}ms)",
             self.port,
-            self.poll_interval_ms.load(std::sync::atomic::Ordering::Relaxed)
+            std::cmp::min(3000, self.poll_interval_ms.load(std::sync::atomic::Ordering::Relaxed))
         );
 
         loop {
-            let delay = self.poll_interval_ms.load(std::sync::atomic::Ordering::Relaxed);
             tokio::select! {
                 _ = cancel.cancelled() => {
                     tracing::info!("[ChromeWatcher] Cancelled");
                     break;
                 }
-                _ = tokio::time::sleep(std::time::Duration::from_millis(delay)) => {
+                _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {
                     self.check_tabs().await;
                 }
             }
@@ -162,107 +165,125 @@ impl ChromeTabWatcher {
         });
 
         if has_channel_tabs {
-            // Take client out of Mutex to avoid holding lock across await
-            let mut client = {
-                let mut guard = self.dedicated_client.lock().unwrap();
-                guard.take()
+            let poll_interval = std::cmp::min(3000, self.poll_interval_ms.load(std::sync::atomic::Ordering::Relaxed));
+            let should_check = {
+                let mut last = self.last_channel_check.lock().unwrap();
+                if last.elapsed() >= std::time::Duration::from_millis(poll_interval) {
+                    *last = std::time::Instant::now();
+                    true
+                } else {
+                    false
+                }
             };
 
-            // Lazily create dedicated client if needed
-            if client.is_none() {
-                let cfg = ClientConfig {
-                    timeout_sec: 10,
-                    ..Default::default()
-                };
-                match InnertubeClient::new(cfg) {
-                    Ok(c) => {
-                        tracing::info!("[ChromeWatcher] Created dedicated InnertubeClient for CDP");
-                        client = Some(c);
-                    }
-                    Err(e) => {
-                        tracing::warn!("[ChromeWatcher] Failed to create dedicated client: {e}");
-                    }
-                }
-            }
+            if should_check {
+                let seen_videos = self.seen_videos.clone();
+                let process_fn = self.process_fn.clone();
+                let dedicated_client = self.dedicated_client.clone();
 
-            if let Some(ref mut c) = client {
-                let interval = self.poll_interval_ms.load(std::sync::atomic::Ordering::Relaxed);
-                match c.check_chrome_tabs(interval).await {
-                    Ok(videos) => {
-                        let s_path = crate::store::get_settings_path();
-                        let s_store = crate::store::SettingsStore::load(&s_path);
-                        let max_age_minutes = s_store.settings
-                            .get("autoDownloadMaxAgeMinutes")
-                            .and_then(|val| val.as_u64())
-                            .unwrap_or(1440) as i64;
-                        let max_age_ms = max_age_minutes * 60 * 1000;
-                        let now_ms = chrono::Utc::now().timestamp_millis();
+                tokio::spawn(async move {
+                    // Take client out of Mutex to avoid holding lock across await
+                    let mut client = {
+                        let mut guard = dedicated_client.lock().unwrap();
+                        guard.take()
+                    };
 
-                        for v in videos {
-                            let seen_guard = self.seen_videos.read().await;
-                            let is_seen = seen_guard.is_any_seen(&v.video_id);
-                            drop(seen_guard);
-                            if is_seen {
-                                continue;
+                    // Lazily create dedicated client if needed
+                    if client.is_none() {
+                        let cfg = ClientConfig {
+                            timeout_sec: 10,
+                            ..Default::default()
+                        };
+                        match InnertubeClient::new(cfg) {
+                            Ok(c) => {
+                                tracing::info!("[ChromeWatcher] Created dedicated InnertubeClient for CDP");
+                                client = Some(c);
                             }
-
-                            if v.published_at == 0 {
-                                tracing::info!(
-                                    "[ChromeWatcher] Skipping video {} because published date is unknown (cannot parse from channel page)",
-                                    v.video_id
-                                );
-                                continue;
+                            Err(e) => {
+                                tracing::warn!("[ChromeWatcher] Failed to create dedicated client: {e}");
                             }
-
-                            let age_ms = now_ms - v.published_at;
-                            if age_ms < -300_000 || age_ms > max_age_ms {
-                                tracing::info!(
-                                    "[ChromeWatcher] Skipping video {} because it is outside age limit (age: {}s, limit: {}s)",
-                                    v.video_id,
-                                    age_ms / 1000,
-                                    max_age_ms / 1000
-                                );
-                                // Mark as seen to prevent repeated scanning and logging flood
-                                let mut seen_guard = self.seen_videos.write().await;
-                                seen_guard.mark_seen("", &v.video_id);
-                                drop(seen_guard);
-                                continue;
-                            }
-
-                            let mut seen_guard = self.seen_videos.write().await;
-                            seen_guard.mark_seen("", &v.video_id);
-                            drop(seen_guard);
-
-                            tracing::info!(
-                                "[ChromeWatcher] NEW VIDEO detected from Chrome channel tab: {} \"{}\"",
-                                v.video_id,
-                                v.title
-                            );
-
-                            let event = NewVideoEvent {
-                                channel_id: String::new(),
-                                channel_name: String::new(),
-                                video_id: v.video_id.clone(),
-                                title: v.title.clone(),
-                                thumbnail_url: format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", v.video_id),
-                                published_at: v.published_at,
-                                duration_sec: 0.0,
-                                detected_at: now_ms,
-                            };
-
-                            (self.process_fn)(event);
                         }
                     }
-                    Err(e) => {
-                        tracing::debug!("[ChromeWatcher] check_chrome_tabs failed: {e}");
-                    }
-                }
-            }
 
-            // Put client back for reuse
-            {
-                let mut guard = self.dedicated_client.lock().unwrap();
-                *guard = client;
+                    if let Some(ref mut c) = client {
+                        match c.check_chrome_tabs(poll_interval).await {
+                            Ok(videos) => {
+                                let s_path = crate::store::get_settings_path();
+                                let s_store = crate::store::SettingsStore::load(&s_path);
+                                let max_age_minutes = s_store.settings
+                                    .get("autoDownloadMaxAgeMinutes")
+                                    .and_then(|val| val.as_u64())
+                                    .unwrap_or(1440) as i64;
+                                let max_age_ms = max_age_minutes * 60 * 1000;
+                                let now_ms = chrono::Utc::now().timestamp_millis();
+
+                                for v in videos {
+                                    let seen_guard = seen_videos.read().await;
+                                    let is_seen = seen_guard.is_any_seen(&v.video_id);
+                                    drop(seen_guard);
+                                    if is_seen {
+                                        continue;
+                                    }
+
+                                    if v.published_at == 0 {
+                                        tracing::info!(
+                                            "[ChromeWatcher] Skipping video {} because published date is unknown (cannot parse from channel page)",
+                                            v.video_id
+                                        );
+                                        continue;
+                                    }
+
+                                    let age_ms = now_ms - v.published_at;
+                                    if age_ms < -300_000 || age_ms > max_age_ms {
+                                        tracing::info!(
+                                            "[ChromeWatcher] Skipping video {} because it is outside age limit (age: {}s, limit: {}s)",
+                                            v.video_id,
+                                            age_ms / 1000,
+                                            max_age_ms / 1000
+                                        );
+                                        // Mark as seen to prevent repeated scanning and logging flood
+                                        let mut seen_guard = seen_videos.write().await;
+                                        seen_guard.mark_seen("", &v.video_id);
+                                        drop(seen_guard);
+                                        continue;
+                                    }
+
+                                    let mut seen_guard = seen_videos.write().await;
+                                    seen_guard.mark_seen("", &v.video_id);
+                                    drop(seen_guard);
+
+                                    tracing::info!(
+                                        "[ChromeWatcher] NEW VIDEO detected from Chrome channel tab: {} \"{}\"",
+                                        v.video_id,
+                                        v.title
+                                    );
+
+                                    let event = NewVideoEvent {
+                                        channel_id: String::new(),
+                                        channel_name: String::new(),
+                                        video_id: v.video_id.clone(),
+                                        title: v.title.clone(),
+                                        thumbnail_url: format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", v.video_id),
+                                        published_at: v.published_at,
+                                        duration_sec: 0.0,
+                                        detected_at: now_ms,
+                                    };
+
+                                    (process_fn)(event);
+                                }
+                            }
+                            Err(e) => {
+                                tracing::debug!("[ChromeWatcher] check_chrome_tabs failed: {e}");
+                            }
+                        }
+                    }
+
+                    // Put client back for reuse
+                    {
+                        let mut guard = dedicated_client.lock().unwrap();
+                        *guard = client;
+                    }
+                });
             }
         }
     }

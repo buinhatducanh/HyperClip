@@ -1,19 +1,14 @@
+import os
 import sys
+
 sys.stdout.reconfigure(encoding='utf-8')
 
-with open(r"C:\Users\MSI\Downloads\hyperclip.log.2026-06-25_15-03-51", "rb") as f:
-    data = f.read()
-
-text = data.decode("utf-8", errors="ignore")
-lines = text.splitlines()
-
-output_lines = []
-for i, line in enumerate(lines):
-    if any(k in line for k in ["Spawning yt-dlp", "elapsed", "yt-dlp output", "Auto-download", "download", "Download"]):
-        output_lines.append(f"{i+1:3d}: {line.strip()}")
-
-with open("scratch/log_matches.txt", "w", encoding="utf-8") as f_out:
-    f_out.write("\n".join(output_lines))
-print(f"Written {len(output_lines)} lines to scratch/log_matches.txt")
-
-
+logs_dir = r"d:\LOOP_COMPANY\HyperClip\data\logs"
+print("Searching all tauri logs...")
+for fn in os.listdir(logs_dir):
+    fp = os.path.join(logs_dir, fn)
+    if os.path.isfile(fp):
+        with open(fp, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                if "EqWMOrNVnjU" in line and "yt-dlp" in line:
+                    print(f"{fn}: {line.strip()}")
