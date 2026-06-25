@@ -869,7 +869,7 @@ Rectangle {
                                 KVRow {
                                     keyText: "Duration (gốc)"
                                     valueText: {
-                                        const original = root.fmtDuration(root.currentVideoData.durationSec)
+                                        const original = root.fmtDuration(root.currentVideoData.originalDurationSec || root.currentVideoData.durationSec)
                                         const speed = root.currentVideoData.videoSpeed || 1.0
                                         const s = root.currentVideoData.trimStart || 0
                                         const e = root.currentVideoData.trimEnd || (root.currentVideoData.durationSec || 0)
@@ -880,6 +880,12 @@ Rectangle {
                                         }
                                         return original
                                     }
+                                }
+                                KVRow {
+                                    keyText: "Chất lượng (gốc)"
+                                    valueText: root.currentVideoData.originalQuality
+                                        ? root.currentVideoData.originalQuality + "p"
+                                        : "—"
                                 }
                             }
                         }

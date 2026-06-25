@@ -59,7 +59,7 @@ ws = {
         'createdAt': int(time.time()*1000),
         'publishedAt': int(time.time()*1000),
         'trimStart': 0, 'trimEnd': 10,
-        'videoSpeed': 1.0, 'fpsTarget': 30,
+        'videoSpeed': 1.2, 'fpsTarget': 30,
         'exportResolution': '1080x1920', 'isShort': True, 'autoRender': True,
         'width': 1920, 'height': 1080, 'durationSec': 10,
     }]

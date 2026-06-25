@@ -5,6 +5,9 @@ import json
 import os
 
 
+from src.data_dir import get_data_dir
+
+
 class DetectionHistoryModel(QAbstractListModel):
     changed = Signal()
 
@@ -38,10 +41,10 @@ class DetectionHistoryModel(QAbstractListModel):
         # Counters
         self._today_count: int = 0
         self._today_date: str = ""
-        self._history_file = os.path.abspath(os.path.join("data", "history.json"))
+        self._history_file = os.path.abspath(os.path.join(get_data_dir(), "history.json"))
         # DO NOT auto load here to avoid blocking UI thread; load from main.py
 
-    def load_from_disk(self):
+    def load_from_disk(self, workspace_model=None):
         if not os.path.exists(self._history_file):
             return
         try:
@@ -50,6 +53,18 @@ class DetectionHistoryModel(QAbstractListModel):
                 self.beginResetModel()
                 self._entries = data.get("entries", [])
                 self._download_data = data.get("download_data", {})
+
+                # Sync download_data status with actual workspace status if workspace_model is provided
+                if workspace_model:
+                    ws_map = {ws.get("id"): ws for ws in workspace_model._workspaces if ws.get("id")}
+                    for ws_id, dl in self._download_data.items():
+                        if ws_id in ws_map:
+                            ws_status = ws_map[ws_id].get("status")
+                            if ws_status:
+                                dl["status"] = ws_status
+                                if ws_map[ws_id].get("error"):
+                                    dl["error"] = ws_map[ws_id].get("error")
+
                 self._today_count = self._count_today()
                 self.endResetModel()
                 self.changed.emit()

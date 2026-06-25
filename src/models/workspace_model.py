@@ -21,6 +21,8 @@ class WorkspaceModel(QAbstractListModel):
     AgeLabelRole = Qt.UserRole + 14
     BottomBarColorRole = Qt.UserRole + 15
     ErrorRole = Qt.UserRole + 16
+    OriginalDurationRole = Qt.UserRole + 17
+    OriginalQualityRole = Qt.UserRole + 18
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -134,6 +136,22 @@ class WorkspaceModel(QAbstractListModel):
             return ws.get("bottomBarColor") or ws.get("bottom_bar_color") or ""
         if role == self.ErrorRole:
             return ws.get("error") or ""
+        if role == self.OriginalDurationRole:
+            val = ws.get("originalDurationSec") or ws.get("original_duration_sec")
+            if val is None:
+                return 0
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                return 0
+        if role == self.OriginalQualityRole:
+            val = ws.get("originalQuality") or ws.get("original_quality")
+            if val is None:
+                return 0
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                return 0
         return None
 
     def roleNames(self):
@@ -154,6 +172,8 @@ class WorkspaceModel(QAbstractListModel):
             self.AgeLabelRole: QByteArray(b"ageLabel"),
             self.BottomBarColorRole: QByteArray(b"bottomBarColor"),
             self.ErrorRole: QByteArray(b"error"),
+            self.OriginalDurationRole: QByteArray(b"originalDurationSec"),
+            self.OriginalQualityRole: QByteArray(b"originalQuality"),
         }
 
     # ── Index maintenance ──────────────────────────────────────────
@@ -188,6 +208,8 @@ class WorkspaceModel(QAbstractListModel):
                     "height": ws.get("height", 0),
                     "bottomBarColor": ws.get("bottomBarColor") or ws.get("bottom_bar_color") or "",
                     "error": ws.get("error", ""),
+                    "originalDurationSec": ws.get("originalDurationSec") if ws.get("originalDurationSec") is not None else ws.get("original_duration_sec", 0),
+                    "originalQuality": ws.get("originalQuality") if ws.get("originalQuality") is not None else ws.get("original_quality", 0),
                 }
                 normalized_workspaces.append(normalized)
 
@@ -247,6 +269,10 @@ class WorkspaceModel(QAbstractListModel):
                     normalized["created_at"] = v
                 elif k in ("publishedAt", "published_at"):
                     normalized["published_at"] = v
+                elif k in ("originalDurationSec", "original_duration_sec"):
+                    normalized["originalDurationSec"] = v
+                elif k in ("originalQuality", "original_quality"):
+                    normalized["originalQuality"] = v
                 else:
                     normalized[k] = v
 
@@ -257,7 +283,8 @@ class WorkspaceModel(QAbstractListModel):
                 self.StatusRole, self.ProgressRole, self.ThumbnailRole,
                 self.RenderedRole, self.DurationRole, self.QualityRole,
                 self.SpeedRole, self.FileSizeRole, self.IsShortRole,
-                self.BottomBarColorRole, self.ErrorRole
+                self.BottomBarColorRole, self.ErrorRole,
+                self.OriginalDurationRole, self.OriginalQualityRole
             ])
             self.activeTasksChanged.emit()
             return

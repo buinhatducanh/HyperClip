@@ -30,7 +30,17 @@ New-Item -ItemType Directory -Path $PatchApp -Force | Out-Null
 
 # 3. Copy files to patch
 Write-Host "Copying patch files..." -ForegroundColor Cyan
-Copy-Item "$BundleSource\HyperClip.exe" -Destination $PatchPath -Force
+
+# Compile native Rust launcher
+Write-Host "Compiling professional native launcher (HyperClip.exe)..."
+& cargo build --release --bin hyperclip-launcher
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Failed to compile hyperclip-launcher"
+    exit 1
+}
+Copy-Item -Path "$ProjectRoot\target\release\hyperclip-launcher.exe" -Destination (Join-Path $PatchPath "HyperClip.exe") -Force
+
+# Copy PyInstaller app executable to app/
 Copy-Item "$BundleSource\HyperClip.exe" -Destination $PatchApp -Force
 
 $InternalDest = Join-Path $PatchApp "_internal"

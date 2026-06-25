@@ -93,6 +93,8 @@ SettingsCard {
             Layout.preferredWidth: 180
             Layout.alignment: Qt.AlignRight
             font.pixelSize: Theme.textMd
+            color: Theme.text
+            placeholderTextColor: Theme.textMuted
             text: settings ? Math.round(settings.videoMaxDurationSec / 60).toString() : "60"
             validator: IntValidator { bottom: 1; top: 120 }
             onEditingFinished: {

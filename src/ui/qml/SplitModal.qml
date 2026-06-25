@@ -82,6 +82,8 @@ Dialog {
                 TextField {
                     Layout.fillWidth: true
                     font.pixelSize: 15
+                    color: Theme.text
+                    placeholderTextColor: Theme.textMuted
                     placeholderText: "Nhập tiêu đề..."
                     text: dlg.titleInputs[index]
                     onEditingFinished: {

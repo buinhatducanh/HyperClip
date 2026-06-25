@@ -118,6 +118,58 @@ SettingsCard {
             spacing: 2
             Layout.fillWidth: true
             Label {
+                text: "Tự động tách video"
+                color: Theme.text
+                font.pixelSize: Theme.textMd
+                font.bold: true
+            }
+            Label {
+                text: "Chia nhỏ video thành nhiều phần khi tải xong."
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+        }
+        Switch {
+            Layout.alignment: Qt.AlignRight
+            checked: settings ? settings.autoSplitEnabled : false
+            onToggled: if (settings) settings.autoSplitEnabled = checked
+        }
+
+        ColumnLayout {
+            visible: settings ? settings.autoSplitEnabled : false
+            spacing: 2
+            Layout.fillWidth: true
+            Label {
+                text: "Chế độ tách"
+                color: Theme.text
+                font.pixelSize: Theme.textMd
+                font.bold: true
+            }
+            Label {
+                text: "Tách theo số lượng phần cố định hoặc theo số phút mỗi phần."
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+        }
+        ComboBox {
+            visible: settings ? settings.autoSplitEnabled : false
+            Layout.preferredWidth: 180
+            Layout.alignment: Qt.AlignRight
+            font.pixelSize: Theme.textMd
+            model: ["Tách theo số phần", "Tách theo thời lượng (phút)"]
+            currentIndex: settings ? (settings.autoSplitMode === "minutes" ? 1 : 0) : 0
+            onActivated: if (settings) settings.autoSplitMode = currentIndex === 1 ? "minutes" : "parts"
+        }
+
+        ColumnLayout {
+            visible: settings ? (settings.autoSplitEnabled && settings.autoSplitMode === "parts") : false
+            spacing: 2
+            Layout.fillWidth: true
+            Label {
                 text: "Số phần tách"
                 color: Theme.text
                 font.pixelSize: Theme.textMd
@@ -132,26 +184,28 @@ SettingsCard {
             }
         }
         SpinBox {
+            visible: settings ? (settings.autoSplitEnabled && settings.autoSplitMode === "parts") : false
             Layout.preferredWidth: 180
             Layout.alignment: Qt.AlignRight
             font.pixelSize: Theme.textMd
-            from: 1; to: 10
-            value: settings ? settings.autoSplitParts : 1
+            from: 2; to: 20
+            value: settings ? settings.autoSplitParts : 2
             editable: true
             onValueModified: if (settings) settings.autoSplitParts = value
         }
- 
+
         ColumnLayout {
+            visible: settings ? (settings.autoSplitEnabled && settings.autoSplitMode === "minutes") : false
             spacing: 2
             Layout.fillWidth: true
             Label {
-                text: "Hoặc số phút/phần"
+                text: "Số phút / phần"
                 color: Theme.text
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
             Label {
-                text: "Tách nhỏ video theo khoảng thời gian N phút (0 = tắt)."
+                text: "Tách nhỏ video theo khoảng thời gian N phút."
                 color: Theme.textMuted
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
@@ -159,11 +213,12 @@ SettingsCard {
             }
         }
         SpinBox {
+            visible: settings ? (settings.autoSplitEnabled && settings.autoSplitMode === "minutes") : false
             Layout.preferredWidth: 180
             Layout.alignment: Qt.AlignRight
             font.pixelSize: Theme.textMd
-            from: 0; to: 120
-            value: settings ? settings.autoSplitMinutes : 0
+            from: 1; to: 120
+            value: settings ? settings.autoSplitMinutes : 5
             editable: true
             onValueModified: if (settings) settings.autoSplitMinutes = value
         }
@@ -189,6 +244,8 @@ SettingsCard {
             Layout.preferredWidth: 180
             Layout.alignment: Qt.AlignRight
             font.pixelSize: Theme.textMd
+            color: Theme.text
+            placeholderTextColor: Theme.textMuted
             text: settings ? settings.autoRenderTitleTemplate : ""
             onEditingFinished: if (settings) settings.autoRenderTitleTemplate = text
             background: Rectangle {

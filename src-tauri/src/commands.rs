@@ -17,7 +17,7 @@ use hyperclip_ipc::chrome_watcher::ChromeTabWatcher;
 
 use hyperclip_ipc::ffmpeg::{spawn_render_async, RenderOptions, FilterChain};
 
-use hyperclip_ipc::youtube::{download_video, download_video_streaming, emit_download_progress, find_ytdlp_path, find_node_runtime_arg};
+use hyperclip_ipc::youtube::{download_video, download_video_streaming, emit_download_progress, find_ytdlp_path, find_node_runtime_arg, probe_formats};
 
 use hyperclip_ipc::thumbnail::download_youtube_thumbnail_to;
 
@@ -217,6 +217,8 @@ impl AppState {
                     export_resolution: auto_res,
                     video_speed: auto_speed,
                     is_short: true,
+                    duration_sec: Some(event.duration_sec.round() as u64),
+                    original_duration_sec: Some(event.duration_sec.round() as u64),
                     ..Default::default()
                 });
                 ws_store.save(&ws_path).ok();
@@ -314,8 +316,9 @@ impl AppState {
                 let cid = event.channel_id.clone();
                 let video_id = event.video_id.clone();
                 let hw_cfg = get_resolved_hardware_config();
+                let duration_sec_opt = Some(event.duration_sec.round() as u64);
                 std::thread::spawn(move || {
-                    match download_video_streaming(&url, &output_str, &cookies_str, trim_minutes, auto_dl_quality, hw_cfg.concurrent_fragments, |progress| {
+                    match download_video_streaming(&url, &output_str, &cookies_str, trim_minutes, duration_sec_opt, auto_dl_quality, hw_cfg.concurrent_fragments, |progress| {
                         emit_download_progress(&tid, &progress);
                     }) {
                         Ok(result) => {
@@ -336,6 +339,15 @@ impl AppState {
                             let duration_sec_val = result.duration.round() as u64;
                             let file_size_val = result.file_size;
 
+                            // Probe formats to find original quality
+                            let original_quality = match probe_formats(&url, &cookies_str) {
+                                Ok(formats) => formats.last().cloned(),
+                                Err(e) => {
+                                    tracing::warn!("[AppState] Probe formats failed for {}: {}", url, e);
+                                    None
+                                }
+                            };
+
                             ws_store.update(&tid, serde_json::json!({
                                 "status": "ready",
                                 "downloadedPath": result.path,
@@ -345,6 +357,7 @@ impl AppState {
                                 "quality": quality_val,
                                 "fileSize": file_size_val,
                                 "durationSec": duration_sec_val,
+                                "originalQuality": original_quality,
                             })).ok();
                             ws_store.save(&ws_path).ok();
                             

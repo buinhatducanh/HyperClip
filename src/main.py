@@ -2,12 +2,13 @@
 import sys
 import os
 os.environ["QT_QUICK_CONTROLS_STYLE"] = "Fusion"
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QUrl, Qt
 from PySide6.QtQml import QQmlApplicationEngine
-from PySide6.QtGui import QGuiApplication, QIcon
+from PySide6.QtGui import QGuiApplication, QIcon, QPalette, QColor
 from src.backend.events import get_event_bus
 from src.backend.client import get_client
 from src.services.app_controller import AppController
+
 
 
 def main():
@@ -35,6 +36,32 @@ def main():
             sys.stderr.flush()
 
     app = QGuiApplication(sys.argv)
+
+    # ─── Apply global dark QPalette for Fusion QML components ─────
+    dark_palette = QPalette()
+    dark_palette.setColor(QPalette.Window, QColor("#121212"))
+    dark_palette.setColor(QPalette.WindowText, QColor("#FFFFFF"))
+    dark_palette.setColor(QPalette.Base, QColor("#1E1E1E"))
+    dark_palette.setColor(QPalette.AlternateBase, QColor("#1A1A1A"))
+    dark_palette.setColor(QPalette.ToolTipBase, QColor("#1E1E1E"))
+    dark_palette.setColor(QPalette.ToolTipText, QColor("#FFFFFF"))
+    dark_palette.setColor(QPalette.Text, QColor("#FFFFFF"))
+    dark_palette.setColor(QPalette.PlaceholderText, QColor("#888888"))
+    dark_palette.setColor(QPalette.Button, QColor("#1A1A1A"))
+    dark_palette.setColor(QPalette.ButtonText, QColor("#FFFFFF"))
+    dark_palette.setColor(QPalette.BrightText, QColor("#FF4444"))
+    dark_palette.setColor(QPalette.Highlight, QColor("#00B4FF"))
+    dark_palette.setColor(QPalette.HighlightedText, QColor("#FFFFFF"))
+    dark_palette.setColor(QPalette.Link, QColor("#00B4FF"))
+    dark_palette.setColor(QPalette.LinkVisited, QColor("#00B4FF"))
+
+    # For disabled controls
+    dark_palette.setColor(QPalette.Disabled, QPalette.WindowText, QColor("#888888"))
+    dark_palette.setColor(QPalette.Disabled, QPalette.Text, QColor("#888888"))
+    dark_palette.setColor(QPalette.Disabled, QPalette.ButtonText, QColor("#888888"))
+
+    app.setPalette(dark_palette)
+
     
     # ─── Set Window Icon (CapCut branding) ─────────────────────────
     if getattr(sys, 'frozen', False):

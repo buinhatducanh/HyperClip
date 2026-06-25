@@ -25,6 +25,8 @@ class SettingsModel(QObject):
         self._auto_render_speed: float = 1.0
         self._auto_split_parts: int = 1
         self._auto_split_minutes: int = 0
+        self._auto_split_enabled: bool = False
+        self._auto_split_mode: str = "parts"
         self._auto_render_title_template: str = "{title}"
         self._downloads_cleanup_days: int = 7
         self._max_concurrent_renders: int = 2
@@ -61,6 +63,8 @@ class SettingsModel(QObject):
     autoRenderSpeed = Property(float, lambda s: s._auto_render_speed, lambda s, v: s._set("_auto_render_speed", float, v), notify=changed)
     autoSplitParts = Property(int, lambda s: s._auto_split_parts, lambda s, v: s._set("_auto_split_parts", int, v), notify=changed)
     autoSplitMinutes = Property(int, lambda s: s._auto_split_minutes, lambda s, v: s._set("_auto_split_minutes", int, v), notify=changed)
+    autoSplitEnabled = Property(bool, lambda s: s._auto_split_enabled, lambda s, v: s._set("_auto_split_enabled", bool, v), notify=changed)
+    autoSplitMode = Property(str, lambda s: s._auto_split_mode, lambda s, v: s._set("_auto_split_mode", str, v), notify=changed)
     autoRenderTitleTemplate = Property(str, lambda s: s._auto_render_title_template, lambda s, v: s._set("_auto_render_title_template", str, v), notify=changed)
     downloadsCleanupDays = Property(int, lambda s: s._downloads_cleanup_days, lambda s, v: s._set("_downloads_cleanup_days", int, v), notify=changed)
     maxConcurrentRenders = Property(int, lambda s: s._max_concurrent_renders, lambda s, v: s._set("_max_concurrent_renders", int, v), notify=changed)
@@ -103,6 +107,8 @@ class SettingsModel(QObject):
             "autoRenderSpeed": "_auto_render_speed",
             "autoSplitParts": "_auto_split_parts",
             "autoSplitMinutes": "_auto_split_minutes",
+            "autoSplitEnabled": "_auto_split_enabled",
+            "autoSplitMode": "_auto_split_mode",
             "autoRenderTitleTemplate": "_auto_render_title_template",
             "downloadsCleanupDays": "_downloads_cleanup_days",
             "maxConcurrentRenders": "_max_concurrent_renders",
@@ -135,6 +141,8 @@ class SettingsModel(QObject):
             "_auto_render_speed": float,
             "_auto_split_parts": int,
             "_auto_split_minutes": int,
+            "_auto_split_enabled": bool,
+            "_auto_split_mode": str,
             "_auto_render_title_template": str,
             "_downloads_cleanup_days": int,
             "_max_concurrent_renders": int,
@@ -174,6 +182,13 @@ class SettingsModel(QObject):
                     else:
                         val = val_str
                 setattr(self, attr, val)
+        if "autoSplitEnabled" not in d:
+            self._auto_split_enabled = (self._auto_split_parts > 1 or self._auto_split_minutes > 0)
+        if "autoSplitMode" not in d:
+            if self._auto_split_minutes > 0:
+                self._auto_split_mode = "minutes"
+            else:
+                self._auto_split_mode = "parts"
         if "hardwareProfile" in d and d["hardwareProfile"]:
             p = d["hardwareProfile"]
             self._hardware_vram_gb = int(p.get("vramGB", 0))
@@ -198,6 +213,8 @@ class SettingsModel(QObject):
             "autoRenderSpeed": self._auto_render_speed,
             "autoSplitParts": self._auto_split_parts,
             "autoSplitMinutes": self._auto_split_minutes,
+            "autoSplitEnabled": self._auto_split_enabled,
+            "autoSplitMode": self._auto_split_mode,
             "autoRenderTitleTemplate": self._auto_render_title_template,
             "downloadsCleanupDays": self._downloads_cleanup_days,
             "maxConcurrentRenders": self._max_concurrent_renders,

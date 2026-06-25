@@ -36,6 +36,8 @@ SettingsCard {
             TextField {
                 Layout.fillWidth: true
                 font.pixelSize: Theme.textMd
+                color: Theme.text
+                placeholderTextColor: Theme.textMuted
                 text: settings ? settings.videoStoragePath : ""
                 onEditingFinished: if (settings) settings.videoStoragePath = text
                 background: Rectangle {
@@ -75,6 +77,8 @@ SettingsCard {
             TextField {
                 Layout.fillWidth: true
                 font.pixelSize: Theme.textMd
+                color: Theme.text
+                placeholderTextColor: Theme.textMuted
                 text: settings ? settings.outputPath : ""
                 onEditingFinished: if (settings) settings.outputPath = text
                 background: Rectangle {

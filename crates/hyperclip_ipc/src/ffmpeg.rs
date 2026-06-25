@@ -124,9 +124,6 @@ pub fn build_short_filter(
         video_ops.push(format!("trim=start={}:duration={}", trim_start, dur));
         video_ops.push("setpts=PTS-STARTPTS".to_string());
     }
-    if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
-        video_ops.push(format!("setpts={}*PTS", 1.0 / speed));
-    }
     video_ops.push(format!("fps={}", fps));
     video_ops.push(format!("{}={}:{}{}", scale, "-2", video_h, scale_flags));
     let crop_offset = ((((video_h as f64) * 16.0 / 9.0) - (canvas_w as f64)) / 2.0).round() as i32;
@@ -168,11 +165,16 @@ pub fn build_short_filter(
     // Bottom bar at bottom (bb_y) - [3:v] is bottom bar (pre-rendered PNG, no scaling/cropping)
     let bb_y = canvas_h - bottom_bar_h;
     let bb_chain = "[3:v]loop=loop=-1:size=1:start=0,null[bb]".to_string();
-    let final_chain = format!(
-        "[vh][bb]{}=0:{} [final]",
+    let final_overlay = format!(
+        "[vh][bb]{}=0:{} [vf]",
         overlay,
         bb_y
     );
+    let final_chain = if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
+        format!("{}; [vf]setpts={}*PTS[final]", final_overlay, 1.0 / speed)
+    } else {
+        format!("{}; [vf]null[final]", final_overlay)
+    };
 
     format!(
         "{}; {}; {}; {}; {}; {}; {}",
@@ -200,9 +202,6 @@ pub fn build_short_filter_cuda(
         video_ops.push(format!("trim=start={}:duration={}", trim_start, dur));
         video_ops.push("setpts=PTS-STARTPTS".to_string());
     }
-    if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
-        video_ops.push(format!("setpts={}*PTS", 1.0 / speed));
-    }
     video_ops.push(format!("fps={}", fps));
 
     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
@@ -224,7 +223,12 @@ pub fn build_short_filter_cuda(
         "[3:v]format=yuv420p,hwupload_cuda,scale_cuda=w={}:h={}:format=nv12[bb]",
         canvas_w, bottom_bar_h
     );
-    let final_chain = format!("[vh][bb]overlay_cuda=0:{},setsar=1 [final]", bb_y);
+    let final_overlay = format!("[vh][bb]overlay_cuda=0:{},setsar=1 [vf]", bb_y);
+    let final_chain = if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
+        format!("{}; [vf]setpts={}*PTS[final]", final_overlay, 1.0 / speed)
+    } else {
+        format!("{}; [vf]null[final]", final_overlay)
+    };
 
     format!(
         "{}; {}; {}; {}; {}; {}; {}",
@@ -251,9 +255,6 @@ pub fn build_landscape_filter_cuda(
         video_ops.push(format!("trim=start={}:duration={}", trim_start, dur));
         video_ops.push("setpts=PTS-STARTPTS".to_string());
     }
-    if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
-        video_ops.push(format!("setpts={}*PTS", 1.0 / speed));
-    }
     video_ops.push(format!("fps={}", fps));
 
     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
@@ -269,7 +270,12 @@ pub fn build_landscape_filter_cuda(
         "[2:v]scale={0}:{1}:force_original_aspect_ratio=increase,crop={0}:{1}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,hwupload_cuda,scale_cuda=w={0}:h={1}:format=nv12[hd]",
         canvas_w, header_h
     );
-    let final_chain = format!("[vz][hd]overlay_cuda=0:0,setsar=1 [final]");
+    let final_overlay = format!("[vz][hd]overlay_cuda=0:0,setsar=1 [vf]");
+    let final_chain = if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
+        format!("{}; [vf]setpts={}*PTS[final]", final_overlay, 1.0 / speed)
+    } else {
+        format!("{}; [vf]null[final]", final_overlay)
+    };
 
     format!(
         "{}; {}; {}; {}; {}",
@@ -300,9 +306,6 @@ pub fn build_landscape_filter(
         let dur = if trim_duration > 0.0 { trim_duration } else { 9999.0 };
         video_ops.push(format!("trim=start={}:duration={}", trim_start, dur));
         video_ops.push("setpts=PTS-STARTPTS".to_string());
-    }
-    if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
-        video_ops.push(format!("setpts={}*PTS", 1.0 / speed));
     }
     video_ops.push(format!("fps={}", fps));
 
@@ -351,10 +354,15 @@ pub fn build_landscape_filter(
     );
 
     // Header on top of vz
-    let final_chain = format!(
-        "[vz][hd]{}=0:0 [final]",
+    let final_overlay = format!(
+        "[vz][hd]{}=0:0 [vf]",
         overlay
     );
+    let final_chain = if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
+        format!("{}; [vf]setpts={}*PTS[final]", final_overlay, 1.0 / speed)
+    } else {
+        format!("{}; [vf]null[final]", final_overlay)
+    };
 
     format!(
         "{}; {}; {}; {}; {}",
@@ -420,26 +428,32 @@ pub fn get_ffmpeg_path() -> String {
     // 1. Try bundled ffmpeg in resources first
     let bundled = crate::store::get_resources_dir().join("ffmpeg/bin/ffmpeg.exe");
     if bundled.exists() {
-        return bundled.to_string_lossy().replace('\\', "/");
+        let path_str = bundled.to_string_lossy().to_string();
+        let cleaned = crate::store::clean_unc_path(&path_str);
+        return cleaned.replace('\\', "/");
     }
 
     // 2. Fallback candidates
     let mut candidates = Vec::new();
     if let Ok(userprofile) = std::env::var("USERPROFILE") {
-        candidates.push(format!("{}/scoop/shims/ffmpeg.exe", userprofile.replace('\\', "/")));
+        let cleaned_userprofile = crate::store::clean_unc_path(&userprofile);
+        candidates.push(format!("{}/scoop/shims/ffmpeg.exe", cleaned_userprofile.replace('\\', "/")));
     }
     if let Ok(localappdata) = std::env::var("LOCALAPPDATA") {
-        candidates.push(format!("{}/Programs/scoop/shims/ffmpeg.exe", localappdata.replace('\\', "/")));
+        let cleaned_localappdata = crate::store::clean_unc_path(&localappdata);
+        candidates.push(format!("{}/Programs/scoop/shims/ffmpeg.exe", cleaned_localappdata.replace('\\', "/")));
     }
     candidates.push("ffmpeg".to_string());
 
     for p in &candidates {
         if std::path::Path::new(p).exists() {
-            return p.replace('\\', "/");
+            let cleaned = crate::store::clean_unc_path(p);
+            return cleaned.replace('\\', "/");
         }
     }
     "ffmpeg".to_string()
 }
+
 
 pub fn get_ffprobe_path() -> String {
     let ffmpeg = get_ffmpeg_path();
@@ -681,7 +695,7 @@ pub fn is_cuda_supported() -> bool {
             "-y",
             "-hwaccel", "cuda",
             "-f", "lavfi",
-            "-i", "color=c=black:s=64x64:d=0.01",
+            "-i", "color=c=black:s=256x256:d=0.01",
             "-c:v", "h264_nvenc",
             "-f", "null",
             "-"

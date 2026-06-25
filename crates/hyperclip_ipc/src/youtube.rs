@@ -25,6 +25,31 @@ pub struct YtdlpVideoInfo {
     pub resolution: String,
 }
 
+pub fn get_youtube_client_priority() -> String {
+    let s_path = crate::store::get_settings_path();
+    let s_store = crate::store::SettingsStore::load(&s_path);
+
+    if let Some(arr) = s_store.settings.get("ytDlpClientPriority").and_then(|v| v.as_array()) {
+        let clients: Vec<String> = arr.iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        if !clients.is_empty() {
+            return clients.join(",");
+        }
+    }
+
+    if let Some(arr) = s_store.settings.get("yt_dlp_client_priority").and_then(|v| v.as_array()) {
+        let clients: Vec<String> = arr.iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        if !clients.is_empty() {
+            return clients.join(",");
+        }
+    }
+
+    "tv_embedded,web,ios".to_string()
+}
+
 #[derive(Debug, Clone)]
 pub struct DownloadOptions {
     pub url: String,
@@ -78,8 +103,10 @@ pub fn build_ytdlp_args(opts: &DownloadOptions) -> Vec<String> {
         "mp4".to_string(),
     ];
     let clients = opts.client_priority.join(",");
-    args.push("--extractor-args".to_string());
-    args.push(format!("youtube:player_client={}", clients));
+    if !clients.is_empty() && clients != "tv_embedded,web,ios" {
+        args.push("--extractor-args".to_string());
+        args.push(format!("youtube:player_client={}", clients));
+    }
 
     // Use bundled Node JS runtime if available to prevent deprecation warning
     args.push("--js-runtimes".to_string());
@@ -126,6 +153,7 @@ pub fn download_video_streaming<F>(
     output_path: &str,
     cookies_path: &str,
     trim_minutes: u32,
+    actual_duration_sec: Option<u64>,
     quality: u32,
     concurrent_fragments: u32,
     mut on_progress: F,
@@ -137,10 +165,15 @@ where
     let clean_out = crate::store::clean_unc_path(output_path);
     let clean_cookies = crate::store::clean_unc_path(cookies_path);
     let ytdlp = find_ytdlp_path();
+    let clients = get_youtube_client_priority();
     let mut cmd = Command::new(&ytdlp);
     cmd.args([
         "--js-runtimes", &find_node_runtime_arg(),
-        "--extractor-args", "youtube:player_client=android_vr,web,ios",
+    ]);
+    if !clients.is_empty() && clients != "tv_embedded,web,ios" {
+        cmd.args(["--extractor-args", &format!("youtube:player_client={}", clients)]);
+    }
+    cmd.args([
         "--cookies", &clean_cookies,
         "-f", &fmt,
         "--concurrent-fragments", &concurrent_fragments.to_string(),
@@ -148,10 +181,18 @@ where
         "--no-color",
         "--newline",
         "--remux-video", "mp4",
+        "--socket-timeout", "30",
+        "--retries", "3",
         "-o", &clean_out,
     ]);
 
-    if trim_minutes > 0 {
+    let use_download_sections = if let Some(dur) = actual_duration_sec {
+        trim_minutes > 0 && dur > 1800 && dur > (trim_minutes * 60) as u64
+    } else {
+        trim_minutes > 0
+    };
+
+    if use_download_sections {
         let hours = trim_minutes / 60;
         let mins = trim_minutes % 60;
         let range_str = format!("*00:00:00-{:02}:{:02}:00", hours, mins);
@@ -305,6 +346,7 @@ pub fn download_video(
     output_path: &str,
     cookies_path: &str,
     trim_minutes: u32,
+    actual_duration_sec: Option<u64>,
     quality: u32,
     concurrent_fragments: u32,
 ) -> Result<DownloadResult, String> {
@@ -312,20 +354,33 @@ pub fn download_video(
     let clean_out = crate::store::clean_unc_path(output_path);
     let clean_cookies = crate::store::clean_unc_path(cookies_path);
     let ytdlp = find_ytdlp_path();
+    let clients = get_youtube_client_priority();
     let mut cmd = Command::new(&ytdlp);
     cmd.args([
         "--js-runtimes", &find_node_runtime_arg(),
-        "--extractor-args", "youtube:player_client=android_vr,web,ios",
+    ]);
+    if !clients.is_empty() && clients != "tv_embedded,web,ios" {
+        cmd.args(["--extractor-args", &format!("youtube:player_client={}", clients)]);
+    }
+    cmd.args([
         "--cookies", &clean_cookies,
         "-f", &fmt,
         "--concurrent-fragments", &concurrent_fragments.to_string(),
         "--no-playlist",
         "--no-color",
         "--remux-video", "mp4",
+        "--socket-timeout", "30",
+        "--retries", "3",
         "-o", &clean_out,
     ]);
 
-    if trim_minutes > 0 {
+    let use_download_sections = if let Some(dur) = actual_duration_sec {
+        trim_minutes > 0 && dur > 1800 && dur > (trim_minutes * 60) as u64
+    } else {
+        trim_minutes > 0
+    };
+
+    if use_download_sections {
         let hours = trim_minutes / 60;
         let mins = trim_minutes % 60;
         let range_str = format!("*00:00:00-{:02}:{:02}:00", hours, mins);
@@ -385,14 +440,21 @@ pub fn download_video(
 pub fn probe_formats(url: &str, cookies_path: &str) -> Result<Vec<u32>, String> {
     let ytdlp = find_ytdlp_path();
     let node_runtime = find_node_runtime_arg();
+    let clean_cookies = crate::store::clean_unc_path(cookies_path);
 
+    let clients = get_youtube_client_priority();
     let mut cmd = Command::new(&ytdlp);
     cmd.args([
         "--js-runtimes", &node_runtime,
-        "--extractor-args", "youtube:player_client=android_vr",
-        "--cookies", cookies_path,
+    ]);
+    if !clients.is_empty() && clients != "tv_embedded,web,ios" {
+        cmd.args(["--extractor-args", &format!("youtube:player_client={}", clients)]);
+    }
+    cmd.args([
+        "--cookies", &clean_cookies,
         "--dump-json",
         "--no-download",
+        "--socket-timeout", "30",
         url,
     ]);
     #[cfg(target_os = "windows")]
@@ -433,14 +495,21 @@ pub fn probe_formats(url: &str, cookies_path: &str) -> Result<Vec<u32>, String> 
 pub fn get_video_info(url: &str, cookies_path: &str) -> Result<YtdlpVideoInfo, String> {
     let ytdlp = find_ytdlp_path();
     let node_runtime = find_node_runtime_arg();
+    let clean_cookies = crate::store::clean_unc_path(cookies_path);
 
+    let clients = get_youtube_client_priority();
     let mut cmd = Command::new(&ytdlp);
     cmd.args([
         "--js-runtimes", &node_runtime,
-        "--extractor-args", "youtube:player_client=android_vr,web,ios",
-        "--cookies", cookies_path,
+    ]);
+    if !clients.is_empty() && clients != "tv_embedded,web,ios" {
+        cmd.args(["--extractor-args", &format!("youtube:player_client={}", clients)]);
+    }
+    cmd.args([
+        "--cookies", &clean_cookies,
         "--dump-json",
         "--no-download",
+        "--socket-timeout", "30",
         url,
     ]);
     #[cfg(target_os = "windows")]
@@ -476,14 +545,21 @@ pub fn get_video_info(url: &str, cookies_path: &str) -> Result<YtdlpVideoInfo, S
 pub fn probe_video_availability(url: &str, cookies_path: &str) -> Result<(bool, Option<String>, Option<YtdlpVideoInfo>), String> {
     let ytdlp = find_ytdlp_path();
     let node_runtime = find_node_runtime_arg();
+    let clean_cookies = crate::store::clean_unc_path(cookies_path);
 
+    let clients = get_youtube_client_priority();
     let mut cmd = Command::new(&ytdlp);
     cmd.args([
         "--js-runtimes", &node_runtime,
-        "--extractor-args", "youtube:player_client=android_vr,web,ios",
-        "--cookies", cookies_path,
+    ]);
+    if !clients.is_empty() && clients != "tv_embedded,web,ios" {
+        cmd.args(["--extractor-args", &format!("youtube:player_client={}", clients)]);
+    }
+    cmd.args([
+        "--cookies", &clean_cookies,
         "--dump-json",
         "--no-download",
+        "--socket-timeout", "30",
         url,
     ]);
     #[cfg(target_os = "windows")]
@@ -546,7 +622,9 @@ fn find_ffprobe_path() -> String {
     // 1. Try bundled ffprobe in resources first
     let bundled = crate::store::get_resources_dir().join("ffmpeg/bin/ffprobe.exe");
     if bundled.exists() {
-        return bundled.to_string_lossy().replace('\\', "/");
+        let path_str = bundled.to_string_lossy().to_string();
+        let cleaned = crate::store::clean_unc_path(&path_str);
+        return cleaned.replace('\\', "/");
     }
 
     // 2. Fallback candidates
@@ -558,7 +636,8 @@ fn find_ffprobe_path() -> String {
 
     for p in &candidates {
         if std::path::Path::new(p).exists() {
-            return p.replace('\\', "/");
+            let cleaned = crate::store::clean_unc_path(p);
+            return cleaned.replace('\\', "/");
         }
     }
     "ffprobe".to_string()
@@ -569,7 +648,8 @@ pub fn find_ytdlp_path() -> String {
     // 1. Try bundled yt-dlp in resources first
     let bundled = crate::store::get_resources_dir().join("yt-dlp/yt-dlp.exe");
     if bundled.exists() {
-        return bundled.to_string_lossy().to_string();
+        let path_str = bundled.to_string_lossy().to_string();
+        return crate::store::clean_unc_path(&path_str);
     }
 
     // 2. Fallback candidates
@@ -584,7 +664,8 @@ pub fn find_ytdlp_path() -> String {
 
     for p in &candidates {
         if std::path::Path::new(p).exists() {
-            return p.to_string();
+            let cleaned = crate::store::clean_unc_path(p);
+            return cleaned;
         }
     }
     "yt-dlp".to_string()
@@ -596,9 +677,10 @@ fn find_ffmpeg_bin_dir() -> Option<String> {
     if path == "ffmpeg" {
         None
     } else {
-        std::path::Path::new(&path)
-            .parent()
-            .map(|p| p.to_string_lossy().to_string().replace('\\', "/"))
+        let parent = std::path::Path::new(&path).parent()?;
+        let path_str = parent.to_string_lossy().to_string();
+        let cleaned = crate::store::clean_unc_path(&path_str);
+        Some(cleaned.replace('\\', "/"))
     }
 }
 
@@ -606,7 +688,9 @@ fn find_ffmpeg_bin_dir() -> Option<String> {
 pub fn find_node_runtime_arg() -> String {
     let bundled = crate::store::get_resources_dir().join("node/node.exe");
     if bundled.exists() {
-        format!("node:{}", bundled.to_string_lossy().to_string().replace('\\', "/"))
+        let path_str = bundled.to_string_lossy().to_string();
+        let cleaned = crate::store::clean_unc_path(&path_str);
+        format!("node:{}", cleaned.replace('\\', "/"))
     } else {
         "node".to_string()
     }
@@ -709,14 +793,14 @@ mod tests {
             trim_start: "00:00:00".into(),
             trim_end: "00:10:00".into(),
             quality: 1080,
-            client_priority: vec!["android_vr".into(), "web".into()],
+            client_priority: vec!["tv_embedded".into(), "web".into()],
             concurrent_fragments: 16,
             cookies_file: None,
             multi_instance: 1,
             simulated_progress: false,
         };
         let args = build_ytdlp_args(&opts);
-        assert!(args.iter().any(|a| a.contains("android_vr")), "Should contain android_vr: {:?}", args);
+        assert!(args.iter().any(|a| a.contains("tv_embedded")), "Should contain tv_embedded: {:?}", args);
         assert!(args.iter().any(|a| a.starts_with("*00:00:00")), "Should have download-sections: {:?}", args);
         assert!(args.iter().any(|a| a == "16"), "Should have 16 fragments: {:?}", args);
     }
@@ -729,7 +813,7 @@ mod tests {
             trim_start: "".into(),
             trim_end: "".into(),
             quality: 720,
-            client_priority: vec!["android_vr".into()],
+            client_priority: vec!["tv_embedded".into()],
             concurrent_fragments: 8,
             cookies_file: None,
             multi_instance: 1,

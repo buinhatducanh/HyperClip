@@ -62,6 +62,8 @@ SettingsCard {
             TextField {
                 Layout.fillWidth: true
                 font.pixelSize: 24
+                color: Theme.text
+                placeholderTextColor: Theme.textMuted
                 text: Math.round(settings.videoMaxDurationSec / 60).toString()
                 validator: IntValidator { bottom: 1; top: 120 }
                 onEditingFinished: {

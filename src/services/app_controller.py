@@ -135,14 +135,18 @@ class AppController(QObject):
             return
 
         self.settings_model.load_from_backend(self.client)
+        if not self.settings_model.autoSplitEnabled:
+            return
+
+        mode = self.settings_model.autoSplitMode
         parts = self.settings_model.autoSplitParts
         minutes = self.settings_model.autoSplitMinutes
         duration = d.get("durationSec", 600)
 
         should_split = False
-        if parts > 1:
+        if mode == "parts" and parts > 1:
             should_split = True
-        elif minutes > 0 and duration > (minutes * 60):
+        elif mode == "minutes" and minutes > 0 and duration > (minutes * 60):
             should_split = True
 
         if not should_split:
@@ -154,7 +158,7 @@ class AppController(QObject):
         render_speed = self.settings_model.autoRenderSpeed
 
         split_parts = []
-        if minutes > 0:
+        if mode == "minutes":
             # Split into segments of fixed length (minutes * 60), last one holds the remainder
             part_sec = minutes * 60
             start = 0.0
@@ -260,7 +264,7 @@ class AppController(QObject):
             self.session_model.load_from_backend(self.client)
             self.project_model.load_from_backend(self.client)
             self.key_model.load_from_backend(self.client)
-            self.detection_history_model.load_from_disk()
+            self.detection_history_model.load_from_disk(self.workspace_model)
 
             if self.settings_model.pollingEnabled:
                 self.client.send_command_async("poller:start")

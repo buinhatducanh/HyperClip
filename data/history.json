@@ -1,6 +1,39 @@
 {
   "entries": [
     {
+      "wsId": "ws-ch-1782355001156",
+      "videoId": "1UNhvgDm9hc",
+      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1782355001000.0,
+      "detectedAt": 1782355001156.0,
+      "latencyMs": 156.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1782352228885",
+      "videoId": "v0ahzfMsTu4",
+      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R 2",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1782352222000.0,
+      "detectedAt": 1782352228885.0,
+      "latencyMs": 6885.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1782351250713",
+      "videoId": "k8JcVrJm5Fw",
+      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1782351248000.0,
+      "detectedAt": 1782351250713.0,
+      "latencyMs": 2713.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
       "wsId": "ws-ch-1781901650662",
       "videoId": "OzdXWb2Zc6Y",
       "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
@@ -514,39 +547,6 @@
       "publishedAt": 1781368079000.0,
       "detectedAt": 1781368088485.0,
       "latencyMs": 9485.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1781367713859",
-      "videoId": "zsBfP9UXSQI",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "BadyNone",
-      "publishedAt": 1781367710000.0,
-      "detectedAt": 1781367713859.0,
-      "latencyMs": 3859.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1781365957209",
-      "videoId": "zajR9O56CDc",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "BadyNone",
-      "publishedAt": 1781365948000.0,
-      "detectedAt": 1781365957209.0,
-      "latencyMs": 9209.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1781362371883",
-      "videoId": "fHUY3D_boFM",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "Zilk Kay",
-      "publishedAt": 1781362366000.0,
-      "detectedAt": 1781362371883.0,
-      "latencyMs": 5883.0,
       "durationSec": 0.0,
       "status": "waiting"
     }
@@ -1432,17 +1432,20 @@
     },
     "ws-ch-1781749554344": {
       "downloadStartAt": 1781749554360,
-      "status": "rendering",
+      "status": "error",
       "downloadCompleteAt": 1781749576675,
       "downloadedSize": 174296675.0,
       "width": 1920.0,
-      "height": 1080.0
+      "height": 1080.0,
+      "error": "Render bị gián đoạn (Ứng dụng đóng đột ngột)"
     },
     "ws-ch-1781749554344-part1": {
-      "status": "rendering"
+      "status": "error",
+      "error": "Render bị gián đoạn (Ứng dụng đóng đột ngột)"
     },
     "ws-ch-1781749554344-part2": {
-      "status": "rendering"
+      "status": "error",
+      "error": "Render bị gián đoạn (Ứng dụng đóng đột ngột)"
     },
     "ws-ch-1781750843704": {
       "downloadStartAt": 1781750843719,
@@ -1481,25 +1484,32 @@
       "height": 1080.0
     },
     "ws-ch-1781778529105-part1": {
-      "status": "done"
+      "status": "error",
+      "error": "Render bị gián đoạn (Ứng dụng đóng đột ngột)"
     },
     "ws-ch-1781778529105-part2": {
-      "status": "done"
+      "status": "error",
+      "error": "Render bị gián đoạn (Ứng dụng đóng đột ngột)"
     },
     "ws-test-dl-1781780848": {
-      "status": "error"
+      "status": "error",
+      "error": "Backend subprocess crashed: FFmpeg exit Some(-2). Stderr:\n[in#0 @ 00000268a804f640] Error opening input: No such file or directory\r\nError opening input file D:\\LOOP_COMPANY\\HyperClip\\data\\media/ch1778770285853/downloads/EqWMOrNVnjU_20260618_110801.mp4.\r\nError opening input files: No such file or directory\r\n"
     },
     "ws-test-dl-1781780997": {
-      "status": "error"
+      "status": "error",
+      "error": "Backend subprocess crashed: FFmpeg exit Some(-2). Stderr:\n[in#0 @ 000001e80aa94580] Error opening input: No such file or directory\r\nError opening input file D:\\LOOP_COMPANY\\HyperClip\\data\\media/ch1778770285853/downloads/EqWMOrNVnjU_20260618_111030.mp4.\r\nError opening input files: No such file or directory\r\n"
     },
     "ws-test-dl-1781781303": {
-      "status": "error"
+      "status": "error",
+      "error": "Backend subprocess crashed: FFmpeg exit Some(-2). Stderr:\n[in#0 @ 0000026506ea5bc0] Error opening input: No such file or directory\r\nError opening input file D:\\LOOP_COMPANY\\HyperClip\\data\\media/ch1778770285853/downloads/EqWMOrNVnjU_20260618_111537.mp4.\r\nError opening input files: No such file or directory\r\n"
     },
     "ws-test-dl-1781781820": {
-      "status": "error"
+      "status": "error",
+      "error": "Backend subprocess crashed: FFmpeg exit Some(-2). Stderr:\n[in#0 @ 000001fd60c81600] Error opening input: No such file or directory\r\nError opening input file D:\\LOOP_COMPANY\\HyperClip\\data\\media/ch1778770285853/downloads/EqWMOrNVnjU_20260618_112414.mp4.\r\nError opening input files: No such file or directory\r\n"
     },
     "ws-test-dl-1781782231": {
-      "status": "error"
+      "status": "error",
+      "error": "Backend subprocess crashed: FFmpeg exit Some(-2). Stderr:\n[in#0 @ 000002a5c276b400] Error opening input: No such file or directory\r\nError opening input file D:\\LOOP_COMPANY\\HyperClip\\data\\media/ch1778770285853/downloads/EqWMOrNVnjU_20260618_113105.mp4.\r\nError opening input files: No such file or directory\r\n"
     },
     "ws-test-dl-1781782952": {
       "status": "done"
@@ -1527,10 +1537,12 @@
       "height": 1080.0
     },
     "ws-ch-1781891110853-part1": {
-      "status": "error"
+      "status": "error",
+      "error": "Backend subprocess crashed: FFmpeg exit Some(-542398533). Stderr:\n"
     },
     "ws-ch-1781891110853-part2": {
-      "status": "error"
+      "status": "error",
+      "error": "Backend subprocess crashed: FFmpeg exit Some(-542398533). Stderr:\n[CUDA @ 000001eb2fd323c0] cu->cuInit(0) failed -> CUDA_ERROR_NO_DEVICE: no CUDA-capable device is detected\r\n[AVFilterGraph @ 000001eb2fdaf440] Error initializing filters\r\nError : Generic error in an external library\r\n"
     },
     "ws-ch-1781893145271": {
       "downloadStartAt": 1781893145326,
@@ -1566,11 +1578,12 @@
     },
     "ws-ch-1781900024824": {
       "downloadStartAt": 1781900024909,
-      "status": "ready",
+      "status": "error",
       "downloadCompleteAt": 1781900154072,
       "downloadedSize": 95945192.0,
       "width": 1920.0,
-      "height": 1080.0
+      "height": 1080.0,
+      "error": "Tải xuống bị gián đoạn (Ứng dụng đóng đột ngột)"
     },
     "ws-ch-1781900024880": {
       "downloadStartAt": 1781900025854,
@@ -1587,10 +1600,12 @@
       "status": "done"
     },
     "ws-ch-1781900024824-part1": {
-      "status": "error"
+      "status": "error",
+      "error": "Backend subprocess crashed: FFmpeg exit Some(-2). Stderr:\n[in#0 @ 000002de9d444180] Error opening input: No such file or directory\r\nError opening input file D:\\LOOP_COMPANY\\HyperClip\\data\\downloads\\ws-ch-1781900024824.mp4.\r\nError opening input files: No such file or directory\r\n"
     },
     "ws-ch-1781900024824-part2": {
-      "status": "error"
+      "status": "error",
+      "error": "Backend subprocess crashed: FFmpeg exit Some(-2). Stderr:\n[in#0 @ 0000018406996840] Error opening input: No such file or directory\r\nError opening input file D:\\LOOP_COMPANY\\HyperClip\\data\\downloads\\ws-ch-1781900024824.mp4.\r\nError opening input files: No such file or directory\r\n"
     },
     "ws-ch-1781901650662": {
       "downloadStartAt": 1781901650704,
@@ -1599,6 +1614,27 @@
       "downloadedSize": 29263475.0,
       "width": 640.0,
       "height": 360.0
+    },
+    "ws-ch-1782351250713": {
+      "downloadStartAt": 1782351250772,
+      "status": "error",
+      "error": "Tải xuống bị gián đoạn (Ứng dụng đóng đột ngột)"
+    },
+    "ws-ch-1782352228885": {
+      "downloadStartAt": 1782352228915,
+      "status": "done",
+      "downloadCompleteAt": 1782352241097,
+      "downloadedSize": 28458620.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782355001156": {
+      "downloadStartAt": 1782355001195,
+      "status": "done",
+      "downloadCompleteAt": 1782355030037,
+      "downloadedSize": 115803385.0,
+      "width": 1280.0,
+      "height": 720.0
     }
   }
 }
