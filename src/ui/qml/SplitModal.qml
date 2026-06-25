@@ -136,7 +136,7 @@ Dialog {
                 Layout.fillWidth: true
                 font.pixelSize: 14
                 model: ["1080p", "720p", "480p", "360p"]
-                currentIndex: model.indexOf(settings.autoRenderResolution)
+                currentIndex: (typeof settings !== "undefined" && settings !== null) ? model.indexOf(settings.autoRenderResolution) : 0
             }
 
             Label { text: "FPS"; color: Theme.textMuted; font.pixelSize: 14 }
@@ -145,7 +145,7 @@ Dialog {
                 Layout.fillWidth: true
                 font.pixelSize: 14
                 model: [30, 60]
-                currentIndex: [30, 60].indexOf(settings.autoRenderFPS)
+                currentIndex: (typeof settings !== "undefined" && settings !== null) ? [30, 60].indexOf(settings.autoRenderFPS) : 0
             }
 
             Label { text: "Tốc độ"; color: Theme.textMuted; font.pixelSize: 14 }
@@ -156,7 +156,7 @@ Dialog {
                     id: speedSlider
                     Layout.fillWidth: true
                     from: 1.0; to: 2.0; stepSize: 0.1
-                    value: settings.autoRenderSpeed
+                    value: (typeof settings !== "undefined" && settings !== null) ? settings.autoRenderSpeed : 1.0
                 }
                 Label {
                     text: speedSlider.value.toFixed(1) + "x"

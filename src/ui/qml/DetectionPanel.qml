@@ -46,7 +46,7 @@ SettingsCard {
                 font.bold: true
             }
             Label {
-                text: "Tần suất truy vấn tìm video mới (mặc định 5000ms)."
+                text: "Chu kỳ kiểm tra & reload Chrome (tần suất này liên quan trực tiếp tới tốc độ bắt video)."
                 color: Theme.textMuted
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap

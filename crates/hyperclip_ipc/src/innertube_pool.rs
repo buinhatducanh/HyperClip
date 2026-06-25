@@ -17,7 +17,7 @@ impl Default for PoolConfig {
     fn default() -> Self {
         Self {
             size: 30,
-            cooldown_duration: Duration::from_secs(10),
+            cooldown_duration: Duration::from_secs(5),
             suspend_duration: Duration::from_secs(300),
         }
     }

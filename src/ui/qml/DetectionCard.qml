@@ -56,6 +56,15 @@ SettingsCard {
                 }
             }
 
+            Label {
+                text: "* Ghi chú: Chu kỳ này đồng thời là tần suất reload tab Chrome để bắt video mới."
+                color: Theme.textMuted
+                font.pixelSize: 18
+                wrapMode: Text.WordWrap
+                Layout.columnSpan: 2
+                Layout.fillWidth: true
+            }
+
 
 
             Label { text: "TG tối đa (phút)"; color: Theme.textMuted; font.pixelSize: 24 }

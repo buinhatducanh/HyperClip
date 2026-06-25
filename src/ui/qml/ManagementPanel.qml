@@ -1032,13 +1032,13 @@ Rectangle {
                                     KVRow {
                                         keyText: "FPS target"
                                         valueText: {
-                                            const fps = root.currentVideoData.fpsTarget || (typeof settings !== "undefined" ? settings.autoRenderFPS : 30) || 30
+                                            const fps = root.currentVideoData.fpsTarget || ((typeof settings !== "undefined" && settings !== null) ? settings.autoRenderFPS : 30) || 30
                                             return fps + " fps"
                                         }
                                     }
                                     KVRow {
                                         keyText: "Export resolution"
-                                        valueText: root.currentVideoData.exportResolution || (typeof settings !== "undefined" ? settings.autoRenderResolution : "1080p") || "1080p"
+                                        valueText: root.currentVideoData.exportResolution || ((typeof settings !== "undefined" && settings !== null) ? settings.autoRenderResolution : "1080p") || "1080p"
                                     }
                                     KVRow {
                                         keyText: "Render FPS (thực tế)"

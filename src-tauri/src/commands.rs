@@ -549,7 +549,7 @@ impl AppState {
 
             let chrome_watcher = Arc::new(ChromeTabWatcher::new(
                 None, // default port (9222)
-                None, // default poll interval
+                Some(poll_interval_ms), // use settings poll interval
                 seen_videos.clone(),
                 process_fn_arc.clone(),
             ));
@@ -635,7 +635,7 @@ impl AppState {
         let mut workspaces_to_render = Vec::new();
 
         if media_dir.exists() {
-            // Scan per-channel download directories
+            // Scan per-channel download directories (legacy)
             if let Ok(entries) = std::fs::read_dir(&media_dir) {
                 for entry in entries.flatten() {
                     if let Ok(file_type) = entry.file_type() {
@@ -663,6 +663,33 @@ impl AppState {
                                                     }
                                                 }
                                             }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Scan actual new/custom downloads directory
+        let dl_dir = hyperclip_ipc::store::channel_downloads_dir("", "");
+        if dl_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&dl_dir) {
+                for entry in entries.flatten() {
+                    if let Ok(meta) = entry.metadata() {
+                        if meta.is_file() && entry.file_name().to_string_lossy().ends_with(".mp4") {
+                            let filename = entry.file_name().to_string_lossy().to_string();
+                            // Extract video_id from filename (format: {video_id}_{timestamp}.mp4)
+                            if let Some(video_id) = filename.split('_').next() {
+                                // Mark as seen in poller under fallback empty string/default
+                                seen_store.mark_seen("", video_id);
+                                // Also check if there's a workspace for this video that needs auto-render
+                                if auto_render {
+                                    for ws in ws_store.workspaces.iter() {
+                                        if ws.video_id == video_id && ws.status == "ready" && ws.rendered_path.is_none() {
+                                            workspaces_to_render.push(ws.id.clone());
                                         }
                                     }
                                 }
@@ -749,6 +776,7 @@ impl AppState {
             .and_then(|v| v.as_u64())
             .unwrap_or(60) as u32;
         self.poller.reload_config(poll_interval_ms, max_age_minutes, min_duration_sec);
+        self.chrome_watcher.reload_config(poll_interval_ms);
     }
 
     fn pool_ready_count(&self) -> usize {

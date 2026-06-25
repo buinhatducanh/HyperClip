@@ -94,7 +94,7 @@ pub fn build_ytdlp_args(opts: &DownloadOptions) -> Vec<String> {
         "--no-warnings".to_string(),
         "--newline".to_string(),
         "-f".to_string(),
-        format!("best[height<=?{}]/best", opts.quality),
+        format!("bestvideo[height<=?{}]+bestaudio/best[height<=?{}]/best", opts.quality, opts.quality),
         "-o".to_string(),
         opts.output_path.to_string_lossy().to_string(),
         "--concurrent-fragments".to_string(),
@@ -146,7 +146,14 @@ pub fn emit_download_progress(workspace_id: &str, progress: &DownloadProgress) {
     crate::emit_raw(&serde_json::to_string(&event).unwrap_or_default());
 }
 
+pub fn get_ytdlp_cache_dir() -> std::path::PathBuf {
+    let cache_dir = crate::store::get_data_dir().join(".cache").join("yt-dlp");
+    let _ = std::fs::create_dir_all(&cache_dir);
+    cache_dir
+}
+
 /// Async download with streaming progress via callback.
+
 /// Spawns yt-dlp, reads stderr line-by-line, calls on_progress for each line.
 pub fn download_video_streaming<F>(
     url: &str,
@@ -161,9 +168,15 @@ pub fn download_video_streaming<F>(
 where
     F: FnMut(DownloadProgress),
 {
-    let fmt = format!("best[height<=?{height}]/bestvideo[height<=?{height}]+bestaudio/worst", height = quality);
+    let fmt = if quality <= 360 {
+        format!("best[height<=?{height}]/bestvideo[height<=?{height}]+bestaudio/best[height<=?{height}]/worst", height = quality)
+    } else {
+        format!("bestvideo[height<=?{height}]+bestaudio/best[height<=?{height}]/worst", height = quality)
+    };
     let clean_out = crate::store::clean_unc_path(output_path);
     let clean_cookies = crate::store::clean_unc_path(cookies_path);
+    let cache_dir = get_ytdlp_cache_dir();
+    let clean_cache = crate::store::clean_unc_path(&cache_dir.to_string_lossy());
     let ytdlp = find_ytdlp_path();
     let clients = get_youtube_client_priority();
     let mut cmd = Command::new(&ytdlp);
@@ -183,11 +196,12 @@ where
         "--remux-video", "mp4",
         "--socket-timeout", "30",
         "--retries", "3",
+        "--cache-dir", &clean_cache,
         "-o", &clean_out,
     ]);
 
     let use_download_sections = if let Some(dur) = actual_duration_sec {
-        trim_minutes > 0 && dur > 1800 && dur > (trim_minutes * 60) as u64
+        trim_minutes > 0 && (dur == 0 || dur > ((trim_minutes * 60) as u64 + 30))
     } else {
         trim_minutes > 0
     };
@@ -350,9 +364,15 @@ pub fn download_video(
     quality: u32,
     concurrent_fragments: u32,
 ) -> Result<DownloadResult, String> {
-    let fmt = format!("best[height<=?{height}]/bestvideo[height<=?{height}]+bestaudio/worst", height = quality);
+    let fmt = if quality <= 360 {
+        format!("best[height<=?{height}]/bestvideo[height<=?{height}]+bestaudio/best[height<=?{height}]/worst", height = quality)
+    } else {
+        format!("bestvideo[height<=?{height}]+bestaudio/best[height<=?{height}]/worst", height = quality)
+    };
     let clean_out = crate::store::clean_unc_path(output_path);
     let clean_cookies = crate::store::clean_unc_path(cookies_path);
+    let cache_dir = get_ytdlp_cache_dir();
+    let clean_cache = crate::store::clean_unc_path(&cache_dir.to_string_lossy());
     let ytdlp = find_ytdlp_path();
     let clients = get_youtube_client_priority();
     let mut cmd = Command::new(&ytdlp);
@@ -371,11 +391,12 @@ pub fn download_video(
         "--remux-video", "mp4",
         "--socket-timeout", "30",
         "--retries", "3",
+        "--cache-dir", &clean_cache,
         "-o", &clean_out,
     ]);
 
     let use_download_sections = if let Some(dur) = actual_duration_sec {
-        trim_minutes > 0 && dur > 1800 && dur > (trim_minutes * 60) as u64
+        trim_minutes > 0 && (dur == 0 || dur > ((trim_minutes * 60) as u64 + 30))
     } else {
         trim_minutes > 0
     };
@@ -441,6 +462,8 @@ pub fn probe_formats(url: &str, cookies_path: &str) -> Result<Vec<u32>, String> 
     let ytdlp = find_ytdlp_path();
     let node_runtime = find_node_runtime_arg();
     let clean_cookies = crate::store::clean_unc_path(cookies_path);
+    let cache_dir = get_ytdlp_cache_dir();
+    let clean_cache = crate::store::clean_unc_path(&cache_dir.to_string_lossy());
 
     let clients = get_youtube_client_priority();
     let mut cmd = Command::new(&ytdlp);
@@ -455,6 +478,7 @@ pub fn probe_formats(url: &str, cookies_path: &str) -> Result<Vec<u32>, String> 
         "--dump-json",
         "--no-download",
         "--socket-timeout", "30",
+        "--cache-dir", &clean_cache,
         url,
     ]);
     #[cfg(target_os = "windows")]
@@ -496,6 +520,8 @@ pub fn get_video_info(url: &str, cookies_path: &str) -> Result<YtdlpVideoInfo, S
     let ytdlp = find_ytdlp_path();
     let node_runtime = find_node_runtime_arg();
     let clean_cookies = crate::store::clean_unc_path(cookies_path);
+    let cache_dir = get_ytdlp_cache_dir();
+    let clean_cache = crate::store::clean_unc_path(&cache_dir.to_string_lossy());
 
     let clients = get_youtube_client_priority();
     let mut cmd = Command::new(&ytdlp);
@@ -510,6 +536,7 @@ pub fn get_video_info(url: &str, cookies_path: &str) -> Result<YtdlpVideoInfo, S
         "--dump-json",
         "--no-download",
         "--socket-timeout", "30",
+        "--cache-dir", &clean_cache,
         url,
     ]);
     #[cfg(target_os = "windows")]
@@ -546,6 +573,8 @@ pub fn probe_video_availability(url: &str, cookies_path: &str) -> Result<(bool, 
     let ytdlp = find_ytdlp_path();
     let node_runtime = find_node_runtime_arg();
     let clean_cookies = crate::store::clean_unc_path(cookies_path);
+    let cache_dir = get_ytdlp_cache_dir();
+    let clean_cache = crate::store::clean_unc_path(&cache_dir.to_string_lossy());
 
     let clients = get_youtube_client_priority();
     let mut cmd = Command::new(&ytdlp);
@@ -560,6 +589,7 @@ pub fn probe_video_availability(url: &str, cookies_path: &str) -> Result<(bool, 
         "--dump-json",
         "--no-download",
         "--socket-timeout", "30",
+        "--cache-dir", &clean_cache,
         url,
     ]);
     #[cfg(target_os = "windows")]

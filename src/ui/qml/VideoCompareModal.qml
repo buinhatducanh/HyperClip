@@ -78,7 +78,7 @@ Dialog {
                         font.bold: true
                     }
                     Label {
-                        text: "Mở " + settings.outputPath + "/" + dlg.channelName
+                        text: "Mở " + ((typeof settings !== "undefined" && settings !== null) ? settings.outputPath : "") + "/" + dlg.channelName
                         color: Theme.textMuted
                         font.pixelSize: 14
                         wrapMode: Text.Wrap
@@ -97,7 +97,7 @@ Dialog {
             Button {
                 text: "Mở folder output"
                 onClicked: backend.send_command("system:openFolder",
-                    {"path": settings.outputPath})
+                    {"path": (typeof settings !== "undefined" && settings !== null) ? settings.outputPath : ""})
             }
             Item { Layout.fillWidth: true }
             Button {

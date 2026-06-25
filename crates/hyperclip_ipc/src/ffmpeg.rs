@@ -715,6 +715,7 @@ pub struct RenderOptions {
 }
 
 static _CUDA_SUPPORTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+static CUVID_DECODERS_SUPPORTED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, bool>>> = std::sync::OnceLock::new();
 
 pub fn is_cuda_supported() -> bool {
     *_CUDA_SUPPORTED.get_or_init(|| {
@@ -1099,30 +1100,44 @@ where F: FnMut(f64) + Send + 'static {
         let cuvid_decoder = format!("{}_cuvid", codec_name);
 
         // Probe if this cuvid decoder is supported by checking if a dummy decode command exits successfully.
-        let mut test_cmd = TokioCommand::new(get_ffmpeg_path());
-        #[cfg(target_os = "windows")]
-        {
-            test_cmd.creation_flags(0x08000000);
-        }
-        let clean_in_path = crate::store::clean_unc_path(opts.input_path.to_str().unwrap_or_default());
-        test_cmd.args([
-            "-y",
-            "-hwaccel", "cuda",
-            "-hwaccel_output_format", "cuda",
-            "-c:v", &cuvid_decoder,
-            "-i", &clean_in_path,
-            "-t", "0.01",
-            "-f", "null",
-            "-"
-        ]);
-        test_cmd.stdin(std::process::Stdio::null());
-        test_cmd.stdout(std::process::Stdio::null());
-        test_cmd.stderr(std::process::Stdio::null());
+        let decoder_supported = {
+            let cache = CUVID_DECODERS_SUPPORTED.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+            let cached_val = {
+                let map = cache.lock().unwrap();
+                map.get(&cuvid_decoder).copied()
+            };
+            if let Some(supported) = cached_val {
+                supported
+            } else {
+                let mut test_cmd = TokioCommand::new(get_ffmpeg_path());
+                #[cfg(target_os = "windows")]
+                {
+                    test_cmd.creation_flags(0x08000000);
+                }
+                let clean_in_path = crate::store::clean_unc_path(opts.input_path.to_str().unwrap_or_default());
+                test_cmd.args([
+                    "-y",
+                    "-hwaccel", "cuda",
+                    "-hwaccel_output_format", "cuda",
+                    "-c:v", &cuvid_decoder,
+                    "-i", &clean_in_path,
+                    "-t", "0.01",
+                    "-f", "null",
+                    "-"
+                ]);
+                test_cmd.stdin(std::process::Stdio::null());
+                test_cmd.stdout(std::process::Stdio::null());
+                test_cmd.stderr(std::process::Stdio::null());
 
-        let decoder_supported = if let Ok(output) = test_cmd.output().await {
-            output.status.success()
-        } else {
-            false
+                let supported = if let Ok(output) = test_cmd.output().await {
+                    output.status.success()
+                } else {
+                    false
+                };
+                let mut map = cache.lock().unwrap();
+                map.insert(cuvid_decoder.clone(), supported);
+                supported
+            }
         };
 
         if decoder_supported {

@@ -178,24 +178,19 @@ impl SeenVideos {
         entry.expires_at = expires_at; // Refresh TTL on each mark
     }
 
-    /// Check if video is seen for a channel (respects TTL)
+    /// Check if video is seen for a channel (ignores TTL)
     pub fn is_seen(&self, channel_id: &str, video_id: &str) -> bool {
         if let Some(entry) = self.channels.get(channel_id) {
-            let now = crate::detection::current_unix_ts();
-            if now > entry.expires_at {
-                return false; // Expired
-            }
             entry.ids.contains(&video_id.to_string())
         } else {
             false
         }
     }
 
-    /// Check if video is seen in ANY channel (respects TTL)
+    /// Check if video is seen in ANY channel (ignores TTL)
     pub fn is_any_seen(&self, video_id: &str) -> bool {
-        let now = crate::detection::current_unix_ts();
         for entry in self.channels.values() {
-            if now <= entry.expires_at && entry.ids.contains(&video_id.to_string()) {
+            if entry.ids.contains(&video_id.to_string()) {
                 return true;
             }
         }

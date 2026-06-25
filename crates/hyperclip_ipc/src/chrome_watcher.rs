@@ -24,7 +24,7 @@ struct ChromeTab {
 
 pub struct ChromeTabWatcher {
     port: u16,
-    poll_interval_ms: u64,
+    poll_interval_ms: std::sync::atomic::AtomicU64,
     seen_videos: Arc<tokio::sync::RwLock<crate::store::SeenVideos>>,
     process_fn: Arc<dyn Fn(NewVideoEvent) + Send + Sync>,
     /// Dedicated InnertubeClient for CDP — not shared with the Poller pool
@@ -48,7 +48,7 @@ impl ChromeTabWatcher {
 
         Self {
             port: port.unwrap_or(DEFAULT_CDP_PORT),
-            poll_interval_ms: poll_interval_ms.unwrap_or(DEFAULT_POLL_MS),
+            poll_interval_ms: std::sync::atomic::AtomicU64::new(poll_interval_ms.unwrap_or(DEFAULT_POLL_MS)),
             seen_videos,
             process_fn,
             dedicated_client: Mutex::new(None),
@@ -57,21 +57,27 @@ impl ChromeTabWatcher {
         }
     }
 
+    pub fn reload_config(&self, poll_interval_ms: u64) {
+        self.poll_interval_ms.store(poll_interval_ms, std::sync::atomic::Ordering::Relaxed);
+        tracing::info!("[ChromeWatcher] Config reloaded: interval={poll_interval_ms}ms");
+    }
+
     /// Run the watcher loop until cancelled.
     pub async fn run(&self, cancel: CancellationToken) {
         tracing::info!(
             "[ChromeWatcher] Started — polling 127.0.0.1:{} every {}ms",
             self.port,
-            self.poll_interval_ms
+            self.poll_interval_ms.load(std::sync::atomic::Ordering::Relaxed)
         );
 
         loop {
+            let delay = self.poll_interval_ms.load(std::sync::atomic::Ordering::Relaxed);
             tokio::select! {
                 _ = cancel.cancelled() => {
                     tracing::info!("[ChromeWatcher] Cancelled");
                     break;
                 }
-                _ = tokio::time::sleep(std::time::Duration::from_millis(self.poll_interval_ms)) => {
+                _ = tokio::time::sleep(std::time::Duration::from_millis(delay)) => {
                     self.check_tabs().await;
                 }
             }
@@ -180,7 +186,8 @@ impl ChromeTabWatcher {
             }
 
             if let Some(ref mut c) = client {
-                match c.check_chrome_tabs().await {
+                let interval = self.poll_interval_ms.load(std::sync::atomic::Ordering::Relaxed);
+                match c.check_chrome_tabs(interval).await {
                     Ok(videos) => {
                         let s_path = crate::store::get_settings_path();
                         let s_store = crate::store::SettingsStore::load(&s_path);

@@ -61,6 +61,12 @@ Copy-Item "$BundleSource\_internal\base_library.zip" -Destination $InternalDest 
 # Copy QML directory
 Copy-Item "$BundleSource\_internal\qml" -Destination $InternalDest -Recurse -Force
 
+# Copy innertube_helper.js to resources/
+$PatchResources = Join-Path $InternalDest "resources"
+New-Item -ItemType Directory -Path $PatchResources -Force | Out-Null
+Copy-Item "$BundleSource\_internal\resources\innertube_helper.js" -Destination $PatchResources -Force
+Write-Host "Copied updated innertube_helper.js to patch." -ForegroundColor Green
+
 # 4. Create ZIP archive
 $ZipFile = "$ProjectRoot\$PatchName.zip"
 Write-Host "Waiting for file locks to release..." -ForegroundColor Yellow
