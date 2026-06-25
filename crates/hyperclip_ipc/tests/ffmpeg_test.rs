@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 #[test]
 fn test_build_short_filter_vertical() {
-    let filter = build_short_filter(0.0, 60.0, 1.0, 1080, 1920, 384, 192, false, 30);
+    let filter = build_short_filter(0.0, 60.0, 1.0, 1080, 1920, 576, 576, false, 30);
     assert!(filter.contains("scale="), "should use sw scale: {}", filter);
     assert!(filter.contains("crop="), "should use sw crop: {}", filter);
     assert!(filter.contains("overlay="), "should use sw overlay: {}", filter);
@@ -15,14 +15,14 @@ fn test_build_short_filter_vertical() {
 
 #[test]
 fn test_build_short_filter_vertical_with_speed() {
-    let filter = build_short_filter(0.0, 60.0, 1.5, 1080, 1920, 384, 192, false, 30);
+    let filter = build_short_filter(0.0, 60.0, 1.5, 1080, 1920, 576, 576, false, 30);
     assert!(filter.contains("setpts=0.6666666666666666*PTS"), "should have speed setpts: {}", filter);
     assert!(filter.contains("trim=start=0:duration=60"), "trim should be correct: {}", filter);
 }
 
 #[test]
 fn test_build_short_filter_cuda() {
-    let filter = build_short_filter_cuda(0.0, 60.0, 1.0, 1080, 1920, 384, 192, 30);
+    let filter = build_short_filter_cuda(0.0, 60.0, 1.0, 1080, 1920, 576, 576, 30);
     assert!(filter.contains("scale_cuda"), "CUDA filter: {}", filter);
     assert!(filter.contains("crop="), "CPU crop: {}", filter);
     assert!(filter.contains("overlay_cuda"), "CUDA overlay: {}", filter);
@@ -30,7 +30,7 @@ fn test_build_short_filter_cuda() {
 
 #[test]
 fn test_build_short_filter_cuda_with_speed() {
-    let filter = build_short_filter_cuda(0.0, 60.0, 2.0, 1080, 1920, 384, 192, 30);
+    let filter = build_short_filter_cuda(0.0, 60.0, 2.0, 1080, 1920, 576, 576, 30);
     assert!(filter.contains("setpts=0.5*PTS"), "should have speed setpts: {}", filter);
     assert!(filter.contains("trim=start=0:duration=60"), "trim should be correct: {}", filter);
 }
@@ -71,14 +71,14 @@ fn test_build_landscape_filter_cuda_with_speed() {
 #[test]
 fn test_build_filters_with_trim_start_and_speed() {
     // 1. Short Mode (CPU)
-    let filter_short = build_short_filter(30.0, 30.0, 1.2, 1080, 1920, 384, 192, false, 30);
+    let filter_short = build_short_filter(30.0, 30.0, 1.2, 1080, 1920, 576, 576, false, 30);
     assert!(!filter_short.contains(",,"), "Should not contain double commas: {}", filter_short);
     let occurrences = filter_short.matches("setpts=PTS-STARTPTS").count();
     assert_eq!(occurrences, 1, "Should contain setpts=PTS-STARTPTS exactly once: {}", filter_short);
     assert!(filter_short.contains("trim=start=30:duration=30"), "trim should be correct: {}", filter_short);
 
     // 2. Short Mode (CUDA)
-    let filter_short_cuda = build_short_filter_cuda(30.0, 30.0, 1.2, 1080, 1920, 384, 192, 30);
+    let filter_short_cuda = build_short_filter_cuda(30.0, 30.0, 1.2, 1080, 1920, 576, 576, 30);
     assert!(!filter_short_cuda.contains(",,"), "Should not contain double commas: {}", filter_short_cuda);
     let occurrences = filter_short_cuda.matches("setpts=PTS-STARTPTS").count();
     assert_eq!(occurrences, 1, "Should contain setpts=PTS-STARTPTS exactly once: {}", filter_short_cuda);
@@ -215,13 +215,13 @@ fn test_render_integration_real_file() {
 
     // First verify: the exact same args work via std::process::Command
     let ffmpeg = get_ffmpeg_path();
-    let filter = build_short_filter(0.0, 5.0, 1.0, 1080, 1920, 384, 192, false, 30);
+    let filter = build_short_filter(0.0, 5.0, 1.0, 1080, 1920, 576, 576, false, 30);
     let mut cmd = std::process::Command::new(&ffmpeg);
     cmd.args(["-hide_banner", "-y",
         "-i", &input,
         "-f", "lavfi", "-i", "color=c=0x2d2d2d:s=1080x1920:d=5.00",
-        "-f", "lavfi", "-i", "color=c=0x0d0d0d:s=1080x384:d=5.00",
-        "-f", "lavfi", "-i", "color=c=0x1a1a1a:s=1080x192:d=5.00",
+        "-f", "lavfi", "-i", "color=c=0x0d0d0d:s=1080x576:d=5.00",
+        "-f", "lavfi", "-i", "color=c=0x1a1a1a:s=1080x576:d=5.00",
         "-filter_complex", &filter,
         "-map", "[final]", "-map", "0:a?",
         "-c:v", "h264_nvenc", "-preset", "p1",

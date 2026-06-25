@@ -2442,21 +2442,35 @@ pub fn get_resolved_hardware_config() -> ResolvedHardwareConfig {
     let mut concurrent_fragments = 16;
     let mut gpu_tier = gpu.tier;
     
-    match vram {
-        v if v >= 16 => { // Ultra
-            render_workers = 6;
-            chunk_workers = 14;
-            download_instances = 6;
-            nvenc_preset = "p4".to_string(); // p4 is optimized high-quality, p7 is high quality but slower
-            concurrent_fragments = 64;
-            gpu_tier = hyperclip_ipc::GPUTier::High;
-        }
+    let is_extreme_system = (stats.gpu_name.contains("5080")
+        || stats.gpu_name.contains("5090")
+        || stats.gpu_name.contains("4090")
+        || stats.gpu_name.contains("Blackwell"))
+        && stats.ram_total >= 48 * 1024 * 1024 * 1024;
+
+    if is_extreme_system {
+        render_workers = 12;
+        chunk_workers = 28;
+        download_instances = 10;
+        nvenc_preset = "p4".to_string();
+        concurrent_fragments = 32;
+        gpu_tier = hyperclip_ipc::GPUTier::High;
+    } else {
+        match vram {
+            v if v >= 16 => { // Ultra
+                render_workers = 6;
+                chunk_workers = 14;
+                download_instances = 6;
+                nvenc_preset = "p4".to_string(); // p4 is optimized high-quality, p7 is high quality but slower
+                concurrent_fragments = 32;
+                gpu_tier = hyperclip_ipc::GPUTier::High;
+            }
         v if v >= 12 => { // High
             render_workers = 3;
             chunk_workers = 6;
             download_instances = 2;
             nvenc_preset = "p3".to_string();
-            concurrent_fragments = 32;
+            concurrent_fragments = 16;
             gpu_tier = hyperclip_ipc::GPUTier::High;
         }
         v if v >= 8 => { // Medium
@@ -2483,6 +2497,7 @@ pub fn get_resolved_hardware_config() -> ResolvedHardwareConfig {
             concurrent_fragments = 4;
             gpu_tier = hyperclip_ipc::GPUTier::Low;
         }
+    }
     }
 
     // Cap workers and fragment limits based on physical RAM to prevent OOM

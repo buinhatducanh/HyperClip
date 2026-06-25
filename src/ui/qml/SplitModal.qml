@@ -135,7 +135,7 @@ Dialog {
                 id: resCombo
                 Layout.fillWidth: true
                 font.pixelSize: 14
-                model: ["1080p", "720p", "360p"]
+                model: ["1080p", "720p", "480p", "360p"]
                 currentIndex: model.indexOf(settings.autoRenderResolution)
             }
 

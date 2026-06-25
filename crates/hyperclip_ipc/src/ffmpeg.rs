@@ -207,8 +207,8 @@ pub fn build_short_filter_cuda(
     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
 
     let bg_chain = format!(
-        "[1:v]fps={},scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,hwupload_cuda,scale_cuda=w={}:h={}:format=nv12[bg]",
-        fps, canvas_w, canvas_h, canvas_w, canvas_h, canvas_w, canvas_h
+        "[1:v]scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,fps={},hwupload_cuda,scale_cuda=w={}:h={}:format=nv12[bg]",
+        canvas_w, canvas_h, canvas_w, canvas_h, fps, canvas_w, canvas_h
     );
 
     let vz_chain = format!("[bg][vid]overlay_cuda=0:{} [vz]", video_top);
@@ -260,8 +260,8 @@ pub fn build_landscape_filter_cuda(
     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
 
     let bg_chain = format!(
-        "[1:v]fps={},scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,hwupload_cuda,scale_cuda=w={}:h={}:format=nv12[bg]",
-        fps, canvas_w, canvas_h, canvas_w, canvas_h, canvas_w, canvas_h
+        "[1:v]scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,fps={},hwupload_cuda,scale_cuda=w={}:h={}:format=nv12[bg]",
+        canvas_w, canvas_h, canvas_w, canvas_h, fps, canvas_w, canvas_h
     );
 
     let vz_chain = format!("[bg][vid]overlay_cuda=0:{} [vz]", video_top);
@@ -394,9 +394,11 @@ impl EncodeParams {
         };
         let crf = match (tier, quality) {
             ("high", 360) => 26,
+            ("high", 480) => 25,
             ("high", 720) => 24,
             ("high", _) => 20,  // 1080
             ("mid", 360) => 26,
+            ("mid", 480) => 25,
             ("mid", 720) => 24,
             ("mid", _) => 20,  // 1080
             _ => 22,
@@ -536,6 +538,37 @@ pub fn probe_video_start_time(path: &std::path::Path) -> f64 {
 }
 
 
+pub fn get_bg_image_path() -> PathBuf {
+    // 1. Check relative to current executable parent directory
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let path = exe_dir.join("bg.jpg");
+            if path.exists() {
+                return path;
+            }
+            // Traverse parent directories to support dev build locations
+            let mut parent = exe_dir.parent();
+            while let Some(p) = parent {
+                let path = p.join("bg.jpg");
+                if path.exists() {
+                    return path;
+                }
+                parent = p.parent();
+            }
+        }
+    }
+    // 2. Check relative to current working directory
+    if let Ok(cwd) = std::env::current_dir() {
+        let path = cwd.join("bg.jpg");
+        if path.exists() {
+            return path;
+        }
+    }
+    // 3. Fallback to "./bg.jpg" relative to CWD
+    PathBuf::from("bg.jpg")
+}
+
+
 fn compute_cuvid_crop_resize(opts: &RenderOptions, input_path: &std::path::Path) -> Option<(String, String)> {
     let (wi, hi) = probe_video_dimensions(input_path)?;
     if wi == 0 || hi == 0 { return None; }
@@ -549,7 +582,7 @@ fn compute_cuvid_crop_resize(opts: &RenderOptions, input_path: &std::path::Path)
     canvas_h = ((canvas_h + 31) / 32) * 32;
     
     let (header_h, bottom_bar_h) = match opts.filter_chain {
-        FilterChain::Short => (canvas_h / 5, canvas_h / 10),
+        FilterChain::Short => (canvas_h * 3 / 10, canvas_h * 3 / 10),
         FilterChain::Landscape => (canvas_h / 5, 0),
     };
     let video_h = canvas_h - header_h - bottom_bar_h;
@@ -733,7 +766,10 @@ where F: FnMut(f64) + Send + 'static {
     canvas_w = ((canvas_w + 31) / 32) * 32;
     canvas_h = ((canvas_h + 31) / 32) * 32;
 
-    let (header_h, bottom_bar_h) = (canvas_h / 5, canvas_h / 10);
+    let (header_h, bottom_bar_h) = match opts.filter_chain {
+        FilterChain::Short => (canvas_h * 3 / 10, canvas_h * 3 / 10),
+        FilterChain::Landscape => (canvas_h / 5, 0),
+    };
     let video_h = canvas_h - header_h - bottom_bar_h;
 
     // Prepare real assets for Short Mode overlays if workspace database is present
@@ -843,6 +879,13 @@ where F: FnMut(f64) + Send + 'static {
 
                                 let clean_text = text.replace('"', "`\"");
                                 
+                                // Get background image modification time for cache invalidation
+                                let bg_image_path = get_bg_image_path();
+                                let bg_modified = bg_image_path.metadata()
+                                    .and_then(|m| m.modified())
+                                    .map(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs())
+                                    .unwrap_or(0);
+
                                 // Check if cache matches
                                 let mut cache_hit = false;
                                 if bottom_bar_path.exists() && cache_meta_path.exists() {
@@ -852,6 +895,7 @@ where F: FnMut(f64) + Send + 'static {
                                                 && meta_json["color"].as_str() == Some(color_hex)
                                                 && meta_json["width"].as_u64() == Some(canvas_w as u64)
                                                 && meta_json["height"].as_u64() == Some(bottom_bar_h as u64)
+                                                && meta_json["bg_modified"].as_u64() == Some(bg_modified)
                                             {
                                                 cache_hit = true;
                                                 tracing::info!("[AppState] Bottom bar cache HIT for workspace {}", opts.workspace_id);
@@ -870,6 +914,7 @@ where F: FnMut(f64) + Send + 'static {
                                     
                                     let mut ps_cmd = std::process::Command::new("powershell");
                                     let clean_bar_path = bottom_bar_path.to_string_lossy().replace('\\', "/");
+                                    let clean_bg_image_path = bg_image_path.to_string_lossy().replace('\\', "/");
                                     let ps_script = format!(
                                         r#"
                                         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -878,12 +923,20 @@ where F: FnMut(f64) + Send + 'static {
                                         $g = [System.Drawing.Graphics]::FromImage($bmp)
                                         $g.SmoothingMode = 'AntiAlias'
                                         $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAlias
-                                        $barColor = [System.Drawing.Color]::FromHtml("{color_hex}")
-                                        $brush = New-Object System.Drawing.SolidBrush($barColor)
-                                        $g.FillRectangle($brush, 0, 0, {canvas_w}, {bottom_bar_h})
-                                        $brush.Dispose()
                                         
-                                        $fontSize = [Math]::Max(24, [int]({bottom_bar_h} * 0.25))
+                                        $bgPath = "{clean_bg_image_path}"
+                                        if (Test-Path $bgPath) {{
+                                            $bgImg = [System.Drawing.Image]::FromFile($bgPath)
+                                            $g.DrawImage($bgImg, 0, 0, {canvas_w}, {bottom_bar_h})
+                                            $bgImg.Dispose()
+                                        }} else {{
+                                            $barColor = [System.Drawing.Color]::FromHtml("{color_hex}")
+                                            $brush = New-Object System.Drawing.SolidBrush($barColor)
+                                            $g.FillRectangle($brush, 0, 0, {canvas_w}, {bottom_bar_h})
+                                            $brush.Dispose()
+                                        }}
+                                        
+                                        $fontSize = [Math]::Max(36, [int]({bottom_bar_h} * 0.35))
                                         $font = New-Object System.Drawing.Font("Arial", $fontSize, [System.Drawing.FontStyle]::Bold)
                                         $sf = New-Object System.Drawing.StringFormat
                                         $sf.Alignment = [System.Drawing.StringAlignment]::Center
@@ -929,6 +982,7 @@ where F: FnMut(f64) + Send + 'static {
                                                 "color": color_hex,
                                                 "width": canvas_w,
                                                 "height": bottom_bar_h,
+                                                "bg_modified": bg_modified,
                                             });
                                             if let Ok(meta_str) = serde_json::to_string(&meta_json) {
                                                 std::fs::write(&cache_meta_path, meta_str).ok();
@@ -1281,6 +1335,7 @@ fn parse_resolution(res: &str) -> (u32, u32) {
         "1440p" => (2560, 1440),
         "1080p" => (1920, 1080),
         "720p" => (1280, 720),
+        "480p" => (854, 480),
         "360p" => (640, 360),
         _ => (1920, 1080),
     }

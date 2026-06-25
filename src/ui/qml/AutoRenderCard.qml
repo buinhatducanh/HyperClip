@@ -48,7 +48,7 @@ SettingsCard {
             Layout.preferredWidth: 180
             Layout.alignment: Qt.AlignRight
             font.pixelSize: Theme.textMd
-            model: ["1080p", "720p", "360p"]
+            model: ["1080p", "720p", "480p", "360p"]
             currentIndex: settings ? Math.max(0, model.indexOf(settings.autoRenderResolution)) : 0
             onActivated: if (settings) settings.autoRenderResolution = model[currentIndex]
         }

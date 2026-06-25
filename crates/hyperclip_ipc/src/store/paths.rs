@@ -77,6 +77,18 @@ pub fn get_settings_path() -> PathBuf {
     get_store_dir().join("settings.json")
 }
 
+pub fn get_rendered_videos_path() -> PathBuf {
+    get_store_dir().join("rendered-videos.json")
+}
+
+pub fn get_keys_path() -> PathBuf {
+    get_store_dir().join("keys.json")
+}
+
+pub fn get_projects_path() -> PathBuf {
+    get_store_dir().join("projects.json")
+}
+
 /// Media root — all channel assets organized by channel_id.
 pub fn get_media_dir() -> PathBuf {
     get_data_dir().join("media")

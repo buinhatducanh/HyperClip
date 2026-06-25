@@ -40,6 +40,12 @@ if ($LASTEXITCODE -ne 0) {
 }
 Copy-Item -Path "$ProjectRoot\target\release\hyperclip-launcher.exe" -Destination (Join-Path $PatchPath "HyperClip.exe") -Force
 
+# Copy bg.jpg to root of patch folder next to launcher
+if (Test-Path "$ProjectRoot\bg.jpg") {
+    Copy-Item -Path "$ProjectRoot\bg.jpg" -Destination $PatchPath -Force
+    Write-Host "Copied bg.jpg to root of patch." -ForegroundColor Green
+}
+
 # Copy PyInstaller app executable to app/
 Copy-Item "$BundleSource\HyperClip.exe" -Destination $PatchApp -Force
 

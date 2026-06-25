@@ -161,7 +161,7 @@ pub fn download_video_streaming<F>(
 where
     F: FnMut(DownloadProgress),
 {
-    let fmt = format!("bestvideo[height<=?{height}]+bestaudio/best[height<=?{height}]/worst", height = quality);
+    let fmt = format!("best[height<=?{height}]/bestvideo[height<=?{height}]+bestaudio/worst", height = quality);
     let clean_out = crate::store::clean_unc_path(output_path);
     let clean_cookies = crate::store::clean_unc_path(cookies_path);
     let ytdlp = find_ytdlp_path();
@@ -350,7 +350,7 @@ pub fn download_video(
     quality: u32,
     concurrent_fragments: u32,
 ) -> Result<DownloadResult, String> {
-    let fmt = format!("bestvideo[height<=?{height}]+bestaudio/best[height<=?{height}]/worst", height = quality);
+    let fmt = format!("best[height<=?{height}]/bestvideo[height<=?{height}]+bestaudio/worst", height = quality);
     let clean_out = crate::store::clean_unc_path(output_path);
     let clean_cookies = crate::store::clean_unc_path(cookies_path);
     let ytdlp = find_ytdlp_path();
