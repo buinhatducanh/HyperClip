@@ -90,11 +90,24 @@ SettingsCard {
     }
 
     // ─── Activity list ───────────────────────────────────────
-    Label {
-        text: "LỊCH SỬ PHÁT HIỆN"
-        color: Theme.textMuted
-        font.pixelSize: 15; font.bold: true
+    RowLayout {
+        Layout.fillWidth: true
         Layout.topMargin: 2
+        
+        Label {
+            text: "LỊCH SỬ PHÁT HIỆN"
+            color: Theme.textMuted
+            font.pixelSize: 15; font.bold: true
+            Layout.fillWidth: true
+        }
+
+        IconButton {
+            iconName: "delete"
+            label: "Dọn lịch sử"
+            iconSize: 12
+            Layout.minimumWidth: 100
+            onClicked: detectionHistory.clear()
+        }
     }
 
     ListView {

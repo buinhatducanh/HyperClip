@@ -18,6 +18,7 @@ class ChannelListModel(QAbstractListModel):
     AvatarColorRole = Qt.UserRole + 5
     NewCountRole = Qt.UserRole + 6
     PausedRole = Qt.UserRole + 7
+    HandleRole = Qt.UserRole + 8
 
     PALETTE = ["#00B4FF", "#00FF88", "#FF6B6B", "#FFD93D", "#A78BFA", "#FB7185", "#34D399"]
 
@@ -143,6 +144,8 @@ class ChannelListModel(QAbstractListModel):
             return int(ch.get("newCount", 0))
         if role == self.PausedRole:
             return bool(ch.get("paused", False))
+        if role == self.HandleRole:
+            return ch.get("handle", "")
         return None
 
     def roleNames(self):
@@ -154,6 +157,7 @@ class ChannelListModel(QAbstractListModel):
             self.AvatarColorRole: QByteArray(b"avatarColor"),
             self.NewCountRole: QByteArray(b"newCount"),
             self.PausedRole: QByteArray(b"paused"),
+            self.HandleRole: QByteArray(b"handle"),
         }
 
     def _rebuild_index(self):
@@ -170,6 +174,8 @@ class ChannelListModel(QAbstractListModel):
     def load_from_backend(self, backend):
         try:
             resp = backend.send_command("channel:list")
+            if not resp or not resp.get("ok"):
+                return
             channels = resp.get("result", {}).get("channels", [])
             self.beginResetModel()
             self._items = list(channels)
@@ -191,15 +197,11 @@ class ChannelListModel(QAbstractListModel):
 
     @Slot(str)
     def remove_channel(self, channel_id: str):
-        for i, ch in enumerate(self._items):
-            if ch.get("id") == channel_id or ch.get("channelId") == channel_id:
-                self.beginResetModel()
-                del self._items[i]
-                self._rebuild_index()
-                self._apply_filter_and_pagination()
-                self.endResetModel()
-                self.paginationChanged.emit()
-                return
+        from src.backend.client import get_client
+        client = get_client()
+        if client:
+            client.send_command("channel:remove", {"id": channel_id})
+            self.load_from_backend(client)
 
     @Slot(str)
     def toggle_pause(self, channel_id: str):

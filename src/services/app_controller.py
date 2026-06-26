@@ -78,7 +78,14 @@ class AppController(QObject):
         self.poller_timer.timeout.connect(self._poll_poller)
         self.poller_timer.start()
 
-        # 4. Auto-start poller check (single-shot after 1s)
+        # 4. Resilient refresh timer — reloads from disk/backend every 10s
+        #    to recover after TCP EOF or missed push events.
+        self.refresh_timer = QTimer(self)
+        self.refresh_timer.setInterval(10000)
+        self.refresh_timer.timeout.connect(self._periodic_refresh)
+        self.refresh_timer.start()
+
+        # 5. Auto-start poller check (single-shot after 1s)
         QTimer.singleShot(1000, self._auto_start_poller)
 
     def _on_workspace_updated(self, d):
@@ -256,6 +263,33 @@ class AppController(QObject):
         if self.client:
             self.poller_model.refresh_from_backend(self.client)
             self.auth_model.refresh_from_backend(self.client)
+
+    def _periodic_refresh(self):
+        """Recover UI state after TCP EOF or missed push events.
+
+        Rust persists detection history to data/history.json on every detection,
+        but Python's DetectionHistoryModel only receives new entries via the
+        new_video_detected push event. When the TCP connection drops (TCP EOF
+        happens ~96s after startup during debugging restarts), Python's reader
+        thread exits silently and no further events arrive — leaving the UI
+        stale even though detections continue on the Rust side.
+
+        This 10s timer re-reads history.json (the source of truth on disk)
+        so the PollerPanel catches up automatically. WorkspaceModel gets a
+        full backend refresh since its state is also event-driven.
+        """
+        if not self.client:
+            return
+        # Reload detection history from disk (source of truth after TCP drops)
+        try:
+            self.detection_history_model.load_from_disk(self.workspace_model)
+        except Exception:
+            pass
+        # Refresh workspace list in case any workspace:update events were missed
+        try:
+            self.workspace_model.load_from_backend(self.client)
+        except Exception:
+            pass
 
     def _on_settings_saved(self):
         if self.client:

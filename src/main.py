@@ -2,13 +2,35 @@
 import sys
 import os
 os.environ["QT_QUICK_CONTROLS_STYLE"] = "Fusion"
-from PySide6.QtCore import QUrl, Qt
+from PySide6.QtCore import QUrl, Qt, qInstallMessageHandler, QtMsgType
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtGui import QGuiApplication, QIcon, QPalette, QColor
 from src.backend.events import get_event_bus
 from src.backend.client import get_client
 from src.services.app_controller import AppController
 
+
+def qt_message_handler(msg_type, context, message):
+    if "QQuickImage: Error transferring" in message:
+        return
+
+    is_qml = (
+        context.category == "qml" or
+        message.startswith("file://") or
+        message.startswith("qrc:/") or
+        message.startswith("<Unknown File>") or
+        "QML" in message
+    )
+
+    if is_qml:
+        sys.stderr.write(f"[QML] {message}\n")
+    else:
+        category = context.category
+        if category and category != "default":
+            sys.stderr.write(f"{category}: {message}\n")
+        else:
+            sys.stderr.write(f"{message}\n")
+    sys.stderr.flush()
 
 
 def main():
@@ -36,6 +58,7 @@ def main():
             sys.stderr.flush()
 
     app = QGuiApplication(sys.argv)
+    qInstallMessageHandler(qt_message_handler)
 
     # ─── Apply global dark QPalette for Fusion QML components ─────
     dark_palette = QPalette()
@@ -112,12 +135,6 @@ def main():
     else:
         qml_dir = "src/ui/qml"
 
-    def on_qml_warnings(warnings):
-        for w in warnings:
-            sys.stderr.write(f"[QML] {w.toString()}\n")
-            sys.stderr.flush()
-
-    engine.warnings.connect(on_qml_warnings)
     engine.addImportPath(os.path.abspath(qml_dir))
     qml_main = os.path.abspath(os.path.join(qml_dir, "main.qml"))
     engine.load(QUrl.fromLocalFile(qml_main))

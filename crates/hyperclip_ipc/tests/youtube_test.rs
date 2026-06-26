@@ -59,3 +59,14 @@ fn test_build_ytdlp_args_default_priority_is_passed() {
     assert!(args.iter().any(|a| a.contains("tv_embedded,web,ios")), "Should contain default priority: {:?}", args);
 }
 
+#[test]
+fn test_get_youtube_client_priority_default() {
+    let rand_id = rand::random::<u32>();
+    let temp_path = std::env::temp_dir().join(format!("hyperclip_test_{}", rand_id));
+    std::env::set_var("HYPERCLIP_DATA_DIR", &temp_path);
+    let priority = hyperclip_ipc::youtube::get_youtube_client_priority();
+    assert_eq!(priority, "tv_embedded,web,ios");
+    std::env::remove_var("HYPERCLIP_DATA_DIR");
+}
+
+

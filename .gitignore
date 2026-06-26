@@ -51,3 +51,7 @@ package-lock.json
 HyperClip-Patch-*/
 HyperClip-Patch-*
 
+# Scratch and temporary directories
+scratch/
+app/
+*.log

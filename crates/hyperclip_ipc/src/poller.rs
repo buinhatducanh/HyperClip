@@ -126,8 +126,9 @@ impl Poller {
     }
 
     pub fn next_poll_delay_ms(base_ms: u64) -> u64 {
-        let jitter = (base_ms as f64 * 0.2) as u64;
-        base_ms + rand::thread_rng().gen_range(0..=jitter)
+        let jitter = (base_ms as f64 * 0.2) as i64;
+        let delay = base_ms as i64 + rand::thread_rng().gen_range(-jitter..=jitter);
+        delay.max(0) as u64
     }
 
     pub fn is_within_age_limit(published_at: i64, now_ms: i64, max_age_ms: i64) -> bool {
@@ -238,33 +239,59 @@ impl Poller {
                     match cc.client.get_latest_videos(&lookup_id, &cc.cookie).await {
                         Ok(videos) => {
                             tracing::info!("[Poller] get_latest_videos returned {} videos for {cid}", videos.len());
+                            // Debug: log ALL video IDs + published_at to trace why all videos are skipped
+                            for v in videos.iter().take(15) {
+                                let age_sec = (now_ms - v.published_at) / 1000;
+                                tracing::info!(
+                                    "[Poller]   id={} published_at={} age={}s duration={}s",
+                                    v.video_id, v.published_at, age_sec, v.duration_sec,
+                                );
+                            }
                             poller.pool.return_client(session_idx, cc.client);
                             poller.pool.mark_success(session_idx);
 
                             polled_successfully.lock().unwrap().insert(cid.clone());
 
-                            for (index, video) in videos.iter().enumerate() {
+                            // Strict age filter — applies to ALL videos including top-1 of newly-added channels.
+                            // Rationale: auto-download should never pull historical videos just because
+                            // the channel is new. Users can manually download old content via the UI.
+                            for video in &videos {
                                 let seen_videos = poller.seen_videos.read().await;
                                 let is_seen = seen_videos.is_any_seen(&video.video_id);
-                                let channel_seen_exists = seen_videos.channels.get(&cid)
-                                    .map(|entry| !entry.ids.is_empty())
-                                    .unwrap_or(false);
                                 drop(seen_videos);
 
-                                if is_seen { continue; }
-                                
-                                let bypass_age_limit = !channel_seen_exists && index == 0;
-                                if !bypass_age_limit && !Self::is_within_age_limit(video.published_at, now_ms, max_age_ms) {
+                                if is_seen {
+                                    tracing::debug!("[Poller] Skip {} for {cid}: already seen", video.video_id);
+                                    continue;
+                                }
+
+                                if !Self::is_within_age_limit(video.published_at, now_ms, max_age_ms) {
+                                    let age_sec = (now_ms - video.published_at) / 1000;
+                                    tracing::info!(
+                                        "[Poller] Skip {} for {cid}: age {}s outside limit {}s (published_at={})",
+                                        video.video_id, age_sec, max_age_ms / 1000, video.published_at,
+                                    );
                                     continue;
                                 }
                                 if video.width > 0 && video.height > 0 {
                                     let ratio = video.width as f64 / video.height as f64;
-                                    if ratio < 0.6 { continue; }
+                                    if ratio < 0.6 {
+                                        tracing::debug!(
+                                            "[Poller] Skip {} for {cid}: vertical ratio {ratio}",
+                                            video.video_id,
+                                        );
+                                        continue;
+                                    }
                                 }
 
                                 let mut seen_videos = poller.seen_videos.write().await;
                                 seen_videos.mark_seen(&cid, &video.video_id);
                                 drop(seen_videos);
+
+                                tracing::info!(
+                                    "[Poller] NEW VIDEO detected: {} for {cid} (published_at={}, duration={}s)",
+                                    video.video_id, video.published_at, video.duration_sec,
+                                );
 
                                 let event = NewVideoEvent {
                                     channel_id: cid.clone(), channel_name: channel.name.clone(),
@@ -386,7 +413,7 @@ impl Poller {
 mod tests {
     use super::*;
     #[test]
-    fn test_jitter() { for _ in 0..100 { let d = Poller::next_poll_delay_ms(5000); assert!(d>=4000&&d<=6000); } }
+    fn test_jitter() { for _ in 0..100 { let d = Poller::next_poll_delay_ms(5000); assert!(d>=4000&&d<=6000, "got {d}"); } }
     #[test]
     fn test_age_under() { assert!(Poller::is_within_age_limit(1700000000000-5*60*1000, 1700000000000, 10*60*1000)); }
     #[test]
@@ -401,5 +428,19 @@ mod tests {
     fn test_age_drift() {
         assert!(Poller::is_within_age_limit(1700000000000+2*60*1000, 1700000000000, 10*60*1000)); // Future published_at (clock drift)
         assert!(!Poller::is_within_age_limit(1700000000000+6*60*1000, 1700000000000, 10*60*1000)); // Too far in the future
+    }
+
+    // Regression: a 1-month-old top-1 video from a newly-added channel must NOT pass the
+    // age filter. The "bypass_age_limit" catch-up logic was removed because it caused
+    // unwanted auto-downloads of historical content.
+    #[test]
+    fn test_new_channel_old_top_video_is_rejected() {
+        let now_ms: i64 = 1_700_000_000_000;
+        let max_age_ms: i64 = 60 * 60 * 1000; // 60 minutes
+        let one_month_old_ms: i64 = now_ms - 30 * 24 * 60 * 60 * 1000;
+        assert!(
+            !Poller::is_within_age_limit(one_month_old_ms, now_ms, max_age_ms),
+            "1-month-old video must fail 60-min age filter even for newly-added channels"
+        );
     }
 }

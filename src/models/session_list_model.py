@@ -70,6 +70,8 @@ class SessionListModel(QAbstractListModel):
             return
         try:
             resp = backend.send_command("session:status")
+            if not resp or not resp.get("ok"):
+                return
             result = resp.get("result", {})
             sessions = list(result.get("sessions", []))
             if self._ids_identical(sessions):

@@ -229,7 +229,7 @@ pub fn build_render_path(channel_id: &str, channel_name: &str, ws_id: &str) -> P
         }
         sanitize_dir_name(&resolved)
     } else if total_parts >= 2 && !part_val.is_empty() {
-        format!("part {}", part_val)
+        sanitize_dir_name(&format!("{}_part{}", title_val, part_val))
     } else {
         sanitize_dir_name(&title_val)
     };

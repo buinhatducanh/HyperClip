@@ -27,11 +27,24 @@ Rectangle {
         anchors.margins: 6
         spacing: 4
 
-        // ─── Status filter pills ────────────────────────────────
-        FilterPills {
+        // ─── Status filter pills & Clear button ─────────────────
+        RowLayout {
             Layout.fillWidth: true
-            current: root.statusFilter
-            onFilterChanged: function(v) { root.statusFilter = v }
+            spacing: 6
+
+            FilterPills {
+                Layout.fillWidth: true
+                current: root.statusFilter
+                onFilterChanged: function(v) { root.statusFilter = v }
+            }
+
+            IconButton {
+                iconName: "delete"
+                label: "Dọn queue"
+                iconSize: 12
+                Layout.alignment: Qt.AlignVCenter
+                onClicked: workspaceModel.clear_finished(backend)
+            }
         }
 
         Rectangle {

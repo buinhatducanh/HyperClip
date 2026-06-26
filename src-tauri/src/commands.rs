@@ -129,10 +129,39 @@ impl AppState {
             let processing_video_ids = Arc::new(std::sync::Mutex::new(std::collections::HashSet::<String>::new()));
 
             // Process function: runs for each new video detected by the poller
-            let _channels_clone = channels.clone();
+            let channels_clone = channels.clone();
             let seen_videos_clone = seen_videos.clone();
             let processing_video_ids_clone = processing_video_ids.clone();
-            let process_fn = move |event: NewVideoEvent| {
+            let process_fn = move |mut event: NewVideoEvent| {
+                // Resolve YouTube channel ID (UC...) to database channel ID (ch...) and name if needed
+                if event.channel_id.is_empty() || event.channel_id.starts_with("UC") {
+                    let channels_guard = channels_clone.try_read();
+                    if let Ok(guard) = &channels_guard {
+                        if let Some(chan) = guard.iter().find(|c| {
+                            !c.channel_id.is_empty() && c.channel_id == event.channel_id
+                        }) {
+                            event.channel_id = chan.id.clone();
+                            event.channel_name = chan.name.clone();
+                        } else if event.channel_id.is_empty() {
+                            event.channel_id = "unknown".to_string();
+                            event.channel_name = "unknown".to_string();
+                        }
+                    } else {
+                        // Fallback: load directly from disk if the lock is somehow held
+                        let ch_path = get_channels_path();
+                        let ch_store = ChannelStore::load(&ch_path);
+                        if let Some(chan) = ch_store.channels.iter().find(|c| {
+                            let cid = c.channel_id.as_deref().unwrap_or("");
+                            !cid.is_empty() && cid == event.channel_id
+                        }) {
+                            event.channel_id = chan.id.clone();
+                            event.channel_name = chan.name.clone();
+                        } else if event.channel_id.is_empty() {
+                            event.channel_id = "unknown".to_string();
+                            event.channel_name = "unknown".to_string();
+                        }
+                    }
+                }
                 // Thread-safe lock to prevent concurrent ingestion of the exact same video ID
                 {
                     let mut guard = processing_video_ids_clone.lock().unwrap();
@@ -549,7 +578,7 @@ impl AppState {
             let poll_interval_ms = s_store.settings
                 .get("pollIntervalMs")
                 .and_then(|v| v.as_u64())
-                .unwrap_or(5000) as u64;
+                .unwrap_or(3000) as u64;
             let min_duration_sec = s_store.settings
                 .get("videoMinDurationSec")
                 .and_then(|v| v.as_u64())
@@ -789,7 +818,7 @@ impl AppState {
         let poll_interval_ms = s_store.settings
             .get("pollIntervalMs")
             .and_then(|v| v.as_u64())
-            .unwrap_or(5000) as u64;
+            .unwrap_or(3000) as u64;
         let max_age_minutes = s_store.settings
             .get("autoDownloadMaxAgeMinutes")
             .and_then(|v| v.as_u64())
@@ -1470,7 +1499,12 @@ fn launch_chrome_profile_async(profile_id: &str) {
                         } else {
                             format!("@{}", ch.handle)
                         };
-                        urls.push(format!("https://www.youtube.com/{}/videos", handle));
+                        let clean_handle = handle.trim_start_matches('@');
+                        if clean_handle.starts_with("UC") && clean_handle.len() == 24 {
+                            urls.push(format!("https://www.youtube.com/channel/{}/videos", clean_handle));
+                        } else {
+                            urls.push(format!("https://www.youtube.com/{}/videos", handle));
+                        }
                     } else if let Some(ref channel_id) = ch.channel_id {
                         if !channel_id.is_empty() {
                             urls.push(format!("https://www.youtube.com/channel/{}/videos", channel_id));
@@ -2552,28 +2586,39 @@ pub fn get_resolved_hardware_config() -> ResolvedHardwareConfig {
     }
 
     // Cap workers and fragment limits based on physical RAM to prevent OOM
-    let ram_total_gb = (stats.ram_total / (1024 * 1024 * 1024)) as usize;
+    let ram_total_gb = if let Some(profile) = s_store.settings.get("hardwareProfile") {
+        profile.get("ramGB").and_then(|v| v.as_u64()).map(|r| r as usize).unwrap_or((stats.ram_total / (1024 * 1024 * 1024)) as usize)
+    } else {
+        (stats.ram_total / (1024 * 1024 * 1024)) as usize
+    };
+
     if ram_total_gb > 0 {
         if ram_total_gb < 16 {
             render_workers = render_workers.min(1);
             chunk_workers = chunk_workers.min(2);
             download_instances = download_instances.min(1);
             concurrent_fragments = concurrent_fragments.min(8);
-        } else if ram_total_gb < 24 {
-            render_workers = render_workers.min(2);
-            chunk_workers = chunk_workers.min(4);
-            download_instances = download_instances.min(2);
-            concurrent_fragments = concurrent_fragments.min(16);
-        } else if ram_total_gb < 32 {
-            render_workers = render_workers.min(3);
-            chunk_workers = chunk_workers.min(6);
-            download_instances = download_instances.min(2);
-            concurrent_fragments = concurrent_fragments.min(16);
-        } else if ram_total_gb < 48 {
-            render_workers = render_workers.min(4);
-            chunk_workers = chunk_workers.min(8);
-            download_instances = download_instances.min(3);
-            concurrent_fragments = concurrent_fragments.min(32);
+        } else {
+            // RAM >= 16GB: Ensure at least 4 download instances and 32 concurrent fragments
+            download_instances = download_instances.max(4);
+            concurrent_fragments = concurrent_fragments.max(32);
+
+            if ram_total_gb < 24 {
+                render_workers = render_workers.min(2);
+                chunk_workers = chunk_workers.min(4);
+                download_instances = download_instances.min(4);
+                concurrent_fragments = concurrent_fragments.min(32);
+            } else if ram_total_gb < 32 {
+                render_workers = render_workers.min(3);
+                chunk_workers = chunk_workers.min(6);
+                download_instances = download_instances.min(4);
+                concurrent_fragments = concurrent_fragments.min(32);
+            } else if ram_total_gb < 48 {
+                render_workers = render_workers.min(4);
+                chunk_workers = chunk_workers.min(8);
+                download_instances = download_instances.min(6);
+                concurrent_fragments = concurrent_fragments.min(32);
+            }
         }
     }
 

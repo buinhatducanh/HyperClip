@@ -352,20 +352,15 @@ impl OAuthFallbackDetector {
                 .map(|d| d.as_secs() as i64)
                 .unwrap_or(0);
 
-            let channel_seen_exists = seen_videos.channels.get(channel_id)
-                .map(|entry| !entry.ids.is_empty())
-                .unwrap_or(false);
-
-            for (index, video) in videos.into_iter().enumerate() {
+            // Strict age filter — same rationale as poller.rs: never auto-process
+            // historical videos from newly-added channels.
+            for video in videos {
                 if seen_videos.is_any_seen(&video.video_id) {
                     continue;
                 }
-                let bypass_age_limit = !channel_seen_exists && index == 0;
-                if !bypass_age_limit {
-                    let age_sec = now_sec - video.published_at / 1000;
-                    if age_sec > max_age_minutes as i64 * 60 {
-                        continue;
-                    }
+                let age_sec = now_sec - video.published_at / 1000;
+                if age_sec > max_age_minutes as i64 * 60 {
+                    continue;
                 }
                 all_new.push(video);
             }
@@ -463,6 +458,7 @@ impl OAuthFallbackDetector {
                     duration_sec: 0.0,
                     width: 0,
                     height: 0,
+                    channel_id: None,
                 });
             }
         }

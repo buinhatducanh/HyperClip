@@ -65,6 +65,8 @@ class ProjectListModel(QAbstractListModel):
             return
         try:
             resp = backend.send_command("project:list")
+            if not resp or not resp.get("ok"):
+                return
             projects = resp.get("result", [])
             if not isinstance(projects, list):
                 projects = []

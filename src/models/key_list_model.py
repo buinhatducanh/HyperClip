@@ -72,6 +72,8 @@ class KeyListModel(QAbstractListModel):
             return
         try:
             resp = backend.send_command("key:list")
+            if not resp or not resp.get("ok"):
+                return
             keys = resp.get("result", [])
             if not isinstance(keys, list):
                 keys = []
