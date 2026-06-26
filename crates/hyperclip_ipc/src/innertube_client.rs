@@ -58,6 +58,10 @@ struct NodeVideo {
     thumbnail_url: String,
     #[serde(rename = "durationSec", default)]
     duration_sec: f64,
+    #[serde(rename = "channelId", default)]
+    channel_id: Option<String>,
+    #[serde(rename = "channelName", default)]
+    channel_name: Option<String>,
 }
 
 /// A persistent Node.js worker that communicates via stdin/stdout.
@@ -480,6 +484,8 @@ impl InnertubeClient {
                                     duration_sec: v.duration_sec,
                                     width: 0,
                                     height: 0,
+                                    channel_id: v.channel_id,
+                                    channel_name: v.channel_name,
                                 })
                                 .collect();
                             tracing::info!(
@@ -562,6 +568,8 @@ impl InnertubeClient {
                                     duration_sec: v.duration_sec,
                                     width: 0,
                                     height: 0,
+                                    channel_id: v.channel_id,
+                                    channel_name: v.channel_name,
                                 })
                                 .collect();
                             return Ok(videos);

@@ -62,8 +62,7 @@ class DetectionHistoryModel(QAbstractListModel):
                             ws_status = ws_map[ws_id].get("status")
                             if ws_status:
                                 dl["status"] = ws_status
-                                if ws_map[ws_id].get("error"):
-                                    dl["error"] = ws_map[ws_id].get("error")
+                                dl["error"] = ws_map[ws_id].get("error") or ""
 
                 self._today_count = self._count_today()
                 self.endResetModel()
@@ -193,7 +192,7 @@ class DetectionHistoryModel(QAbstractListModel):
             self.DetectedDateStrRole: QByteArray(b"detectedDateStr"),
         }
 
-    @Slot(str, str, str, int, int, float, str)
+    @Slot(str, str, str, str, int, int, float, str)
     def add_detection(self, ws_id: str, video_id: str, title: str, channel_name: str,
                       published_at: int, detected_at: int, duration_sec: float, status: str):
         latency = detected_at - published_at
@@ -243,6 +242,9 @@ class DetectionHistoryModel(QAbstractListModel):
             data["downloadStartAt"] = now_ms
         elif status == "ready" and old_status != "ready":
             data["downloadCompleteAt"] = now_ms
+
+        if status in ("downloading", "rendering", "ready", "done"):
+            data["error"] = ""
 
         data["status"] = status
         self._today_count = max(self._today_count, self._count_today())

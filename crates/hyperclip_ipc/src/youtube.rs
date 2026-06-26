@@ -47,7 +47,7 @@ pub fn get_youtube_client_priority() -> String {
         }
     }
 
-    "android,ios,web,tv_embedded".to_string()
+    "ios,android,tv_embedded,web".to_string()
 }
 
 #[derive(Debug, Clone)]
@@ -210,12 +210,11 @@ where
         trim_minutes > 0
     };
 
-    // Optimization: bypass download sections if video quality is <= 360p or duration is <= 15 minutes (900s)
-    // because multi-threaded download of the whole file + local FFmpeg copy-trim is much faster than single-threaded download-sections.
+    // Optimization: bypass download sections if the entire video is to be downloaded
     if use_download_sections {
-        let is_short_or_low_quality = quality <= 360 || actual_duration_sec.map(|dur| dur <= 900).unwrap_or(trim_minutes <= 15);
-        if is_short_or_low_quality {
-            tracing::info!("[Youtube] Bypassing --download-sections for low quality/short duration video (quality: {}p, duration: {:?}s, trim: {}m). Using fast multi-threaded download + local trim.", quality, actual_duration_sec, trim_minutes);
+        let is_entire_video = actual_duration_sec.map(|dur| dur > 0 && dur <= (trim_minutes * 60) as u64).unwrap_or(false);
+        if is_entire_video {
+            tracing::info!("[Youtube] Bypassing --download-sections because the entire video is to be downloaded (duration: {:?}s, trim: {}m).", actual_duration_sec, trim_minutes);
             use_download_sections = false;
         }
     }
@@ -415,12 +414,11 @@ pub fn download_video(
         trim_minutes > 0
     };
 
-    // Optimization: bypass download sections if video quality is <= 360p or duration is <= 15 minutes (900s)
-    // because multi-threaded download of the whole file + local FFmpeg copy-trim is much faster than single-threaded download-sections.
+    // Optimization: bypass download sections if the entire video is to be downloaded
     if use_download_sections {
-        let is_short_or_low_quality = quality <= 360 || actual_duration_sec.map(|dur| dur <= 900).unwrap_or(trim_minutes <= 15);
-        if is_short_or_low_quality {
-            tracing::info!("[Youtube] Bypassing --download-sections for low quality/short duration video (quality: {}p, duration: {:?}s, trim: {}m). Using fast multi-threaded download + local trim.", quality, actual_duration_sec, trim_minutes);
+        let is_entire_video = actual_duration_sec.map(|dur| dur <= (trim_minutes * 60) as u64).unwrap_or(false);
+        if is_entire_video {
+            tracing::info!("[Youtube] Bypassing --download-sections because the entire video is to be downloaded (duration: {:?}s, trim: {}m).", actual_duration_sec, trim_minutes);
             use_download_sections = false;
         }
     }

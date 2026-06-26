@@ -71,7 +71,7 @@ impl ChromeTabWatcher {
         tracing::info!(
             "[ChromeWatcher] Started — polling 127.0.0.1:{} every 500ms (channel check throttled to {}ms)",
             self.port,
-            std::cmp::min(3000, self.poll_interval_ms.load(std::sync::atomic::Ordering::Relaxed))
+            std::cmp::min(1500, self.poll_interval_ms.load(std::sync::atomic::Ordering::Relaxed))
         );
 
         loop {
@@ -165,7 +165,7 @@ impl ChromeTabWatcher {
         });
 
         if has_channel_tabs {
-            let poll_interval = std::cmp::min(3000, self.poll_interval_ms.load(std::sync::atomic::Ordering::Relaxed));
+            let poll_interval = std::cmp::min(1500, self.poll_interval_ms.load(std::sync::atomic::Ordering::Relaxed));
             let should_check = {
                 let mut last = self.last_channel_check.lock().unwrap();
                 if last.elapsed() >= std::time::Duration::from_millis(poll_interval) {
@@ -259,8 +259,8 @@ impl ChromeTabWatcher {
                                     );
 
                                     let event = NewVideoEvent {
-                                        channel_id: String::new(),
-                                        channel_name: String::new(),
+                                        channel_id: v.channel_id.clone().unwrap_or_default(),
+                                        channel_name: v.channel_name.clone().unwrap_or_default(),
                                         video_id: v.video_id.clone(),
                                         title: v.title.clone(),
                                         thumbnail_url: format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", v.video_id),

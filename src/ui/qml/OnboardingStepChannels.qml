@@ -41,15 +41,15 @@ Item {
                 newCount: model.newCount
                 onPauseClicked: {
                     if (model.paused) {
-                        backend.send_command("channel:resume", {"id": model.channelId})
+                        backend.send_command("channel:resume", {"id": model.id})
                         if (toastService) toastService.show("Kênh đã tiếp tục", model.name, "info")
                     } else {
-                        backend.send_command("channel:pause", {"id": model.channelId})
+                        backend.send_command("channel:pause", {"id": model.id})
                         if (toastService) toastService.show("Kênh đã tạm dừng", model.name, "info")
                     }
-                    channelListModel.toggle_pause(model.channelId)
+                    channelListModel.toggle_pause(model.id)
                 }
-                onDeleteClicked: confirmDelete.openFor(model.channelId, model.name, function(id, name) {
+                onDeleteClicked: confirmDelete.openFor(model.id, model.name, function(id, name) {
                     backend.send_command("channel:remove", {"id": id})
                     activityModel.add_entry("channel", "Đã xóa: " + name, "info")
                     channelListModel.remove_channel(id)

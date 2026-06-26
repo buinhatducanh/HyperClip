@@ -23,6 +23,7 @@ class WorkspaceModel(QAbstractListModel):
     ErrorRole = Qt.UserRole + 16
     OriginalDurationRole = Qt.UserRole + 17
     OriginalQualityRole = Qt.UserRole + 18
+    ChannelIdRole = Qt.UserRole + 19
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -152,6 +153,8 @@ class WorkspaceModel(QAbstractListModel):
                 return int(val)
             except (ValueError, TypeError):
                 return 0
+        if role == self.ChannelIdRole:
+            return ws.get("channelId") or ws.get("channel_id") or ""
         return None
 
     def roleNames(self):
@@ -174,6 +177,7 @@ class WorkspaceModel(QAbstractListModel):
             self.ErrorRole: QByteArray(b"error"),
             self.OriginalDurationRole: QByteArray(b"originalDurationSec"),
             self.OriginalQualityRole: QByteArray(b"originalQuality"),
+            self.ChannelIdRole: QByteArray(b"channelId"),
         }
 
     # ── Index maintenance ──────────────────────────────────────────
@@ -194,6 +198,7 @@ class WorkspaceModel(QAbstractListModel):
                     "title": ws.get("title", ""),
                     "progress": ws.get("progress"),
                     "channel_name": ws.get("channelName", ""),
+                    "channelId": ws.get("channelId") or ws.get("channel_id") or "",
                     "thumbnail": ws.get("thumbnailLocal", "") or ws.get("thumbnail", "") or ws.get("thumbnailUrl", ""),
                     "created_at": ws.get("createdAt", 0),
                     "published_at": ws.get("publishedAt", 0),
@@ -265,6 +270,8 @@ class WorkspaceModel(QAbstractListModel):
                     normalized["durationSec"] = v
                 elif k in ("channelName", "channel_name"):
                     normalized["channel_name"] = v
+                elif k in ("channelId", "channel_id"):
+                    normalized["channelId"] = v
                 elif k in ("createdAt", "created_at"):
                     normalized["created_at"] = v
                 elif k in ("publishedAt", "published_at"):
@@ -284,7 +291,8 @@ class WorkspaceModel(QAbstractListModel):
                 self.RenderedRole, self.DurationRole, self.QualityRole,
                 self.SpeedRole, self.FileSizeRole, self.IsShortRole,
                 self.BottomBarColorRole, self.ErrorRole,
-                self.OriginalDurationRole, self.OriginalQualityRole
+                self.OriginalDurationRole, self.OriginalQualityRole,
+                self.ChannelIdRole
             ])
             self.activeTasksChanged.emit()
             return

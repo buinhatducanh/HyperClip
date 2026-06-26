@@ -6,6 +6,7 @@ const { Innertube } = require('youtubei.js');
 
 let yt = null;
 let currentCookie = '';
+const resolvedChannelCache = new Map(); // '@handle' -> 'UC...'
 
 async function ensureClient(cookieStr) {
   // Reuse existing client if cookie hasn't changed
@@ -18,16 +19,28 @@ async function ensureClient(cookieStr) {
 async function resolveChannelId(yt, rawId) {
   const id = rawId.replace(/^@/, '');
   if (id.startsWith('UC') && id.length >= 22) return id;
+  const cacheKey = '@' + id.toLowerCase();
+  if (resolvedChannelCache.has(cacheKey)) {
+    return resolvedChannelCache.get(cacheKey);
+  }
   try {
     const results = await yt.search(id);
-    if (results.channels?.[0]?.id) return results.channels[0].id;
+    if (results.channels?.[0]?.id) {
+      const UC = results.channels[0].id;
+      resolvedChannelCache.set(cacheKey, UC);
+      return UC;
+    }
   } catch (_) {}
   try {
     const resp = await fetch(`https://www.youtube.com/@${id}`);
     if (resp.ok) {
       const html = await resp.text();
       const m = html.match(/\/channel\/(UC[\w-]{20,})/);
-      if (m) return m[1];
+      if (m) {
+        const UC = m[1];
+        resolvedChannelCache.set(cacheKey, UC);
+        return UC;
+      }
     }
   } catch (_) {}
   return rawId;
@@ -37,18 +50,34 @@ async function resolveChannelId(yt, rawId) {
 
 function parseRelativeTime(text) {
   if (!text) return 0;
-  const m = text.match(/(\d+)\s*(seconds?|minutes?|hours?|days?|weeks?|months?|years?|giây|phút|giờ|ngày|tuần|tháng|năm)\b/i);
+  const cleanText = text.replace(/\u00a0/g, ' ').trim();
+  const m = cleanText.match(/(\d+)\s*([a-zA-Z\u00C0-\u1EF9]+)/);
   if (m) {
-    const now = Math.floor(Date.now() / 1000);
     const val = parseInt(m[1], 10);
     const unit = m[2].toLowerCase();
-    if      (unit.startsWith('second') || unit.startsWith('giây')) return now - val;
-    else if (unit.startsWith('minute') || unit.startsWith('phút')) return now - val * 60;
-    else if (unit.startsWith('hour')   || unit.startsWith('giờ'))  return now - val * 3600;
-    else if (unit.startsWith('day')    || unit.startsWith('ngày')) return now - val * 86400;
-    else if (unit.startsWith('week')   || unit.startsWith('tuần')) return now - val * 604800;
-    else if (unit.startsWith('month')  || unit.startsWith('tháng')) return now - val * 2592000;
-    else if (unit.startsWith('year')   || unit.startsWith('năm'))  return now - val * 31536000;
+    const now = Math.floor(Date.now() / 1000);
+    
+    if (unit.startsWith('second') || unit.startsWith('sec') || unit.startsWith('giây')) {
+      return now - val;
+    }
+    if (unit.startsWith('minute') || unit.startsWith('min') || unit.startsWith('phút')) {
+      return now - val * 60;
+    }
+    if (unit.startsWith('hour') || unit.startsWith('hr') || unit.startsWith('giờ')) {
+      return now - val * 3600;
+    }
+    if (unit.startsWith('day') || unit.startsWith('ngày')) {
+      return now - val * 86400;
+    }
+    if (unit.startsWith('week') || unit.startsWith('wk') || unit.startsWith('tuần')) {
+      return now - val * 604800;
+    }
+    if (unit.startsWith('month') || unit.startsWith('mo') || unit.startsWith('tháng')) {
+      return now - val * 2592000;
+    }
+    if (unit.startsWith('year') || unit.startsWith('yr') || unit.startsWith('năm')) {
+      return now - val * 31536000;
+    }
   }
   return 0;
 }
@@ -91,33 +120,47 @@ function extractDurationFromLockup(lv) {
 function extractFromLockupView(lv) {
   const videoId = lv.content_id;
   if (!videoId) return null;
-  const title = lv.metadata?.title?.text || '';
-  let publishedAt = 0;
-  const md = lv.metadata?.metadata;
-  if (md?.metadata_rows) {
-    for (const row of md.metadata_rows) {
-      if (!row?.metadata_parts) continue;
-      for (const part of row.metadata_parts) {
-        const text = (part.text && part.text.text) || '';
-        if (publishedAt) continue;
-        const parsed = parseRelativeTime(text);
-        if (parsed > 0) publishedAt = parsed;
+  
+  const title = lv.metadata?.lockupMetadataViewModel?.title?.content || lv.metadata?.title?.text || '';
+  
+  let publishedAt = extractPublishedAtFromLockup(lv);
+  if (publishedAt === 0) {
+    const md = lv.metadata?.metadata;
+    if (md?.metadata_rows) {
+      for (const row of md.metadata_rows) {
+        if (!row?.metadata_parts) continue;
+        for (const part of row.metadata_parts) {
+          const text = (part.text && part.text.text) || '';
+          const parsed = parseRelativeTime(text);
+          if (parsed > 0) {
+            publishedAt = parsed;
+            break;
+          }
+        }
       }
     }
   }
-  let durationSec = 0;
-  const overlays = lv.content_image?.overlays || [];
-  for (const overlay of overlays) {
-    if (overlay.badges?.length > 0) {
-      const t = overlay.badges[0].text || '';
-      if (!t.includes(':')) continue;
-      const p = t.split(':');
-      if (p.length === 2) durationSec = parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+  
+  let durationSec = extractDurationFromLockup(lv);
+  if (durationSec === 0) {
+    const overlays = lv.content_image?.overlays || [];
+    for (const overlay of overlays) {
+      if (overlay.badges?.length > 0) {
+        const t = overlay.badges[0].text || '';
+        if (!t.includes(':')) continue;
+        const p = t.split(':');
+        if (p.length === 2) durationSec = parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+      }
     }
   }
+  
   let thumbnailUrl = '';
-  const sources = lv.content_image?.image?.sources || [];
+  const sources = lv.contentImage?.lockupContentImageViewModel?.image?.sources 
+               || lv.contentImage?.image 
+               || lv.content_image?.image 
+               || [];
   if (sources.length > 0) thumbnailUrl = sources[0].url || '';
+  
   return { videoId, title, publishedAt, thumbnailUrl, durationSec };
 }
 
@@ -143,12 +186,19 @@ function normalizeVideo(v) {
   };
 }
 
-async function strategyGetVideos(channel) {
+async function strategyPlaylistInnertube(client, playlistId) {
   try {
-    const videos = await channel.getVideos();
-    const normal = (videos.videos || []).map(normalizeVideo).filter(v => v.videoId);
-    if (normal.length > 0) return normal;
-    const memo = videos.page?.contents_memo;
+    const playlist = await client.getPlaylist(playlistId);
+    if (playlist.items && playlist.items.length > 0) {
+      return playlist.items.map(v => ({
+        videoId: v.id || '',
+        title: v.title?.text || v.title || '',
+        publishedAt: extractPublishedAt(v),
+        thumbnailUrl: v.thumbnails?.[0]?.url || '',
+        durationSec: v.duration?.seconds || 0,
+      })).filter(v => v.videoId);
+    }
+    const memo = playlist.page?.contents_memo;
     if (memo) {
       const lockups = memo.get('LockupView') || [];
       return lockups.map(extractFromLockupView).filter(v => v !== null);
@@ -157,169 +207,16 @@ async function strategyGetVideos(channel) {
   } catch (_) { return []; }
 }
 
-async function strategySearch(channel) {
-  try {
-    const r = await channel.search('');
-    return (r.videos || []).map(normalizeVideo).filter(v => v.videoId);
-  } catch (_) { return []; }
-}
-
-async function strategyRSS(channelId, cookieStr) {
-  try {
-    const res = await fetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}&_t=${Date.now()}&_r=${Math.random()}`, {
-      headers: {
-        'Cookie': cookieStr || '',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      }
-    });
-    if (!res.ok) return [];
-    const xml = await res.text();
-    const entries = xml.split('<entry>');
-    entries.shift(); // remove xml header
-    return entries.map(entry => {
-      const videoId = (entry.match(/<yt:videoId>(.*?)<\/yt:videoId>/) || [])[1];
-      const title = (entry.match(/<title>(.*?)<\/title>/) || [])[1];
-      const publishedStr = (entry.match(/<published>(.*?)<\/published>/) || [])[1];
-      let publishedAt = 0;
-      if (publishedStr) {
-        publishedAt = Math.floor(new Date(publishedStr).getTime() / 1000);
-      }
-      if (!videoId) return null;
-      return {
-        videoId,
-        title: title || '',
-        publishedAt,
-        thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-        durationSec: 0,
-      };
-    }).filter(v => v !== null);
-  } catch (_) { return []; }
-}
-
-async function strategyPlaylistHTML(channelId, cookieStr) {
-  try {
-    const playlistId = channelId.replace(/^UC/, 'UU');
-    const res = await fetch(`https://www.youtube.com/playlist?list=${playlistId}&_t=${Date.now()}&_r=${Math.random()}`, {
-      headers: {
-        'Cookie': cookieStr || '',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      }
-    });
-    if (!res.ok) return [];
-    const html = await res.text();
-    const match = html.match(/var ytInitialData = (\{.*?\});<\/script>/);
-    if (!match) return [];
-    const data = JSON.parse(match[1]);
-    const items = data.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents;
-    if (!items || !Array.isArray(items)) return [];
-    return items.slice(0, 15).map(item => {
-      const lv = item.lockupViewModel;
-      if (!lv) return null;
-      const videoId = lv.contentId;
-      const title = lv.metadata?.lockupMetadataViewModel?.title?.content || '';
-      const publishedAt = extractPublishedAtFromLockup(lv);
-      const durationSec = extractDurationFromLockup(lv);
-      return { videoId, title, publishedAt, thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, durationSec };
-    }).filter(v => v !== null);
-  } catch (_) { return []; }
-}
-
 async function getLatestVideo(channelId, cookieStr) {
   try {
-    // Resolve channel ID synchronously if already UC format (common case)
-    const isUC = channelId.startsWith('UC') && channelId.length >= 22;
-    
-    // Phase 1: Fast HTTP-only strategies (no YouTube.js needed if UC format)
-    // These are simple fetch() calls that complete in <2s
-    const fastId = isUC ? channelId : null;
-    
-    const fastPromise = fastId ? Promise.all([
-      strategyRSS(fastId, cookieStr),
-      strategyPlaylistHTML(fastId, cookieStr),
-    ]) : Promise.resolve([[], []]);
-    
-    // Phase 2: Slow YouTube.js strategies (run in parallel with fast path)
-    const slowPromise = (async () => {
-      try {
-        const client = await ensureClient(cookieStr);
-        const resolvedId = isUC ? channelId : await resolveChannelId(client, channelId);
-        const channel = await client.getChannel(resolvedId);
-        const [fromGetVids, fromSearch] = await Promise.all([
-          strategyGetVideos(channel),
-          strategySearch(channel),
-        ]);
-        // If we didn't run fast strategies (non-UC), also run them now
-        if (!fastId) {
-          const [fromRSS, fromPlaylist] = await Promise.all([
-            strategyRSS(resolvedId, cookieStr),
-            strategyPlaylistHTML(resolvedId, cookieStr),
-          ]);
-          return { fromGetVids, fromSearch, fromRSS, fromPlaylist, resolvedId };
-        }
-        return { fromGetVids, fromSearch, fromRSS: [], fromPlaylist: [], resolvedId };
-      } catch (e) {
-        return { fromGetVids: [], fromSearch: [], fromRSS: [], fromPlaylist: [], resolvedId: channelId };
-      }
-    })();
-
-    // Wait for fast strategies first (they should complete in <2s)
-    const [fromRSSFast, fromPlaylistFast] = await fastPromise;
-    
-    // If fast strategies got results, return immediately — don't wait for slow path
-    if (fromRSSFast.length > 0 || fromPlaylistFast.length > 0) {
-      const merged = new Map();
-      for (const v of fromRSSFast) {
-        if (!v.videoId) continue;
-        merged.set(v.videoId, v);
-      }
-      // Safely merge playlist results
-      for (const v of fromPlaylistFast) {
-        if (!v.videoId) continue;
-        if (!merged.has(v.videoId)) {
-          merged.set(v.videoId, v);
-        }
-      }
-      const all = Array.from(merged.values())
-        .sort((a, b) => b.publishedAt - a.publishedAt)
-        .slice(0, 15);
-      return { ok: true, videos: all };
+    const client = await ensureClient(cookieStr);
+    const resolvedId = await resolveChannelId(client, channelId);
+    if (!resolvedId || !resolvedId.startsWith('UC')) {
+      return { ok: false, error: 'Could not resolve channel ID: ' + channelId };
     }
-    
-    // Fast strategies returned nothing — wait for slow YouTube.js path
-    const slow = await slowPromise;
-    const merged = new Map();
-    for (const v of [...slow.fromGetVids, ...slow.fromSearch, ...slow.fromRSS]) {
-      if (!v.videoId) continue;
-      const existing = merged.get(v.videoId);
-      if (!existing || v.publishedAt > existing.publishedAt) {
-        merged.set(v.videoId, v);
-      }
-    }
-    // Merge playlist results from slow path
-    for (const v of slow.fromPlaylist) {
-      if (!v.videoId) continue;
-      if (!merged.has(v.videoId)) {
-        merged.set(v.videoId, v);
-      }
-    }
-    // Also merge fast playlist results if they exist
-    for (const v of fromPlaylistFast) {
-      if (!v.videoId) continue;
-      if (!merged.has(v.videoId)) {
-        merged.set(v.videoId, v);
-      }
-    }
-    const all = Array.from(merged.values())
-      .sort((a, b) => b.publishedAt - a.publishedAt)
-      .slice(0, 15);
-    return { ok: true, videos: all };
+    const playlistId = resolvedId.replace(/^UC/, 'UU');
+    const videos = await strategyPlaylistInnertube(client, playlistId);
+    return { ok: true, videos: videos };
   } catch (e) {
     return { ok: false, error: e.message || String(e) };
   }
@@ -472,7 +369,6 @@ function httpGetJson(url) {
   });
 }
 
-const resolvedChannelCache = new Map(); // '@handle' -> 'UC...'
 const lastChannelPollTime = new Map();  // 'UC...' -> timestamp (ms)
 const channelLastVideos = new Map();    // 'UC...' -> videos list
 
@@ -506,6 +402,15 @@ async function checkChromeChannelTabs(pollIntervalMs) {
       const handleOrId = extractChannelHandleOrId(tab.url);
       if (!handleOrId) continue;
       
+      const wsUrl = tab.webSocketDebuggerUrl;
+      if (wsUrl) {
+        const lastReload = tabReloads[wsUrl] || 0;
+        if (now - lastReload >= 5000) {
+          tabReloads[wsUrl] = now;
+          reloadTab(wsUrl, false).catch(() => {});
+        }
+      }
+      
       let channelId = null;
       if (handleOrId.startsWith('UC')) {
         channelId = handleOrId;
@@ -526,10 +431,10 @@ async function checkChromeChannelTabs(pollIntervalMs) {
       
       if (!channelId) continue;
       
-      // Throttle background polls for the same channel to once every 2 seconds
+      // Throttle background polls for the same channel to once every 1.5 seconds
       const lastPoll = lastChannelPollTime.get(channelId) || 0;
       let videos = [];
-      if (now - lastPoll >= 2000) {
+      if (now - lastPoll >= 1500) {
         lastChannelPollTime.set(channelId, now);
         const result = await getLatestVideo(channelId, currentCookie);
         if (result && result.ok && Array.isArray(result.videos)) {
@@ -542,12 +447,19 @@ async function checkChromeChannelTabs(pollIntervalMs) {
         videos = channelLastVideos.get(channelId) || [];
       }
       
+      let channelName = tab.title || '';
+      if (channelName.endsWith(' - YouTube')) {
+        channelName = channelName.substring(0, channelName.length - 10);
+      }
+
       for (const v of videos) {
         if (v.videoId) {
           detected.push({
             videoId: v.videoId,
             title: v.title,
-            publishedAt: v.publishedAt
+            publishedAt: v.publishedAt,
+            channelId: channelId,
+            channelName: channelName
           });
         }
       }

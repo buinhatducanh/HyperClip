@@ -270,4 +270,8 @@ pub struct VideoInfo {
     pub duration_sec: f64,
     pub width: u32,
     pub height: u32,
+    #[serde(rename = "channelId", default)]
+    pub channel_id: Option<String>,
+    #[serde(rename = "channelName", default)]
+    pub channel_name: Option<String>,
 }

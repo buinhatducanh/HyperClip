@@ -44,10 +44,12 @@ class SettingsModel(QObject):
         self._onboarding_complete: bool = False
         self._hardware_vram_gb: int = 0
         self._hardware_ram_gb: int = 0
+        self._daemon_limit: int = 8
         self._clean_snapshot = None
 
     # ─── Explicit Properties (PySide6 requires class-level descriptor) ──
     dirty = Property(bool, lambda s: s.is_dirty, notify=changed)
+    daemonLimit = Property(int, lambda s: s._daemon_limit, lambda s, v: s._set("_daemon_limit", int, v), notify=changed)
     outputFolder = Property(str, lambda s: s._output_folder, lambda s, v: s._set("_output_folder", str, v), notify=changed)
     videoStoragePath = Property(str, lambda s: s._video_storage_path, lambda s, v: s._set("_video_storage_path", str, v), notify=changed)
     outputPath = Property(str, lambda s: s._output_path, lambda s, v: s._set("_output_path", str, v), notify=changed)
@@ -124,6 +126,7 @@ class SettingsModel(QObject):
             "quitOnClose": "_quit_on_close",
             "pollIntervalMs": "_poll_interval_ms",
             "onboardingComplete": "_onboarding_complete",
+            "daemonLimit": "_daemon_limit",
         }
         types = {
             "_output_folder": str,
@@ -158,6 +161,7 @@ class SettingsModel(QObject):
             "_quit_on_close": bool,
             "_poll_interval_ms": int,
             "_onboarding_complete": bool,
+            "_daemon_limit": int,
         }
         for k, attr in m.items():
             if k in d:
@@ -230,6 +234,7 @@ class SettingsModel(QObject):
             "quitOnClose": self._quit_on_close,
             "pollIntervalMs": self._poll_interval_ms,
             "onboardingComplete": self._onboarding_complete,
+            "daemonLimit": self._daemon_limit,
             "hardwareProfile": {"vramGB": self._hardware_vram_gb, "ramGB": self._hardware_ram_gb} if self._hardware_vram_gb else None,
         }
 

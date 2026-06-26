@@ -218,15 +218,31 @@ impl Poller {
 
                 let handle = tokio::spawn(async move {
                     tracing::info!("[Poller] Acquiring session for {}", channel.id);
-                    let session_idx = match poller.pool.acquire_session() {
-                        Some(i) => i,
-                        None => { tracing::info!("[Poller] No ready session for {}", channel.id); return; }
-                    };
+                    let mut leased = None;
+                    let mut session_idx_opt = None;
+                    let start_time = std::time::Instant::now();
+                    loop {
+                        if let Some(idx) = poller.pool.acquire_session() {
+                            if let Some(cc) = poller.pool.take_client_for_session(idx) {
+                                leased = Some(cc);
+                                session_idx_opt = Some(idx);
+                                break;
+                            } else {
+                                poller.pool.release_session_busy(idx);
+                            }
+                        }
+                        if start_time.elapsed() > std::time::Duration::from_secs(5) {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    }
 
-                    tracing::info!("[Poller] Got session {session_idx} for {}, taking client...", channel.id);
-                    let mut cc = match poller.pool.take_client_for_session(session_idx) {
-                        Some(v) => v,
-                        None => { tracing::warn!("[Poller] take_client_for_session failed for session {session_idx} (channel {})", channel.id); poller.pool.mark_failed(session_idx); return; }
+                    let (session_idx, mut cc) = match (session_idx_opt, leased) {
+                        (Some(idx), Some(cc)) => (idx, cc),
+                        _ => {
+                            tracing::warn!("[Poller] Failed to acquire session or lease client for channel {} (timed out after 5s)", channel.id);
+                            return;
+                        }
                     };
 
                     let lookup_id = if !channel.channel_id.is_empty() {

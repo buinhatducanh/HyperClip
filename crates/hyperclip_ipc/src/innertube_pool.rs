@@ -48,6 +48,7 @@ pub struct InnertubeClientPool {
     config: PoolConfig,
     clients: Mutex<Vec<crate::innertube_client::InnertubeClient>>,
     active_clients_count: std::sync::Arc<AtomicUsize>,
+    pub max_active_clients: std::sync::atomic::AtomicUsize,
 }
 
 impl InnertubeClientPool {
@@ -68,6 +69,7 @@ impl InnertubeClientPool {
             config,
             clients: Mutex::new(Vec::new()),
             active_clients_count: std::sync::Arc::new(AtomicUsize::new(0)),
+            max_active_clients: std::sync::atomic::AtomicUsize::new(8),
         })
     }
 
@@ -118,6 +120,12 @@ impl InnertubeClientPool {
 
     pub fn next_session(&self) -> usize {
         self.round_robin_idx.fetch_add(1, Ordering::SeqCst) % self.size()
+    }
+
+    pub fn release_session_busy(&self, session_idx: usize) {
+        if let Some(s) = self.sessions.lock().unwrap().get_mut(session_idx) {
+            s.busy = false;
+        }
     }
 
     pub fn mark_failed(&self, session_idx: usize) {
@@ -215,7 +223,8 @@ impl InnertubeClientPool {
 
         if client_opt.is_none() {
             let active = self.active_clients_count.load(Ordering::SeqCst);
-            if active < 4 {
+            let limit = self.max_active_clients.load(Ordering::SeqCst);
+            if active < limit {
                 self.active_clients_count.fetch_add(1, Ordering::SeqCst);
                 let cfg = crate::innertube_client::ClientConfig {
                     timeout_sec: 15,

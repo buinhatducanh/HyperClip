@@ -463,6 +463,8 @@ impl OAuthFallbackDetector {
                     duration_sec: 0.0,
                     width: 0,
                     height: 0,
+                    channel_id: None,
+                    channel_name: None,
                 });
             }
         }

@@ -10,6 +10,7 @@ pub struct Workspace {
     pub id: String,
     pub status: String,  // pending|downloading|ready|rendering|done|error
     pub video_id: String,
+    #[serde(rename = "channelId")]
     pub channel_id: String,
     pub title: String,
     #[serde(rename = "downloadedPath")]
@@ -216,6 +217,9 @@ impl WorkspaceStore {
             // Merge fields from JSON
             if let Some(status) = data.get("status").and_then(|v| v.as_str()) {
                 ws.status = status.to_string();
+                if status == "downloading" || status == "rendering" || status == "ready" || status == "done" {
+                    ws.error = None;
+                }
             }
             if let Some(title) = data.get("title").and_then(|v| v.as_str()) {
                 ws.title = title.to_string();

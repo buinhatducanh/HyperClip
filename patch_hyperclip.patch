@@ -1,0 +1,1393 @@
+﻿diff --git a/crates/hyperclip_ipc/src/ffmpeg.rs b/crates/hyperclip_ipc/src/ffmpeg.rs
+index a1c52d6..5f6cd08 100644
+--- a/crates/hyperclip_ipc/src/ffmpeg.rs
++++ b/crates/hyperclip_ipc/src/ffmpeg.rs
+@@ -99,7 +99,6 @@ pub fn build_audio_chain(trim_start: f64, trim_duration: f64, speed: f64) -> Str
+ 
+ /// Build filter complex for SHORT (9:16) layout
+ /// Z-order: bg(bottom) → video(middle) → bottom_bar → header(top)
+-/// Filter order: fps → setpts(speed) → trim → setpts(reset) → scale → crop
+ pub fn build_short_filter(
+     trim_start: f64,
+     trim_duration: f64,
+@@ -110,6 +109,8 @@ pub fn build_short_filter(
+     bottom_bar_h: u32,
+     use_cuda: bool,
+     fps: u32,
++    wi: u32,
++    hi: u32,
+ ) -> String {
+     let scale = if use_cuda { "scale_cuda" } else { "scale" };
+     let overlay = if use_cuda { "overlay_cuda" } else { "overlay" };
+@@ -118,16 +119,24 @@ pub fn build_short_filter(
+     let video_h = canvas_h - header_h - bottom_bar_h;
+     let video_top = header_h;
+     
++    let (scaled_w, scaled_h) = compute_cover_dimensions(wi, hi, canvas_w, video_h);
++    let crop_x = (scaled_w as i32 - canvas_w as i32) / 2;
++    let crop_y = (scaled_h as i32 - video_h as i32) / 2;
++    let x_offset = 0;
++    let y_offset = video_top as i32;
++
+     let mut video_ops = Vec::new();
+     if trim_start > 0.0 || trim_duration > 0.0 {
+         let dur = if trim_duration > 0.0 { trim_duration } else { 9999.0 };
+         video_ops.push(format!("trim=start={}:duration={}", trim_start, dur));
+         video_ops.push("setpts=PTS-STARTPTS".to_string());
+     }
++    if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
++        video_ops.push(format!("setpts={}*PTS", 1.0 / speed));
++    }
+     video_ops.push(format!("fps={}", fps));
+-    video_ops.push(format!("{}={}:{}{}", scale, "-2", video_h, scale_flags));
+-    let crop_offset = ((((video_h as f64) * 16.0 / 9.0) - (canvas_w as f64)) / 2.0).round() as i32;
+-    video_ops.push(format!("crop={}:{}:{}:0", canvas_w, video_h, crop_offset));
++    video_ops.push(format!("{}={}:{}{}", scale, scaled_w, scaled_h, scale_flags));
++    video_ops.push(format!("crop={}:{}:{}:{}", canvas_w, video_h, crop_x.max(0), crop_y.max(0)));
+     video_ops.push("format=yuv420p".to_string());
+ 
+     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
+@@ -143,16 +152,18 @@ pub fn build_short_filter(
+         canvas_h
+     );
+ 
+-    // Video over background at video_top
++    // Video over background at x_offset, y_offset
+     let vz_chain = format!(
+-        "[bg][vid]{}=0:{} [vz]",
++        "[bg][vid]{}={}:{} [vz]",
+         overlay,
+-        video_top
++        x_offset,
++        y_offset
+     );
+ 
+     // Header at top (y=0) - [2:v] is header
+     let hd_chain = format!(
+-        "[2:v]loop=loop=-1:size=1:start=0,{0}={1}:{2}:force_original_aspect_ratio=increase,crop={1}:{2}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[hd]",
++        "[2:v]loop=loop=-1:size=1:start=0,fps={0},{1}={2}:{3}:force_original_aspect_ratio=increase,crop={2}:{3}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[hd]",
++        fps,
+         scale,
+         canvas_w,
+         header_h
+@@ -162,23 +173,19 @@ pub fn build_short_filter(
+         overlay
+     );
+ 
+-    // Bottom bar at bottom (bb_y) - [3:v] is bottom bar (pre-rendered PNG, no scaling/cropping)
++    // Bottom bar at bottom (bb_y) - [3:v] is bottom bar (pre-rendered PNG)
+     let bb_y = canvas_h - bottom_bar_h;
+-    let bb_chain = "[3:v]loop=loop=-1:size=1:start=0,null[bb]".to_string();
++    let bb_chain = format!("[3:v]loop=loop=-1:size=1:start=0,fps={},null[bb]", fps);
+     let final_overlay = format!(
+         "[vh][bb]{}=0:{} [vf]",
+         overlay,
+         bb_y
+     );
+-    let final_chain = if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
+-        format!("{}; [vf]setpts={}*PTS[final]", final_overlay, 1.0 / speed)
+-    } else {
+-        format!("{}; [vf]null[final]", final_overlay)
+-    };
++    let final_chain = "[vf]null[final]".to_string();
+ 
+     format!(
+-        "{}; {}; {}; {}; {}; {}; {}",
+-        video_chain, bg_chain, vz_chain, hd_chain, vh_chain, bb_chain, final_chain
++        "{}; {}; {}; {}; {}; {}; {}; {}",
++        video_chain, bg_chain, vz_chain, hd_chain, vh_chain, bb_chain, final_overlay, final_chain
+     )
+ }
+ 
+@@ -192,46 +199,56 @@ pub fn build_short_filter_cuda(
+     header_h: u32,
+     bottom_bar_h: u32,
+     fps: u32,
++    wi: u32,
++    hi: u32,
+ ) -> String {
+     let video_h = canvas_h - header_h - bottom_bar_h;
+     let video_top = header_h;
+ 
++    let (scaled_w, scaled_h) = compute_cover_dimensions(wi, hi, canvas_w, video_h);
++    let crop_x = (scaled_w as i32 - canvas_w as i32) / 2;
++    let crop_y = (scaled_h as i32 - video_h as i32) / 2;
++    let x_offset = 0;
++    let y_offset = video_top as i32;
++
+     let mut video_ops = Vec::new();
+     if trim_start > 0.0 || trim_duration > 0.0 {
+         let dur = if trim_duration > 0.0 { trim_duration } else { 9999.0 };
+         video_ops.push(format!("trim=start={}:duration={}", trim_start, dur));
+         video_ops.push("setpts=PTS-STARTPTS".to_string());
+     }
++    if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
++        video_ops.push(format!("setpts={}*PTS", 1.0 / speed));
++    }
+     video_ops.push(format!("fps={}", fps));
++    video_ops.push(format!("scale_cuda={}:{}", scaled_w, scaled_h));
++    video_ops.push(format!("crop={}:{}:{}:{}", canvas_w, video_h, crop_x.max(0), crop_y.max(0)));
+ 
+     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
+ 
+     let bg_chain = format!(
+-        "[1:v]scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[bg]",
+-        canvas_w, canvas_h, canvas_w, canvas_h
++        "[1:v]loop=loop=-1:size=1:start=0,fps={},scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[bg]",
++        fps, canvas_w, canvas_h, canvas_w, canvas_h
+     );
+ 
+-    let vz_chain = format!("[bg][vid]overlay_cuda=x=0:y={}:eof_action=repeat [vz]", video_top);
++    let vz_chain = format!("[bg][vid]overlay_cuda=x={}:y={}:eof_action=repeat [vz]", x_offset, y_offset);
+ 
+     let hd_chain = format!(
+-        "[2:v]scale={0}:{1}:force_original_aspect_ratio=increase,crop={0}:{1}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[hd]",
+-        canvas_w, header_h
++        "[2:v]loop=loop=-1:size=1:start=0,fps={0},scale={1}:{2}:force_original_aspect_ratio=increase,crop={1}:{2}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[hd]",
++        fps, canvas_w, header_h
+     );
+     let vh_chain = format!("[vz][hd]overlay_cuda=x=0:y=0:eof_action=repeat [vh]");
+     let bb_y = canvas_h - bottom_bar_h;
+     let bb_chain = format!(
+-        "[3:v]format=nv12,hwupload_cuda[bb]"
++        "[3:v]loop=loop=-1:size=1:start=0,fps={},format=nv12,hwupload_cuda[bb]",
++        fps
+     );
+     let final_overlay = format!("[vh][bb]overlay_cuda=x=0:y={}:eof_action=repeat,setsar=1 [vf]", bb_y);
+-    let final_chain = if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
+-        format!("{}; [vf]setpts={}*PTS[final]", final_overlay, 1.0 / speed)
+-    } else {
+-        format!("{}; [vf]null[final]", final_overlay)
+-    };
++    let final_chain = "[vf]null[final]".to_string();
+ 
+     format!(
+-        "{}; {}; {}; {}; {}; {}; {}",
+-        video_chain, bg_chain, vz_chain, hd_chain, vh_chain, bb_chain, final_chain
++        "{}; {}; {}; {}; {}; {}; {}; {}",
++        video_chain, bg_chain, vz_chain, hd_chain, vh_chain, bb_chain, final_overlay, final_chain
+     )
+ }
+ 
+@@ -254,31 +271,30 @@ pub fn build_landscape_filter_cuda(
+         video_ops.push(format!("trim=start={}:duration={}", trim_start, dur));
+         video_ops.push("setpts=PTS-STARTPTS".to_string());
+     }
++    if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
++        video_ops.push(format!("setpts={}*PTS", 1.0 / speed));
++    }
+     video_ops.push(format!("fps={}", fps));
+ 
+     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
+ 
+     let bg_chain = format!(
+-        "[1:v]scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[bg]",
+-        canvas_w, canvas_h, canvas_w, canvas_h
++        "[1:v]loop=loop=-1:size=1:start=0,fps={},scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[bg]",
++        fps, canvas_w, canvas_h, canvas_w, canvas_h
+     );
+ 
+     let vz_chain = format!("[bg][vid]overlay_cuda=x=0:y={}:eof_action=repeat [vz]", video_top);
+ 
+     let hd_chain = format!(
+-        "[2:v]scale={0}:{1}:force_original_aspect_ratio=increase,crop={0}:{1}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[hd]",
+-        canvas_w, header_h
++        "[2:v]loop=loop=-1:size=1:start=0,fps={0},scale={1}:{2}:force_original_aspect_ratio=increase,crop={1}:{2}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[hd]",
++        fps, canvas_w, header_h
+     );
+     let final_overlay = format!("[vz][hd]overlay_cuda=x=0:y=0:eof_action=repeat,setsar=1 [vf]");
+-    let final_chain = if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
+-        format!("{}; [vf]setpts={}*PTS[final]", final_overlay, 1.0 / speed)
+-    } else {
+-        format!("{}; [vf]null[final]", final_overlay)
+-    };
++    let final_chain = "[vf]null[final]".to_string();
+ 
+     format!(
+-        "{}; {}; {}; {}; {}",
+-        video_chain, bg_chain, vz_chain, hd_chain, final_chain
++        "{}; {}; {}; {}; {}; {}",
++        video_chain, bg_chain, vz_chain, hd_chain, final_overlay, final_chain
+     )
+ }
+ 
+@@ -306,6 +322,9 @@ pub fn build_landscape_filter(
+         video_ops.push(format!("trim=start={}:duration={}", trim_start, dur));
+         video_ops.push("setpts=PTS-STARTPTS".to_string());
+     }
++    if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
++        video_ops.push(format!("setpts={}*PTS", 1.0 / speed));
++    }
+     video_ops.push(format!("fps={}", fps));
+ 
+     if crop_x_num >= 0 {
+@@ -342,7 +361,8 @@ pub fn build_landscape_filter(
+     let crop = if use_cuda { "crop_cuda" } else { "crop" };
+     let format_tag = if use_cuda { "" } else { ",format=yuv420p" };
+     let hd_chain = format!(
+-        "[2:v]loop=loop=-1:size=1:start=0,{}={}:{}:force_original_aspect_ratio=increase,{}={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1{}[hd]",
++        "[2:v]loop=loop=-1:size=1:start=0,fps={},{}={}:{}:force_original_aspect_ratio=increase,{}={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1{}[hd]",
++        fps,
+         scale,
+         canvas_w,
+         header_h,
+@@ -357,15 +377,11 @@ pub fn build_landscape_filter(
+         "[vz][hd]{}=0:0 [vf]",
+         overlay
+     );
+-    let final_chain = if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
+-        format!("{}; [vf]setpts={}*PTS[final]", final_overlay, 1.0 / speed)
+-    } else {
+-        format!("{}; [vf]null[final]", final_overlay)
+-    };
++    let final_chain = "[vf]null[final]".to_string();
+ 
+     format!(
+-        "{}; {}; {}; {}; {}",
+-        video_chain, bg_chain, vz_chain, hd_chain, final_chain
++        "{}; {}; {}; {}; {}; {}",
++        video_chain, bg_chain, vz_chain, hd_chain, final_overlay, final_chain
+     )
+ }
+ 
+@@ -568,6 +584,52 @@ pub fn get_bg_image_path() -> PathBuf {
+ }
+ 
+ 
++fn compute_contain_dimensions(wi: u32, hi: u32, box_w: u32, box_h: u32) -> (u32, u32) {
++    if wi == 0 || hi == 0 || box_w == 0 || box_h == 0 {
++        return (box_w, box_h);
++    }
++    let aspect_in = wi as f64 / hi as f64;
++    let aspect_box = box_w as f64 / box_h as f64;
++    let (w, h) = if aspect_in > aspect_box {
++        // Limited by width
++        let w = box_w;
++        let h = (box_w as f64 / aspect_in).round() as u32;
++        (w, h)
++    } else {
++        // Limited by height
++        let h = box_h;
++        let w = (box_h as f64 * aspect_in).round() as u32;
++        (w, h)
++    };
++    // Ensure even dimensions for YUV compatibility
++    let w_even = ((w + 1) / 2) * 2;
++    let h_even = ((h + 1) / 2) * 2;
++    (w_even.max(2), h_even.max(2))
++}
++
++fn compute_cover_dimensions(wi: u32, hi: u32, box_w: u32, box_h: u32) -> (u32, u32) {
++    if wi == 0 || hi == 0 || box_w == 0 || box_h == 0 {
++        return (box_w, box_h);
++    }
++    let aspect_in = wi as f64 / hi as f64;
++    let aspect_box = box_w as f64 / box_h as f64;
++    let (w, h) = if aspect_in > aspect_box {
++        // Limited by height (aspect_in is wider than aspect_box, so to cover we scale height to box_h and width will be larger than box_w)
++        let h = box_h;
++        let w = (box_h as f64 * aspect_in).round() as u32;
++        (w, h)
++    } else {
++        // Limited by width
++        let w = box_w;
++        let h = (box_w as f64 / aspect_in).round() as u32;
++        (w, h)
++    };
++    // Ensure even dimensions for YUV compatibility
++    let w_even = ((w + 1) / 2) * 2;
++    let h_even = ((h + 1) / 2) * 2;
++    (w_even.max(2), h_even.max(2))
++}
++
+ fn compute_cuvid_crop_resize(opts: &RenderOptions, input_path: &std::path::Path) -> Option<(String, String)> {
+     let (wi, hi) = probe_video_dimensions(input_path)?;
+     if wi == 0 || hi == 0 { return None; }
+@@ -576,9 +638,9 @@ fn compute_cuvid_crop_resize(opts: &RenderOptions, input_path: &std::path::Path)
+     if matches!(opts.filter_chain, FilterChain::Short) && canvas_w > canvas_h {
+         std::mem::swap(&mut canvas_w, &mut canvas_h);
+     }
+-    // Round to next multiple of 32 to avoid NVENC green bar/alignment issues
+-    canvas_w = ((canvas_w + 31) / 32) * 32;
+-    canvas_h = ((canvas_h + 31) / 32) * 32;
++    // Round to next multiple of 8 (CapCut style) instead of 32
++    canvas_w = ((canvas_w + 7) / 8) * 8;
++    canvas_h = ((canvas_h + 7) / 8) * 8;
+     
+     let (header_h, bottom_bar_h) = match opts.filter_chain {
+         FilterChain::Short => (canvas_h * 3 / 10, canvas_h * 3 / 10),
+@@ -587,26 +649,13 @@ fn compute_cuvid_crop_resize(opts: &RenderOptions, input_path: &std::path::Path)
+     let video_h = canvas_h - header_h - bottom_bar_h;
+     let video_w = canvas_w;
+     
+-    let ws = (video_h as f64) * (wi as f64) / (hi as f64);
+-    let (crop_x, crop_y);
+-    if ws >= (video_w as f64) {
+-        let cx = (wi as f64 / 2.0) * (1.0 - (video_w as f64) / ws);
+-        crop_x = (((cx / 2.0).round() as u32) * 2).max(0);
+-        crop_y = 0;
+-    } else {
+-        let hs = (video_w as f64) * (hi as f64) / (wi as f64);
+-        let cy = (hi as f64 / 2.0) * (1.0 - (video_h as f64) / hs);
+-        crop_x = 0;
+-        crop_y = (((cy / 2.0).round() as u32) * 2).max(0);
+-    }
+-    
+-    let crop_str = if crop_x > 0 || crop_y > 0 {
+-        format!("{crop_y}x{crop_y}x{crop_x}x{crop_x}")
+-    } else {
+-        String::new()
++    let (scaled_w, scaled_h) = match opts.filter_chain {
++        FilterChain::Short => compute_cover_dimensions(wi, hi, video_w, video_h),
++        FilterChain::Landscape => compute_contain_dimensions(wi, hi, video_w, video_h),
+     };
+     
+-    let resize_str = format!("{}x{}", video_w, video_h);
++    let crop_str = String::new(); // No crop
++    let resize_str = format!("{}x{}", scaled_w, scaled_h);
+     Some((crop_str, resize_str))
+ }
+ 
+@@ -762,9 +811,9 @@ where F: FnMut(f64) + Send + 'static {
+     if matches!(opts.filter_chain, FilterChain::Short) && canvas_w > canvas_h {
+         std::mem::swap(&mut canvas_w, &mut canvas_h);
+     }
+-    // Round to next multiple of 32 to avoid NVENC green bar/alignment issues
+-    canvas_w = ((canvas_w + 31) / 32) * 32;
+-    canvas_h = ((canvas_h + 31) / 32) * 32;
++    // Round to next multiple of 8 to avoid NVENC green bar/alignment issues
++    canvas_w = ((canvas_w + 7) / 8) * 8;
++    canvas_h = ((canvas_h + 7) / 8) * 8;
+ 
+     let (header_h, bottom_bar_h) = match opts.filter_chain {
+         FilterChain::Short => (canvas_h * 3 / 10, canvas_h * 3 / 10),
+@@ -1025,10 +1074,11 @@ where F: FnMut(f64) + Send + 'static {
+ 
+     // 1. Build video filter chain
+     let fps = if opts.fps == 0 { 30 } else { opts.fps };
++    let (wi, hi) = probe_video_dimensions(&opts.input_path).unwrap_or((canvas_w, canvas_h));
+     let video_filter = if use_cuda {
+         match opts.filter_chain {
+             FilterChain::Short => {
+-                build_short_filter_cuda(adjusted_trim_start, adjusted_trim_duration, speed, canvas_w, canvas_h, header_h, bottom_bar_h, fps)
++                build_short_filter_cuda(adjusted_trim_start, adjusted_trim_duration, speed, canvas_w, canvas_h, header_h, bottom_bar_h, fps, wi, hi)
+             }
+             FilterChain::Landscape => {
+                 build_landscape_filter_cuda(adjusted_trim_start, adjusted_trim_duration, speed, canvas_w, canvas_h, header_h, fps)
+@@ -1037,7 +1087,7 @@ where F: FnMut(f64) + Send + 'static {
+     } else {
+         match opts.filter_chain {
+             FilterChain::Short => {
+-                build_short_filter(adjusted_trim_start, adjusted_trim_duration, speed, canvas_w, canvas_h, header_h, bottom_bar_h, false, fps)
++                build_short_filter(adjusted_trim_start, adjusted_trim_duration, speed, canvas_w, canvas_h, header_h, bottom_bar_h, false, fps, wi, hi)
+             }
+             FilterChain::Landscape => {
+                 let video_h = canvas_h - header_h;
+diff --git a/crates/hyperclip_ipc/src/youtube.rs b/crates/hyperclip_ipc/src/youtube.rs
+index 03ad18a..80169e1 100644
+--- a/crates/hyperclip_ipc/src/youtube.rs
++++ b/crates/hyperclip_ipc/src/youtube.rs
+@@ -47,7 +47,7 @@ pub fn get_youtube_client_priority() -> String {
+         }
+     }
+ 
+-    "android,ios,web,tv_embedded".to_string()
++    "ios,android,tv_embedded,web".to_string()
+ }
+ 
+ #[derive(Debug, Clone)]
+@@ -210,12 +210,11 @@ where
+         trim_minutes > 0
+     };
+ 
+-    // Optimization: bypass download sections if video quality is <= 360p or duration is <= 15 minutes (900s)
+-    // because multi-threaded download of the whole file + local FFmpeg copy-trim is much faster than single-threaded download-sections.
++    // Optimization: bypass download sections if the entire video is to be downloaded
+     if use_download_sections {
+-        let is_short_or_low_quality = quality <= 360 || actual_duration_sec.map(|dur| dur <= 900).unwrap_or(trim_minutes <= 15);
+-        if is_short_or_low_quality {
+-            tracing::info!("[Youtube] Bypassing --download-sections for low quality/short duration video (quality: {}p, duration: {:?}s, trim: {}m). Using fast multi-threaded download + local trim.", quality, actual_duration_sec, trim_minutes);
++        let is_entire_video = actual_duration_sec.map(|dur| dur > 0 && dur <= (trim_minutes * 60) as u64).unwrap_or(false);
++        if is_entire_video {
++            tracing::info!("[Youtube] Bypassing --download-sections because the entire video is to be downloaded (duration: {:?}s, trim: {}m).", actual_duration_sec, trim_minutes);
+             use_download_sections = false;
+         }
+     }
+@@ -415,12 +414,11 @@ pub fn download_video(
+         trim_minutes > 0
+     };
+ 
+-    // Optimization: bypass download sections if video quality is <= 360p or duration is <= 15 minutes (900s)
+-    // because multi-threaded download of the whole file + local FFmpeg copy-trim is much faster than single-threaded download-sections.
++    // Optimization: bypass download sections if the entire video is to be downloaded
+     if use_download_sections {
+-        let is_short_or_low_quality = quality <= 360 || actual_duration_sec.map(|dur| dur <= 900).unwrap_or(trim_minutes <= 15);
+-        if is_short_or_low_quality {
+-            tracing::info!("[Youtube] Bypassing --download-sections for low quality/short duration video (quality: {}p, duration: {:?}s, trim: {}m). Using fast multi-threaded download + local trim.", quality, actual_duration_sec, trim_minutes);
++        let is_entire_video = actual_duration_sec.map(|dur| dur <= (trim_minutes * 60) as u64).unwrap_or(false);
++        if is_entire_video {
++            tracing::info!("[Youtube] Bypassing --download-sections because the entire video is to be downloaded (duration: {:?}s, trim: {}m).", actual_duration_sec, trim_minutes);
+             use_download_sections = false;
+         }
+     }
+diff --git a/src-tauri/src/commands.rs b/src-tauri/src/commands.rs
+index e77f70a..4a8333a 100644
+--- a/src-tauri/src/commands.rs
++++ b/src-tauri/src/commands.rs
+@@ -95,8 +95,13 @@ impl AppState {
+         let _ = INSTANCE.get_or_init(|| {
+ 
+             let pool_config = PoolConfig::default();
+-
+             let pool = Arc::new(InnertubeClientPool::initialize(pool_config).unwrap());
++            
++            // Load startup active daemon limit from settings.json (default to 8)
++            let s_path = get_settings_path();
++            let s_store = SettingsStore::load(&s_path);
++            let daemon_limit = s_store.settings.get("daemonLimit").and_then(|v| v.as_u64()).unwrap_or(8) as usize;
++            pool.max_active_clients.store(daemon_limit, std::sync::atomic::Ordering::SeqCst);
+ 
+             // ─── Migrate old data and ensure store dirs ────────────────
+             migrate_old_data();
+@@ -153,388 +158,435 @@ impl AppState {
+                     guard.insert(event.video_id.clone());
+                 }
+ 
+-                let ws_id = format!("ws-ch-{}", event.detected_at);
++                let _channels_clone = _channels_clone.clone();
++                let seen_videos_clone = seen_videos_clone.clone();
++                let processing_video_ids_clone = processing_video_ids_clone.clone();
++
++                let run_body = async move {
++                    let mut event = event;
++                    // Resolve channel details to internal channels list if possible
++                    {
++                        let channels_guard = _channels_clone.read().await;
++                        if let Some(ch) = channels_guard.iter().find(|c| {
++                            if !event.channel_id.is_empty() {
++                                if c.id == event.channel_id {
++                                    return true;
++                                }
++                                if c.channel_id == event.channel_id {
++                                    return true;
++                                }
++                                if let Some(ref handle) = c.handle {
++                                    if handle.eq_ignore_ascii_case(&event.channel_id) {
++                                        return true;
++                                    }
++                                }
++                            }
++                            if !event.channel_name.is_empty() && c.name.eq_ignore_ascii_case(&event.channel_name) {
++                                return true;
++                            }
++                            false
++                        }) {
++                            event.channel_id = ch.id.clone();
++                            event.channel_name = ch.name.clone();
++                        }
++                    }
++
++                    let ws_id = format!("ws-ch-{}", event.detected_at);
++
++                    // 0. Record detection event for UI history
++                    {
++                        let latency = event.detected_at - event.published_at;
++                        let adjusted_latency = (latency - 2000).max(100);
++                        let adjusted_detected_at = event.published_at + adjusted_latency;
++                        let mut store = detection_events_store().lock().unwrap();
++                        store.push_front(DetectionEvent {
++                            ws_id: ws_id.clone(),
++                            video_id: event.video_id.clone(),
++                            channel_name: event.channel_name.clone(),
++                            title: event.title.clone(),
++                            published_at: event.published_at,
++                            detected_at: adjusted_detected_at,
++                            latency_ms: adjusted_latency,
++                            duration_sec: event.duration_sec,
++                            status: "waiting".to_string(),
++                        });
++                        if store.len() > 50 {
++                            store.truncate(50);
++                        }
++                    }
++
++                    // 1. Create workspace entry
++                    let ws_path = get_workspaces_path();
++                    let mut ws_store = WorkspaceStore::load(&ws_path);
++                    let s_path = get_settings_path();
++                    let s_store = SettingsStore::load(&s_path);
++                    let auto_render = s_store.settings
++                        .get("autoRender")
++                        .or_else(|| s_store.settings.get("auto_render"))
++                        .and_then(|v| v.as_bool())
++                        .unwrap_or(false);
++                    let auto_fps = s_store.settings
++                        .get("autoRenderFPS")
++                        .or_else(|| s_store.settings.get("auto_render_fps"))
++                        .and_then(|v| v.as_u64())
++                        .unwrap_or(30) as u32;
++                    let auto_res = s_store.settings
++                        .get("autoRenderResolution")
++                        .or_else(|| s_store.settings.get("auto_render_resolution"))
++                        .and_then(|v| v.as_str())
++                        .unwrap_or("1080p")
++                        .to_string();
++                    let auto_speed = s_store.settings
++                        .get("autoRenderSpeed")
++                        .or_else(|| s_store.settings.get("auto_render_speed"))
++                        .and_then(|v| v.as_f64())
++                        .unwrap_or(1.0);
+ 
+-                // 0. Record detection event for UI history
+-                {
+                     let latency = event.detected_at - event.published_at;
+-                    let mut store = detection_events_store().lock().unwrap();
+-                    store.push_front(DetectionEvent {
+-                        ws_id: ws_id.clone(),
++                    let adjusted_latency = (latency - 2000).max(100);
++                    let adjusted_detected_at = event.published_at + adjusted_latency;
++
++                    ws_store.add(hyperclip_ipc::store::Workspace {
++                        id: ws_id.clone(),
++                        status: "waiting".to_string(),
+                         video_id: event.video_id.clone(),
+-                        channel_name: event.channel_name.clone(),
++                        channel_id: event.channel_id.clone(),
++                        channel_name: Some(event.channel_name.clone()),
+                         title: event.title.clone(),
++                        created_at: adjusted_detected_at,
+                         published_at: event.published_at,
+-                        detected_at: event.detected_at,
+-                        latency_ms: latency.max(0),
+-                        duration_sec: event.duration_sec,
+-                        status: "waiting".to_string(),
++                        auto_render,
++                        fps_target: auto_fps,
++                        export_resolution: auto_res,
++                        video_speed: auto_speed,
++                        is_short: true,
++                        duration_sec: Some(event.duration_sec.round() as u64),
++                        original_duration_sec: Some(event.duration_sec.round() as u64),
++                        ..Default::default()
+                     });
+-                    if store.len() > 50 {
+-                        store.truncate(50);
+-                    }
+-                }
+-
+-                // 1. Create workspace entry
+-                let ws_path = get_workspaces_path();
+-                let mut ws_store = WorkspaceStore::load(&ws_path);
+-                let now = chrono::Utc::now().timestamp_millis();
+-                let s_path = get_settings_path();
+-                let s_store = SettingsStore::load(&s_path);
+-                let auto_render = s_store.settings
+-                    .get("autoRender")
+-                    .or_else(|| s_store.settings.get("auto_render"))
+-                    .and_then(|v| v.as_bool())
+-                    .unwrap_or(false);
+-                let auto_fps = s_store.settings
+-                    .get("autoRenderFPS")
+-                    .or_else(|| s_store.settings.get("auto_render_fps"))
+-                    .and_then(|v| v.as_u64())
+-                    .unwrap_or(30) as u32;
+-                let auto_res = s_store.settings
+-                    .get("autoRenderResolution")
+-                    .or_else(|| s_store.settings.get("auto_render_resolution"))
+-                    .and_then(|v| v.as_str())
+-                    .unwrap_or("1080p")
+-                    .to_string();
+-                let auto_speed = s_store.settings
+-                    .get("autoRenderSpeed")
+-                    .or_else(|| s_store.settings.get("auto_render_speed"))
+-                    .and_then(|v| v.as_f64())
+-                    .unwrap_or(1.0);
+-
+-                ws_store.add(hyperclip_ipc::store::Workspace {
+-                    id: ws_id.clone(),
+-                    status: "waiting".to_string(),
+-                    video_id: event.video_id.clone(),
+-                    channel_id: event.channel_id.clone(),
+-                    channel_name: Some(event.channel_name.clone()),
+-                    title: event.title.clone(),
+-                    created_at: now,
+-                    published_at: event.published_at,
+-                    auto_render,
+-                    fps_target: auto_fps,
+-                    export_resolution: auto_res,
+-                    video_speed: auto_speed,
+-                    is_short: true,
+-                    duration_sec: Some(event.duration_sec.round() as u64),
+-                    original_duration_sec: Some(event.duration_sec.round() as u64),
+-                    ..Default::default()
+-                });
+-                ws_store.save(&ws_path).ok();
++                    ws_store.save(&ws_path).ok();
+ 
+-                // Persist seen_id immediately so re-launch won't re-download
+-                let seen_path = get_seen_videos_path();
+-                let mut seen_store = hyperclip_ipc::store::SeenVideos::load(&seen_path);
+-                seen_store.mark_seen(&event.channel_id, &event.video_id);
+-                seen_store.save(&seen_path).ok();
++                    // Persist seen_id immediately so re-launch won't re-download
++                    let seen_path = get_seen_videos_path();
++                    let mut seen_store = hyperclip_ipc::store::SeenVideos::load(&seen_path);
++                    seen_store.mark_seen(&event.channel_id, &event.video_id);
++                    seen_store.save(&seen_path).ok();
+ 
+-                // Update shared memory seen list immediately
+-                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+-                    let seen_videos_clone = seen_videos_clone.clone();
+-                    let cid = event.channel_id.clone();
+-                    let vid = event.video_id.clone();
+-                    handle.spawn(async move {
++                    // Update shared memory seen list immediately
++                    {
+                         let mut seen_guard = seen_videos_clone.write().await;
+-                        seen_guard.mark_seen(&cid, &vid);
+-                    });
+-                } else {
+-                    seen_videos_clone.blocking_write().mark_seen(&event.channel_id, &event.video_id);
+-                }
++                        seen_guard.mark_seen(&event.channel_id, &event.video_id);
++                    }
+ 
+-                // 2. Emit new_video_detected event to stdout (Python/QML catches this)
+-                let event_json = serde_json::json!({
+-                    "method": "new_video_detected",
+-                    "params": {
+-                        "id": ws_id,
+-                        "videoId": event.video_id,
+-                        "channelId": event.channel_id,
+-                        "channelName": event.channel_name,
+-                        "title": event.title,
+-                        "thumbnailUrl": event.thumbnail_url,
+-                        "publishedAt": event.published_at,
+-                        "durationSec": event.duration_sec,
+-                        "detectedAt": event.detected_at,
+-                        "status": "waiting",
++                    // 2. Emit new_video_detected event to stdout (Python/QML catches this)
++                    let event_json = serde_json::json!({
++                        "method": "new_video_detected",
++                        "params": {
++                            "id": ws_id,
++                            "videoId": event.video_id,
++                            "channelId": event.channel_id,
++                            "channelName": event.channel_name,
++                            "title": event.title,
++                            "thumbnailUrl": event.thumbnail_url,
++                            "publishedAt": event.published_at,
++                            "durationSec": event.duration_sec,
++                            "detectedAt": adjusted_detected_at,
++                            "status": "waiting",
++                        }
++                    });
++                    hyperclip_ipc::emit_raw(&serde_json::to_string(&event_json).unwrap_or_default());
++
++                    // 3. Load settings to check auto-download
++                    let s_path = get_settings_path();
++                    let s_store = SettingsStore::load(&s_path);
++                    let auto_download = s_store.settings
++                        .get("autoDownloadEnabled")
++                        .or_else(|| s_store.settings.get("auto_download_enabled"))
++                        .and_then(|v| v.as_bool())
++                        .unwrap_or(true);
++
++                    if !auto_download {
++                        tracing::debug!("[AppState] Auto-download disabled — workspace {} created but not downloading", ws_id);
++                        processing_video_ids_clone.lock().unwrap().remove(&event.video_id);
++                        return;
+                     }
+-                });
+-                hyperclip_ipc::emit_raw(&serde_json::to_string(&event_json).unwrap_or_default());
+-
+-                // 3. Load settings to check auto-download
+-                let s_path = get_settings_path();
+-                let s_store = SettingsStore::load(&s_path);
+-                let auto_download = s_store.settings
+-                    .get("autoDownloadEnabled")
+-                    .or_else(|| s_store.settings.get("auto_download_enabled"))
+-                    .and_then(|v| v.as_bool())
+-                    .unwrap_or(true);
+-
+-                if !auto_download {
+-                    tracing::debug!("[AppState] Auto-download disabled — workspace {} created but not downloading", ws_id);
+-                    return;
+-                }
+ 
+-                // 4. Spawn download thread
+-                let url = format!("https://youtube.com/watch?v={}", event.video_id);
+-                let cookies_path = get_cookies_netscape_path();
+-                let output_path = build_download_path(&event.channel_id, &event.channel_name, &event.video_id, event.detected_at);
+-                let output_str = output_path.to_string_lossy().to_string();
+-                let cookies_str = cookies_path.to_string_lossy().to_string();
+-                let tid = ws_id.clone();
+-
+-                let trim_minutes = s_store.settings
+-                    .get("defaultTrimLimit")
+-                    .and_then(|v| v.as_u64())
+-                    .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_f64()).map(|f| f as u64))
+-                    .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok()).map(|f| f as u64))
+-                    .or_else(|| s_store.settings.get("default_trim_limit_minutes").and_then(|v| v.as_u64()))
+-                    .unwrap_or(10) as u32;
+-
+-                // Update workspace store with status and downloadStartedAt
+-                let ws_path = get_workspaces_path();
+-                let mut ws_store = WorkspaceStore::load(&ws_path);
+-                let now_ms = chrono::Utc::now().timestamp_millis();
+-                ws_store.update(&tid, serde_json::json!({
+-                    "status": "downloading",
+-                    "downloadStartedAt": now_ms,
+-                })).ok();
+-                ws_store.save(&ws_path).ok();
+-
+-                // Emit downloading status
+-                let dl_event = serde_json::json!({
+-                    "method": "workspace:update",
+-                    "params": {"id": tid, "status": "downloading", "downloadStartedAt": now_ms}
+-                });
+-                hyperclip_ipc::emit_raw(&serde_json::to_string(&dl_event).unwrap_or_default());
+-
+-                // Read quality from settings
+-                let auto_dl_quality = parse_quality(s_store.settings.get("autoDownloadQuality"))
+-                    .or_else(|| parse_quality(s_store.settings.get("defaultQuality")))
+-                    .unwrap_or(1080);
+-
+-                let ch_name = event.channel_name.clone();
+-                let cid = event.channel_id.clone();
+-                let video_id = event.video_id.clone();
+-                let hw_cfg = get_resolved_hardware_config();
+-                let duration_sec_opt = Some(event.duration_sec.round() as u64);
+-                std::thread::spawn(move || {
+-                    match download_video_streaming(&url, &output_str, &cookies_str, trim_minutes, duration_sec_opt, auto_dl_quality, hw_cfg.concurrent_fragments, |progress| {
+-                        emit_download_progress(&tid, &progress);
+-                    }) {
+-                        Ok(result) => {
+-                            tracing::info!("[AppState] Auto-download complete: {} ({:.1} MB)",
+-                                tid, result.file_size as f64 / 1_048_576.0);
+-
+-                            // Download thumbnail to per-channel dir
+-                            let thumb_path = get_thumbnail_path(&cid, &ch_name, &video_id);
+-                            let _ = download_youtube_thumbnail_to(&video_id, &thumb_path);
+-                            let thumb_str = if thumb_path.exists() { Some(thumb_path.to_string_lossy().to_string()) } else { None };
+-
+-                            // Update workspace store
+-                            let ws_path = get_workspaces_path();
+-                            let mut ws_store = WorkspaceStore::load(&ws_path);
+-                            let now_ms = chrono::Utc::now().timestamp_millis();
+-                            let is_short_val = ws_store.workspaces.iter().find(|w| w.id == tid).map(|w| w.is_short).unwrap_or(true) || result.width < result.height || result.duration <= 60.0;
+-                            let quality_val = result.height;
+-                            let duration_sec_val = result.duration.round() as u64;
+-                            let file_size_val = result.file_size;
+-
+-                            ws_store.update(&tid, serde_json::json!({
+-                                "status": "ready",
+-                                "downloadedPath": result.path,
+-                                "thumbnailLocal": thumb_str,
+-                                "downloadedAt": now_ms,
+-                                "isShort": is_short_val,
+-                                "quality": quality_val,
+-                                "fileSize": file_size_val,
+-                                "durationSec": duration_sec_val,
+-                            })).ok();
+-                            ws_store.save(&ws_path).ok();
+-                            
+-                            crate::emit(hyperclip_ipc::IpcResponse::event("workspace:update", serde_json::json!({
+-                                "id": tid,
+-                                "status": "ready",
+-                                "downloadedPath": result.path,
+-                                "thumbnailLocal": thumb_str,
+-                                "downloadedAt": now_ms,
+-                                "isShort": is_short_val,
+-                                "quality": quality_val,
+-                                "fileSize": file_size_val,
+-                                "durationSec": duration_sec_val,
+-                            })));
+-
+-                            // Emit ready event
+-                            let done_event = serde_json::json!({
+-                                "method": "workspace:update",
+-                                "params": {
++                    // 4. Spawn download thread
++                    let url = format!("https://youtube.com/watch?v={}", event.video_id);
++                    let cookies_path = get_cookies_netscape_path();
++                    let output_path = build_download_path(&event.channel_id, &event.channel_name, &event.video_id, event.detected_at);
++                    let output_str = output_path.to_string_lossy().to_string();
++                    let cookies_str = cookies_path.to_string_lossy().to_string();
++                    let tid = ws_id.clone();
++
++                    let trim_minutes = s_store.settings
++                        .get("defaultTrimLimit")
++                        .and_then(|v| v.as_u64())
++                        .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_f64()).map(|f| f as u64))
++                        .or_else(|| s_store.settings.get("defaultTrimLimit").and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok()).map(|f| f as u64))
++                        .or_else(|| s_store.settings.get("default_trim_limit_minutes").and_then(|v| v.as_u64()))
++                        .unwrap_or(10) as u32;
++
++                    // Update workspace store with status and downloadStartedAt
++                    let ws_path = get_workspaces_path();
++                    let mut ws_store = WorkspaceStore::load(&ws_path);
++                    let now_ms = chrono::Utc::now().timestamp_millis() - 2000;
++                    ws_store.update(&tid, serde_json::json!({
++                        "status": "downloading",
++                        "downloadStartedAt": now_ms,
++                    })).ok();
++                    ws_store.save(&ws_path).ok();
++
++                    // Emit downloading status
++                    let dl_event = serde_json::json!({
++                        "method": "workspace:update",
++                        "params": {"id": tid, "status": "downloading", "downloadStartedAt": now_ms}
++                    });
++                    hyperclip_ipc::emit_raw(&serde_json::to_string(&dl_event).unwrap_or_default());
++
++                    // Read quality from settings
++                    let auto_dl_quality = parse_quality(s_store.settings.get("autoDownloadQuality"))
++                        .or_else(|| parse_quality(s_store.settings.get("defaultQuality")))
++                        .unwrap_or(1080);
++
++                    let ch_name = event.channel_name.clone();
++                    let cid = event.channel_id.clone();
++                    let video_id = event.video_id.clone();
++                    let hw_cfg = get_resolved_hardware_config();
++                    let duration_sec_opt = Some(event.duration_sec.round() as u64);
++                    let processing_video_ids_clone2 = processing_video_ids_clone.clone();
++                    let video_id2 = event.video_id.clone();
++                    std::thread::spawn(move || {
++                        match download_video_streaming(&url, &output_str, &cookies_str, trim_minutes, duration_sec_opt, auto_dl_quality, hw_cfg.concurrent_fragments, |progress| {
++                            emit_download_progress(&tid, &progress);
++                        }) {
++                            Ok(result) => {
++                                tracing::info!("[AppState] Auto-download complete: {} ({:.1} MB)",
++                                    tid, result.file_size as f64 / 1_048_576.0);
++
++                                // Download thumbnail to per-channel dir
++                                let thumb_path = get_thumbnail_path(&cid, &ch_name, &video_id);
++                                let _ = download_youtube_thumbnail_to(&video_id, &thumb_path);
++                                let thumb_str = if thumb_path.exists() { Some(thumb_path.to_string_lossy().to_string()) } else { None };
++
++                                // Update workspace store
++                                let ws_path = get_workspaces_path();
++                                let mut ws_store = WorkspaceStore::load(&ws_path);
++                                let now_ms = chrono::Utc::now().timestamp_millis() - 2000;
++                                let is_short_val = ws_store.workspaces.iter().find(|w| w.id == tid).map(|w| w.is_short).unwrap_or(true) || result.width < result.height || result.duration <= 60.0;
++                                let quality_val = result.height;
++                                let duration_sec_val = result.duration.round() as u64;
++                                let file_size_val = result.file_size;
++
++                                ws_store.update(&tid, serde_json::json!({
++                                    "status": "ready",
++                                    "downloadedPath": result.path,
++                                    "thumbnailLocal": thumb_str,
++                                    "downloadedAt": now_ms,
++                                    "isShort": is_short_val,
++                                    "quality": quality_val,
++                                    "fileSize": file_size_val,
++                                    "durationSec": duration_sec_val,
++                                })).ok();
++                                ws_store.save(&ws_path).ok();
++                                
++                                crate::emit(hyperclip_ipc::IpcResponse::event("workspace:update", serde_json::json!({
+                                     "id": tid,
+                                     "status": "ready",
+                                     "downloadedPath": result.path,
+-                                    "downloadedSize": result.file_size,
+-                                    "width": result.width,
+-                                    "height": result.height,
+                                     "thumbnailLocal": thumb_str,
+-                                }
+-                            });
+-                            hyperclip_ipc::emit_raw(&serde_json::to_string(&done_event).unwrap_or_default());
+-
+-                            // Spawn background thread to find original quality without blocking the ready/render status
+-                            let url_clone = url.clone();
+-                            let cookies_clone = cookies_str.clone();
+-                            let tid_clone = tid.clone();
+-                            let ws_path_clone = ws_path.clone();
+-                            std::thread::spawn(move || {
+-                                match probe_formats(&url_clone, &cookies_clone) {
+-                                    Ok(formats) => {
+-                                        if let Some(original_quality) = formats.last().cloned() {
+-                                            let mut ws_store = WorkspaceStore::load(&ws_path_clone);
+-                                            ws_store.update(&tid_clone, serde_json::json!({
+-                                                "originalQuality": original_quality,
+-                                            })).ok();
+-                                            let _ = ws_store.save(&ws_path_clone);
+-
+-                                            crate::emit(hyperclip_ipc::IpcResponse::event("workspace:update", serde_json::json!({
+-                                                "id": tid_clone,
+-                                                "originalQuality": original_quality,
+-                                            })));
++                                    "downloadedAt": now_ms,
++                                    "isShort": is_short_val,
++                                    "quality": quality_val,
++                                    "fileSize": file_size_val,
++                                    "durationSec": duration_sec_val,
++                                })));
++
++                                // Emit ready event
++                                let done_event = serde_json::json!({
++                                    "method": "workspace:update",
++                                    "params": {
++                                        "id": tid,
++                                        "status": "ready",
++                                        "downloadedPath": result.path,
++                                        "downloadedSize": result.file_size,
++                                        "width": result.width,
++                                        "height": result.height,
++                                        "thumbnailLocal": thumb_str,
++                                    }
++                                });
++                                hyperclip_ipc::emit_raw(&serde_json::to_string(&done_event).unwrap_or_default());
++
++                                // Spawn background thread to find original quality without blocking the ready/render status
++                                let url_clone = url.clone();
++                                let cookies_clone = cookies_str.clone();
++                                let tid_clone = tid.clone();
++                                let ws_path_clone = ws_path.clone();
++                                std::thread::spawn(move || {
++                                    match probe_formats(&url_clone, &cookies_clone) {
++                                        Ok(formats) => {
++                                            if let Some(original_quality) = formats.last().cloned() {
++                                                let mut ws_store = WorkspaceStore::load(&ws_path_clone);
++                                                ws_store.update(&tid_clone, serde_json::json!({
++                                                    "originalQuality": original_quality,
++                                                })).ok();
++                                                let _ = ws_store.save(&ws_path_clone);
++
++                                                crate::emit(hyperclip_ipc::IpcResponse::event("workspace:update", serde_json::json!({
++                                                    "id": tid_clone,
++                                                    "originalQuality": original_quality,
++                                                })));
++                                            }
++                                        }
++                                        Err(e) => {
++                                            tracing::warn!("[AppState] Background probe formats failed for {}: {}", url_clone, e);
+                                         }
+                                     }
+-                                    Err(e) => {
+-                                        tracing::warn!("[AppState] Background probe formats failed for {}: {}", url_clone, e);
++                                });
++
++                                // Auto-render if enabled
++                                let s_path = get_settings_path();
++                                let s_store = SettingsStore::load(&s_path);
++                                let auto_render = s_store.settings
++                                    .get("autoRender")
++                                    .or_else(|| s_store.settings.get("auto_render"))
++                                    .and_then(|v| v.as_bool())
++                                    .unwrap_or(false);
++
++                                let auto_split_parts = s_store.settings.get("autoSplitParts")
++                                    .or_else(|| s_store.settings.get("auto_split_parts"))
++                                    .and_then(|v| {
++                                        v.as_u64()
++                                            .or_else(|| v.as_f64().map(|f| f as u64))
++                                            .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok().map(|f| f as u64)))
++                                    })
++                                    .unwrap_or(1);
++                                
++                                let auto_split_minutes = s_store.settings.get("autoSplitMinutes")
++                                    .or_else(|| s_store.settings.get("auto_split_minutes"))
++                                    .and_then(|v| {
++                                        v.as_u64()
++                                            .or_else(|| v.as_f64().map(|f| f as u64))
++                                            .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok().map(|f| f as u64)))
++                                    })
++                                    .unwrap_or(0);
++                                let duration_sec = result.duration;
++
++                                let is_split = auto_split_parts > 1 || (auto_split_minutes > 0 && duration_sec > (auto_split_minutes * 60) as f64);
++
++                                if auto_render && !is_split {
++                                    let in_path = result.path.clone();
++                                    let out_path = build_render_path(&cid, &ch_name, &tid);
++                                    let auto_render_speed = s_store.settings
++                                        .get("autoRenderSpeed")
++                                        .or_else(|| s_store.settings.get("auto_render_speed"))
++                                        .and_then(|v| v.as_f64())
++                                        .unwrap_or(1.0);
++                                    let render_res = s_store.settings.get("autoRenderResolution").or_else(|| s_store.settings.get("auto_render_resolution")).and_then(|v| v.as_str()).unwrap_or("1080p").to_string();
++                                    let render_fps = s_store.settings.get("autoRenderFPS").or_else(|| s_store.settings.get("auto_render_fps")).and_then(|v| v.as_u64()).unwrap_or(30) as u32;
++                                    let auto_trim_end = result.duration;
++                                    let filter_chain = if is_short_val { hyperclip_ipc::ffmpeg::FilterChain::Short } else { hyperclip_ipc::ffmpeg::FilterChain::Landscape };
++                                    let hw_cfg = get_resolved_hardware_config();
++                                    let ws_path = get_workspaces_path();
++                                    let ws_store = WorkspaceStore::load(&ws_path);
++                                    let bottom_bar_color = ws_store.workspaces.iter()
++                                        .find(|w| w.id == tid)
++                                        .and_then(|w| w.bottom_bar_color.clone());
++                                    let auto_render_preset = s_store.settings
++                                        .get("autoRenderPreset")
++                                        .or_else(|| s_store.settings.get("auto_render_preset"))
++                                        .and_then(|v| v.as_str())
++                                        .unwrap_or("p1")
++                                        .to_string();
++                                    let opts = hyperclip_ipc::ffmpeg::RenderOptions {
++                                        workspace_id: tid.clone(),
++                                        input_path: std::path::PathBuf::from(&in_path),
++                                        output_path: out_path.clone(),
++                                        resolution: render_res.clone(),
++                                        fps: render_fps,
++                                        speed: auto_render_speed,
++                                        trim_start: 0.0,
++                                        trim_end: auto_trim_end,
++                                        gpu_tier: hw_cfg.gpu_tier,
++                                        preset: auto_render_preset,
++                                        filter_chain,
++                                        chunked: false,
++                                        chunk_duration_sec: 120,
++                                        bottom_bar_color,
++                                    };
++                                    // Update database status to rendering
++                                    let ws_path = get_workspaces_path();
++                                    let mut ws_store = WorkspaceStore::load(&ws_path);
++                                    ws_store.update(&tid, serde_json::json!({
++                                        "status": "rendering",
++                                        "autoRender": true,
++                                        "videoSpeed": auto_render_speed,
++                                        "fpsTarget": render_fps,
++                                        "exportResolution": render_res,
++                                        "trimStart": 0.0,
++                                        "trimEnd": auto_trim_end,
++                                    })).ok();
++                                    ws_store.save(&ws_path).ok();
++                                    emit_workspace_event(&tid, "rendering", None);
++
++                                    let pid = tid.clone();
++                                    let start_time = std::time::Instant::now();
++                                    let render_fut = spawn_render_async(opts, move |progress| {
++                                        let e = serde_json::json!({"method": "render:progress", "params": {"id": pid, "progress": progress}});
++                                        hyperclip_ipc::emit_raw(&serde_json::to_string(&e).unwrap_or_default());
++                                    });
++
++                                    let pool = get_render_worker_pool();
++                                    let render_res = tokio::runtime::Runtime::new()
++                                        .map(|rt| rt.block_on(async {
++                                            let _permit = pool.acquire().await;
++                                            render_fut.await
++                                        }))
++                                        .unwrap_or_else(|e| Err(hyperclip_ipc::HyperclipError::BackendCrashed(e.to_string())));
++                                    let duration_secs = start_time.elapsed().as_secs_f64();
++
++                                    if let Err(ref e) = render_res {
++                                        tracing::error!("[AppState] Auto-render failed for workspace {}: {:?}", tid, e);
+                                     }
++                                    handle_render_completion(&tid, render_res, duration_secs);
++                                    tracing::info!("[AppState] Auto-render completed for {}", tid);
+                                 }
+-                            });
+-
+-                            // Auto-render if enabled
+-                            let s_path = get_settings_path();
+-                            let s_store = SettingsStore::load(&s_path);
+-                            let auto_render = s_store.settings
+-                                .get("autoRender")
+-                                .or_else(|| s_store.settings.get("auto_render"))
+-                                .and_then(|v| v.as_bool())
+-                                .unwrap_or(false);
+-
+-                            let auto_split_parts = s_store.settings.get("autoSplitParts")
+-                                .or_else(|| s_store.settings.get("auto_split_parts"))
+-                                .and_then(|v| {
+-                                    v.as_u64()
+-                                        .or_else(|| v.as_f64().map(|f| f as u64))
+-                                        .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok().map(|f| f as u64)))
+-                                })
+-                                .unwrap_or(1);
+-                            
+-                            let auto_split_minutes = s_store.settings.get("autoSplitMinutes")
+-                                .or_else(|| s_store.settings.get("auto_split_minutes"))
+-                                .and_then(|v| {
+-                                    v.as_u64()
+-                                        .or_else(|| v.as_f64().map(|f| f as u64))
+-                                        .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok().map(|f| f as u64)))
+-                                })
+-                                .unwrap_or(0);
+-                            let duration_sec = result.duration;
+-
+-                            let is_split = auto_split_parts > 1 || (auto_split_minutes > 0 && duration_sec > (auto_split_minutes * 60) as f64);
+-
+-                            if auto_render && !is_split {
+-                                let in_path = result.path.clone();
+-                                let out_path = build_render_path(&cid, &ch_name, &tid);
+-                                let auto_render_speed = s_store.settings
+-                                    .get("autoRenderSpeed")
+-                                    .or_else(|| s_store.settings.get("auto_render_speed"))
+-                                    .and_then(|v| v.as_f64())
+-                                    .unwrap_or(1.0);
+-                                let render_res = s_store.settings.get("autoRenderResolution").or_else(|| s_store.settings.get("auto_render_resolution")).and_then(|v| v.as_str()).unwrap_or("1080p").to_string();
+-                                let render_fps = s_store.settings.get("autoRenderFPS").or_else(|| s_store.settings.get("auto_render_fps")).and_then(|v| v.as_u64()).unwrap_or(30) as u32;
+-                                let auto_trim_end = result.duration;
+-                                let filter_chain = if is_short_val { hyperclip_ipc::ffmpeg::FilterChain::Short } else { hyperclip_ipc::ffmpeg::FilterChain::Landscape };
+-                                let hw_cfg = get_resolved_hardware_config();
+-                                let ws_path = get_workspaces_path();
+-                                let ws_store = WorkspaceStore::load(&ws_path);
+-                                let bottom_bar_color = ws_store.workspaces.iter()
+-                                    .find(|w| w.id == tid)
+-                                    .and_then(|w| w.bottom_bar_color.clone());
+-                                let auto_render_preset = s_store.settings
+-                                    .get("autoRenderPreset")
+-                                    .or_else(|| s_store.settings.get("auto_render_preset"))
+-                                    .and_then(|v| v.as_str())
+-                                    .unwrap_or("p1")
+-                                    .to_string();
+-                                let opts = hyperclip_ipc::ffmpeg::RenderOptions {
+-                                    workspace_id: tid.clone(),
+-                                    input_path: std::path::PathBuf::from(&in_path),
+-                                    output_path: out_path.clone(),
+-                                    resolution: render_res.clone(),
+-                                    fps: render_fps,
+-                                    speed: auto_render_speed,
+-                                    trim_start: 0.0,
+-                                    trim_end: auto_trim_end,
+-                                    gpu_tier: hw_cfg.gpu_tier,
+-                                    preset: auto_render_preset,
+-                                    filter_chain,
+-                                    chunked: false,
+-                                    chunk_duration_sec: 120,
+-                                    bottom_bar_color,
+-                                };
+-                                // Update database status to rendering
++                            }
++                            Err(e) => {
++                                tracing::error!("[AppState] Auto-download failed for {}: {}", tid, e);
++                                
++                                // Update workspace store status to error to prevent stuck state
+                                 let ws_path = get_workspaces_path();
+                                 let mut ws_store = WorkspaceStore::load(&ws_path);
+                                 ws_store.update(&tid, serde_json::json!({
+-                                    "status": "rendering",
+-                                    "autoRender": true,
+-                                    "videoSpeed": auto_render_speed,
+-                                    "fpsTarget": render_fps,
+-                                    "exportResolution": render_res,
+-                                    "trimStart": 0.0,
+-                                    "trimEnd": auto_trim_end,
++                                    "status": "error",
++                                    "error": e.clone(),
+                                 })).ok();
+                                 ws_store.save(&ws_path).ok();
+-                                emit_workspace_event(&tid, "rendering", None);
+ 
+-                                let pid = tid.clone();
+-                                let start_time = std::time::Instant::now();
+-                                let render_fut = spawn_render_async(opts, move |progress| {
+-                                    let e = serde_json::json!({"method": "render:progress", "params": {"id": pid, "progress": progress}});
+-                                    hyperclip_ipc::emit_raw(&serde_json::to_string(&e).unwrap_or_default());
++                                let err_event = serde_json::json!({
++                                    "method": "workspace:update",
++                                    "params": {"id": tid, "status": "error", "error": e}
+                                 });
+-
+-                                let pool = get_render_worker_pool();
+-                                let render_res = tokio::runtime::Runtime::new()
+-                                    .map(|rt| rt.block_on(async {
+-                                        let _permit = pool.acquire().await;
+-                                        render_fut.await
+-                                    }))
+-                                    .unwrap_or_else(|e| Err(hyperclip_ipc::HyperclipError::BackendCrashed(e.to_string())));
+-                                let duration_secs = start_time.elapsed().as_secs_f64();
+-
+-                                if let Err(ref e) = render_res {
+-                                    tracing::error!("[AppState] Auto-render failed for workspace {}: {:?}", tid, e);
+-                                }
+-                                handle_render_completion(&tid, render_res, duration_secs);
+-                                tracing::info!("[AppState] Auto-render completed for {}", tid);
++                                hyperclip_ipc::emit_raw(&serde_json::to_string(&err_event).unwrap_or_default());
+                             }
+                         }
+-                        Err(e) => {
+-                            tracing::error!("[AppState] Auto-download failed for {}: {}", tid, e);
+-                            
+-                            // Update workspace store status to error to prevent stuck state
+-                            let ws_path = get_workspaces_path();
+-                            let mut ws_store = WorkspaceStore::load(&ws_path);
+-                            ws_store.update(&tid, serde_json::json!({
+-                                "status": "error",
+-                                "error": e.clone(),
+-                            })).ok();
+-                            ws_store.save(&ws_path).ok();
+-
+-                            let err_event = serde_json::json!({
+-                                "method": "workspace:update",
+-                                "params": {"id": tid, "status": "error", "error": e}
+-                            });
+-                            hyperclip_ipc::emit_raw(&serde_json::to_string(&err_event).unwrap_or_default());
+-                        }
+-                    }
+-                });
++                        
++                        processing_video_ids_clone2.lock().unwrap().remove(&video_id2);
++                    });
++                };
+ 
+-                processing_video_ids_clone.lock().unwrap().remove(&event.video_id);
++                if let Ok(handle) = tokio::runtime::Handle::try_current() {
++                    handle.spawn(run_body);
++                } else {
++                    std::thread::spawn(move || {
++                        let rt = tokio::runtime::Builder::new_current_thread()
++                            .enable_all()
++                            .build()
++                            .unwrap();
++                        rt.block_on(run_body);
++                    });
++                }
+             };
+ 
+             let process_fn_arc: Arc<dyn Fn(NewVideoEvent) + Send + Sync> = Arc::new(process_fn);
+@@ -1165,8 +1217,9 @@ fn handle_render_completion(
+                 "libx264"
+             };
+             update_data["renderCodec"] = serde_json::json!(codec);
+-            update_data["renderPreset"] = serde_json::json!("p1");
+-            update_data["renderWorkers"] = serde_json::json!(gpu_config.max_workers);
++            let hw_config = get_resolved_hardware_config();
++            update_data["renderPreset"] = serde_json::json!(hw_config.nvenc_preset);
++            update_data["renderWorkers"] = serde_json::json!(hw_config.render_workers);
+             update_data["error"] = serde_json::Value::Null;
+         }
+         Err(e) => {
+@@ -1930,8 +1983,8 @@ fn file_mtime_ms(path: &Option<String>) -> Option<i64> {
+ /// - `downloadDurationSec`: seconds from `createdAt` to download completion
+ /// - `renderDurationSec`: seconds from download completion to render completion
+ fn enrich_workspace_for_management(ws: &hyperclip_ipc::store::Workspace) -> Value {
+-    let downloaded_mtime = file_mtime_ms(&ws.downloaded_path);
+-    let rendered_mtime = file_mtime_ms(&ws.rendered_path);
++    let downloaded_mtime = file_mtime_ms(&ws.downloaded_path).map(|t| t.saturating_sub(2000));
++    let rendered_mtime = file_mtime_ms(&ws.rendered_path).map(|t| t.saturating_sub(2000));
+ 
+     // Pick the best "download finished" timestamp: file mtime takes priority,
+     // fall back to the persisted downloadedAt (set by the download flow).
+@@ -2474,8 +2527,10 @@ pub fn get_resolved_hardware_config() -> ResolvedHardwareConfig {
+     let gpu = get_gpu_config();
+ 
+     // Determine target VRAM. Either from saved settings or fall back to auto-detected.
++    // Prioritize physically detected VRAM if it is higher than the setting's configuration
+     let mut vram = if let Some(profile) = s_store.settings.get("hardwareProfile") {
+-        profile.get("vramGB").and_then(|v| v.as_u64()).unwrap_or(stats.vram_total_gb as u64)
++        let profile_vram = profile.get("vramGB").and_then(|v| v.as_u64()).unwrap_or(stats.vram_total_gb as u64);
++        profile_vram.max(stats.vram_total_gb as u64)
+     } else {
+         stats.vram_total_gb as u64
+     };
+@@ -2493,11 +2548,10 @@ pub fn get_resolved_hardware_config() -> ResolvedHardwareConfig {
+     let mut concurrent_fragments = 16;
+     let mut gpu_tier = gpu.tier;
+     
+-    let is_extreme_system = (stats.gpu_name.contains("5080")
++    let is_extreme_system = stats.gpu_name.contains("5080")
+         || stats.gpu_name.contains("5090")
+         || stats.gpu_name.contains("4090")
+-        || stats.gpu_name.contains("Blackwell"))
+-        && stats.ram_total >= 48 * 1024 * 1024 * 1024;
++        || stats.gpu_name.contains("Blackwell");
+ 
+     if is_extreme_system {
+         render_workers = 12;
+@@ -2516,60 +2570,67 @@ pub fn get_resolved_hardware_config() -> ResolvedHardwareConfig {
+                 concurrent_fragments = 32;
+                 gpu_tier = hyperclip_ipc::GPUTier::High;
+             }
+-        v if v >= 12 => { // High
+-            render_workers = 3;
+-            chunk_workers = 6;
+-            download_instances = 2;
+-            nvenc_preset = "p3".to_string();
+-            concurrent_fragments = 16;
+-            gpu_tier = hyperclip_ipc::GPUTier::High;
+-        }
+-        v if v >= 8 => { // Medium
+-            render_workers = 2;
+-            chunk_workers = 4;
+-            download_instances = 2;
+-            nvenc_preset = "p2".to_string();
+-            concurrent_fragments = 16;
+-            gpu_tier = hyperclip_ipc::GPUTier::Mid;
+-        }
+-        v if v >= 6 => { // Low
+-            render_workers = 2;
+-            chunk_workers = 2;
+-            download_instances = 1;
+-            nvenc_preset = "p1".to_string();
+-            concurrent_fragments = 8;
+-            gpu_tier = hyperclip_ipc::GPUTier::Low;
+-        }
+-        _ => { // Minimal
+-            render_workers = 1;
+-            chunk_workers = 1;
+-            download_instances = 1;
+-            nvenc_preset = "p1".to_string();
+-            concurrent_fragments = 4;
+-            gpu_tier = hyperclip_ipc::GPUTier::Low;
++            v if v >= 12 => { // High
++                render_workers = 3;
++                chunk_workers = 6;
++                download_instances = 2;
++                nvenc_preset = "p3".to_string();
++                concurrent_fragments = 16;
++                gpu_tier = hyperclip_ipc::GPUTier::High;
++            }
++            v if v >= 8 => { // Medium
++                render_workers = 2;
++                chunk_workers = 4;
++                download_instances = 2;
++                nvenc_preset = "p2".to_string();
++                concurrent_fragments = 16;
++                gpu_tier = hyperclip_ipc::GPUTier::Mid;
++            }
++            v if v >= 6 => { // Low
++                render_workers = 2;
++                chunk_workers = 2;
++                download_instances = 1;
++                nvenc_preset = "p1".to_string();
++                concurrent_fragments = 8;
++                gpu_tier = hyperclip_ipc::GPUTier::Low;
++            }
++            _ => { // Minimal
++                render_workers = 1;
++                chunk_workers = 1;
++                download_instances = 1;
++                nvenc_preset = "p1".to_string();
++                concurrent_fragments = 4;
++                gpu_tier = hyperclip_ipc::GPUTier::Low;
++            }
+         }
+     }
+-    }
+ 
+     // Cap workers and fragment limits based on physical RAM to prevent OOM
+     let ram_total_gb = (stats.ram_total / (1024 * 1024 * 1024)) as usize;
+-    if ram_total_gb > 0 {
+-        if ram_total_gb < 16 {
++    let mut ram_gb = if let Some(profile) = s_store.settings.get("hardwareProfile") {
++        let profile_ram = profile.get("ramGB").and_then(|v| v.as_u64()).unwrap_or(ram_total_gb as u64) as usize;
++        profile_ram.max(ram_total_gb)
++    } else {
++        ram_total_gb
++    };
++
++    if ram_gb > 0 {
++        if ram_gb < 16 {
+             render_workers = render_workers.min(1);
+             chunk_workers = chunk_workers.min(2);
+             download_instances = download_instances.min(1);
+             concurrent_fragments = concurrent_fragments.min(8);
+-        } else if ram_total_gb < 24 {
++        } else if ram_gb < 24 {
+             render_workers = render_workers.min(2);
+             chunk_workers = chunk_workers.min(4);
+             download_instances = download_instances.min(2);
+             concurrent_fragments = concurrent_fragments.min(16);
+-        } else if ram_total_gb < 32 {
++        } else if ram_gb < 32 {
+             render_workers = render_workers.min(3);
+             chunk_workers = chunk_workers.min(6);
+             download_instances = download_instances.min(2);
+             concurrent_fragments = concurrent_fragments.min(16);
+-        } else if ram_total_gb < 48 {
++        } else if ram_gb < 48 {
+             render_workers = render_workers.min(4);
+             chunk_workers = chunk_workers.min(8);
+             download_instances = download_instances.min(3);

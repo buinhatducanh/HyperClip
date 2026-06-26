@@ -301,13 +301,13 @@ Rectangle {
         delegate: Rectangle {
             width: chList.width
             height: 42
-            color: sideRoot.activeChannelId === model.channelId ? Qt.rgba(0, 180, 255, 0.08) : "transparent"
+            color: sideRoot.activeChannelId === model.id ? Qt.rgba(0, 180, 255, 0.08) : "transparent"
 
             property bool rowHover: rowMa.containsMouse
             Rectangle {
                 anchors.fill: parent
                 color: Theme.hoverBg
-                opacity: (parent.rowHover && sideRoot.activeChannelId !== model.channelId) ? 0.35 : 0.0
+                opacity: (parent.rowHover && sideRoot.activeChannelId !== model.id) ? 0.35 : 0.0
                 Behavior on opacity { NumberAnimation { duration: 120 } }
             }
 
@@ -318,7 +318,7 @@ Rectangle {
                 width: 3
                 height: 24
                 radius: 1.5
-                color: sideRoot.activeChannelId === model.channelId ? Theme.accent : "transparent"
+                color: sideRoot.activeChannelId === model.id ? Theme.accent : "transparent"
             }
 
             MouseArea {
@@ -327,10 +327,10 @@ Rectangle {
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: {
-                    if (sideRoot.activeChannelId === model.channelId) {
+                    if (sideRoot.activeChannelId === model.id) {
                         sideRoot.channelSelected("")
                     } else {
-                        sideRoot.channelSelected(model.channelId)
+                        sideRoot.channelSelected(model.id)
                     }
                 }
             }
@@ -350,7 +350,7 @@ Rectangle {
                     Layout.preferredHeight: 28
                     radius: 14
                     color: (model.avatarColor || Theme.accent) + "22"
-                    border.color: sideRoot.activeChannelId === model.channelId 
+                    border.color: sideRoot.activeChannelId === model.id 
                         ? Theme.accent 
                         : ((model.avatarColor || Theme.accent) + "44")
                     border.width: 1
@@ -395,9 +395,9 @@ Rectangle {
 
                 Label {
                     text: model.name
-                    color: model.paused ? Theme.textMuted : (sideRoot.activeChannelId === model.channelId ? Theme.accent : Theme.text)
+                    color: model.paused ? Theme.textMuted : (sideRoot.activeChannelId === model.id ? Theme.accent : Theme.text)
                     font.pixelSize: 12
-                    font.bold: sideRoot.activeChannelId === model.channelId
+                    font.bold: sideRoot.activeChannelId === model.id
                     elide: Text.ElideRight
                     Layout.fillWidth: true
                     opacity: model.paused ? 0.6 : 1.0
@@ -456,9 +456,9 @@ Rectangle {
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
                                 if (model.paused) {
-                                    backend.send_command("channel:resume", {"id": model.channelId})
+                                    backend.send_command("channel:resume", {"id": model.id})
                                 } else {
-                                    backend.send_command("channel:pause", {"id": model.channelId})
+                                    backend.send_command("channel:pause", {"id": model.id})
                                 }
                             }
                         }
@@ -480,7 +480,7 @@ Rectangle {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
-                                backend.send_command("channel:remove", {"id": model.channelId})
+                                backend.send_command("channel:remove", {"id": model.id})
                             }
                         }
                     }

@@ -207,6 +207,7 @@ class AppController(QObject):
             "status": d.get("status", "waiting"),
             "title": d.get("title", ""),
             "progress": 0.0,
+            "channelId": d.get("channelId", "") or d.get("channel_id", ""),
             "channel_name": d.get("channelName", "") or d.get("channel_id", ""),
             "thumbnail": d.get("thumbnailUrl", "") or d.get("thumbnail", ""),
             "created_at": d.get("detectedAt", 0) or d.get("detected_at", 0),

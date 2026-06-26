@@ -99,7 +99,6 @@ pub fn build_audio_chain(trim_start: f64, trim_duration: f64, speed: f64) -> Str
 
 /// Build filter complex for SHORT (9:16) layout
 /// Z-order: bg(bottom) → video(middle) → bottom_bar → header(top)
-/// Filter order: fps → setpts(speed) → trim → setpts(reset) → scale → crop
 pub fn build_short_filter(
     trim_start: f64,
     trim_duration: f64,
@@ -110,6 +109,8 @@ pub fn build_short_filter(
     bottom_bar_h: u32,
     use_cuda: bool,
     fps: u32,
+    wi: u32,
+    hi: u32,
 ) -> String {
     let scale = if use_cuda { "scale_cuda" } else { "scale" };
     let overlay = if use_cuda { "overlay_cuda" } else { "overlay" };
@@ -118,16 +119,24 @@ pub fn build_short_filter(
     let video_h = canvas_h - header_h - bottom_bar_h;
     let video_top = header_h;
     
+    let (scaled_w, scaled_h) = compute_cover_dimensions(wi, hi, canvas_w, video_h);
+    let crop_x = (scaled_w as i32 - canvas_w as i32) / 2;
+    let crop_y = (scaled_h as i32 - video_h as i32) / 2;
+    let x_offset = 0;
+    let y_offset = video_top as i32;
+
     let mut video_ops = Vec::new();
     if trim_start > 0.0 || trim_duration > 0.0 {
         let dur = if trim_duration > 0.0 { trim_duration } else { 9999.0 };
         video_ops.push(format!("trim=start={}:duration={}", trim_start, dur));
         video_ops.push("setpts=PTS-STARTPTS".to_string());
     }
+    if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
+        video_ops.push(format!("setpts={}*PTS", 1.0 / speed));
+    }
     video_ops.push(format!("fps={}", fps));
-    video_ops.push(format!("{}={}:{}{}", scale, "-2", video_h, scale_flags));
-    let crop_offset = ((((video_h as f64) * 16.0 / 9.0) - (canvas_w as f64)) / 2.0).round() as i32;
-    video_ops.push(format!("crop={}:{}:{}:0", canvas_w, video_h, crop_offset));
+    video_ops.push(format!("{}={}:{}{}", scale, scaled_w, scaled_h, scale_flags));
+    video_ops.push(format!("crop={}:{}:{}:{}", canvas_w, video_h, crop_x.max(0), crop_y.max(0)));
     video_ops.push("format=yuv420p".to_string());
 
     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
@@ -143,16 +152,18 @@ pub fn build_short_filter(
         canvas_h
     );
 
-    // Video over background at video_top
+    // Video over background at x_offset, y_offset
     let vz_chain = format!(
-        "[bg][vid]{}=0:{} [vz]",
+        "[bg][vid]{}={}:{} [vz]",
         overlay,
-        video_top
+        x_offset,
+        y_offset
     );
 
     // Header at top (y=0) - [2:v] is header
     let hd_chain = format!(
-        "[2:v]loop=loop=-1:size=1:start=0,{0}={1}:{2}:force_original_aspect_ratio=increase,crop={1}:{2}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[hd]",
+        "[2:v]loop=loop=-1:size=1:start=0,fps={0},{1}={2}:{3}:force_original_aspect_ratio=increase,crop={2}:{3}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[hd]",
+        fps,
         scale,
         canvas_w,
         header_h
@@ -162,23 +173,19 @@ pub fn build_short_filter(
         overlay
     );
 
-    // Bottom bar at bottom (bb_y) - [3:v] is bottom bar (pre-rendered PNG, no scaling/cropping)
+    // Bottom bar at bottom (bb_y) - [3:v] is bottom bar (pre-rendered PNG)
     let bb_y = canvas_h - bottom_bar_h;
-    let bb_chain = "[3:v]loop=loop=-1:size=1:start=0,null[bb]".to_string();
+    let bb_chain = format!("[3:v]loop=loop=-1:size=1:start=0,fps={},null[bb]", fps);
     let final_overlay = format!(
         "[vh][bb]{}=0:{} [vf]",
         overlay,
         bb_y
     );
-    let final_chain = if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
-        format!("{}; [vf]setpts={}*PTS[final]", final_overlay, 1.0 / speed)
-    } else {
-        format!("{}; [vf]null[final]", final_overlay)
-    };
+    let final_chain = "[vf]null[final]".to_string();
 
     format!(
-        "{}; {}; {}; {}; {}; {}; {}",
-        video_chain, bg_chain, vz_chain, hd_chain, vh_chain, bb_chain, final_chain
+        "{}; {}; {}; {}; {}; {}; {}; {}",
+        video_chain, bg_chain, vz_chain, hd_chain, vh_chain, bb_chain, final_overlay, final_chain
     )
 }
 
@@ -192,9 +199,17 @@ pub fn build_short_filter_cuda(
     header_h: u32,
     bottom_bar_h: u32,
     fps: u32,
+    wi: u32,
+    hi: u32,
 ) -> String {
     let video_h = canvas_h - header_h - bottom_bar_h;
     let video_top = header_h;
+
+    let (scaled_w, scaled_h) = compute_cover_dimensions(wi, hi, canvas_w, video_h);
+    let crop_x = (scaled_w as i32 - canvas_w as i32) / 2;
+    let crop_y = (scaled_h as i32 - video_h as i32) / 2;
+    let x_offset = 0;
+    let y_offset = video_top as i32;
 
     let mut video_ops = Vec::new();
     if trim_start > 0.0 || trim_duration > 0.0 {
@@ -202,36 +217,38 @@ pub fn build_short_filter_cuda(
         video_ops.push(format!("trim=start={}:duration={}", trim_start, dur));
         video_ops.push("setpts=PTS-STARTPTS".to_string());
     }
+    if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
+        video_ops.push(format!("setpts={}*PTS", 1.0 / speed));
+    }
     video_ops.push(format!("fps={}", fps));
+    video_ops.push(format!("scale_cuda={}:{}", scaled_w, scaled_h));
+    video_ops.push(format!("crop={}:{}:{}:{}", canvas_w, video_h, crop_x.max(0), crop_y.max(0)));
 
     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
 
     let bg_chain = format!(
-        "[1:v]scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[bg]",
-        canvas_w, canvas_h, canvas_w, canvas_h
+        "[1:v]loop=loop=-1:size=1:start=0,fps={},scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[bg]",
+        fps, canvas_w, canvas_h, canvas_w, canvas_h
     );
 
-    let vz_chain = format!("[bg][vid]overlay_cuda=x=0:y={}:eof_action=repeat [vz]", video_top);
+    let vz_chain = format!("[bg][vid]overlay_cuda=x={}:y={}:eof_action=repeat [vz]", x_offset, y_offset);
 
     let hd_chain = format!(
-        "[2:v]scale={0}:{1}:force_original_aspect_ratio=increase,crop={0}:{1}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[hd]",
-        canvas_w, header_h
+        "[2:v]loop=loop=-1:size=1:start=0,fps={0},scale={1}:{2}:force_original_aspect_ratio=increase,crop={1}:{2}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[hd]",
+        fps, canvas_w, header_h
     );
     let vh_chain = format!("[vz][hd]overlay_cuda=x=0:y=0:eof_action=repeat [vh]");
     let bb_y = canvas_h - bottom_bar_h;
     let bb_chain = format!(
-        "[3:v]format=nv12,hwupload_cuda[bb]"
+        "[3:v]loop=loop=-1:size=1:start=0,fps={},format=nv12,hwupload_cuda[bb]",
+        fps
     );
     let final_overlay = format!("[vh][bb]overlay_cuda=x=0:y={}:eof_action=repeat,setsar=1 [vf]", bb_y);
-    let final_chain = if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
-        format!("{}; [vf]setpts={}*PTS[final]", final_overlay, 1.0 / speed)
-    } else {
-        format!("{}; [vf]null[final]", final_overlay)
-    };
+    let final_chain = "[vf]null[final]".to_string();
 
     format!(
-        "{}; {}; {}; {}; {}; {}; {}",
-        video_chain, bg_chain, vz_chain, hd_chain, vh_chain, bb_chain, final_chain
+        "{}; {}; {}; {}; {}; {}; {}; {}",
+        video_chain, bg_chain, vz_chain, hd_chain, vh_chain, bb_chain, final_overlay, final_chain
     )
 }
 
@@ -254,31 +271,30 @@ pub fn build_landscape_filter_cuda(
         video_ops.push(format!("trim=start={}:duration={}", trim_start, dur));
         video_ops.push("setpts=PTS-STARTPTS".to_string());
     }
+    if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
+        video_ops.push(format!("setpts={}*PTS", 1.0 / speed));
+    }
     video_ops.push(format!("fps={}", fps));
 
     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
 
     let bg_chain = format!(
-        "[1:v]scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[bg]",
-        canvas_w, canvas_h, canvas_w, canvas_h
+        "[1:v]loop=loop=-1:size=1:start=0,fps={},scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[bg]",
+        fps, canvas_w, canvas_h, canvas_w, canvas_h
     );
 
     let vz_chain = format!("[bg][vid]overlay_cuda=x=0:y={}:eof_action=repeat [vz]", video_top);
 
     let hd_chain = format!(
-        "[2:v]scale={0}:{1}:force_original_aspect_ratio=increase,crop={0}:{1}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[hd]",
-        canvas_w, header_h
+        "[2:v]loop=loop=-1:size=1:start=0,fps={0},scale={1}:{2}:force_original_aspect_ratio=increase,crop={1}:{2}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[hd]",
+        fps, canvas_w, header_h
     );
     let final_overlay = format!("[vz][hd]overlay_cuda=x=0:y=0:eof_action=repeat,setsar=1 [vf]");
-    let final_chain = if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
-        format!("{}; [vf]setpts={}*PTS[final]", final_overlay, 1.0 / speed)
-    } else {
-        format!("{}; [vf]null[final]", final_overlay)
-    };
+    let final_chain = "[vf]null[final]".to_string();
 
     format!(
-        "{}; {}; {}; {}; {}",
-        video_chain, bg_chain, vz_chain, hd_chain, final_chain
+        "{}; {}; {}; {}; {}; {}",
+        video_chain, bg_chain, vz_chain, hd_chain, final_overlay, final_chain
     )
 }
 
@@ -305,6 +321,9 @@ pub fn build_landscape_filter(
         let dur = if trim_duration > 0.0 { trim_duration } else { 9999.0 };
         video_ops.push(format!("trim=start={}:duration={}", trim_start, dur));
         video_ops.push("setpts=PTS-STARTPTS".to_string());
+    }
+    if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
+        video_ops.push(format!("setpts={}*PTS", 1.0 / speed));
     }
     video_ops.push(format!("fps={}", fps));
 
@@ -342,7 +361,8 @@ pub fn build_landscape_filter(
     let crop = if use_cuda { "crop_cuda" } else { "crop" };
     let format_tag = if use_cuda { "" } else { ",format=yuv420p" };
     let hd_chain = format!(
-        "[2:v]loop=loop=-1:size=1:start=0,{}={}:{}:force_original_aspect_ratio=increase,{}={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1{}[hd]",
+        "[2:v]loop=loop=-1:size=1:start=0,fps={},{}={}:{}:force_original_aspect_ratio=increase,{}={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1{}[hd]",
+        fps,
         scale,
         canvas_w,
         header_h,
@@ -357,15 +377,11 @@ pub fn build_landscape_filter(
         "[vz][hd]{}=0:0 [vf]",
         overlay
     );
-    let final_chain = if speed > 0.0 && (speed - 1.0).abs() >= f64::EPSILON {
-        format!("{}; [vf]setpts={}*PTS[final]", final_overlay, 1.0 / speed)
-    } else {
-        format!("{}; [vf]null[final]", final_overlay)
-    };
+    let final_chain = "[vf]null[final]".to_string();
 
     format!(
-        "{}; {}; {}; {}; {}",
-        video_chain, bg_chain, vz_chain, hd_chain, final_chain
+        "{}; {}; {}; {}; {}; {}",
+        video_chain, bg_chain, vz_chain, hd_chain, final_overlay, final_chain
     )
 }
 
@@ -568,6 +584,52 @@ pub fn get_bg_image_path() -> PathBuf {
 }
 
 
+fn compute_contain_dimensions(wi: u32, hi: u32, box_w: u32, box_h: u32) -> (u32, u32) {
+    if wi == 0 || hi == 0 || box_w == 0 || box_h == 0 {
+        return (box_w, box_h);
+    }
+    let aspect_in = wi as f64 / hi as f64;
+    let aspect_box = box_w as f64 / box_h as f64;
+    let (w, h) = if aspect_in > aspect_box {
+        // Limited by width
+        let w = box_w;
+        let h = (box_w as f64 / aspect_in).round() as u32;
+        (w, h)
+    } else {
+        // Limited by height
+        let h = box_h;
+        let w = (box_h as f64 * aspect_in).round() as u32;
+        (w, h)
+    };
+    // Ensure even dimensions for YUV compatibility
+    let w_even = ((w + 1) / 2) * 2;
+    let h_even = ((h + 1) / 2) * 2;
+    (w_even.max(2), h_even.max(2))
+}
+
+fn compute_cover_dimensions(wi: u32, hi: u32, box_w: u32, box_h: u32) -> (u32, u32) {
+    if wi == 0 || hi == 0 || box_w == 0 || box_h == 0 {
+        return (box_w, box_h);
+    }
+    let aspect_in = wi as f64 / hi as f64;
+    let aspect_box = box_w as f64 / box_h as f64;
+    let (w, h) = if aspect_in > aspect_box {
+        // Limited by height (aspect_in is wider than aspect_box, so to cover we scale height to box_h and width will be larger than box_w)
+        let h = box_h;
+        let w = (box_h as f64 * aspect_in).round() as u32;
+        (w, h)
+    } else {
+        // Limited by width
+        let w = box_w;
+        let h = (box_w as f64 / aspect_in).round() as u32;
+        (w, h)
+    };
+    // Ensure even dimensions for YUV compatibility
+    let w_even = ((w + 1) / 2) * 2;
+    let h_even = ((h + 1) / 2) * 2;
+    (w_even.max(2), h_even.max(2))
+}
+
 fn compute_cuvid_crop_resize(opts: &RenderOptions, input_path: &std::path::Path) -> Option<(String, String)> {
     let (wi, hi) = probe_video_dimensions(input_path)?;
     if wi == 0 || hi == 0 { return None; }
@@ -576,9 +638,9 @@ fn compute_cuvid_crop_resize(opts: &RenderOptions, input_path: &std::path::Path)
     if matches!(opts.filter_chain, FilterChain::Short) && canvas_w > canvas_h {
         std::mem::swap(&mut canvas_w, &mut canvas_h);
     }
-    // Round to next multiple of 32 to avoid NVENC green bar/alignment issues
-    canvas_w = ((canvas_w + 31) / 32) * 32;
-    canvas_h = ((canvas_h + 31) / 32) * 32;
+    // Round to next multiple of 8 (CapCut style) instead of 32
+    canvas_w = ((canvas_w + 7) / 8) * 8;
+    canvas_h = ((canvas_h + 7) / 8) * 8;
     
     let (header_h, bottom_bar_h) = match opts.filter_chain {
         FilterChain::Short => (canvas_h * 3 / 10, canvas_h * 3 / 10),
@@ -587,26 +649,13 @@ fn compute_cuvid_crop_resize(opts: &RenderOptions, input_path: &std::path::Path)
     let video_h = canvas_h - header_h - bottom_bar_h;
     let video_w = canvas_w;
     
-    let ws = (video_h as f64) * (wi as f64) / (hi as f64);
-    let (crop_x, crop_y);
-    if ws >= (video_w as f64) {
-        let cx = (wi as f64 / 2.0) * (1.0 - (video_w as f64) / ws);
-        crop_x = (((cx / 2.0).round() as u32) * 2).max(0);
-        crop_y = 0;
-    } else {
-        let hs = (video_w as f64) * (hi as f64) / (wi as f64);
-        let cy = (hi as f64 / 2.0) * (1.0 - (video_h as f64) / hs);
-        crop_x = 0;
-        crop_y = (((cy / 2.0).round() as u32) * 2).max(0);
-    }
-    
-    let crop_str = if crop_x > 0 || crop_y > 0 {
-        format!("{crop_y}x{crop_y}x{crop_x}x{crop_x}")
-    } else {
-        String::new()
+    let (scaled_w, scaled_h) = match opts.filter_chain {
+        FilterChain::Short => compute_cover_dimensions(wi, hi, video_w, video_h),
+        FilterChain::Landscape => compute_contain_dimensions(wi, hi, video_w, video_h),
     };
     
-    let resize_str = format!("{}x{}", video_w, video_h);
+    let crop_str = String::new(); // No crop
+    let resize_str = format!("{}x{}", scaled_w, scaled_h);
     Some((crop_str, resize_str))
 }
 
@@ -762,9 +811,9 @@ where F: FnMut(f64) + Send + 'static {
     if matches!(opts.filter_chain, FilterChain::Short) && canvas_w > canvas_h {
         std::mem::swap(&mut canvas_w, &mut canvas_h);
     }
-    // Round to next multiple of 32 to avoid NVENC green bar/alignment issues
-    canvas_w = ((canvas_w + 31) / 32) * 32;
-    canvas_h = ((canvas_h + 31) / 32) * 32;
+    // Round to next multiple of 8 to avoid NVENC green bar/alignment issues
+    canvas_w = ((canvas_w + 7) / 8) * 8;
+    canvas_h = ((canvas_h + 7) / 8) * 8;
 
     let (header_h, bottom_bar_h) = match opts.filter_chain {
         FilterChain::Short => (canvas_h * 3 / 10, canvas_h * 3 / 10),
@@ -1025,10 +1074,11 @@ where F: FnMut(f64) + Send + 'static {
 
     // 1. Build video filter chain
     let fps = if opts.fps == 0 { 30 } else { opts.fps };
+    let (wi, hi) = probe_video_dimensions(&opts.input_path).unwrap_or((canvas_w, canvas_h));
     let video_filter = if use_cuda {
         match opts.filter_chain {
             FilterChain::Short => {
-                build_short_filter_cuda(adjusted_trim_start, adjusted_trim_duration, speed, canvas_w, canvas_h, header_h, bottom_bar_h, fps)
+                build_short_filter_cuda(adjusted_trim_start, adjusted_trim_duration, speed, canvas_w, canvas_h, header_h, bottom_bar_h, fps, wi, hi)
             }
             FilterChain::Landscape => {
                 build_landscape_filter_cuda(adjusted_trim_start, adjusted_trim_duration, speed, canvas_w, canvas_h, header_h, fps)
@@ -1037,7 +1087,7 @@ where F: FnMut(f64) + Send + 'static {
     } else {
         match opts.filter_chain {
             FilterChain::Short => {
-                build_short_filter(adjusted_trim_start, adjusted_trim_duration, speed, canvas_w, canvas_h, header_h, bottom_bar_h, false, fps)
+                build_short_filter(adjusted_trim_start, adjusted_trim_duration, speed, canvas_w, canvas_h, header_h, bottom_bar_h, false, fps, wi, hi)
             }
             FilterChain::Landscape => {
                 let video_h = canvas_h - header_h;
@@ -1095,67 +1145,6 @@ where F: FnMut(f64) + Send + 'static {
             "-hwaccel".into(), "cuda".into(),
             "-hwaccel_output_format".into(), "cuda".into(),
         ]);
-        let codec_name = probe_video_codec(&opts.input_path);
-        let cuvid_decoder = format!("{}_cuvid", codec_name);
-
-        // Probe if this cuvid decoder is supported by checking if a dummy decode command exits successfully.
-        let decoder_supported = {
-            let cache = CUVID_DECODERS_SUPPORTED.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
-            let cached_val = {
-                let map = cache.lock().unwrap();
-                map.get(&cuvid_decoder).copied()
-            };
-            if let Some(supported) = cached_val {
-                supported
-            } else {
-                let mut test_cmd = TokioCommand::new(get_ffmpeg_path());
-                #[cfg(target_os = "windows")]
-                {
-                    test_cmd.creation_flags(0x08000000);
-                }
-                let clean_in_path = crate::store::clean_unc_path(opts.input_path.to_str().unwrap_or_default());
-                test_cmd.args([
-                    "-y",
-                    "-hwaccel", "cuda",
-                    "-hwaccel_output_format", "cuda",
-                    "-c:v", &cuvid_decoder,
-                    "-i", &clean_in_path,
-                    "-t", "0.01",
-                    "-f", "null",
-                    "-"
-                ]);
-                test_cmd.stdin(std::process::Stdio::null());
-                test_cmd.stdout(std::process::Stdio::null());
-                test_cmd.stderr(std::process::Stdio::null());
-
-                let supported = if let Ok(output) = test_cmd.output().await {
-                    output.status.success()
-                } else {
-                    false
-                };
-                let mut map = cache.lock().unwrap();
-                map.insert(cuvid_decoder.clone(), supported);
-                supported
-            }
-        };
-
-        if decoder_supported {
-            args.extend_from_slice(&["-c:v".into(), cuvid_decoder]);
-        } else {
-            tracing::info!(
-                "[FFmpeg] Cuvid decoder {} is not supported by current hardware or ffmpeg build, falling back to default decoding.",
-                cuvid_decoder
-            );
-        }
-
-        if let Some((crop_str, resize_str)) = compute_cuvid_crop_resize(&opts, &opts.input_path) {
-            if !crop_str.is_empty() {
-                args.extend_from_slice(&["-crop".into(), crop_str]);
-            }
-            if !resize_str.is_empty() {
-                args.extend_from_slice(&["-resize".into(), resize_str]);
-            }
-        }
     }
 
     // Input [0]: source video
