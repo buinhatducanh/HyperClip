@@ -143,9 +143,7 @@ pub fn build_short_filter(
 
     // Background chain: fill canvas
     let bg_chain = format!(
-        "[1:v]loop=loop=-1:size=1:start=0,fps={},{}={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[bg]",
-        fps,
-        scale,
+        "[1:v]scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,loop=loop=-1:size=1:start=0[bg]",
         canvas_w,
         canvas_h,
         canvas_w,
@@ -162,8 +160,7 @@ pub fn build_short_filter(
 
     // Header at top (y=0) - [2:v] is header
     let hd_chain = format!(
-        "[2:v]loop=loop=-1:size=1:start=0,fps={0},{1}={2}:{3}:force_original_aspect_ratio=increase,crop={2}:{3}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[hd]",
-        fps,
+        "[2:v]{0}={1}:{2}:force_original_aspect_ratio=increase,crop={1}:{2}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,loop=loop=-1:size=1:start=0[hd]",
         scale,
         canvas_w,
         header_h
@@ -175,7 +172,7 @@ pub fn build_short_filter(
 
     // Bottom bar at bottom (bb_y) - [3:v] is bottom bar (pre-rendered PNG)
     let bb_y = canvas_h - bottom_bar_h;
-    let bb_chain = format!("[3:v]loop=loop=-1:size=1:start=0,fps={},null[bb]", fps);
+    let bb_chain = "[3:v]loop=loop=-1:size=1:start=0[bb]".to_string();
     let final_overlay = format!(
         "[vh][bb]{}=0:{} [vf]",
         overlay,
@@ -227,22 +224,19 @@ pub fn build_short_filter_cuda(
     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
 
     let bg_chain = format!(
-        "[1:v]loop=loop=-1:size=1:start=0,fps={},scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[bg]",
-        fps, canvas_w, canvas_h, canvas_w, canvas_h
+        "[1:v]scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda,loop=loop=-1:size=1:start=0[bg]",
+        canvas_w, canvas_h, canvas_w, canvas_h
     );
 
     let vz_chain = format!("[bg][vid]overlay_cuda=x={}:y={}:eof_action=repeat [vz]", x_offset, y_offset);
 
     let hd_chain = format!(
-        "[2:v]loop=loop=-1:size=1:start=0,fps={0},scale={1}:{2}:force_original_aspect_ratio=increase,crop={1}:{2}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[hd]",
-        fps, canvas_w, header_h
+        "[2:v]scale={0}:{1}:force_original_aspect_ratio=increase,crop={0}:{1}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda,loop=loop=-1:size=1:start=0[hd]",
+        canvas_w, header_h
     );
     let vh_chain = format!("[vz][hd]overlay_cuda=x=0:y=0:eof_action=repeat [vh]");
     let bb_y = canvas_h - bottom_bar_h;
-    let bb_chain = format!(
-        "[3:v]loop=loop=-1:size=1:start=0,fps={},format=nv12,hwupload_cuda[bb]",
-        fps
-    );
+    let bb_chain = "[3:v]format=nv12,hwupload_cuda,loop=loop=-1:size=1:start=0[bb]".to_string();
     let final_overlay = format!("[vh][bb]overlay_cuda=x=0:y={}:eof_action=repeat,setsar=1 [vf]", bb_y);
     let final_chain = "[vf]null[final]".to_string();
 
@@ -279,15 +273,15 @@ pub fn build_landscape_filter_cuda(
     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
 
     let bg_chain = format!(
-        "[1:v]loop=loop=-1:size=1:start=0,fps={},scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[bg]",
-        fps, canvas_w, canvas_h, canvas_w, canvas_h
+        "[1:v]scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda,loop=loop=-1:size=1:start=0[bg]",
+        canvas_w, canvas_h, canvas_w, canvas_h
     );
 
     let vz_chain = format!("[bg][vid]overlay_cuda=x=0:y={}:eof_action=repeat [vz]", video_top);
 
     let hd_chain = format!(
-        "[2:v]loop=loop=-1:size=1:start=0,fps={0},scale={1}:{2}:force_original_aspect_ratio=increase,crop={1}:{2}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[hd]",
-        fps, canvas_w, header_h
+        "[2:v]scale={0}:{1}:force_original_aspect_ratio=increase,crop={0}:{1}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda,loop=loop=-1:size=1:start=0[hd]",
+        canvas_w, header_h
     );
     let final_overlay = format!("[vz][hd]overlay_cuda=x=0:y=0:eof_action=repeat,setsar=1 [vf]");
     let final_chain = "[vf]null[final]".to_string();
@@ -340,8 +334,7 @@ pub fn build_landscape_filter(
 
     // Background: thumbnail fills canvas
     let bg_chain = format!(
-        "[1:v]loop=loop=-1:size=1:start=0,fps={},{}={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2[bg]",
-        fps,
+        "[1:v]{}={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,loop=loop=-1:size=1:start=0[bg]",
         scale,
         canvas_w,
         canvas_h,
@@ -361,14 +354,11 @@ pub fn build_landscape_filter(
     let crop = if use_cuda { "crop_cuda" } else { "crop" };
     let format_tag = if use_cuda { "" } else { ",format=yuv420p" };
     let hd_chain = format!(
-        "[2:v]loop=loop=-1:size=1:start=0,fps={},{}={}:{}:force_original_aspect_ratio=increase,{}={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1{}[hd]",
-        fps,
+        "[2:v]{0}={1}:{2}:force_original_aspect_ratio=increase,{3}={1}:{2}:(ow-iw)/2:(oh-ih)/2,setsar=1{4},loop=loop=-1:size=1:start=0[hd]",
         scale,
         canvas_w,
         header_h,
         crop,
-        canvas_w,
-        header_h,
         format_tag
     );
 
@@ -800,6 +790,40 @@ pub fn is_cuda_supported() -> bool {
     })
 }
 
+pub fn is_cuvid_decoder_supported(decoder: &str) -> bool {
+    let mutex = CUVID_DECODERS_SUPPORTED.get_or_init(|| {
+        std::sync::Mutex::new(std::collections::HashMap::new())
+    });
+    
+    if let Ok(mut map) = mutex.lock() {
+        if let Some(&supported) = map.get(decoder) {
+            return supported;
+        }
+        
+        let mut test_cmd = std::process::Command::new(get_ffmpeg_path());
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            test_cmd.creation_flags(0x08000000);
+        }
+        test_cmd.arg("-decoders");
+        test_cmd.stdin(std::process::Stdio::null());
+        
+        let supported = match test_cmd.output() {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                stdout.contains(decoder)
+            }
+            Err(_) => false,
+        };
+        
+        map.insert(decoder.to_string(), supported);
+        supported
+    } else {
+        false
+    }
+}
+
 pub async fn spawn_render_async<F>(
     opts: RenderOptions,
     mut on_progress: F,
@@ -1142,32 +1166,42 @@ where F: FnMut(f64) + Send + 'static {
 
     if use_cuda {
         args.extend_from_slice(&[
+            "-init_hw_device".into(), "cuda=cuda".into(),
+            "-filter_hw_device".into(), "cuda".into(),
             "-hwaccel".into(), "cuda".into(),
             "-hwaccel_output_format".into(), "cuda".into(),
         ]);
+        
+        let input_codec = probe_video_codec(&opts.input_path);
+        let cuvid_decoder = match input_codec.as_str() {
+            "h264" => Some("h264_cuvid"),
+            "hevc" | "h265" => Some("hevc_cuvid"),
+            "vp9" => Some("vp9_cuvid"),
+            "av1" => Some("av1_cuvid"),
+            _ => None,
+        };
+        if let Some(dec) = cuvid_decoder {
+            if is_cuvid_decoder_supported(dec) {
+                args.extend_from_slice(&["-c:v".into(), dec.into()]);
+            }
+        }
     }
 
     // Input [0]: source video
     let clean_in_path = crate::store::clean_unc_path(opts.input_path.to_str().unwrap());
     args.extend_from_slice(&["-i".into(), clean_in_path]);
 
+    let fps_str = fps.to_string();
+
     if use_real_assets {
         let clean_blur = crate::store::clean_unc_path(blur_file.to_str().unwrap());
         let clean_thumb = crate::store::clean_unc_path(thumb_file.to_str().unwrap());
         let clean_bar = crate::store::clean_unc_path(bar_file.to_str().unwrap());
-        if use_cuda {
-            args.extend_from_slice(&[
-                "-i".into(), clean_blur,
-                "-i".into(), clean_thumb,
-                "-i".into(), clean_bar,
-            ]);
-        } else {
-            args.extend_from_slice(&[
-                "-i".into(), clean_blur,
-                "-i".into(), clean_thumb,
-                "-i".into(), clean_bar,
-            ]);
-        }
+        args.extend_from_slice(&[
+            "-framerate".into(), fps_str.clone(), "-i".into(), clean_blur,
+            "-framerate".into(), fps_str.clone(), "-i".into(), clean_thumb,
+            "-framerate".into(), fps_str.clone(), "-i".into(), clean_bar,
+        ]);
     } else {
         // Fallback to lavfi colors
         let bg_color = "0x2d2d2d";  // dark gray bg
@@ -1182,7 +1216,7 @@ where F: FnMut(f64) + Send + 'static {
         ] {
             args.extend_from_slice(&[
                 "-f".into(), "lavfi".into(),
-                "-i".into(), format!("color=c={}:s={}x{}:{}", color, w, h, color_dur),
+                "-i".into(), format!("color=c={}:s={}x{}:{}:r={}", color, w, h, color_dur, fps),
             ]);
         }
     }

@@ -2208,8 +2208,9 @@ fn migrate_media_folders_and_workspaces() {
 
         // 3.1 Update downloadedPath & rename downloaded video file
         if let Some(ref old_path_str) = ws.downloaded_path {
-            let old_path = PathBuf::from(old_path_str);
-            let filename = old_path.file_name().and_then(|f| f.to_str()).unwrap_or("");
+            if !old_path_str.trim().is_empty() {
+                let old_path = PathBuf::from(old_path_str);
+                let filename = old_path.file_name().and_then(|f| f.to_str()).unwrap_or("");
             
             // Check if the filename contains a 13-digit raw timestamp (e.g. video_id_1781352739519.mp4)
             let mut timestamp_ms: Option<i64> = None;
@@ -2271,12 +2272,14 @@ fn migrate_media_folders_and_workspaces() {
                 ws.downloaded_path = Some(target_dl_str);
                 db_updated = true;
             }
+            }
         }
 
         // 3.2 Update thumbnailLocal & rename thumbnail file
         if let Some(ref old_path_str) = ws.thumbnail_local {
-            let old_path = PathBuf::from(old_path_str);
-            let filename = old_path.file_name().and_then(|f| f.to_str()).unwrap_or("");
+            if !old_path_str.trim().is_empty() {
+                let old_path = PathBuf::from(old_path_str);
+                let filename = old_path.file_name().and_then(|f| f.to_str()).unwrap_or("");
             let target_thumb_path = media_dir
                 .join(&ch_folder)
                 .join("thumbnails")
@@ -2307,11 +2310,13 @@ fn migrate_media_folders_and_workspaces() {
                 ws.thumbnail_local = Some(target_thumb_str);
                 db_updated = true;
             }
+            }
         }
 
         // 3.3 Update renderedPath & rename render folder/file
         if let Some(ref old_path_str) = ws.rendered_path {
-            let old_path = PathBuf::from(old_path_str);
+            if !old_path_str.trim().is_empty() {
+                let old_path = PathBuf::from(old_path_str);
             let target_render_path = build_render_path(
                 &ws.channel_id,
                 ws.channel_name.as_deref().unwrap_or(""),
@@ -2352,6 +2357,7 @@ fn migrate_media_folders_and_workspaces() {
             if ws.rendered_path.as_ref() != Some(&target_render_str) {
                 ws.rendered_path = Some(target_render_str);
                 db_updated = true;
+            }
             }
         }
     }
