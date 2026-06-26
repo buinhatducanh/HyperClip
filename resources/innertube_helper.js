@@ -6,7 +6,6 @@ const { Innertube } = require('youtubei.js');
 
 let yt = null;
 let currentCookie = '';
-const lastSlowPathCheckTime = new Map(); // channelId -> timestamp (ms)
 
 async function ensureClient(cookieStr) {
   // Reuse existing client if cookie hasn't changed
@@ -38,11 +37,7 @@ async function resolveChannelId(yt, rawId) {
 
 function parseRelativeTime(text) {
   if (!text) return 0;
-  const trimmed = text.trim().toLowerCase();
-  if (trimmed.includes('just now') || trimmed.includes('vừa xong') || trimmed.includes('vừa mới') || trimmed.includes('mới đăng')) {
-    return Math.floor(Date.now() / 1000);
-  }
-  const m = text.match(/(\d+)\s*(seconds?|minutes?|hours?|days?|weeks?|months?|years?|giây|phút|giờ|ngày|tuần|tháng|năm)(?![a-zA-Z0-9])/i);
+  const m = text.match(/(\d+)\s*(seconds?|minutes?|hours?|days?|weeks?|months?|years?|giây|phút|giờ|ngày|tuần|tháng|năm)\b/i);
   if (m) {
     const now = Math.floor(Date.now() / 1000);
     const val = parseInt(m[1], 10);
@@ -224,17 +219,12 @@ async function strategyPlaylistHTML(channelId, cookieStr) {
     const data = JSON.parse(match[1]);
     const items = data.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents;
     if (!items || !Array.isArray(items)) return [];
-    let isFirst = true;
     return items.slice(0, 15).map(item => {
       const lv = item.lockupViewModel;
       if (!lv) return null;
       const videoId = lv.contentId;
       const title = lv.metadata?.lockupMetadataViewModel?.title?.content || '';
-      let publishedAt = extractPublishedAtFromLockup(lv);
-      if (publishedAt === 0 && isFirst) {
-        publishedAt = Math.floor(Date.now() / 1000);
-      }
-      isFirst = false;
+      const publishedAt = extractPublishedAtFromLockup(lv);
       const durationSec = extractDurationFromLockup(lv);
       return { videoId, title, publishedAt, thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, durationSec };
     }).filter(v => v !== null);
@@ -245,25 +235,19 @@ async function getLatestVideo(channelId, cookieStr) {
   try {
     // Resolve channel ID synchronously if already UC format (common case)
     const isUC = channelId.startsWith('UC') && channelId.length >= 22;
-    const fastId = isUC ? channelId : null;
-
-    // Check if we should run slow path (throttle to once every 30 seconds per channel)
-    const now = Date.now();
-    const lastSlowCheck = lastSlowPathCheckTime.get(channelId) || 0;
-    // Always run slow path on first check, or if 30s elapsed, or if it is a non-UC channel (needs resolution)
-    const shouldRunSlow = !isUC || (now - lastSlowCheck >= 30000);
     
     // Phase 1: Fast HTTP-only strategies (no YouTube.js needed if UC format)
     // These are simple fetch() calls that complete in <2s
+    const fastId = isUC ? channelId : null;
+    
     const fastPromise = fastId ? Promise.all([
       strategyRSS(fastId, cookieStr),
       strategyPlaylistHTML(fastId, cookieStr),
     ]) : Promise.resolve([[], []]);
     
     // Phase 2: Slow YouTube.js strategies (run in parallel with fast path)
-    const slowPromise = shouldRunSlow ? (async () => {
+    const slowPromise = (async () => {
       try {
-        lastSlowPathCheckTime.set(channelId, now);
         const client = await ensureClient(cookieStr);
         const resolvedId = isUC ? channelId : await resolveChannelId(client, channelId);
         const channel = await client.getChannel(resolvedId);
@@ -283,20 +267,13 @@ async function getLatestVideo(channelId, cookieStr) {
       } catch (e) {
         return { fromGetVids: [], fromSearch: [], fromRSS: [], fromPlaylist: [], resolvedId: channelId };
       }
-    })() : Promise.resolve(null);
+    })();
 
     // Wait for fast strategies first (they should complete in <2s)
     const [fromRSSFast, fromPlaylistFast] = await fastPromise;
     
-    // If fast strategies got results AND at least one video is published within the last 4 hours,
-    // return immediately — don't wait for slow path
-    const recentThresholdSec = 4 * 3600;
-    const nowSec = Math.floor(Date.now() / 1000);
-    const hasRecentFastVideo = [...fromRSSFast, ...fromPlaylistFast].some(v => {
-      return (nowSec - v.publishedAt) < recentThresholdSec;
-    });
-
-    if (hasRecentFastVideo && !shouldRunSlow) {
+    // If fast strategies got results, return immediately — don't wait for slow path
+    if (fromRSSFast.length > 0 || fromPlaylistFast.length > 0) {
       const merged = new Map();
       for (const v of fromRSSFast) {
         if (!v.videoId) continue;
@@ -315,46 +292,24 @@ async function getLatestVideo(channelId, cookieStr) {
       return { ok: true, videos: all };
     }
     
-    // Otherwise, if we should check the slow path, wait for it
-    if (shouldRunSlow) {
-      const slow = await slowPromise;
-      if (slow) {
-        const merged = new Map();
-        for (const v of [...slow.fromGetVids, ...slow.fromSearch, ...slow.fromRSS]) {
-          if (!v.videoId) continue;
-          const existing = merged.get(v.videoId);
-          if (!existing || v.publishedAt > existing.publishedAt) {
-            merged.set(v.videoId, v);
-          }
-        }
-        // Merge playlist results from slow path
-        for (const v of slow.fromPlaylist) {
-          if (!v.videoId) continue;
-          if (!merged.has(v.videoId)) {
-            merged.set(v.videoId, v);
-          }
-        }
-        // Also merge fast playlist results if they exist
-        for (const v of fromPlaylistFast) {
-          if (!v.videoId) continue;
-          if (!merged.has(v.videoId)) {
-            merged.set(v.videoId, v);
-          }
-        }
-        const all = Array.from(merged.values())
-          .sort((a, b) => b.publishedAt - a.publishedAt)
-          .slice(0, 15);
-        return { ok: true, videos: all };
+    // Fast strategies returned nothing — wait for slow YouTube.js path
+    const slow = await slowPromise;
+    const merged = new Map();
+    for (const v of [...slow.fromGetVids, ...slow.fromSearch, ...slow.fromRSS]) {
+      if (!v.videoId) continue;
+      const existing = merged.get(v.videoId);
+      if (!existing || v.publishedAt > existing.publishedAt) {
+        merged.set(v.videoId, v);
       }
     }
-
-    // If slow path was throttled and fast path returned only old videos,
-    // just return the fast path results to be quick
-    const merged = new Map();
-    for (const v of fromRSSFast) {
+    // Merge playlist results from slow path
+    for (const v of slow.fromPlaylist) {
       if (!v.videoId) continue;
-      merged.set(v.videoId, v);
+      if (!merged.has(v.videoId)) {
+        merged.set(v.videoId, v);
+      }
     }
+    // Also merge fast playlist results if they exist
     for (const v of fromPlaylistFast) {
       if (!v.videoId) continue;
       if (!merged.has(v.videoId)) {
@@ -491,64 +446,6 @@ function reloadTab(webSocketDebuggerUrl, ignoreCache) {
   });
 }
 
-function navigateTab(webSocketDebuggerUrl, url) {
-  return new Promise((resolve, reject) => {
-    let ws;
-    try {
-      ws = new WebSocket(webSocketDebuggerUrl);
-    } catch (e) {
-      return reject(e);
-    }
-    let resolved = false;
-    
-    ws.onopen = () => {
-      ws.send(JSON.stringify({
-        id: 1,
-        method: 'Page.navigate',
-        params: {
-          url: url
-        }
-      }));
-    };
-    
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.id === 1) {
-          resolved = true;
-          ws.close();
-          resolve(true);
-        }
-      } catch (err) {
-        reject(err);
-      }
-    };
-    
-    ws.onerror = (err) => {
-      if (!resolved) {
-        resolved = true;
-        reject(err);
-      }
-    };
-    
-    ws.onclose = () => {
-      if (!resolved) {
-        resolved = true;
-        resolve(true);
-      }
-    };
-    
-    // Safety timeout
-    setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        try { ws.close(); } catch(_) {}
-        resolve(true);
-      }
-    }, 2500);
-  });
-}
-
 function httpGetJson(url) {
   return new Promise((resolve, reject) => {
     const http = require('http');
@@ -594,45 +491,16 @@ async function checkChromeChannelTabs(pollIntervalMs) {
   try {
     const tabs = await httpGetJson('http://127.0.0.1:9222/json');
     
-    const now = Date.now();
-    const channelTabs = [];
-    const activeIds = new Set(tabs.map(t => t.id));
-    
-    // Clean up closed tabs
-    for (const id in tabReloads) {
-      if (!activeIds.has(id)) {
-        delete tabReloads[id];
-      }
-    }
-
-    for (const tab of tabs) {
-      if (tab.type !== 'page') continue;
+    const channelTabs = tabs.filter(tab => {
+      if (tab.type !== 'page') return false;
       const url = tab.url || '';
-      const isYoutube = url.includes('youtube.com/@') || url.includes('youtube.com/channel/');
-      
-      if (isYoutube) {
-        if (!tabReloads[tab.id]) {
-          tabReloads[tab.id] = {
-            lastReload: now,
-            status: 'unknown',
-            lastLoadedTime: 0,
-            url: url
-          };
-        } else {
-          tabReloads[tab.id].url = url;
-        }
-        channelTabs.push({ ...tab, isErrorPage: false });
-      } else if (url.includes('chrome-error://') || url === 'about:blank' || url === '') {
-        if (tabReloads[tab.id]) {
-          const recoveredTab = { ...tab, url: tabReloads[tab.id].url, isErrorPage: true };
-          channelTabs.push(recoveredTab);
-        }
-      }
-    }
+      return url.includes('youtube.com/@') || url.includes('youtube.com/channel/');
+    });
     
     if (channelTabs.length === 0) return [];
 
     const detected = [];
+    const now = Date.now();
     
     for (const tab of channelTabs) {
       const handleOrId = extractChannelHandleOrId(tab.url);
@@ -657,171 +525,6 @@ async function checkChromeChannelTabs(pollIntervalMs) {
       }
       
       if (!channelId) continue;
-
-      const tabId = tab.id;
-      if (!tabReloads[tabId]) {
-        tabReloads[tabId] = {
-          lastReload: now,
-          status: 'unknown',
-          lastLoadedTime: 0
-        };
-      }
-      
-      let readyState = 'loading';
-      if (tab.webSocketDebuggerUrl) {
-        try {
-          readyState = await evaluateInTab(tab.webSocketDebuggerUrl, 'document.readyState');
-        } catch (_) {
-          readyState = 'loading';
-        }
-      }
-      
-      const tState = tabReloads[tabId];
-      const isErrorPage = tab.isErrorPage;
-      
-      if (isErrorPage) {
-        const timeSinceLastReload = now - tState.lastReload;
-        if (timeSinceLastReload >= 10000) {
-          tState.status = 'reloading';
-          tState.lastReload = now;
-          if (tab.webSocketDebuggerUrl) {
-            try {
-              await navigateTab(tab.webSocketDebuggerUrl, tState.url);
-            } catch (_) {
-              try {
-                await evaluateInTab(tab.webSocketDebuggerUrl, `location.href = ${JSON.stringify(tState.url)}`);
-              } catch (_) {}
-            }
-          }
-        }
-      } else if (readyState === 'complete') {
-        if (tState.status !== 'complete') {
-          tState.status = 'complete';
-          tState.lastLoadedTime = now;
-        }
-        
-        // Reload every 15 seconds
-        const reloadInterval = 15000;
-        const shouldReload = (now - tState.lastLoadedTime) >= reloadInterval;
-        if (shouldReload) {
-          tState.status = 'reloading';
-          tState.lastReload = now;
-          if (tab.webSocketDebuggerUrl) {
-            try {
-              await reloadTab(tab.webSocketDebuggerUrl, false);
-            } catch (_) {
-              try {
-                await evaluateInTab(tab.webSocketDebuggerUrl, 'location.reload()');
-              } catch (_) {}
-            }
-          }
-        } else {
-          // Scrape DOM
-          if (tab.webSocketDebuggerUrl) {
-            try {
-              const domVideos = await evaluateInTab(tab.webSocketDebuggerUrl, `
-                (() => {
-                  try {
-                    const items = Array.from(document.querySelectorAll('ytd-rich-item-renderer, ytd-grid-video-renderer, ytd-video-renderer, yt-lockup-view-model, ytd-compact-video-renderer'));
-                    const foundMap = {};
-                    
-                    const processLink = (a, relativeText) => {
-                      const href = a.getAttribute('href') || '';
-                      const m = href.match(/(?:\\?v=|\\/shorts\\/)([a-zA-Z0-9_-]{11})/);
-                      if (m) {
-                        const videoId = m[1];
-                        let title = '';
-                        if (a.id === 'video-title-link' || a.id === 'video-title' || a.classList.contains('yt-simple-endpoint')) {
-                          title = a.textContent?.trim() || a.getAttribute('title')?.trim() || '';
-                        }
-                        if (!title) {
-                          const titleEl = a.querySelector('#video-title') || a.querySelector('span#video-title');
-                          if (titleEl) {
-                            title = titleEl.textContent?.trim() || '';
-                          }
-                        }
-                        if (!title && a.getAttribute('title')) {
-                          title = a.getAttribute('title').trim();
-                        }
-                        if (!title && a.id !== 'thumbnail' && !a.querySelector('img') && !a.querySelector('yt-image')) {
-                          title = a.textContent?.trim() || '';
-                        }
-                        if (title) {
-                          title = title.replace(/\\s+/g, ' ');
-                          if (!/^\\d{1,2}:\\d{2}(:\\d{2})?$/.test(title)) {
-                            if (!foundMap[videoId] || title.length > foundMap[videoId].title.length) {
-                              foundMap[videoId] = { title, relativeText: relativeText || '' };
-                            }
-                          }
-                        }
-                      }
-                    };
-
-                    for (const item of items) {
-                      const a = item.querySelector('a[href*="/watch?v="], a[href*="/shorts/"]');
-                      if (!a) continue;
-                      
-                      let relativeText = '';
-                      const metaSpans = Array.from(item.querySelectorAll('#metadata-line span, .inline-metadata-item, #metadata span'));
-                      for (const span of metaSpans) {
-                        const txt = span.textContent || '';
-                        if (/ago|trước|giây|phút|giờ|ngày|tuần|tháng|năm|second|minute|hour|day|week|month|year|now|xong|mới|đăng/i.test(txt)) {
-                          relativeText = txt.trim();
-                          break;
-                        }
-                      }
-                      processLink(a, relativeText);
-                    }
-
-                    const allLinks = Array.from(document.querySelectorAll('a[href*="/watch?v="], a[href*="/shorts/"]'));
-                    for (const a of allLinks) {
-                      const href = a.getAttribute('href') || '';
-                      const m = href.match(/(?:\\?v=|\\/shorts\\/)([a-zA-Z0-9_-]{11})/);
-                      if (m && !foundMap[m[1]]) {
-                        let relativeText = '';
-                        let parent = a.parentElement;
-                        for (let depth = 0; depth < 5 && parent; depth++) {
-                          const textContent = parent.textContent || '';
-                          const match = textContent.match(/(?:(\\d+)\\s*(seconds?|minutes?|hours?|days?|weeks?|months?|years?|giây|phút|giờ|ngày|tuần|tháng|năm)\\b)|just now|now|vừa xong|vừa mới|mới đăng/i);
-                          if (match) {
-                            relativeText = match[0];
-                            break;
-                          }
-                          parent = parent.parentElement;
-                        }
-                        processLink(a, relativeText);
-                      }
-                    }
-
-                    return Object.entries(foundMap).map(([videoId, info]) => ({
-                      videoId,
-                      title: info.title,
-                      relativeText: info.relativeText
-                    }));
-                  } catch (e) {
-                    return [];
-                  }
-                })()
-              `);
-              if (Array.isArray(domVideos)) {
-                for (const v of domVideos) {
-                  if (v.videoId) {
-                    const publishedAt = parseRelativeTime(v.relativeText);
-                    detected.push({
-                      videoId: v.videoId,
-                      title: v.title,
-                      publishedAt: publishedAt,
-                      channelId: channelId
-                    });
-                  }
-                }
-              }
-            } catch (_) {}
-          }
-        }
-      } else {
-        tState.status = readyState;
-      }
       
       // Throttle background polls for the same channel to once every 2 seconds
       const lastPoll = lastChannelPollTime.get(channelId) || 0;
@@ -844,8 +547,7 @@ async function checkChromeChannelTabs(pollIntervalMs) {
           detected.push({
             videoId: v.videoId,
             title: v.title,
-            publishedAt: v.publishedAt,
-            channelId: channelId
+            publishedAt: v.publishedAt
           });
         }
       }

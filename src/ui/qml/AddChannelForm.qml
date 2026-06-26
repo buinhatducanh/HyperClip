@@ -39,11 +39,7 @@ Rectangle {
                 if (url.startsWith("@")) {
                     url = "https://www.youtube.com/" + url
                 } else if (!url.startsWith("http")) {
-                    if (url.startsWith("UC") && url.length === 24) {
-                        url = "https://www.youtube.com/channel/" + url
-                    } else {
-                        url = "https://www.youtube.com/" + (url.startsWith("@") ? url : "@" + url)
-                    }
+                    url = "https://www.youtube.com/" + (url.startsWith("@") ? url : "@" + url)
                 }
                 parent.parent.addClicked(url)
                 addInput.text = ""

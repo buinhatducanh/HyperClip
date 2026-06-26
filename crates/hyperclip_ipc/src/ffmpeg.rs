@@ -576,9 +576,9 @@ fn compute_cuvid_crop_resize(opts: &RenderOptions, input_path: &std::path::Path)
     if matches!(opts.filter_chain, FilterChain::Short) && canvas_w > canvas_h {
         std::mem::swap(&mut canvas_w, &mut canvas_h);
     }
-    // Round to next multiple of 8 to avoid NVENC green bar/alignment issues
-    canvas_w = ((canvas_w + 7) / 8) * 8;
-    canvas_h = ((canvas_h + 7) / 8) * 8;
+    // Round to next multiple of 32 to avoid NVENC green bar/alignment issues
+    canvas_w = ((canvas_w + 31) / 32) * 32;
+    canvas_h = ((canvas_h + 31) / 32) * 32;
     
     let (header_h, bottom_bar_h) = match opts.filter_chain {
         FilterChain::Short => (canvas_h * 3 / 10, canvas_h * 3 / 10),
@@ -762,9 +762,9 @@ where F: FnMut(f64) + Send + 'static {
     if matches!(opts.filter_chain, FilterChain::Short) && canvas_w > canvas_h {
         std::mem::swap(&mut canvas_w, &mut canvas_h);
     }
-    // Round to next multiple of 8 to avoid NVENC green bar/alignment issues
-    canvas_w = ((canvas_w + 7) / 8) * 8;
-    canvas_h = ((canvas_h + 7) / 8) * 8;
+    // Round to next multiple of 32 to avoid NVENC green bar/alignment issues
+    canvas_w = ((canvas_w + 31) / 32) * 32;
+    canvas_h = ((canvas_h + 31) / 32) * 32;
 
     let (header_h, bottom_bar_h) = match opts.filter_chain {
         FilterChain::Short => (canvas_h * 3 / 10, canvas_h * 3 / 10),

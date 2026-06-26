@@ -270,5 +270,4 @@ pub struct VideoInfo {
     pub duration_sec: f64,
     pub width: u32,
     pub height: u32,
-    pub channel_id: Option<String>,
 }

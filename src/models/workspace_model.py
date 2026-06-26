@@ -184,8 +184,6 @@ class WorkspaceModel(QAbstractListModel):
     def load_from_backend(self, backend):
         try:
             resp = backend.send_command("workspace:list")
-            if not resp or not resp.get("ok"):
-                return
             workspaces = resp.get("result", {}).get("workspaces", [])
             # Normalize fields from Rust format (camelCase) to model format
             normalized_workspaces = []
@@ -378,21 +376,3 @@ class WorkspaceModel(QAbstractListModel):
                 from src.models.activity_log_model import ActivityLogModel
                 if hasattr(ActivityLogModel, 'add_entry'):
                     ActivityLogModel.add_entry("edit", response["warning"], "warning")
-
-    @Slot(object)
-    def clear_finished(self, client):
-        if not client:
-            return
-        to_delete = []
-        for ws in self._workspaces:
-            status = ws.get("status", "")
-            if status in ("done", "rendered", "failed", "error"):
-                to_delete.append(ws.get("id"))
-
-        for ws_id in to_delete:
-            try:
-                client.send_command("workspace:delete", {"id": ws_id})
-            except Exception as e:
-                print(f"[WorkspaceModel] Failed to delete finished workspace {ws_id}: {e}")
-
-        self.load_from_backend(client)

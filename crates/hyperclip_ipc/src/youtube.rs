@@ -47,7 +47,7 @@ pub fn get_youtube_client_priority() -> String {
         }
     }
 
-    "tv_embedded,web,ios".to_string()
+    "android,ios,web,tv_embedded".to_string()
 }
 
 #[derive(Debug, Clone)]
@@ -158,274 +158,6 @@ pub fn get_ytdlp_cache_dir() -> std::path::PathBuf {
 
 /// Async download with streaming progress via callback.
 
-fn run_multi_instance_download<F>(
-    url: &str,
-    output_path: &str,
-    cookies_path: &str,
-    duration_sec: u64,
-    instance_count: u32,
-    concurrent_fragments: u32,
-    quality: u32,
-    on_progress: &mut F,
-) -> Result<DownloadResult, String>
-where
-    F: FnMut(DownloadProgress),
-{
-    let clean_out = crate::store::clean_unc_path(output_path);
-    let out_path_obj = std::path::Path::new(&clean_out);
-    let parent = out_path_obj.parent().ok_or_else(|| "Invalid output path".to_string())?.to_path_buf();
-    let stem = out_path_obj.file_stem().and_then(|s| s.to_str()).ok_or_else(|| "Invalid file stem".to_string())?.to_string();
-    let ext = out_path_obj.extension().and_then(|e| e.to_str()).unwrap_or("mp4").to_string();
-
-    let section_duration = (duration_sec as f64) / (instance_count as f64);
-    
-    // Spawn threads and set up channel
-    enum ProgressUpdate {
-        Percent(usize, f64),
-        Done(usize, Result<PathBuf, String>),
-    }
-
-    let (tx, rx) = std::sync::mpsc::channel::<ProgressUpdate>();
-    let ytdlp = find_ytdlp_path();
-    let clients = get_youtube_client_priority();
-    let clean_cookies = crate::store::clean_unc_path(cookies_path);
-    let cache_dir = get_ytdlp_cache_dir();
-    let clean_cache = crate::store::clean_unc_path(&cache_dir.to_string_lossy());
-    let node_runtime = find_node_runtime_arg();
-    let ffmpeg_bin_dir = find_ffmpeg_bin_dir();
-
-    let fmt = format!("bestvideo[height<=?{height}]+bestaudio/best[height<=?{height}]/worst", height = quality);
-
-    // Let's create part paths list
-    let mut part_paths = Vec::new();
-    for i in 0..instance_count {
-        let part_path = parent.join(format!("{}_part{:02}.{}", stem, i, ext));
-        part_paths.push(part_path);
-    }
-
-    for i in 0..instance_count {
-        let tx_clone = tx.clone();
-        let ytdlp_clone = ytdlp.clone();
-        let url_clone = url.to_string();
-        let cookies_clone = clean_cookies.clone();
-        let cache_clone = clean_cache.clone();
-        let node_runtime_clone = node_runtime.clone();
-        let ffmpeg_bin_clone = ffmpeg_bin_dir.clone();
-        let clients_clone = clients.clone();
-        let fmt_clone = fmt.clone();
-        let part_path_clone = part_paths[i as usize].clone();
-        let stem_clone = stem.clone();
-        
-        let start = (i as f64) * section_duration;
-        let end = if i == instance_count - 1 { duration_sec as f64 } else { ((i + 1) as f64) * section_duration };
-        
-        let make_section = |s: f64| {
-            let h = (s / 3600.0).floor() as u32;
-            let m = ((s % 3600.0) / 60.0).floor() as u32;
-            let sec = (s % 60.0).floor() as u32;
-            format!("{:02}:{:02}:{:02}", h, m, sec)
-        };
-        let range_str = format!("*{}-{}", make_section(start), make_section(end));
-
-        std::thread::spawn(move || {
-            let mut cmd = Command::new(&ytdlp_clone);
-            cmd.args([
-                "--js-runtimes", &node_runtime_clone,
-            ]);
-            if !clients_clone.is_empty() {
-                cmd.args(["--extractor-args", &format!("youtube:player_client={}", clients_clone)]);
-            }
-            cmd.args([
-                "--cookies", &cookies_clone,
-                "-f", &fmt_clone,
-                "--concurrent-fragments", &concurrent_fragments.to_string(),
-                "--no-playlist",
-                "--no-color",
-                "--newline",
-                "--remux-video", "mp4",
-                "--socket-timeout", "10",
-                "--retries", "2",
-                "--cache-dir", &cache_clone,
-                "-o", &part_path_clone.to_string_lossy(),
-                "--download-sections", &range_str,
-            ]);
-            if let Some(ref fdir) = ffmpeg_bin_clone {
-                cmd.args(["--ffmpeg-location", fdir]);
-            }
-            cmd.arg(&url_clone);
-            cmd.stdin(Stdio::null())
-               .stdout(Stdio::piped())
-               .stderr(Stdio::piped());
-
-            #[cfg(target_os = "windows")]
-            {
-                cmd.creation_flags(0x08000000);
-            }
-
-            let mut child = match cmd.spawn() {
-                Ok(c) => c,
-                Err(e) => {
-                    let _ = tx_clone.send(ProgressUpdate::Done(i as usize, Err(format!("Spawn failed: {}", e))));
-                    return;
-                }
-            };
-
-            let stdout = child.stdout.take().unwrap();
-            let reader = BufReader::new(stdout);
-            
-            for line in reader.lines() {
-                if let Ok(l) = line {
-                    if let Some(progress) = parse_ytdlp_stderr(&l) {
-                        let _ = tx_clone.send(ProgressUpdate::Percent(i as usize, progress.percent));
-                    }
-                }
-            }
-
-            let status = match child.wait() {
-                Ok(s) => s,
-                Err(e) => {
-                    let _ = tx_clone.send(ProgressUpdate::Done(i as usize, Err(format!("Wait failed: {}", e))));
-                    return;
-                }
-            };
-
-            if status.success() {
-                // Verify part file actually exists
-                let mut actual_part_file = part_path_clone.clone();
-                // Sometimes yt-dlp might append ext if not already present or remux. Check if it exists.
-                if !actual_part_file.exists() {
-                    // Try to scan parent dir for a match
-                    if let Some(parent_dir) = part_path_clone.parent() {
-                        let search_prefix = format!("{}_part{:02}_", stem_clone, i);
-                        if let Ok(entries) = std::fs::read_dir(parent_dir) {
-                            for entry in entries.filter_map(Result::ok) {
-                                let name = entry.file_name().to_string_lossy().to_string();
-                                if name.starts_with(&search_prefix) {
-                                    actual_part_file = entry.path();
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                if actual_part_file.exists() {
-                    let _ = tx_clone.send(ProgressUpdate::Done(i as usize, Ok(actual_part_file)));
-                } else {
-                    let _ = tx_clone.send(ProgressUpdate::Done(i as usize, Err("Output part file not found".to_string())));
-                }
-            } else {
-                let _ = tx_clone.send(ProgressUpdate::Done(i as usize, Err(format!("yt-dlp exited with status {:?}", status.code()))));
-            }
-        });
-    }
-
-    // Drop the main sender so rx loop terminates when all workers drop
-    drop(tx);
-
-    let mut progress_per_instance = vec![0.0; instance_count as usize];
-    let mut completed = vec![None; instance_count as usize];
-    let mut failed = false;
-    let mut error_msg = String::new();
-
-    while let Ok(update) = rx.recv() {
-        match update {
-            ProgressUpdate::Percent(idx, pct) => {
-                if !failed {
-                    progress_per_instance[idx] = pct;
-                    let total_pct = progress_per_instance.iter().sum::<f64>() / (instance_count as f64);
-                    on_progress(DownloadProgress {
-                        percent: total_pct,
-                        speed_mbps: 0.0,
-                        eta_sec: 0,
-                    });
-                }
-            }
-            ProgressUpdate::Done(idx, result) => {
-                match result {
-                    Ok(path) => {
-                        completed[idx] = Some(path);
-                        progress_per_instance[idx] = 100.0;
-                    }
-                    Err(e) => {
-                        failed = true;
-                        error_msg = e;
-                    }
-                }
-            }
-        }
-    }
-
-    if failed || completed.iter().any(|c| c.is_none()) {
-        // Clean up any successfully downloaded parts
-        for part in completed.iter().flatten() {
-            let _ = std::fs::remove_file(part);
-        }
-        return Err(format!("One or more parallel download parts failed: {}", error_msg));
-    }
-
-    // All parts downloaded successfully! Merge using FFmpeg concat.
-    let concat_file_path = parent.join(format!("{}_concat.txt", stem));
-    let mut concat_content = String::new();
-    for part in completed.iter().flatten() {
-        // FFmpeg concat format requires forward slashes or escaped backslashes
-        let path_str = part.to_string_lossy().replace('\\', "/");
-        concat_content.push_str(&format!("file '{}'\n", path_str));
-    }
-
-    std::fs::write(&concat_file_path, concat_content)
-        .map_err(|e| format!("Failed to write concat file list: {}", e))?;
-
-    let ffmpeg = crate::ffmpeg::get_ffmpeg_path();
-    let mut merge_cmd = Command::new(&ffmpeg);
-    merge_cmd.args([
-        "-f", "concat",
-        "-safe", "0",
-        "-i", &concat_file_path.to_string_lossy(),
-        "-c", "copy",
-        "-y",
-        &clean_out,
-    ]);
-
-    #[cfg(target_os = "windows")]
-    {
-        merge_cmd.creation_flags(0x08000000);
-    }
-
-    tracing::info!("[Youtube] Merging parts via FFmpeg: {:?}", merge_cmd);
-    
-    let merge_status = merge_cmd.status()
-        .map_err(|e| format!("FFmpeg merge process failed to start: {}", e))?;
-
-    // Cleanup temp parts and concat list
-    let _ = std::fs::remove_file(&concat_file_path);
-    for part in completed.iter().flatten() {
-        let _ = std::fs::remove_file(part);
-    }
-
-    if !merge_status.success() {
-        return Err(format!("FFmpeg merge process failed: {:?}", merge_status.code()));
-    }
-
-    // Run ffprobe to get real metadata
-    let (duration, width, height, codec, fps) = probe_media_file(&clean_out);
-    let file_size = std::fs::metadata(&clean_out)
-        .map(|m| m.len())
-        .unwrap_or(0);
-
-    Ok(DownloadResult {
-        path: clean_out.clone(),
-        duration,
-        width,
-        height,
-        file_size,
-        codec,
-        fps,
-        failure_type: None,
-        retry_after_sec: None,
-    })
-}
-
 /// Spawns yt-dlp, reads stderr line-by-line, calls on_progress for each line.
 pub fn download_video_streaming<F>(
     url: &str,
@@ -440,45 +172,8 @@ pub fn download_video_streaming<F>(
 where
     F: FnMut(DownloadProgress),
 {
-    // Multi-instance check
-    let s_path = crate::store::get_settings_path();
-    let s_store = crate::store::SettingsStore::load(&s_path);
-    let ram_gb = s_store.settings.get("hardwareProfile")
-        .and_then(|hp| hp.get("ramGB"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(16); // Default to 16 if not set
-
-    if let Some(dur) = actual_duration_sec {
-        let download_duration = if trim_minutes > 0 {
-            dur.min((trim_minutes * 60) as u64)
-        } else {
-            dur
-        };
-
-        let instance_count = if ram_gb >= 16 { 4 } else if ram_gb >= 8 { 2 } else { 1 };
-
-        if quality >= 1080 && download_duration >= 30 && instance_count > 1 {
-            tracing::info!("[Youtube] Starting parallel multi-instance download: {} instances for {}s video", instance_count, download_duration);
-            match run_multi_instance_download(
-                url,
-                output_path,
-                cookies_path,
-                download_duration,
-                instance_count,
-                concurrent_fragments,
-                quality,
-                &mut on_progress
-            ) {
-                Ok(res) => return Ok(res),
-                Err(e) => {
-                    tracing::warn!("[Youtube] Multi-instance download failed: {}. Falling back to single-instance.", e);
-                }
-            }
-        }
-    }
-
     let fmt = if quality <= 360 {
-        "bestvideo[height<=?360]+bestaudio/18/best[height<=?360]/worst".to_string()
+        "18/best[height<=?360]/bestvideo[height<=?360]+bestaudio/best[height<=?360]/worst".to_string()
     } else {
         format!("bestvideo[height<=?{height}]+bestaudio/best[height<=?{height}]/worst", height = quality)
     };
@@ -503,8 +198,8 @@ where
         "--no-color",
         "--newline",
         "--remux-video", "mp4",
-        "--socket-timeout", "10",
-        "--retries", "2",
+        "--socket-timeout", "30",
+        "--retries", "3",
         "--cache-dir", &clean_cache,
         "-o", &clean_out,
     ]);
@@ -684,7 +379,7 @@ pub fn download_video(
     concurrent_fragments: u32,
 ) -> Result<DownloadResult, String> {
     let fmt = if quality <= 360 {
-        "bestvideo[height<=?360]+bestaudio/18/best[height<=?360]/worst".to_string()
+        "18/best[height<=?360]/bestvideo[height<=?360]+bestaudio/best[height<=?360]/worst".to_string()
     } else {
         format!("bestvideo[height<=?{height}]+bestaudio/best[height<=?{height}]/worst", height = quality)
     };

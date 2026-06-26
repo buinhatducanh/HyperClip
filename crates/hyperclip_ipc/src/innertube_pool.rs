@@ -215,15 +215,10 @@ impl InnertubeClientPool {
 
         if client_opt.is_none() {
             let active = self.active_clients_count.load(Ordering::SeqCst);
-            // Cap at 10 concurrent Node daemons (CLAUDE.md target: max 10 concurrent).
-            // Previous cap of 4 caused detection backlog for ~100 channels:
-            // worst-case 100ch × 1s ÷ 4 clients = 25s/round, blowing past the 5s poll cadence.
-            if active < 10 {
+            if active < 4 {
                 self.active_clients_count.fetch_add(1, Ordering::SeqCst);
                 let cfg = crate::innertube_client::ClientConfig {
-                    // Reduced from 15s → 5s: fail fast so cooldown + retry can recover
-                    // within one poll cycle instead of stalling the round.
-                    timeout_sec: 5,
+                    timeout_sec: 15,
                     ..Default::default()
                 };
                 match crate::innertube_client::InnertubeClient::new(cfg) {

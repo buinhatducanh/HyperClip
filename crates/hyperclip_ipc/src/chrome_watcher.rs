@@ -47,9 +47,7 @@ impl ChromeTabWatcher {
             .build()
             .unwrap_or_default();
 
-        let past_instant = std::time::Instant::now()
-            .checked_sub(std::time::Duration::from_secs(3600))
-            .unwrap_or_else(std::time::Instant::now);
+        let past_instant = std::time::Instant::now() - std::time::Duration::from_secs(3600);
 
         Self {
             port: port.unwrap_or(DEFAULT_CDP_PORT),
@@ -245,13 +243,13 @@ impl ChromeTabWatcher {
                                         );
                                         // Mark as seen to prevent repeated scanning and logging flood
                                         let mut seen_guard = seen_videos.write().await;
-                                        seen_guard.mark_seen(v.channel_id.as_deref().unwrap_or(""), &v.video_id);
+                                        seen_guard.mark_seen("", &v.video_id);
                                         drop(seen_guard);
                                         continue;
                                     }
 
                                     let mut seen_guard = seen_videos.write().await;
-                                    seen_guard.mark_seen(v.channel_id.as_deref().unwrap_or(""), &v.video_id);
+                                    seen_guard.mark_seen("", &v.video_id);
                                     drop(seen_guard);
 
                                     tracing::info!(
@@ -261,7 +259,7 @@ impl ChromeTabWatcher {
                                     );
 
                                     let event = NewVideoEvent {
-                                        channel_id: v.channel_id.unwrap_or_default(),
+                                        channel_id: String::new(),
                                         channel_name: String::new(),
                                         video_id: v.video_id.clone(),
                                         title: v.title.clone(),

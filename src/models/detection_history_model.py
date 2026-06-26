@@ -193,7 +193,7 @@ class DetectionHistoryModel(QAbstractListModel):
             self.DetectedDateStrRole: QByteArray(b"detectedDateStr"),
         }
 
-    @Slot(str, str, str, str, int, int, float, str)
+    @Slot(str, str, str, int, int, float, str)
     def add_detection(self, ws_id: str, video_id: str, title: str, channel_name: str,
                       published_at: int, detected_at: int, duration_sec: float, status: str):
         latency = detected_at - published_at

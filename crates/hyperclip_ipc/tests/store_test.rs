@@ -57,7 +57,7 @@ fn test_build_render_path_split() {
     let path_part1 = build_render_path("ch-123", "Channel Name", "ws-parent-123-part1");
     // Under default settings template, since there are split parts, it resolves to part 1.mp4
     let file_name_part1 = path_part1.file_name().unwrap().to_str().unwrap();
-    assert_eq!(file_name_part1, "Parent Video Title_part1.mp4");
+    assert_eq!(file_name_part1, "part 1.mp4");
 
     // 2. Test template: PART {part}
     let settings_json = r#"{"settings": {"autoRenderTitleTemplate": "PART {part}"}}"#;

@@ -114,7 +114,35 @@ fn main() {
     let _log_guard = setup_logging();
     tracing::info!("hyperclip backend started");
 
-    // ─── Parse --port EARLY (before any heavy init) ─────────────────
+    // Set global emit hook for hyperclip_ipc library
+    hyperclip_ipc::set_emit_hook(|s| {
+        if let Some(writer_mutex) = TCP_WRITER.get() {
+            let mut writer = writer_mutex.lock().unwrap();
+            let _ = writeln!(writer, "{}", s);
+            let _ = writer.flush();
+        } else {
+            use std::io::Write;
+            let _ = writeln!(std::io::stdout(), "{}", s);
+            let _ = std::io::stdout().flush();
+        }
+    });
+
+    // Eagerly init POLLER_RT and AppState (triggers migration + cookies)
+    commands::init_poller_runtime();
+    commands::init_appstate();
+    tracing::info!("[AppState] AppState initialized at startup");
+
+    // Create a Tokio runtime for async operations (pool, innertube, etc.)
+    let _rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+
+    // Initialize WorkerPool from GPU config
+    let gpu_config = hyperclip_ipc::system::get_gpu_config();
+    tracing::info!(
+        "[GPU] {} — max_workers={} tier={:?}",
+        gpu_config.label, gpu_config.max_workers, gpu_config.tier
+    );
+
+    // Parse port from command line arguments
     let mut port: Option<u16> = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -131,8 +159,9 @@ fn main() {
         }
     }
 
-    // ─── TCP connect IMMEDIATELY — before heavy init ────────────────
-    let tcp_stream: Option<TcpStream> = if let Some(p) = port {
+    let is_tcp = port.is_some();
+
+    if let Some(p) = port {
         tracing::info!("Connecting to TCP port: {}", p);
         let stream = match TcpStream::connect(format!("127.0.0.1:{}", p)) {
             Ok(s) => s,
@@ -145,59 +174,35 @@ fn main() {
         if TCP_WRITER.set(Mutex::new(write_stream)).is_err() {
             tracing::error!("Failed to set TCP_WRITER OnceLock");
         }
-        tracing::info!("TCP connected on port {}", p);
-        Some(stream)
-    } else {
-        tracing::info!("No port specified, using stdin/stdout for IPC");
-        None
-    };
 
-    // ─── Set global emit hook (uses TCP_WRITER if set) ──────────────
-    hyperclip_ipc::set_emit_hook(|s| {
-        if let Some(writer_mutex) = TCP_WRITER.get() {
-            let mut writer = writer_mutex.lock().unwrap();
-            let _ = writeln!(writer, "{}", s);
-            let _ = writer.flush();
-        } else {
-            use std::io::Write;
-            let _ = writeln!(std::io::stdout(), "{}", s);
-            let _ = std::io::stdout().flush();
-        }
-    });
+        // Emit initial system:stats + channel:synced events
+        let stats = commands::handle_command(hyperclip_ipc::IpcRequest {
+            id: 0,
+            command: "system:stats".into(),
+            params: serde_json::json!({}),
+        })
+        .into_json();
+        emit(hyperclip_ipc::IpcResponse::event("system:stats", stats));
+        emit(hyperclip_ipc::IpcResponse::event("channel:synced", serde_json::json!({})));
 
-    // ─── Heavy init — Python already has TCP connection at this point ─
-    commands::init_poller_runtime();
-    commands::init_appstate();
-    tracing::info!("[AppState] AppState initialized at startup");
-
-    let _rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-
-    let gpu_config = hyperclip_ipc::system::get_gpu_config();
-    tracing::info!(
-        "[GPU] {} — max_workers={} tier={:?}",
-        gpu_config.label, gpu_config.max_workers, gpu_config.tier
-    );
-
-    // ─── Emit initial system events ─────────────────────────────────
-    let stats = commands::handle_command(hyperclip_ipc::IpcRequest {
-        id: 0,
-        command: "system:stats".into(),
-        params: serde_json::json!({}),
-    })
-    .into_json();
-    emit(hyperclip_ipc::IpcResponse::event("system:stats", stats));
-    emit(hyperclip_ipc::IpcResponse::event("channel:synced", serde_json::json!({})));
-
-    // ─── Command read loop ──────────────────────────────────────────
-    let is_tcp = tcp_stream.is_some();
-
-    if let Some(stream) = tcp_stream {
         let reader = io::BufReader::new(stream);
         let mut lines = reader.lines();
         while let Some(Ok(line)) = lines.next() {
             handle_ipc_line(&line);
         }
     } else {
+        tracing::info!("No port specified, using stdin/stdout for IPC");
+
+        // Emit initial system:stats + channel:synced events
+        let stats = commands::handle_command(hyperclip_ipc::IpcRequest {
+            id: 0,
+            command: "system:stats".into(),
+            params: serde_json::json!({}),
+        })
+        .into_json();
+        emit(hyperclip_ipc::IpcResponse::event("system:stats", stats));
+        emit(hyperclip_ipc::IpcResponse::event("channel:synced", serde_json::json!({})));
+
         let stdin = io::stdin();
         let mut lines = stdin.lock().lines();
         while let Some(Ok(line)) = lines.next() {

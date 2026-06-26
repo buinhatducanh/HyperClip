@@ -93,62 +93,6 @@ Rectangle {
             let list = [newWs].concat(root.workspaces);
             root.workspaces = list;
         }
-        function onRender_progress(id, progress) {
-            root.updateProgressInList(id, progress);
-        }
-        function onDownload_progress(workspace_id, percent, speed_mbps, eta_sec) {
-            const speedStr = speed_mbps > 0 ? speed_mbps.toFixed(1) + " MB/s" : "";
-            root.updateProgressInList(workspace_id, percent, speedStr, eta_sec);
-        }
-        function onChannel_synced() {
-            root.refreshList();
-        }
-    }
-
-    Timer {
-        id: refreshTimer
-        interval: 10000
-        running: true
-        repeat: true
-        onTriggered: root.refreshList()
-    }
-
-    function updateProgressInList(id, progress, speed, eta) {
-        let updatedList = [];
-        let found = false;
-        for (let i = 0; i < root.workspaces.length; i++) {
-            let ws = root.workspaces[i];
-            if (ws.id === id) {
-                let newWs = Object.assign({}, ws);
-                newWs.progress = progress;
-                if (speed !== undefined) newWs.downloadSpeed = speed;
-                if (eta !== undefined) newWs.downloadEta = eta;
-                updatedList.push(newWs);
-                found = true;
-                
-                if (id === root.currentVideoId) {
-                    let newDetail = Object.assign({}, root.currentVideoData);
-                    newDetail.progress = progress;
-                    if (speed !== undefined) newDetail.downloadSpeed = speed;
-                    if (eta !== undefined) newDetail.downloadEta = eta;
-                    root.currentVideoData = newDetail;
-                } else if (id.startsWith(root.currentVideoId + "-part")) {
-                    Qt.callLater(function() {
-                        if (root.currentVideoId) {
-                            const resp = backend.send_command("workspace:managementGet", {"id": root.currentVideoId});
-                            if (resp && resp.ok !== false && resp.result) {
-                                root.currentVideoData = resp.result;
-                            }
-                        }
-                    });
-                }
-            } else {
-                updatedList.push(ws);
-            }
-        }
-        if (found) {
-            root.workspaces = updatedList;
-        }
     }
 
     function refreshList() {
@@ -156,29 +100,7 @@ Rectangle {
         errorText = ""
         const resp = backend.send_command("workspace:managementList")
         if (resp && resp.ok !== false && resp.result) {
-            let newWorkspaces = resp.result.workspaces || [];
-            let identical = newWorkspaces.length === workspaces.length;
-            if (identical) {
-                for (let i = 0; i < newWorkspaces.length; i++) {
-                    if (newWorkspaces[i].id !== workspaces[i].id || 
-                        newWorkspaces[i].status !== workspaces[i].status ||
-                        newWorkspaces[i].progress !== workspaces[i].progress) {
-                        identical = false;
-                        break;
-                    }
-                }
-            }
-            if (!identical) {
-                workspaces = newWorkspaces;
-            }
-            if (currentVideoId) {
-                const detailResp = backend.send_command("workspace:managementGet", {"id": currentVideoId})
-                if (detailResp && detailResp.ok !== false && detailResp.result) {
-                    if (JSON.stringify(detailResp.result) !== JSON.stringify(currentVideoData)) {
-                        currentVideoData = detailResp.result;
-                    }
-                }
-            }
+            workspaces = resp.result.workspaces || []
         } else {
             errorText = (resp && resp.error) || "Không tải được danh sách"
             workspaces = []
@@ -616,19 +538,6 @@ Rectangle {
                 Layout.alignment: Qt.AlignVCenter
             }
             IconButton {
-                iconName: "delete"
-                label: "Dọn xong"
-                iconSize: 12
-                Layout.preferredHeight: 24
-                ToolTip.text: "Xóa các video đã hoàn thành hoặc bị lỗi"
-                ToolTip.visible: hovered
-                ToolTip.delay: 400
-                onClicked: {
-                    workspaceModel.clear_finished(backend);
-                    Qt.callLater(refreshList);
-                }
-            }
-            IconButton {
                 iconName: "refresh"
                 iconSize: 12
                 Layout.preferredWidth: 28
@@ -717,20 +626,11 @@ Rectangle {
                                     border.width: 1
                                     clip: true
                                     Image {
-                                        id: listThumb
                                         anchors.fill: parent
                                         source: root.getThumbnailSource(modelData.thumbnailLocal, modelData.video_id)
                                         fillMode: Image.PreserveAspectCrop
                                         asynchronous: true
                                         cache: true
-                                        visible: status === Image.Ready
-                                    }
-                                    Icon {
-                                        anchors.centerIn: parent
-                                        visible: listThumb.status !== Image.Ready
-                                        name: "play"
-                                        size: 16
-                                        color: Theme.textMuted
                                     }
                                 }
 
@@ -872,20 +772,11 @@ Rectangle {
                                     border.width: 1
                                     clip: true
                                     Image {
-                                        id: detailThumb
                                         anchors.fill: parent
                                         source: root.getThumbnailSource(root.currentVideoData.thumbnailLocal, root.currentVideoData.video_id)
                                         fillMode: Image.PreserveAspectCrop
                                         asynchronous: true
                                         cache: true
-                                        visible: status === Image.Ready
-                                    }
-                                    Icon {
-                                        anchors.centerIn: parent
-                                        visible: detailThumb.status !== Image.Ready
-                                        name: "play"
-                                        size: 32
-                                        color: Theme.textMuted
                                     }
                                 }
                                 ColumnLayout {

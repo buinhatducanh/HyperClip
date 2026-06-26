@@ -68,8 +68,6 @@ class RenderedVideoListModel(QAbstractListModel):
     def load_from_backend(self, backend):
         try:
             resp = backend.send_command("rendered:list")
-            if not resp or not resp.get("ok"):
-                return
             items = resp.get("result", [])
             if not isinstance(items, list):
                 items = []
