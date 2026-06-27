@@ -1,6 +1,50 @@
 {
   "entries": [
     {
+      "wsId": "ws-ch-1782572279785",
+      "videoId": "3suNnEnfudQ",
+      "title": "YTDown YouTube NGUOI GION CHUONG TRINH Trung Coffee Sai Media QWPMsLUTzLc 001 1080p",
+      "channelName": "Nhật Đức Anh Bùi",
+      "publishedAt": 1782572264000.0,
+      "detectedAt": 1782572277785.0,
+      "latencyMs": 13785.0,
+      "durationSec": 736.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1782571608471",
+      "videoId": "_yet_C9q2Ng",
+      "title": "YTDown YouTube NGUOI GION CHUONG TRINH Trung Coffee Sai Media QWPMsLUTzLc 001 1080p",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1782571605000.0,
+      "detectedAt": 1782571606471.0,
+      "latencyMs": 1471.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1782571083926",
+      "videoId": "0XXqQk1SENc",
+      "title": "YTDown YouTube NGUOI GION CHUONG TRINH Trung Coffee Sai Media QWPMsLUTzLc 001 1080p",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1782571073000.0,
+      "detectedAt": 1782571081926.0,
+      "latencyMs": 8926.0,
+      "durationSec": 736.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1782568957769",
+      "videoId": "2R1aqpDtWRo",
+      "title": "YTDown YouTube NGUOI GION CHUONG TRINH Trung Coffee Sai Media QWPMsLUTzLc 001 1080p",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1782568954000.0,
+      "detectedAt": 1782568955769.0,
+      "latencyMs": 1769.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
       "wsId": "ws-ch-1782560577783",
       "videoId": "TfM6MGBa9gA",
       "title": "YTDown YouTube NGUOI GION CHUONG TRINH Trung Coffee Sai Media QWPMsLUTzLc 001 1080p",
@@ -503,50 +547,6 @@
       "publishedAt": 1782367866000.0,
       "detectedAt": 1782367926846.0,
       "latencyMs": 60846.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1782367326719",
-      "videoId": "ZcI9xJcinb0",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "Nhật Đức Anh Bùi",
-      "publishedAt": 1782367321000.0,
-      "detectedAt": 1782367326719.0,
-      "latencyMs": 5719.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1782365723307",
-      "videoId": "t6nf90UhleM",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "Zilk Kay",
-      "publishedAt": 1782365721000.0,
-      "detectedAt": 1782365723307.0,
-      "latencyMs": 2307.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1782365593272",
-      "videoId": "mlzHGr9oS2A",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "BadyNone",
-      "publishedAt": 1782365592000.0,
-      "detectedAt": 1782365593272.0,
-      "latencyMs": 1272.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1782365592487",
-      "videoId": "qAh5ibJckPI",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "BadyNone",
-      "publishedAt": 1782365592000.0,
-      "detectedAt": 1782365592487.0,
-      "latencyMs": 487.0,
       "durationSec": 0.0,
       "status": "waiting"
     }
@@ -2110,6 +2110,42 @@
       "status": "done",
       "downloadCompleteAt": 1782560585763,
       "downloadedSize": 11170076.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782568957769": {
+      "downloadStartAt": 1782568957803,
+      "error": "",
+      "status": "done",
+      "downloadCompleteAt": 1782568965511,
+      "downloadedSize": 11170076.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782571083926": {
+      "downloadStartAt": 1782571083945,
+      "error": "",
+      "status": "done",
+      "downloadCompleteAt": 1782571092992,
+      "downloadedSize": 11402313.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782571608471": {
+      "downloadStartAt": 1782571608487,
+      "error": "",
+      "status": "done",
+      "downloadCompleteAt": 1782571616047,
+      "downloadedSize": 11402313.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782572279785": {
+      "downloadStartAt": 1782572279802,
+      "error": "",
+      "status": "done",
+      "downloadCompleteAt": 1782572286135,
+      "downloadedSize": 11165441.0,
       "width": 640.0,
       "height": 360.0
     }

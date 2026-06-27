@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 fn test_build_short_filter_vertical() {
     let filter = build_short_filter(0.0, 60.0, 1.0, 1080, 1920, 576, 576, false, 30, 1080, 1920);
     assert!(filter.contains("scale="), "should use sw scale: {}", filter);
-    assert!(filter.contains("crop="), "should use sw crop: {}", filter);
+    assert!(!filter.contains("crop="), "should NOT use sw crop in aspect fit: {}", filter);
     assert!(filter.contains("overlay="), "should use sw overlay: {}", filter);
     assert!(filter.contains("[final]"), "should end with [final]");
     assert!(filter.contains("trim=start=0:duration=60"), "trim should be correct: {}", filter);
@@ -330,22 +330,43 @@ fn test_fps_normalization_presence() {
     // CPU Short Filter
     let filter = build_short_filter(0.0, 60.0, 1.0, 1080, 1920, 576, 576, false, fps, 1080, 1920);
     assert!(filter.contains("fps=60"), "Short CPU layout must contain fps=60");
-    assert!(filter.contains("[1:v]loop=loop=-1:size=1:start=0,fps=60"), "Short CPU bg loop must have fps=60");
+    assert!(filter.contains("[1:v]format=yuv420p,loop=loop=-1:size=1:start=0,fps=60"), "Short CPU bg loop must have yuv420p + loop + fps=60");
 
     // CUDA Short Filter
     let filter_cuda = build_short_filter_cuda(0.0, 60.0, 1.0, 1080, 1920, 576, 576, fps, 1080, 1920, false, false);
     assert!(filter_cuda.contains("fps=60"), "Short CUDA layout must contain fps=60");
-    assert!(filter_cuda.contains("[1:v]loop=loop=-1:size=1:start=0,fps=60"), "Short CUDA bg loop must have fps=60");
+    assert!(filter_cuda.contains("[1:v]format=nv12,hwupload_cuda,loop=loop=-1:size=1:start=0"), "Short CUDA bg loop must format, upload and loop");
 
     // CPU Landscape Filter
     let filter_land = build_landscape_filter(0.0, 60.0, 1.0, 1920, 1080, 900, 216, false, fps);
     assert!(filter_land.contains("fps=60"), "Landscape CPU layout must contain fps=60");
-    assert!(filter_land.contains("[1:v]loop=loop=-1:size=1:start=0,fps=60"), "Landscape CPU bg loop must have fps=60");
+    assert!(filter_land.contains("[1:v]format=yuv420p,loop=loop=-1:size=1:start=0,fps=60"), "Landscape CPU bg loop must have yuv420p + loop + fps=60");
 
     // CUDA Landscape Filter
     let filter_land_cuda = build_landscape_filter_cuda(0.0, 60.0, 1.0, 1920, 1080, 216, fps);
     assert!(filter_land_cuda.contains("fps=60"), "Landscape CUDA layout must contain fps=60");
-    assert!(filter_land_cuda.contains("[1:v]loop=loop=-1:size=1:start=0,fps=60"), "Landscape CUDA bg loop must have fps=60");
+    assert!(filter_land_cuda.contains("[1:v]format=nv12,hwupload_cuda,loop=loop=-1:size=1:start=0"), "Landscape CUDA bg loop must format, upload and loop");
 }
+
+#[test]
+fn test_estimate_font_size() {
+    use hyperclip_ipc::ffmpeg::estimate_font_size;
+    let text = "Hello World";
+    let size = estimate_font_size(text, 1080, 48);
+    assert!(size > 0 && size <= 48, "Size should be valid: {}", size);
+    
+    let text_long = "This is a very long title that should require a smaller font size to fit within the canvas width constraints";
+    let size_long = estimate_font_size(text_long, 1080, 48);
+    assert!(size_long < size, "Long text should have a smaller font size: {} < {}", size_long, size);
+}
+
+#[test]
+fn test_escape_ffmpeg_drawtext() {
+    use hyperclip_ipc::ffmpeg::escape_ffmpeg_drawtext;
+    let input = "Part 1: Konnor's % dynamic, and \\ cool title!";
+    let expected = "Part 1\\: Konnor'\\''s \\% dynamic\\, and \\\\ cool title!";
+    assert_eq!(escape_ffmpeg_drawtext(input), expected);
+}
+
 
 

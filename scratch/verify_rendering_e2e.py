@@ -11,8 +11,8 @@ project_root = r"D:\LOOP_COMPANY\HyperClip"
 DATA_DIR = os.path.join(project_root, 'data')
 TAURI = os.path.join(project_root, 'target', 'debug', 'hyperclip-tauri.exe')
 
-input_path = r"D:\LOOP_COMPANY\HyperClip\data\media\Zilk Kay\downloads\b0qpo9N89w8_20260626_224816.mp4"
-thumbnail_path = r"D:\LOOP_COMPANY\HyperClip\data\media\Zilk Kay\thumbnails\b0qpo9N89w8.jpg"
+input_path = r"D:\LOOP_COMPANY\HyperClip\data\media\Zilk Kay\downloads\8axw16_HPMY_20260627_123132.mp4"
+thumbnail_path = r"D:\LOOP_COMPANY\HyperClip\data\media\Zilk Kay\thumbnails\8axw16_HPMY.jpg"
 
 if not os.path.exists(input_path):
     print(f"Error: test video not found at {input_path}")
@@ -37,7 +37,7 @@ workspaces = [w for w in workspaces if w.get('id') != ws_id]
 test_ws = {
     'id': ws_id,
     'status': 'ready',
-    'video_id': 'b0qpo9N89w8',
+    'video_id': '8axw16_HPMY',
     'channel_id': 'ch-1781346484630',
     'channel_name': 'Zilk Kay',
     'title': 'Test Short Video',
