@@ -1,6 +1,61 @@
 {
   "entries": [
     {
+      "wsId": "ws-ch-1782524843570",
+      "videoId": "5G6izq5pU_0",
+      "title": "YTDown YouTube NGUOI GION CHUONG TRINH Trung Coffee Sai Media QWPMsLUTzLc 001 1080p",
+      "channelName": "BadyNone",
+      "publishedAt": 1782524839000.0,
+      "detectedAt": 1782524841570.0,
+      "latencyMs": 2570.0,
+      "durationSec": 736.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1782524773531",
+      "videoId": "Q_wthe-CBTs",
+      "title": "YTDown YouTube NGUOI GION CHUONG TRINH Trung Coffee Sai Media QWPMsLUTzLc 001 1080p",
+      "channelName": "Nhật Đức Anh Bùi",
+      "publishedAt": 1782524770000.0,
+      "detectedAt": 1782524771531.0,
+      "latencyMs": 1531.0,
+      "durationSec": 736.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1782523872036",
+      "videoId": "gQE4XIEyGTg",
+      "title": "YTDown YouTube NGUOI GION CHUONG TRINH Trung Coffee Sai Media QWPMsLUTzLc 001 1080p",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1782523869000.0,
+      "detectedAt": 1782523870036.0,
+      "latencyMs": 1036.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1782522260762",
+      "videoId": "ne8yE7g8mwk",
+      "title": "YTDown YouTube NGUOI GION CHUONG TRINH Trung Coffee Sai Media QWPMsLUTzLc 001 1080p",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1782522257000.0,
+      "detectedAt": 1782522258762.0,
+      "latencyMs": 1762.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1782521992365",
+      "videoId": "8fAExeJIbKQ",
+      "title": "YTDown YouTube NGUOI GION CHUONG TRINH Trung Coffee Sai Media QWPMsLUTzLc 001 1080p",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1782521984000.0,
+      "detectedAt": 1782521990365.0,
+      "latencyMs": 6365.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
       "wsId": "ws-ch-1782520265194",
       "videoId": "7nEO1NYcB0s",
       "title": "Hài độc thoại 2026",
@@ -492,61 +547,6 @@
       "publishedAt": 1782365592000.0,
       "detectedAt": 1782365592452.0,
       "latencyMs": 452.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1782365592423",
-      "videoId": "OoAfx_mWQD4",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "BadyNone",
-      "publishedAt": 1782365592000.0,
-      "detectedAt": 1782365592423.0,
-      "latencyMs": 423.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1782364905915",
-      "videoId": "cOKrz1P-pak",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R ( G1 )",
-      "channelName": "BadyNone",
-      "publishedAt": 1782364905000.0,
-      "detectedAt": 1782364905915.0,
-      "latencyMs": 915.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1782364905894",
-      "videoId": "qvI3AiCg-Sk",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "BadyNone",
-      "publishedAt": 1782364905000.0,
-      "detectedAt": 1782364905894.0,
-      "latencyMs": 894.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1782363973987",
-      "videoId": "uPqi08MBu20",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "Zilk Kay",
-      "publishedAt": 1782363973000.0,
-      "detectedAt": 1782363973987.0,
-      "latencyMs": 987.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1782363582749",
-      "videoId": "P3tYnFBXL9g",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "Zilk Kay",
-      "publishedAt": 1782363575000.0,
-      "detectedAt": 1782363582749.0,
-      "latencyMs": 7749.0,
       "durationSec": 0.0,
       "status": "waiting"
     }
@@ -2055,6 +2055,51 @@
       "error": "",
       "status": "done",
       "downloadCompleteAt": 1782520271005,
+      "downloadedSize": 11170076.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782521992365": {
+      "downloadStartAt": 1782521992389,
+      "error": "",
+      "status": "done",
+      "downloadCompleteAt": 1782521998244,
+      "downloadedSize": 11402313.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782522260762": {
+      "downloadStartAt": 1782522260776,
+      "error": "",
+      "status": "done",
+      "downloadCompleteAt": 1782522266317,
+      "downloadedSize": 11402313.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782523872036": {
+      "downloadStartAt": 1782523872053,
+      "error": "",
+      "status": "done",
+      "downloadCompleteAt": 1782523881903,
+      "downloadedSize": 11170076.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782524773531": {
+      "downloadStartAt": 1782524773550,
+      "error": "",
+      "status": "done",
+      "downloadCompleteAt": 1782524780203,
+      "downloadedSize": 11402313.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782524843570": {
+      "downloadStartAt": 1782524843610,
+      "error": "",
+      "status": "done",
+      "downloadCompleteAt": 1782524849187,
       "downloadedSize": 11170076.0,
       "width": 640.0,
       "height": 360.0

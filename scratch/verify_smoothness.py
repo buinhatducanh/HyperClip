@@ -36,6 +36,5 @@ def analyze_pts(filepath):
         for idx, t1, t2, d in gaps[:10]:
             print(f"  At frame {idx:04d}: {t1:.4f}s -> {t2:.4f}s (diff: {d:.4f}s)")
             
-analyze_pts(r"d:\LOOP_COMPANY\HyperClip\scratch\out_case5.mp4")
-analyze_pts(r"d:\LOOP_COMPANY\HyperClip\scratch\out_case6.mp4")
-analyze_pts(r"d:\LOOP_COMPANY\HyperClip\scratch\out_case7.mp4")
+analyze_pts(r"d:\LOOP_COMPANY\HyperClip\scratch\speed_test_Cuvid_decoder.mp4")
+analyze_pts(r"d:\LOOP_COMPANY\HyperClip\scratch\speed_test_Modern_cuda_hwaccel.mp4")

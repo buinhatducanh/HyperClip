@@ -141,50 +141,25 @@ pub fn build_short_filter(
 
     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
 
-    // Background chain: fill canvas
+    // Background chain: load composite background
     let bg_chain = format!(
-        "[1:v]loop=loop=-1:size=1:start=0,fps={},scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[bg]",
-        fps,
-        canvas_w,
-        canvas_h,
-        canvas_w,
-        canvas_h
+        "[1:v]loop=loop=-1:size=1:start=0,fps={},format=yuv420p[bg]",
+        fps
     );
 
     // Video over background at x_offset, y_offset
     let vz_chain = format!(
-        "[bg][vid]{}={}:{} [vz]",
+        "[bg][vid]{}={}:{} [vf]",
         overlay,
         x_offset,
         y_offset
     );
 
-    // Header at top (y=0) - [2:v] is header
-    let hd_chain = format!(
-        "[2:v]loop=loop=-1:size=1:start=0,fps={0},{1}={2}:{3}:force_original_aspect_ratio=increase,crop={2}:{3}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[hd]",
-        fps,
-        scale,
-        canvas_w,
-        header_h
-    );
-    let vh_chain = format!(
-        "[vz][hd]{}=0:0 [vh]",
-        overlay
-    );
-
-    // Bottom bar at bottom (bb_y) - [3:v] is bottom bar (pre-rendered PNG)
-    let bb_y = canvas_h - bottom_bar_h;
-    let bb_chain = format!("[3:v]loop=loop=-1:size=1:start=0,fps={},null[bb]", fps);
-    let final_overlay = format!(
-        "[vh][bb]{}=0:{} [vf]",
-        overlay,
-        bb_y
-    );
     let final_chain = "[vf]null[final]".to_string();
 
     format!(
-        "{}; {}; {}; {}; {}; {}; {}; {}",
-        video_chain, bg_chain, vz_chain, hd_chain, vh_chain, bb_chain, final_overlay, final_chain
+        "{}; {}; {}; {}",
+        video_chain, bg_chain, vz_chain, final_chain
     )
 }
 
@@ -205,12 +180,6 @@ pub fn build_short_filter_cuda(
     let video_h = canvas_h - header_h - bottom_bar_h;
     let video_top = header_h;
 
-    let (scaled_w, scaled_h) = compute_cover_dimensions(wi, hi, canvas_w, video_h);
-    let crop_x = (scaled_w as i32 - canvas_w as i32) / 2;
-    let crop_y = (scaled_h as i32 - video_h as i32) / 2;
-    let x_offset = 0;
-    let y_offset = video_top as i32;
-
     let mut video_ops = Vec::new();
     if trim_start > 0.0 || trim_duration > 0.0 {
         let dur = if trim_duration > 0.0 { trim_duration } else { 9999.0 };
@@ -225,6 +194,9 @@ pub fn build_short_filter_cuda(
     if decoder_cropped {
         video_ops.push(format!("scale_cuda={}:{}", canvas_w, video_h));
     } else {
+        let (scaled_w, scaled_h) = compute_cover_dimensions(wi, hi, canvas_w, video_h);
+        let crop_x = (scaled_w as i32 - canvas_w as i32) / 2;
+        let crop_y = (scaled_h as i32 - video_h as i32) / 2;
         video_ops.push(format!("scale_cuda={}:{}", scaled_w, scaled_h));
         video_ops.push("hwdownload,format=nv12".to_string());
         video_ops.push(format!("crop={}:{}:{}:{}", canvas_w, video_h, crop_x.max(0), crop_y.max(0)));
@@ -234,25 +206,15 @@ pub fn build_short_filter_cuda(
     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
 
     let bg_chain = format!(
-        "[1:v]loop=loop=-1:size=1:start=0,fps={},scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[bg]",
-        fps, canvas_w, canvas_h, canvas_w, canvas_h
+        "[1:v]loop=loop=-1:size=1:start=0,fps={},format=nv12,hwupload_cuda[bg]",
+        fps
     );
 
-    let vz_chain = format!("[bg][vid]overlay_cuda=x={}:y={}:eof_action=repeat [vz]", x_offset, y_offset);
-
-    let hd_chain = format!(
-        "[2:v]loop=loop=-1:size=1:start=0,fps={0},scale={1}:{2}:force_original_aspect_ratio=increase,crop={1}:{2}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[hd]",
-        fps, canvas_w, header_h
-    );
-    let vh_chain = format!("[vz][hd]overlay_cuda=x=0:y=0:eof_action=repeat [vh]");
-    let bb_y = canvas_h - bottom_bar_h;
-    let bb_chain = format!("[3:v]loop=loop=-1:size=1:start=0,fps={},format=nv12,hwupload_cuda[bb]", fps);
-    let final_overlay = format!("[vh][bb]overlay_cuda=x=0:y={}:eof_action=repeat,setsar=1 [vf]", bb_y);
-    let final_chain = "[vf]null[final]".to_string();
+    let vz_chain = format!("[bg][vid]overlay_cuda=x=0:y={}:eof_action=repeat,setsar=1 [final]", video_top);
 
     format!(
-        "{}; {}; {}; {}; {}; {}; {}; {}",
-        video_chain, bg_chain, vz_chain, hd_chain, vh_chain, bb_chain, final_overlay, final_chain
+        "{}; {}; {}",
+        video_chain, bg_chain, vz_chain
     )
 }
 
@@ -261,12 +223,11 @@ pub fn build_landscape_filter_cuda(
     trim_start: f64,
     trim_duration: f64,
     speed: f64,
-    canvas_w: u32,
-    canvas_h: u32,
+    _canvas_w: u32,
+    _canvas_h: u32,
     header_h: u32,
     fps: u32,
 ) -> String {
-    let _video_h = canvas_h - header_h;
     let video_top = header_h;
 
     let mut video_ops = Vec::new();
@@ -283,22 +244,16 @@ pub fn build_landscape_filter_cuda(
     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
 
     let bg_chain = format!(
-        "[1:v]loop=loop=-1:size=1:start=0,fps={},scale={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[bg]",
-        fps, canvas_w, canvas_h, canvas_w, canvas_h
+        "[1:v]loop=loop=-1:size=1:start=0,fps={},format=nv12,hwupload_cuda[bg]",
+        fps
     );
 
-    let vz_chain = format!("[bg][vid]overlay_cuda=x=0:y={}:eof_action=repeat [vz]", video_top);
-
-    let hd_chain = format!(
-        "[2:v]loop=loop=-1:size=1:start=0,fps={0},scale={1}:{2}:force_original_aspect_ratio=increase,crop={1}:{2}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=nv12,hwupload_cuda[hd]",
-        fps, canvas_w, header_h
-    );
-    let final_overlay = format!("[vz][hd]overlay_cuda=x=0:y=0:eof_action=repeat,setsar=1 [vf]");
+    let vz_chain = format!("[bg][vid]overlay_cuda=x=0:y={}:eof_action=repeat,setsar=1 [vf]", video_top);
     let final_chain = "[vf]null[final]".to_string();
 
     format!(
-        "{}; {}; {}; {}; {}; {}",
-        video_chain, bg_chain, vz_chain, hd_chain, final_overlay, final_chain
+        "{}; {}; {}; {}",
+        video_chain, bg_chain, vz_chain, final_chain
     )
 }
 
@@ -308,7 +263,7 @@ pub fn build_landscape_filter(
     trim_duration: f64,
     speed: f64,
     canvas_w: u32,
-    canvas_h: u32,
+    _canvas_h: u32,
     video_h: u32,
     video_top: u32,
     use_cuda: bool,
@@ -342,48 +297,23 @@ pub fn build_landscape_filter(
 
     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
 
-    // Background: thumbnail fills canvas
+    // Background: load composite background
     let bg_chain = format!(
-        "[1:v]loop=loop=-1:size=1:start=0,fps={},{}={}:{}:force_original_aspect_ratio=increase,crop={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[bg]",
-        fps,
-        scale,
-        canvas_w,
-        canvas_h,
-        canvas_w,
-        canvas_h
+        "[1:v]loop=loop=-1:size=1:start=0,fps={},format=yuv420p[bg]",
+        fps
     );
 
     // Video over bg
     let vz_chain = format!(
-        "[bg][vid]{}=0:{} [vz]",
+        "[bg][vid]{}=0:{} [vf]",
         overlay,
         video_top
-    );
-
-    // Header at top (y=0) - [2:v] is header
-    let header_h = canvas_h / 5;
-    let crop = if use_cuda { "crop_cuda" } else { "crop" };
-    let format_tag = if use_cuda { "" } else { ",format=yuv420p" };
-    let hd_chain = format!(
-        "[2:v]loop=loop=-1:size=1:start=0,fps={0},{1}={2}:{3}:force_original_aspect_ratio=increase,{4}={2}:{3}:(ow-iw)/2:(oh-ih)/2,setsar=1{5}[hd]",
-        fps,
-        scale,
-        canvas_w,
-        header_h,
-        crop,
-        format_tag
-    );
-
-    // Header on top of vz
-    let final_overlay = format!(
-        "[vz][hd]{}=0:0 [vf]",
-        overlay
     );
     let final_chain = "[vf]null[final]".to_string();
 
     format!(
-        "{}; {}; {}; {}; {}; {}",
-        video_chain, bg_chain, vz_chain, hd_chain, final_overlay, final_chain
+        "{}; {}; {}; {}",
+        video_chain, bg_chain, vz_chain, final_chain
     )
 }
 
@@ -807,8 +737,105 @@ pub fn is_cuda_supported() -> bool {
 }
 
 pub fn is_cuvid_decoder_supported(_decoder: &str) -> bool {
+    // Disable legacy CUVID decoders entirely.
+    // They are prone to frame-rate/PTS jitter and stuttering issues on VFR/YouTube videos,
+    // and modern `-hwaccel cuda` is 2x faster.
     false
 }
+
+fn pre_composite_background(
+    ffmpeg_path: &str,
+    temp_dir: &std::path::Path,
+    workspace_id: &str,
+    canvas_w: u32,
+    canvas_h: u32,
+    header_h: u32,
+    bottom_bar_h: u32,
+    use_real_assets: bool,
+    filter_chain: FilterChain,
+    blur_file: Option<&PathBuf>,
+    thumb_file: Option<&PathBuf>,
+    bar_file: Option<&PathBuf>,
+) -> Result<PathBuf> {
+    let composite_bg_path = temp_dir.join(format!("{}_composite_bg.png", workspace_id));
+    std::fs::remove_file(&composite_bg_path).ok();
+    
+    let mut cmd = std::process::Command::new(ffmpeg_path);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    
+    cmd.args(["-hide_banner", "-y"]);
+    
+    let bg_color = "0x2d2d2d";
+    let bb_color = "0x1a1a1a";
+    let hd_color = "0x0d0d0d";
+
+    match filter_chain {
+        FilterChain::Short => {
+            if use_real_assets {
+                let clean_blur = crate::store::clean_unc_path(blur_file.unwrap().to_str().unwrap_or_default());
+                let clean_thumb = crate::store::clean_unc_path(thumb_file.unwrap().to_str().unwrap_or_default());
+                let clean_bar = crate::store::clean_unc_path(bar_file.unwrap().to_str().unwrap_or_default());
+                
+                cmd.args([
+                    "-i", &clean_blur,
+                    "-i", &clean_thumb,
+                    "-i", &clean_bar,
+                    "-filter_complex",
+                    &format!(
+                        "[1:v]scale={w}:{hd_h}:force_original_aspect_ratio=increase,crop={w}:{hd_h}:(ow-iw)/2:(oh-ih)/2,setsar=1[hd]; \
+                         [0:v][hd]overlay=x=0:y=0[v1]; \
+                         [v1][2:v]overlay=x=0:y={bb_y},format=nv12[final]",
+                        w = canvas_w,
+                        hd_h = header_h,
+                        bb_y = canvas_h - bottom_bar_h
+                    ),
+                    "-map", "[final]",
+                    "-vframes", "1",
+                ]);
+            } else {
+                cmd.args([
+                    "-f", "lavfi", "-i", &format!("color=c={}:s={}x{}:d=0.04", bg_color, canvas_w, canvas_h),
+                    "-f", "lavfi", "-i", &format!("color=c={}:s={}x{}:d=0.04", hd_color, canvas_w, header_h),
+                    "-f", "lavfi", "-i", &format!("color=c={}:s={}x{}:d=0.04", bb_color, canvas_w, bottom_bar_h),
+                    "-filter_complex",
+                    &format!(
+                        "[0:v][1:v]overlay=x=0:y=0[v1]; \
+                         [v1][2:v]overlay=x=0:y={bb_y},format=nv12[final]",
+                        bb_y = canvas_h - bottom_bar_h
+                    ),
+                    "-map", "[final]",
+                    "-vframes", "1",
+                ]);
+            }
+        }
+        FilterChain::Landscape => {
+            cmd.args([
+                "-f", "lavfi", "-i", &format!("color=c={}:s={}x{}:d=0.04", bg_color, canvas_w, canvas_h),
+                "-f", "lavfi", "-i", &format!("color=c={}:s={}x{}:d=0.04", hd_color, canvas_w, header_h),
+                "-filter_complex",
+                "[0:v][1:v]overlay=x=0:y=0,format=nv12[final]",
+                "-map", "[final]",
+                "-vframes", "1",
+            ]);
+        }
+    }
+    
+    let clean_out = crate::store::clean_unc_path(composite_bg_path.to_str().unwrap_or_default());
+    cmd.arg(&clean_out);
+    
+    let mut child = cmd.spawn().map_err(|e| HyperclipError::FFmpegNotFound(e.to_string()))?;
+    let status = child.wait().map_err(HyperclipError::Io)?;
+    if !status.success() {
+        return Err(HyperclipError::BackendCrashed("Pre-compositing background failed".to_string()));
+    }
+    
+    Ok(composite_bg_path)
+}
+
 
 pub async fn spawn_render_async<F>(
     opts: RenderOptions,
@@ -833,6 +860,7 @@ where F: FnMut(f64) + Send + 'static {
 
     // Prepare real assets for Short Mode overlays if workspace database is present
     let mut use_real_assets = false;
+    let mut temp_dir = std::env::temp_dir();
     let mut blur_file = PathBuf::new();
     let mut thumb_file = PathBuf::new();
     let mut bar_file = PathBuf::new();
@@ -846,7 +874,7 @@ where F: FnMut(f64) + Send + 'static {
             if let Some(workspace) = store.workspaces.iter().find(|w| w.id == opts.workspace_id) {
                 let channel_id = &workspace.channel_id;
                 let channel_name = workspace.channel_name.as_deref().unwrap_or("");
-                let temp_dir = crate::store::render_temp_dir(channel_id, channel_name);
+                temp_dir = crate::store::render_temp_dir(channel_id, channel_name);
 
                 let mut thumbnail_path = workspace
                     .thumbnail_local
@@ -1200,33 +1228,38 @@ where F: FnMut(f64) + Send + 'static {
 
     let fps_str = fps.to_string();
 
-    if use_real_assets {
-        let clean_blur = crate::store::clean_unc_path(blur_file.to_str().unwrap());
-        let clean_thumb = crate::store::clean_unc_path(thumb_file.to_str().unwrap());
-        let clean_bar = crate::store::clean_unc_path(bar_file.to_str().unwrap());
-        args.extend_from_slice(&[
-            "-framerate".into(), fps_str.clone(), "-i".into(), clean_blur,
-            "-framerate".into(), fps_str.clone(), "-i".into(), clean_thumb,
-            "-framerate".into(), fps_str.clone(), "-i".into(), clean_bar,
-        ]);
-    } else {
-        // Fallback to lavfi colors
-        let bg_color = "0x2d2d2d";  // dark gray bg
-        let bb_color = "0x1a1a1a";  // bottom bar
-        let hd_color = "0x0d0d0d";  // header
-
-        let color_dur = "d=0.04";
-        for (color, w, h) in [
-            (bg_color, canvas_w, canvas_h),
-            (hd_color, canvas_w, header_h), // mapped to [2:v] in filter graph (Header)
-            (bb_color, canvas_w, bottom_bar_h), // mapped to [3:v] in filter graph (Bottom bar)
-        ] {
-            args.extend_from_slice(&[
-                "-f".into(), "lavfi".into(),
-                "-i".into(), format!("color=c={}:s={}x{}:{}:r={}", color, w, h, color_dur, fps),
-            ]);
+    let composite_bg_file = match pre_composite_background(
+        &get_ffmpeg_path(),
+        &temp_dir,
+        &opts.workspace_id,
+        canvas_w,
+        canvas_h,
+        header_h,
+        bottom_bar_h,
+        use_real_assets,
+        opts.filter_chain,
+        if use_real_assets { Some(&blur_file) } else { None },
+        if use_real_assets { Some(&thumb_file) } else { None },
+        if use_real_assets { Some(&bar_file) } else { None },
+    ) {
+        Ok(path) => path,
+        Err(e) => {
+            if use_real_assets {
+                if blur_file.exists() { let _ = std::fs::remove_file(&blur_file); }
+                if bar_file.exists() { let _ = std::fs::remove_file(&bar_file); }
+                if cache_meta_file.exists() { let _ = std::fs::remove_file(&cache_meta_file); }
+                if let Some(ref fallback_thumb) = fallback_thumb_file {
+                    if fallback_thumb.exists() { let _ = std::fs::remove_file(fallback_thumb); }
+                }
+            }
+            return Err(e);
         }
-    }
+    };
+
+    let clean_composite = crate::store::clean_unc_path(composite_bg_file.to_str().unwrap_or_default());
+    args.extend_from_slice(&[
+        "-framerate".into(), fps_str.clone(), "-i".into(), clean_composite,
+    ]);
     args.extend_from_slice(&[
         "-filter_complex".into(), complete_filter,
         "-t".into(), total_duration_str.clone(),
@@ -1299,6 +1332,7 @@ where F: FnMut(f64) + Send + 'static {
                 if fallback_thumb.exists() { let _ = std::fs::remove_file(fallback_thumb); }
             }
         }
+        if composite_bg_file.exists() { let _ = std::fs::remove_file(&composite_bg_file); }
         HyperclipError::FFmpegNotFound(e.to_string())
     })?;
     let stderr = child.stderr.take().unwrap();
@@ -1349,6 +1383,7 @@ where F: FnMut(f64) + Send + 'static {
                 if fallback_thumb.exists() { let _ = std::fs::remove_file(fallback_thumb); }
             }
         }
+        if composite_bg_file.exists() { let _ = std::fs::remove_file(&composite_bg_file); }
         HyperclipError::Io(e)
     })?;
 
@@ -1361,6 +1396,7 @@ where F: FnMut(f64) + Send + 'static {
             if fallback_thumb.exists() { let _ = std::fs::remove_file(fallback_thumb); }
         }
     }
+    if composite_bg_file.exists() { let _ = std::fs::remove_file(&composite_bg_file); }
 
     if !status.success() {
         let err_detail = stderr_buf.lock().map(|b| b.clone()).unwrap_or_default();

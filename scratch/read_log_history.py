@@ -1,6 +1,6 @@
 import json
 
-log_path = r"C:\Users\MSI\.gemini\antigravity-ide\brain\008c9d2c-730e-45b2-9f0e-3f35b9ada63d\.system_generated\logs\transcript.jsonl"
+log_path = r"C:\Users\MSI\.gemini\antigravity-ide\brain\7d56645a-ca0f-4da0-a362-4090c9fd7128\.system_generated\logs\transcript.jsonl"
 print("Searching history for ZIP packaging commands...")
 with open(log_path, 'r', encoding='utf-8') as f:
     for line in f:
