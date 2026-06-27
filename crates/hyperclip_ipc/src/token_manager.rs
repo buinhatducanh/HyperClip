@@ -265,6 +265,7 @@ impl TokenManager {
 
         if !response.status().is_success() {
             let err = response.text().await.unwrap_or_default();
+            tracing::error!("OAuth token refresh failed: {}", err);
             return Err(HyperclipError::TokenExpired);
         }
 

@@ -17,7 +17,11 @@ async function ensureClient(cookieStr) {
 }
 
 async function resolveChannelId(yt, rawId) {
-  const id = rawId.replace(/^@/, '');
+  let decodedId = rawId;
+  try {
+    decodedId = decodeURIComponent(rawId);
+  } catch (_) {}
+  const id = decodedId.replace(/^@/, '');
   if (id.startsWith('UC') && id.length >= 22) return id;
   const cacheKey = '@' + id.toLowerCase();
   if (resolvedChannelCache.has(cacheKey)) {
@@ -32,7 +36,7 @@ async function resolveChannelId(yt, rawId) {
     }
   } catch (_) {}
   try {
-    const resp = await fetch(`https://www.youtube.com/@${id}`);
+    const resp = await fetch(encodeURI(`https://www.youtube.com/@${id}`));
     if (resp.ok) {
       const html = await resp.text();
       const m = html.match(/\/channel\/(UC[\w-]{20,})/);
@@ -43,7 +47,7 @@ async function resolveChannelId(yt, rawId) {
       }
     }
   } catch (_) {}
-  return rawId;
+  return decodedId;
 }
 
 // ─── LockupView extraction ──────────────────────────────────
@@ -51,31 +55,31 @@ async function resolveChannelId(yt, rawId) {
 function parseRelativeTime(text) {
   if (!text) return 0;
   const cleanText = text.replace(/\u00a0/g, ' ').trim();
-  const m = cleanText.match(/(\d+)\s*([a-zA-Z\u00C0-\u1EF9]+)/);
+  const m = cleanText.match(/(\d+)\s*(.+)/);
   if (m) {
     const val = parseInt(m[1], 10);
     const unit = m[2].toLowerCase();
     const now = Math.floor(Date.now() / 1000);
     
-    if (unit.startsWith('second') || unit.startsWith('sec') || unit.startsWith('giây')) {
+    if (unit.startsWith('second') || unit.startsWith('sec') || unit.includes('giây') || unit.includes('秒')) {
       return now - val;
     }
-    if (unit.startsWith('minute') || unit.startsWith('min') || unit.startsWith('phút')) {
+    if (unit.startsWith('minute') || unit.startsWith('min') || unit.includes('phút') || unit.includes('分')) {
       return now - val * 60;
     }
-    if (unit.startsWith('hour') || unit.startsWith('hr') || unit.startsWith('giờ')) {
+    if (unit.startsWith('hour') || unit.startsWith('hr') || unit.includes('giờ') || unit.includes('時間')) {
       return now - val * 3600;
     }
-    if (unit.startsWith('day') || unit.startsWith('ngày')) {
+    if (unit.startsWith('day') || unit.includes('ngày') || unit.includes('日')) {
       return now - val * 86400;
     }
-    if (unit.startsWith('week') || unit.startsWith('wk') || unit.startsWith('tuần')) {
+    if (unit.startsWith('week') || unit.startsWith('wk') || unit.includes('tuần') || unit.includes('週')) {
       return now - val * 604800;
     }
-    if (unit.startsWith('month') || unit.startsWith('mo') || unit.startsWith('tháng')) {
+    if (unit.startsWith('month') || unit.startsWith('mo') || unit.includes('tháng') || unit.includes('月')) {
       return now - val * 2592000;
     }
-    if (unit.startsWith('year') || unit.startsWith('yr') || unit.startsWith('năm')) {
+    if (unit.startsWith('year') || unit.startsWith('yr') || unit.includes('năm') || unit.includes('年')) {
       return now - val * 31536000;
     }
   }
@@ -374,12 +378,20 @@ const channelLastVideos = new Map();    // 'UC...' -> videos list
 
 function extractChannelHandleOrId(url) {
   if (!url) return null;
-  let match = url.match(/youtube\.com\/channel\/(UC[\w-]{20,})/);
+  let decodedUrl = url;
+  try {
+    decodedUrl = decodeURIComponent(url);
+  } catch (_) {}
+
+  let match = decodedUrl.match(/youtube\.com\/channel\/(UC[\w-]{20,})/);
   if (match) return match[1];
-  match = url.match(/youtube\.com\/@([\w.-]+)/);
+  
+  match = decodedUrl.match(/youtube\.com\/@([^/?#\s]+)/);
   if (match) return '@' + match[1].toLowerCase();
-  match = url.match(/youtube\.com\/c\/([\w.-]+)/);
+  
+  match = decodedUrl.match(/youtube\.com\/c\/([^/?#\s]+)/);
   if (match) return '@' + match[1].toLowerCase();
+  
   return null;
 }
 
@@ -405,7 +417,7 @@ async function checkChromeChannelTabs(pollIntervalMs) {
       const wsUrl = tab.webSocketDebuggerUrl;
       if (wsUrl) {
         const lastReload = tabReloads[wsUrl] || 0;
-        if (now - lastReload >= 5000) {
+        if (now - lastReload >= 30000) {
           tabReloads[wsUrl] = now;
           reloadTab(wsUrl, false).catch(() => {});
         }
@@ -430,6 +442,61 @@ async function checkChromeChannelTabs(pollIntervalMs) {
       }
       
       if (!channelId) continue;
+
+      // Extract videos directly from Chrome tab DOM via CDP
+      let domVideos = [];
+      if (wsUrl) {
+        try {
+          const domScript = `
+            (() => {
+              const videos = [];
+              const items = document.querySelectorAll('ytd-rich-grid-media, ytd-grid-video-renderer, ytd-video-renderer, ytd-reel-item-renderer');
+              for (const item of items) {
+                const titleEl = item.querySelector('#video-title-link, #video-title, #video-title-container');
+                if (!titleEl) continue;
+                const href = titleEl.getAttribute('href') || titleEl.querySelector('a')?.getAttribute('href');
+                if (!href) continue;
+                let videoId = null;
+                if (href.includes('/watch?v=')) {
+                  const match = href.match(/[?&]v=([^&#]+)/);
+                  if (match) videoId = match[1];
+                }
+                if (!videoId) continue;
+                const title = titleEl.textContent.trim() || titleEl.getAttribute('title') || '';
+                let relativeTimeText = '';
+                const metaSpans = item.querySelectorAll('#metadata-line span');
+                for (const span of metaSpans) {
+                  const text = span.textContent.trim();
+                  if (text.includes('ago') || text.includes('trước') || text.includes('前') || text.includes('day') || text.includes('hour') || text.includes('minute') || text.includes('second') || text.includes('ngày') || text.includes('giờ') || text.includes('phút') || text.includes('giây') || text.includes('秒') || text.includes('分') || text.includes('時間') || text.includes('日') || text.includes('週') || text.includes('月') || text.includes('年')) {
+                    relativeTimeText = text;
+                  }
+                }
+                videos.push({ videoId, title, relativeTimeText });
+              }
+              return videos;
+            })()
+          `;
+          const extracted = await evaluateInTab(wsUrl, domScript);
+          if (Array.isArray(extracted)) {
+            domVideos = extracted;
+          }
+        } catch (_) {
+          // Ignore DOM extraction errors
+        }
+      }
+
+      const parsedDomVideos = [];
+      for (const dv of domVideos) {
+        if (dv && dv.videoId) {
+          parsedDomVideos.push({
+            videoId: dv.videoId,
+            title: dv.title || '',
+            publishedAt: parseRelativeTime(dv.relativeTimeText) || Math.floor(now / 1000),
+            thumbnailUrl: `https://i.ytimg.com/vi/${dv.videoId}/hqdefault.jpg`,
+            durationSec: 0,
+          });
+        }
+      }
       
       // Throttle background polls for the same channel to once every 1.5 seconds
       const lastPoll = lastChannelPollTime.get(channelId) || 0;
@@ -445,6 +512,13 @@ async function checkChromeChannelTabs(pollIntervalMs) {
         }
       } else {
         videos = channelLastVideos.get(channelId) || [];
+      }
+
+      // Merge DOM-extracted videos into the videos array
+      for (const pdv of parsedDomVideos) {
+        if (!videos.some(v => v.videoId === pdv.videoId)) {
+          videos.push(pdv);
+        }
       }
       
       let channelName = tab.title || '';

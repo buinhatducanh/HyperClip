@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 #[cfg(target_os = "windows")]

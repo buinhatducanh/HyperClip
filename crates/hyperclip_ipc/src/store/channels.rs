@@ -73,7 +73,25 @@ impl ChannelStore {
     pub fn load(path: &Path) -> Self {
         if path.exists() {
             let content = fs::read_to_string(path).unwrap_or_default();
-            serde_json::from_str(&content).unwrap_or_default()
+            if let Ok(store) = serde_json::from_str::<Self>(&content) {
+                return store;
+            }
+            if let Ok(channels) = serde_json::from_str::<Vec<Channel>>(&content) {
+                return Self { channels };
+            }
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                let target = if let Some(res) = val.get("result") { res } else { &val };
+                if let Some(ch_arr) = target.get("channels").and_then(|v| v.as_array()) {
+                    let mut channels = Vec::new();
+                    for ch_val in ch_arr {
+                        if let Ok(ch) = serde_json::from_value::<Channel>(ch_val.clone()) {
+                            channels.push(ch);
+                        }
+                    }
+                    return Self { channels };
+                }
+            }
+            Self::default()
         } else {
             Self::default()
         }

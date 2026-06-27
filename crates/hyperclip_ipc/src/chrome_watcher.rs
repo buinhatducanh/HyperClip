@@ -6,12 +6,19 @@
 
 use crate::innertube_client::{InnertubeClient, ClientConfig};
 use crate::poller::NewVideoEvent;
-use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
 
 const DEFAULT_CDP_PORT: u16 = 9222;
 const DEFAULT_POLL_MS: u64 = 500;
+
+struct CheckingGuard(Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for CheckingGuard {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+}
 
 /// Represents a Chrome tab from the CDP /json endpoint
 #[derive(serde::Deserialize, Debug)]
@@ -32,6 +39,7 @@ pub struct ChromeTabWatcher {
     http_client: reqwest::Client,
     was_connected: std::sync::atomic::AtomicBool,
     last_channel_check: Mutex<std::time::Instant>,
+    is_checking: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl ChromeTabWatcher {
@@ -58,6 +66,7 @@ impl ChromeTabWatcher {
             http_client,
             was_connected: std::sync::atomic::AtomicBool::new(false),
             last_channel_check: Mutex::new(past_instant),
+            is_checking: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -169,19 +178,26 @@ impl ChromeTabWatcher {
             let should_check = {
                 let mut last = self.last_channel_check.lock().unwrap();
                 if last.elapsed() >= std::time::Duration::from_millis(poll_interval) {
-                    *last = std::time::Instant::now();
-                    true
+                    if !self.is_checking.load(std::sync::atomic::Ordering::Relaxed) {
+                        *last = std::time::Instant::now();
+                        true
+                    } else {
+                        false
+                    }
                 } else {
                     false
                 }
             };
 
             if should_check {
+                self.is_checking.store(true, std::sync::atomic::Ordering::Relaxed);
                 let seen_videos = self.seen_videos.clone();
                 let process_fn = self.process_fn.clone();
                 let dedicated_client = self.dedicated_client.clone();
+                let is_checking = self.is_checking.clone();
 
                 tokio::spawn(async move {
+                    let _guard = CheckingGuard(is_checking);
                     // Take client out of Mutex to avoid holding lock across await
                     let mut client = {
                         let mut guard = dedicated_client.lock().unwrap();

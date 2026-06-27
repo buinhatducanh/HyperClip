@@ -1,4 +1,4 @@
-use crate::detection::{HealthAlert, HealthAlertLevel, HealthContext, HealthMonitor};
+use crate::detection::{HealthAlert, HealthContext, HealthMonitor};
 use crate::error::Result;
 use crate::innertube_pool::InnertubeClientPool;
 use crate::store::{SeenVideos, UploadsCache};
@@ -6,11 +6,9 @@ use crate::token_manager::OAuthFallbackDetector;
 use crate::types::Channel;
 use rand::Rng;
 use serde::Serialize;
-use std::io::Write;
 use std::sync::atomic::{AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
-use futures::stream::{self, StreamExt};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct NewVideoEvent {
@@ -34,7 +32,7 @@ pub struct Poller {
     last_detection_time: Arc<Mutex<Option<i64>>>,
     consecutive_download_failures: Arc<Mutex<u32>>,
     poll_interval_ms: AtomicU64,
-    max_videos_per_poll: usize,
+    _max_videos_per_poll: usize,
     max_age_ms: AtomicI64,
     min_duration_sec: AtomicU32,
     process_fn: Arc<dyn Fn(NewVideoEvent) + Send + Sync>,
@@ -60,7 +58,7 @@ impl Poller {
             last_detection_time: Arc::new(Mutex::new(None)),
             consecutive_download_failures: Arc::new(Mutex::new(0)),
             poll_interval_ms: AtomicU64::new(poll_interval_ms),
-            max_videos_per_poll: 5,
+            _max_videos_per_poll: 5,
             max_age_ms: AtomicI64::new((max_age_minutes as i64) * 60 * 1000),
             min_duration_sec: AtomicU32::new(min_duration_sec),
             process_fn: Arc::new(process_fn),
@@ -268,6 +266,10 @@ impl Poller {
                                 drop(seen_videos);
 
                                 if is_seen { continue; }
+
+                                if video.duration_sec < min_duration_sec as f64 {
+                                    continue;
+                                }
                                 
                                 let bypass_age_limit = !channel_seen_exists && index == 0;
                                 if !bypass_age_limit && !Self::is_within_age_limit(video.published_at, now_ms, max_age_ms) {
@@ -351,6 +353,9 @@ impl Poller {
                 match detector.detect_new_videos(&channel_ids, &seen_videos, max_age_minutes as u64).await {
                     Ok(videos) => {
                         for video in videos {
+                            if video.duration_sec < min_duration_sec as f64 {
+                                continue;
+                            }
                             // Mark as seen
                             let mut seen_videos = self.seen_videos.write().await;
                             let cid = oauth_channels.iter()

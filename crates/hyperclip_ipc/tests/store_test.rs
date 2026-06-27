@@ -1,6 +1,73 @@
 use std::env;
 use std::fs;
-use hyperclip_ipc::store::{build_render_path, get_store_dir, Workspace, WorkspaceStore};
+use hyperclip_ipc::store::{build_render_path, get_store_dir, Workspace, WorkspaceStore, ChannelStore};
+
+#[test]
+fn test_channel_store_load_shapes() {
+    let test_dir = env::temp_dir().join(format!("hyperclip_ch_test_{}", rand::random::<u64>()));
+    fs::create_dir_all(&test_dir).unwrap();
+
+    let file_path = test_dir.join("channels.json");
+
+    // 1. Standard format
+    let standard_json = r#"{
+        "channels": [
+            {
+                "id": "ch1",
+                "name": "Channel One",
+                "handle": "@ch1",
+                "enabled": true,
+                "paused": false
+            }
+        ]
+    }"#;
+    fs::write(&file_path, standard_json).unwrap();
+    let store = ChannelStore::load(&file_path);
+    assert_eq!(store.channels.len(), 1);
+    assert_eq!(store.channels[0].id, "ch1");
+    assert_eq!(store.channels[0].name, "Channel One");
+
+    // 2. Bare array format
+    let bare_json = r#"[
+        {
+            "id": "ch2",
+            "name": "Channel Two",
+            "handle": "@ch2",
+            "enabled": true,
+            "paused": true
+        }
+    ]"#;
+    fs::write(&file_path, bare_json).unwrap();
+    let store = ChannelStore::load(&file_path);
+    assert_eq!(store.channels.len(), 1);
+    assert_eq!(store.channels[0].id, "ch2");
+    assert_eq!(store.channels[0].name, "Channel Two");
+    assert!(store.channels[0].paused);
+
+    // 3. Envelope format
+    let envelope_json = r#"{
+        "id": "msg-123",
+        "result": {
+            "channels": [
+                {
+                    "id": "ch3",
+                    "name": "Channel Three",
+                    "handle": "@ch3",
+                    "enabled": false,
+                    "paused": false
+                }
+            ]
+        }
+    }"#;
+    fs::write(&file_path, envelope_json).unwrap();
+    let store = ChannelStore::load(&file_path);
+    assert_eq!(store.channels.len(), 1);
+    assert_eq!(store.channels[0].id, "ch3");
+    assert_eq!(store.channels[0].name, "Channel Three");
+    assert!(!store.channels[0].enabled);
+
+    fs::remove_dir_all(&test_dir).ok();
+}
 
 #[test]
 fn test_build_render_path_split() {

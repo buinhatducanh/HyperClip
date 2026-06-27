@@ -3,7 +3,6 @@
 // Output directory is caller's responsibility (per-channel media dir).
 
 use std::path::Path;
-use std::path::PathBuf;
 
 /// Download YouTube thumbnail to a specific output path.
 /// Tries maxresdefault.jpg first, falls back to hqdefault.jpg on 404.

@@ -4,7 +4,7 @@ pub mod channel;
 pub mod workspace;
 pub mod auth;
 
-use hyperclip_ipc::{get_system_stats, ChannelStore, WorkspaceStore, get_workspaces_path, get_channels_path, get_seen_videos_path, SettingsStore, get_settings_path, RenderedStore, get_rendered_videos_path, KeyStore, get_keys_path, ProjectStore, get_projects_path, KeyEntry, ProjectEntry, get_store_dir, get_uploads_cache_path, get_data_dir};
+use hyperclip_ipc::{get_system_stats, ChannelStore, WorkspaceStore, get_workspaces_path, get_channels_path, get_seen_videos_path, SettingsStore, get_settings_path, get_store_dir, get_uploads_cache_path, get_data_dir};
 use std::sync::atomic::AtomicBool;
 use hyperclip_ipc::store::{SeenVideos, UploadsCache};
 
@@ -17,7 +17,7 @@ use hyperclip_ipc::chrome_watcher::ChromeTabWatcher;
 
 use hyperclip_ipc::ffmpeg::{spawn_render_async, RenderOptions, FilterChain};
 
-use hyperclip_ipc::youtube::{download_video, download_video_streaming, emit_download_progress, find_ytdlp_path, find_node_runtime_arg, probe_formats};
+use hyperclip_ipc::youtube::{download_video_streaming, emit_download_progress, find_ytdlp_path, find_node_runtime_arg, probe_formats};
 
 use hyperclip_ipc::thumbnail::download_youtube_thumbnail_to;
 
@@ -41,7 +41,6 @@ use std::collections::{HashMap, VecDeque};
 
 use std::path::PathBuf;
 
-use std::io::{self, Write};
 
 #[derive(Debug, Clone, Serialize)]
 struct DetectionEvent {
@@ -176,7 +175,9 @@ impl AppState {
                                     return true;
                                 }
                                 if let Some(ref handle) = c.handle {
-                                    if handle.eq_ignore_ascii_case(&event.channel_id) {
+                                    let dec_handle = urlencoding::decode(handle).map(|s| s.into_owned()).unwrap_or_else(|_| handle.clone());
+                                    let dec_event_cid = urlencoding::decode(&event.channel_id).map(|s| s.into_owned()).unwrap_or_else(|_| event.channel_id.clone());
+                                    if dec_handle.eq_ignore_ascii_case(&dec_event_cid) {
                                         return true;
                                     }
                                 }
@@ -363,6 +364,25 @@ impl AppState {
                             Ok(result) => {
                                 tracing::info!("[AppState] Auto-download complete: {} ({:.1} MB)",
                                     tid, result.file_size as f64 / 1_048_576.0);
+
+                                if result.width < result.height {
+                                    tracing::info!("[AppState] Discarding video {} because it is in portrait format ({}x{}) and only landscape 16:9 is allowed.", video_id, result.width, result.height);
+                                    std::fs::remove_file(&result.path).ok();
+                                    let ws_path = get_workspaces_path();
+                                    let mut ws_store = WorkspaceStore::load(&ws_path);
+                                    ws_store.update(&tid, serde_json::json!({
+                                        "status": "failed",
+                                        "error": "Bỏ qua vì là video Short (9:16)",
+                                    })).ok();
+                                    ws_store.save(&ws_path).ok();
+
+                                    crate::emit(hyperclip_ipc::IpcResponse::event("workspace:update", serde_json::json!({
+                                        "id": tid,
+                                        "status": "failed",
+                                        "error": "Bỏ qua vì là video Short (9:16)",
+                                    })));
+                                    return;
+                                }
 
                                 // Download thumbnail to per-channel dir
                                 let thumb_path = get_thumbnail_path(&cid, &ch_name, &video_id);
@@ -1559,8 +1579,9 @@ fn launch_chrome_profile_async(profile_id: &str) {
                 tracing::info!("[Chrome] Chrome is already running with remote debugging port active. Checking open tabs...");
                 
                 fn extract_youtube_key(url: &str) -> Option<String> {
-                    if url.contains("youtube.com/@") {
-                        let parts: Vec<&str> = url.split("youtube.com/").collect();
+                    let decoded_url = urlencoding::decode(url).map(|s| s.into_owned()).unwrap_or_else(|_| url.to_string());
+                    if decoded_url.contains("youtube.com/@") {
+                        let parts: Vec<&str> = decoded_url.split("youtube.com/").collect();
                         if parts.len() > 1 {
                             let rest = parts[1];
                             let handle = rest.split('/').next().unwrap_or("");
@@ -1568,8 +1589,8 @@ fn launch_chrome_profile_async(profile_id: &str) {
                                 return Some(handle.to_string());
                             }
                         }
-                    } else if url.contains("youtube.com/channel/") {
-                        let parts: Vec<&str> = url.split("youtube.com/channel/").collect();
+                    } else if decoded_url.contains("youtube.com/channel/") {
+                        let parts: Vec<&str> = decoded_url.split("youtube.com/channel/").collect();
                         if parts.len() > 1 {
                             let rest = parts[1];
                             let chan_id = rest.split('/').next().unwrap_or("");
@@ -1584,16 +1605,31 @@ fn launch_chrome_profile_async(profile_id: &str) {
                 // Check each target URL
                 for url in &urls {
                     let is_open = if let Some(target_key) = extract_youtube_key(url) {
+                        let dec_target_key = urlencoding::decode(&target_key).map(|s| s.into_owned()).unwrap_or_else(|_| target_key.clone());
                         // It's a channel URL. Check if any open tab contains this channel's key
                         open_tabs.iter().any(|tab| {
-                            tab.tab_type.as_deref() == Some("page") && 
-                            tab.url.as_ref().map(|u| u.contains(&target_key)).unwrap_or(false)
+                            if tab.tab_type.as_deref() != Some("page") {
+                                return false;
+                            }
+                            if let Some(ref u) = tab.url {
+                                let dec_tab_url = urlencoding::decode(u).map(|s| s.into_owned()).unwrap_or_else(|_| u.clone());
+                                dec_tab_url.contains(&dec_target_key)
+                            } else {
+                                false
+                            }
                         })
                     } else {
                         // It's the homepage or other non-channel URL
                         open_tabs.iter().any(|tab| {
-                            tab.tab_type.as_deref() == Some("page") && 
-                            tab.url.as_ref().map(|u| u == url || u == &format!("{}/", url)).unwrap_or(false)
+                            if tab.tab_type.as_deref() != Some("page") {
+                                return false;
+                            }
+                            if let Some(ref u) = tab.url {
+                                let dec_tab_url = urlencoding::decode(u).map(|s| s.into_owned()).unwrap_or_else(|_| u.clone());
+                                dec_tab_url == *url || dec_tab_url == format!("{}/", url)
+                            } else {
+                                false
+                            }
                         })
                     };
 

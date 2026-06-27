@@ -226,9 +226,27 @@ class ChannelListModel(QAbstractListModel):
             path = QUrl(file_url).toLocalFile()
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            channels = data.get("channels", [])
+            
+            channels = []
+            if isinstance(data, list):
+                channels = data
+            elif isinstance(data, dict):
+                target = data.get("result", data)
+                if isinstance(target, dict):
+                    channels = target.get("channels", [])
+                elif isinstance(target, list):
+                    channels = target
+            
+            if not isinstance(channels, list):
+                channels = []
+                
             for ch in channels:
-                backend.send_command("channel:add", ch)
+                if isinstance(ch, str):
+                    backend.send_command("channel:add", {"url": ch})
+                elif isinstance(ch, dict):
+                    url = ch.get("url") or ch.get("handle") or ch.get("channelId") or ch.get("id")
+                    if url:
+                        backend.send_command("channel:add", {"url": url})
             self.load_from_backend(backend)
         except Exception as e:
             print(f"[ChannelListModel] import error: {e}")
