@@ -10,7 +10,7 @@ pub struct Workspace {
     pub id: String,
     pub status: String,  // pending|downloading|ready|rendering|done|error
     pub video_id: String,
-    #[serde(rename = "channelId")]
+    #[serde(rename = "channelId", default)]
     pub channel_id: String,
     pub title: String,
     #[serde(rename = "downloadedPath")]
@@ -126,7 +126,13 @@ impl WorkspaceStore {
     pub fn load(path: &Path) -> Self {
         if path.exists() {
             let content = fs::read_to_string(path).unwrap_or_default();
-            let mut store: Self = serde_json::from_str(&content).unwrap_or_default();
+            let mut store: Self = match serde_json::from_str(&content) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!("[WorkspaceStore] Deserialization error: {:?}", e);
+                    Self::default()
+                }
+            };
             
             // Clean up legacy bug: remove workspaces with recursive split parts (containing multiple "-part")
             store.workspaces.retain(|ws| {

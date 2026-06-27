@@ -1,6 +1,17 @@
 {
   "entries": [
     {
+      "wsId": "ws-ch-1782560577783",
+      "videoId": "TfM6MGBa9gA",
+      "title": "YTDown YouTube NGUOI GION CHUONG TRINH Trung Coffee Sai Media QWPMsLUTzLc 001 1080p",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1782560575000.0,
+      "detectedAt": 1782560575783.0,
+      "latencyMs": 783.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
       "wsId": "ws-ch-1782524843570",
       "videoId": "5G6izq5pU_0",
       "title": "YTDown YouTube NGUOI GION CHUONG TRINH Trung Coffee Sai Media QWPMsLUTzLc 001 1080p",
@@ -536,17 +547,6 @@
       "publishedAt": 1782365592000.0,
       "detectedAt": 1782365592487.0,
       "latencyMs": 487.0,
-      "durationSec": 0.0,
-      "status": "waiting"
-    },
-    {
-      "wsId": "ws-ch-1782365592452",
-      "videoId": "ZfxwcN3o6Js",
-      "title": "TÔI GHÉT CÂY , VÀ NÓ CŨNG THẾ ! ! !  Tree hate you  MB3R",
-      "channelName": "BadyNone",
-      "publishedAt": 1782365592000.0,
-      "detectedAt": 1782365592452.0,
-      "latencyMs": 452.0,
       "durationSec": 0.0,
       "status": "waiting"
     }
@@ -2100,6 +2100,15 @@
       "error": "",
       "status": "done",
       "downloadCompleteAt": 1782524849187,
+      "downloadedSize": 11170076.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782560577783": {
+      "downloadStartAt": 1782560577803,
+      "error": "",
+      "status": "done",
+      "downloadCompleteAt": 1782560585763,
       "downloadedSize": 11170076.0,
       "width": 640.0,
       "height": 360.0

@@ -176,6 +176,7 @@ pub fn build_short_filter_cuda(
     wi: u32,
     hi: u32,
     decoder_cropped: bool,
+    decode_on_cpu: bool,
 ) -> String {
     let video_h = canvas_h - header_h - bottom_bar_h;
     let video_top = header_h;
@@ -191,16 +192,21 @@ pub fn build_short_filter_cuda(
     }
     video_ops.push(format!("fps={}", fps));
 
+    let (scaled_w, scaled_h) = compute_cover_dimensions(wi, hi, canvas_w, video_h);
+    let crop_x = (scaled_w as i32 - canvas_w as i32) / 2;
+    let crop_y = (scaled_h as i32 - video_h as i32) / 2;
+
     if decoder_cropped {
         video_ops.push(format!("scale_cuda={}:{}", canvas_w, video_h));
-    } else {
-        let (scaled_w, scaled_h) = compute_cover_dimensions(wi, hi, canvas_w, video_h);
-        let crop_x = (scaled_w as i32 - canvas_w as i32) / 2;
-        let crop_y = (scaled_h as i32 - video_h as i32) / 2;
-        video_ops.push(format!("scale_cuda={}:{}", scaled_w, scaled_h));
-        video_ops.push("hwdownload,format=nv12".to_string());
+    } else if decode_on_cpu {
+        // Decode was hardware-accelerated to CPU memory. We scale, crop and format to NV12 on CPU, then upload to GPU.
+        video_ops.push(format!("scale={}:{}:flags=fast_bilinear", scaled_w, scaled_h));
         video_ops.push(format!("crop={}:{}:{}:{}", canvas_w, video_h, crop_x.max(0), crop_y.max(0)));
+        video_ops.push("format=nv12".to_string());
         video_ops.push("hwupload_cuda".to_string());
+    } else {
+        // No cropping is required. We scale directly on GPU.
+        video_ops.push(format!("scale_cuda={}:{}", canvas_w, video_h));
     }
 
     let video_chain = format!("[0:v]{}[vid]", video_ops.join(","));
@@ -210,7 +216,10 @@ pub fn build_short_filter_cuda(
         fps
     );
 
-    let vz_chain = format!("[bg][vid]overlay_cuda=x=0:y={}:eof_action=repeat,setsar=1 [final]", video_top);
+    let vz_chain = format!(
+        "[bg][vid]overlay_cuda=x=0:y={}:eof_action=repeat,setsar=1 [final]",
+        video_top
+    );
 
     format!(
         "{}; {}; {}",
@@ -1141,10 +1150,19 @@ where F: FnMut(f64) + Send + 'static {
         }
     }
 
+    let mut decode_on_cpu = false;
+    if use_cuda && matches!(opts.filter_chain, FilterChain::Short) {
+        let video_h = canvas_h - header_h - bottom_bar_h;
+        let (scaled_w, scaled_h) = compute_cover_dimensions(wi, hi, canvas_w, video_h);
+        let crop_x = (scaled_w as i32 - canvas_w as i32) / 2;
+        let crop_y = (scaled_h as i32 - video_h as i32) / 2;
+        decode_on_cpu = !decoder_cropped && (crop_x > 0 || crop_y > 0);
+    }
+
     let video_filter = if use_cuda {
         match opts.filter_chain {
             FilterChain::Short => {
-                build_short_filter_cuda(adjusted_trim_start, adjusted_trim_duration, speed, canvas_w, canvas_h, header_h, bottom_bar_h, fps, wi, hi, decoder_cropped)
+                build_short_filter_cuda(adjusted_trim_start, adjusted_trim_duration, speed, canvas_w, canvas_h, header_h, bottom_bar_h, fps, wi, hi, decoder_cropped, decode_on_cpu)
             }
             FilterChain::Landscape => {
                 build_landscape_filter_cuda(adjusted_trim_start, adjusted_trim_duration, speed, canvas_w, canvas_h, header_h, fps)
@@ -1211,13 +1229,18 @@ where F: FnMut(f64) + Send + 'static {
             "-init_hw_device".into(), "cuda=cuda".into(),
             "-filter_hw_device".into(), "cuda".into(),
             "-hwaccel".into(), "cuda".into(),
-            "-hwaccel_output_format".into(), "cuda".into(),
         ]);
         
-        if let Some(dec) = &cuvid_decoder {
-            args.extend_from_slice(&["-c:v".into(), dec.clone()]);
-            if let Some(crop_str) = &crop_val {
-                args.extend_from_slice(&["-crop".into(), crop_str.clone()]);
+        if !decode_on_cpu {
+            args.extend_from_slice(&[
+                "-hwaccel_output_format".into(), "cuda".into(),
+            ]);
+            
+            if let Some(dec) = &cuvid_decoder {
+                args.extend_from_slice(&["-c:v".into(), dec.clone()]);
+                if let Some(crop_str) = &crop_val {
+                    args.extend_from_slice(&["-crop".into(), crop_str.clone()]);
+                }
             }
         }
     }

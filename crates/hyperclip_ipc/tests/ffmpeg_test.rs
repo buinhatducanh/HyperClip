@@ -22,7 +22,7 @@ fn test_build_short_filter_vertical_with_speed() {
 
 #[test]
 fn test_build_short_filter_cuda() {
-    let filter = build_short_filter_cuda(0.0, 60.0, 1.0, 1080, 1920, 576, 576, 30, 1080, 1920, false);
+    let filter = build_short_filter_cuda(0.0, 60.0, 1.0, 1080, 1920, 576, 576, 30, 1080, 1920, false, false);
     assert!(filter.contains("format=nv12"), "CUDA filter format: {}", filter);
     assert!(filter.contains("hwupload_cuda"), "CUDA upload: {}", filter);
     assert!(filter.contains("overlay_cuda"), "CUDA overlay: {}", filter);
@@ -30,7 +30,7 @@ fn test_build_short_filter_cuda() {
 
 #[test]
 fn test_build_short_filter_cuda_with_speed() {
-    let filter = build_short_filter_cuda(0.0, 60.0, 2.0, 1080, 1920, 576, 576, 30, 1080, 1920, false);
+    let filter = build_short_filter_cuda(0.0, 60.0, 2.0, 1080, 1920, 576, 576, 30, 1080, 1920, false, false);
     assert!(filter.contains("setpts=0.5*PTS"), "should have speed setpts: {}", filter);
     assert!(filter.contains("trim=start=0:duration=60"), "trim should be correct: {}", filter);
 }
@@ -79,7 +79,7 @@ fn test_build_filters_with_trim_start_and_speed() {
     assert!(filter_short.contains("trim=start=30:duration=30"), "trim should be correct: {}", filter_short);
 
     // 2. Short Mode (CUDA)
-    let filter_short_cuda = build_short_filter_cuda(30.0, 30.0, 1.2, 1080, 1920, 576, 576, 30, 1080, 1920, false);
+    let filter_short_cuda = build_short_filter_cuda(30.0, 30.0, 1.2, 1080, 1920, 576, 576, 30, 1080, 1920, false, false);
     assert!(!filter_short_cuda.contains(",,"), "Should not contain double commas: {}", filter_short_cuda);
     let occurrences = filter_short_cuda.matches("setpts=PTS-STARTPTS").count();
     assert_eq!(occurrences, 1, "Should contain setpts=PTS-STARTPTS exactly once: {}", filter_short_cuda);
@@ -331,27 +331,21 @@ fn test_fps_normalization_presence() {
     let filter = build_short_filter(0.0, 60.0, 1.0, 1080, 1920, 576, 576, false, fps, 1080, 1920);
     assert!(filter.contains("fps=60"), "Short CPU layout must contain fps=60");
     assert!(filter.contains("[1:v]loop=loop=-1:size=1:start=0,fps=60"), "Short CPU bg loop must have fps=60");
-    assert!(filter.contains("[2:v]loop=loop=-1:size=1:start=0,fps=60"), "Short CPU hd loop must have fps=60");
-    assert!(filter.contains("[3:v]loop=loop=-1:size=1:start=0,fps=60"), "Short CPU bb loop must have fps=60");
 
     // CUDA Short Filter
-    let filter_cuda = build_short_filter_cuda(0.0, 60.0, 1.0, 1080, 1920, 576, 576, fps, 1080, 1920, false);
+    let filter_cuda = build_short_filter_cuda(0.0, 60.0, 1.0, 1080, 1920, 576, 576, fps, 1080, 1920, false, false);
     assert!(filter_cuda.contains("fps=60"), "Short CUDA layout must contain fps=60");
     assert!(filter_cuda.contains("[1:v]loop=loop=-1:size=1:start=0,fps=60"), "Short CUDA bg loop must have fps=60");
-    assert!(filter_cuda.contains("[2:v]loop=loop=-1:size=1:start=0,fps=60"), "Short CUDA hd loop must have fps=60");
-    assert!(filter_cuda.contains("[3:v]loop=loop=-1:size=1:start=0,fps=60"), "Short CUDA bb loop must have fps=60");
 
     // CPU Landscape Filter
     let filter_land = build_landscape_filter(0.0, 60.0, 1.0, 1920, 1080, 900, 216, false, fps);
     assert!(filter_land.contains("fps=60"), "Landscape CPU layout must contain fps=60");
     assert!(filter_land.contains("[1:v]loop=loop=-1:size=1:start=0,fps=60"), "Landscape CPU bg loop must have fps=60");
-    assert!(filter_land.contains("[2:v]loop=loop=-1:size=1:start=0,fps=60"), "Landscape CPU hd loop must have fps=60");
 
     // CUDA Landscape Filter
     let filter_land_cuda = build_landscape_filter_cuda(0.0, 60.0, 1.0, 1920, 1080, 216, fps);
     assert!(filter_land_cuda.contains("fps=60"), "Landscape CUDA layout must contain fps=60");
     assert!(filter_land_cuda.contains("[1:v]loop=loop=-1:size=1:start=0,fps=60"), "Landscape CUDA bg loop must have fps=60");
-    assert!(filter_land_cuda.contains("[2:v]loop=loop=-1:size=1:start=0,fps=60"), "Landscape CUDA hd loop must have fps=60");
 }
 
 

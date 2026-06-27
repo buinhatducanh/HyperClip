@@ -214,15 +214,13 @@ Rectangle {
     // Returns whether rendering is complete (either the parent workspace is done, or all split parts are done)
     function getIsRendered(wsData) {
         if (!wsData || !wsData.id) return false;
+        if (wsData.status === "done") return true;
         let parts = getSplitPartsFor(wsData.id);
         if (parts.length === 0) {
-            return !!wsData.renderedMtime;
+            return !!wsData.renderedMtime || wsData.status === "done";
         }
         for (let i = 0; i < parts.length; i++) {
             if (parts[i].status !== "done" && parts[i].status !== "rendered") {
-                return false;
-            }
-            if (!parts[i].renderedPath) {
                 return false;
             }
         }
@@ -231,6 +229,9 @@ Rectangle {
 
     function getRenderedMtime(wsData) {
         if (!wsData || !wsData.id) return 0;
+        if (wsData.status === "done" && wsData.renderedMtime) {
+            return wsData.renderedMtime;
+        }
         let parts = getSplitPartsFor(wsData.id);
         if (parts.length === 0) {
             return wsData.renderedMtime || 0;
@@ -240,10 +241,12 @@ Rectangle {
             if (parts[i].renderedMtime) {
                 maxMtime = Math.max(maxMtime, parts[i].renderedMtime);
             } else {
+                if (wsData.status === "done") continue;
                 return 0;
             }
         }
-        return maxMtime;
+        if (maxMtime > 0) return maxMtime;
+        return wsData.renderedMtime || 0;
     }
 
     function getRenderDurationSec(wsData) {

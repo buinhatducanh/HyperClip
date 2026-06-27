@@ -2020,11 +2020,22 @@ fn file_mtime_ms(path: &Option<String>) -> Option<i64> {
 /// - `renderDurationSec`: seconds from download completion to render completion
 fn enrich_workspace_for_management(ws: &hyperclip_ipc::store::Workspace) -> Value {
     let downloaded_mtime = file_mtime_ms(&ws.downloaded_path).map(|t| t.saturating_sub(2000));
-    let rendered_mtime = file_mtime_ms(&ws.rendered_path).map(|t| t.saturating_sub(2000));
+    let mut download_finished = downloaded_mtime.or(ws.downloaded_at);
+    if download_finished.is_none() && (ws.status == "done" || ws.status == "rendered" || ws.rendered_path.is_some()) {
+        download_finished = Some(ws.created_at);
+    }
 
-    // Pick the best "download finished" timestamp: file mtime takes priority,
-    // fall back to the persisted downloadedAt (set by the download flow).
-    let download_finished = downloaded_mtime.or(ws.downloaded_at);
+    let rendered_mtime = file_mtime_ms(&ws.rendered_path)
+        .map(|t| t.saturating_sub(2000))
+        .or_else(|| {
+            if ws.status == "done" {
+                let sec = ws.render_duration_sec.unwrap_or(0.0);
+                download_finished.map(|d| d + (sec * 1000.0) as i64)
+            } else {
+                None
+            }
+        });
+
     // Use download_started_at as the start time, fall back to created_at if not set.
     let download_start = ws.download_started_at.unwrap_or(ws.created_at);
     let download_duration_sec = match download_finished {
@@ -2049,7 +2060,7 @@ fn enrich_workspace_for_management(ws: &hyperclip_ipc::store::Workspace) -> Valu
                 map.insert("thumbnailLocal".into(), Value::Null);
             }
         }
-        map.insert("downloadedMtime".into(), json!(downloaded_mtime));
+        map.insert("downloadedMtime".into(), json!(download_finished));
         map.insert("renderedMtime".into(), json!(rendered_mtime));
         map.insert("downloadDurationSec".into(), json!(download_duration_sec));
         map.insert("renderDurationSec".into(), json!(render_duration_sec));
