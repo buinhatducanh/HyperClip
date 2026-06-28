@@ -90,11 +90,26 @@ SettingsCard {
     }
 
     // ─── Activity list ───────────────────────────────────────
-    Label {
-        text: "LỊCH SỬ PHÁT HIỆN"
-        color: Theme.textMuted
-        font.pixelSize: 15; font.bold: true
+    RowLayout {
+        Layout.fillWidth: true
         Layout.topMargin: 2
+        Label {
+            text: "LỊCH SỬ PHÁT HIỆN"
+            color: Theme.textMuted
+            font.pixelSize: 15; font.bold: true
+        }
+        Item { Layout.fillWidth: true }
+        IconButton {
+            iconName: "trash"
+            label: "Xóa"
+            iconSize: 12
+            Layout.preferredHeight: 24
+            onClicked: {
+                if (detectionHistory) {
+                    detectionHistory.clear()
+                }
+            }
+        }
     }
 
     ListView {
@@ -188,7 +203,7 @@ SettingsCard {
                     }
                     RowLayout { Layout.fillWidth: true; spacing: 8; Layout.preferredHeight: 16
                         Label { text: "Download"; color: Theme.textMuted; font.pixelSize: 12; Layout.preferredWidth: 70 }
-                        Label { text: model.downloadedSize > 0 ? (model.downloadedSize/1048576).toFixed(1)+"MB in "+(model.downloadTimeSec || 0).toFixed(0)+"s" : "—"; color: Theme.text; font.pixelSize: 12 }
+                        Label { text: model.downloadedSize > 0 ? (model.downloadedSize/1048576).toFixed(1)+"MB in "+(model.downloadTimeSec || 0).toFixed(1)+"s" : "—"; color: Theme.text; font.pixelSize: 12 }
                         Item { Layout.fillWidth: true }
                         Label { text: model.width > 0 ? model.width+"×"+model.height : ""; color: Theme.textMuted; font.pixelSize: 12 }
                     }

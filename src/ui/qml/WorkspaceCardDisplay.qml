@@ -18,6 +18,17 @@ Rectangle {
     property string fileSize: ""
     property string ageLabel: ""
     property bool hovered: false
+    property real totalDurationSec: 0
+
+    function formatDuration1Dec(sec) {
+        if (!sec || sec <= 0) return ""
+        const h = Math.floor(sec / 3600)
+        const m = Math.floor((sec % 3600) / 60)
+        const s = sec % 60
+        if (h > 0) return h + "h " + m + "m " + s.toFixed(1) + "s"
+        if (m > 0) return m + "m " + s.toFixed(1) + "s"
+        return s.toFixed(1) + "s"
+    }
 
     color: hovered ? Theme.hoverBg : Theme.cardBg
     border.color: status === "error" ? Theme.error
@@ -213,7 +224,8 @@ Rectangle {
                           return m + ":" + (s < 10 ? "0" : "") + s
                       })() : "") +
                       " · " + quality + "p" +
-                      (speed > 1 ? " · " + speed.toFixed(1) + "x" : "")
+                      (speed > 1 ? " · " + speed.toFixed(1) + "x" : "") +
+                      (totalDurationSec > 0 ? " · Tổng: " + formatDuration1Dec(totalDurationSec) : "")
                 color: Theme.textMuted
                 font.pixelSize: Theme.textXs
                 elide: Text.ElideRight

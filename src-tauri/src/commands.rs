@@ -1991,14 +1991,7 @@ fn load_workspaces() -> Value {
     let store = WorkspaceStore::load(&get_workspaces_path());
     let mut workspaces_enriched = Vec::new();
     for ws in &store.workspaces {
-        let mut ws_val = serde_json::to_value(ws).unwrap_or(Value::Null);
-        if let Value::Object(ref mut map) = ws_val {
-            if let Some(t_path) = ws.thumbnail_local.as_ref() {
-                if !std::path::Path::new(t_path).exists() {
-                    map.insert("thumbnailLocal".into(), Value::Null);
-                }
-            }
-        }
+        let ws_val = enrich_workspace_for_management(ws);
         workspaces_enriched.push(ws_val);
     }
     json!({ "workspaces": workspaces_enriched })
@@ -2050,6 +2043,15 @@ fn enrich_workspace_for_management(ws: &hyperclip_ipc::store::Workspace) -> Valu
         }
     };
     let detection_duration_sec = ((ws.created_at - ws.published_at).max(0) as f64) / 1000.0;
+    let total_duration_sec = detection_duration_sec + download_duration_sec + render_duration_sec;
+
+    let file_size_bytes = ws.file_size.unwrap_or(0);
+    let download_speed_str = if download_duration_sec > 0.0 && file_size_bytes > 0 {
+        let mb_per_sec = (file_size_bytes as f64) / (1024.0 * 1024.0) / download_duration_sec;
+        Some(format!("{:.1} MB/s", mb_per_sec))
+    } else {
+        ws.download_speed.clone()
+    };
 
     // Merge persisted workspace fields + computed enrichments into a single JSON object.
     let base = serde_json::to_value(ws).unwrap_or(Value::Null);
@@ -2065,6 +2067,8 @@ fn enrich_workspace_for_management(ws: &hyperclip_ipc::store::Workspace) -> Valu
         map.insert("downloadDurationSec".into(), json!(download_duration_sec));
         map.insert("renderDurationSec".into(), json!(render_duration_sec));
         map.insert("detectionDurationSec".into(), json!(detection_duration_sec));
+        map.insert("totalDurationSec".into(), json!(total_duration_sec));
+        map.insert("downloadSpeed".into(), json!(download_speed_str));
         Value::Object(map)
     } else {
         base

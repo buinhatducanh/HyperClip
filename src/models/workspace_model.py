@@ -24,6 +24,10 @@ class WorkspaceModel(QAbstractListModel):
     OriginalDurationRole = Qt.UserRole + 17
     OriginalQualityRole = Qt.UserRole + 18
     ChannelIdRole = Qt.UserRole + 19
+    DetectionDurationRole = Qt.UserRole + 20
+    DownloadDurationRole = Qt.UserRole + 21
+    RenderDurationRole = Qt.UserRole + 22
+    TotalDurationRole = Qt.UserRole + 23
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -155,6 +159,14 @@ class WorkspaceModel(QAbstractListModel):
                 return 0
         if role == self.ChannelIdRole:
             return ws.get("channelId") or ws.get("channel_id") or ""
+        if role == self.DetectionDurationRole:
+            return float(ws.get("detectionDurationSec", 0.0))
+        if role == self.DownloadDurationRole:
+            return float(ws.get("downloadDurationSec", 0.0))
+        if role == self.RenderDurationRole:
+            return float(ws.get("renderDurationSec", 0.0))
+        if role == self.TotalDurationRole:
+            return float(ws.get("totalDurationSec", 0.0))
         return None
 
     def roleNames(self):
@@ -178,6 +190,10 @@ class WorkspaceModel(QAbstractListModel):
             self.OriginalDurationRole: QByteArray(b"originalDurationSec"),
             self.OriginalQualityRole: QByteArray(b"originalQuality"),
             self.ChannelIdRole: QByteArray(b"channelId"),
+            self.DetectionDurationRole: QByteArray(b"detectionDurationSec"),
+            self.DownloadDurationRole: QByteArray(b"downloadDurationSec"),
+            self.RenderDurationRole: QByteArray(b"renderDurationSec"),
+            self.TotalDurationRole: QByteArray(b"totalDurationSec"),
         }
 
     # ── Index maintenance ──────────────────────────────────────────
@@ -215,6 +231,10 @@ class WorkspaceModel(QAbstractListModel):
                     "error": ws.get("error", ""),
                     "originalDurationSec": ws.get("originalDurationSec") if ws.get("originalDurationSec") is not None else ws.get("original_duration_sec", 0),
                     "originalQuality": ws.get("originalQuality") if ws.get("originalQuality") is not None else ws.get("original_quality", 0),
+                    "detectionDurationSec": ws.get("detectionDurationSec") if ws.get("detectionDurationSec") is not None else ws.get("detection_duration_sec", 0.0),
+                    "downloadDurationSec": ws.get("downloadDurationSec") if ws.get("downloadDurationSec") is not None else ws.get("download_duration_sec", 0.0),
+                    "renderDurationSec": ws.get("renderDurationSec") if ws.get("renderDurationSec") is not None else ws.get("render_duration_sec", 0.0),
+                    "totalDurationSec": ws.get("totalDurationSec") if ws.get("totalDurationSec") is not None else ws.get("total_duration_sec", 0.0),
                 }
                 normalized_workspaces.append(normalized)
 
@@ -280,6 +300,14 @@ class WorkspaceModel(QAbstractListModel):
                     normalized["originalDurationSec"] = v
                 elif k in ("originalQuality", "original_quality"):
                     normalized["originalQuality"] = v
+                elif k in ("detectionDurationSec", "detection_duration_sec"):
+                    normalized["detectionDurationSec"] = v
+                elif k in ("downloadDurationSec", "download_duration_sec"):
+                    normalized["downloadDurationSec"] = v
+                elif k in ("renderDurationSec", "render_duration_sec"):
+                    normalized["renderDurationSec"] = v
+                elif k in ("totalDurationSec", "total_duration_sec"):
+                    normalized["totalDurationSec"] = v
                 else:
                     normalized[k] = v
 
@@ -292,7 +320,9 @@ class WorkspaceModel(QAbstractListModel):
                 self.SpeedRole, self.FileSizeRole, self.IsShortRole,
                 self.BottomBarColorRole, self.ErrorRole,
                 self.OriginalDurationRole, self.OriginalQualityRole,
-                self.ChannelIdRole
+                self.ChannelIdRole, self.DetectionDurationRole,
+                self.DownloadDurationRole, self.RenderDurationRole,
+                self.TotalDurationRole
             ])
             self.activeTasksChanged.emit()
             return
@@ -384,3 +414,11 @@ class WorkspaceModel(QAbstractListModel):
                 from src.models.activity_log_model import ActivityLogModel
                 if hasattr(ActivityLogModel, 'add_entry'):
                     ActivityLogModel.add_entry("edit", response["warning"], "warning")
+
+    @Slot(object)
+    def clear_all(self, backend):
+        try:
+            backend.send_command("workspace:clear")
+            self.load_from_backend(backend)
+        except Exception as e:
+            print(f"[WorkspaceModel] clear_all error: {e}")

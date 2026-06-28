@@ -28,10 +28,26 @@ Rectangle {
         spacing: 4
 
         // ─── Status filter pills ────────────────────────────────
-        FilterPills {
+        RowLayout {
             Layout.fillWidth: true
-            current: root.statusFilter
-            onFilterChanged: function(v) { root.statusFilter = v }
+            spacing: 6
+            FilterPills {
+                Layout.fillWidth: true
+                current: root.statusFilter
+                onFilterChanged: function(v) { root.statusFilter = v }
+            }
+            IconButton {
+                iconName: "trash"
+                label: "Xóa queue"
+                iconSize: 10
+                Layout.preferredHeight: 24
+                Layout.preferredWidth: 85
+                onClicked: {
+                    if (workspaceModel) {
+                        workspaceModel.clear_all(backend)
+                    }
+                }
+            }
         }
 
         Rectangle {
@@ -64,6 +80,7 @@ Rectangle {
                 speed: model.speed || 1.0
                 fileSize: model.fileSize || ""
                 ageLabel: model.ageLabel || ""
+                totalDurationSec: model.totalDurationSec || 0
                 onWorkspaceClicked: function(id) {
                     root.openWorkspace(id)
                 }

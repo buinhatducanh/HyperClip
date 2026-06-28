@@ -306,14 +306,14 @@ Rectangle {
         return Math.floor(diff / 86400) + " ngày trước"
     }
     function fmtDuration(sec) {
-        if (!sec || sec <= 0) return "—"
-        sec = Math.floor(sec)
+        if (sec === undefined || sec === null || sec < 0) return "—"
+        if (sec < 60) return sec.toFixed(1) + "s"
         const h = Math.floor(sec / 3600)
         const m = Math.floor((sec % 3600) / 60)
         const s = sec % 60
-        if (h > 0) return h + "h " + m + "m " + s + "s"
-        if (m > 0) return m + "m " + s + "s"
-        return s + "s"
+        if (h > 0) return h + "h " + m + "m " + s.toFixed(1) + "s"
+        if (m > 0) return m + "m " + s.toFixed(1) + "s"
+        return s.toFixed(1) + "s"
     }
     function fmtDetectionDuration(sec) {
         if (!sec || sec <= 0) return "—"
@@ -652,7 +652,7 @@ Rectangle {
                                         maximumLineCount: 1
                                     }
                                     Label {
-                                        text: (modelData.channelName || modelData.channel_id || "—")
+                                        text: (modelData.channelName || modelData.channelId || modelData.channel_id || "—")
                                             + " · " + root.fmtTimeAgo(modelData.createdAt)
                                             + root.getPartsSummary(modelData.id)
                                         color: Theme.textMuted
@@ -670,6 +670,15 @@ Rectangle {
                                         }
                                         Label {
                                             text: root.statusLabel(root.getAggregateStatus(modelData))
+                                            color: Theme.textMuted
+                                            font.pixelSize: 10
+                                            font.bold: true
+                                        }
+                                        Label {
+                                            text: {
+                                                let total = (modelData.detectionDurationSec || 0) + (modelData.downloadDurationSec || 0) + (modelData.renderDurationSec || 0)
+                                                return " · TỔNG: " + root.fmtDuration(total)
+                                            }
                                             color: Theme.textMuted
                                             font.pixelSize: 10
                                             font.bold: true
@@ -760,6 +769,150 @@ Rectangle {
                         x: 12; y: 12
                         spacing: Theme.spacingMd
 
+                        // ─── Timeline (Moved to top) ─────────────────
+                        SectionCard {
+                            sectionTitle: {
+                                let det = root.currentVideoData.detectionDurationSec || 0
+                                let dl = root.currentVideoData.downloadDurationSec || 0
+                                let ren = root.getRenderDurationSec(root.currentVideoData)
+                                return "TIMELINE (TỔNG: " + root.fmtDuration(det + dl + ren) + ")"
+                            }
+                            RowLayout {
+                                width: parent.width
+                                spacing: 0
+
+                                // Vertical timeline column
+                                ColumnLayout {
+                                    Layout.preferredWidth: 24
+                                    spacing: 0
+
+                                    Rectangle {
+                                        Layout.preferredWidth: 12
+                                        Layout.preferredHeight: 12
+                                        radius: 6
+                                        color: Theme.accent
+                                        Layout.alignment: Qt.AlignHCenter
+                                    }
+                                    Rectangle {
+                                        Layout.preferredWidth: 2
+                                        Layout.fillHeight: true
+                                        Layout.alignment: Qt.AlignHCenter
+                                        color: Theme.border
+                                    }
+                                    Rectangle {
+                                        Layout.preferredWidth: 12
+                                        Layout.preferredHeight: 12
+                                        radius: 6
+                                        color: root.currentVideoData.downloadedMtime
+                                            ? Theme.success : Theme.textMuted
+                                        Layout.alignment: Qt.AlignHCenter
+                                    }
+                                    Rectangle {
+                                        Layout.preferredWidth: 2
+                                        Layout.preferredHeight: 12
+                                        Layout.alignment: Qt.AlignHCenter
+                                        color: Theme.border
+                                    }
+                                    Rectangle {
+                                        Layout.preferredWidth: 12
+                                        Layout.preferredHeight: 12
+                                        radius: 6
+                                        color: root.getIsRendered(root.currentVideoData)
+                                            ? Theme.success
+                                            : (root.getAggregateStatus(root.currentVideoData) === "rendering"
+                                                ? Theme.accent
+                                                : (root.getAggregateStatus(root.currentVideoData) === "error"
+                                                    ? Theme.error
+                                                    : Theme.textMuted))
+                                        Layout.alignment: Qt.AlignHCenter
+                                    }
+                                }
+
+                                // Events column
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 12
+                                    spacing: 12
+
+                                    // ① Detected
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 2
+                                        Label {
+                                            text: "① Phát hiện (Detected)"
+                                            color: Theme.accent
+                                            font.pixelSize: 12
+                                            font.bold: true
+                                        }
+                                        Label {
+                                            text: root.fmtFullTime(root.currentVideoData.createdAt)
+                                                + "  ·  mất " + root.fmtDetectionDuration(root.currentVideoData.detectionDurationSec || 0)
+                                            color: Theme.text
+                                            font.pixelSize: 11
+                                        }
+                                    }
+
+                                    // ② Download
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 2
+                                        Label {
+                                            text: "② Tải về (Download)"
+                                            color: root.currentVideoData.downloadedMtime
+                                                ? Theme.success : Theme.textMuted
+                                            font.pixelSize: 12
+                                            font.bold: true
+                                        }
+                                        Label {
+                                            text: root.currentVideoData.downloadedMtime
+                                                ? (root.fmtFullTime(root.currentVideoData.downloadedMtime)
+                                                    + "  ·  mất " + root.fmtDuration(root.currentVideoData.downloadDurationSec))
+                                                : "Chưa tải xong"
+                                            color: Theme.text
+                                            font.pixelSize: 11
+                                        }
+                                    }
+
+                                    // ③ Render
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 2
+                                        Label {
+                                            text: "③ Render xong"
+                                            color: root.getIsRendered(root.currentVideoData)
+                                                ? Theme.success
+                                                : (root.getAggregateStatus(root.currentVideoData) === "rendering"
+                                                    ? Theme.accent
+                                                    : (root.getAggregateStatus(root.currentVideoData) === "error"
+                                                        ? Theme.error
+                                                        : Theme.textMuted))
+                                            font.pixelSize: 12
+                                            font.bold: true
+                                        }
+                                        Label {
+                                            text: {
+                                                let statusText = root.getRenderStatusText(root.currentVideoData);
+                                                if (root.getAggregateStatus(root.currentVideoData) === "error") {
+                                                    let err = root.currentVideoData.error;
+                                                    let parts = root.getSplitPartsFor(root.currentVideoId);
+                                                    for (let i = 0; i < parts.length; i++) {
+                                                        if (parts[i].error) {
+                                                            err = "P" + (i+1) + ": " + parts[i].error;
+                                                            break;
+                                                        }
+                                                    }
+                                                    return "Lỗi: " + (err || "Không rõ nguyên nhân");
+                                                }
+                                                return statusText;
+                                            }
+                                            color: root.getAggregateStatus(root.currentVideoData) === "error" ? Theme.error : Theme.text
+                                            font.pixelSize: 11
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         // ─── 1. Header card ──────────────────────────
                         SectionCard {
                             sectionTitle: "VIDEO"
@@ -836,11 +989,11 @@ Rectangle {
                                 KVRow {
                                     keyText: "Channel"
                                     valueText: root.currentVideoData.channelName
-                                        || root.currentVideoData.channel_id || ""
+                                        || root.currentVideoData.channelId || root.currentVideoData.channel_id || ""
                                 }
                                 KVRow {
                                     keyText: "Channel ID"
-                                    valueText: root.currentVideoData.channel_id || ""
+                                    valueText: root.currentVideoData.channelId || root.currentVideoData.channel_id || ""
                                     mono: true
                                 }
                                 KVRow {
@@ -1113,144 +1266,7 @@ Rectangle {
                             }
                         }
 
-                        // ─── 5. Timeline ─────────────────────────────
-                        SectionCard {
-                            sectionTitle: "TIMELINE"
-                            RowLayout {
-                                width: parent.width
-                                spacing: 0
 
-                                // Vertical timeline column
-                                ColumnLayout {
-                                    Layout.preferredWidth: 24
-                                    spacing: 0
-
-                                    Rectangle {
-                                        Layout.preferredWidth: 12
-                                        Layout.preferredHeight: 12
-                                        radius: 6
-                                        color: Theme.accent
-                                        Layout.alignment: Qt.AlignHCenter
-                                    }
-                                    Rectangle {
-                                        Layout.preferredWidth: 2
-                                        Layout.fillHeight: true
-                                        Layout.alignment: Qt.AlignHCenter
-                                        color: Theme.border
-                                    }
-                                    Rectangle {
-                                        Layout.preferredWidth: 12
-                                        Layout.preferredHeight: 12
-                                        radius: 6
-                                        color: root.currentVideoData.downloadedMtime
-                                            ? Theme.success : Theme.textMuted
-                                        Layout.alignment: Qt.AlignHCenter
-                                    }
-                                    Rectangle {
-                                        Layout.preferredWidth: 2
-                                        Layout.preferredHeight: 12
-                                        Layout.alignment: Qt.AlignHCenter
-                                        color: Theme.border
-                                    }
-                                    Rectangle {
-                                        Layout.preferredWidth: 12
-                                        Layout.preferredHeight: 12
-                                        radius: 6
-                                        color: root.getIsRendered(root.currentVideoData)
-                                            ? Theme.success
-                                            : (root.getAggregateStatus(root.currentVideoData) === "rendering"
-                                                ? Theme.accent
-                                                : (root.getAggregateStatus(root.currentVideoData) === "error"
-                                                    ? Theme.error
-                                                    : Theme.textMuted))
-                                        Layout.alignment: Qt.AlignHCenter
-                                    }
-                                }
-
-                                // Events column
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 12
-                                    spacing: 12
-
-                                    // ① Detected
-                                    ColumnLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 2
-                                        Label {
-                                            text: "① Phát hiện (Detected)"
-                                            color: Theme.accent
-                                            font.pixelSize: 12
-                                            font.bold: true
-                                        }
-                                        Label {
-                                            text: root.fmtFullTime(root.currentVideoData.createdAt)
-                                                + "  ·  mất " + root.fmtDetectionDuration(root.currentVideoData.detectionDurationSec || 0)
-                                            color: Theme.text
-                                            font.pixelSize: 11
-                                        }
-                                    }
-
-                                    // ② Download
-                                    ColumnLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 2
-                                        Label {
-                                            text: "② Tải về (Download)"
-                                            color: root.currentVideoData.downloadedMtime
-                                                ? Theme.success : Theme.textMuted
-                                            font.pixelSize: 12
-                                            font.bold: true
-                                        }
-                                        Label {
-                                            text: root.currentVideoData.downloadedMtime
-                                                ? (root.fmtFullTime(root.currentVideoData.downloadedMtime)
-                                                    + "  ·  mất " + root.fmtDuration(root.currentVideoData.downloadDurationSec))
-                                                : "Chưa tải xong"
-                                            color: Theme.text
-                                            font.pixelSize: 11
-                                        }
-                                    }
-
-                                    // ③ Render
-                                    ColumnLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 2
-                                        Label {
-                                            text: "③ Render xong"
-                                            color: root.getIsRendered(root.currentVideoData)
-                                                ? Theme.success
-                                                : (root.getAggregateStatus(root.currentVideoData) === "rendering"
-                                                    ? Theme.accent
-                                                    : (root.getAggregateStatus(root.currentVideoData) === "error"
-                                                        ? Theme.error
-                                                        : Theme.textMuted))
-                                            font.pixelSize: 12
-                                            font.bold: true
-                                        }
-                                        Label {
-                                            text: {
-                                                let statusText = root.getRenderStatusText(root.currentVideoData);
-                                                if (root.getAggregateStatus(root.currentVideoData) === "error") {
-                                                    let err = root.currentVideoData.error;
-                                                    let parts = root.getSplitPartsFor(root.currentVideoId);
-                                                    for (let i = 0; i < parts.length; i++) {
-                                                        if (parts[i].error) {
-                                                            err = "P" + (i+1) + ": " + parts[i].error;
-                                                            break;
-                                                        }
-                                                    }
-                                                    return "Lỗi: " + (err || "Không rõ nguyên nhân");
-                                                }
-                                                return statusText;
-                                            }
-                                            color: root.getAggregateStatus(root.currentVideoData) === "error" ? Theme.error : Theme.text
-                                            font.pixelSize: 11
-                                        }
-                                    }
-                                }
-                            }
-                        }
 
                         // Error message (if any)
                         Rectangle {

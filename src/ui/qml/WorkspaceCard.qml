@@ -22,6 +22,7 @@ Rectangle {
     property real speed: 1.0
     property string fileSize: ""
     property string ageLabel: ""
+    property real totalDurationSec: 0
     signal workspaceClicked(string ws_id)
 
     WorkspaceCardDisplay {
@@ -37,6 +38,7 @@ Rectangle {
         speed: card.speed
         fileSize: card.fileSize
         ageLabel: card.ageLabel
+        totalDurationSec: card.totalDurationSec
         hovered: mouseArea.containsMouse
 
         MouseArea {

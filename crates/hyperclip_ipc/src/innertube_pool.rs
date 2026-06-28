@@ -263,6 +263,32 @@ impl InnertubeClientPool {
             s.busy = false;
         }
     }
+
+    pub fn prewarm_single_client(&self) -> Result<bool> {
+        let active = self.active_clients_count.load(Ordering::SeqCst);
+        let limit = self.max_active_clients.load(Ordering::SeqCst);
+        if active < limit {
+            self.active_clients_count.fetch_add(1, Ordering::SeqCst);
+            let cfg = crate::innertube_client::ClientConfig {
+                timeout_sec: 15,
+                ..Default::default()
+            };
+            match crate::innertube_client::InnertubeClient::new(cfg) {
+                Ok(mut c) => {
+                    c.drop_counter = Some(self.active_clients_count.clone());
+                    let mut clients_guard = self.clients.lock().unwrap();
+                    clients_guard.push(c);
+                    Ok(true)
+                }
+                Err(e) => {
+                    self.active_clients_count.fetch_sub(1, Ordering::SeqCst);
+                    Err(e)
+                }
+            }
+        } else {
+            Ok(false)
+        }
+    }
 }
 
 #[cfg(test)]
