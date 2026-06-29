@@ -5,7 +5,7 @@ beginResetModel on periodic refresh.  When the list is structurally unchanged
 only dataChanged is emitted.
 """
 import json
-from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot, Property, Signal
+from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot, Property, Signal, QObject
 
 
 class ChannelListModel(QAbstractListModel):
@@ -18,10 +18,11 @@ class ChannelListModel(QAbstractListModel):
     AvatarColorRole = Qt.UserRole + 5
     NewCountRole = Qt.UserRole + 6
     PausedRole = Qt.UserRole + 7
+    HandleRole = Qt.UserRole + 8
 
     PALETTE = ["#00B4FF", "#00FF88", "#FF6B6B", "#FFD93D", "#A78BFA", "#FB7185", "#34D399"]
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, backend=None):
         super().__init__(parent)
         self._items: list[dict] = []
         self._filtered_items: list[dict] = []
@@ -29,6 +30,7 @@ class ChannelListModel(QAbstractListModel):
         self._page = 0
         self._page_size = 10
         self._filter_text = ""
+        self._backend = backend
 
     # ─── Properties ──────────────────────────────────────────────────
     @Property(int, notify=paginationChanged)
@@ -143,6 +145,8 @@ class ChannelListModel(QAbstractListModel):
             return int(ch.get("newCount", 0))
         if role == self.PausedRole:
             return bool(ch.get("paused", False))
+        if role == self.HandleRole:
+            return ch.get("handle", "")
         return None
 
     def roleNames(self):
@@ -154,6 +158,7 @@ class ChannelListModel(QAbstractListModel):
             self.AvatarColorRole: QByteArray(b"avatarColor"),
             self.NewCountRole: QByteArray(b"newCount"),
             self.PausedRole: QByteArray(b"paused"),
+            self.HandleRole: QByteArray(b"handle"),
         }
 
     def _rebuild_index(self):
@@ -167,9 +172,14 @@ class ChannelListModel(QAbstractListModel):
                 return False
         return True
 
-    def load_from_backend(self, backend):
+    @Slot()
+    @Slot(QObject)
+    def load_from_backend(self, backend=None):
+        backend_to_use = backend or self._backend
+        if not backend_to_use:
+            return
         try:
-            resp = backend.send_command("channel:list")
+            resp = backend_to_use.send_command("channel:list")
             channels = resp.get("result", {}).get("channels", [])
             self.beginResetModel()
             self._items = list(channels)
@@ -182,8 +192,10 @@ class ChannelListModel(QAbstractListModel):
 
     @Slot(str)
     def add_channel(self, url: str):
-        from src.backend.client import get_client
-        client = get_client()
+        client = self._backend
+        if not client:
+            from src.backend.client import get_client
+            client = get_client()
         if not client:
             return
         client.send_command("channel:add", {"url": url})
@@ -191,6 +203,10 @@ class ChannelListModel(QAbstractListModel):
 
     @Slot(str)
     def remove_channel(self, channel_id: str):
+        # Notify backend
+        client = self._backend
+        if client:
+            client.send_command("channel:remove", {"channelId": channel_id})
         for i, ch in enumerate(self._items):
             if ch.get("id") == channel_id or ch.get("channelId") == channel_id:
                 self.beginResetModel()
@@ -203,6 +219,9 @@ class ChannelListModel(QAbstractListModel):
 
     @Slot(str)
     def toggle_pause(self, channel_id: str):
+        client = self._backend
+        if client:
+            client.send_command("channel:togglePause", {"channelId": channel_id})
         for i, ch in enumerate(self._items):
             if ch.get("id") == channel_id or ch.get("channelId") == channel_id:
                 ch["paused"] = not ch.get("paused", False)
@@ -217,10 +236,12 @@ class ChannelListModel(QAbstractListModel):
                             self.dataChanged.emit(q_idx, q_idx, [self.PausedRole])
                 return
 
-    @Slot(str, 'QVariant')
-    def import_from_file(self, file_url: str, backend):
+    @Slot(str)
+    @Slot(str, QObject)
+    def import_from_file(self, file_url: str, backend=None):
         """Import channels from JSON file."""
-        if not backend: return
+        backend_to_use = backend or self._backend
+        if not backend_to_use: return
         try:
             from PySide6.QtCore import QUrl
             path = QUrl(file_url).toLocalFile()
@@ -242,12 +263,12 @@ class ChannelListModel(QAbstractListModel):
                 
             for ch in channels:
                 if isinstance(ch, str):
-                    backend.send_command("channel:add", {"url": ch})
+                    backend_to_use.send_command("channel:add", {"url": ch})
                 elif isinstance(ch, dict):
                     url = ch.get("url") or ch.get("handle") or ch.get("channelId") or ch.get("id")
                     if url:
-                        backend.send_command("channel:add", {"url": url})
-            self.load_from_backend(backend)
+                        backend_to_use.send_command("channel:add", {"url": url})
+            self.load_from_backend(backend_to_use)
         except Exception as e:
             print(f"[ChannelListModel] import error: {e}")
 
@@ -259,3 +280,7 @@ class ChannelListModel(QAbstractListModel):
                 json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"[ChannelListModel] export error: {e}")
+
+    @Slot(result=list)
+    def get_all_channels(self):
+        return [{"name": ch.get("name", ""), "channelId": ch.get("channelId", "")} for ch in self._items]

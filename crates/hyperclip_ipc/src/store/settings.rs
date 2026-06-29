@@ -47,6 +47,7 @@ impl SettingsStore {
             }
         }
         let content = serde_json::to_string_pretty(&store_to_save).map_err(|e| e.to_string())?;
-        fs::write(path, content).map_err(|e| e.to_string())
+        super::paths::write_atomically(path, &content).map_err(|e| e.to_string())
     }
 }
+

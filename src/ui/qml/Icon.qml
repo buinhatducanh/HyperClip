@@ -40,7 +40,7 @@ Text {
             case "search":   return "⌕"   // ⌕
             case "warning":  return "⚠"   // ⚠
             case "info":     return "ℹ"   // ℹ
-            case "trash":    return "✖"   // ✖
+            case "trash":    return "🗑"   // 🗑
             case "edit":     return "✎"   // ✎
             case "archive":  return "▢"   // ▢
             case "settings": return "⚙"   // ⚙

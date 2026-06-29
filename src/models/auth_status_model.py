@@ -5,7 +5,7 @@ from PySide6.QtCore import QObject, Signal, Slot, Property
 class AuthStatusModel(QObject):
     changed = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, backend=None):
         super().__init__(parent)
         self._is_ready: bool = False
         self._cookie_count: int = 0
@@ -14,6 +14,7 @@ class AuthStatusModel(QObject):
         self._oauth_ready: bool = False
         self._cookie_critical: bool = False
         self._cookie_error: str = ""
+        self._backend = backend
 
     def load_from_dict(self, d: dict):
         self._is_ready = bool(d.get("isReady", False))
@@ -25,33 +26,39 @@ class AuthStatusModel(QObject):
         self._cookie_error = d.get("cookieError") or ""
         self.changed.emit()
 
+    @Slot()
     @Slot(QObject)
-    def refresh_from_backend(self, backend):
-        if not backend:
+    def refresh_from_backend(self, backend=None):
+        backend_to_use = backend or self._backend
+        if not backend_to_use:
             return
-        resp = backend.send_command("auth:status")
+        resp = backend_to_use.send_command("auth:status")
         result = resp.get("result", {})
         if result:
             self.load_from_dict(result)
 
+    @Slot()
     @Slot(QObject)
-    def start_oauth(self, backend):
+    def start_oauth(self, backend=None):
         print("[AuthStatusModel] start_oauth called!", flush=True)
-        if not backend:
+        backend_to_use = backend or self._backend
+        if not backend_to_use:
             print("[AuthStatusModel] backend is None!", flush=True)
             return
-        resp = backend.send_command("auth:startOAuth", {}, timeout=15.0)
+        resp = backend_to_use.send_command("auth:startOAuth", {}, timeout=15.0)
         print(f"[AuthStatusModel] auth:startOAuth response: {resp}", flush=True)
         result = resp.get("result", {})
         if result:
             self.load_from_dict(result)
 
+    @Slot()
     @Slot(QObject)
-    def logout(self, backend):
-        if not backend:
+    def logout(self, backend=None):
+        backend_to_use = backend or self._backend
+        if not backend_to_use:
             return
-        backend.send_command("auth:logout")
-        self.refresh_from_backend(backend)
+        backend_to_use.send_command("auth:logout")
+        self.refresh_from_backend(backend_to_use)
 
     @Property(bool, notify=changed)
     def isReady(self): return self._is_ready

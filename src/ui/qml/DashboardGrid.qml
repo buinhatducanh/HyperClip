@@ -101,7 +101,7 @@ Rectangle {
                                 Rectangle {
                                     Layout.fillWidth: true
                                     height: 18
-                                    color: (poller && poller.lastDetectionLatencyStr && poller.lastDetectionLatencyStr !== "—") ? poller.latencyColor : Theme.textMuted
+                                    color: (poller && poller.detectionsToday > 0 && poller.lastDetectionLatencyStr !== "—") ? poller.latencyColor : Theme.textMuted
                                     opacity: 0.2
                                     radius: 3
                                     Label {
@@ -113,12 +113,12 @@ Rectangle {
                                 Rectangle {
                                     Layout.fillWidth: true
                                     height: 18
-                                    color: poller ? ((poller.slaPercent || 0) > 90 ? Theme.success : (poller.slaPercent || 0) > 70 ? "#FFD93D" : Theme.error) : Theme.textMuted
+                                    color: (poller && poller.detectionsToday > 0) ? poller.slaColor : Theme.textMuted
                                     opacity: 0.2
                                     radius: 3
                                     Label {
                                         anchors.centerIn: parent
-                                        text: poller ? ((poller.slaPercent || 0).toFixed(0) + "% <5s") : "— % <5s"
+                                        text: (poller && poller.detectionsToday > 0) ? (poller.slaPercent.toFixed(0) + "% <5s") : "— <5s"
                                         font.pixelSize: 11; font.bold: true
                                     }
                                 }

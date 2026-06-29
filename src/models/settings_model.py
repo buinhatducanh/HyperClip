@@ -7,8 +7,9 @@ class SettingsModel(QObject):
     changed = Signal()
     saved = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, backend=None):
         super().__init__(parent)
+        self._backend = backend
         base = get_data_dir()
         self._output_folder: str = base
         self._video_storage_path: str = base
@@ -249,11 +250,13 @@ class SettingsModel(QObject):
         if hasattr(self, "_clean_snapshot") and self._clean_snapshot is not None:
             self.load_from_dict(self._clean_snapshot)
 
+    @Slot(result=bool)
     @Slot(QObject, result=bool)
-    def save_to_backend(self, backend) -> bool:
-        if not backend:
+    def save_to_backend(self, backend=None) -> bool:
+        backend_to_use = backend or self._backend
+        if not backend_to_use:
             return False
-        resp = backend.send_command("settings:update", self.to_dict())
+        resp = backend_to_use.send_command("settings:update", self.to_dict())
         ok = resp.get("ok", False)
         if ok:
             self._clean_snapshot = self.to_dict()
@@ -261,11 +264,13 @@ class SettingsModel(QObject):
             self.saved.emit()
         return ok
 
+    @Slot(result=bool)
     @Slot(QObject, result=bool)
-    def load_from_backend(self, backend) -> bool:
-        if not backend:
+    def load_from_backend(self, backend=None) -> bool:
+        backend_to_use = backend or self._backend
+        if not backend_to_use:
             return False
-        resp = backend.send_command("settings:get")
+        resp = backend_to_use.send_command("settings:get")
         result = resp.get("result", {})
         if result:
             self.load_from_dict(result)

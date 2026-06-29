@@ -248,6 +248,12 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         channelFilter: root.filterChannelId
+                        onSelectChannelFilter: function(id) {
+                            root.filterChannelId = id
+                            if (typeof dashGrid !== "undefined" && dashGrid) {
+                                dashGrid.filterChannelId = id
+                            }
+                        }
                         onOpenWorkspace: function(ws_id) {
                             // Switch view immediately with model data
                             detailEditor.loadWorkspace(ws_id)

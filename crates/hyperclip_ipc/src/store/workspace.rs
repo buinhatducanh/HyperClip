@@ -72,6 +72,8 @@ pub struct Workspace {
     pub render_duration_sec: Option<f64>,
     #[serde(rename = "bottomBarColor")]
     pub bottom_bar_color: Option<String>,
+    #[serde(rename = "isStartupCatchup", default)]
+    pub is_startup_catchup: bool,
 }
 
 impl Default for Workspace {
@@ -113,6 +115,7 @@ impl Default for Workspace {
             render_codec: None,
             render_duration_sec: None,
             bottom_bar_color: None,
+            is_startup_catchup: false,
         }
     }
 }
@@ -193,7 +196,7 @@ impl WorkspaceStore {
             }
         }
         let content = serde_json::to_string_pretty(&store_to_save).map_err(|e| e.to_string())?;
-        fs::write(path, content).map_err(|e| e.to_string())
+        super::paths::write_atomically(path, &content).map_err(|e| e.to_string())
     }
 
     pub fn add(&mut self, ws: Workspace) {
@@ -311,6 +314,9 @@ impl WorkspaceStore {
             }
             if let Some(color) = data.get("bottomBarColor").and_then(|v| v.as_str()) {
                 ws.bottom_bar_color = Some(color.to_string());
+            }
+            if let Some(is_startup_catchup) = data.get("isStartupCatchup").and_then(|v| v.as_bool()) {
+                ws.is_startup_catchup = is_startup_catchup;
             }
             Ok(())
         } else {

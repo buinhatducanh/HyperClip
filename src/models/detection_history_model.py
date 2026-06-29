@@ -1,5 +1,5 @@
 """DetectionHistoryModel — structured log of detected videos + download outcomes."""
-from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Property, Signal, Slot
+from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Property, Signal, Slot, QObject
 import time
 import json
 import os
@@ -32,7 +32,7 @@ class DetectionHistoryModel(QAbstractListModel):
     PublishedDateStrRole = Qt.UserRole + 19
     DetectedDateStrRole = Qt.UserRole + 20
 
-    def __init__(self, parent=None, max_entries: int = 50):
+    def __init__(self, parent=None, max_entries: int = 50, backend=None):
         super().__init__(parent)
         self._entries: list[dict] = []
         self._max = max_entries
@@ -42,6 +42,7 @@ class DetectionHistoryModel(QAbstractListModel):
         self._today_count: int = 0
         self._today_date: str = ""
         self._history_file = os.path.abspath(os.path.join(get_data_dir(), "history.json"))
+        self._backend = backend
         # DO NOT auto load here to avoid blocking UI thread; load from main.py
 
     def load_from_disk(self, workspace_model=None):
@@ -103,12 +104,29 @@ class DetectionHistoryModel(QAbstractListModel):
         if role == self.ChannelNameRole:
             return e.get("channelName", "")
         if role == self.DetectedAtRole:
-            return e.get("detectedAt", 0)
+            det = e.get("detectedAt", 0)
+            det_ms = int(det)
+            if 0 < det_ms < 5000000000:
+                det_ms *= 1000
+            return det_ms
         if role == self.PublishedAtRole:
-            return e.get("publishedAt", 0)
+            pub = e.get("publishedAt", 0)
+            pub_ms = int(pub)
+            if 0 < pub_ms < 5000000000:
+                pub_ms *= 1000
+            return pub_ms
         if role == self.LatencyMsRole:
-            lat = e.get("latencyMs", 0)
-            return lat
+            pub = e.get("publishedAt", 0)
+            pub_ms = int(pub)
+            if 0 < pub_ms < 5000000000:
+                pub_ms *= 1000
+            if pub_ms <= 86400 * 1000:
+                return 0
+            det = e.get("detectedAt", 0)
+            det_ms = int(det)
+            if 0 < det_ms < 5000000000:
+                det_ms *= 1000
+            return max(0, det_ms - pub_ms)
         if role == self.DurationSecRole:
             return e.get("durationSec", 0)
         if role == self.StatusRole:
@@ -132,18 +150,41 @@ class DetectionHistoryModel(QAbstractListModel):
             return dl.get("height", 0)
         if role == self.DetectedTimeStrRole:
             detected = e.get("detectedAt", 0)
-            if not detected:
+            det_ms = int(detected)
+            if 0 < det_ms < 5000000000:
+                det_ms *= 1000
+            if not det_ms:
                 return ""
-            detected_sec = detected // 1000
+            detected_sec = det_ms // 1000
             lt = time.localtime(detected_sec)
             return f"{lt.tm_hour:02d}:{lt.tm_min:02d}:{lt.tm_sec:02d}"
         if role == self.LatencyStrRole:
-            lat = e.get("latencyMs", 0)
+            pub = e.get("publishedAt", 0)
+            pub_ms = int(pub)
+            if 0 < pub_ms < 5000000000:
+                pub_ms *= 1000
+            if pub_ms <= 86400 * 1000:
+                return "—"
+            det = e.get("detectedAt", 0)
+            det_ms = int(det)
+            if 0 < det_ms < 5000000000:
+                det_ms *= 1000
+            lat = max(0, det_ms - pub_ms)
             if lat < 1000:
                 return f"~{lat}ms"
             return f"~{lat / 1000:.1f}s"
         if role == self.AgeAtDetectionRole:
-            lat = e.get("latencyMs", 0)
+            pub = e.get("publishedAt", 0)
+            pub_ms = int(pub)
+            if 0 < pub_ms < 5000000000:
+                pub_ms *= 1000
+            if pub_ms <= 86400 * 1000:
+                return "—"
+            det = e.get("detectedAt", 0)
+            det_ms = int(det)
+            if 0 < det_ms < 5000000000:
+                det_ms *= 1000
+            lat = max(0, det_ms - pub_ms)
             age_sec = lat / 1000.0
             if age_sec < 60:
                 return f"{age_sec:.1f}s"
@@ -154,16 +195,22 @@ class DetectionHistoryModel(QAbstractListModel):
             return f"{age_sec / 86400.0:.1f}n trước"
         if role == self.PublishedDateStrRole:
             pub = e.get("publishedAt", 0)
-            if not pub:
+            pub_ms = int(pub)
+            if 0 < pub_ms < 5000000000:
+                pub_ms *= 1000
+            if pub_ms <= 86400 * 1000:
                 return "—"
-            pub_sec = pub // 1000
+            pub_sec = pub_ms // 1000
             lt = time.localtime(pub_sec)
             return f"{lt.tm_mday:02d}/{lt.tm_mon:02d}/{lt.tm_year}"
         if role == self.DetectedDateStrRole:
             detected = e.get("detectedAt", 0)
-            if not detected:
+            det_ms = int(detected)
+            if 0 < det_ms < 5000000000:
+                det_ms *= 1000
+            if not det_ms:
                 return "—"
-            detected_sec = detected // 1000
+            detected_sec = det_ms // 1000
             lt = time.localtime(detected_sec)
             return f"{lt.tm_mday:02d}/{lt.tm_mon:02d}/{lt.tm_year}"
         return None
@@ -195,7 +242,10 @@ class DetectionHistoryModel(QAbstractListModel):
     @Slot(str, str, str, str, int, int, float, str)
     def add_detection(self, ws_id: str, video_id: str, title: str, channel_name: str,
                       published_at: int, detected_at: int, duration_sec: float, status: str):
-        latency = detected_at - published_at
+        if published_at <= 86400 * 1000:
+            latency = 0
+        else:
+            latency = detected_at - published_at
         now_ts = int(time.time())
         now_date = time.strftime("%Y-%m-%d", time.localtime(now_ts))
 
@@ -320,9 +370,8 @@ class DetectionHistoryModel(QAbstractListModel):
         return f"~{lat / 1000:.1f}s"
 
     @Slot()
-    def clear(self):
-        if not self._entries:
-            return
+    @Slot(QObject)
+    def clear(self, backend=None):
         self.beginResetModel()
         self._entries.clear()
         self._download_data.clear()
@@ -330,3 +379,9 @@ class DetectionHistoryModel(QAbstractListModel):
         self.endResetModel()
         self.changed.emit()
         self.save_to_disk()
+        backend_to_use = backend or self._backend
+        if backend_to_use:
+            try:
+                backend_to_use.send_command("detection:clear")
+            except Exception as e:
+                print(f"[DetectionHistory] Failed to clear backend detections: {e}")

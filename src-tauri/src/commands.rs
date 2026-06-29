@@ -81,6 +81,8 @@ struct AppState {
     // Holds NewVideoEvent callback so it lives for the program lifetime
     _process_handle: Arc<dyn Fn(NewVideoEvent) + Send + Sync>,
 
+    startup_time_ms: i64,
+
 }
 
 
@@ -101,6 +103,35 @@ impl AppState {
             let s_store = SettingsStore::load(&s_path);
             let daemon_limit = s_store.settings.get("daemonLimit").and_then(|v| v.as_u64()).unwrap_or(8) as usize;
             pool.max_active_clients.store(daemon_limit, std::sync::atomic::Ordering::SeqCst);
+
+            pool.set_refresh_callback(move |idx| {
+                let profile_id = if idx == 0 {
+                    "HyperClip-Profile-1".to_string()
+                } else {
+                    format!("HyperClip-Profile-{}", idx + 1)
+                };
+                tracing::info!("[AppState] Runtime cookie refresh triggered for session {}, profile {}", idx, profile_id);
+                match extract_profile_cookies_and_feed(&profile_id) {
+                    Ok(cookie) => {
+                        if cookie.contains("SAPISID") || cookie.contains("__Secure-3PAPISID") {
+                            Ok(cookie)
+                        } else {
+                            crate::emit(hyperclip_ipc::IpcResponse::event("youtube:session_expired", serde_json::json!({
+                                "profile_id": profile_id,
+                                "index": idx
+                            })));
+                            Err("Chrome session has no active YouTube credentials".to_string())
+                        }
+                    }
+                    Err(e) => {
+                        crate::emit(hyperclip_ipc::IpcResponse::event("youtube:session_expired", serde_json::json!({
+                            "profile_id": profile_id,
+                            "index": idx
+                        })));
+                        Err(e)
+                    }
+                }
+            });
 
             // ─── Migrate old data and ensure store dirs ────────────────
             migrate_old_data();
@@ -163,6 +194,33 @@ impl AppState {
 
                 let run_body = async move {
                     let mut event = event;
+                    let mut is_matched = false;
+
+                    // If channel_id is empty (from a normal watch tab), try to resolve it via yt-dlp first
+                    if event.channel_id.is_empty() {
+                        let url = format!("https://youtube.com/watch?v={}", event.video_id);
+                        let cookies_path = get_cookies_netscape_path();
+                        let cookies_str = cookies_path.to_string_lossy().to_string();
+
+                        tracing::info!("[AppState] Resolving channel info for watch tab video: {}", event.video_id);
+                        let video_id_clone = event.video_id.clone();
+                        let info_res = tokio::task::spawn_blocking(move || {
+                            hyperclip_ipc::youtube::get_video_info(&url, &cookies_str)
+                        }).await;
+
+                        match info_res {
+                            Ok(Ok(info)) => {
+                                event.channel_id = info.channel_id;
+                                event.channel_name = info.channel_name;
+                                tracing::info!("[AppState] Resolved watch video {} to channel_id: {}, channel_name: {}", 
+                                    video_id_clone, event.channel_id, event.channel_name);
+                            }
+                            _ => {
+                                tracing::warn!("[AppState] Failed to resolve channel info for video {}", video_id_clone);
+                            }
+                        }
+                    }
+
                     // Resolve channel details to internal channels list if possible
                     {
                         let channels_guard = _channels_clone.read().await;
@@ -177,28 +235,54 @@ impl AppState {
                                 if let Some(ref handle) = c.handle {
                                     let dec_handle = urlencoding::decode(handle).map(|s| s.into_owned()).unwrap_or_else(|_| handle.clone());
                                     let dec_event_cid = urlencoding::decode(&event.channel_id).map(|s| s.into_owned()).unwrap_or_else(|_| event.channel_id.clone());
-                                    if dec_handle.eq_ignore_ascii_case(&dec_event_cid) {
+                                    
+                                    let clean_eq = |s1: &str, s2: &str| -> bool {
+                                        s1.trim_start_matches('@').trim().to_lowercase() == s2.trim_start_matches('@').trim().to_lowercase()
+                                    };
+
+                                    if clean_eq(&dec_handle, &dec_event_cid) {
+                                        return true;
+                                    }
+
+                                    // Fallback 1: Compare clean handle with event channel name
+                                    if !event.channel_name.is_empty() && clean_eq(&dec_handle, &event.channel_name) {
                                         return true;
                                     }
                                 }
-                            }
-                            if !event.channel_name.is_empty() && c.name.eq_ignore_ascii_case(&event.channel_name) {
-                                return true;
+
+                                // Fallback 2: Compare configured channel name with event channel name
+                                if !c.name.is_empty() && !event.channel_name.is_empty() {
+                                    let clean_eq = |s1: &str, s2: &str| -> bool {
+                                        s1.trim_start_matches('@').trim().to_lowercase() == s2.trim_start_matches('@').trim().to_lowercase()
+                                    };
+                                    if clean_eq(&c.name, &event.channel_name) {
+                                        return true;
+                                    }
+                                }
                             }
                             false
                         }) {
                             event.channel_id = ch.id.clone();
                             event.channel_name = ch.name.clone();
+                            is_matched = true;
                         }
+                    }
+
+                    if !is_matched {
+                        tracing::info!("[AppState] Skipping video_id {} because it does not match any active configured channels (resolved channel_id: {}, channel_name: {})", 
+                            event.video_id, event.channel_id, event.channel_name);
+                        processing_video_ids_clone.lock().unwrap().remove(&event.video_id);
+                        return;
                     }
 
                     let ws_id = format!("ws-ch-{}", event.detected_at);
 
                     // 0. Record detection event for UI history
                     {
-                        let latency = event.detected_at - event.published_at;
+                        let is_fallback_publish = event.published_at <= 86400 * 1000;
+                        let latency = if is_fallback_publish { 0 } else { event.detected_at - event.published_at };
                         let adjusted_latency = (latency - 2000).max(100);
-                        let adjusted_detected_at = event.published_at + adjusted_latency;
+                        let adjusted_detected_at = if is_fallback_publish { event.detected_at } else { event.published_at + adjusted_latency };
                         let mut store = detection_events_store().lock().unwrap();
                         store.push_front(DetectionEvent {
                             ws_id: ws_id.clone(),
@@ -243,9 +327,12 @@ impl AppState {
                         .and_then(|v| v.as_f64())
                         .unwrap_or(1.0);
 
-                    let latency = event.detected_at - event.published_at;
+                    let is_fallback_publish = event.published_at <= 86400 * 1000;
+                    let latency = if is_fallback_publish { 0 } else { event.detected_at - event.published_at };
                     let adjusted_latency = (latency - 2000).max(100);
-                    let adjusted_detected_at = event.published_at + adjusted_latency;
+                    let adjusted_detected_at = if is_fallback_publish { event.detected_at } else { event.published_at + adjusted_latency };
+
+                    let is_startup_catchup = chrono::Utc::now().timestamp_millis() - AppState::get_or_init().startup_time_ms < 60_000;
 
                     ws_store.add(hyperclip_ipc::store::Workspace {
                         id: ws_id.clone(),
@@ -263,6 +350,7 @@ impl AppState {
                         is_short: true,
                         duration_sec: Some(event.duration_sec.round() as u64),
                         original_duration_sec: Some(event.duration_sec.round() as u64),
+                        is_startup_catchup,
                         ..Default::default()
                     });
                     ws_store.save(&ws_path).ok();
@@ -293,6 +381,7 @@ impl AppState {
                             "durationSec": event.duration_sec,
                             "detectedAt": adjusted_detected_at,
                             "status": "waiting",
+                            "isStartupCatchup": is_startup_catchup,
                         }
                     });
                     hyperclip_ipc::emit_raw(&serde_json::to_string(&event_json).unwrap_or_default());
@@ -358,9 +447,17 @@ impl AppState {
                     let processing_video_ids_clone2 = processing_video_ids_clone.clone();
                     let video_id2 = event.video_id.clone();
                     std::thread::spawn(move || {
-                        match download_video_streaming(&url, &output_str, &cookies_str, trim_minutes, duration_sec_opt, auto_dl_quality, hw_cfg.concurrent_fragments, |progress| {
-                            emit_download_progress(&tid, &progress);
-                        }) {
+                        let pool = get_download_worker_pool();
+                        let download_res = tokio::runtime::Runtime::new()
+                            .map(|rt| rt.block_on(async {
+                                let _permit = pool.acquire().await;
+                                download_video_streaming(&url, &output_str, &cookies_str, trim_minutes, duration_sec_opt, auto_dl_quality, hw_cfg.concurrent_fragments, |progress| {
+                                    emit_download_progress(&tid, &progress);
+                                })
+                            }))
+                            .unwrap_or_else(|e| Err(format!("Runtime creation failed: {}", e)));
+
+                        match download_res {
                             Ok(result) => {
                                 tracing::info!("[AppState] Auto-download complete: {} ({:.1} MB)",
                                     tid, result.file_size as f64 / 1_048_576.0);
@@ -689,6 +786,7 @@ impl AppState {
                 _channels: channels,
                 pool,
                 _process_handle: process_fn_arc,
+                startup_time_ms: chrono::Utc::now().timestamp_millis(),
             }
         });
 
@@ -912,9 +1010,10 @@ impl AppState {
 
     fn average_latency(&self) -> f64 {
         if let Ok(store) = detection_events_store().lock() {
-            let len = store.len();
+            let valid_events: Vec<&DetectionEvent> = store.iter().filter(|e| e.published_at > 86400 * 1000).collect();
+            let len = valid_events.len();
             if len == 0 { return 0.0; }
-            let total: i64 = store.iter().map(|e| e.latency_ms).sum();
+            let total: i64 = valid_events.iter().map(|e| e.latency_ms).sum();
             total as f64 / len as f64
         } else {
             0.0
@@ -923,9 +1022,10 @@ impl AppState {
 
     fn sla_percent(&self) -> f64 {
         if let Ok(store) = detection_events_store().lock() {
-            let len = store.len();
+            let valid_events: Vec<&DetectionEvent> = store.iter().filter(|e| e.published_at > 86400 * 1000).collect();
+            let len = valid_events.len();
             if len == 0 { return 100.0; }
-            let under_5s = store.iter().filter(|e| e.latency_ms > 0 && e.latency_ms < 5000).count();
+            let under_5s = valid_events.iter().filter(|e| e.latency_ms > 0 && e.latency_ms < 5000).count();
             (under_5s as f64 / len as f64) * 100.0
         } else {
             100.0
@@ -1004,6 +1104,15 @@ pub fn get_render_worker_pool() -> Arc<WorkerPool> {
         lock.as_ref().unwrap().clone()
     }
 }
+
+static DOWNLOAD_WORKER_POOL: OnceLock<Arc<WorkerPool>> = OnceLock::new();
+
+pub fn get_download_worker_pool() -> Arc<WorkerPool> {
+    DOWNLOAD_WORKER_POOL.get_or_init(|| {
+        Arc::new(WorkerPool::new(2)) // Limit to 2 concurrent downloads
+    }).clone()
+}
+
 
 static RENDER_RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
@@ -2042,7 +2151,11 @@ fn enrich_workspace_for_management(ws: &hyperclip_ipc::store::Workspace) -> Valu
             _ => 0.0,
         }
     };
-    let detection_duration_sec = ((ws.created_at - ws.published_at).max(0) as f64) / 1000.0;
+    let detection_duration_sec = if ws.is_startup_catchup || ws.published_at <= 86400 * 1000 {
+        0.0
+    } else {
+        ((ws.created_at - ws.published_at).max(0) as f64) / 1000.0
+    };
     let total_duration_sec = detection_duration_sec + download_duration_sec + render_duration_sec;
 
     let file_size_bytes = ws.file_size.unwrap_or(0);

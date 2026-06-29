@@ -75,6 +75,7 @@ ColumnLayout {
             speed: modelData.speed || 1.0
             fileSize: modelData.fileSize || ""
             ageLabel: modelData.ageLabel || ""
+            isStartupCatchup: modelData.isStartupCatchup || false
         }
     }
 }

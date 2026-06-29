@@ -15,10 +15,11 @@ class ProjectListModel(QAbstractListModel):
     ErrorRole = Qt.UserRole + 6
     LastRefreshRole = Qt.UserRole + 7
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, backend=None):
         super().__init__(parent)
         self._items: list[dict] = []
         self._id_index: dict[str, int] = {}
+        self._backend = backend
 
     def rowCount(self, parent=QModelIndex()):
         if parent.isValid():
@@ -60,11 +61,14 @@ class ProjectListModel(QAbstractListModel):
                 return False
         return True
 
-    def load_from_backend(self, backend):
-        if not backend:
+    @Slot()
+    @Slot(QObject)
+    def load_from_backend(self, backend=None):
+        backend_to_use = backend or self._backend
+        if not backend_to_use:
             return
         try:
-            resp = backend.send_command("project:list")
+            resp = backend_to_use.send_command("project:list")
             projects = resp.get("result", [])
             if not isinstance(projects, list):
                 projects = []
@@ -82,49 +86,76 @@ class ProjectListModel(QAbstractListModel):
         except Exception as e:
             print(f"[ProjectListModel] load error: {e}")
 
+    @Slot()
     @Slot(QObject)
-    def refresh(self, backend):
-        self.load_from_backend(backend)
+    def refresh(self, backend=None):
+        self.load_from_backend(backend or self._backend)
 
+    @Slot(str)
     @Slot(QObject, str)
-    def remove(self, backend, project_id: str):
-        if not backend: return
-        backend.send_command("project:remove", {"projectId": project_id})
-        self.load_from_backend(backend)
+    def remove(self, backend_or_id, project_id=None):
+        if project_id is None:
+            project_id = backend_or_id
+            backend_to_use = self._backend
+        else:
+            backend_to_use = backend_or_id or self._backend
 
+        if not backend_to_use or not project_id: return
+        backend_to_use.send_command("project:remove", {"projectId": project_id})
+        self.load_from_backend(backend_to_use)
+
+    @Slot(str)
     @Slot(QObject, str)
-    def repair(self, backend, project_id: str):
-        if not backend: return
-        backend.send_command("project:repair", {"projectId": project_id})
+    def repair(self, backend_or_id, project_id=None):
+        if project_id is None:
+            project_id = backend_or_id
+            backend_to_use = self._backend
+        else:
+            backend_to_use = backend_or_id or self._backend
 
+        if not backend_to_use or not project_id: return
+        backend_to_use.send_command("project:repair", {"projectId": project_id})
+
+    @Slot(str)
     @Slot(QObject, str)
-    def reauthorize(self, backend, project_id: str):
-        if not backend: return
-        backend.send_command("project:reauthorize", {"projectId": project_id})
+    def reauthorize(self, backend_or_id, project_id=None):
+        if project_id is None:
+            project_id = backend_or_id
+            backend_to_use = self._backend
+        else:
+            backend_to_use = backend_or_id or self._backend
 
+        if not backend_to_use or not project_id: return
+        backend_to_use.send_command("project:reauthorize", {"projectId": project_id})
+
+    @Slot()
     @Slot(QObject)
-    def batch_repair(self, backend):
-        if not backend: return
+    def batch_repair(self, backend=None):
+        backend_to_use = backend or self._backend
+        if not backend_to_use: return
         ids = [p.get("projectId", "") for p in self._items]
-        backend.send_command("project:batchRepair", {"projectIds": ids})
+        backend_to_use.send_command("project:batchRepair", {"projectIds": ids})
 
+    @Slot()
     @Slot(QObject)
-    def test_all(self, backend):
-        if not backend: return
-        resp = backend.send_command("project:testAll")
+    def test_all(self, backend=None):
+        backend_to_use = backend or self._backend
+        if not backend_to_use: return
+        resp = backend_to_use.send_command("project:testAll")
         if resp and resp.get("ok") is not False:
             projects = resp.get("result", {}).get("projects", [])
-            checked = resp.get("result", {}).get("checkedAt", 0)
             from src.services.toast_service import get_toast_service
             toast = get_toast_service()
             if toast:
                 toast.show("Test Projects", f"Đã kiểm tra {len(projects)} projects", "info")
-        self.load_from_backend(backend)
+        self.load_from_backend(backend_to_use)
 
+    @Slot(str)
     @Slot(str, QObject)
-    def import_from_file(self, file_url: str, backend):
+    def import_from_file(self, file_url: str, backend=None):
         """Import projects from JSON file."""
-        if not backend: return
+        backend_to_use = backend or self._backend
+        if not backend_to_use: return
         try:
             from PySide6.QtCore import QUrl
             path = QUrl(file_url).toLocalFile()
@@ -132,8 +163,8 @@ class ProjectListModel(QAbstractListModel):
                 data = json.load(f)
             projects = data.get("projects", [])
             for p in projects:
-                backend.send_command("project:add", p)
-            self.load_from_backend(backend)
+                backend_to_use.send_command("project:add", p)
+            self.load_from_backend(backend_to_use)
         except Exception as e:
             print(f"[ProjectListModel] import error: {e}")
 

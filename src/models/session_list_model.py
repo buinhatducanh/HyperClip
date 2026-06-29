@@ -18,10 +18,11 @@ class SessionListModel(QAbstractListModel):
     ErrorRole = Qt.UserRole + 7
     HealthRole = Qt.UserRole + 8
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, backend=None):
         super().__init__(parent)
         self._items: list[dict] = []
         self._id_index: dict[str, int] = {}
+        self._backend = backend
 
     def rowCount(self, parent=QModelIndex()):
         if parent.isValid():
@@ -65,11 +66,14 @@ class SessionListModel(QAbstractListModel):
                 return False
         return True
 
-    def load_from_backend(self, backend):
-        if not backend:
+    @Slot()
+    @Slot(QObject)
+    def load_from_backend(self, backend=None):
+        backend_to_use = backend or self._backend
+        if not backend_to_use:
             return
         try:
-            resp = backend.send_command("session:status")
+            resp = backend_to_use.send_command("session:status")
             result = resp.get("result", {})
             sessions = list(result.get("sessions", []))
             if self._ids_identical(sessions):
@@ -86,29 +90,44 @@ class SessionListModel(QAbstractListModel):
         except Exception as e:
             print(f"[SessionListModel] load error: {e}")
 
+    @Slot()
     @Slot(QObject)
-    def refresh(self, backend):
-        self.load_from_backend(backend)
+    def refresh(self, backend=None):
+        self.load_from_backend(backend or self._backend)
 
+    @Slot(str)
     @Slot(QObject, str)
-    def open_login(self, backend, profile_id: str):
-        if not backend: return
-        backend.send_command("session:openLogin", {"profileId": profile_id})
+    def open_login(self, backend_or_profile_id, profile_id=None):
+        if profile_id is None:
+            profile_id = backend_or_profile_id
+            backend_to_use = self._backend
+        else:
+            backend_to_use = backend_or_profile_id or self._backend
 
-    @Slot(QObject)
-    def add_session(self, backend):
-        if not backend: return
-        backend.send_command("session:add")
+        if not backend_to_use or not profile_id:
+            return
+        backend_to_use.send_command("session:openLogin", {"profileId": profile_id})
 
+    @Slot()
     @Slot(QObject)
-    def refresh_all(self, backend):
-        if not backend: return
-        backend.send_command("session:refreshAll")
+    def add_session(self, backend=None):
+        backend_to_use = backend or self._backend
+        if not backend_to_use: return
+        backend_to_use.send_command("session:add")
 
+    @Slot()
     @Slot(QObject)
-    def clone_one(self, backend):
-        if not backend: return
-        backend.send_command("session:cloneOne")
+    def refresh_all(self, backend=None):
+        backend_to_use = backend or self._backend
+        if not backend_to_use: return
+        backend_to_use.send_command("session:refreshAll")
+
+    @Slot()
+    @Slot(QObject)
+    def clone_one(self, backend=None):
+        backend_to_use = backend or self._backend
+        if not backend_to_use: return
+        backend_to_use.send_command("session:cloneOne")
 
     def extract_all_sessions(self, backend):
         """Trigger cookie extraction for all 30 Chrome profiles."""

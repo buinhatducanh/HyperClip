@@ -249,7 +249,37 @@ impl Poller {
                     let cid = channel.id.clone();
 
                     tracing::info!("[Poller] Calling get_latest_videos for {cid}...");
-                    match cc.client.get_latest_videos(&lookup_id, &cc.cookie).await {
+                    let mut videos_res = cc.client.get_latest_videos(&lookup_id, &cc.cookie).await;
+
+                    // If failed, check if it's an Auth/Cookie error and attempt to refresh
+                    if let Err(ref e) = videos_res {
+                        let err_str = e.to_string().to_lowercase();
+                        let is_auth_error = err_str.contains("sign in") || 
+                                            err_str.contains("login") || 
+                                            err_str.contains("cookie") || 
+                                            err_str.contains("auth") || 
+                                            err_str.contains("unauthorized") || 
+                                            err_str.contains("credential");
+                        if is_auth_error {
+                            tracing::warn!("[Poller] Auth error detected for {cid} (session {session_idx}): {e}. Attempting to refresh cookies...");
+                            match poller.pool.refresh_session_cookie(session_idx) {
+                                Ok(new_cookie) => {
+                                    tracing::info!("[Poller] Successfully refreshed cookies for session {session_idx}. Retrying request...");
+                                    // Update cookie in the active client
+                                    if let Err(err) = cc.client.update_cookie(&new_cookie) {
+                                        tracing::error!("[Poller] Failed to update client with new cookie: {:?}", err);
+                                    }
+                                    // Retry the request
+                                    videos_res = cc.client.get_latest_videos(&lookup_id, &new_cookie).await;
+                                }
+                                Err(ref refresh_err) => {
+                                    tracing::error!("[Poller] Failed to refresh cookies for session {session_idx}: {}", refresh_err);
+                                }
+                            }
+                        }
+                    }
+
+                    match videos_res {
                         Ok(videos) => {
                             tracing::info!("[Poller] get_latest_videos returned {} videos for {cid}", videos.len());
                             poller.pool.return_client(session_idx, cc.client);
@@ -271,7 +301,7 @@ impl Poller {
                                     continue;
                                 }
                                 
-                                let bypass_age_limit = !channel_seen_exists && index == 0;
+                                let bypass_age_limit = index == 0 && !channel_seen_exists;
                                 if !bypass_age_limit && !Self::is_within_age_limit(video.published_at, now_ms, max_age_ms) {
                                     continue;
                                 }
@@ -288,7 +318,7 @@ impl Poller {
                                     channel_id: cid.clone(), channel_name: channel.name.clone(),
                                     video_id: video.video_id.clone(), title: video.title.clone(),
                                     thumbnail_url: video.thumbnail_url.clone(),
-                                    published_at: video.published_at, duration_sec: video.duration_sec,
+                                    published_at: if video.published_at == 0 { now_ms } else { video.published_at }, duration_sec: video.duration_sec,
                                     detected_at: chrono::Utc::now().timestamp_millis(),
                                 };
                                 poller.record_detection();
@@ -297,6 +327,7 @@ impl Poller {
                         }
                         Err(e) => {
                             tracing::warn!("[Poller] Innertube error for {cid} (session {session_idx}): {e}");
+                            poller.pool.return_client(session_idx, cc.client);
                             poller.pool.mark_failed(session_idx);
                         }
                     }

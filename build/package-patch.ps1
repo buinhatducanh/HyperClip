@@ -67,6 +67,12 @@ New-Item -ItemType Directory -Path $PatchResources -Force | Out-Null
 Copy-Item "$BundleSource\_internal\resources\innertube_helper.js" -Destination $PatchResources -Force
 Write-Host "Copied updated innertube_helper.js to patch." -ForegroundColor Green
 
+# Copy updated yt-dlp.exe to resources/yt-dlp/
+$PatchYtdlp = Join-Path $PatchResources "yt-dlp"
+New-Item -ItemType Directory -Path $PatchYtdlp -Force | Out-Null
+Copy-Item "$BundleSource\_internal\resources\yt-dlp\yt-dlp.exe" -Destination $PatchYtdlp -Force
+Write-Host "Copied updated yt-dlp.exe to patch." -ForegroundColor Green
+
 # 4. Create ZIP archive
 $ZipFile = "$ProjectRoot\$PatchName.zip"
 Write-Host "Waiting for file locks to release..." -ForegroundColor Yellow

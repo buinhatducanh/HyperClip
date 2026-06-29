@@ -23,7 +23,14 @@ Rectangle {
     property string fileSize: ""
     property string ageLabel: ""
     property real totalDurationSec: 0
+    property bool isStartupCatchup: false
+
+    property bool isSelected: false
+    property bool selectionActive: false
+
     signal workspaceClicked(string ws_id)
+    signal selectToggled()
+    signal deleteClicked()
 
     WorkspaceCardDisplay {
         anchors.fill: parent
@@ -39,7 +46,10 @@ Rectangle {
         fileSize: card.fileSize
         ageLabel: card.ageLabel
         totalDurationSec: card.totalDurationSec
-        hovered: mouseArea.containsMouse
+        isStartupCatchup: card.isStartupCatchup
+        isSelected: card.isSelected
+        selectionActive: card.selectionActive
+        hovered: mouseArea.containsMouse || delBtn.hovered
 
         MouseArea {
             id: mouseArea
@@ -51,4 +61,24 @@ Rectangle {
             }
         }
     }
+
+    // Delete button on the right
+    IconButton {
+        id: delBtn
+        anchors.right: parent.right
+        anchors.rightMargin: 8
+        anchors.verticalCenter: parent.verticalCenter
+        z: 10
+        iconName: "trash"
+        iconSize: 12
+        width: 24
+        height: 24
+        iconColorHover: Theme.error
+        opacity: delBtn.hovered ? 1.0 : (mouseArea.containsMouse ? 0.85 : 0.0)
+        visible: true
+
+        onClicked: card.deleteClicked()
+        Behavior on opacity { NumberAnimation { duration: 150 } }
+    }
 }
+

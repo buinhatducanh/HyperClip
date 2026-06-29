@@ -331,3 +331,20 @@ pub fn clean_unc_path(p: &str) -> String {
         p.to_string()
     }
 }
+
+static TEMP_FILE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn write_atomically(path: &Path, content: &str) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let count = TEMP_FILE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let temp_path = path.with_extension(format!("tmp.{}.{}", std::process::id(), count));
+    std::fs::write(&temp_path, content)?;
+    if let Err(e) = std::fs::rename(&temp_path, path) {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(e);
+    }
+    Ok(())
+}
+

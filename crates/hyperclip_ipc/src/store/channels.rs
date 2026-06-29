@@ -102,7 +102,7 @@ impl ChannelStore {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let content = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        fs::write(path, content).map_err(|e| e.to_string())
+        super::paths::write_atomically(path, &content).map_err(|e| e.to_string())
     }
 
     pub fn add(&mut self, ch: Channel) {
@@ -179,7 +179,7 @@ impl SeenVideos {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let content = serde_json::to_string(self).map_err(|e| e.to_string())?;
-        fs::write(path, content).map_err(|e| e.to_string())
+        super::paths::write_atomically(path, &content).map_err(|e| e.to_string())
     }
 
     /// Mark video as seen for a channel, with 48h TTL
@@ -251,7 +251,7 @@ impl UploadsCache {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let content = serde_json::to_string(self).map_err(|e| e.to_string())?;
-        fs::write(path, content).map_err(|e| e.to_string())
+        super::paths::write_atomically(path, &content).map_err(|e| e.to_string())
     }
 
     pub fn get(&self, channel_id: &str) -> Option<String> {

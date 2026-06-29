@@ -54,24 +54,24 @@ SettingsCard {
 
         Rectangle {
             Layout.fillWidth: true; Layout.preferredHeight: 22
-            color: (poller ? poller.latencyColor : Theme.textMuted) + "18"; radius: 4
-            border.color: poller ? poller.latencyColor : Theme.textMuted; border.width: 1
+            color: ((poller && poller.detectionsToday > 0 && poller.lastDetectionLatencyStr !== "—") ? poller.latencyColor : Theme.textMuted) + "18"; radius: 4
+            border.color: (poller && poller.detectionsToday > 0 && poller.lastDetectionLatencyStr !== "—") ? poller.latencyColor : Theme.textMuted; border.width: 1
             Label {
                 anchors.centerIn: parent
-                text: (poller ? poller.lastDetectionLatencyStr : "—") + " cuối"
-                color: poller ? poller.latencyColor : Theme.textMuted
+                text: (poller && poller.detectionsToday > 0) ? poller.lastDetectionLatencyStr + " cuối" : "— cuối"
+                color: (poller && poller.detectionsToday > 0 && poller.lastDetectionLatencyStr !== "—") ? poller.latencyColor : Theme.textMuted
                 font.pixelSize: 14; font.bold: true
             }
         }
 
         Rectangle {
             Layout.fillWidth: true; Layout.preferredHeight: 22
-            color: (poller ? poller.slaColor : Theme.textMuted) + "18"; radius: 4
-            border.color: poller ? poller.slaColor : Theme.textMuted; border.width: 1
+            color: ((poller && poller.detectionsToday > 0) ? poller.slaColor : Theme.textMuted) + "18"; radius: 4
+            border.color: (poller && poller.detectionsToday > 0) ? poller.slaColor : Theme.textMuted; border.width: 1
             Label {
                 anchors.centerIn: parent
-                text: (poller ? poller.slaPercent : 0).toFixed(0) + "% <5s"
-                color: poller ? poller.slaColor : Theme.textMuted
+                text: (poller && poller.detectionsToday > 0) ? poller.slaPercent.toFixed(0) + "% <5s" : "— <5s"
+                color: (poller && poller.detectionsToday > 0) ? poller.slaColor : Theme.textMuted
                 font.pixelSize: 14; font.bold: true
             }
         }
@@ -106,7 +106,10 @@ SettingsCard {
             Layout.preferredHeight: 24
             onClicked: {
                 if (detectionHistory) {
-                    detectionHistory.clear()
+                    detectionHistory.clear(backend)
+                    if (poller) {
+                        poller.refresh_from_backend(backend)
+                    }
                 }
             }
         }

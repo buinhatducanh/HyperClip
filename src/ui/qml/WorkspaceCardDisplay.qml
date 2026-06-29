@@ -17,6 +17,9 @@ Rectangle {
     property real speed: 1.0
     property string fileSize: ""
     property string ageLabel: ""
+    property bool isSelected: false
+    property bool selectionActive: false
+    property bool isStartupCatchup: false
     property bool hovered: false
     property real totalDurationSec: 0
 
@@ -31,11 +34,12 @@ Rectangle {
     }
 
     color: hovered ? Theme.hoverBg : Theme.cardBg
-    border.color: status === "error" ? Theme.error
+    border.color: isSelected ? Theme.accent
+                : status === "error" ? Theme.error
                 : status === "rendering" ? Theme.accent
                 : hovered ? Theme.accent
                 : Theme.border
-    border.width: 1
+    border.width: isSelected ? 2 : 1
     height: 82
     radius: Theme.radiusLg
     clip: true
@@ -88,8 +92,8 @@ Rectangle {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 10
-        anchors.rightMargin: 8
+        anchors.leftMargin: 12
+        anchors.rightMargin: 36
         anchors.topMargin: 8
         anchors.bottomMargin: 8
         spacing: 10
@@ -215,7 +219,7 @@ Rectangle {
 
             // Detailed metadata line
             Label {
-                text: (ageLabel !== "" ? ageLabel : "") +
+                text: (isStartupCatchup ? "Khởi động" : (ageLabel !== "" ? ageLabel : "")) +
                       (fileSize !== "" ? " · " + fileSize : "") +
                       (durationSec > 0 ? " · " + (function() {
                           const actualDur = Math.round(durationSec / speed)

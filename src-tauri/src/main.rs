@@ -132,6 +132,37 @@ fn main() {
     commands::init_appstate();
     tracing::info!("[AppState] AppState initialized at startup");
 
+    // Spawn background yt-dlp update check
+    std::thread::spawn(|| {
+        let ytdlp_path = hyperclip_ipc::youtube::find_ytdlp_path();
+        tracing::info!("[Update] Checking for yt-dlp updates using path: {}", ytdlp_path);
+        
+        let mut cmd = std::process::Command::new(&ytdlp_path);
+        cmd.arg("--update");
+        
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        
+        match cmd.output() {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                tracing::info!(
+                    "[Update] yt-dlp update process completed.\nStatus: {}\nStdout: {}\nStderr: {}",
+                    output.status,
+                    stdout.trim(),
+                    stderr.trim()
+                );
+            }
+            Err(e) => {
+                tracing::error!("[Update] Failed to run yt-dlp update check: {}", e);
+            }
+        }
+    });
+
     // Create a Tokio runtime for async operations (pool, innertube, etc.)
     let _rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
 

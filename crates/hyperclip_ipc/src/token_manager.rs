@@ -323,6 +323,8 @@ impl OAuthFallbackDetector {
         seen_videos: &crate::store::SeenVideos,
         max_age_minutes: u64,
     ) -> Result<Vec<crate::types::VideoInfo>> {
+        let ch_path = crate::store::get_channels_path();
+        let ch_store = crate::store::ChannelStore::load(&ch_path);
         let mut all_new = Vec::new();
 
         for channel_id in channel_ids {
@@ -353,15 +355,20 @@ impl OAuthFallbackDetector {
                 .map(|d| d.as_secs() as i64)
                 .unwrap_or(0);
 
-            let channel_seen_exists = seen_videos.channels.get(channel_id)
-                .map(|entry| !entry.ids.is_empty())
-                .unwrap_or(false);
+            let channel_seen_exists = {
+                let resolved_id = ch_store.channels.iter().find(|c| {
+                    c.channel_id.as_deref() == Some(channel_id) || c.id == *channel_id
+                }).map(|c| c.id.as_str()).unwrap_or(channel_id);
+                seen_videos.channels.get(resolved_id)
+                    .map(|entry| !entry.ids.is_empty())
+                    .unwrap_or(false)
+            };
 
             for (index, video) in videos.into_iter().enumerate() {
                 if seen_videos.is_any_seen(&video.video_id) {
                     continue;
                 }
-                let bypass_age_limit = !channel_seen_exists && index == 0;
+                let bypass_age_limit = index == 0 && !channel_seen_exists;
                 if !bypass_age_limit {
                     let age_sec = now_sec - video.published_at / 1000;
                     if age_sec > max_age_minutes as i64 * 60 {

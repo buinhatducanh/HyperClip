@@ -69,8 +69,9 @@ impl RenderedStore {
             }
         }
         let content = serde_json::to_string_pretty(&store_to_save).map_err(|e| e.to_string())?;
-        fs::write(path, content).map_err(|e| e.to_string())
+        super::paths::write_atomically(path, &content).map_err(|e| e.to_string())
     }
+
 
     pub fn add(&mut self, video: RenderedVideo) {
         self.videos.retain(|v| v.id != video.id);

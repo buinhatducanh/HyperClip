@@ -16,10 +16,11 @@ class KeyListModel(QAbstractListModel):
     LastErrorRole = Qt.UserRole + 7
     MaskedKeyRole = Qt.UserRole + 8
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, backend=None):
         super().__init__(parent)
         self._items: list[dict] = []
         self._id_index: dict[str, int] = {}
+        self._backend = backend
 
     def rowCount(self, parent=QModelIndex()):
         if parent.isValid():
@@ -67,11 +68,14 @@ class KeyListModel(QAbstractListModel):
                 return False
         return True
 
-    def load_from_backend(self, backend):
-        if not backend:
+    @Slot()
+    @Slot(QObject)
+    def load_from_backend(self, backend=None):
+        backend_to_use = backend or self._backend
+        if not backend_to_use:
             return
         try:
-            resp = backend.send_command("key:list")
+            resp = backend_to_use.send_command("key:list")
             keys = resp.get("result", [])
             if not isinstance(keys, list):
                 keys = []
@@ -89,44 +93,74 @@ class KeyListModel(QAbstractListModel):
         except Exception as e:
             print(f"[KeyListModel] load error: {e}")
 
+    @Slot()
     @Slot(QObject)
-    def refresh(self, backend):
-        self.load_from_backend(backend)
+    def refresh(self, backend=None):
+        self.load_from_backend(backend or self._backend)
 
+    @Slot(str, str, str)
     @Slot(QObject, str, str, str)
-    def add(self, backend, key: str, project_id: str, name: str):
-        if not backend: return
-        backend.send_command("key:add", {"key": key, "projectId": project_id, "name": name})
-        self.load_from_backend(backend)
+    def add(self, backend_or_key, key=None, project_id=None, name=None):
+        if project_id is None:
+            # Called as add(key, project_id, name)
+            name = key
+            project_id = backend_or_key
+            key = backend_or_key
+            backend_to_use = self._backend
+        else:
+            backend_to_use = backend_or_key or self._backend
 
+        if not backend_to_use or not key: return
+        backend_to_use.send_command("key:add", {"key": key, "projectId": project_id, "name": name})
+        self.load_from_backend(backend_to_use)
+
+    @Slot(str)
     @Slot(QObject, str)
-    def remove(self, backend, key: str):
-        if not backend: return
-        backend.send_command("key:remove", {"key": key})
-        self.load_from_backend(backend)
+    def remove(self, backend_or_key, key=None):
+        if key is None:
+            key = backend_or_key
+            backend_to_use = self._backend
+        else:
+            backend_to_use = backend_or_key or self._backend
 
+        if not backend_to_use or not key: return
+        backend_to_use.send_command("key:remove", {"key": key})
+        self.load_from_backend(backend_to_use)
+
+    @Slot()
     @Slot(QObject)
-    def test_all(self, backend):
-        if not backend: return
-        resp = backend.send_command("key:testAll")
+    def test_all(self, backend=None):
+        backend_to_use = backend or self._backend
+        if not backend_to_use: return
+        resp = backend_to_use.send_command("key:testAll")
         if resp and resp.get("ok") is not False:
             keys = resp.get("result", {}).get("keys", [])
             from src.services.toast_service import get_toast_service
             toast = get_toast_service()
             if toast:
                 toast.show("Test API Keys", f"Đã kiểm tra {len(keys)} keys", "info")
-        self.load_from_backend(backend)
+        self.load_from_backend(backend_to_use)
 
+    @Slot(str)
     @Slot(QObject, str)
-    def reset(self, backend, key: str = ""):
-        if not backend: return
-        backend.send_command("key:reset", {"key": key} if key else {})
-        self.load_from_backend(backend)
+    def reset(self, backend_or_key, key=None):
+        # Allow calling as reset(key) or reset(backend, key)
+        if isinstance(backend_or_key, str):
+            key = backend_or_key
+            backend_to_use = self._backend
+        else:
+            backend_to_use = backend_or_key or self._backend
 
+        if not backend_to_use: return
+        backend_to_use.send_command("key:reset", {"key": key} if key else {})
+        self.load_from_backend(backend_to_use)
+
+    @Slot(str)
     @Slot(str, QObject)
-    def import_from_file(self, file_url: str, backend):
+    def import_from_file(self, file_url: str, backend=None):
         """Import keys from JSON file."""
-        if not backend: return
+        backend_to_use = backend or self._backend
+        if not backend_to_use: return
         try:
             from PySide6.QtCore import QUrl
             path = QUrl(file_url).toLocalFile()
@@ -134,8 +168,8 @@ class KeyListModel(QAbstractListModel):
                 data = json.load(f)
             keys = data.get("keys", [])
             for k in keys:
-                backend.send_command("key:add", k)
-            self.load_from_backend(backend)
+                backend_to_use.send_command("key:add", k)
+            self.load_from_backend(backend_to_use)
         except Exception as e:
             print(f"[KeyListModel] import error: {e}")
 
@@ -148,9 +182,11 @@ class KeyListModel(QAbstractListModel):
         except Exception as e:
             print(f"[KeyListModel] export error: {e}")
 
+    @Slot()
     @Slot(QObject)
-    def clear_all(self, backend):
-        if not backend: return
+    def clear_all(self, backend=None):
+        backend_to_use = backend or self._backend
+        if not backend_to_use: return
         for k in self._items:
-            backend.send_command("key:remove", {"key": k.get("key", "")})
-        self.load_from_backend(backend)
+            backend_to_use.send_command("key:remove", {"key": k.get("key", "")})
+        self.load_from_backend(backend_to_use)

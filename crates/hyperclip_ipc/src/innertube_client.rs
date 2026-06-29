@@ -406,7 +406,7 @@ impl InnertubeClient {
             "cookie": cookie,
         });
         self.send_request(&req.to_string())?;
-        let timeout = std::time::Duration::from_secs(10);
+        let timeout = std::time::Duration::from_secs(30);
         let line = self.recv_line(timeout)?;
         match serde_json::from_str::<NodeResponse>(&line) {
             Ok(r) if r.ok => {
@@ -479,7 +479,7 @@ impl InnertubeClient {
                                 .map(|v| VideoInfo {
                                     video_id: v.video_id,
                                     title: v.title,
-                                    published_at: v.published_at * 1000,
+                                    published_at: v.published_at,
                                     thumbnail_url: v.thumbnail_url,
                                     duration_sec: v.duration_sec,
                                     width: 0,
@@ -563,7 +563,7 @@ impl InnertubeClient {
                                 .map(|v| VideoInfo {
                                     video_id: v.video_id,
                                     title: v.title,
-                                    published_at: v.published_at * 1000,
+                                    published_at: v.published_at,
                                     thumbnail_url: v.thumbnail_url,
                                     duration_sec: v.duration_sec,
                                     width: 0,

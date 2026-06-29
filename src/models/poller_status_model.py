@@ -6,7 +6,7 @@ import time
 class PollerStatusModel(QObject):
     changed = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, backend=None):
         super().__init__(parent)
         self._active: bool = False
         self._poll_interval_ms: int = 5000
@@ -18,6 +18,7 @@ class PollerStatusModel(QObject):
         self._detections_today: int = 0
         self._average_latency_ms: float = 0.0
         self._sla_percent: float = 100.0
+        self._backend = backend
 
     def load_from_dict(self, d: dict):
         self._active = bool(d.get("active", False))
@@ -32,26 +33,32 @@ class PollerStatusModel(QObject):
         self._sla_percent = float(d.get("slaPercent", 100.0))
         self.changed.emit()
 
-    @Slot('QVariant')
-    def refresh_from_backend(self, backend):
-        if not backend:
+    @Slot()
+    @Slot(QObject)
+    def refresh_from_backend(self, backend=None):
+        backend_to_use = backend or self._backend
+        if not backend_to_use:
             return
-        resp = backend.send_command("poller:status")
+        resp = backend_to_use.send_command("poller:status")
         result = resp.get("result", {})
         if result:
             self.load_from_dict(result)
 
-    @Slot('QVariant')
-    def resume(self, backend):
-        if not backend:
+    @Slot()
+    @Slot(QObject)
+    def resume(self, backend=None):
+        backend_to_use = backend or self._backend
+        if not backend_to_use:
             return
-        backend.send_command("poller:resume")
+        backend_to_use.send_command("poller:resume")
 
-    @Slot('QVariant')
-    def pause(self, backend):
-        if not backend:
+    @Slot()
+    @Slot(QObject)
+    def pause(self, backend=None):
+        backend_to_use = backend or self._backend
+        if not backend_to_use:
             return
-        backend.send_command("poller:stop")
+        backend_to_use.send_command("poller:stop")
 
     @Property(bool, notify=changed)
     def active(self): return self._active
@@ -101,6 +108,8 @@ class PollerStatusModel(QObject):
 
     @Property(str, notify=changed)
     def slaColor(self):
+        if self._detections_today == 0:
+            return "#888888"
         pct = self._sla_percent
         if pct >= 95:
             return "#00FF88"
@@ -110,8 +119,10 @@ class PollerStatusModel(QObject):
 
     @Property(str, notify=changed)
     def latencyColor(self):
+        if self._detections_today == 0 or self._last_detection_latency_ms <= 0:
+            return "#888888"
         ms = self._last_detection_latency_ms
-        if ms <= 0 or ms < 5000:
+        if ms < 5000:
             return "#00FF88"
         if ms < 10000:
             return "#FFD93D"

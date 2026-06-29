@@ -25,6 +25,35 @@ Rectangle {
         return count;
     }
     property string errorText: ""
+    property var selectedIds: []
+    property bool isDeleteSelectMode: false
+
+    function toggleSelect(wsId) {
+        var temp = selectedIds.slice()
+        var idx = temp.indexOf(wsId)
+        if (idx >= 0) {
+            temp.splice(idx, 1)
+        } else {
+            temp.push(wsId)
+        }
+        selectedIds = temp
+    }
+
+    function clearSelection() {
+        selectedIds = []
+    }
+
+    function selectAllVisible() {
+        root.isDeleteSelectMode = true
+        let filtered = root.workspaces.filter(function(ws) {
+            return ws.id.indexOf("-part") === -1;
+        })
+        let ids = []
+        for (let i = 0; i < filtered.length; i++) {
+            ids.push(filtered[i].id)
+        }
+        selectedIds = ids
+    }
 
     Component.onCompleted: refreshList()
 
@@ -101,9 +130,23 @@ Rectangle {
         const resp = backend.send_command("workspace:managementList")
         if (resp && resp.ok !== false && resp.result) {
             workspaces = resp.result.workspaces || []
+            // Clean up selectedIds to only keep existing ones
+            let validIds = []
+            for (let i = 0; i < selectedIds.length; i++) {
+                let found = false
+                for (let j = 0; j < workspaces.length; j++) {
+                    if (workspaces[j].id === selectedIds[i]) {
+                        found = true
+                        break
+                    }
+                }
+                if (found) validIds.push(selectedIds[i])
+            }
+            selectedIds = validIds
         } else {
             errorText = (resp && resp.error) || "Không tải được danh sách"
             workspaces = []
+            selectedIds = []
         }
         listLoading = false
     }
@@ -583,6 +626,124 @@ Rectangle {
                         font.letterSpacing: 0.8
                     }
 
+                    // ─── General Actions Row ───
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+
+                        IconButton {
+                            iconName: "check"
+                            label: "Chọn tất cả"
+                            iconSize: 10
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 24
+                            onClicked: root.selectAllVisible()
+                        }
+
+                        IconButton {
+                            id: selectModeBtn
+                            iconName: root.isDeleteSelectMode ? "close" : "list"
+                            label: root.isDeleteSelectMode ? "Hủy chọn" : "Chọn xóa"
+                            iconSize: 10
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 24
+                            colorIdle: root.isDeleteSelectMode ? Theme.accent + "30" : "transparent"
+                            colorHover: root.isDeleteSelectMode ? Theme.accent + "50" : Theme.hoverBg
+                            iconColorIdle: root.isDeleteSelectMode ? Theme.accent : Theme.text
+                            iconColorHover: root.isDeleteSelectMode ? Theme.accent : Theme.text
+                            border.color: root.isDeleteSelectMode ? Theme.accent : Theme.border
+                            onClicked: {
+                                root.isDeleteSelectMode = !root.isDeleteSelectMode
+                                if (!root.isDeleteSelectMode) {
+                                    root.clearSelection()
+                                }
+                            }
+                        }
+
+                        IconButton {
+                            iconName: "trash"
+                            label: "Xóa toàn bộ"
+                            iconSize: 10
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 24
+                            onClicked: {
+                                confirmDlg.openFor("all", "tất cả video trong 24h", function() {
+                                    backend.send_command("workspace:clear")
+                                    root.clearSelection()
+                                    root.refreshList()
+                                    root.currentVideoId = ""
+                                    root.currentVideoData = {}
+                                })
+                            }
+                        }
+                    }
+
+                    // ─── Bulk Deletion Bar (visible only when selectedIds.length > 0) ───
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        visible: root.selectedIds.length > 0
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 26
+                            color: Theme.accent + "20"
+                            border.color: Theme.accent
+                            border.width: 1
+                            radius: 4
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 8
+                                anchors.rightMargin: 8
+                                spacing: 6
+
+                                Label {
+                                    text: "Đã chọn: " + root.selectedIds.length
+                                    color: Theme.accent
+                                    font.bold: true
+                                    font.pixelSize: 12
+                                    Layout.alignment: Qt.AlignVCenter
+                                }
+
+                                Item { Layout.fillWidth: true }
+
+                                IconButton {
+                                    iconName: "trash"
+                                    label: "Xóa đã chọn"
+                                    iconSize: 10
+                                    Layout.preferredHeight: 20
+                                    Layout.preferredWidth: 95
+                                    onClicked: {
+                                        confirmDlg.openFor("selection", root.selectedIds.length + " video đã chọn", function() {
+                                            for (let i = 0; i < root.selectedIds.length; i++) {
+                                                backend.send_command("workspace:delete", {"id": root.selectedIds[i]})
+                                            }
+                                            if (root.selectedIds.indexOf(root.currentVideoId) >= 0) {
+                                                root.currentVideoId = ""
+                                                root.currentVideoData = {}
+                                            }
+                                            root.clearSelection()
+                                            root.refreshList()
+                                        })
+                                    }
+                                }
+
+                                IconButton {
+                                    iconName: "close"
+                                    label: "Hủy"
+                                    iconSize: 10
+                                    Layout.preferredHeight: 20
+                                    Layout.preferredWidth: 45
+                                    onClicked: {
+                                        root.clearSelection()
+                                        root.isDeleteSelectMode = false
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     ListView {
                         id: queueList
                         Layout.fillWidth: true
@@ -595,28 +756,73 @@ Rectangle {
                         boundsBehavior: Flickable.StopAtBounds
 
                         delegate: Rectangle {
+                            id: delegateRoot
                             width: queueList.width
                             height: 64
                             radius: Theme.radiusMd
-                            color: root.currentVideoId === modelData.id
+                            property bool isSelected: root.isDeleteSelectMode && (root.selectedIds.indexOf(modelData.id) >= 0)
+                            color: isSelected || (!root.isDeleteSelectMode && root.currentVideoId === modelData.id)
                                 ? Theme.accent + "22"
                                 : (queueMa.containsMouse ? Theme.hoverBg : "transparent")
-                            border.color: root.currentVideoId === modelData.id
+                            border.color: isSelected || (!root.isDeleteSelectMode && root.currentVideoId === modelData.id)
                                 ? Theme.accent
                                 : Theme.border
-                            border.width: 1
+                            border.width: isSelected || (!root.isDeleteSelectMode && root.currentVideoId === modelData.id) ? 2 : 1
 
                             MouseArea {
                                 id: queueMa
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: root.selectVideo(modelData.id)
+                                onClicked: {
+                                    if (root.isDeleteSelectMode) {
+                                        root.toggleSelect(modelData.id)
+                                    } else {
+                                        root.selectVideo(modelData.id)
+                                    }
+                                }
+                            }
+
+                            // Delete button on the right
+                            IconButton {
+                                id: delBtn
+                                anchors.right: parent.right
+                                anchors.rightMargin: 8
+                                anchors.verticalCenter: parent.verticalCenter
+                                z: 10
+                                iconName: "trash"
+                                iconSize: 12
+                                width: 24
+                                height: 24
+                                iconColorHover: Theme.error
+                                opacity: delBtn.hovered ? 1.0 : (queueMa.containsMouse ? 0.85 : 0.0)
+                                visible: true
+                                onClicked: {
+                                    confirmDlg.openFor(modelData.id, modelData.title || modelData.id, function() {
+                                        backend.send_command("workspace:delete", {"id": modelData.id})
+                                        if (root.currentVideoId === modelData.id) {
+                                            root.currentVideoId = ""
+                                            root.currentVideoData = {}
+                                        }
+                                        let idx = root.selectedIds.indexOf(modelData.id)
+                                        if (idx >= 0) {
+                                            let temp = root.selectedIds.slice()
+                                            temp.splice(idx, 1)
+                                            root.selectedIds = temp
+                                        }
+                                        root.refreshList()
+                                    })
+                                }
+                                Behavior on opacity { NumberAnimation { duration: 150 } }
                             }
 
                             RowLayout {
-                                anchors.fill: parent
-                                anchors.margins: 6
+                                anchors.left: parent.left
+                                anchors.right: delBtn.left
+                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 4
                                 spacing: 8
 
                                 // Thumbnail
@@ -846,7 +1052,11 @@ Rectangle {
                                         }
                                         Label {
                                             text: root.fmtFullTime(root.currentVideoData.createdAt)
-                                                + "  ·  mất " + root.fmtDetectionDuration(root.currentVideoData.detectionDurationSec || 0)
+                                                + (root.currentVideoData.isStartupCatchup 
+                                                   ? "  ·  Khởi động ứng dụng (Catch-up)" 
+                                                   : (root.currentVideoData.detectionDurationSec > 0 
+                                                      ? "  ·  mất " + root.fmtDetectionDuration(root.currentVideoData.detectionDurationSec) 
+                                                      : "  ·  Thời gian công chiếu ẩn"))
                                             color: Theme.text
                                             font.pixelSize: 11
                                         }
@@ -1302,4 +1512,9 @@ Rectangle {
             }
         }
     }
+
+    ConfirmationDialog {
+        id: confirmDlg
+    }
 }
+

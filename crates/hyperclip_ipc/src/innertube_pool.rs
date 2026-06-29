@@ -42,6 +42,8 @@ pub struct SessionClient {
     pub cookie: String,
 }
 
+pub type CookieRefreshFn = Box<dyn Fn(usize) -> std::result::Result<String, String> + Send + Sync>;
+
 pub struct InnertubeClientPool {
     sessions: Mutex<Vec<Session>>,
     round_robin_idx: AtomicUsize,
@@ -49,6 +51,7 @@ pub struct InnertubeClientPool {
     clients: Mutex<Vec<crate::innertube_client::InnertubeClient>>,
     active_clients_count: std::sync::Arc<AtomicUsize>,
     pub max_active_clients: std::sync::atomic::AtomicUsize,
+    cookie_refresh_fn: Mutex<Option<CookieRefreshFn>>,
 }
 
 impl InnertubeClientPool {
@@ -70,7 +73,39 @@ impl InnertubeClientPool {
             clients: Mutex::new(Vec::new()),
             active_clients_count: std::sync::Arc::new(AtomicUsize::new(0)),
             max_active_clients: std::sync::atomic::AtomicUsize::new(8),
+            cookie_refresh_fn: Mutex::new(None),
         })
+    }
+
+    /// Register a callback to refresh cookies for a specific session index.
+    pub fn set_refresh_callback<F>(&self, callback: F)
+    where
+        F: Fn(usize) -> std::result::Result<String, String> + Send + Sync + 'static,
+    {
+        let mut cb = self.cookie_refresh_fn.lock().unwrap();
+        *cb = Some(Box::new(callback));
+    }
+
+    /// Refresh cookie for a session by executing the registered callback.
+    pub fn refresh_session_cookie(&self, idx: usize) -> std::result::Result<String, String> {
+        let cb_guard = self.cookie_refresh_fn.lock().unwrap();
+        if let Some(ref cb) = *cb_guard {
+            match cb(idx) {
+                Ok(new_cookie) => {
+                    let mut sessions = self.sessions.lock().unwrap();
+                    if let Some(s) = sessions.get_mut(idx) {
+                        s.cookie = new_cookie.clone();
+                    }
+                    // Clear idle clients to discard clients holding stale cookies
+                    let mut clients = self.clients.lock().unwrap();
+                    clients.clear();
+                    Ok(new_cookie)
+                }
+                Err(e) => Err(e),
+            }
+        } else {
+            Err("No cookie refresh callback registered".to_string())
+        }
     }
 
     /// Load cookies for every session. Each slot gets the full cookie string
@@ -352,5 +387,25 @@ mod tests {
         .unwrap();
         pool.set_cookies("SID=abc123; SOCS=CAI".to_string());
         assert_eq!(pool.ready_count(), 2);
+    }
+
+    #[test]
+    fn test_cookie_refresh() {
+        let pool = InnertubeClientPool::initialize(PoolConfig {
+            size: 2,
+            ..Default::default()
+        })
+        .unwrap();
+        pool.set_cookies("old_cookie".to_string());
+        
+        pool.set_refresh_callback(|idx| {
+            Ok(format!("new_cookie_for_{}", idx))
+        });
+        
+        let res = pool.refresh_session_cookie(0);
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), "new_cookie_for_0");
+        assert_eq!(pool.get_session_cookie_string(0), "new_cookie_for_0");
+        assert_eq!(pool.get_session_cookie_string(1), "old_cookie");
     }
 }

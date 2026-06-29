@@ -81,7 +81,12 @@ Rectangle {
                 Layout.fillWidth: true
             }
             Label {
-                text: item.isPaused ? "Đã tạm dừng" : "@" + (model.handle || model.channelId || "")
+                text: {
+                    if (item.isPaused) return "Đã tạm dừng";
+                    let h = model.handle || model.channelId || "";
+                    if (h === "") return "";
+                    return h.startsWith("@") ? h : "@" + h;
+                }
                 color: Theme.textMuted
                 font.pixelSize: 14
                 elide: Text.ElideRight

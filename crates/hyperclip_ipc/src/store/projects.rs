@@ -45,8 +45,9 @@ impl ProjectStore {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let content = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        fs::write(path, content).map_err(|e| e.to_string())
+        super::paths::write_atomically(path, &content).map_err(|e| e.to_string())
     }
+
 
     pub fn add(&mut self, entry: ProjectEntry) {
         self.projects.retain(|p| p.project_id != entry.project_id);

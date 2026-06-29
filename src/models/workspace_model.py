@@ -1,5 +1,4 @@
-# src/models/workspace_model.py
-from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot, Signal, Property
+from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QByteArray, Slot, Signal, Property, QObject
 
 
 class WorkspaceModel(QAbstractListModel):
@@ -28,12 +27,14 @@ class WorkspaceModel(QAbstractListModel):
     DownloadDurationRole = Qt.UserRole + 21
     RenderDurationRole = Qt.UserRole + 22
     TotalDurationRole = Qt.UserRole + 23
+    IsStartupCatchupRole = Qt.UserRole + 24
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, backend=None):
         super().__init__(parent)
         self._workspaces: list[dict] = []
         self._id_index: dict[str, int] = {}   # ws_id → row
         self._progress_map: dict[str, float] = {}
+        self._backend = backend
 
     def rowCount(self, parent=QModelIndex()):
         if parent.isValid():
@@ -123,17 +124,21 @@ class WorkspaceModel(QAbstractListModel):
             # Calculate age from detectedAt or createdAt
             detected = ws.get("detectedAt") or ws.get("detected_at") or ws.get("created_at", 0)
             if detected is not None and detected > 0:
+                det_ms = int(detected)
+                if 0 < det_ms < 5000000000:
+                    det_ms *= 1000
                 from time import time
+                now_ms = int(time() * 1000)
                 try:
-                    age_sec = int(time() * 1000 - int(detected))
-                    if age_sec < 60000:
-                        return f"{age_sec // 1000}s"
-                    elif age_sec < 3600000:
-                        return f"{age_sec // 60000}m"
-                    elif age_sec < 86400000:
-                        return f"{age_sec // 3600000}h"
+                    age_ms = now_ms - det_ms
+                    if age_ms < 60000:
+                        return f"{max(0, age_ms // 1000)}s"
+                    elif age_ms < 3600000:
+                        return f"{age_ms // 60000}m"
+                    elif age_ms < 86400000:
+                        return f"{age_ms // 3600000}h"
                     else:
-                        return f"{age_sec // 86400000}d"
+                        return f"{age_ms // 86400000}d"
                 except (ValueError, TypeError):
                     return "—"
             return "—"
@@ -167,6 +172,8 @@ class WorkspaceModel(QAbstractListModel):
             return float(ws.get("renderDurationSec", 0.0))
         if role == self.TotalDurationRole:
             return float(ws.get("totalDurationSec", 0.0))
+        if role == self.IsStartupCatchupRole:
+            return bool(ws.get("isStartupCatchup", False))
         return None
 
     def roleNames(self):
@@ -194,6 +201,7 @@ class WorkspaceModel(QAbstractListModel):
             self.DownloadDurationRole: QByteArray(b"downloadDurationSec"),
             self.RenderDurationRole: QByteArray(b"renderDurationSec"),
             self.TotalDurationRole: QByteArray(b"totalDurationSec"),
+            self.IsStartupCatchupRole: QByteArray(b"isStartupCatchup"),
         }
 
     # ── Index maintenance ──────────────────────────────────────────
@@ -201,9 +209,14 @@ class WorkspaceModel(QAbstractListModel):
         self._id_index = {ws.get("id", ""): i for i, ws in enumerate(self._workspaces)}
 
     # ── Incremental load (replaces beginResetModel pattern) ────────
-    def load_from_backend(self, backend):
+    @Slot()
+    @Slot(QObject)
+    def load_from_backend(self, backend=None):
+        backend_to_use = backend or self._backend
+        if not backend_to_use:
+            return
         try:
-            resp = backend.send_command("workspace:list")
+            resp = backend_to_use.send_command("workspace:list")
             workspaces = resp.get("result", {}).get("workspaces", [])
             # Normalize fields from Rust format (camelCase) to model format
             normalized_workspaces = []
@@ -235,6 +248,7 @@ class WorkspaceModel(QAbstractListModel):
                     "downloadDurationSec": ws.get("downloadDurationSec") if ws.get("downloadDurationSec") is not None else ws.get("download_duration_sec", 0.0),
                     "renderDurationSec": ws.get("renderDurationSec") if ws.get("renderDurationSec") is not None else ws.get("render_duration_sec", 0.0),
                     "totalDurationSec": ws.get("totalDurationSec") if ws.get("totalDurationSec") is not None else ws.get("total_duration_sec", 0.0),
+                    "isStartupCatchup": ws.get("isStartupCatchup") if ws.get("isStartupCatchup") is not None else ws.get("is_startup_catchup", False),
                 }
                 normalized_workspaces.append(normalized)
 
@@ -377,7 +391,8 @@ class WorkspaceModel(QAbstractListModel):
                 })
         return tasks
 
-    @Slot(str, str, 'QVariant', object)
+    @Slot(str, str, 'QVariant')
+    @Slot(str, str, 'QVariant', QObject)
     def update_field(self, workspace_id: str, field: str, value, client=None):
         field_map = {
             "title": "title",
@@ -404,8 +419,9 @@ class WorkspaceModel(QAbstractListModel):
             self._workspaces[row][local_key] = value
         self.dataChanged.emit(idx, idx, [])
 
-        if client:
-            response = client.send_command(
+        client_to_use = client or self._backend
+        if client_to_use:
+            response = client_to_use.send_command(
                 "workspace:update",
                 {"id": workspace_id, "field": field, "value": value},
                 timeout=5.0,
@@ -415,10 +431,62 @@ class WorkspaceModel(QAbstractListModel):
                 if hasattr(ActivityLogModel, 'add_entry'):
                     ActivityLogModel.add_entry("edit", response["warning"], "warning")
 
-    @Slot(object)
-    def clear_all(self, backend):
+    @Slot()
+    @Slot(QObject)
+    def clear_all(self, backend=None):
+        backend_to_use = backend or self._backend
+        if not backend_to_use:
+            return
         try:
-            backend.send_command("workspace:clear")
-            self.load_from_backend(backend)
+            backend_to_use.send_command("workspace:clear")
+            self.load_from_backend(backend_to_use)
         except Exception as e:
             print(f"[WorkspaceModel] clear_all error: {e}")
+
+    @Slot(str)
+    @Slot(QObject, str)
+    def delete_workspace(self, backend_or_id, workspace_id=None):
+        if workspace_id is None:
+            workspace_id = backend_or_id
+            backend_to_use = self._backend
+        else:
+            backend_to_use = backend_or_id or self._backend
+
+        if not backend_to_use or not workspace_id:
+            return
+        try:
+            backend_to_use.send_command("workspace:delete", {"id": workspace_id})
+            self.load_from_backend(backend_to_use)
+        except Exception as e:
+            print(f"[WorkspaceModel] delete_workspace error: {e}")
+
+    @Slot(list)
+    @Slot(QObject, list)
+    def delete_workspaces(self, backend_or_ids, workspace_ids=None):
+        if workspace_ids is None:
+            workspace_ids = backend_or_ids
+            backend_to_use = self._backend
+        else:
+            backend_to_use = backend_or_ids or self._backend
+
+        if not backend_to_use or not workspace_ids:
+            return
+        try:
+            for ws_id in workspace_ids:
+                backend_to_use.send_command("workspace:delete", {"id": ws_id})
+            self.load_from_backend(backend_to_use)
+        except Exception as e:
+            print(f"[WorkspaceModel] delete_workspaces error: {e}")
+
+    @Slot(str, str, result=list)
+    def get_filtered_ids(self, status_filter, channel_filter):
+        res = []
+        for ws in self._workspaces:
+            status = ws.get("status", "pending")
+            channel_id = ws.get("channelId", "")
+            if status_filter != "all" and status_filter != status:
+                continue
+            if channel_filter and channel_filter != channel_id:
+                continue
+            res.append(ws.get("id", ""))
+        return res
