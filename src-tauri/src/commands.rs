@@ -2700,15 +2700,14 @@ pub fn get_resolved_hardware_config() -> ResolvedHardwareConfig {
     // Prioritize physically detected VRAM if it is higher than the setting's configuration
     let mut vram = if let Some(profile) = s_store.settings.get("hardwareProfile") {
         let profile_vram = profile.get("vramGB").and_then(|v| v.as_u64()).unwrap_or(stats.vram_total_gb as u64);
-        profile_vram.max(stats.vram_total_gb as u64)
+        if stats.vram_total_gb > 0 {
+            profile_vram.min(stats.vram_total_gb as u64)
+        } else {
+            profile_vram
+        }
     } else {
         stats.vram_total_gb as u64
     };
-
-    // Clamp target VRAM to physically detected VRAM to avoid CUDA out-of-memory/over-allocation
-    if stats.vram_total_gb > 0 && vram > stats.vram_total_gb as u64 {
-        vram = stats.vram_total_gb as u64;
-    }
 
     // Default values if no profile match
     let mut render_workers = gpu.max_workers as usize;
@@ -2779,7 +2778,11 @@ pub fn get_resolved_hardware_config() -> ResolvedHardwareConfig {
     let ram_total_gb = (stats.ram_total / (1024 * 1024 * 1024)) as usize;
     let mut ram_gb = if let Some(profile) = s_store.settings.get("hardwareProfile") {
         let profile_ram = profile.get("ramGB").and_then(|v| v.as_u64()).unwrap_or(ram_total_gb as u64) as usize;
-        profile_ram.max(ram_total_gb)
+        if ram_total_gb > 0 {
+            profile_ram.min(ram_total_gb)
+        } else {
+            profile_ram
+        }
     } else {
         ram_total_gb
     };

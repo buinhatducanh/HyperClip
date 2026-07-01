@@ -118,17 +118,26 @@ fn try_persisted_json(profile_dir: &Path) -> Option<CookieExtractionResult> {
         // If raw_cookies is present, return it immediately (supports full cookie caching)
         if let Some(ref raw) = persisted.raw_cookies {
             if !raw.is_empty() {
-                tracing::info!(
-                    "[Cookies] Loaded {} raw cookies from persisted JSON at {:?}",
-                    raw.len(),
-                    canonical
-                );
-                return Some(CookieExtractionResult {
-                    cookies: raw.clone(),
-                    profile_name: "Default".to_string(),
-                    domain: "youtube.com".to_string(),
-                    socs_value: raw.iter().find(|c| c.name == "SOCS").map(|c| c.value.clone()),
-                });
+                let has_sapisid = raw.iter().any(|c| c.name == "SAPISID" || c.name == "__Secure-3PAPISID");
+                let has_psid = raw.iter().any(|c| c.name == "__Secure-1PSID" || c.name == "__Secure-3PSID" || c.name == "SID");
+                if has_sapisid && has_psid {
+                    tracing::info!(
+                        "[Cookies] Loaded {} raw cookies from persisted JSON at {:?}",
+                        raw.len(),
+                        canonical
+                    );
+                    return Some(CookieExtractionResult {
+                        cookies: raw.clone(),
+                        profile_name: "Default".to_string(),
+                        domain: "youtube.com".to_string(),
+                        socs_value: raw.iter().find(|c| c.name == "SOCS").map(|c| c.value.clone()),
+                    });
+                } else {
+                    tracing::warn!(
+                        "[Cookies] Persisted JSON raw_cookies at {:?} missing SAPISID or PSID/SID — skipping",
+                        canonical
+                    );
+                }
             }
         }
 
@@ -472,20 +481,24 @@ pub fn extract_chrome_cookies(
     profile_dir: &std::path::Path,
     profile_name: &str,
 ) -> Result<CookieExtractionResult> {
+    let active_matches = if let Ok(lock) = ACTIVE_CHROME_PROFILE.lock() {
+        lock.as_deref() == Some(profile_name)
+    } else {
+        false
+    };
+
     // 1. Fast path: read persisted JSON (no NTFS lock contention)
-    if let Some(result) = try_persisted_json(profile_dir) {
-        return Ok(result);
+    // Only use cached JSON if this profile is NOT active in an ongoing Chrome login flow
+    if !active_matches {
+        if let Some(result) = try_persisted_json(profile_dir) {
+            return Ok(result);
+        }
+    } else {
+        tracing::info!("[Cookies] Profile {} is active, bypassing persisted JSON cache for fresh extraction", profile_name);
     }
 
     // 2. Try to query via CDP WebSocket if Chrome is active and matches this profile
-    let should_try_cdp = {
-        let active_matches = if let Ok(lock) = ACTIVE_CHROME_PROFILE.lock() {
-            lock.as_deref() == Some(profile_name)
-        } else {
-            false
-        };
-        active_matches || is_cookies_file_locked(profile_dir)
-    };
+    let should_try_cdp = active_matches || is_cookies_file_locked(profile_dir);
 
     if should_try_cdp {
         match try_cdp_cookies() {

@@ -1,6 +1,61 @@
 {
   "entries": [
     {
+      "wsId": "ws-ch-1782701489926",
+      "videoId": "bbWjpaQ4_x8",
+      "title": "YTDown YouTube Lich Su Tien Te Tien Da Thay Doi The Gio Media hiFlYPfklCM 001 1080p",
+      "channelName": "BadyNone",
+      "publishedAt": 1782701481872.0,
+      "detectedAt": 1782701487926.0,
+      "latencyMs": 6054.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1782701470796",
+      "videoId": "aBOYE2LzM3E",
+      "title": "YTDown YouTube Lich Su Tien Te Tien Da Thay Doi The Gio Media hiFlYPfklCM 001 1080p",
+      "channelName": "BadyNone",
+      "publishedAt": 1782701230795.0,
+      "detectedAt": 1782701468796.0,
+      "latencyMs": 238001.0,
+      "durationSec": 675.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1782699633304",
+      "videoId": "Or69w-JOiYo",
+      "title": "YTDown YouTube Dong Co Hoan Hao Nhat The Gioi Dang Nam  Media GiaBcWoHF8 001 1080p",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1782699573302.0,
+      "detectedAt": 1782699631304.0,
+      "latencyMs": 58002.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1782699522445",
+      "videoId": "o9iDp7oGPXI",
+      "title": "YTDown YouTube Dong Co Hoan Hao Nhat The Gioi Dang Nam  Media GiaBcWoHF8 001 1080p",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1782699521444.0,
+      "detectedAt": 1782699521544.0,
+      "latencyMs": 100.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1782699423970",
+      "videoId": "86N4KSO7YLk",
+      "title": "YTDown YouTube Lich Su Tien Te Tien Da Thay Doi The Gio Media hiFlYPfklCM 001 1080p",
+      "channelName": "BadyNone",
+      "publishedAt": 1782699421929.0,
+      "detectedAt": 1782699422029.0,
+      "latencyMs": 100.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
       "wsId": "ws-ch-1782693372038",
       "videoId": "vcE0hFRFmkA",
       "title": "YTDown YouTube Lich Su Tien Te Tien Da Thay Doi The Gio Media hiFlYPfklCM 001 1080p",
@@ -16,9 +71,54 @@
     "ws-ch-1782693372038": {
       "downloadStartAt": 1782693372053,
       "error": "",
-      "status": "",
+      "status": "ready",
       "downloadCompleteAt": 1782693378155,
       "downloadedSize": 9505197.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782699423970": {
+      "downloadStartAt": 1782699423985,
+      "error": "",
+      "status": "ready",
+      "downloadCompleteAt": 1782699429890,
+      "downloadedSize": 9029608.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782699522445": {
+      "downloadStartAt": 1782699522462,
+      "error": "",
+      "status": "ready",
+      "downloadCompleteAt": 1782699528692,
+      "downloadedSize": 15940955.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782699633304": {
+      "downloadStartAt": 1782699633321,
+      "error": "",
+      "status": "ready",
+      "downloadCompleteAt": 1782699638888,
+      "downloadedSize": 16314785.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782701470796": {
+      "downloadStartAt": 1782701470812,
+      "error": "",
+      "status": "",
+      "downloadCompleteAt": 1782701478034,
+      "downloadedSize": 9029608.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782701489926": {
+      "downloadStartAt": 1782701489941,
+      "error": "",
+      "status": "",
+      "downloadCompleteAt": 1782701496183,
+      "downloadedSize": 9029608.0,
       "width": 640.0,
       "height": 360.0
     }

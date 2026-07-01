@@ -1221,6 +1221,7 @@ where F: FnMut(f64) + Send + 'static {
     let total_duration_str = format!("{:.2}", total_duration.max(1.0));
 
     let mut cmd = TokioCommand::new(get_ffmpeg_path());
+    cmd.kill_on_drop(true);
     #[cfg(target_os = "windows")]
     {
         cmd.creation_flags(0x08000000);
