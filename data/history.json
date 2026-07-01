@@ -1,6 +1,39 @@
 {
   "entries": [
     {
+      "wsId": "ws-ch-1782932299829",
+      "videoId": "eI_vmwNMhtY",
+      "title": "YTDown YouTube Dong Co Hoan Hao Nhat The Gioi Dang Nam  Media GiaBcWoHF8 001 1080p",
+      "channelName": "Nhật Đức Anh Bùi",
+      "publishedAt": 1782932295826.0,
+      "detectedAt": 1782932297829.0,
+      "latencyMs": 2003.0,
+      "durationSec": 639.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1782930923630",
+      "videoId": "vFczUkqyxoM",
+      "title": "YTDown YouTube Lich Su Tien Te Tien Da Thay Doi The Gio Media hiFlYPfklCM 001 1080p",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1782930922624.0,
+      "detectedAt": 1782930922724.0,
+      "latencyMs": 100.0,
+      "durationSec": 0.0,
+      "status": "waiting"
+    },
+    {
+      "wsId": "ws-ch-1782930735972",
+      "videoId": "_5r049B4hBQ",
+      "title": "YTDown YouTube Dong Co Hoan Hao Nhat The Gioi Dang Nam  Media GiaBcWoHF8 001 1080p",
+      "channelName": "Zilk Kay",
+      "publishedAt": 1782930733969.0,
+      "detectedAt": 1782930734069.0,
+      "latencyMs": 100.0,
+      "durationSec": 639.0,
+      "status": "waiting"
+    },
+    {
       "wsId": "ws-ch-1782693372038",
       "videoId": "vcE0hFRFmkA",
       "title": "YTDown YouTube Lich Su Tien Te Tien Da Thay Doi The Gio Media hiFlYPfklCM 001 1080p",
@@ -16,9 +49,28 @@
     "ws-ch-1782693372038": {
       "downloadStartAt": 1782693372053,
       "error": "",
-      "status": "",
+      "status": "ready",
       "downloadCompleteAt": 1782693378155,
       "downloadedSize": 9505197.0,
+      "width": 640.0,
+      "height": 360.0
+    },
+    "ws-ch-1782930735972": {
+      "downloadStartAt": 1782930736001,
+      "error": "yt-dlp failed (exit=Some(1)): WARNING: [youtube] HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network. Retrying (1/3)...\nWARNING: [youtube] HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network. Retrying (2/3)...\nWARNING: [youtube] HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network. Retrying (3/3)...\nWARNING: [youtube] Unable to download webpage: HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network (caused by TransportError(\"HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network\")). Giving up after 3 retries\nWARNING: [youtube] HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network. Retrying (1/3)...\nWARNING: [youtube] HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network. Retrying (2/3)...\nWARNING: [youtube] HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network. Retrying (3/3)...\nERROR: [youtube] _5r049B4hBQ: Unable to download API page: HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network (caused by TransportError(\"HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network\"))\n",
+      "status": "error"
+    },
+    "ws-ch-1782930923630": {
+      "downloadStartAt": 1782930923668,
+      "error": "yt-dlp failed (exit=Some(1)): WARNING: [youtube] HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network. Retrying (1/3)...\nWARNING: [youtube] HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network. Retrying (2/3)...\nWARNING: [youtube] HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network. Retrying (3/3)...\nWARNING: [youtube] Unable to download webpage: HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network (caused by TransportError(\"HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network\")). Giving up after 3 retries\nWARNING: [youtube] HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network. Retrying (1/3)...\nWARNING: [youtube] HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network. Retrying (2/3)...\nWARNING: [youtube] HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network. Retrying (3/3)...\nERROR: [youtube] vFczUkqyxoM: Unable to download API page: HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network (caused by TransportError(\"HTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: [WinError 10051] A socket operation was attempted to an unreachable network\"))\n",
+      "status": "error"
+    },
+    "ws-ch-1782932299829": {
+      "downloadStartAt": 1782932299855,
+      "error": "",
+      "status": "",
+      "downloadCompleteAt": 1782932308786,
+      "downloadedSize": 15940955.0,
       "width": 640.0,
       "height": 360.0
     }
