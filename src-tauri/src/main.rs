@@ -132,8 +132,9 @@ fn main() {
     commands::init_appstate();
     tracing::info!("[AppState] AppState initialized at startup");
 
-    // Spawn background yt-dlp update check
+    // Spawn background yt-dlp update check (delayed 5 minutes post-startup to optimize boot performance)
     std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(300));
         let ytdlp_path = hyperclip_ipc::youtube::find_ytdlp_path();
         tracing::info!("[Update] Checking for yt-dlp updates using path: {}", ytdlp_path);
         

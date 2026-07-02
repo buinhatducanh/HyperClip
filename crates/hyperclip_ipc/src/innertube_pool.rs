@@ -52,6 +52,8 @@ pub struct InnertubeClientPool {
     active_clients_count: std::sync::Arc<AtomicUsize>,
     pub max_active_clients: std::sync::atomic::AtomicUsize,
     cookie_refresh_fn: Mutex<Option<CookieRefreshFn>>,
+    /// Timestamp of the last time a daemon was spawned, to stagger spawns.
+    last_spawn_at: Mutex<Instant>,
 }
 
 impl InnertubeClientPool {
@@ -74,6 +76,7 @@ impl InnertubeClientPool {
             active_clients_count: std::sync::Arc::new(AtomicUsize::new(0)),
             max_active_clients: std::sync::atomic::AtomicUsize::new(8),
             cookie_refresh_fn: Mutex::new(None),
+            last_spawn_at: Mutex::new(Instant::now() - Duration::from_secs(10)),
         })
     }
 
@@ -260,9 +263,21 @@ impl InnertubeClientPool {
             let active = self.active_clients_count.load(Ordering::SeqCst);
             let limit = self.max_active_clients.load(Ordering::SeqCst);
             if active < limit {
+                // Staggered spawn: wait at least 500ms since the last spawn
+                {
+                    let mut last_spawn = self.last_spawn_at.lock().unwrap();
+                    let elapsed = last_spawn.elapsed();
+                    let delay = Duration::from_millis(500);
+                    if elapsed < delay {
+                        let wait = delay - elapsed;
+                        std::thread::sleep(wait);
+                    }
+                    *last_spawn = Instant::now();
+                }
+
                 self.active_clients_count.fetch_add(1, Ordering::SeqCst);
                 let cfg = crate::innertube_client::ClientConfig {
-                    timeout_sec: 15,
+                    timeout_sec: 45, // Match the client's timeout
                     ..Default::default()
                 };
                 match crate::innertube_client::InnertubeClient::new(cfg) {

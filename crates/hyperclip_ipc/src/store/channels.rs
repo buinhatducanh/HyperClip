@@ -220,6 +220,16 @@ impl SeenVideos {
         let now = crate::detection::current_unix_ts();
         self.channels.retain(|_, v| v.expires_at > now);
     }
+
+    /// Unmark video as seen (remove it from all channels or a specific channel)
+    pub fn unmark_seen(&mut self, channel_id: &str, video_id: &str) {
+        if let Some(entry) = self.channels.get_mut(channel_id) {
+            entry.ids.retain(|id| id != video_id);
+        }
+        if let Some(entry) = self.channels.get_mut("") {
+            entry.ids.retain(|id| id != video_id);
+        }
+    }
 }
 
 /// Upload playlist ID cache (24h TTL)

@@ -45,6 +45,10 @@ struct NodeResponse {
     daemon: bool,
     #[serde(default)]
     cmd: Option<String>,
+    #[serde(rename = "channelId")]
+    channel_id: Option<String>,
+    #[serde(rename = "channelName")]
+    channel_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -320,8 +324,9 @@ impl InnertubeClient {
 
         // Wait for the "ready" signal from the daemon (with timeout)
         let start = std::time::Instant::now();
-        let timeout = std::time::Duration::from_secs(15);
+        let timeout = std::time::Duration::from_secs(45); // Increased from 15s to 45s
 
+        tracing::trace!("[InnertubeClient] Waiting for daemon 'ready' signal (timeout={:?})...", timeout);
         match self.recv_line(timeout) {
             Ok(line) => {
                 if let Ok(resp) = serde_json::from_str::<NodeResponse>(&line) {
@@ -573,6 +578,66 @@ impl InnertubeClient {
                                 })
                                 .collect();
                             return Ok(videos);
+                        } else {
+                            return Err(HyperclipError::InnertubeTransient(
+                                r.error.unwrap_or_default(),
+                            ));
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "[InnertubeClient] Failed to parse daemon response: {} (line: {})",
+                        e,
+                        &line[..line.len().min(200)]
+                    );
+                }
+            }
+        }
+    }
+
+    /// Resolve channel info for a specific video ID using the persistent daemon.
+    pub async fn get_video_info(&mut self, video_id: &str, cookie: &str) -> Result<(String, String)> {
+        self.ensure_daemon()?;
+
+        let id = self.req_counter.fetch_add(1, Ordering::SeqCst);
+        let req = serde_json::json!({
+            "id": id,
+            "cmd": "getVideoInfo",
+            "videoId": video_id,
+            "cookie": cookie,
+        });
+
+        let start = std::time::Instant::now();
+        self.send_request(&req.to_string())?;
+
+        let timeout = std::time::Duration::from_secs(10);
+        loop {
+            let remaining = timeout.saturating_sub(start.elapsed());
+            if remaining.is_zero() {
+                return Err(HyperclipError::InnertubeTransient(format!(
+                    "Timeout waiting for getVideoInfo response for video {video_id}"
+                )));
+            }
+
+            let line = match self.recv_line(remaining) {
+                Ok(l) => l,
+                Err(e) => return Err(e),
+            };
+
+            match serde_json::from_str::<NodeResponse>(&line) {
+                Ok(r) => {
+                    if r.daemon {
+                        continue;
+                    }
+                    if r.cmd.as_deref() == Some("setCookie") || r.cmd.as_deref() == Some("pong") {
+                        continue;
+                    }
+                    if r.id == Some(id) {
+                        if r.ok {
+                            let cid = r.channel_id.unwrap_or_default();
+                            let cname = r.channel_name.unwrap_or_default();
+                            return Ok((cid, cname));
                         } else {
                             return Err(HyperclipError::InnertubeTransient(
                                 r.error.unwrap_or_default(),

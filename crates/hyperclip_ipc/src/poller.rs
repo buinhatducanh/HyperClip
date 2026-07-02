@@ -301,8 +301,14 @@ impl Poller {
                                     continue;
                                 }
                                 
-                                let bypass_age_limit = index == 0 && !channel_seen_exists;
-                                if !bypass_age_limit && !Self::is_within_age_limit(video.published_at, now_ms, max_age_ms) {
+                                let bypass_age_limit = (index == 0 && !channel_seen_exists)
+                                    || (channel_seen_exists && video.published_at == 0);
+                                let limit = if channel_seen_exists {
+                                    48 * 3600 * 1000 // 48h limit for catch-up on already monitored channels
+                                } else {
+                                    max_age_ms
+                                };
+                                if !bypass_age_limit && !Self::is_within_age_limit(video.published_at, now_ms, limit) {
                                     continue;
                                 }
                                 if video.width > 0 && video.height > 0 {

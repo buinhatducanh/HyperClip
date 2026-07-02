@@ -95,14 +95,25 @@ impl AppState {
 
         let _ = INSTANCE.get_or_init(|| {
 
-            let pool_config = PoolConfig::default();
+            let gpu_config = hyperclip_ipc::system::get_gpu_config();
+            let pool_config = PoolConfig {
+                size: gpu_config.max_sessions as u32,
+                ..Default::default()
+            };
             let pool = Arc::new(InnertubeClientPool::initialize(pool_config).unwrap());
             
             // Load startup active daemon limit from settings.json (default to 8)
             let s_path = get_settings_path();
             let s_store = SettingsStore::load(&s_path);
             let daemon_limit = s_store.settings.get("daemonLimit").and_then(|v| v.as_u64()).unwrap_or(8) as usize;
-            pool.max_active_clients.store(daemon_limit, std::sync::atomic::Ordering::SeqCst);
+            
+            // If gpu_config says we only support 4 workers, don't exceed that if settings are default
+            let final_daemon_limit = if s_store.settings.get("daemonLimit").is_none() {
+                daemon_limit.min(gpu_config.max_workers as usize)
+            } else {
+                daemon_limit
+            };
+            pool.max_active_clients.store(final_daemon_limit, std::sync::atomic::Ordering::SeqCst);
 
             pool.set_refresh_callback(move |idx| {
                 let profile_id = if idx == 0 {
@@ -167,6 +178,7 @@ impl AppState {
             let _channels_clone = channels.clone();
             let seen_videos_clone = seen_videos.clone();
             let processing_video_ids_clone = processing_video_ids.clone();
+            let pool_clone = pool.clone();
             let process_fn = move |event: NewVideoEvent| {
                 // Thread-safe lock to prevent concurrent ingestion of the exact same video ID
                 {
@@ -191,32 +203,76 @@ impl AppState {
                 let _channels_clone = _channels_clone.clone();
                 let seen_videos_clone = seen_videos_clone.clone();
                 let processing_video_ids_clone = processing_video_ids_clone.clone();
+                let pool_clone = pool_clone.clone();
 
                 let run_body = async move {
                     let mut event = event;
                     let mut is_matched = false;
 
-                    // If channel_id is empty (from a normal watch tab), try to resolve it via yt-dlp first
+                    // If channel_id is empty (from a normal watch tab), try to resolve it via Innertube daemon first
                     if event.channel_id.is_empty() {
-                        let url = format!("https://youtube.com/watch?v={}", event.video_id);
-                        let cookies_path = get_cookies_netscape_path();
-                        let cookies_str = cookies_path.to_string_lossy().to_string();
+                        tracing::info!("[AppState] Resolving channel info for watch tab video {} via Innertube...", event.video_id);
+                        let mut resolved_via_innertube = false;
 
-                        tracing::info!("[AppState] Resolving channel info for watch tab video: {}", event.video_id);
-                        let video_id_clone = event.video_id.clone();
-                        let info_res = tokio::task::spawn_blocking(move || {
-                            hyperclip_ipc::youtube::get_video_info(&url, &cookies_str)
-                        }).await;
-
-                        match info_res {
-                            Ok(Ok(info)) => {
-                                event.channel_id = info.channel_id;
-                                event.channel_name = info.channel_name;
-                                tracing::info!("[AppState] Resolved watch video {} to channel_id: {}, channel_name: {}", 
-                                    video_id_clone, event.channel_id, event.channel_name);
+                        // Try to lease a client to call get_video_info
+                        let mut leased_client = None;
+                        let mut session_idx_opt = None;
+                        let start_time = std::time::Instant::now();
+                        loop {
+                            if let Some(idx) = pool_clone.acquire_session() {
+                                if let Some(cc) = pool_clone.take_client_for_session(idx) {
+                                    leased_client = Some(cc);
+                                    session_idx_opt = Some(idx);
+                                    break;
+                                } else {
+                                    pool_clone.release_session_busy(idx);
+                                }
                             }
-                            _ => {
-                                tracing::warn!("[AppState] Failed to resolve channel info for video {}", video_id_clone);
+                            if start_time.elapsed() > std::time::Duration::from_secs(5) {
+                                break;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        }
+
+                        if let (Some(idx), Some(mut cc)) = (session_idx_opt, leased_client) {
+                            match cc.client.get_video_info(&event.video_id, &cc.cookie).await {
+                                Ok((cid, cname)) => {
+                                    if !cid.is_empty() {
+                                        event.channel_id = cid;
+                                        event.channel_name = cname;
+                                        resolved_via_innertube = true;
+                                        tracing::info!("[AppState] Innertube resolved watch video {} to channel_id: {}, channel_name: {}", 
+                                            event.video_id, event.channel_id, event.channel_name);
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!("[AppState] Innertube failed to resolve video info for {}: {}", event.video_id, e);
+                                }
+                            }
+                            pool_clone.return_client(idx, cc.client);
+                        }
+
+                        // Fall back to yt-dlp if Innertube resolution failed
+                        if !resolved_via_innertube {
+                            tracing::info!("[AppState] Falling back to yt-dlp to resolve channel info for video: {}", event.video_id);
+                            let url = format!("https://youtube.com/watch?v={}", event.video_id);
+                            let cookies_path = get_cookies_netscape_path();
+                            let cookies_str = cookies_path.to_string_lossy().to_string();
+                            let video_id_clone = event.video_id.clone();
+                            let info_res = tokio::task::spawn_blocking(move || {
+                                hyperclip_ipc::youtube::get_video_info(&url, &cookies_str)
+                            }).await;
+
+                            match info_res {
+                                Ok(Ok(info)) => {
+                                    event.channel_id = info.channel_id;
+                                    event.channel_name = info.channel_name;
+                                    tracing::info!("[AppState] yt-dlp resolved watch video {} to channel_id: {}, channel_name: {}", 
+                                        video_id_clone, event.channel_id, event.channel_name);
+                                }
+                                _ => {
+                                    tracing::warn!("[AppState] yt-dlp failed to resolve channel info for video {}", video_id_clone);
+                                }
                             }
                         }
                     }
@@ -446,6 +502,7 @@ impl AppState {
                     let duration_sec_opt = Some(event.duration_sec.round() as u64);
                     let processing_video_ids_clone2 = processing_video_ids_clone.clone();
                     let video_id2 = event.video_id.clone();
+                    let seen_videos_clone3 = seen_videos_clone.clone();
                     std::thread::spawn(move || {
                         let pool = get_download_worker_pool();
                         let download_res = tokio::runtime::Runtime::new()
@@ -672,20 +729,50 @@ impl AppState {
                             Err(e) => {
                                 tracing::error!("[AppState] Auto-download failed for {}: {}", tid, e);
                                 
-                                // Update workspace store status to error to prevent stuck state
-                                let ws_path = get_workspaces_path();
-                                let mut ws_store = WorkspaceStore::load(&ws_path);
-                                ws_store.update(&tid, serde_json::json!({
-                                    "status": "error",
-                                    "error": e.clone(),
-                                })).ok();
-                                ws_store.save(&ws_path).ok();
+                                let err_lower = e.to_lowercase();
+                                let is_premiere = err_lower.contains("premiere") || err_lower.contains("scheduled");
 
-                                let err_event = serde_json::json!({
-                                    "method": "workspace:update",
-                                    "params": {"id": tid, "status": "error", "error": e}
-                                });
-                                hyperclip_ipc::emit_raw(&serde_json::to_string(&err_event).unwrap_or_default());
+                                if is_premiere {
+                                    tracing::info!("[AppState] Video {} is a premiere/upcoming. Removing from seen_videos and deleting workspace to retry later.", video_id2);
+                                    
+                                    // Remove from seen_videos
+                                    if let Ok(rt) = tokio::runtime::Runtime::new() {
+                                        rt.block_on(async {
+                                            let mut guard = seen_videos_clone3.write().await;
+                                            guard.unmark_seen(&cid, &video_id2);
+                                            let path = get_seen_videos_path();
+                                            let _ = guard.save(&path);
+                                        });
+                                    }
+
+                                    // Delete workspace from workspaces.json so it will be retried
+                                    let ws_path = get_workspaces_path();
+                                    let mut ws_store = WorkspaceStore::load(&ws_path);
+                                    ws_store.workspaces.retain(|w| w.id != tid);
+                                    let _ = ws_store.save(&ws_path);
+
+                                    // Emit workspace delete event to UI
+                                    let del_event = serde_json::json!({
+                                        "method": "workspace:delete",
+                                        "params": {"id": tid}
+                                    });
+                                    hyperclip_ipc::emit_raw(&serde_json::to_string(&del_event).unwrap_or_default());
+                                } else {
+                                    // Update workspace store status to error to prevent stuck state
+                                    let ws_path = get_workspaces_path();
+                                    let mut ws_store = WorkspaceStore::load(&ws_path);
+                                    ws_store.update(&tid, serde_json::json!({
+                                        "status": "error",
+                                        "error": e.clone(),
+                                    })).ok();
+                                    ws_store.save(&ws_path).ok();
+
+                                    let err_event = serde_json::json!({
+                                        "method": "workspace:update",
+                                        "params": {"id": tid, "status": "error", "error": e}
+                                    });
+                                    hyperclip_ipc::emit_raw(&serde_json::to_string(&err_event).unwrap_or_default());
+                                }
                             }
                         }
                         
@@ -1163,6 +1250,8 @@ pub fn init_appstate() {
                         tracing::debug!("[cookie-preload] Profile {} extraction failed: {}", i, e);
                     }
                 }
+                // Add a small delay to prevent Disk I/O spike
+                std::thread::sleep(std::time::Duration::from_millis(100));
             }
             // Also try Default profile
             let _ = extract_profile_cookies_and_feed("Default");

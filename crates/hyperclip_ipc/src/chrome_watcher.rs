@@ -258,7 +258,8 @@ impl ChromeTabWatcher {
                                             .unwrap_or(false)
                                     };
 
-                                    let bypass_age_limit = index == 0 && !channel_seen_exists;
+                                    let bypass_age_limit = (index == 0 && !channel_seen_exists)
+                                        || (channel_seen_exists && v.published_at <= 1);
 
                                     if v.published_at <= 1 {
                                         if !bypass_age_limit {
@@ -275,12 +276,17 @@ impl ChromeTabWatcher {
                                     if v.published_at > 1 {
                                         if !bypass_age_limit {
                                             let age_ms = now_ms - v.published_at;
-                                            if age_ms < -300_000 || age_ms > max_age_ms {
+                                            let limit = if channel_seen_exists {
+                                                48 * 3600 * 1000 // 48h limit for catch-up on already monitored channels
+                                            } else {
+                                                max_age_ms
+                                            };
+                                            if age_ms < -300_000 || age_ms > limit {
                                                 tracing::info!(
                                                     "[ChromeWatcher] Skipping video {} because it is outside age limit (age: {}s, limit: {}s)",
                                                     v.video_id,
                                                     age_ms / 1000,
-                                                    max_age_ms / 1000
+                                                    limit / 1000
                                                 );
                                                 // Mark as seen to prevent repeated scanning and logging flood
                                                 let mut seen_guard = seen_videos.write().await;

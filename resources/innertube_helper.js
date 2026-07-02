@@ -807,6 +807,28 @@ function runDaemon(initialCookie) {
           continue;
         }
 
+        // Handle getVideoInfo command - resolve channel ID and name for a video
+        if (req.cmd === 'getVideoInfo') {
+          const videoId = req.videoId;
+          ensureClient(req.cookie || currentCookie).then(async (client) => {
+            try {
+              const info = await client.getInfo(videoId);
+              writeResponse({
+                id: req.id || 0,
+                ok: true,
+                cmd: 'getVideoInfo',
+                channelId: info.basic_info.channel_id || '',
+                channelName: info.basic_info.author || '',
+              });
+            } catch (e) {
+              writeResponse({ id: req.id || 0, ok: false, cmd: 'getVideoInfo', error: e.message });
+            }
+          }).catch(e => {
+            writeResponse({ id: req.id || 0, ok: false, cmd: 'getVideoInfo', error: e.message });
+          });
+          continue;
+        }
+
         // Handle ping/heartbeat
         if (req.cmd === 'ping') {
           writeResponse({ id: req.id || 0, ok: true, cmd: 'pong' });

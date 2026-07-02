@@ -101,6 +101,12 @@ pub fn build_ytdlp_args(opts: &DownloadOptions) -> Vec<String> {
         opts.concurrent_fragments.to_string(),
         "--remux-video".to_string(),
         "mp4".to_string(),
+        "--socket-timeout".to_string(),
+        "30".to_string(),
+        "--retries".to_string(),
+        "10".to_string(),
+        "--fragment-retries".to_string(),
+        "10".to_string(),
     ];
     let clients = opts.client_priority.join(",");
     if !clients.is_empty() {
