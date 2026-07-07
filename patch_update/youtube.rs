@@ -101,12 +101,6 @@ pub fn build_ytdlp_args(opts: &DownloadOptions) -> Vec<String> {
         opts.concurrent_fragments.to_string(),
         "--remux-video".to_string(),
         "mp4".to_string(),
-        "--socket-timeout".to_string(),
-        "30".to_string(),
-        "--retries".to_string(),
-        "10".to_string(),
-        "--fragment-retries".to_string(),
-        "10".to_string(),
         "--force-ipv4".to_string(),
         "--no-check-certificate".to_string(),
     ];
@@ -255,45 +249,28 @@ where
     let mut child = cmd.spawn().map_err(|e| format!("yt-dlp spawn failed: {}", e))?;
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
+    let reader = BufReader::new(stdout);
 
     // Spawn a thread to read stderr to avoid blocking and capture any error messages
     let stderr_handle = std::thread::spawn(move || {
         let mut err_str = String::new();
         let mut reader = BufReader::new(stderr);
-        let mut buf = Vec::new();
-        loop {
-            buf.clear();
-            match reader.read_until(b'\n', &mut buf) {
-                Ok(0) => break,
-                Ok(_) => {
-                    let line = String::from_utf8_lossy(&buf);
-                    err_str.push_str(&line);
-                }
-                Err(_) => break,
+        let mut line = String::new();
+        while let Ok(n) = reader.read_line(&mut line) {
+            if n == 0 {
+                break;
             }
+            err_str.push_str(&line);
+            line.clear();
         }
         err_str
     });
 
     // Read stdout line by line, parse progress
-    let mut reader = BufReader::new(stdout);
-    let mut buf = Vec::new();
-    loop {
-        buf.clear();
-        match reader.read_until(b'\n', &mut buf) {
-            Ok(0) => break,
-            Ok(_) => {
-                while buf.ends_with(&[b'\n']) || buf.ends_with(&[b'\r']) {
-                    buf.pop();
-                }
-                let line = String::from_utf8_lossy(&buf);
-                if let Some(progress) = parse_ytdlp_stderr(&line) {
-                    on_progress(progress);
-                }
-            }
-            Err(e) => {
-                return Err(format!("stdout read error: {}", e));
-            }
+    for line in reader.lines() {
+        let line = line.map_err(|e| format!("stdout read error: {}", e))?;
+        if let Some(progress) = parse_ytdlp_stderr(&line) {
+            on_progress(progress);
         }
     }
 
