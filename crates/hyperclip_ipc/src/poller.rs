@@ -162,6 +162,29 @@ impl Poller {
         tracing::debug!("[Poller] Channel list updated — {} channels", ch.len());
     }
 
+    pub async fn prewarm(&self) {
+        let pool = self.pool.clone();
+        let limit = pool.max_active_clients.load(Ordering::Relaxed).min(4);
+        tracing::info!("[Poller] Prewarming {} Innertube clients...", limit);
+        for i in 0..limit {
+            let pool = pool.clone();
+            let res = tokio::task::spawn_blocking(move || {
+                pool.prewarm_single_client()
+            }).await;
+            
+            match res {
+                Ok(Ok(true)) => tracing::info!("[Poller] Prewarmed client {}/{}", i + 1, limit),
+                Ok(Ok(false)) => tracing::info!("[Poller] Client limit reached during prewarm"),
+                Ok(Err(e)) => tracing::warn!("[Poller] Failed to prewarm client: {}", e),
+                Err(e) => tracing::error!("[Poller] Join error during prewarm: {}", e),
+            }
+
+            if i + 1 < limit {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
+        }
+    }
+
     pub async fn run(self: Arc<Self>, cancel: tokio_util::sync::CancellationToken) {
         // Poll immediately on startup (no initial sleep)
         tracing::info!("[Poller] Firing initial poll immediately");
@@ -201,27 +224,41 @@ impl Poller {
         );
 
         let ready = self.pool.ready_count();
+        let ready_with_cookie = self.pool.ready_with_cookie_count();
         let total = self.pool.size();
-        tracing::info!("[Poller] Pool ready={ready}/{total}");
+        tracing::info!("[Poller] Pool ready={ready}/{total}, with_cookie={ready_with_cookie}");
 
         // Phase 1: Try Innertube (primary bulk polling)
         let mut oauth_channels = active_channels.clone();
 
-        if ready > 0 {
+        // Concurrency is capped at the number of sessions that actually have a valid cookie.
+        // If user has only 1 logged-in profile (1/30), spawning 4 parallel tasks all queue
+        // on the same session → 3 timeout 15s while 1 handles the queue serially (~13s).
+        // Using ready_with_cookie_count prevents spawning doomed tasks.
+        if ready_with_cookie > 0 {
             let polled_successfully = Arc::new(Mutex::new(std::collections::HashSet::new()));
+            let max_concurrency = self.pool.max_active_clients.load(Ordering::SeqCst)
+                .min(4)
+                .min(ready_with_cookie)
+                .max(1);
+            tracing::info!("[Poller] Spawning {} parallel poll tasks (cap={max_concurrency}, channels={})",
+                active_channels.len().min(max_concurrency), active_channels.len());
+            let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrency));
             let mut handles = Vec::new();
             for channel in active_channels {
                 let polled_successfully = Arc::clone(&polled_successfully);
                 let poller = self.clone();
+                let sem = Arc::clone(&semaphore);
 
                 let handle = tokio::spawn(async move {
+                    let _permit = sem.acquire().await.unwrap();
                     tracing::info!("[Poller] Acquiring session for {}", channel.id);
                     let mut leased = None;
                     let mut session_idx_opt = None;
                     let start_time = std::time::Instant::now();
                     loop {
                         if let Some(idx) = poller.pool.acquire_session() {
-                            if let Some(cc) = poller.pool.take_client_for_session(idx) {
+                            if let Some(cc) = poller.pool.take_client_for_session(idx).await {
                                 leased = Some(cc);
                                 session_idx_opt = Some(idx);
                                 break;
@@ -229,7 +266,7 @@ impl Poller {
                                 poller.pool.release_session_busy(idx);
                             }
                         }
-                        if start_time.elapsed() > std::time::Duration::from_secs(5) {
+                        if start_time.elapsed() > std::time::Duration::from_secs(15) {
                             break;
                         }
                         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -238,7 +275,7 @@ impl Poller {
                     let (session_idx, mut cc) = match (session_idx_opt, leased) {
                         (Some(idx), Some(cc)) => (idx, cc),
                         _ => {
-                            tracing::warn!("[Poller] Failed to acquire session or lease client for channel {} (timed out after 5s)", channel.id);
+                            tracing::warn!("[Poller] Failed to acquire session or lease client for channel {} (timed out after 15s)", channel.id);
                             return;
                         }
                     };
@@ -281,13 +318,22 @@ impl Poller {
 
                     match videos_res {
                         Ok(videos) => {
-                            tracing::info!("[Poller] get_latest_videos returned {} videos for {cid}", videos.len());
+                            let total = videos.len();
+                            // Cap to newest 30 — Innertube often returns 100 videos but only
+                            // the top few matter for "new uploads". This drastically reduces
+                            // filtering CPU when the age limit is short (e.g. 10 min).
+                            let cap = 30usize;
+                            let capped: Vec<_> = videos.into_iter().take(cap).collect();
+                            tracing::info!("[Poller] get_latest_videos returned {} videos for {cid} (processing {})",
+                                total, capped.len());
                             poller.pool.return_client(session_idx, cc.client);
                             poller.pool.mark_success(session_idx);
 
                             polled_successfully.lock().unwrap().insert(cid.clone());
 
-                            for (index, video) in videos.iter().enumerate() {
+                            let mut stats = (0usize, 0usize, 0usize, 0usize, 0usize); // checked, seen, duration, age, ratio
+                            for (index, video) in capped.iter().enumerate() {
+                                stats.0 += 1;
                                 let seen_videos = poller.seen_videos.read().await;
                                 let is_seen = seen_videos.is_any_seen(&video.video_id);
                                 let channel_seen_exists = seen_videos.channels.get(&cid)
@@ -295,12 +341,12 @@ impl Poller {
                                     .unwrap_or(false);
                                 drop(seen_videos);
 
-                                if is_seen { continue; }
+                                if is_seen { stats.1 += 1; continue; }
 
                                 if video.duration_sec < min_duration_sec as f64 {
-                                    continue;
+                                    stats.2 += 1; continue;
                                 }
-                                
+
                                 let bypass_age_limit = (index == 0 && !channel_seen_exists)
                                     || (channel_seen_exists && video.published_at == 0);
                                 let limit = if channel_seen_exists {
@@ -309,11 +355,11 @@ impl Poller {
                                     max_age_ms
                                 };
                                 if !bypass_age_limit && !Self::is_within_age_limit(video.published_at, now_ms, limit) {
-                                    continue;
+                                    stats.3 += 1; continue;
                                 }
                                 if video.width > 0 && video.height > 0 {
                                     let ratio = video.width as f64 / video.height as f64;
-                                    if ratio < 0.6 { continue; }
+                                    if ratio < 0.6 { stats.4 += 1; continue; }
                                 }
 
                                 let mut seen_videos = poller.seen_videos.write().await;
@@ -330,6 +376,8 @@ impl Poller {
                                 poller.record_detection();
                                 (poller.process_fn)(event);
                             }
+                            tracing::debug!("[Poller] {cid} stats: checked={} seen={} duration={} age={} ratio={}",
+                                stats.0, stats.1, stats.2, stats.3, stats.4);
                         }
                         Err(e) => {
                             tracing::warn!("[Poller] Innertube error for {cid} (session {session_idx}): {e}");

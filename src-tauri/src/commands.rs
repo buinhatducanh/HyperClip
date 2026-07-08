@@ -220,7 +220,7 @@ impl AppState {
                         let start_time = std::time::Instant::now();
                         loop {
                             if let Some(idx) = pool_clone.acquire_session() {
-                                if let Some(cc) = pool_clone.take_client_for_session(idx) {
+                                if let Some(cc) = pool_clone.take_client_for_session(idx).await {
                                     leased_client = Some(cc);
                                     session_idx_opt = Some(idx);
                                     break;
@@ -1014,6 +1014,8 @@ impl AppState {
                 poller.load_seen_ids(seen_store).await;
                 poller.set_uploads_cache(uploads_cache).await;
                 
+                poller.prewarm().await;
+
                 let poller_cancel = cancel.clone();
                 let watcher_cancel = cancel.clone();
 

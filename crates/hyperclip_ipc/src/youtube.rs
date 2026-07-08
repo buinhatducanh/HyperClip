@@ -47,7 +47,9 @@ pub fn get_youtube_client_priority() -> String {
         }
     }
 
-    "ios,android,tv_embedded,web".to_string()
+    // android is fastest (especially with VPN), web is reliable fallback
+    // Removed ios (slow extraction) and tv_embedded (unnecessary) to save ~1-2s
+    "android,web".to_string()
 }
 
 #[derive(Debug, Clone)]
@@ -88,6 +90,53 @@ pub struct DownloadResult {
     pub retry_after_sec: Option<u64>,
 }
 
+fn get_ytdlp_proxy_args(s_store: &crate::store::SettingsStore) -> Option<String> {
+    let enabled = s_store.settings.get("proxyEnabled")
+        .or_else(|| s_store.settings.get("proxy_enabled"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if !enabled {
+        return None;
+    }
+
+    let host = s_store.settings.get("proxyHost")
+        .or_else(|| s_store.settings.get("proxy_host"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    if host.is_empty() {
+        return None;
+    }
+
+    let port = s_store.settings.get("proxyPort")
+        .or_else(|| s_store.settings.get("proxy_port"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    let username = s_store.settings.get("proxyUsername")
+        .or_else(|| s_store.settings.get("proxy_username"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let password = s_store.settings.get("proxyPassword")
+        .or_else(|| s_store.settings.get("proxy_password"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let protocol = if host.contains("://") { "" } else { "http://" };
+    let auth = if !username.is_empty() && !password.is_empty() {
+        format!("{}:{}@", username, password)
+    } else if !username.is_empty() {
+        format!("{}@", username)
+    } else {
+        "".to_string()
+    };
+    
+    let port_str = if port > 0 { format!(":{}", port) } else { "".to_string() };
+    Some(format!("{}{}{}{}", protocol, auth, host, port_str))
+}
+
 pub fn build_ytdlp_args(opts: &DownloadOptions) -> Vec<String> {
     let mut args = vec![
         "--no-playlist".to_string(),
@@ -101,15 +150,33 @@ pub fn build_ytdlp_args(opts: &DownloadOptions) -> Vec<String> {
         opts.concurrent_fragments.to_string(),
         "--remux-video".to_string(),
         "mp4".to_string(),
-        "--socket-timeout".to_string(),
-        "30".to_string(),
-        "--retries".to_string(),
-        "10".to_string(),
-        "--fragment-retries".to_string(),
-        "10".to_string(),
         "--force-ipv4".to_string(),
         "--no-check-certificate".to_string(),
     ];
+
+    let s_path = crate::store::get_settings_path();
+    let s_store = crate::store::SettingsStore::load(&s_path);
+    let bypass_vpn = s_store.settings.get("bypassVpn")
+        .or_else(|| s_store.settings.get("bypass_vpn"))
+        .or_else(|| s_store.settings.get("directRouteIp"))
+        .or_else(|| s_store.settings.get("direct_route_ip"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if bypass_vpn {
+        if let Some(ip) = get_physical_ip() {
+            tracing::info!("[Youtube] Direct IP binding enabled (build_ytdlp_args). Binding to: {}", ip);
+            args.push("--source-address".to_string());
+            args.push(ip);
+        }
+    }
+
+    if let Some(proxy_url) = get_ytdlp_proxy_args(&s_store) {
+        tracing::info!("[Youtube] Proxy configured (build_ytdlp_args). Using proxy: {}", proxy_url);
+        args.push("--proxy".to_string());
+        args.push(proxy_url);
+    }
+
     let clients = opts.client_priority.join(",");
     if !clients.is_empty() {
         args.push("--extractor-args".to_string());
@@ -164,6 +231,32 @@ pub fn get_ytdlp_cache_dir() -> std::path::PathBuf {
     cache_dir
 }
 
+pub fn get_physical_ip() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        let cmd_str = "Get-NetRoute -DestinationPrefix '0.0.0.0/0' | \
+                       Where-Object { $_.InterfaceAlias -notmatch 'warp|vpn|tap|tun|wireguard|tailscale|zerotier|virtualbox|vmware|pseudo' } | \
+                       ForEach-Object { Get-NetIPAddress -InterfaceIndex $_.InterfaceIndex -AddressFamily IPv4 | Select-Object -ExpandProperty IPAddress }";
+        
+        let output = Command::new("powershell")
+            .args(&["-NoProfile", "-Command", cmd_str])
+            .output();
+        
+        if let Ok(out) = output {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                for line in stdout.lines() {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() && trimmed.parse::<std::net::Ipv4Addr>().is_ok() {
+                        return Some(trimmed.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Async download with streaming progress via callback.
 
 /// Spawns yt-dlp, reads stderr line-by-line, calls on_progress for each line.
@@ -192,11 +285,34 @@ where
     let ytdlp = find_ytdlp_path();
     let clients = get_youtube_client_priority();
     let mut cmd = Command::new(&ytdlp);
+    cmd.env("PYTHONUTF8", "1");
     cmd.args([
         "--js-runtimes", &find_node_runtime_arg(),
         "--no-check-certificates",
         "--force-ipv4",
     ]);
+
+    let s_path = crate::store::get_settings_path();
+    let s_store = crate::store::SettingsStore::load(&s_path);
+    let bypass_vpn = s_store.settings.get("bypassVpn")
+        .or_else(|| s_store.settings.get("bypass_vpn"))
+        .or_else(|| s_store.settings.get("directRouteIp"))
+        .or_else(|| s_store.settings.get("direct_route_ip"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if bypass_vpn {
+        if let Some(ip) = get_physical_ip() {
+            tracing::info!("[Youtube] Direct IP binding enabled. Binding yt-dlp to local physical IP: {}", ip);
+            cmd.args(["--source-address", &ip]);
+        }
+    }
+
+    if let Some(proxy_url) = get_ytdlp_proxy_args(&s_store) {
+        tracing::info!("[Youtube] Proxy configured. Running yt-dlp with proxy: {}", proxy_url);
+        cmd.args(["--proxy", &proxy_url]);
+    }
+
     if !clients.is_empty() {
         cmd.args(["--extractor-args", &format!("youtube:player_client={}", clients)]);
     }
@@ -214,20 +330,23 @@ where
         "-o", &clean_out,
     ]);
 
-    let mut use_download_sections = if let Some(dur) = actual_duration_sec {
-        trim_minutes > 0 && (dur == 0 || dur > ((trim_minutes * 60) as u64 + 30))
+    // Performance: --download-sections forces yt-dlp to stream via ffmpeg which is 5-10x
+    // slower than yt-dlp's native HTTP downloader with concurrent fragments.
+    // For 360p, full files are small (5-15MB for a 5min video) so downloading the
+    // entire file and trimming locally with ffmpeg -c copy is much faster.
+    // Only use --download-sections for high quality + confirmed long videos.
+    let use_download_sections = if quality <= 360 {
+        // 360p: always download full, trim locally (fast: ~2s vs ~16s with sections)
+        tracing::info!("[Youtube] Skipping --download-sections for {}p quality - will download full and trim locally", quality);
+        false
+    } else if let Some(dur) = actual_duration_sec {
+        // High quality: only use sections for confirmed long videos (>30 min)
+        let long_video_threshold = 30 * 60; // 30 minutes
+        trim_minutes > 0 && dur > long_video_threshold
     } else {
-        trim_minutes > 0
+        // Unknown duration at high quality: skip sections to avoid slow ffmpeg streaming
+        false
     };
-
-    // Optimization: bypass download sections if the entire video is to be downloaded
-    if use_download_sections {
-        let is_entire_video = actual_duration_sec.map(|dur| dur > 0 && dur <= (trim_minutes * 60) as u64).unwrap_or(false);
-        if is_entire_video {
-            tracing::info!("[Youtube] Bypassing --download-sections because the entire video is to be downloaded (duration: {:?}s, trim: {}m).", actual_duration_sec, trim_minutes);
-            use_download_sections = false;
-        }
-    }
 
     if use_download_sections {
         let hours = trim_minutes / 60;
@@ -255,45 +374,28 @@ where
     let mut child = cmd.spawn().map_err(|e| format!("yt-dlp spawn failed: {}", e))?;
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
+    let reader = BufReader::new(stdout);
 
     // Spawn a thread to read stderr to avoid blocking and capture any error messages
     let stderr_handle = std::thread::spawn(move || {
         let mut err_str = String::new();
         let mut reader = BufReader::new(stderr);
-        let mut buf = Vec::new();
-        loop {
-            buf.clear();
-            match reader.read_until(b'\n', &mut buf) {
-                Ok(0) => break,
-                Ok(_) => {
-                    let line = String::from_utf8_lossy(&buf);
-                    err_str.push_str(&line);
-                }
-                Err(_) => break,
+        let mut line = String::new();
+        while let Ok(n) = reader.read_line(&mut line) {
+            if n == 0 {
+                break;
             }
+            err_str.push_str(&line);
+            line.clear();
         }
         err_str
     });
 
     // Read stdout line by line, parse progress
-    let mut reader = BufReader::new(stdout);
-    let mut buf = Vec::new();
-    loop {
-        buf.clear();
-        match reader.read_until(b'\n', &mut buf) {
-            Ok(0) => break,
-            Ok(_) => {
-                while buf.ends_with(&[b'\n']) || buf.ends_with(&[b'\r']) {
-                    buf.pop();
-                }
-                let line = String::from_utf8_lossy(&buf);
-                if let Some(progress) = parse_ytdlp_stderr(&line) {
-                    on_progress(progress);
-                }
-            }
-            Err(e) => {
-                return Err(format!("stdout read error: {}", e));
-            }
+    for line in reader.lines() {
+        let line = line.map_err(|e| format!("stdout read error: {}", e))?;
+        if let Some(progress) = parse_ytdlp_stderr(&line) {
+            on_progress(progress);
         }
     }
 
@@ -416,6 +518,7 @@ pub fn download_video(
     let ytdlp = find_ytdlp_path();
     let clients = get_youtube_client_priority();
     let mut cmd = Command::new(&ytdlp);
+    cmd.env("PYTHONUTF8", "1");
     cmd.args([
         "--js-runtimes", &find_node_runtime_arg(),
         "--no-check-certificates",
@@ -518,6 +621,7 @@ pub fn probe_formats(url: &str, cookies_path: &str) -> Result<Vec<u32>, String> 
 
     let clients = get_youtube_client_priority();
     let mut cmd = Command::new(&ytdlp);
+    cmd.env("PYTHONUTF8", "1");
     cmd.args([
         "--js-runtimes", &node_runtime,
     ]);
@@ -576,6 +680,7 @@ pub fn get_video_info(url: &str, cookies_path: &str) -> Result<YtdlpVideoInfo, S
 
     let clients = get_youtube_client_priority();
     let mut cmd = Command::new(&ytdlp);
+    cmd.env("PYTHONUTF8", "1");
     cmd.args([
         "--js-runtimes", &node_runtime,
     ]);

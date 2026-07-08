@@ -1,14 +1,25 @@
 # build/patch.ps1
-# Generates a lightweight update patch for HyperClip client installations.
+# ─────────────────────────────────────────────────────────────
+# HyperClip Patch Builder
+# Generates a lightweight update patch ZIP for client installations.
 # Patch overwrites the existing app/ folder - does NOT include static DLLs,
-# Python runtime, Node, ffmpeg, or yt-dlp (~7MB instead of ~1GB).
+# Python runtime, Node, ffmpeg, or yt-dlp (~7-25MB instead of ~1GB).
 #
 # Usage:
 #   pwsh -ExecutionPolicy Bypass -File build/patch.ps1
+#   pwsh -ExecutionPolicy Bypass -File build/patch.ps1 -SkipBuild
+#   pwsh -ExecutionPolicy Bypass -File build/patch.ps1 -IncludeYtDlp
 #
 # Client install instructions:
-#   1. Extract ZIP contents directly into HyperClip root folder
-#   2. Files will overwrite existing app/HyperClip.exe, app/_internal/, etc.
+#   1. Extract ZIP contents into HyperClip root folder
+#   2. Run: powershell -ExecutionPolicy Bypass -File apply-patch.ps1
+#   (Or manually copy files to overwrite existing app/)
+# ─────────────────────────────────────────────────────────────
+
+param(
+    [switch]$SkipBuild,
+    [switch]$IncludeYtDlp
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -19,12 +30,19 @@ $TauriExe         = Join-Path $ProjectRoot "target\release\hyperclip-tauri.exe"
 $LauncherExe      = Join-Path $ProjectRoot "target\release\hyperclip-launcher.exe"
 $HelperJs         = Join-Path $ProjectRoot "crates\hyperclip_ipc\src\innertube_helper.js"
 $BgJpg            = Join-Path $ProjectRoot "bg.jpg"
+$ApplyScript      = Join-Path $PSScriptRoot "apply-patch.ps1"
 
 # ── 1. Pre-flight checks ───────────────────────────────────────
-Write-Host "=== [1/4] Pre-flight checks ===" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "     HyperClip Patch Builder           " -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+
+Write-Host "=== [1/5] Pre-flight checks ===" -ForegroundColor Cyan
 
 $missing = @()
-foreach ($p in @($HelperJs, $BgJpg)) {
+foreach ($p in @($HelperJs, $BgJpg, $ApplyScript)) {
     if (-not (Test-Path $p)) { $script:missing += $p }
 }
 if ($missing.Count -gt 0) {
@@ -36,23 +54,31 @@ if ($missing.Count -gt 0) {
 $bundleExe = Join-Path $BuildDistDir "HyperClip.exe"
 $tauriBuiltExe = $TauriExe
 $lastBuildMtime = if (Test-Path $bundleExe) { (Get-Item $bundleExe).LastWriteTime } else { (Get-Date).AddYears(-1) }
-$lastCommitMtime = (Get-Item "$ProjectRoot\.git\HEAD").LastWriteTime
-if ($lastCommitMtime -gt $lastBuildMtime) {
-    Write-Warning "Source is newer than build. Run 'pwsh build/build.ps1' first for fresh artifacts."
+$headFile = Join-Path $ProjectRoot ".git\HEAD"
+if (Test-Path $headFile) {
+    $lastCommitMtime = (Get-Item $headFile).LastWriteTime
+    if ($lastCommitMtime -gt $lastBuildMtime) {
+        Write-Warning "Source is newer than build. Consider running 'pwsh build/build.ps1' first."
+    }
 }
 
-# ── 2. Build (skip if artifacts present) ──────────────────────
-Write-Host "`n=== [2/4] Build artifacts ===" -ForegroundColor Cyan
-$needRebuild = $false
-foreach ($p in @($bundleExe, $tauriBuiltExe, $LauncherExe)) {
-    if (-not (Test-Path $p)) { $needRebuild = $true; break }
-}
-if ($needRebuild) {
-    Write-Host "Missing artifacts - running build.ps1..."
-    & "$PSScriptRoot\build.ps1"
-    if ($LASTEXITCODE -ne 0) { Write-Error "Build failed"; exit 1 }
+# ── 2. Build (skip if artifacts present or -SkipBuild) ────────
+Write-Host "`n=== [2/5] Build artifacts ===" -ForegroundColor Cyan
+
+if ($SkipBuild) {
+    Write-Host "Skipping build (-SkipBuild flag)" -ForegroundColor Yellow
 } else {
-    Write-Host "Artifacts present, skipping build." -ForegroundColor Green
+    $needRebuild = $false
+    foreach ($p in @($bundleExe, $tauriBuiltExe, $LauncherExe)) {
+        if (-not (Test-Path $p)) { $needRebuild = $true; break }
+    }
+    if ($needRebuild) {
+        Write-Host "Missing artifacts - running build.ps1..."
+        & "$PSScriptRoot\build.ps1"
+        if ($LASTEXITCODE -ne 0) { Write-Error "Build failed"; exit 1 }
+    } else {
+        Write-Host "Artifacts present, skipping build." -ForegroundColor Green
+    }
 }
 
 if (-not (Test-Path $BuildDistDir)) {
@@ -61,7 +87,7 @@ if (-not (Test-Path $BuildDistDir)) {
 }
 
 # ── 3. Stage patch contents ────────────────────────────────────
-Write-Host "`n=== [3/4] Staging patch contents ===" -ForegroundColor Cyan
+Write-Host "`n=== [3/5] Staging patch contents ===" -ForegroundColor Cyan
 
 $timestamp   = Get-Date -Format "yyyyMMdd-HHmmss"
 $patchName   = "HyperClip-Patch-$timestamp"
@@ -74,75 +100,168 @@ foreach ($d in @($patchDir, $appDir, $internalDir, $resourcesDir)) {
     New-Item -ItemType Directory -Path $d -Force | Out-Null
 }
 
-# Version metadata so client can verify patch applied
-$headShort  = (git -C $ProjectRoot rev-parse --short HEAD 2>$null)
-$headDate   = (git -C $ProjectRoot log -1 --pretty=%ai 2>$null)
-$branch     = (git -C $ProjectRoot branch --show-current 2>$null)
-$versionInfo = [pscustomobject]@{
+# Git metadata
+$headShort  = (git -C $ProjectRoot rev-parse --short HEAD 2>$null) | Out-String | ForEach-Object { $_.Trim() }
+$headDate   = (git -C $ProjectRoot log -1 --pretty=%ai 2>$null) | Out-String | ForEach-Object { $_.Trim() }
+$branch     = (git -C $ProjectRoot branch --show-current 2>$null) | Out-String | ForEach-Object { $_.Trim() }
+
+# Track all staged files for manifest
+$manifestFiles = @()
+
+function Stage-File([string]$source, [string]$dest, [string]$label) {
+    if (-not (Test-Path $source)) {
+        Write-Warning "Skipping $label - not found: $source"
+        return
+    }
+    Write-Host "  Copying $label..."
+    Copy-Item -Path $source -Destination $dest -Force
+    
+    # Calculate relative path from patch root for manifest
+    $relPath = $dest.Substring($patchDir.Length).TrimStart('\', '/')
+    $hash = (Get-FileHash -Path $dest -Algorithm SHA256).Hash.ToLower()
+    $size = (Get-Item $dest).Length
+    $script:manifestFiles += [pscustomobject]@{
+        path   = $relPath -replace '\\', '/'
+        sha256 = $hash
+        size   = $size
+    }
+}
+
+function Stage-Directory([string]$source, [string]$dest, [string]$label) {
+    if (-not (Test-Path $source)) {
+        Write-Warning "Skipping $label - not found: $source"
+        return
+    }
+    Write-Host "  Copying $label..."
+    Copy-Item -Path $source -Destination $dest -Recurse -Force
+
+    # Add all files in copied directory to manifest
+    Get-ChildItem $dest -Recurse -File | ForEach-Object {
+        $relPath = $_.FullName.Substring($patchDir.Length).TrimStart('\', '/')
+        $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLower()
+        $script:manifestFiles += [pscustomobject]@{
+            path   = $relPath -replace '\\', '/'
+            sha256 = $hash
+            size   = $_.Length
+        }
+    }
+}
+
+# Native launcher
+Stage-File $LauncherExe (Join-Path $patchDir "HyperClip.exe") "HyperClip.exe (native launcher)"
+
+# PyInstaller bundle
+Stage-File $bundleExe (Join-Path $appDir "HyperClip.exe") "HyperClip.exe (PyInstaller app)"
+
+# Rust backend
+Stage-File $tauriBuiltExe (Join-Path $internalDir "hyperclip-tauri.exe") "hyperclip-tauri.exe"
+
+# base_library.zip
+$baseLib = Join-Path $BuildDistDir "_internal\base_library.zip"
+Stage-File $baseLib (Join-Path $internalDir "base_library.zip") "base_library.zip"
+
+# QML layouts
+$qmlSrc = Join-Path $BuildDistDir "_internal\qml"
+Stage-Directory $qmlSrc (Join-Path $internalDir "qml") "QML layouts"
+
+# innertube_helper.js (always from latest source)
+Stage-File $HelperJs (Join-Path $resourcesDir "innertube_helper.js") "innertube_helper.js"
+
+# bg.jpg (optional)
+Stage-File $BgJpg (Join-Path $patchDir "bg.jpg") "bg.jpg"
+
+# yt-dlp (optional, only when -IncludeYtDlp)
+if ($IncludeYtDlp) {
+    $ytdlpSrc = Join-Path $BuildDistDir "_internal\resources\yt-dlp\yt-dlp.exe"
+    $ytdlpDir = Join-Path $resourcesDir "yt-dlp"
+    New-Item -ItemType Directory -Path $ytdlpDir -Force | Out-Null
+    Stage-File $ytdlpSrc (Join-Path $ytdlpDir "yt-dlp.exe") "yt-dlp.exe"
+}
+
+# Embed apply-patch.ps1 for client convenience
+if (Test-Path $ApplyScript) {
+    Write-Host "  Embedding apply-patch.ps1..."
+    Copy-Item -Path $ApplyScript -Destination $patchDir -Force
+    $relPath = "apply-patch.ps1"
+    $hash = (Get-FileHash -Path (Join-Path $patchDir "apply-patch.ps1") -Algorithm SHA256).Hash.ToLower()
+    $size = (Get-Item (Join-Path $patchDir "apply-patch.ps1")).Length
+    $manifestFiles += [pscustomobject]@{
+        path   = $relPath
+        sha256 = $hash
+        size   = $size
+    }
+}
+
+# ── 4. Generate manifest & version files ───────────────────────
+Write-Host "`n=== [4/5] Generating manifest ===" -ForegroundColor Cyan
+
+$totalSize = ($manifestFiles | Measure-Object -Property size -Sum).Sum
+
+# patch-version.json
+$versionInfo = @{
     patchBuiltAt = (Get-Date).ToString("yyyy-MM-ddTHH:mm:sszzz")
     gitHead      = $headShort
     gitDate      = $headDate
     gitBranch    = $branch
+    version      = "0.1.0"
 } | ConvertTo-Json -Depth 3
 $versionInfo | Out-File -FilePath (Join-Path $patchDir "patch-version.json") -Encoding UTF8
 
-# Native launcher
-Write-Host "Copying HyperClip.exe (native launcher)..."
-Copy-Item -Path $LauncherExe -Destination (Join-Path $patchDir "HyperClip.exe") -Force
+# patch-manifest.json (for client verification)
+$manifest = @{
+    version      = "0.1.0"
+    gitHead      = $headShort
+    gitBranch    = $branch
+    builtAt      = (Get-Date).ToString("yyyy-MM-ddTHH:mm:sszzz")
+    totalSize    = $totalSize
+    fileCount    = $manifestFiles.Count
+    files        = $manifestFiles | ForEach-Object {
+        @{
+            path   = $_.path
+            sha256 = $_.sha256
+            size   = $_.size
+        }
+    }
+} | ConvertTo-Json -Depth 4
+$manifest | Out-File -FilePath (Join-Path $patchDir "patch-manifest.json") -Encoding UTF8
 
-# PyInstaller bundle
-Write-Host "Copying HyperClip.exe (PyInstaller app)..."
-Copy-Item -Path $bundleExe -Destination $appDir -Force
+Write-Host "  Files in patch: $($manifestFiles.Count)" -ForegroundColor Green
+Write-Host "  Total size:     $([math]::Round($totalSize / 1MB, 2)) MB" -ForegroundColor Green
 
-# Rust backend
-Write-Host "Copying hyperclip-tauri.exe..."
-Copy-Item -Path $tauriBuiltExe -Destination $internalDir -Force
-
-# base_library.zip (must sit next to PyInstaller exe)
-$baseLib = Join-Path $BuildDistDir "_internal\base_library.zip"
-if (Test-Path $baseLib) {
-    Write-Host "Copying base_library.zip..."
-    Copy-Item -Path $baseLib -Destination $internalDir -Force
-} else {
-    Write-Warning "base_library.zip not found at $baseLib"
-}
-
-# QML layouts
-$qmlSrc = Join-Path $BuildDistDir "_internal\qml"
-if (Test-Path $qmlSrc) {
-    Write-Host "Copying QML layouts..."
-    Copy-Item -Path $qmlSrc -Destination $internalDir -Recurse -Force
-} else {
-    Write-Warning "QML source dir not found: $qmlSrc"
-}
-
-# innertube_helper.js (latest from source - always copy freshest)
-Write-Host "Copying innertube_helper.js..."
-Copy-Item -Path $HelperJs -Destination $resourcesDir -Force
-
-# bg.jpg (root image - optional)
-if (Test-Path $BgJpg) {
-    Write-Host "Copying bg.jpg..."
-    Copy-Item -Path $BgJpg -Destination $patchDir -Force
-}
-
-# ── 4. Compress to ZIP ─────────────────────────────────────────
-Write-Host "`n=== [4/4] Compressing patch ===" -ForegroundColor Cyan
+# ── 5. Compress to ZIP ─────────────────────────────────────────
+Write-Host "`n=== [5/5] Compressing patch ===" -ForegroundColor Cyan
 
 $zipPath = "$patchDir.zip"
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 
 Start-Sleep -Seconds 2  # let any file locks release
-tar -a -cf $zipPath -C $patchDir .
+Compress-Archive -Path "$patchDir\*" -DestinationPath $zipPath -Force
 
 Remove-Item $patchDir -Recurse -Force
 
 $zipSizeMb = (Get-Item $zipPath).Length / 1MB
+$zipHash = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash.ToLower()
 
-Write-Host "`n=== Patch Complete ===" -ForegroundColor Green
-Write-Host "ZIP:      $zipPath"
-Write-Host "Size:     $($zipSizeMb.ToString('F2')) MB" -ForegroundColor Yellow
-Write-Host "GitHead:  $headShort ($headDate)" -ForegroundColor DarkGray
-Write-Host "Branch:   $branch" -ForegroundColor DarkGray
+# ── Summary ─────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "Client: extract ZIP directly into HyperClip root to overwrite app/." -ForegroundColor White
+Write-Host "========================================" -ForegroundColor Green
+Write-Host "     Patch Complete!                   " -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Green
+Write-Host ""
+Write-Host "ZIP:       $zipPath"
+Write-Host "Size:      $($zipSizeMb.ToString('F2')) MB" -ForegroundColor Yellow
+Write-Host "SHA256:    $zipHash" -ForegroundColor DarkGray
+Write-Host "Git:       $headShort ($branch)" -ForegroundColor DarkGray
+Write-Host "Files:     $($manifestFiles.Count) files" -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "── File Listing ──" -ForegroundColor DarkGray
+foreach ($f in $manifestFiles) {
+    $sizeFmt = if ($f.size -gt 1MB) { "$([math]::Round($f.size / 1MB, 1))MB" } else { "$([math]::Round($f.size / 1KB, 0))KB" }
+    Write-Host "  $($f.path)  ($sizeFmt)" -ForegroundColor DarkGray
+}
+Write-Host ""
+Write-Host "── Client Instructions ──" -ForegroundColor White
+Write-Host "  1. Copy ZIP to HyperClip root folder"
+Write-Host "  2. Extract ZIP"
+Write-Host "  3. Run: powershell -ExecutionPolicy Bypass -File apply-patch.ps1"
+Write-Host ""

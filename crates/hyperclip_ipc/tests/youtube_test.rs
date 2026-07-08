@@ -59,3 +59,12 @@ fn test_build_ytdlp_args_default_priority_is_passed() {
     assert!(args.iter().any(|a| a.contains("tv_embedded,web,ios")), "Should contain default priority: {:?}", args);
 }
 
+#[test]
+fn test_get_physical_ip() {
+    let ip_opt = hyperclip_ipc::youtube::get_physical_ip();
+    println!("Detected physical IP: {:?}", ip_opt);
+    if let Some(ip) = ip_opt {
+        assert!(ip.parse::<std::net::Ipv4Addr>().is_ok());
+    }
+}
+

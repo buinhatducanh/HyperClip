@@ -200,6 +200,22 @@ impl InnertubeClientPool {
             .count()
     }
 
+    /// Count sessions that are both ready AND have a valid (non-empty) cookie.
+    /// Use this for sizing poll concurrency — tasks with no cookie will always timeout.
+    pub fn ready_with_cookie_count(&self) -> usize {
+        let now = Instant::now();
+        self.sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|s| {
+                !s.cookie.is_empty()
+                    && s.cooldown_until.map_or(true, |t| now >= t)
+                    && s.suspended_until.map_or(true, |t| now >= t)
+            })
+            .count()
+    }
+
     pub fn suspended_count(&self) -> usize {
         let now = Instant::now();
         self.sessions
@@ -214,7 +230,7 @@ impl InnertubeClientPool {
         self.ready_count() > 0
     }
 
-    /// Return the index of a session that is ready (not in cooldown or suspended).
+    /// Return the index of a session that is ready (not in cooldown or suspended, has a valid cookie).
     /// Returns None if no session is ready.
     pub fn get_ready_session(&self) -> Option<usize> {
         let now = Instant::now();
@@ -223,6 +239,10 @@ impl InnertubeClientPool {
         for _ in 0..len {
             let idx = self.next_session_unlocked(&sessions);
             if let Some(s) = sessions.get_mut(idx) {
+                // Skip sessions without valid cookies — they will always fail auth checks
+                if s.cookie.is_empty() {
+                    continue;
+                }
                 if !s.busy
                      && s.cooldown_until.map_or(true, |t| now >= t)
                      && s.suspended_until.map_or(true, |t| now >= t)
@@ -247,7 +267,7 @@ impl InnertubeClientPool {
     /// Atomically lease a client and cookie for the given session index.
     /// If no client is available in the pool and count is under 4, a new one is spawned.
     /// Returns None if limit is reached or spawning failed.
-    pub fn take_client_for_session(&self, session_idx: usize) -> Option<SessionClient> {
+    pub async fn take_client_for_session(&self, session_idx: usize) -> Option<SessionClient> {
         let cookie = {
             let mut sessions = self.sessions.lock().unwrap();
             let s = sessions.get_mut(session_idx)?;
@@ -263,16 +283,19 @@ impl InnertubeClientPool {
             let active = self.active_clients_count.load(Ordering::SeqCst);
             let limit = self.max_active_clients.load(Ordering::SeqCst);
             if active < limit {
-                // Staggered spawn: wait at least 500ms since the last spawn
-                {
+                // Staggered spawn: wait at least 500ms since the last spawn.
+                // Use tokio::time::sleep instead of std::thread::sleep — this is called from
+                // a tokio task and std sleep would block the executor thread.
+                let wait_ms = {
                     let mut last_spawn = self.last_spawn_at.lock().unwrap();
                     let elapsed = last_spawn.elapsed();
                     let delay = Duration::from_millis(500);
-                    if elapsed < delay {
-                        let wait = delay - elapsed;
-                        std::thread::sleep(wait);
-                    }
+                    let wait = if elapsed < delay { delay - elapsed } else { Duration::ZERO };
                     *last_spawn = Instant::now();
+                    wait
+                };
+                if !wait_ms.is_zero() {
+                    tokio::time::sleep(wait_ms).await;
                 }
 
                 self.active_clients_count.fetch_add(1, Ordering::SeqCst);
