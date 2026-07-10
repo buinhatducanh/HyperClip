@@ -47,6 +47,12 @@ pub enum HyperclipError {
     #[error("Database corruption detected: {0}")]
     DatabaseCorruption(String),
 
+    #[error("Chrome DevTools Protocol unavailable: {0} (Chrome not running or port 9222 blocked)")]
+    CdpUnavailable(String),
+
+    #[error("Chrome Local State file corrupt: {0}")]
+    CorruptLocalState(String),
+
     #[error("Backend subprocess crashed: {0}")]
     BackendCrashed(String),
 

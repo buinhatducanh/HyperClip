@@ -237,7 +237,7 @@ fn extract_cookies_via_cdp(ws_url: &str) -> Result<Vec<ExtractedCookie>> {
     let mut stream = TcpStream::connect_timeout(
         &host.parse().unwrap_or_else(|_| "127.0.0.1:9222".parse().unwrap()),
         std::time::Duration::from_millis(1000)
-    ).map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to connect to CDP: {}", e)))?;
+    ).map_err(|e| HyperclipError::CdpUnavailable(format!("Failed to connect to CDP: {}", e)))?;
 
     stream.set_read_timeout(Some(std::time::Duration::from_millis(2000))).ok();
     stream.set_write_timeout(Some(std::time::Duration::from_millis(2000))).ok();
@@ -252,7 +252,7 @@ fn extract_cookies_via_cdp(ws_url: &str) -> Result<Vec<ExtractedCookie>> {
         path, host
     );
     stream.write_all(handshake_req.as_bytes())
-        .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to write handshake: {}", e)))?;
+        .map_err(|e| HyperclipError::CdpUnavailable(format!("Failed to write handshake: {}", e)))?;
     stream.flush().ok();
 
     let mut resp_buf = Vec::new();
@@ -263,13 +263,13 @@ fn extract_cookies_via_cdp(ws_url: &str) -> Result<Vec<ExtractedCookie>> {
         }
         resp_buf.push(temp[0]);
         if resp_buf.len() > 8192 {
-            return Err(HyperclipError::DatabaseCorruption("Handshake response too large".into()));
+            return Err(HyperclipError::CdpUnavailable("Handshake response too large".into()));
         }
     }
 
     let headers_str = String::from_utf8_lossy(&resp_buf);
     if !headers_str.contains(" 101 ") {
-        return Err(HyperclipError::DatabaseCorruption(format!("Invalid handshake response: {}", headers_str)));
+        return Err(HyperclipError::CdpUnavailable(format!("Invalid handshake response: {}", headers_str)));
     }
 
     let cmd = serde_json::json!({
@@ -295,19 +295,19 @@ fn extract_cookies_via_cdp(ws_url: &str) -> Result<Vec<ExtractedCookie>> {
     frame.extend_from_slice(payload);
 
     stream.write_all(&frame)
-        .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to send command: {}", e)))?;
+        .map_err(|e| HyperclipError::CdpUnavailable(format!("Failed to send command: {}", e)))?;
     stream.flush().ok();
 
     let mut attempts = 0;
     loop {
         attempts += 1;
         if attempts > 50 {
-            return Err(HyperclipError::DatabaseCorruption("Timed out waiting for Storage.getCookies response".into()));
+            return Err(HyperclipError::CdpUnavailable("Timed out waiting for Storage.getCookies response".into()));
         }
 
         let mut header = [0u8; 2];
         stream.read_exact(&mut header)
-            .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to read frame header: {}", e)))?;
+            .map_err(|e| HyperclipError::CdpUnavailable(format!("Failed to read frame header: {}", e)))?;
 
         let is_masked = (header[1] & 0x80) != 0;
         let mut len = (header[1] & 0x7F) as u64;
@@ -315,19 +315,19 @@ fn extract_cookies_via_cdp(ws_url: &str) -> Result<Vec<ExtractedCookie>> {
         if len == 126 {
             let mut len_bytes = [0u8; 2];
             stream.read_exact(&mut len_bytes)
-                .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to read 16-bit length: {}", e)))?;
+                .map_err(|e| HyperclipError::CdpUnavailable(format!("Failed to read 16-bit length: {}", e)))?;
             len = u16::from_be_bytes(len_bytes) as u64;
         } else if len == 127 {
             let mut len_bytes = [0u8; 8];
             stream.read_exact(&mut len_bytes)
-                .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to read 64-bit length: {}", e)))?;
+                .map_err(|e| HyperclipError::CdpUnavailable(format!("Failed to read 64-bit length: {}", e)))?;
             len = u64::from_be_bytes(len_bytes);
         }
 
         let mask = if is_masked {
             let mut mask_bytes = [0u8; 4];
             stream.read_exact(&mut mask_bytes)
-                .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to read mask: {}", e)))?;
+                .map_err(|e| HyperclipError::CdpUnavailable(format!("Failed to read mask: {}", e)))?;
             Some(mask_bytes)
         } else {
             None
@@ -335,7 +335,7 @@ fn extract_cookies_via_cdp(ws_url: &str) -> Result<Vec<ExtractedCookie>> {
 
         let mut payload_buf = vec![0u8; len as usize];
         stream.read_exact(&mut payload_buf)
-            .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to read payload: {}", e)))?;
+            .map_err(|e| HyperclipError::CdpUnavailable(format!("Failed to read payload: {}", e)))?;
 
         if let Some(mask_bytes) = mask {
             for (i, byte) in payload_buf.iter_mut().enumerate() {
@@ -347,7 +347,7 @@ fn extract_cookies_via_cdp(ws_url: &str) -> Result<Vec<ExtractedCookie>> {
             if resp_val["id"].as_i64() == Some(1) {
                 let cookies_arr = resp_val["result"]["cookies"]
                     .as_array()
-                    .ok_or_else(|| HyperclipError::DatabaseCorruption("Missing cookies array in result".into()))?;
+                    .ok_or_else(|| HyperclipError::CdpUnavailable("Missing cookies array in result".into()))?;
 
                 let mut extracted = Vec::new();
                 for c in cookies_arr {
@@ -372,14 +372,14 @@ fn try_cdp_cookies() -> Result<Vec<ExtractedCookie>> {
         .get("http://127.0.0.1:9222/json/version")
         .timeout(std::time::Duration::from_millis(500))
         .call()
-        .map_err(|e| HyperclipError::DatabaseCorruption(format!("CDP port check failed: {}", e)))?;
+        .map_err(|e| HyperclipError::CdpUnavailable(format!("CDP port check failed: {}", e)))?;
 
     let val: serde_json::Value = serde_json::from_reader(resp.into_reader())
-        .map_err(|e| HyperclipError::DatabaseCorruption(format!("CDP json parse failed: {}", e)))?;
+        .map_err(|e| HyperclipError::CdpUnavailable(format!("CDP json parse failed: {}", e)))?;
 
     let ws_url = val["webSocketDebuggerUrl"]
         .as_str()
-        .ok_or_else(|| HyperclipError::DatabaseCorruption("webSocketDebuggerUrl missing".into()))?;
+        .ok_or_else(|| HyperclipError::CdpUnavailable("webSocketDebuggerUrl missing".into()))?;
 
     extract_cookies_via_cdp(ws_url)
 }
@@ -421,10 +421,10 @@ fn get_aes_key(profile_dir: &std::path::Path) -> Result<Option<Vec<u8>>> {
 
         tracing::info!("[Cookies] Loading master key from Local State at {:?}", local_state_path);
         let content = std::fs::read_to_string(&local_state_path)
-            .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to read Local State: {}", e)))?;
+            .map_err(|e| HyperclipError::CorruptLocalState(format!("Failed to read Local State: {}", e)))?;
 
         let json: serde_json::Value = serde_json::from_str(&content)
-            .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to parse Local State JSON: {}", e)))?;
+            .map_err(|e| HyperclipError::CorruptLocalState(format!("Failed to parse Local State JSON: {}", e)))?;
 
         let encrypted_key_b64 = match json.pointer("/os_crypt/encrypted_key").and_then(|v| v.as_str()) {
             Some(k) => k,
@@ -436,10 +436,10 @@ fn get_aes_key(profile_dir: &std::path::Path) -> Result<Option<Vec<u8>>> {
 
         use base64::{Engine as _, engine::general_purpose};
         let encrypted_key = general_purpose::STANDARD.decode(encrypted_key_b64)
-            .map_err(|e| HyperclipError::DatabaseCorruption(format!("Failed to decode base64 key: {}", e)))?;
+            .map_err(|e| HyperclipError::CorruptLocalState(format!("Failed to decode base64 key: {}", e)))?;
 
         if encrypted_key.len() < 5 || &encrypted_key[0..5] != b"DPAPI" {
-            return Err(HyperclipError::DatabaseCorruption("Invalid encrypted key prefix in Local State".into()));
+            return Err(HyperclipError::CorruptLocalState("Invalid encrypted key prefix in Local State".into()));
         }
 
         let encrypted_blob = &encrypted_key[5..];
