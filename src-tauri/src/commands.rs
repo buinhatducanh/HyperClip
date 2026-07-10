@@ -557,6 +557,32 @@ impl AppState {
                                     return;
                                 }
 
+                                // Check max file size after download
+                                let max_file_size_mb = s_store.settings
+                                    .get("maxFileSizeMB")
+                                    .or_else(|| s_store.settings.get("max_file_size_mb"))
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(2048) as f64;
+                                let file_size_mb = result.file_size as f64 / 1_048_576.0;
+                                if max_file_size_mb > 0.0 && file_size_mb > max_file_size_mb {
+                                    tracing::info!("[AppState] Discarding video {} because its size ({:.1} MB) exceeds max limit ({:.0} MB)", video_id, file_size_mb, max_file_size_mb);
+                                    std::fs::remove_file(&result.path).ok();
+                                    let ws_path = get_workspaces_path();
+                                    let mut ws_store = WorkspaceStore::load(&ws_path);
+                                    ws_store.update(&tid, serde_json::json!({
+                                        "status": "failed",
+                                        "error": format!("Bỏ qua vì kích thước file ({:.0}MB) vượt quá giới hạn ({:.0}MB)", file_size_mb, max_file_size_mb),
+                                    })).ok();
+                                    ws_store.save(&ws_path).ok();
+
+                                    crate::emit(hyperclip_ipc::IpcResponse::event("workspace:update", serde_json::json!({
+                                        "id": tid,
+                                        "status": "failed",
+                                        "error": format!("Bỏ qua vì kích thước file ({:.0}MB) vượt quá giới hạn ({:.0}MB)", file_size_mb, max_file_size_mb),
+                                    })));
+                                    return;
+                                }
+
                                 if result.width < result.height {
                                     tracing::info!("[AppState] Discarding video {} because it is in portrait format ({}x{}) and only landscape 16:9 is allowed.", video_id, result.width, result.height);
                                     std::fs::remove_file(&result.path).ok();

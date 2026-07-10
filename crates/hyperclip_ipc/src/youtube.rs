@@ -383,13 +383,17 @@ where
         let stderr_handle = std::thread::spawn(move || {
             let mut err_str = String::new();
             let mut reader = BufReader::new(stderr);
-            let mut line = String::new();
-            while let Ok(n) = reader.read_line(&mut line) {
-                if n == 0 {
-                    break;
+            let mut line_bytes = Vec::new();
+            loop {
+                line_bytes.clear();
+                match reader.read_until(b'\n', &mut line_bytes) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let line = String::from_utf8_lossy(&line_bytes);
+                        err_str.push_str(&line);
+                    }
+                    Err(_) => break,
                 }
-                err_str.push_str(&line);
-                line.clear();
             }
             err_str
         });

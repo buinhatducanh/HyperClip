@@ -1365,12 +1365,13 @@ where F: FnMut(f64) + Send + 'static {
     let last_fps_clone = last_fps.clone();
 
     tokio::spawn(async move {
-        let mut line = String::new();
+        let mut line_bytes = Vec::new();
         loop {
-            line.clear();
-            match reader.read_line(&mut line).await {
+            line_bytes.clear();
+            match tokio::io::AsyncBufReadExt::read_until(&mut reader, b'\n', &mut line_bytes).await {
                 Ok(0) => break,
                 Ok(_) => {
+                    let line = String::from_utf8_lossy(&line_bytes);
                     let trimmed = line.trim();
                     if trimmed.contains("speed=") || trimmed.contains("frame=") {
                         tracing::info!("[FFmpeg progress] {}", trimmed);
