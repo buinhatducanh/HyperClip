@@ -237,10 +237,11 @@ impl ChromeTabWatcher {
                             Ok(videos) => {
                                 let s_path = crate::store::get_settings_path();
                                 let s_store = crate::store::SettingsStore::load(&s_path);
-                                let max_age_minutes = s_store.settings
+                                let max_age_minutes_raw = s_store.settings
                                     .get("autoDownloadMaxAgeMinutes")
                                     .and_then(|val| val.as_u64())
-                                    .unwrap_or(1440) as i64;
+                                    .unwrap_or(1440);
+                                let max_age_minutes = if max_age_minutes_raw < 10 { 1440 } else { max_age_minutes_raw } as i64;
                                 let max_age_ms = max_age_minutes * 60 * 1000;
                                 let now_ms = chrono::Utc::now().timestamp_millis();
 

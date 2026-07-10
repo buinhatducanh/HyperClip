@@ -862,10 +862,13 @@ impl AppState {
             // Load settings for poller config
             let s_path = get_settings_path();
             let s_store = SettingsStore::load(&s_path);
-            let max_age_minutes = s_store.settings
+            let max_age_minutes_raw = s_store.settings
                 .get("autoDownloadMaxAgeMinutes")
                 .and_then(|v| v.as_u64())
-                .unwrap_or(1440) as u64;
+                .unwrap_or(1440);
+            // Enforce sane minimum: 10 minutes (600s) so accidental small values
+            // don't silently skip almost every new upload.
+            let max_age_minutes = if max_age_minutes_raw < 10 { 1440 } else { max_age_minutes_raw };
             let poll_interval_ms = s_store.settings
                 .get("pollIntervalMs")
                 .and_then(|v| v.as_u64())
@@ -1118,10 +1121,11 @@ impl AppState {
             .get("pollIntervalMs")
             .and_then(|v| v.as_u64())
             .unwrap_or(5000) as u64;
-        let max_age_minutes = s_store.settings
+        let max_age_minutes_raw = s_store.settings
             .get("autoDownloadMaxAgeMinutes")
             .and_then(|v| v.as_u64())
-            .unwrap_or(1440) as u64;
+            .unwrap_or(1440);
+        let max_age_minutes = if max_age_minutes_raw < 10 { 1440 } else { max_age_minutes_raw };
         let min_duration_sec = s_store.settings
             .get("videoMinDurationSec")
             .and_then(|v| v.as_u64())
