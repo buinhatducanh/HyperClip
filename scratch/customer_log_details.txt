@@ -1,0 +1,483 @@
+[Line 2579] 2026-06-27T12:55:22.250041Z  INFO ThreadId(53) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:198: [Poller] Polling 23 active channels (23 total)
+[Line 2580] 2026-06-27T12:55:22.250062Z  INFO ThreadId(53) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:205: [Poller] Pool ready=30/30
+[Line 2581] 2026-06-27T12:55:22.250095Z  INFO ThreadId(58) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch1778770285853
+[Line 2582] 2026-06-27T12:55:22.250129Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch1779678163236
+[Line 2583] 2026-06-27T12:55:22.250157Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1781580100248
+[Line 2584] 2026-06-27T12:55:22.250163Z  INFO ThreadId(71) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1781592059512
+[Line 2585] 2026-06-27T12:55:22.250190Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782435627253
+[Line 2586] 2026-06-27T12:55:22.250195Z  INFO ThreadId(57) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782435650360
+[Line 2587] 2026-06-27T12:55:22.250209Z  INFO ThreadId(70) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436266453
+[Line 2588] 2026-06-27T12:55:22.250222Z  INFO ThreadId(76) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436275751
+[Line 2589] 2026-06-27T12:55:22.250237Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436283903
+[Line 2590] 2026-06-27T12:55:22.250246Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436292772
+[Line 2591] 2026-06-27T12:55:22.250253Z  INFO ThreadId(68) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436303713
+[Line 2592] 2026-06-27T12:55:22.250265Z  INFO ThreadId(69) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436333915
+[Line 2593] 2026-06-27T12:55:22.250283Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436343952
+[Line 2594] 2026-06-27T12:55:22.250295Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436381970
+[Line 2595] 2026-06-27T12:55:22.250298Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436391623
+[Line 2596] 2026-06-27T12:55:22.250299Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436402605
+[Line 2597] 2026-06-27T12:55:22.250296Z  INFO ThreadId(73) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436365003
+[Line 2598] 2026-06-27T12:55:22.250302Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436414467
+[Line 2599] 2026-06-27T12:55:22.250304Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436424144
+[Line 2600] 2026-06-27T12:55:22.250306Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436510616
+[Line 2601] 2026-06-27T12:55:22.250306Z  INFO ThreadId(73) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436468996
+[Line 2602] 2026-06-27T12:55:22.250309Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782522924144
+[Line 2603] 2026-06-27T12:55:22.250309Z  INFO ThreadId(73) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782531138218
+[Line 2604] 2026-06-27T12:55:22.250494Z  INFO ThreadId(70) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2605] 2026-06-27T12:55:22.250495Z  INFO ThreadId(76) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2606] 2026-06-27T12:55:22.250497Z  INFO ThreadId(57) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2607] 2026-06-27T12:55:22.250501Z  INFO ThreadId(70) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436266453...
+[Line 2608] 2026-06-27T12:55:22.250501Z  INFO ThreadId(76) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436275751...
+[Line 2609] 2026-06-27T12:55:22.250503Z  INFO ThreadId(57) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782435650360...
+[Line 2610] 2026-06-27T12:55:22.250534Z  INFO ThreadId(66) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2611] 2026-06-27T12:55:22.250542Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436283903...
+[Line 2612] 2026-06-27T12:55:22.250548Z  INFO ThreadId(64) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2613] 2026-06-27T12:55:22.250552Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436292772...
+[Line 2614] 2026-06-27T12:55:22.568327Z  INFO ThreadId(63) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2615] 2026-06-27T12:55:22.568345Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1781580100248...
+[Line 2616] 2026-06-27T12:55:22.589441Z  INFO ThreadId(68) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2617] 2026-06-27T12:55:22.589466Z  INFO ThreadId(68) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436303713...
+[Line 2618] 2026-06-27T12:55:22.599535Z  INFO ThreadId(77) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2619] 2026-06-27T12:55:22.599550Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch1779678163236...
+[Line 2620] 2026-06-27T12:55:22.630758Z  INFO ThreadId(70) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 53 videos for UCuFXanffpOEtPayBW8ebkuA in 0.4s (daemon)
+[Line 2621] 2026-06-27T12:55:22.630776Z  INFO ThreadId(70) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 53 videos for ch-1782436266453
+[Line 2622] 2026-06-27T12:55:22.642244Z  INFO ThreadId(69) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2623] 2026-06-27T12:55:22.642260Z  INFO ThreadId(69) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436333915...
+[Line 2624] 2026-06-27T12:55:22.661047Z  INFO ThreadId(58) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2625] 2026-06-27T12:55:22.661069Z  INFO ThreadId(58) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch1778770285853...
+[Line 2626] 2026-06-27T12:55:22.661359Z  INFO ThreadId(71) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2627] 2026-06-27T12:55:22.661370Z  INFO ThreadId(71) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1781592059512...
+[Line 2628] 2026-06-27T12:55:22.661647Z  INFO ThreadId(62) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2629] 2026-06-27T12:55:22.661656Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782435627253...
+[Line 2630] 2026-06-27T12:55:22.669171Z  INFO ThreadId(57) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UC3-N2HzW2OsExPLJlp4-BOg in 0.4s (daemon)
+[Line 2631] 2026-06-27T12:55:22.669186Z  INFO ThreadId(57) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782435650360
+[Line 2632] 2026-06-27T12:55:22.706442Z  INFO ThreadId(64) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCZ_gMSow3n_kAqnTD7xwsIg in 0.5s (daemon)
+[Line 2633] 2026-06-27T12:55:22.706464Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436292772
+[Line 2634] 2026-06-27T12:55:22.715746Z  INFO ThreadId(66) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCDAsctlVfxUJZhn9JTZ2pkw in 0.5s (daemon)
+[Line 2635] 2026-06-27T12:55:22.715763Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436283903
+[Line 2636] 2026-06-27T12:55:22.736646Z  INFO ThreadId(76) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCGTR-w629-kp7AI-tQ-X8lw in 0.5s (daemon)
+[Line 2637] 2026-06-27T12:55:22.736663Z  INFO ThreadId(76) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436275751
+[Line 2638] 2026-06-27T12:55:22.792140Z  INFO ThreadId(76) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2639] 2026-06-27T12:55:22.792140Z  INFO ThreadId(67) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2640] 2026-06-27T12:55:22.792149Z  INFO ThreadId(64) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2641] 2026-06-27T12:55:22.792160Z  INFO ThreadId(76) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782531138218...
+[Line 2642] 2026-06-27T12:55:22.792164Z  INFO ThreadId(67) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436365003...
+[Line 2643] 2026-06-27T12:55:22.792179Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436402605...
+[Line 2644] 2026-06-27T12:55:22.920592Z  INFO ThreadId(77) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 35 videos for UCP0XXnFnS3hgAaQl0DrJgvA in 0.3s (daemon)
+[Line 2645] 2026-06-27T12:55:22.920610Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 35 videos for ch1779678163236
+[Line 2646] 2026-06-27T12:55:22.929861Z  INFO ThreadId(91) hyperclip_ipc::youtube: crates\hyperclip_ipc\src\youtube.rs:243: [Youtube] Spawning yt-dlp: "D:\\HyperClip\\HyperClip-TestCustomer-20260616-224538\\app\\_internal\\resources\\yt-dlp/yt-dlp.exe" "--js-runtimes" "node:D:/HyperClip/HyperClip-TestCustomer-20260616-224538/app/_internal/resources/node/node.exe" "--extractor-args" "youtube:player_client=ios,android,tv_embedded,web" "--cookies" "D:\\HyperClip\\HyperClip-TestCustomer-20260616-224538\\HyperClip-Data\\cookies_netscape.txt" "-f" "18/best[height<=?360]/bestvideo[height<=?360]+bestaudio/best[height<=?360]/worst" "--concurrent-fragments" "32" "--no-playlist" "--no-color" "--newline" "--remux-video" "mp4" "--socket-timeout" "30" "--retries" "3" "--cache-dir" "D:\\HyperClip\\HyperClip-TestCustomer-20260616-224538\\HyperClip-Data\\.cache\\yt-dlp" "-o" "D:\\tải về\\vtGCk-3cep0_20260627_125522.mp4" "--download-sections" "*00:00:00-00:05:00" "--ffmpeg-location" "D:/HyperClip/HyperClip-TestCustomer-20260616-224538/app/_internal/resources/ffmpeg/bin" "https://youtube.com/watch?v=vtGCk-3cep0"
+[Line 2647] 2026-06-27T12:55:22.937058Z  INFO ThreadId(58) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 15 videos for UCcGsDTH1Bypd8gWH1US1b4g in 0.3s (daemon)
+[Line 2648] 2026-06-27T12:55:22.937075Z  INFO ThreadId(58) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 15 videos for ch1778770285853
+[Line 2649] 2026-06-27T12:55:23.001090Z  INFO ThreadId(64) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 6 videos for UCCSGFO8QPjG3E3fBnWO4M_w in 0.2s (daemon)
+[Line 2650] 2026-06-27T12:55:23.001109Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 6 videos for ch-1782436402605
+[Line 2651] 2026-06-27T12:55:23.003712Z  INFO ThreadId(57) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2652] 2026-06-27T12:55:23.003728Z  INFO ThreadId(57) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436424144...
+[Line 2653] 2026-06-27T12:55:23.017185Z  INFO ThreadId(59) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2654] 2026-06-27T12:55:23.017207Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436381970...
+[Line 2655] 2026-06-27T12:55:23.076527Z  INFO ThreadId(76) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 43 videos for UCu0gB26qEytCwh_v1zwMLaw in 0.3s (daemon)
+[Line 2656] 2026-06-27T12:55:23.076543Z  INFO ThreadId(76) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 43 videos for ch-1782531138218
+[Line 2657] 2026-06-27T12:55:23.088493Z  INFO ThreadId(68) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCATF6DNJiubhdUU2wCqIj7g in 0.5s (daemon)
+[Line 2658] 2026-06-27T12:55:23.088512Z  INFO ThreadId(68) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436303713
+[Line 2659] 2026-06-27T12:55:23.098602Z  INFO ThreadId(62) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 64 videos for UCsHxSQrAlw0_iL9KmiyOB4g in 0.4s (daemon)
+[Line 2660] 2026-06-27T12:55:23.098620Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 64 videos for ch-1782435627253
+[Line 2661] 2026-06-27T12:55:23.116047Z  INFO ThreadId(76) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2662] 2026-06-27T12:55:23.116062Z  INFO ThreadId(76) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436391623...
+[Line 2663] 2026-06-27T12:55:23.167066Z  INFO ThreadId(69) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCVi-tZ64cM-MTkiqkKcawMQ in 0.5s (daemon)
+[Line 2664] 2026-06-27T12:55:23.167084Z  INFO ThreadId(69) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436333915
+[Line 2665] 2026-06-27T12:55:23.228857Z  INFO ThreadId(67) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCoDT-z7_oNEcNOt-iMFHORQ in 0.4s (daemon)
+[Line 2666] 2026-06-27T12:55:23.228872Z  INFO ThreadId(67) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436365003
+[Line 2667] 2026-06-27T12:55:23.242050Z  INFO ThreadId(63) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 14 videos for BadyNone in 0.7s (daemon)
+[Line 2668] 2026-06-27T12:55:23.242069Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 14 videos for ch-1781580100248
+[Line 2669] 2026-06-27T12:55:23.339708Z  INFO ThreadId(70) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2670] 2026-06-27T12:55:23.339732Z  INFO ThreadId(70) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436414467...
+[Line 2671] 2026-06-27T12:55:23.347847Z  INFO ThreadId(64) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2672] 2026-06-27T12:55:23.347859Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436468996...
+[Line 2673] 2026-06-27T12:55:23.425107Z  INFO ThreadId(57) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCctJx-hRbmyZh2ASsgGF5pA in 0.4s (daemon)
+[Line 2674] 2026-06-27T12:55:23.425125Z  INFO ThreadId(57) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436424144
+[Line 2675] 2026-06-27T12:55:23.429247Z  INFO ThreadId(59) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UC_cq2sArbMwCIfryVq-4Dug in 0.4s (daemon)
+[Line 2676] 2026-06-27T12:55:23.429260Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436381970
+[Line 2677] 2026-06-27T12:55:23.437415Z  INFO ThreadId(77) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2678] 2026-06-27T12:55:23.437429Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782522924144...
+[Line 2679] 2026-06-27T12:55:23.443334Z  INFO ThreadId(54) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2680] 2026-06-27T12:55:23.443348Z  INFO ThreadId(54) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436510616...
+[Line 2681] 2026-06-27T12:55:23.481291Z  INFO ThreadId(62) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2682] 2026-06-27T12:55:23.481310Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436343952...
+[Line 2683] 2026-06-27T12:55:23.551786Z  INFO ThreadId(76) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCu3QBD6ZDx6aWH3hMApt1og in 0.4s (daemon)
+[Line 2684] 2026-06-27T12:55:23.551819Z  INFO ThreadId(76) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436391623
+[Line 2685] 2026-06-27T12:55:23.612170Z  INFO ThreadId(71) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 90 videos for ThuongLez in 1.0s (daemon)
+[Line 2686] 2026-06-27T12:55:23.612195Z  INFO ThreadId(71) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 90 videos for ch-1781592059512
+[Line 2687] 2026-06-27T12:55:23.720538Z  INFO ThreadId(77) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 36 videos for UC2IMDck4BUc6QxuUbf5t_KA in 0.3s (daemon)
+[Line 2688] 2026-06-27T12:55:23.720553Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 36 videos for ch-1782522924144
+[Line 2689] 2026-06-27T12:55:23.724619Z  INFO ThreadId(54) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 41 videos for UCMFngRBLYslCXgHmutaS0Ew in 0.3s (daemon)
+[Line 2690] 2026-06-27T12:55:23.724631Z  INFO ThreadId(54) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 41 videos for ch-1782436510616
+[Line 2691] 2026-06-27T12:55:23.724942Z  INFO ThreadId(70) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UC1C2FvyrUf8meDbpuTWTlkA in 0.4s (daemon)
+[Line 2692] 2026-06-27T12:55:23.724949Z  INFO ThreadId(70) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436414467
+[Line 2693] 2026-06-27T12:55:23.815439Z  INFO ThreadId(64) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCLHJyy_RhxGhbOeHtBzyqxQ in 0.5s (daemon)
+[Line 2694] 2026-06-27T12:55:23.815463Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436468996
+[Line 2695] 2026-06-27T12:55:24.068270Z  INFO ThreadId(62) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCNE5pfPGgtl9AjPiMf8A3RQ in 0.6s (daemon)
+[Line 2696] 2026-06-27T12:55:24.068287Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436343952
+[Line 2697] 2026-06-27T12:55:26.334644Z  INFO ThreadId(53) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:198: [Poller] Polling 23 active channels (23 total)
+[Line 2698] 2026-06-27T12:55:26.334665Z  INFO ThreadId(53) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:205: [Poller] Pool ready=30/30
+[Line 2699] 2026-06-27T12:55:26.334697Z  INFO ThreadId(73) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch1778770285853
+[Line 2700] 2026-06-27T12:55:26.334708Z  INFO ThreadId(60) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch1779678163236
+[Line 2701] 2026-06-27T12:55:26.334718Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1781580100248
+[Line 2702] 2026-06-27T12:55:26.334728Z  INFO ThreadId(54) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1781592059512
+[Line 2703] 2026-06-27T12:55:26.334736Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782435627253
+[Line 2704] 2026-06-27T12:55:26.334748Z  INFO ThreadId(71) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782435650360
+[Line 2705] 2026-06-27T12:55:26.334758Z  INFO ThreadId(76) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436266453
+[Line 2706] 2026-06-27T12:55:26.334765Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436275751
+[Line 2707] 2026-06-27T12:55:26.334777Z  INFO ThreadId(57) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436283903
+[Line 2708] 2026-06-27T12:55:26.334786Z  INFO ThreadId(67) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436292772
+[Line 2709] 2026-06-27T12:55:26.334794Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436303713
+[Line 2710] 2026-06-27T12:55:26.334814Z  INFO ThreadId(69) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436333915
+[Line 2711] 2026-06-27T12:55:26.334824Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436343952
+[Line 2712] 2026-06-27T12:55:26.334831Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436365003
+[Line 2713] 2026-06-27T12:55:26.334832Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436381970
+[Line 2714] 2026-06-27T12:55:26.334835Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436402605
+[Line 2715] 2026-06-27T12:55:26.334836Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436414467
+[Line 2716] 2026-06-27T12:55:26.334839Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436468996
+[Line 2717] 2026-06-27T12:55:26.334839Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436424144
+[Line 2718] 2026-06-27T12:55:26.334838Z  INFO ThreadId(68) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436391623
+[Line 2719] 2026-06-27T12:55:26.334840Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436510616
+[Line 2720] 2026-06-27T12:55:26.334841Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782522924144
+[Line 2721] 2026-06-27T12:55:26.334847Z  INFO ThreadId(58) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782531138218
+[Line 2722] 2026-06-27T12:55:26.335034Z  INFO ThreadId(73) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2723] 2026-06-27T12:55:26.335034Z  INFO ThreadId(60) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2724] 2026-06-27T12:55:26.335037Z  INFO ThreadId(54) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2725] 2026-06-27T12:55:26.335043Z  INFO ThreadId(54) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1781592059512...
+[Line 2726] 2026-06-27T12:55:26.335043Z  INFO ThreadId(60) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch1779678163236...
+[Line 2727] 2026-06-27T12:55:26.335044Z  INFO ThreadId(73) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch1778770285853...
+[Line 2728] 2026-06-27T12:55:26.335047Z  INFO ThreadId(62) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2729] 2026-06-27T12:55:26.335053Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1781580100248...
+[Line 2730] 2026-06-27T12:55:26.561006Z  INFO ThreadId(73) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 15 videos for UCcGsDTH1Bypd8gWH1US1b4g in 0.2s (daemon)
+[Line 2731] 2026-06-27T12:55:26.561029Z  INFO ThreadId(73) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 15 videos for ch1778770285853
+[Line 2732] 2026-06-27T12:55:26.643600Z  INFO ThreadId(60) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 35 videos for UCP0XXnFnS3hgAaQl0DrJgvA in 0.3s (daemon)
+[Line 2733] 2026-06-27T12:55:26.643630Z  INFO ThreadId(60) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 35 videos for ch1779678163236
+[Line 2734] 2026-06-27T12:55:26.708423Z  INFO ThreadId(76) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2735] 2026-06-27T12:55:26.708433Z  INFO ThreadId(64) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2736] 2026-06-27T12:55:26.708449Z  INFO ThreadId(76) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436266453...
+[Line 2737] 2026-06-27T12:55:26.708449Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436303713...
+[Line 2738] 2026-06-27T12:55:26.708846Z  INFO ThreadId(71) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2739] 2026-06-27T12:55:26.708858Z  INFO ThreadId(71) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782435650360...
+[Line 2740] 2026-06-27T12:55:26.709257Z  INFO ThreadId(69) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2741] 2026-06-27T12:55:26.709268Z  INFO ThreadId(69) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436333915...
+[Line 2742] 2026-06-27T12:55:26.709335Z  INFO ThreadId(57) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2743] 2026-06-27T12:55:26.709340Z  INFO ThreadId(57) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436283903...
+[Line 2744] 2026-06-27T12:55:26.709505Z  INFO ThreadId(67) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2745] 2026-06-27T12:55:26.709513Z  INFO ThreadId(67) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436292772...
+[Line 2746] 2026-06-27T12:55:26.719398Z  INFO ThreadId(59) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2747] 2026-06-27T12:55:26.719417Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436275751...
+[Line 2748] 2026-06-27T12:55:26.729251Z  INFO ThreadId(77) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2749] 2026-06-27T12:55:26.729274Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782435627253...
+[Line 2750] 2026-06-27T12:55:27.033370Z  INFO ThreadId(62) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 14 videos for BadyNone in 0.7s (daemon)
+[Line 2751] 2026-06-27T12:55:27.033390Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 14 videos for ch-1781580100248
+[Line 2752] 2026-06-27T12:55:27.064279Z  INFO ThreadId(68) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2753] 2026-06-27T12:55:27.064296Z  INFO ThreadId(68) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436510616...
+[Line 2754] 2026-06-27T12:55:27.093216Z  INFO ThreadId(63) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2755] 2026-06-27T12:55:27.093244Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436424144...
+[Line 2756] 2026-06-27T12:55:27.094094Z  INFO ThreadId(77) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 64 videos for UCsHxSQrAlw0_iL9KmiyOB4g in 0.4s (daemon)
+[Line 2757] 2026-06-27T12:55:27.094109Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 64 videos for ch-1782435627253
+[Line 2758] 2026-06-27T12:55:27.118720Z  INFO ThreadId(60) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2759] 2026-06-27T12:55:27.118741Z  INFO ThreadId(60) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436468996...
+[Line 2760] 2026-06-27T12:55:27.147148Z  INFO ThreadId(71) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UC3-N2HzW2OsExPLJlp4-BOg in 0.4s (daemon)
+[Line 2761] 2026-06-27T12:55:27.147167Z  INFO ThreadId(71) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782435650360
+[Line 2762] 2026-06-27T12:55:27.148486Z  INFO ThreadId(57) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCDAsctlVfxUJZhn9JTZ2pkw in 0.4s (daemon)
+[Line 2763] 2026-06-27T12:55:27.148495Z  INFO ThreadId(57) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436283903
+[Line 2764] 2026-06-27T12:55:27.152731Z  INFO ThreadId(76) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 53 videos for UCuFXanffpOEtPayBW8ebkuA in 0.4s (daemon)
+[Line 2765] 2026-06-27T12:55:27.152748Z  INFO ThreadId(76) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 53 videos for ch-1782436266453
+[Line 2766] 2026-06-27T12:55:27.192033Z  INFO ThreadId(64) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCATF6DNJiubhdUU2wCqIj7g in 0.5s (daemon)
+[Line 2767] 2026-06-27T12:55:27.192051Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436303713
+[Line 2768] 2026-06-27T12:55:27.203816Z  INFO ThreadId(59) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCGTR-w629-kp7AI-tQ-X8lw in 0.5s (daemon)
+[Line 2769] 2026-06-27T12:55:27.203834Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436275751
+[Line 2770] 2026-06-27T12:55:27.227086Z  INFO ThreadId(69) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCVi-tZ64cM-MTkiqkKcawMQ in 0.5s (daemon)
+[Line 2771] 2026-06-27T12:55:27.227106Z  INFO ThreadId(69) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436333915
+[Line 2772] 2026-06-27T12:55:27.276942Z  INFO ThreadId(67) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCZ_gMSow3n_kAqnTD7xwsIg in 0.6s (daemon)
+[Line 2773] 2026-06-27T12:55:27.276962Z  INFO ThreadId(67) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436292772
+[Line 2774] 2026-06-27T12:55:27.307234Z  INFO ThreadId(59) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2775] 2026-06-27T12:55:27.307253Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436343952...
+[Line 2776] 2026-06-27T12:55:27.360524Z  INFO ThreadId(68) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 41 videos for UCMFngRBLYslCXgHmutaS0Ew in 0.3s (daemon)
+[Line 2777] 2026-06-27T12:55:27.360559Z  INFO ThreadId(68) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 41 videos for ch-1782436510616
+[Line 2778] 2026-06-27T12:55:27.474376Z  INFO ThreadId(54) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 90 videos for ThuongLez in 1.1s (daemon)
+[Line 2779] 2026-06-27T12:55:27.474400Z  INFO ThreadId(54) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 90 videos for ch-1781592059512
+[Line 2780] 2026-06-27T12:55:27.527891Z  INFO ThreadId(63) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCctJx-hRbmyZh2ASsgGF5pA in 0.4s (daemon)
+[Line 2781] 2026-06-27T12:55:27.527909Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436424144
+[Line 2782] 2026-06-27T12:55:27.532354Z  INFO ThreadId(77) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2783] 2026-06-27T12:55:27.532368Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436381970...
+[Line 2784] 2026-06-27T12:55:27.532420Z  INFO ThreadId(62) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2785] 2026-06-27T12:55:27.532429Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436391623...
+[Line 2786] 2026-06-27T12:55:27.532645Z  INFO ThreadId(57) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2787] 2026-06-27T12:55:27.532650Z  INFO ThreadId(57) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782531138218...
+[Line 2788] 2026-06-27T12:55:27.537990Z  INFO ThreadId(64) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2789] 2026-06-27T12:55:27.538013Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436365003...
+[Line 2790] 2026-06-27T12:55:27.542230Z  INFO ThreadId(60) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCLHJyy_RhxGhbOeHtBzyqxQ in 0.4s (daemon)
+[Line 2791] 2026-06-27T12:55:27.542250Z  INFO ThreadId(60) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436468996
+[Line 2792] 2026-06-27T12:55:27.626822Z  INFO ThreadId(71) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2793] 2026-06-27T12:55:27.626822Z  INFO ThreadId(67) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2794] 2026-06-27T12:55:27.626841Z  INFO ThreadId(67) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436402605...
+[Line 2795] 2026-06-27T12:55:27.626841Z  INFO ThreadId(71) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436414467...
+[Line 2796] 2026-06-27T12:55:27.636578Z  INFO ThreadId(66) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2797] 2026-06-27T12:55:27.636595Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782522924144...
+[Line 2798] 2026-06-27T12:55:27.718267Z  INFO ThreadId(59) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCNE5pfPGgtl9AjPiMf8A3RQ in 0.4s (daemon)
+[Line 2799] 2026-06-27T12:55:27.718284Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436343952
+[Line 2800] 2026-06-27T12:55:27.871624Z  INFO ThreadId(67) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 6 videos for UCCSGFO8QPjG3E3fBnWO4M_w in 0.2s (daemon)
+[Line 2801] 2026-06-27T12:55:27.871643Z  INFO ThreadId(67) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 6 videos for ch-1782436402605
+[Line 2802] 2026-06-27T12:55:27.874906Z  INFO ThreadId(57) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 43 videos for UCu0gB26qEytCwh_v1zwMLaw in 0.3s (daemon)
+[Line 2803] 2026-06-27T12:55:27.874922Z  INFO ThreadId(57) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 43 videos for ch-1782531138218
+[Line 2804] 2026-06-27T12:55:27.960125Z  INFO ThreadId(64) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCoDT-z7_oNEcNOt-iMFHORQ in 0.4s (daemon)
+[Line 2805] 2026-06-27T12:55:27.960150Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436365003
+[Line 2806] 2026-06-27T12:55:27.982441Z  INFO ThreadId(77) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UC_cq2sArbMwCIfryVq-4Dug in 0.5s (daemon)
+[Line 2807] 2026-06-27T12:55:27.982470Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436381970
+[Line 2808] 2026-06-27T12:55:28.007571Z  INFO ThreadId(62) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCu3QBD6ZDx6aWH3hMApt1og in 0.5s (daemon)
+[Line 2809] 2026-06-27T12:55:28.007597Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436391623
+[Line 2810] 2026-06-27T12:55:28.030962Z  INFO ThreadId(66) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 36 videos for UC2IMDck4BUc6QxuUbf5t_KA in 0.4s (daemon)
+[Line 2811] 2026-06-27T12:55:28.030981Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 36 videos for ch-1782522924144
+[Line 2812] 2026-06-27T12:55:28.106431Z  INFO ThreadId(71) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UC1C2FvyrUf8meDbpuTWTlkA in 0.5s (daemon)
+[Line 2813] 2026-06-27T12:55:28.106455Z  INFO ThreadId(71) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436414467
+[Line 2814] 2026-06-27T12:55:29.605716Z  INFO ThreadId(91) hyperclip_tauri::commands: src-tauri\src\commands.rs:365: [AppState] Auto-download complete: ws-ch-1782564922920 (10.7 MB)
+[Line 2815] 2026-06-27T12:55:30.253352Z  INFO ThreadId(53) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:198: [Poller] Polling 23 active channels (23 total)
+[Line 2816] 2026-06-27T12:55:30.253375Z  INFO ThreadId(53) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:205: [Poller] Pool ready=30/30
+[Line 2817] 2026-06-27T12:55:30.253405Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch1778770285853
+[Line 2818] 2026-06-27T12:55:30.253417Z  INFO ThreadId(68) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch1779678163236
+[Line 2819] 2026-06-27T12:55:30.253429Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1781580100248
+[Line 2820] 2026-06-27T12:55:30.253440Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1781592059512
+[Line 2821] 2026-06-27T12:55:30.253450Z  INFO ThreadId(57) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782435627253
+[Line 2822] 2026-06-27T12:55:30.253463Z  INFO ThreadId(71) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782435650360
+[Line 2823] 2026-06-27T12:55:30.253470Z  INFO ThreadId(67) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436266453
+[Line 2824] 2026-06-27T12:55:30.253482Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436275751
+[Line 2825] 2026-06-27T12:55:30.253490Z  INFO ThreadId(60) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436283903
+[Line 2826] 2026-06-27T12:55:30.253504Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436292772
+[Line 2827] 2026-06-27T12:55:30.253519Z  INFO ThreadId(54) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436303713
+[Line 2828] 2026-06-27T12:55:30.253529Z  INFO ThreadId(58) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436333915
+[Line 2829] 2026-06-27T12:55:30.253538Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436343952
+[Line 2830] 2026-06-27T12:55:30.253548Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436381970
+[Line 2831] 2026-06-27T12:55:30.253551Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436391623
+[Line 2832] 2026-06-27T12:55:30.253548Z  INFO ThreadId(65) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436365003
+[Line 2833] 2026-06-27T12:55:30.253554Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436402605
+[Line 2834] 2026-06-27T12:55:30.253558Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436468996
+[Line 2835] 2026-06-27T12:55:30.253558Z  INFO ThreadId(65) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436424144
+[Line 2836] 2026-06-27T12:55:30.253560Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436510616
+[Line 2837] 2026-06-27T12:55:30.253561Z  INFO ThreadId(65) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782522924144
+[Line 2838] 2026-06-27T12:55:30.253562Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782531138218
+[Line 2839] 2026-06-27T12:55:30.253562Z  INFO ThreadId(69) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436414467
+[Line 2840] 2026-06-27T12:55:30.253850Z  INFO ThreadId(68) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2841] 2026-06-27T12:55:30.253850Z  INFO ThreadId(66) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2842] 2026-06-27T12:55:30.253855Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch1778770285853...
+[Line 2843] 2026-06-27T12:55:30.253855Z  INFO ThreadId(68) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch1779678163236...
+[Line 2844] 2026-06-27T12:55:30.254016Z  INFO ThreadId(62) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2845] 2026-06-27T12:55:30.254022Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1781580100248...
+[Line 2846] 2026-06-27T12:55:30.270889Z  INFO ThreadId(91) hyperclip_ipc::ffmpeg: crates\hyperclip_ipc\src\ffmpeg.rs:929: [AppState] Generating blur background at "D:\\đã render\\temp\\ws-ch-1782564922920_blur.jpg"
+[Line 2847] 2026-06-27T12:55:30.354378Z  INFO ThreadId(91) hyperclip_ipc::ffmpeg: crates\hyperclip_ipc\src\ffmpeg.rs:1009: [AppState] Bottom bar cache MISS. Generating bottom bar PNG at "D:\\đã render\\temp\\ws-ch-1782564922920_bottom_bar.png"
+[Line 2848] 2026-06-27T12:55:30.568636Z  INFO ThreadId(66) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 15 videos for UCcGsDTH1Bypd8gWH1US1b4g in 0.3s (daemon)
+[Line 2849] 2026-06-27T12:55:30.568653Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 15 videos for ch1778770285853
+[Line 2850] 2026-06-27T12:55:30.571838Z  INFO ThreadId(57) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2851] 2026-06-27T12:55:30.571855Z  INFO ThreadId(57) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782435627253...
+[Line 2852] 2026-06-27T12:55:30.590463Z  INFO ThreadId(68) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 35 videos for UCP0XXnFnS3hgAaQl0DrJgvA in 0.3s (daemon)
+[Line 2853] 2026-06-27T12:55:30.590482Z  INFO ThreadId(68) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 35 videos for ch1779678163236
+[Line 2854] 2026-06-27T12:55:30.592310Z  INFO ThreadId(58) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2855] 2026-06-27T12:55:30.592323Z  INFO ThreadId(58) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436333915...
+[Line 2856] 2026-06-27T12:55:30.593725Z  INFO ThreadId(59) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2857] 2026-06-27T12:55:30.593742Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436275751...
+[Line 2858] 2026-06-27T12:55:30.600064Z  INFO ThreadId(77) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2859] 2026-06-27T12:55:30.600081Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1781592059512...
+[Line 2860] 2026-06-27T12:55:30.633492Z  INFO ThreadId(71) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2861] 2026-06-27T12:55:30.633516Z  INFO ThreadId(71) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782435650360...
+[Line 2862] 2026-06-27T12:55:30.635148Z  INFO ThreadId(63) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2863] 2026-06-27T12:55:30.635162Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436292772...
+[Line 2864] 2026-06-27T12:55:30.687896Z  INFO ThreadId(67) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2865] 2026-06-27T12:55:30.687916Z  INFO ThreadId(67) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436266453...
+[Line 2866] 2026-06-27T12:55:30.687972Z  INFO ThreadId(60) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2867] 2026-06-27T12:55:30.687981Z  INFO ThreadId(60) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436283903...
+[Line 2868] 2026-06-27T12:55:30.899563Z  INFO ThreadId(54) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2869] 2026-06-27T12:55:30.899582Z  INFO ThreadId(54) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436303713...
+[Line 2870] 2026-06-27T12:55:30.904009Z  INFO ThreadId(57) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 64 videos for UCsHxSQrAlw0_iL9KmiyOB4g in 0.3s (daemon)
+[Line 2871] 2026-06-27T12:55:30.904026Z  INFO ThreadId(57) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 64 videos for ch-1782435627253
+[Line 2872] 2026-06-27T12:55:30.917321Z  INFO ThreadId(64) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2873] 2026-06-27T12:55:30.917339Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436424144...
+[Line 2874] 2026-06-27T12:55:31.005030Z  INFO ThreadId(69) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2875] 2026-06-27T12:55:31.005050Z  INFO ThreadId(69) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436468996...
+[Line 2876] 2026-06-27T12:55:31.007290Z  INFO ThreadId(66) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2877] 2026-06-27T12:55:31.007311Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436365003...
+[Line 2878] 2026-06-27T12:55:31.031807Z  INFO ThreadId(77) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 90 videos for ThuongLez in 0.4s (daemon)
+[Line 2879] 2026-06-27T12:55:31.031824Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 90 videos for ch-1781592059512
+[Line 2880] 2026-06-27T12:55:31.043420Z  INFO ThreadId(58) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCVi-tZ64cM-MTkiqkKcawMQ in 0.5s (daemon)
+[Line 2881] 2026-06-27T12:55:31.043440Z  INFO ThreadId(58) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436333915
+[Line 2882] 2026-06-27T12:55:31.058552Z  INFO ThreadId(59) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCGTR-w629-kp7AI-tQ-X8lw in 0.5s (daemon)
+[Line 2883] 2026-06-27T12:55:31.058591Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436275751
+[Line 2884] 2026-06-27T12:55:31.061591Z  INFO ThreadId(63) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCZ_gMSow3n_kAqnTD7xwsIg in 0.4s (daemon)
+[Line 2885] 2026-06-27T12:55:31.061602Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436292772
+[Line 2886] 2026-06-27T12:55:31.071814Z  INFO ThreadId(91) hyperclip_ipc::ffmpeg: crates\hyperclip_ipc\src\ffmpeg.rs:737: [FFmpeg CUDA Check] CUDA + NVENC supported check result: true
+[Line 2887] 2026-06-27T12:55:31.076324Z  INFO ThreadId(62) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 14 videos for BadyNone in 0.8s (daemon)
+[Line 2888] 2026-06-27T12:55:31.076340Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 14 videos for ch-1781580100248
+[Line 2889] 2026-06-27T12:55:31.079304Z  INFO ThreadId(67) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 53 videos for UCuFXanffpOEtPayBW8ebkuA in 0.4s (daemon)
+[Line 2890] 2026-06-27T12:55:31.079320Z  INFO ThreadId(67) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 53 videos for ch-1782436266453
+[Line 2891] 2026-06-27T12:55:31.095612Z  INFO ThreadId(71) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UC3-N2HzW2OsExPLJlp4-BOg in 0.5s (daemon)
+[Line 2892] 2026-06-27T12:55:31.095641Z  INFO ThreadId(71) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782435650360
+[Line 2893] 2026-06-27T12:55:31.143008Z  INFO ThreadId(60) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCDAsctlVfxUJZhn9JTZ2pkw in 0.5s (daemon)
+[Line 2894] 2026-06-27T12:55:31.143024Z  INFO ThreadId(60) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436283903
+[Line 2895] 2026-06-27T12:55:31.220954Z  INFO ThreadId(67) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2896] 2026-06-27T12:55:31.220973Z  INFO ThreadId(67) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436402605...
+[Line 2897] 2026-06-27T12:55:31.230802Z  INFO ThreadId(91) hyperclip_ipc::ffmpeg: crates\hyperclip_ipc\src\ffmpeg.rs:1346: Spawning FFmpeg: D:/HyperClip/HyperClip-TestCustomer-20260616-224538/app/_internal/resources/ffmpeg/bin/ffmpeg.exe -hide_banner -y -init_hw_device cuda=cuda -filter_hw_device cuda -hwaccel cuda -i D:\tải về\vtGCk-3cep0_20260627_125522.mp4 -framerate 30 -i D:\đã render\temp\ws-ch-1782564922920_composite_bg.png -filter_complex [0:v]trim=start=0:duration=300,setpts=PTS-STARTPTS,setpts=0.9090909090909091*PTS,fps=30,scale=910:512:flags=fast_bilinear,crop=720:512:95:0,format=nv12,hwupload_cuda[vid]; [1:v]loop=loop=-1:size=1:start=0,fps=30,format=nv12,hwupload_cuda[bg]; [bg][vid]overlay_cuda=x=0:y=384:eof_action=repeat,setsar=1 [final]; [0:a]atrim=start=0:duration=300,asetpts=PTS-STARTPTS,atempo=1.1000[a] -t 272.73 -map [final] -map [a] -c:v hevc_nvenc -preset p1 -rc:v vbr -cq 18 -tune hq -g 30 -maxrate 6M -bufsize 6M -multipass disabled -c:a aac -b:a 192k -r 30 D:\đã render\PART 1_vtGCk-3cep0.mp4
+[Line 2898] 2026-06-27T12:55:31.264997Z  INFO ThreadId(01) hyperclip_tauri::commands::auth: src-tauri\src\commands\auth.rs:22: [AuthStatus] Status checked. is_ready=true, cookie_len=2082, cookie_count=21, has_sapisid=true
+[Line 2899] 2026-06-27T12:55:31.382810Z  INFO ThreadId(64) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCctJx-hRbmyZh2ASsgGF5pA in 0.5s (daemon)
+[Line 2900] 2026-06-27T12:55:31.382829Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436424144
+[Line 2901] 2026-06-27T12:55:31.422426Z  INFO ThreadId(67) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 6 videos for UCCSGFO8QPjG3E3fBnWO4M_w in 0.2s (daemon)
+[Line 2902] 2026-06-27T12:55:31.422448Z  INFO ThreadId(67) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 6 videos for ch-1782436402605
+[Line 2903] 2026-06-27T12:55:31.424236Z  INFO ThreadId(59) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2904] 2026-06-27T12:55:31.424265Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782522924144...
+[Line 2905] 2026-06-27T12:55:31.427791Z  INFO ThreadId(77) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2906] 2026-06-27T12:55:31.427814Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436391623...
+[Line 2907] 2026-06-27T12:55:31.430962Z  INFO ThreadId(58) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2908] 2026-06-27T12:55:31.430985Z  INFO ThreadId(58) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782531138218...
+[Line 2909] 2026-06-27T12:55:31.461908Z  INFO ThreadId(54) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCATF6DNJiubhdUU2wCqIj7g in 0.6s (daemon)
+[Line 2910] 2026-06-27T12:55:31.461925Z  INFO ThreadId(54) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436303713
+[Line 2911] 2026-06-27T12:55:31.466236Z  INFO ThreadId(57) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2912] 2026-06-27T12:55:31.466253Z  INFO ThreadId(57) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436414467...
+[Line 2913] 2026-06-27T12:55:31.466393Z  INFO ThreadId(62) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2914] 2026-06-27T12:55:31.466405Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436510616...
+[Line 2915] 2026-06-27T12:55:31.475192Z  INFO ThreadId(66) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCoDT-z7_oNEcNOt-iMFHORQ in 0.5s (daemon)
+[Line 2916] 2026-06-27T12:55:31.475213Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436365003
+[Line 2917] 2026-06-27T12:55:31.475742Z  INFO ThreadId(69) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCLHJyy_RhxGhbOeHtBzyqxQ in 0.5s (daemon)
+[Line 2918] 2026-06-27T12:55:31.475747Z  INFO ThreadId(69) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436468996
+[Line 2919] 2026-06-27T12:55:31.488346Z  INFO ThreadId(71) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2920] 2026-06-27T12:55:31.488365Z  INFO ThreadId(71) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436343952...
+[Line 2921] 2026-06-27T12:55:31.497984Z  INFO ThreadId(63) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2922] 2026-06-27T12:55:31.498003Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436381970...
+[Line 2923] 2026-06-27T12:55:31.775664Z  INFO ThreadId(62) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 41 videos for UCMFngRBLYslCXgHmutaS0Ew in 0.3s (daemon)
+[Line 2924] 2026-06-27T12:55:31.775687Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 41 videos for ch-1782436510616
+[Line 2925] 2026-06-27T12:55:31.791130Z  INFO ThreadId(58) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 43 videos for UCu0gB26qEytCwh_v1zwMLaw in 0.4s (daemon)
+[Line 2926] 2026-06-27T12:55:31.791160Z  INFO ThreadId(58) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 43 videos for ch-1782531138218
+[Line 2927] 2026-06-27T12:55:31.791240Z  INFO ThreadId(59) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 36 videos for UC2IMDck4BUc6QxuUbf5t_KA in 0.4s (daemon)
+[Line 2928] 2026-06-27T12:55:31.791252Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 36 videos for ch-1782522924144
+[Line 2929] 2026-06-27T12:55:31.901322Z  INFO ThreadId(77) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCu3QBD6ZDx6aWH3hMApt1og in 0.5s (daemon)
+[Line 2930] 2026-06-27T12:55:31.901346Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436391623
+[Line 2931] 2026-06-27T12:55:31.908033Z  INFO ThreadId(57) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UC1C2FvyrUf8meDbpuTWTlkA in 0.4s (daemon)
+[Line 2932] 2026-06-27T12:55:31.908070Z  INFO ThreadId(57) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436414467
+[Line 2933] 2026-06-27T12:55:31.923139Z  INFO ThreadId(71) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCNE5pfPGgtl9AjPiMf8A3RQ in 0.4s (daemon)
+[Line 2934] 2026-06-27T12:55:31.923167Z  INFO ThreadId(71) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436343952
+[Line 2935] 2026-06-27T12:55:31.936538Z  INFO ThreadId(63) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UC_cq2sArbMwCIfryVq-4Dug in 0.4s (daemon)
+[Line 2936] 2026-06-27T12:55:31.936568Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436381970
+[Line 2937] 2026-06-27T12:55:31.987672Z  INFO ThreadId(116) hyperclip_ipc::ffmpeg: crates\hyperclip_ipc\src\ffmpeg.rs:1380: [FFmpeg progress] frame=  373 fps=0.0 q=12.0 size=    6144KiB time=00:00:12.43 bitrate=4048.2kbits/s speed=24.3x elapsed=0:00:00.51
+[Line 2939] 2026-06-27T12:55:32.511954Z  INFO ThreadId(116) hyperclip_ipc::ffmpeg: crates\hyperclip_ipc\src\ffmpeg.rs:1380: [FFmpeg progress] frame=  975 fps=941 q=13.0 size=   13824KiB time=00:00:32.50 bitrate=3484.5kbits/s speed=31.4x elapsed=0:00:01.03
+[Line 2941] 2026-06-27T12:55:33.045150Z  INFO ThreadId(116) hyperclip_ipc::ffmpeg: crates\hyperclip_ipc\src\ffmpeg.rs:1380: [FFmpeg progress] frame= 1587 fps=1026 q=12.0 size=   21504KiB time=00:00:52.90 bitrate=3330.1kbits/s speed=34.2x elapsed=0:00:01.54
+[Line 2943] 2026-06-27T12:55:33.579176Z  INFO ThreadId(116) hyperclip_ipc::ffmpeg: crates\hyperclip_ipc\src\ffmpeg.rs:1380: [FFmpeg progress] frame= 2202 fps=1064 q=12.0 size=   30464KiB time=00:01:13.40 bitrate=3400.0kbits/s speed=35.5x elapsed=0:00:02.06
+[Line 2945] 2026-06-27T12:55:34.020090Z  INFO ThreadId(53) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:198: [Poller] Polling 23 active channels (23 total)
+[Line 2946] 2026-06-27T12:55:34.020115Z  INFO ThreadId(53) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:205: [Poller] Pool ready=30/30
+[Line 2947] 2026-06-27T12:55:34.020152Z  INFO ThreadId(71) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch1778770285853
+[Line 2948] 2026-06-27T12:55:34.020167Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch1779678163236
+[Line 2949] 2026-06-27T12:55:34.020177Z  INFO ThreadId(57) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1781580100248
+[Line 2950] 2026-06-27T12:55:34.020189Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1781592059512
+[Line 2951] 2026-06-27T12:55:34.020202Z  INFO ThreadId(58) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782435627253
+[Line 2952] 2026-06-27T12:55:34.020216Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782435650360
+[Line 2953] 2026-06-27T12:55:34.020225Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436266453
+[Line 2954] 2026-06-27T12:55:34.020234Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436275751
+[Line 2955] 2026-06-27T12:55:34.020246Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436283903
+[Line 2956] 2026-06-27T12:55:34.020266Z  INFO ThreadId(54) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436292772
+[Line 2957] 2026-06-27T12:55:34.020277Z  INFO ThreadId(67) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436303713
+[Line 2958] 2026-06-27T12:55:34.020285Z  INFO ThreadId(69) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436333915
+[Line 2959] 2026-06-27T12:55:34.020299Z  INFO ThreadId(68) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436343952
+[Line 2960] 2026-06-27T12:55:34.020312Z  INFO ThreadId(60) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436365003
+[Line 2961] 2026-06-27T12:55:34.020319Z  INFO ThreadId(60) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436391623
+[Line 2962] 2026-06-27T12:55:34.020321Z  INFO ThreadId(60) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436402605
+[Line 2963] 2026-06-27T12:55:34.020323Z  INFO ThreadId(60) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436414467
+[Line 2964] 2026-06-27T12:55:34.020325Z  INFO ThreadId(60) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436424144
+[Line 2965] 2026-06-27T12:55:34.020326Z  INFO ThreadId(60) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436468996
+[Line 2966] 2026-06-27T12:55:34.020328Z  INFO ThreadId(60) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436510616
+[Line 2967] 2026-06-27T12:55:34.020325Z  INFO ThreadId(76) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782436381970
+[Line 2968] 2026-06-27T12:55:34.020330Z  INFO ThreadId(60) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782531138218
+[Line 2969] 2026-06-27T12:55:34.020335Z  INFO ThreadId(65) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:218: [Poller] Acquiring session for ch-1782522924144
+[Line 2970] 2026-06-27T12:55:34.020590Z  INFO ThreadId(64) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2971] 2026-06-27T12:55:34.020589Z  INFO ThreadId(71) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2972] 2026-06-27T12:55:34.020590Z  INFO ThreadId(57) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2973] 2026-06-27T12:55:34.020601Z  INFO ThreadId(57) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1781580100248...
+[Line 2974] 2026-06-27T12:55:34.020601Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch1779678163236...
+[Line 2975] 2026-06-27T12:55:34.020601Z  INFO ThreadId(71) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch1778770285853...
+[Line 2976] 2026-06-27T12:55:34.020612Z  INFO ThreadId(77) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2977] 2026-06-27T12:55:34.020619Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1781592059512...
+[Line 2978] 2026-06-27T12:55:34.094512Z  INFO ThreadId(102) hyperclip_ipc::ffmpeg: crates\hyperclip_ipc\src\ffmpeg.rs:1380: [FFmpeg progress] frame= 2790 fps=1083 q=12.0 size=   36864KiB time=00:01:33.00 bitrate=3247.2kbits/s speed=36.1x elapsed=0:00:02.57
+[Line 2980] 2026-06-27T12:55:34.239448Z  INFO ThreadId(71) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 15 videos for UCcGsDTH1Bypd8gWH1US1b4g in 0.2s (daemon)
+[Line 2981] 2026-06-27T12:55:34.239470Z  INFO ThreadId(71) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 15 videos for ch1778770285853
+[Line 2982] 2026-06-27T12:55:34.336059Z  INFO ThreadId(67) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2983] 2026-06-27T12:55:34.336059Z  INFO ThreadId(66) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2984] 2026-06-27T12:55:34.336077Z  INFO ThreadId(67) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436303713...
+[Line 2985] 2026-06-27T12:55:34.336079Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436275751...
+[Line 2986] 2026-06-27T12:55:34.355444Z  INFO ThreadId(54) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2987] 2026-06-27T12:55:34.355462Z  INFO ThreadId(54) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436292772...
+[Line 2988] 2026-06-27T12:55:34.355585Z  INFO ThreadId(69) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2989] 2026-06-27T12:55:34.355595Z  INFO ThreadId(69) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436333915...
+[Line 2990] 2026-06-27T12:55:34.356857Z  INFO ThreadId(63) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2991] 2026-06-27T12:55:34.356876Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436283903...
+[Line 2992] 2026-06-27T12:55:34.361120Z  INFO ThreadId(64) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 35 videos for UCP0XXnFnS3hgAaQl0DrJgvA in 0.3s (daemon)
+[Line 2993] 2026-06-27T12:55:34.361138Z  INFO ThreadId(64) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 35 videos for ch1779678163236
+[Line 2994] 2026-06-27T12:55:34.366709Z  INFO ThreadId(62) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2995] 2026-06-27T12:55:34.366726Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436266453...
+[Line 2996] 2026-06-27T12:55:34.374204Z  INFO ThreadId(59) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2997] 2026-06-27T12:55:34.374229Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782435650360...
+[Line 2998] 2026-06-27T12:55:34.399325Z  INFO ThreadId(58) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 2999] 2026-06-27T12:55:34.399351Z  INFO ThreadId(58) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782435627253...
+[Line 3000] 2026-06-27T12:55:34.471412Z  INFO ThreadId(77) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 90 videos for ThuongLez in 0.5s (daemon)
+[Line 3001] 2026-06-27T12:55:34.471432Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 90 videos for ch-1781592059512
+[Line 3002] 2026-06-27T12:55:34.559071Z  INFO ThreadId(76) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 3003] 2026-06-27T12:55:34.559085Z  INFO ThreadId(76) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436381970...
+[Line 3004] 2026-06-27T12:55:34.578110Z  INFO ThreadId(102) hyperclip_ipc::ffmpeg: crates\hyperclip_ipc\src\ffmpeg.rs:1380: [FFmpeg progress] frame= 3427 fps=1106 q=12.0 size=   45312KiB time=00:01:54.23 bitrate=3249.5kbits/s speed=36.9x elapsed=0:00:03.09
+[Line 3006] 2026-06-27T12:55:34.690667Z  INFO ThreadId(60) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 3007] 2026-06-27T12:55:34.690690Z  INFO ThreadId(60) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436343952...
+[Line 3008] 2026-06-27T12:55:34.694016Z  INFO ThreadId(62) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 53 videos for UCuFXanffpOEtPayBW8ebkuA in 0.3s (daemon)
+[Line 3009] 2026-06-27T12:55:34.694036Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 53 videos for ch-1782436266453
+[Line 3010] 2026-06-27T12:55:34.747679Z  INFO ThreadId(66) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCGTR-w629-kp7AI-tQ-X8lw in 0.4s (daemon)
+[Line 3011] 2026-06-27T12:55:34.747697Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436275751
+[Line 3012] 2026-06-27T12:55:34.757393Z  INFO ThreadId(63) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCDAsctlVfxUJZhn9JTZ2pkw in 0.4s (daemon)
+[Line 3013] 2026-06-27T12:55:34.757416Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436283903
+[Line 3014] 2026-06-27T12:55:34.762530Z  INFO ThreadId(58) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 64 videos for UCsHxSQrAlw0_iL9KmiyOB4g in 0.4s (daemon)
+[Line 3015] 2026-06-27T12:55:34.762546Z  INFO ThreadId(58) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 64 videos for ch-1782435627253
+[Line 3016] 2026-06-27T12:55:34.774621Z  INFO ThreadId(66) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 3017] 2026-06-27T12:55:34.774621Z  INFO ThreadId(62) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 3018] 2026-06-27T12:55:34.774641Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436365003...
+[Line 3019] 2026-06-27T12:55:34.774641Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436468996...
+[Line 3020] 2026-06-27T12:55:34.774729Z  INFO ThreadId(58) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 3021] 2026-06-27T12:55:34.774739Z  INFO ThreadId(58) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436510616...
+[Line 3022] 2026-06-27T12:55:34.796582Z  INFO ThreadId(57) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 14 videos for BadyNone in 0.8s (daemon)
+[Line 3023] 2026-06-27T12:55:34.796598Z  INFO ThreadId(57) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 14 videos for ch-1781580100248
+[Line 3024] 2026-06-27T12:55:34.801773Z  INFO ThreadId(54) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCZ_gMSow3n_kAqnTD7xwsIg in 0.4s (daemon)
+[Line 3025] 2026-06-27T12:55:34.801793Z  INFO ThreadId(54) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436292772
+[Line 3026] 2026-06-27T12:55:34.850037Z  INFO ThreadId(68) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 3027] 2026-06-27T12:55:34.850066Z  INFO ThreadId(68) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782531138218...
+[Line 3028] 2026-06-27T12:55:34.858079Z  INFO ThreadId(69) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCVi-tZ64cM-MTkiqkKcawMQ in 0.5s (daemon)
+[Line 3029] 2026-06-27T12:55:34.858107Z  INFO ThreadId(69) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436333915
+[Line 3030] 2026-06-27T12:55:34.903138Z  INFO ThreadId(67) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCATF6DNJiubhdUU2wCqIj7g in 0.6s (daemon)
+[Line 3031] 2026-06-27T12:55:34.903157Z  INFO ThreadId(67) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436303713
+[Line 3032] 2026-06-27T12:55:34.930534Z  INFO ThreadId(59) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UC3-N2HzW2OsExPLJlp4-BOg in 0.6s (daemon)
+[Line 3033] 2026-06-27T12:55:34.930556Z  INFO ThreadId(59) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782435650360
+[Line 3034] 2026-06-27T12:55:35.051401Z  INFO ThreadId(76) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UC_cq2sArbMwCIfryVq-4Dug in 0.5s (daemon)
+[Line 3035] 2026-06-27T12:55:35.051426Z  INFO ThreadId(76) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436381970
+[Line 3036] 2026-06-27T12:55:35.095352Z  INFO ThreadId(77) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 3037] 2026-06-27T12:55:35.095369Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436424144...
+[Line 3038] 2026-06-27T12:55:35.104361Z  INFO ThreadId(58) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 41 videos for UCMFngRBLYslCXgHmutaS0Ew in 0.3s (daemon)
+[Line 3039] 2026-06-27T12:55:35.104377Z  INFO ThreadId(58) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 41 videos for ch-1782436510616
+[Line 3040] 2026-06-27T12:55:35.119288Z  INFO ThreadId(102) hyperclip_ipc::ffmpeg: crates\hyperclip_ipc\src\ffmpeg.rs:1380: [FFmpeg progress] frame= 4027 fps=1117 q=12.0 size=   52480KiB time=00:02:14.23 bitrate=3202.8kbits/s speed=37.2x elapsed=0:00:03.60
+[Line 3042] 2026-06-27T12:55:35.122388Z  INFO ThreadId(60) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCNE5pfPGgtl9AjPiMf8A3RQ in 0.4s (daemon)
+[Line 3043] 2026-06-27T12:55:35.122405Z  INFO ThreadId(60) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436343952
+[Line 3044] 2026-06-27T12:55:35.184989Z  INFO ThreadId(68) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 43 videos for UCu0gB26qEytCwh_v1zwMLaw in 0.3s (daemon)
+[Line 3045] 2026-06-27T12:55:35.185011Z  INFO ThreadId(68) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 43 videos for ch-1782531138218
+[Line 3046] 2026-06-27T12:55:35.187274Z  INFO ThreadId(70) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 3047] 2026-06-27T12:55:35.187289Z  INFO ThreadId(70) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782522924144...
+[Line 3048] 2026-06-27T12:55:35.202142Z  INFO ThreadId(54) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 3049] 2026-06-27T12:55:35.202162Z  INFO ThreadId(54) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436414467...
+[Line 3050] 2026-06-27T12:55:35.220556Z  INFO ThreadId(63) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 3051] 2026-06-27T12:55:35.220576Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436402605...
+[Line 3052] 2026-06-27T12:55:35.227134Z  INFO ThreadId(62) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCoDT-z7_oNEcNOt-iMFHORQ in 0.5s (daemon)
+[Line 3053] 2026-06-27T12:55:35.227153Z  INFO ThreadId(62) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436365003
+[Line 3054] 2026-06-27T12:55:35.292314Z  INFO ThreadId(66) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCLHJyy_RhxGhbOeHtBzyqxQ in 0.5s (daemon)
+[Line 3055] 2026-06-27T12:55:35.292342Z  INFO ThreadId(66) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436468996
+[Line 3056] 2026-06-27T12:55:35.339425Z  INFO ThreadId(73) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:413: [InnertubeClient] Cookie updated successfully
+[Line 3057] 2026-06-27T12:55:35.339445Z  INFO ThreadId(73) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:251: [Poller] Calling get_latest_videos for ch-1782436391623...
+[Line 3058] 2026-06-27T12:55:35.470873Z  INFO ThreadId(70) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 36 videos for UC2IMDck4BUc6QxuUbf5t_KA in 0.3s (daemon)
+[Line 3059] 2026-06-27T12:55:35.470892Z  INFO ThreadId(70) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 36 videos for ch-1782522924144
+[Line 3060] 2026-06-27T12:55:35.495082Z  INFO ThreadId(63) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 6 videos for UCCSGFO8QPjG3E3fBnWO4M_w in 0.3s (daemon)
+[Line 3061] 2026-06-27T12:55:35.495100Z  INFO ThreadId(63) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 6 videos for ch-1782436402605
+[Line 3062] 2026-06-27T12:55:35.591506Z  INFO ThreadId(77) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCctJx-hRbmyZh2ASsgGF5pA in 0.5s (daemon)
+[Line 3063] 2026-06-27T12:55:35.591533Z  INFO ThreadId(77) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436424144
+[Line 3064] 2026-06-27T12:55:35.627885Z  INFO ThreadId(102) hyperclip_ipc::ffmpeg: crates\hyperclip_ipc\src\ffmpeg.rs:1380: [FFmpeg progress] frame= 4688 fps=1135 q=12.0 size=   62208KiB time=00:02:36.26 bitrate=3261.1kbits/s speed=37.8x elapsed=0:00:04.13
+[Line 3066] 2026-06-27T12:55:35.644569Z  INFO ThreadId(54) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UC1C2FvyrUf8meDbpuTWTlkA in 0.4s (daemon)
+[Line 3067] 2026-06-27T12:55:35.644589Z  INFO ThreadId(54) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436414467
+[Line 3068] 2026-06-27T12:55:35.772314Z  INFO ThreadId(73) hyperclip_ipc::innertube_client: crates\hyperclip_ipc\src\innertube_client.rs:491: [InnertubeClient] Got 100 videos for UCu3QBD6ZDx6aWH3hMApt1og in 0.4s (daemon)
+[Line 3069] 2026-06-27T12:55:35.772334Z  INFO ThreadId(73) hyperclip_ipc::poller: crates\hyperclip_ipc\src\poller.rs:254: [Poller] get_latest_videos returned 100 videos for ch-1782436391623

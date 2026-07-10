@@ -233,14 +233,21 @@ impl InnertubeClientPool {
     /// Return the index of a session that is ready (not in cooldown or suspended, has a valid cookie).
     /// Returns None if no session is ready.
     pub fn get_ready_session(&self) -> Option<usize> {
+        self.get_ready_session_opt(true)
+    }
+
+    fn next_session_unlocked(&self, _sessions: &std::sync::MutexGuard<Vec<Session>>) -> usize {
+        self.round_robin_idx.fetch_add(1, Ordering::SeqCst) % _sessions.len()
+    }
+
+    pub fn get_ready_session_opt(&self, require_cookie: bool) -> Option<usize> {
         let now = Instant::now();
-        let len = self.size(); // get size BEFORE locking to avoid deadlock with next_session() -> size()
+        let len = self.size();
         let mut sessions = self.sessions.lock().unwrap();
         for _ in 0..len {
             let idx = self.next_session_unlocked(&sessions);
             if let Some(s) = sessions.get_mut(idx) {
-                // Skip sessions without valid cookies — they will always fail auth checks
-                if s.cookie.is_empty() {
+                if require_cookie && s.cookie.is_empty() {
                     continue;
                 }
                 if !s.busy
@@ -255,13 +262,9 @@ impl InnertubeClientPool {
         None
     }
 
-    fn next_session_unlocked(&self, _sessions: &std::sync::MutexGuard<Vec<Session>>) -> usize {
-        self.round_robin_idx.fetch_add(1, Ordering::SeqCst) % _sessions.len()
-    }
-
     /// Return the index of a ready session.  Alias for get_ready_session for clarity.
     pub fn acquire_session(&self) -> Option<usize> {
-        self.get_ready_session()
+        self.get_ready_session_opt(false)
     }
 
     /// Atomically lease a client and cookie for the given session index.

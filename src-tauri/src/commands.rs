@@ -97,7 +97,7 @@ impl AppState {
 
             let gpu_config = hyperclip_ipc::system::get_gpu_config();
             let pool_config = PoolConfig {
-                size: gpu_config.max_sessions as u32,
+                size: 30, // Always support 30 profiles regardless of GPU tier
                 ..Default::default()
             };
             let pool = Arc::new(InnertubeClientPool::initialize(pool_config).unwrap());
@@ -383,6 +383,18 @@ impl AppState {
                         .and_then(|v| v.as_f64())
                         .unwrap_or(1.0);
 
+                    // 1.1 Max duration check (skip before download if duration is known)
+                    let max_duration_sec = s_store.settings
+                        .get("videoMaxDurationSec")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(3600) as f64;
+                    if event.duration_sec > 0.0 && event.duration_sec > max_duration_sec {
+                        tracing::info!("[AppState] Skipping video {} because its duration ({:.1}s) exceeds max limit ({}s)",
+                            event.video_id, event.duration_sec, max_duration_sec);
+                        processing_video_ids_clone.lock().unwrap().remove(&event.video_id);
+                        return;
+                    }
+
                     let is_fallback_publish = event.published_at <= 86400 * 1000;
                     let latency = if is_fallback_publish { 0 } else { event.detected_at - event.published_at };
                     let adjusted_latency = (latency - 2000).max(100);
@@ -518,6 +530,32 @@ impl AppState {
                             Ok(result) => {
                                 tracing::info!("[AppState] Auto-download complete: {} ({:.1} MB)",
                                     tid, result.file_size as f64 / 1_048_576.0);
+
+                                // Check max duration after download (for ChromeWatcher where duration was 0 initially)
+                                let s_path = get_settings_path();
+                                let s_store = SettingsStore::load(&s_path);
+                                let max_duration_sec = s_store.settings
+                                    .get("videoMaxDurationSec")
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(3600) as f64;
+                                if result.duration > max_duration_sec {
+                                    tracing::info!("[AppState] Discarding video {} because its duration ({:.1}s) exceeds max limit ({}s)", video_id, result.duration, max_duration_sec);
+                                    std::fs::remove_file(&result.path).ok();
+                                    let ws_path = get_workspaces_path();
+                                    let mut ws_store = WorkspaceStore::load(&ws_path);
+                                    ws_store.update(&tid, serde_json::json!({
+                                        "status": "failed",
+                                        "error": "Bỏ qua vì thời lượng vượt quá giới hạn",
+                                    })).ok();
+                                    ws_store.save(&ws_path).ok();
+
+                                    crate::emit(hyperclip_ipc::IpcResponse::event("workspace:update", serde_json::json!({
+                                        "id": tid,
+                                        "status": "failed",
+                                        "error": "Bỏ qua vì thời lượng vượt quá giới hạn",
+                                    })));
+                                    return;
+                                }
 
                                 if result.width < result.height {
                                     tracing::info!("[AppState] Discarding video {} because it is in portrait format ({}x{}) and only landscape 16:9 is allowed.", video_id, result.width, result.height);
@@ -810,6 +848,10 @@ impl AppState {
                 .get("videoMinDurationSec")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(60) as u32;
+            let max_duration_sec = s_store.settings
+                .get("videoMaxDurationSec")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(3600) as u32;
 
             let poller_process_fn = {
                 let process_fn_arc = process_fn_arc.clone();
@@ -823,6 +865,7 @@ impl AppState {
                 poll_interval_ms,
                 max_age_minutes,
                 min_duration_sec,
+                max_duration_sec,
                 poller_process_fn,
             ));
 
@@ -1057,7 +1100,11 @@ impl AppState {
             .get("videoMinDurationSec")
             .and_then(|v| v.as_u64())
             .unwrap_or(60) as u32;
-        self.poller.reload_config(poll_interval_ms, max_age_minutes, min_duration_sec);
+        let max_duration_sec = s_store.settings
+            .get("videoMaxDurationSec")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3600) as u32;
+        self.poller.reload_config(poll_interval_ms, max_age_minutes, min_duration_sec, max_duration_sec);
         self.chrome_watcher.reload_config(poll_interval_ms);
     }
 
@@ -1258,6 +1305,7 @@ pub fn init_appstate() {
             // Also try Default profile
             let _ = extract_profile_cookies_and_feed("Default");
             tracing::info!("[cookie-preload] Done: {}/30 profiles have valid sessions", valid_sessions);
+            crate::emit(hyperclip_ipc::IpcResponse::event("channel:synced", serde_json::json!({})));
 
             // After all profiles are loaded, check if Profile-1 needs Chrome login
             let profile_1_ok = match extract_profile_cookies("HyperClip-Profile-1") {
@@ -1722,288 +1770,392 @@ fn refresh_all_profiles_cookies() -> Result<usize, String> {
     Ok(success_count)
 }
 
-fn launch_chrome_profile_async(profile_id: &str) {
-    if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
-        *lock = Some(profile_id.to_string());
-    }
-    let (user_data_dir, profile_dir_name) = get_chrome_launch_args(profile_id);
-    let chrome_path = get_chrome_executable_path();
-    let profile_id_owned = profile_id.to_string();
+fn ensure_chrome_tabs_open(profile_id: &str, urls: &[String]) {
+    let check_url = "http://127.0.0.1:9222/json";
+    let agent = ureq::AgentBuilder::new()
+        .try_proxy_from_env(false)
+        .build();
 
-    std::thread::spawn(move || {
-        let mut urls = vec!["https://www.youtube.com".to_string()];
-        if profile_id_owned == "HyperClip-Profile-1" {
-            let ch_path = get_channels_path();
-            let ch_store = ChannelStore::load(&ch_path);
-            for ch in ch_store.channels.iter() {
-                if ch.enabled && !ch.paused {
-                    if !ch.handle.is_empty() {
-                        let handle = if ch.handle.starts_with('@') {
-                            ch.handle.clone()
-                        } else {
-                            format!("@{}", ch.handle)
-                        };
-                        urls.push(format!("https://www.youtube.com/{}/videos", handle));
-                    } else if let Some(ref channel_id) = ch.channel_id {
-                        if !channel_id.is_empty() {
-                            urls.push(format!("https://www.youtube.com/channel/{}/videos", channel_id));
-                        }
-                    }
+    #[derive(serde::Deserialize, Debug)]
+    struct CdpTab {
+        url: Option<String>,
+        #[serde(rename = "type")]
+        tab_type: Option<String>,
+    }
+
+    // Attempt to connect to CDP up to 15 times (3 seconds total)
+    let mut open_tabs = None;
+    for _ in 0..15 {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        if let Ok(resp) = agent.get(check_url).timeout(std::time::Duration::from_millis(500)).call() {
+            if let Ok(tabs) = serde_json::from_reader::<_, Vec<CdpTab>>(resp.into_reader()) {
+                open_tabs = Some(tabs);
+                break;
+            }
+        }
+    }
+
+    let open_tabs = match open_tabs {
+        Some(t) => t,
+        None => {
+            tracing::warn!("[Chrome] Failed to connect to CDP to verify open tabs for {}", profile_id);
+            return;
+        }
+    };
+
+    fn extract_youtube_key(url: &str) -> Option<String> {
+        let decoded_url = urlencoding::decode(url).map(|s| s.into_owned()).unwrap_or_else(|_| url.to_string());
+        if decoded_url.contains("youtube.com/@") {
+            let parts: Vec<&str> = decoded_url.split("youtube.com/").collect();
+            if parts.len() > 1 {
+                let rest = parts[1];
+                let handle = rest.split('/').next().unwrap_or("");
+                if handle.starts_with('@') {
+                    return Some(handle.to_string());
+                }
+            }
+        } else if decoded_url.contains("youtube.com/channel/") {
+            let parts: Vec<&str> = decoded_url.split("youtube.com/channel/").collect();
+            if parts.len() > 1 {
+                let rest = parts[1];
+                let chan_id = rest.split('/').next().unwrap_or("");
+                if !chan_id.is_empty() {
+                    return Some(chan_id.to_string());
                 }
             }
         }
+        None
+    }
 
-        // Try to connect to Chrome debugging port to check if it's already running
-        let cdp_url = "http://127.0.0.1:9222/json";
+    for url in urls {
+        let is_open = if let Some(target_key) = extract_youtube_key(url) {
+            let dec_target_key = urlencoding::decode(&target_key).map(|s| s.into_owned()).unwrap_or_else(|_| target_key.clone());
+            open_tabs.iter().any(|tab| {
+                if tab.tab_type.as_deref() != Some("page") {
+                    return false;
+                }
+                if let Some(ref u) = tab.url {
+                    let dec_tab_url = urlencoding::decode(u).map(|s| s.into_owned()).unwrap_or_else(|_| u.clone());
+                    dec_tab_url.contains(&dec_target_key)
+                } else {
+                    false
+                }
+            })
+        } else {
+            open_tabs.iter().any(|tab| {
+                if tab.tab_type.as_deref() != Some("page") {
+                    return false;
+                }
+                if let Some(ref u) = tab.url {
+                    let dec_tab_url = urlencoding::decode(u).map(|s| s.into_owned()).unwrap_or_else(|_| u.clone());
+                    dec_tab_url == *url || dec_tab_url == format!("{}/", url)
+                } else {
+                    false
+                }
+            })
+        };
+
+        if !is_open {
+            tracing::info!("[Chrome] Opening new tab via CDP for {}: {}", profile_id, url);
+            let encoded_url = urlencoding::encode(url);
+            let new_tab_url = format!("http://127.0.0.1:9222/json/new?{}", encoded_url);
+            if let Err(e) = agent.put(&new_tab_url).call() {
+                tracing::warn!("[Chrome] Failed to open tab via CDP: {}", e);
+            }
+        } else {
+            tracing::info!("[Chrome] Tab already open for {}, skipping: {}", profile_id, url);
+        }
+    }
+}
+
+fn launch_chrome_profile_async(profile_id: &str) {
+    let (user_data_dir, profile_dir_name) = get_chrome_launch_args(profile_id);
+    
+    // Check if CDP is already running for this exact user-data-dir
+    let cdp_already_running = {
+        let check_url = "http://127.0.0.1:9222/json/version";
         let agent = ureq::AgentBuilder::new()
             .try_proxy_from_env(false)
             .build();
-        
-        #[derive(serde::Deserialize, Debug)]
-        struct CdpTab {
-            url: Option<String>,
-            #[serde(rename = "type")]
-            tab_type: Option<String>,
+        if let Ok(resp) = agent.get(check_url).timeout(std::time::Duration::from_millis(500)).call() {
+            if let Ok(json) = serde_json::from_reader::<_, serde_json::Value>(resp.into_reader()) {
+                if let Some(user_data_dir_str) = json.get("User-Data-Dir").and_then(|v| v.as_str()) {
+                    let running_path = std::fs::canonicalize(user_data_dir_str).ok();
+                    let target_path = std::fs::canonicalize(&user_data_dir).ok();
+                    running_path.is_some() && running_path == target_path
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
         }
+    };
 
-        let tabs_result: Result<Vec<CdpTab>, String> = agent.get(cdp_url)
-            .timeout(std::time::Duration::from_millis(1500))
-            .call()
-            .map_err(|e| e.to_string())
-            .and_then(|resp| {
-                serde_json::from_reader(resp.into_reader()).map_err(|e| e.to_string())
+    let is_same_profile_running = cdp_already_running || {
+        if let Ok(lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
+            lock.as_deref() == Some(profile_id)
+        } else {
+            false
+        }
+    };
+    if !is_same_profile_running {
+        if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
+            *lock = Some(profile_id.to_string());
+        }
+    }
+    let chrome_path = get_chrome_executable_path();
+    let profile_id_owned = profile_id.to_string();
+
+    let mut urls = vec!["https://www.youtube.com".to_string()];
+    if profile_id == "HyperClip-Profile-1" {
+        let ch_path = get_channels_path();
+        let ch_store = ChannelStore::load(&ch_path);
+        for ch in ch_store.channels.iter() {
+            if ch.enabled && !ch.paused {
+                if !ch.handle.is_empty() {
+                    let handle = if ch.handle.starts_with('@') {
+                        ch.handle.clone()
+                    } else {
+                        format!("@{}", ch.handle)
+                    };
+                    urls.push(format!("https://www.youtube.com/{}/videos", handle));
+                } else if let Some(ref channel_id) = ch.channel_id {
+                    if !channel_id.is_empty() {
+                        urls.push(format!("https://www.youtube.com/channel/{}/videos", channel_id));
+                    }
+                }
+            }
+        }
+    }
+
+    let urls_clone = urls.clone();
+    let profile_id_owned_clone = profile_id_owned.clone();
+
+    std::thread::spawn(move || {
+        let mut launched = false;
+        if is_same_profile_running {
+            tracing::info!("[Chrome] Chrome is already running for profile {}. Checking open tabs...", profile_id_owned_clone);
+            
+            // Ensure tabs are open in background
+            let urls_c = urls_clone.clone();
+            let p_id_c = profile_id_owned_clone.clone();
+            std::thread::spawn(move || {
+                ensure_chrome_tabs_open(&p_id_c, &urls_c);
             });
 
-        match tabs_result {
-            Ok(open_tabs) => {
-                tracing::info!("[Chrome] Chrome is already running with remote debugging port active. Checking open tabs...");
-                
-                fn extract_youtube_key(url: &str) -> Option<String> {
-                    let decoded_url = urlencoding::decode(url).map(|s| s.into_owned()).unwrap_or_else(|_| url.to_string());
-                    if decoded_url.contains("youtube.com/@") {
-                        let parts: Vec<&str> = decoded_url.split("youtube.com/").collect();
-                        if parts.len() > 1 {
-                            let rest = parts[1];
-                            let handle = rest.split('/').next().unwrap_or("");
-                            if handle.starts_with('@') {
-                                return Some(handle.to_string());
-                            }
+            // Extract cookies immediately
+            match extract_profile_cookies_and_feed(&profile_id_owned_clone) {
+                Ok(_) => {
+                    tracing::info!("[Chrome] Successfully extracted and updated cookies for existing Chrome profile {}", profile_id_owned_clone);
+                    crate::emit(hyperclip_ipc::IpcResponse::event("channel:synced", serde_json::json!({})));
+                    if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
+                        if lock.as_deref() == Some(&profile_id_owned_clone) {
+                            *lock = None;
                         }
-                    } else if decoded_url.contains("youtube.com/channel/") {
-                        let parts: Vec<&str> = decoded_url.split("youtube.com/channel/").collect();
-                        if parts.len() > 1 {
-                            let rest = parts[1];
-                            let chan_id = rest.split('/').next().unwrap_or("");
-                            if !chan_id.is_empty() {
-                                return Some(chan_id.to_string());
-                            }
-                        }
-                    }
-                    None
-                }
-
-                // Check each target URL
-                for url in &urls {
-                    let is_open = if let Some(target_key) = extract_youtube_key(url) {
-                        let dec_target_key = urlencoding::decode(&target_key).map(|s| s.into_owned()).unwrap_or_else(|_| target_key.clone());
-                        // It's a channel URL. Check if any open tab contains this channel's key
-                        open_tabs.iter().any(|tab| {
-                            if tab.tab_type.as_deref() != Some("page") {
-                                return false;
-                            }
-                            if let Some(ref u) = tab.url {
-                                let dec_tab_url = urlencoding::decode(u).map(|s| s.into_owned()).unwrap_or_else(|_| u.clone());
-                                dec_tab_url.contains(&dec_target_key)
-                            } else {
-                                false
-                            }
-                        })
-                    } else {
-                        // It's the homepage or other non-channel URL
-                        open_tabs.iter().any(|tab| {
-                            if tab.tab_type.as_deref() != Some("page") {
-                                return false;
-                            }
-                            if let Some(ref u) = tab.url {
-                                let dec_tab_url = urlencoding::decode(u).map(|s| s.into_owned()).unwrap_or_else(|_| u.clone());
-                                dec_tab_url == *url || dec_tab_url == format!("{}/", url)
-                            } else {
-                                false
-                            }
-                        })
-                    };
-
-                    if !is_open {
-                        tracing::info!("[Chrome] Channel/URL not open in Chrome. Opening new tab: {}", url);
-                        let encoded_url = urlencoding::encode(url);
-                        let new_tab_url = format!("http://127.0.0.1:9222/json/new?url={}", encoded_url);
-                        if let Err(e) = agent.put(&new_tab_url).call() {
-                            tracing::warn!("[Chrome] Failed to open new tab via CDP: {}", e);
-                        }
-                    } else {
-                        tracing::info!("[Chrome] Tab already open, skipping: {}", url);
                     }
                 }
+                Err(e) => {
+                    tracing::error!("[Chrome] Failed to extract cookies for existing Chrome: {}", e);
+                    crate::emit(hyperclip_ipc::IpcResponse::event("notification", serde_json::json!({
+                        "title": "Đăng nhập YouTube",
+                        "message": "Trình duyệt Chrome đang mở. Vui lòng đăng nhập để hoàn tất đồng bộ tài khoản."
+                    })));
 
-                // Chrome is already open, so we extract cookies immediately and return
-                match extract_profile_cookies_and_feed(&profile_id_owned) {
-                    Ok(_) => {
-                        tracing::info!("[Chrome] Successfully extracted and updated cookies for existing Chrome profile {}", profile_id_owned);
-                        crate::emit(hyperclip_ipc::IpcResponse::event("channel:synced", serde_json::json!({})));
-                        if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
-                            if lock.as_deref() == Some(&profile_id_owned) {
-                                *lock = None;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!("[Chrome] Failed to extract cookies for existing Chrome: {}", e);
+                    // Spawn a monitor thread to wait for Chrome to close/sync
+                    let profile_id_clone = profile_id_owned_clone.clone();
+                    std::thread::spawn(move || {
+                        static MONITORED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
+                        let monitored_set = MONITORED.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()));
 
-                        // Emit a friendly notification to guide the user
-                        crate::emit(hyperclip_ipc::IpcResponse::event("notification", serde_json::json!({
-                            "title": "Đăng nhập YouTube",
-                            "message": "Trình duyệt Chrome đang mở. Vui lòng đăng nhập và ĐÓNG trình duyệt Chrome để hoàn tất đồng bộ tài khoản."
-                        })));
-
-                        // Spawn a monitor thread to wait for Chrome to close, then auto-extract
-                        let profile_id_clone = profile_id_owned.clone();
-                        std::thread::spawn(move || {
-                            static MONITORED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
-                            let monitored_set = MONITORED.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()));
-
-                            {
-                                let mut lock = monitored_set.lock().unwrap();
-                                if lock.contains(&profile_id_clone) {
-                                    tracing::info!("[Chrome Monitor] Profile {} is already being monitored", profile_id_clone);
-                                    return;
-                                }
-                                lock.insert(profile_id_clone.clone());
-                            }
-
-                            tracing::info!("[Chrome Monitor] Started monitoring Chrome (port 9222) for profile {}...", profile_id_clone);
-                            let agent = ureq::AgentBuilder::new()
-                                .try_proxy_from_env(false)
-                                .build();
-                            let check_url = "http://127.0.0.1:9222/json";
-
-                            loop {
-                                std::thread::sleep(std::time::Duration::from_millis(1000));
-                                let is_running = agent.get(check_url)
-                                    .timeout(std::time::Duration::from_millis(1000))
-                                    .call()
-                                    .is_ok();
-                                if !is_running {
-                                    tracing::info!("[Chrome Monitor] Chrome has closed. Waiting to extract cookies for profile {}...", profile_id_clone);
-                                    std::thread::sleep(std::time::Duration::from_millis(1000));
-
-                                    match extract_profile_cookies_and_feed(&profile_id_clone) {
-                                        Ok(_) => {
-                                            tracing::info!("[Chrome Monitor] Successfully extracted cookies for profile {}", profile_id_clone);
-                                            crate::emit(hyperclip_ipc::IpcResponse::event("channel:synced", serde_json::json!({})));
-                                            crate::emit(hyperclip_ipc::IpcResponse::event("notification", serde_json::json!({
-                                                "title": "Đồng bộ thành công",
-                                                "message": format!("Đã đồng bộ cookies thành công cho {}", profile_id_clone)
-                                            })));
-                                        }
-                                        Err(err) => {
-                                            let err_msg = format!("Failed to extract cookies after Chrome closed: {}", err);
-                                            tracing::error!("[Chrome Monitor] {}", err_msg);
-                                            crate::emit(hyperclip_ipc::IpcResponse::event("notification", serde_json::json!({
-                                                "title": "Lỗi đồng bộ Cookies",
-                                                "message": err_msg
-                                            })));
-                                        }
-                                    }
-                                    break;
-                                }
-                            }
-
-                            // Remove from monitored set
+                        {
                             let mut lock = monitored_set.lock().unwrap();
-                            lock.remove(&profile_id_clone);
+                            if lock.contains(&profile_id_clone) {
+                                tracing::info!("[Chrome Monitor] Profile {} is already being monitored", profile_id_clone);
+                                return;
+                            }
+                            lock.insert(profile_id_clone.clone());
+                        }
 
-                            if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
-                                if lock.as_deref() == Some(&profile_id_clone) {
-                                    *lock = None;
+                        tracing::info!("[Chrome Monitor] Started monitoring Chrome (port 9222) for profile {}...", profile_id_clone);
+                        let agent = ureq::AgentBuilder::new()
+                            .try_proxy_from_env(false)
+                            .build();
+                        let check_url = "http://127.0.0.1:9222/json";
+
+                        let mut synced = false;
+                        loop {
+                            std::thread::sleep(std::time::Duration::from_millis(2000));
+                            let is_running = agent.get(check_url)
+                                .timeout(std::time::Duration::from_millis(1000))
+                                .call()
+                                .is_ok();
+
+                            if !is_running {
+                                tracing::info!("[Chrome Monitor] Chrome has closed for profile {}", profile_id_clone);
+                                #[cfg(windows)]
+                                {
+                                    let (u_dir, _) = get_chrome_launch_args(&profile_id_clone);
+                                    let ud_str = u_dir.to_string_lossy().replace('\\', "\\\\");
+                                    let filter = format!("Name = 'chrome.exe' AND CommandLine LIKE '%--user-data-dir={}%'", ud_str);
+                                    let script = format!(
+                                        "Get-CimInstance Win32_Process -Filter \"{}\" | Invoke-CimMethod -MethodName Terminate",
+                                        filter
+                                    );
+                                    let mut cmd = std::process::Command::new("powershell");
+                                    cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+                                    use std::os::windows::process::CommandExt;
+                                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                                    let _ = cmd.status();
+                                    std::thread::sleep(std::time::Duration::from_millis(500));
+                                    
+                                    // Try one final extraction after killing lingering processes
+                                    let _ = extract_profile_cookies_and_feed(&profile_id_clone);
+                                }
+                                break;
+                            }
+
+                            match extract_profile_cookies_and_feed(&profile_id_clone) {
+                                Ok(cookie_string) => {
+                                    let has_sapisid = cookie_string.contains("SAPISID");
+                                    if has_sapisid && !synced {
+                                        tracing::info!("[Chrome Monitor] Detected successful login for existing profile {}", profile_id_clone);
+                                        crate::emit(hyperclip_ipc::IpcResponse::event("channel:synced", serde_json::json!({})));
+                                        crate::emit(hyperclip_ipc::IpcResponse::event("notification", serde_json::json!({
+                                            "title": "Đồng bộ thành công",
+                                            "message": format!("Đã đồng bộ cookies thành công cho {}", profile_id_clone)
+                                        })));
+                                        synced = true;
+                                    }
+                                }
+                                Err(_) => {}
+                            }
+                        }
+
+                        let mut lock = monitored_set.lock().unwrap();
+                        lock.remove(&profile_id_clone);
+
+                        if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
+                            if lock.as_deref() == Some(&profile_id_clone) {
+                                *lock = None;
+                            }
+                        }
+                    });
+                }
+            }
+            launched = true;
+        }
+
+        if !launched {
+            if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
+                *lock = Some(profile_id_owned_clone.clone());
+            }
+            tracing::info!("[Chrome] Launching new Chrome process for profile: {}", profile_id_owned_clone);
+            let mut cmd = std::process::Command::new(chrome_path);
+            cmd.arg(format!("--user-data-dir={}", user_data_dir.to_string_lossy()));
+            cmd.arg(format!("--profile-directory={}", profile_dir_name));
+            cmd.arg("--remote-debugging-port=9222");
+            cmd.arg("--disable-background-timer-throttling");
+            cmd.arg("--disable-backgrounding-occluded-windows");
+            cmd.arg("--disable-renderer-backgrounding");
+            cmd.arg("--disable-features=GCM");
+            cmd.arg("--disable-background-networking");
+            cmd.stdout(std::process::Stdio::null());
+            cmd.stderr(std::process::Stdio::null());
+            cmd.arg("https://www.youtube.com"); // Open only homepage to prevent duplicates
+
+            tracing::info!("[Chrome] Running Command: {:?}", cmd);
+            
+            match cmd.spawn() {
+                Ok(mut child) => {
+                    tracing::info!("[Chrome] Process spawned successfully, PID: {:?}", child.id());
+                    let profile_id_clone = profile_id_owned_clone.clone();
+                    let urls_c = urls_clone.clone();
+                    std::thread::spawn(move || {
+                        // Ensure all channels are opened in the background without duplicating
+                        ensure_chrome_tabs_open(&profile_id_clone, &urls_c);
+
+                        let mut synced = false;
+                        loop {
+                            std::thread::sleep(std::time::Duration::from_millis(2000));
+                            
+                            let is_closed = match child.try_wait() {
+                                Ok(Some(status)) => {
+                                    tracing::info!("[Chrome] Chrome window closed with status: {:?}", status);
+                                    true
+                                }
+                                _ => false,
+                            };
+
+                            if is_closed {
+                                #[cfg(windows)]
+                                {
+                                    let (u_dir, _) = get_chrome_launch_args(&profile_id_clone);
+                                    let ud_str = u_dir.to_string_lossy().replace('\\', "\\\\");
+                                    let filter = format!("Name = 'chrome.exe' AND CommandLine LIKE '%--user-data-dir={}%'", ud_str);
+                                    let script = format!(
+                                        "Get-CimInstance Win32_Process -Filter \"{}\" | Invoke-CimMethod -MethodName Terminate",
+                                        filter
+                                    );
+                                    let mut cmd = std::process::Command::new("powershell");
+                                    cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+                                    use std::os::windows::process::CommandExt;
+                                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                                    let _ = cmd.status();
+                                    std::thread::sleep(std::time::Duration::from_millis(500));
                                 }
                             }
-                        });
-                    }
-                }
-                return;
-            }
-            Err(e) => {
-                tracing::info!("[Chrome] Port check failed (Chrome likely not running on port 9222): {}", e);
-            }
-        }
 
-        // Chrome is not running or port is closed, spawn it normally
-        tracing::info!("[Chrome] Launching new Chrome process for profile: {}", profile_id_owned);
-        let mut cmd = std::process::Command::new(chrome_path);
-        cmd.arg(format!("--user-data-dir={}", user_data_dir.to_string_lossy()));
-        cmd.arg(format!("--profile-directory={}", profile_dir_name));
-        cmd.arg("--remote-debugging-port=9222");
-        cmd.arg("--disable-background-timer-throttling");
-        cmd.arg("--disable-backgrounding-occluded-windows");
-        cmd.arg("--disable-renderer-backgrounding");
-        cmd.arg("--disable-features=GCM");
-        cmd.arg("--disable-background-networking");
-        cmd.stdout(std::process::Stdio::null());
-        cmd.stderr(std::process::Stdio::null());
-        for url in urls {
-            cmd.arg(url);
-        }
-
-        tracing::info!("[Chrome] Running Command: {:?}", cmd);
-        
-        match cmd.spawn() {
-            Ok(mut child) => {
-                tracing::info!("[Chrome] Process spawned successfully, PID: {:?}", child.id());
-                match child.wait() {
-                    Ok(status) => {
-                        tracing::info!("[Chrome] Chrome window closed with status: {:?}", status);
-                        std::thread::sleep(std::time::Duration::from_millis(500));
-                        
-                        match extract_profile_cookies_and_feed(&profile_id_owned) {
-                            Ok(_) => {
-                                tracing::info!("[Chrome] Successfully extracted and updated cookies for profile {}", profile_id_owned);
-                                crate::emit(hyperclip_ipc::IpcResponse::event("channel:synced", serde_json::json!({})));
+                            match extract_profile_cookies_and_feed(&profile_id_clone) {
+                                Ok(cookie_string) => {
+                                    let has_sapisid = cookie_string.contains("SAPISID");
+                                    if has_sapisid && !synced {
+                                        tracing::info!("[Chrome Monitor] Detected successful login for new profile {}", profile_id_clone);
+                                        crate::emit(hyperclip_ipc::IpcResponse::event("channel:synced", serde_json::json!({})));
+                                        crate::emit(hyperclip_ipc::IpcResponse::event("notification", serde_json::json!({
+                                            "title": "Đồng bộ thành công",
+                                            "message": format!("Đã đồng bộ cookies thành công cho {}", profile_id_clone)
+                                        })));
+                                        synced = true;
+                                    }
+                                }
+                                Err(e) => {
+                                    if is_closed {
+                                        let err_msg = format!("Failed to extract cookies after Chrome closed: {}", e);
+                                        tracing::error!("[Chrome] {}", err_msg);
+                                        crate::emit(hyperclip_ipc::IpcResponse::event("notification", serde_json::json!({
+                                            "title": "Lỗi đồng bộ Cookies",
+                                            "message": err_msg
+                                        })));
+                                    }
+                                }
                             }
-                            Err(e) => {
-                                let err_msg = format!("Failed to extract cookies after Chrome closed: {}", e);
-                                tracing::error!("[Chrome] {}", err_msg);
-                                crate::emit(hyperclip_ipc::IpcResponse::event("notification", serde_json::json!({
-                                    "title": "Cookie Extraction Error",
-                                    "message": err_msg
-                                })));
+
+                            if is_closed {
+                                break;
                             }
                         }
+
                         if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
-                            if lock.as_deref() == Some(&profile_id_owned) {
+                            if lock.as_deref() == Some(&profile_id_clone) {
                                 *lock = None;
                             }
                         }
-                    }
-                    Err(e) => {
-                        tracing::error!("[Chrome] Error waiting for Chrome process: {}", e);
-                        if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
-                            if lock.as_deref() == Some(&profile_id_owned) {
-                                *lock = None;
-                            }
-                        }
-                    }
+                    });
                 }
-            }
-            Err(e) => {
-                let err_msg = format!("Failed to launch Google Chrome: {}. Please make sure Google Chrome is installed on your system.", e);
-                tracing::error!("[Chrome] {}", err_msg);
-                crate::emit(hyperclip_ipc::IpcResponse::event("notification", serde_json::json!({
-                    "title": "Chrome Launch Error",
-                    "message": err_msg
-                })));
-                if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
-                    if lock.as_deref() == Some(&profile_id_owned) {
-                        *lock = None;
+                Err(e) => {
+                    let err_msg = format!("Failed to launch Google Chrome: {}. Please make sure Google Chrome is installed on your system.", e);
+                    tracing::error!("[Chrome] {}", err_msg);
+                    crate::emit(hyperclip_ipc::IpcResponse::event("notification", serde_json::json!({
+                        "title": "Chrome Launch Error",
+                        "message": err_msg
+                    })));
+                    if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
+                        if lock.as_deref() == Some(&profile_id_owned_clone) {
+                            *lock = None;
+                        }
                     }
                 }
             }
@@ -2851,7 +3003,7 @@ pub fn get_resolved_hardware_config() -> ResolvedHardwareConfig {
                 chunk_workers = 2;
                 download_instances = 1;
                 nvenc_preset = "p1".to_string();
-                concurrent_fragments = 8;
+                concurrent_fragments = 32;
                 gpu_tier = hyperclip_ipc::GPUTier::Low;
             }
             _ => { // Minimal
@@ -2859,7 +3011,7 @@ pub fn get_resolved_hardware_config() -> ResolvedHardwareConfig {
                 chunk_workers = 1;
                 download_instances = 1;
                 nvenc_preset = "p1".to_string();
-                concurrent_fragments = 4;
+                concurrent_fragments = 32;
                 gpu_tier = hyperclip_ipc::GPUTier::Low;
             }
         }
@@ -2883,17 +3035,17 @@ pub fn get_resolved_hardware_config() -> ResolvedHardwareConfig {
             render_workers = render_workers.min(1);
             chunk_workers = chunk_workers.min(2);
             download_instances = download_instances.min(1);
-            concurrent_fragments = concurrent_fragments.min(8);
+            concurrent_fragments = concurrent_fragments.min(32);
         } else if ram_gb < 24 {
             render_workers = render_workers.min(2);
             chunk_workers = chunk_workers.min(4);
             download_instances = download_instances.min(2);
-            concurrent_fragments = concurrent_fragments.min(16);
+            concurrent_fragments = concurrent_fragments.min(32);
         } else if ram_gb < 32 {
             render_workers = render_workers.min(3);
             chunk_workers = chunk_workers.min(6);
             download_instances = download_instances.min(2);
-            concurrent_fragments = concurrent_fragments.min(16);
+            concurrent_fragments = concurrent_fragments.min(32);
         } else if ram_gb < 48 {
             render_workers = render_workers.min(4);
             chunk_workers = chunk_workers.min(8);

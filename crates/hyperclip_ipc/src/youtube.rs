@@ -186,6 +186,8 @@ pub fn build_ytdlp_args(opts: &DownloadOptions) -> Vec<String> {
     // Use bundled Node JS runtime if available to prevent deprecation warning
     args.push("--js-runtimes".to_string());
     args.push(find_node_runtime_arg());
+    args.push("--remote-components".to_string());
+    args.push("ejs:github".to_string());
 
     // Specify bundled ffmpeg location if available
     if let Some(ffmpeg_dir) = find_ffmpeg_bin_dir() {
@@ -284,13 +286,6 @@ where
     let clean_cache = crate::store::clean_unc_path(&cache_dir.to_string_lossy());
     let ytdlp = find_ytdlp_path();
     let clients = get_youtube_client_priority();
-    let mut cmd = Command::new(&ytdlp);
-    cmd.env("PYTHONUTF8", "1");
-    cmd.args([
-        "--js-runtimes", &find_node_runtime_arg(),
-        "--no-check-certificates",
-        "--force-ipv4",
-    ]);
 
     let s_path = crate::store::get_settings_path();
     let s_store = crate::store::SettingsStore::load(&s_path);
@@ -299,108 +294,158 @@ where
         .or_else(|| s_store.settings.get("directRouteIp"))
         .or_else(|| s_store.settings.get("direct_route_ip"))
         .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    if bypass_vpn {
-        if let Some(ip) = get_physical_ip() {
-            tracing::info!("[Youtube] Direct IP binding enabled. Binding yt-dlp to local physical IP: {}", ip);
-            cmd.args(["--source-address", &ip]);
-        }
-    }
-
-    if let Some(proxy_url) = get_ytdlp_proxy_args(&s_store) {
-        tracing::info!("[Youtube] Proxy configured. Running yt-dlp with proxy: {}", proxy_url);
-        cmd.args(["--proxy", &proxy_url]);
-    }
-
-    if !clients.is_empty() {
-        cmd.args(["--extractor-args", &format!("youtube:player_client={}", clients)]);
-    }
-    cmd.args([
-        "--cookies", &clean_cookies,
-        "-f", &fmt,
-        "--concurrent-fragments", &concurrent_fragments.to_string(),
-        "--no-playlist",
-        "--no-color",
-        "--newline",
-        "--remux-video", "mp4",
-        "--socket-timeout", "30",
-        "--retries", "3",
-        "--cache-dir", &clean_cache,
-        "-o", &clean_out,
-    ]);
+        .unwrap_or(false); // Default to false so we respect VPN by default
 
     // Performance: --download-sections forces yt-dlp to stream via ffmpeg which is 5-10x
     // slower than yt-dlp's native HTTP downloader with concurrent fragments.
-    // For 360p, full files are small (5-15MB for a 5min video) so downloading the
-    // entire file and trimming locally with ffmpeg -c copy is much faster.
-    // Only use --download-sections for high quality + confirmed long videos.
     let use_download_sections = if quality <= 360 {
-        // 360p: always download full, trim locally (fast: ~2s vs ~16s with sections)
         tracing::info!("[Youtube] Skipping --download-sections for {}p quality - will download full and trim locally", quality);
         false
     } else if let Some(dur) = actual_duration_sec {
-        // High quality: only use sections for confirmed long videos (>30 min)
         let long_video_threshold = 30 * 60; // 30 minutes
         trim_minutes > 0 && dur > long_video_threshold
     } else {
-        // Unknown duration at high quality: skip sections to avoid slow ffmpeg streaming
         false
     };
 
-    if use_download_sections {
-        let hours = trim_minutes / 60;
-        let mins = trim_minutes % 60;
-        let range_str = format!("*00:00:00-{:02}:{:02}:00", hours, mins);
-        cmd.args(["--download-sections", &range_str]);
-    }
+    // Helper closure to execute yt-dlp with or without cookies
+    let run_ytdlp_attempt = |use_cookies: bool, progress_cb: &mut F| -> Result<(std::process::ExitStatus, String), String> {
+        let mut cmd = Command::new(&ytdlp);
+        cmd.env("PYTHONUTF8", "1");
+        cmd.args([
+            "--js-runtimes", &find_node_runtime_arg(),
+            "--remote-components", "ejs:github",
+            "--no-check-certificates",
+            "--force-ipv4",
+        ]);
 
-    if let Some(ffmpeg_dir) = find_ffmpeg_bin_dir() {
-        cmd.args(["--ffmpeg-location", &ffmpeg_dir]);
-    }
-
-    cmd.arg(url)
-    .stdin(Stdio::null())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped());
-
-    #[cfg(target_os = "windows")]
-    {
-        cmd.creation_flags(0x08000000);
-    }
-
-    tracing::info!("[Youtube] Spawning yt-dlp: {:?}", cmd);
-
-    let mut child = cmd.spawn().map_err(|e| format!("yt-dlp spawn failed: {}", e))?;
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
-    let reader = BufReader::new(stdout);
-
-    // Spawn a thread to read stderr to avoid blocking and capture any error messages
-    let stderr_handle = std::thread::spawn(move || {
-        let mut err_str = String::new();
-        let mut reader = BufReader::new(stderr);
-        let mut line = String::new();
-        while let Ok(n) = reader.read_line(&mut line) {
-            if n == 0 {
-                break;
+        if bypass_vpn {
+            if let Some(ip) = get_physical_ip() {
+                tracing::info!("[Youtube] Direct IP binding enabled. Binding yt-dlp to local physical IP: {}", ip);
+                cmd.args(["--source-address", &ip]);
             }
-            err_str.push_str(&line);
-            line.clear();
         }
-        err_str
-    });
 
-    // Read stdout line by line, parse progress
-    for line in reader.lines() {
-        let line = line.map_err(|e| format!("stdout read error: {}", e))?;
-        if let Some(progress) = parse_ytdlp_stderr(&line) {
-            on_progress(progress);
+        if let Some(proxy_url) = get_ytdlp_proxy_args(&s_store) {
+            tracing::info!("[Youtube] Proxy configured. Running yt-dlp with proxy: {}", proxy_url);
+            cmd.args(["--proxy", &proxy_url]);
+        }
+
+        if !clients.is_empty() {
+            cmd.args(["--extractor-args", &format!("youtube:player_client={}", clients)]);
+        }
+
+        if use_cookies && !clean_cookies.is_empty() {
+            cmd.args(["--cookies", &clean_cookies]);
+        }
+
+        cmd.args([
+            "-f", &fmt,
+            "--concurrent-fragments", &concurrent_fragments.to_string(),
+            "--no-playlist",
+            "--no-color",
+            "--newline",
+            "--remux-video", "mp4",
+            "--socket-timeout", "30",
+            "--retries", "3",
+            "--cache-dir", &clean_cache,
+            "-o", &clean_out,
+        ]);
+
+        if use_download_sections {
+            let hours = trim_minutes / 60;
+            let mins = trim_minutes % 60;
+            let range_str = format!("*00:00:00-{:02}:{:02}:00", hours, mins);
+            cmd.args(["--download-sections", &range_str]);
+        }
+
+        if let Some(ffmpeg_dir) = find_ffmpeg_bin_dir() {
+            cmd.args(["--ffmpeg-location", &ffmpeg_dir]);
+        }
+
+        cmd.arg(url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+        #[cfg(target_os = "windows")]
+        {
+            cmd.creation_flags(0x08000000);
+        }
+
+        tracing::info!("[Youtube] Spawning yt-dlp (cookies={}): {:?}", use_cookies, cmd);
+
+        let mut child = cmd.spawn().map_err(|e| format!("yt-dlp spawn failed: {}", e))?;
+        let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
+        let mut reader = BufReader::new(stdout);
+
+        let stderr_handle = std::thread::spawn(move || {
+            let mut err_str = String::new();
+            let mut reader = BufReader::new(stderr);
+            let mut line = String::new();
+            while let Ok(n) = reader.read_line(&mut line) {
+                if n == 0 {
+                    break;
+                }
+                err_str.push_str(&line);
+                line.clear();
+            }
+            err_str
+        });
+
+        let mut line_bytes = Vec::new();
+        loop {
+            line_bytes.clear();
+            match reader.read_until(b'\n', &mut line_bytes) {
+                Ok(0) => break,
+                Ok(_) => {
+                    let line_str = String::from_utf8_lossy(&line_bytes);
+                    let line_trimmed = line_str.trim_end_matches(|c| c == '\r' || c == '\n');
+                    if let Some(progress) = parse_ytdlp_stderr(line_trimmed) {
+                        progress_cb(progress);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("stdout read warning: {}", e);
+                }
+            }
+        }
+
+        let status = child.wait().map_err(|e| format!("wait failed: {}", e))?;
+        let stderr_output = stderr_handle.join().unwrap_or_else(|_| "Failed to join stderr thread".to_string());
+        Ok((status, stderr_output))
+    };
+
+    // First attempt: try downloading anonymously (no cookies) so android client works at max speed
+    let (mut status, mut stderr_output) = run_ytdlp_attempt(false, &mut on_progress)?;
+
+    // Second attempt: if failed and cookies are available, check if we need to retry with cookies
+    if !status.success() && !clean_cookies.is_empty() {
+        let err_lower = stderr_output.to_lowercase();
+        let needs_auth = err_lower.contains("confirm your age")
+            || err_lower.contains("sign in to confirm")
+            || err_lower.contains("sign in")
+            || err_lower.contains("login")
+            || err_lower.contains("private video")
+            || err_lower.contains("login_required")
+            || err_lower.contains("unauthorized")
+            || err_lower.contains("format is not available")
+            || err_lower.contains("forbidden")
+            || err_lower.contains("error 403");
+
+        if needs_auth {
+            tracing::info!("[Youtube] Anonymous download failed or restricted. Retrying with cookies...");
+            // Clean up any partial files
+            let _ = std::fs::remove_file(&clean_out);
+            let part_path = format!("{}.part", clean_out);
+            let _ = std::fs::remove_file(&part_path);
+
+            let retry_res = run_ytdlp_attempt(true, &mut on_progress)?;
+            status = retry_res.0;
+            stderr_output = retry_res.1;
         }
     }
-
-    let status = child.wait().map_err(|e| format!("wait failed: {}", e))?;
-    let stderr_output = stderr_handle.join().unwrap_or_else(|_| "Failed to join stderr thread".to_string());
 
     if !status.success() {
         tracing::error!("yt-dlp failed (exit={:?}). Stderr: {}", status.code(), stderr_output);
@@ -521,6 +566,7 @@ pub fn download_video(
     cmd.env("PYTHONUTF8", "1");
     cmd.args([
         "--js-runtimes", &find_node_runtime_arg(),
+        "--remote-components", "ejs:github",
         "--no-check-certificates",
         "--force-ipv4",
     ]);
@@ -624,6 +670,7 @@ pub fn probe_formats(url: &str, cookies_path: &str) -> Result<Vec<u32>, String> 
     cmd.env("PYTHONUTF8", "1");
     cmd.args([
         "--js-runtimes", &node_runtime,
+        "--remote-components", "ejs:github",
     ]);
     if !clients.is_empty() {
         cmd.args(["--extractor-args", &format!("youtube:player_client={}", clients)]);
@@ -683,6 +730,7 @@ pub fn get_video_info(url: &str, cookies_path: &str) -> Result<YtdlpVideoInfo, S
     cmd.env("PYTHONUTF8", "1");
     cmd.args([
         "--js-runtimes", &node_runtime,
+        "--remote-components", "ejs:github",
     ]);
     if !clients.is_empty() {
         cmd.args(["--extractor-args", &format!("youtube:player_client={}", clients)]);
@@ -736,6 +784,7 @@ pub fn probe_video_availability(url: &str, cookies_path: &str) -> Result<(bool, 
     let mut cmd = Command::new(&ytdlp);
     cmd.args([
         "--js-runtimes", &node_runtime,
+        "--remote-components", "ejs:github",
     ]);
     if !clients.is_empty() {
         cmd.args(["--extractor-args", &format!("youtube:player_client={}", clients)]);

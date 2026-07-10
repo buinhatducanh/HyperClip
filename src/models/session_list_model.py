@@ -81,7 +81,7 @@ class SessionListModel(QAbstractListModel):
                     self._items[i] = s
                 idx_top = self.index(0)
                 idx_bot = self.index(len(self._items) - 1) if self._items else idx_top
-                self.dataChanged.emit(idx_top, idx_bot, [])
+                self.dataChanged.emit(idx_top, idx_bot)
             else:
                 self.beginResetModel()
                 self._items = sessions
@@ -127,7 +127,18 @@ class SessionListModel(QAbstractListModel):
     def clone_one(self, backend=None):
         backend_to_use = backend or self._backend
         if not backend_to_use: return
-        backend_to_use.send_command("session:cloneOne")
+        res = backend_to_use.send_command("session:cloneOne")
+        from services.toast_service import get_toast_service
+        toast = get_toast_service()
+        if isinstance(res, dict):
+            if res.get("success"):
+                cloned = res.get("clonedCount", 0)
+                toast.show("Sao chép session", f"Đã sao chép cookies thành công cho {cloned} profiles!", "success")
+            else:
+                error_msg = res.get("error", "Lỗi không xác định")
+                toast.show("Lỗi sao chép", error_msg, "error")
+        else:
+            toast.show("Lỗi sao chép", str(res), "error")
 
     def extract_all_sessions(self, backend):
         """Trigger cookie extraction for all 30 Chrome profiles."""

@@ -224,7 +224,16 @@ impl ChromeTabWatcher {
                     }
 
                     if let Some(ref mut c) = client {
-                        match c.check_chrome_tabs(poll_interval).await {
+                        let ch_path = crate::store::get_channels_path();
+                        let ch_store = crate::store::ChannelStore::load(&ch_path);
+                        let channel_mappings: Vec<serde_json::Value> = ch_store.channels.iter().map(|ch| {
+                            serde_json::json!({
+                                "handle": ch.handle.clone(),
+                                "channelId": ch.channel_id.clone().unwrap_or_default(),
+                            })
+                        }).collect();
+
+                        match c.check_chrome_tabs(poll_interval, &channel_mappings).await {
                             Ok(videos) => {
                                 let s_path = crate::store::get_settings_path();
                                 let s_store = crate::store::SettingsStore::load(&s_path);
@@ -235,10 +244,26 @@ impl ChromeTabWatcher {
                                 let max_age_ms = max_age_minutes * 60 * 1000;
                                 let now_ms = chrono::Utc::now().timestamp_millis();
 
-                                let ch_path = crate::store::get_channels_path();
-                                let ch_store = crate::store::ChannelStore::load(&ch_path);
+                                let mut channel_seen_exists_map = std::collections::HashMap::new();
+                                {
+                                    let seen_guard = seen_videos.read().await;
+                                    for v in &videos {
+                                        let channel_id_val = v.channel_id.as_deref().unwrap_or("");
+                                        let resolved_id = ch_store.channels.iter().find(|c| {
+                                            c.channel_id.as_deref() == Some(channel_id_val) || c.id == channel_id_val
+                                        }).map(|c| c.id.as_str()).unwrap_or(channel_id_val).to_string();
 
-                                for (index, v) in videos.into_iter().enumerate() {
+                                        if !channel_seen_exists_map.contains_key(&resolved_id) {
+                                            let exists = seen_guard.channels.get(&resolved_id)
+                                                .map(|entry| !entry.ids.is_empty())
+                                                .unwrap_or(false);
+                                            channel_seen_exists_map.insert(resolved_id, exists);
+                                        }
+                                    }
+                                }
+
+                                 let mut channel_video_indices = std::collections::HashMap::new();
+                                 for (index, v) in videos.into_iter().enumerate() {
                                     let seen_guard = seen_videos.read().await;
                                     let is_seen = seen_guard.is_any_seen(&v.video_id);
                                     drop(seen_guard);
@@ -251,15 +276,12 @@ impl ChromeTabWatcher {
                                         c.channel_id.as_deref() == Some(channel_id_val) || c.id == channel_id_val
                                     }).map(|c| c.id.as_str()).unwrap_or(channel_id_val);
 
-                                    let channel_seen_exists = {
-                                        let seen_guard = seen_videos.read().await;
-                                        seen_guard.channels.get(resolved_id)
-                                            .map(|entry| !entry.ids.is_empty())
-                                            .unwrap_or(false)
-                                    };
+                                    let index_for_channel = *channel_video_indices.entry(resolved_id.to_string()).or_insert(0usize);
+                                    channel_video_indices.insert(resolved_id.to_string(), index_for_channel + 1);
 
-                                    let bypass_age_limit = (index == 0 && !channel_seen_exists)
-                                        || (channel_seen_exists && v.published_at <= 1);
+                                    let channel_seen_exists = *channel_seen_exists_map.get(resolved_id).unwrap_or(&false);
+
+                                    let bypass_age_limit = index_for_channel == 0 && !channel_seen_exists;
 
                                     if v.published_at <= 1 {
                                         if !bypass_age_limit {
@@ -276,11 +298,7 @@ impl ChromeTabWatcher {
                                     if v.published_at > 1 {
                                         if !bypass_age_limit {
                                             let age_ms = now_ms - v.published_at;
-                                            let limit = if channel_seen_exists {
-                                                48 * 3600 * 1000 // 48h limit for catch-up on already monitored channels
-                                            } else {
-                                                max_age_ms
-                                            };
+                                            let limit = max_age_ms;
                                             if age_ms < -300_000 || age_ms > limit {
                                                 tracing::info!(
                                                     "[ChromeWatcher] Skipping video {} because it is outside age limit (age: {}s, limit: {}s)",

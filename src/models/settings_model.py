@@ -46,6 +46,7 @@ class SettingsModel(QObject):
         self._hardware_vram_gb: int = 0
         self._hardware_ram_gb: int = 0
         self._daemon_limit: int = 8
+        self._bypass_vpn: bool = False
         self._clean_snapshot = None
 
     # ─── Explicit Properties (PySide6 requires class-level descriptor) ──
@@ -85,6 +86,7 @@ class SettingsModel(QObject):
     onboardingComplete = Property(bool, lambda s: s._onboarding_complete, lambda s, v: s._set("_onboarding_complete", bool, v), notify=changed)
     hardwareVramGb = Property(int, lambda s: s._hardware_vram_gb, lambda s, v: s._set("_hardware_vram_gb", int, v), notify=changed)
     hardwareRamGb = Property(int, lambda s: s._hardware_ram_gb, lambda s, v: s._set("_hardware_ram_gb", int, v), notify=changed)
+    bypassVpn = Property(bool, lambda s: s._bypass_vpn, lambda s, v: s._set("_bypass_vpn", bool, v), notify=changed)
 
     # ─── Helpers ────────────────────────────────────────────────────────
     def _set(self, attr, cast, value):
@@ -128,6 +130,7 @@ class SettingsModel(QObject):
             "pollIntervalMs": "_poll_interval_ms",
             "onboardingComplete": "_onboarding_complete",
             "daemonLimit": "_daemon_limit",
+            "bypassVpn": "_bypass_vpn",
         }
         types = {
             "_output_folder": str,
@@ -163,6 +166,7 @@ class SettingsModel(QObject):
             "_poll_interval_ms": int,
             "_onboarding_complete": bool,
             "_daemon_limit": int,
+            "_bypass_vpn": bool,
         }
         for k, attr in m.items():
             if k in d:
@@ -236,6 +240,7 @@ class SettingsModel(QObject):
             "pollIntervalMs": self._poll_interval_ms,
             "onboardingComplete": self._onboarding_complete,
             "daemonLimit": self._daemon_limit,
+            "bypassVpn": self._bypass_vpn,
             "hardwareProfile": {"vramGB": self._hardware_vram_gb, "ramGB": self._hardware_ram_gb} if self._hardware_vram_gb else None,
         }
 

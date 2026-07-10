@@ -35,6 +35,7 @@ pub struct Poller {
     _max_videos_per_poll: usize,
     max_age_ms: AtomicI64,
     min_duration_sec: AtomicU32,
+    max_duration_sec: AtomicU32,
     process_fn: Arc<dyn Fn(NewVideoEvent) + Send + Sync>,
 }
 
@@ -46,6 +47,7 @@ impl Poller {
         poll_interval_ms: u64,
         max_age_minutes: u64,
         min_duration_sec: u32,
+        max_duration_sec: u32,
         process_fn: impl Fn(NewVideoEvent) + Send + Sync + 'static,
     ) -> Self {
         Self {
@@ -61,6 +63,7 @@ impl Poller {
             _max_videos_per_poll: 5,
             max_age_ms: AtomicI64::new((max_age_minutes as i64) * 60 * 1000),
             min_duration_sec: AtomicU32::new(min_duration_sec),
+            max_duration_sec: AtomicU32::new(max_duration_sec),
             process_fn: Arc::new(process_fn),
         }
     }
@@ -70,11 +73,12 @@ impl Poller {
         *guard = Some(detector);
     }
 
-    pub fn reload_config(&self, poll_interval_ms: u64, max_age_minutes: u64, min_duration_sec: u32) {
+    pub fn reload_config(&self, poll_interval_ms: u64, max_age_minutes: u64, min_duration_sec: u32, max_duration_sec: u32) {
         self.poll_interval_ms.store(poll_interval_ms, Ordering::Relaxed);
         self.max_age_ms.store((max_age_minutes as i64) * 60 * 1000, Ordering::Relaxed);
         self.min_duration_sec.store(min_duration_sec, Ordering::Relaxed);
-        tracing::info!("[Poller] Config reloaded: interval={poll_interval_ms}ms, max_age={max_age_minutes}min, min_dur={min_duration_sec}s");
+        self.max_duration_sec.store(max_duration_sec, Ordering::Relaxed);
+        tracing::info!("[Poller] Config reloaded: interval={poll_interval_ms}ms, max_age={max_age_minutes}min, min_dur={min_duration_sec}s, max_dur={max_duration_sec}s");
     }
 
     /// Record a successful detection (updates last_detection_time)
@@ -164,7 +168,7 @@ impl Poller {
 
     pub async fn prewarm(&self) {
         let pool = self.pool.clone();
-        let limit = pool.max_active_clients.load(Ordering::Relaxed).min(4);
+        let limit = pool.max_active_clients.load(Ordering::Relaxed).min(8);
         tracing::info!("[Poller] Prewarming {} Innertube clients...", limit);
         for i in 0..limit {
             let pool = pool.clone();
@@ -213,6 +217,7 @@ impl Poller {
         let now_ms = chrono::Utc::now().timestamp_millis();
         let max_age_ms = self.max_age_ms.load(Ordering::Relaxed);
         let min_duration_sec = self.min_duration_sec.load(Ordering::Relaxed);
+        let max_duration_sec = self.max_duration_sec.load(Ordering::Relaxed);
         let channels = self.channels.read().await.clone();
         let active_channels: Vec<Channel> = channels.into_iter().filter(|c| !c.paused).collect();
 
@@ -231,15 +236,13 @@ impl Poller {
         // Phase 1: Try Innertube (primary bulk polling)
         let mut oauth_channels = active_channels.clone();
 
-        // Concurrency is capped at the number of sessions that actually have a valid cookie.
-        // If user has only 1 logged-in profile (1/30), spawning 4 parallel tasks all queue
-        // on the same session → 3 timeout 15s while 1 handles the queue serially (~13s).
-        // Using ready_with_cookie_count prevents spawning doomed tasks.
-        if ready_with_cookie > 0 {
+        // Concurrency is capped at the number of ready sessions.
+        // Public channel polling does not require logged-in sessions (cookies).
+        if ready > 0 {
             let polled_successfully = Arc::new(Mutex::new(std::collections::HashSet::new()));
             let max_concurrency = self.pool.max_active_clients.load(Ordering::SeqCst)
-                .min(4)
-                .min(ready_with_cookie)
+                .min(8)
+                .min(ready)
                 .max(1);
             tracing::info!("[Poller] Spawning {} parallel poll tasks (cap={max_concurrency}, channels={})",
                 active_channels.len().min(max_concurrency), active_channels.len());
@@ -331,14 +334,18 @@ impl Poller {
 
                             polled_successfully.lock().unwrap().insert(cid.clone());
 
+                            let channel_seen_exists = {
+                                let seen_videos = poller.seen_videos.read().await;
+                                seen_videos.channels.get(&cid)
+                                    .map(|entry| !entry.ids.is_empty())
+                                    .unwrap_or(false)
+                            };
+
                             let mut stats = (0usize, 0usize, 0usize, 0usize, 0usize); // checked, seen, duration, age, ratio
                             for (index, video) in capped.iter().enumerate() {
                                 stats.0 += 1;
                                 let seen_videos = poller.seen_videos.read().await;
                                 let is_seen = seen_videos.is_any_seen(&video.video_id);
-                                let channel_seen_exists = seen_videos.channels.get(&cid)
-                                    .map(|entry| !entry.ids.is_empty())
-                                    .unwrap_or(false);
                                 drop(seen_videos);
 
                                 if is_seen { stats.1 += 1; continue; }
@@ -346,14 +353,12 @@ impl Poller {
                                 if video.duration_sec < min_duration_sec as f64 {
                                     stats.2 += 1; continue;
                                 }
+                                if max_duration_sec > 0 && video.duration_sec > max_duration_sec as f64 {
+                                    stats.2 += 1; continue;
+                                }
 
-                                let bypass_age_limit = (index == 0 && !channel_seen_exists)
-                                    || (channel_seen_exists && video.published_at == 0);
-                                let limit = if channel_seen_exists {
-                                    48 * 3600 * 1000 // 48h limit for catch-up on already monitored channels
-                                } else {
-                                    max_age_ms
-                                };
+                                let bypass_age_limit = index == 0 && !channel_seen_exists;
+                                let limit = max_age_ms;
                                 if !bypass_age_limit && !Self::is_within_age_limit(video.published_at, now_ms, limit) {
                                     stats.3 += 1; continue;
                                 }
@@ -434,13 +439,18 @@ impl Poller {
 
                 let max_age_minutes = self.max_age_ms.load(Ordering::Relaxed) / 60000;
                 let seen_videos = self.seen_videos.read().await.clone();
+                let min_duration_sec = self.min_duration_sec.load(Ordering::Relaxed);
+                let max_duration_sec = self.max_duration_sec.load(Ordering::Relaxed);
 
                 match detector.detect_new_videos(&channel_ids, &seen_videos, max_age_minutes as u64).await {
                     Ok(videos) => {
                         for video in videos {
-                            if video.duration_sec < min_duration_sec as f64 {
-                                continue;
-                            }
+                             if video.duration_sec < min_duration_sec as f64 {
+                                 continue;
+                             }
+                             if max_duration_sec > 0 && video.duration_sec > max_duration_sec as f64 {
+                                 continue;
+                             }
                             // Mark as seen
                             let mut seen_videos = self.seen_videos.write().await;
                             let cid = oauth_channels.iter()

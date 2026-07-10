@@ -524,7 +524,7 @@ impl InnertubeClient {
     }
 
     /// Check and evaluate open Chrome channel tabs. Uses the persistent daemon.
-    pub async fn check_chrome_tabs(&mut self, poll_interval_ms: u64) -> Result<Vec<VideoInfo>> {
+    pub async fn check_chrome_tabs(&mut self, poll_interval_ms: u64, channels: &[serde_json::Value]) -> Result<Vec<VideoInfo>> {
         self.ensure_daemon()?;
 
         let id = self.req_counter.fetch_add(1, Ordering::SeqCst);
@@ -532,6 +532,7 @@ impl InnertubeClient {
             "id": id,
             "cmd": "checkChromeTabs",
             "pollIntervalMs": poll_interval_ms,
+            "channels": channels,
         });
 
         let start = std::time::Instant::now();

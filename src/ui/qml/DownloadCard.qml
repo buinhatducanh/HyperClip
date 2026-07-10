@@ -136,5 +136,28 @@ SettingsCard {
             editable: true
             onValueModified: if (settings) settings.maxConcurrentDownloads = value
         }
+
+        ColumnLayout {
+            spacing: 2
+            Layout.fillWidth: true
+            Label {
+                text: "Direct Route IP (Bypass VPN)"
+                color: Theme.text
+                font.pixelSize: Theme.textMd
+                font.bold: true
+            }
+            Label {
+                text: "Bỏ qua VPN, kết nối trực tiếp IP vật lý để tăng tốc độ tải."
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+        }
+        Switch {
+            Layout.alignment: Qt.AlignRight
+            checked: settings ? settings.bypassVpn : true
+            onToggled: if (settings) settings.bypassVpn = checked
+        }
     }
 }

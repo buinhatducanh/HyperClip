@@ -1,41 +1,94 @@
-node_modules
+# ─── Build & distribution ─────────────────────────────────────
+node_modules/
 .next/
 dist-electron/
-release/
 dist/
 out/
-*.tmp
-*.tmp-*
-tmp/
-
-# TypeScript incremental build cache
+release/
+target/
+build/dist/
 *.tsbuildinfo
 
-# npm lockfile (project uses pnpm, see pnpm-lock.yaml)
-package-lock.json
+# ─── Video / media files (multi-GB, never commit anywhere) ──
+*.mp4
+*.mp4.part
+*.webm
+*.mkv
+*.avi
+*.mov
+*.flv
+*.m4v
+*.ts
+*.m3u8
 
-# Local runtime data — media files only (videos, renders, thumbnails)
-# These are auto-generated and can be multiple GB
+# ─── Temp files ───────────────────────────────────────────────
+*.tmp
+*.tmp-*
+*.swp
+*.swo
+*.part
+tmp/
+.tmp_kill.ps1
+*.patch
+
+# ─── Lockfiles (project uses pnpm only) ──────────────────────
+package-lock.json
+yarn.lock
+
+# ─── Patches and zip files ───────────────────────────────────
+*.zip
+HyperClip-Patch-*/
+release/
+
+# ─── Audio / sound files (unused, never commit) ─────────────
+*.wav
+*.mp3
+*.flac
+*.aac
+*.ogg
+*.m4a
+*.aiff
+*.opus
+*.wma
+src-tauri/src/assets/
+
+# ─── Runtime data — never commit ─────────────────────────────
+# Videos, renders, logs, cookies: multi-GB runtime artifacts
 data/media/
 data/downloads/
 data/output/
+data/renders/
 data/thumbnails/
 data/logs/
+data/temp/
+data/temp_benchmark/
+data/.cache/
 data/cookies*.txt
-data/renders/
-*.mp4
-*.webm
-*.mkv
+data/cookies.txt
+data/history.json
+data/*.mp4
+data/*.mp4.part
+data/*.webm
+data/*.mkv
+data/*.part
 
-# Claude Code — machine-specific overrides (each machine creates its own)
-.claude/settings.local.json
+# Legacy root state files (Electron era — Rust now uses data/.hyperclip/)
+channels.json
+poller.json
+detections.json
+detections3.json
+.hyperclip/             # Old Electron store at root
+.export_projects_template.py
+migrate_projects.py
+install.ps1
+install.sh
+installer.nsh
+test_bench.py
+test_landscape_cuda_run.py
+bg.jpg
+settings_final.png
 
-# Abandoned experiment dirs (build artifacts only, no source)
-src-tauri/
-hyperclip/
-
-# Sub-agent worktrees (ephemeral, can be 10+ GB)
-.claude/worktrees/
+# ─── Python ───────────────────────────────────────────────────
 __pycache__/
 *.pyc
 src/__pycache__/
@@ -43,11 +96,56 @@ src/backend/__pycache__/
 src/models/__pycache__/
 src/services/__pycache__/
 src/ui/__pycache__/
-target/
-package-lock.json
+.pytest_cache/
 
-# Patches and zip files
-*.zip
-HyperClip-Patch-*/
-HyperClip-Patch-*
+# ─── Checksum / hash / log artifacts (benchmark output) ──────
+*.md5
+*.sha1
+*.sha256
+*.sha512
+*.sum
+*.log
+*.txt.log
 
+# ─── Junk image / asset files (template leftovers, never commit) ──
+src/imports/*.png
+src/imports/*.jpg
+src/imports/*.jpeg
+src/imports/*.gif
+src/imports/*.webp
+src/imports/*.svg
+src/imports/*.bmp
+src/imports/pasted_text/
+scratch/*.png
+scratch/*.jpg
+scratch/*.jpeg
+scratch/*.gif
+scratch/*.bmp
+scratch/*.webp
+scratch/extracted_frames/
+data/**/*.png
+data/**/*.jpg
+data/**/*.jpeg
+data/**/*.webp
+data/**/*.bmp
+data/temp/
+data/temp_benchmark/
+
+# ─── Tool-specific dirs (machine state, not source) ───────────
+.claude/settings.local.json
+.claude/worktrees/
+.superpowers/           # brainstorm/UI design experiments
+.remember/              # tool session memory
+.playwright-mcp/        # playwright test cache
+.idea/
+.vscode/
+
+# ─── OS junk ──────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Editor artifacts ─────────────────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json

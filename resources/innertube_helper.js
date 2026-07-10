@@ -58,48 +58,62 @@ function parseRelativeTime(text) {
   if (!text) return 0;
   const cleanText = text.replace(/\u00a0/g, ' ').trim().toLowerCase();
   
+  // Split by common delimiters to isolate the relative time part
+  const parts = cleanText.split(/[\u2022\u00b7\u2023\u2043|•·-]/);
+  let timePart = cleanText;
+  
+  // Look for the part that contains relative time indicators
+  const indicators = ['ago', 'trước', '前', '전', 'hour', 'min', 'day', 'week', 'month', 'year', 'giây', 'phút', 'giờ', 'ngày', 'tuần', 'tháng', 'năm', '秒', '分', '時', '日', '週', '月', '年', '초', '분', '시', '일', '주', '달', '해'];
+  for (const part of parts) {
+    const trimmedPart = part.trim();
+    if (indicators.some(ind => trimmedPart.includes(ind))) {
+      timePart = trimmedPart;
+      break;
+    }
+  }
+  
   // Handle "New", "Mới", "Live", "Trực tiếp", "Đang phát trực tiếp", etc., if no numeric digit is present
-  if (!/\d/.test(cleanText)) {
+  if (!/\d/.test(timePart)) {
     if (
-      cleanText.includes('new') || 
-      cleanText.includes('mới') || 
-      cleanText.includes('vừa xong') ||
-      cleanText.includes('just now') ||
+      timePart.includes('new') || 
+      timePart.includes('mới') || 
+      timePart.includes('vừa xong') ||
+      timePart.includes('just now') ||
       // Japanese
-      cleanText.includes('新着') ||
-      cleanText.includes('新し') ||
-      cleanText.includes('ライブ') ||
-      cleanText.includes('生放送') ||
-      cleanText.includes('配信中') ||
-      cleanText.includes('公開中') ||
-      cleanText.includes('プレミア') ||
-      cleanText.includes('視聴中') ||
+      timePart.includes('新着') ||
+      timePart.includes('新し') ||
+      timePart.includes('ライブ') ||
+      timePart.includes('生放送') ||
+      timePart.includes('配信中') ||
+      timePart.includes('公開中') ||
+      timePart.includes('プレミア') ||
+      timePart.includes('視聴中') ||
       // Korean
-      cleanText.includes('새로운') ||
-      cleanText.includes('새 동영상') ||
-      cleanText.includes('방금') ||
-      cleanText.includes('최신') ||
-      cleanText.includes('실시간') ||
-      cleanText.includes('라이브') ||
-      cleanText.includes('최초 공개') ||
-      cleanText.includes('시청 중') ||
+      timePart.includes('새로운') ||
+      timePart.includes('새 동영상') ||
+      timePart.includes('방금') ||
+      timePart.includes('최신') ||
+      timePart.includes('실시간') ||
+      timePart.includes('라이브') ||
+      timePart.includes('최초 공개') ||
+      timePart.includes('시청 중') ||
       // Existing defaults
-      cleanText === 'live' || 
-      cleanText.includes('trực tiếp') || 
-      cleanText.includes('đang phát') || 
-      cleanText.includes('premiering') || 
-      cleanText.includes('công chiếu') ||
-      cleanText.includes('watching') ||
-      cleanText.includes('đang xem')
+      timePart === 'live' || 
+      timePart.includes('trực tiếp') || 
+      timePart.includes('đang phát') || 
+      timePart.includes('premiering') || 
+      timePart.includes('công chiếu') ||
+      timePart.includes('watching') ||
+      timePart.includes('đang xem')
     ) {
       return Date.now();
     }
   }
   
-  const m = cleanText.match(/(\d+)\s*(.+)/);
+  const m = timePart.match(/(\d+)\s*(.+)/);
   if (m) {
     const val = parseInt(m[1], 10);
-    const unit = m[2];
+    const unit = m[2].trim();
     const now = Date.now();
     
     // Seconds
@@ -614,10 +628,11 @@ async function checkChromeChannelTabs(pollIntervalMs) {
 
     // 3. Process each open channel tab
     const promises = tabInfoList.map(async ({ tab, wsUrl, channelId }) => {
-      // Reload tab periodically (every 30s) if CDP is active
+      // Reload tab periodically based on poll interval (rust caps channel-check throttle to 1500ms)
       if (wsUrl) {
         const lastReload = tabReloads[wsUrl] || 0;
-        if (now - lastReload >= 30000) {
+        const reloadThreshold = pollIntervalMs * 2;
+        if (now - lastReload >= reloadThreshold) {
           tabReloads[wsUrl] = now;
           reloadTab(wsUrl, false).catch(() => {});
         }
@@ -799,6 +814,15 @@ function runDaemon(initialCookie) {
         // Handle checkChromeTabs command — evaluate JS in open Chrome channel tabs via CDP
         if (req.cmd === 'checkChromeTabs') {
           const pollIntervalMs = req.pollIntervalMs || 3000;
+          if (Array.isArray(req.channels)) {
+            for (const ch of req.channels) {
+              if (ch.handle && ch.channelId) {
+                const handle = ch.handle.trim().toLowerCase();
+                const key = handle.startsWith('@') ? handle : '@' + handle;
+                resolvedChannelCache.set(key, ch.channelId);
+              }
+            }
+          }
           checkChromeChannelTabs(pollIntervalMs).then(videos => {
             writeResponse({ id: req.id || 0, ok: true, cmd: 'checkChromeTabs', videos });
           }).catch(e => {
