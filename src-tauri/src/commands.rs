@@ -3165,4 +3165,4 @@ fn trigger_startup_render(ws: &hyperclip_ipc::store::Workspace) {
         let duration_secs = start_time.elapsed().as_secs_f64();
         handle_render_completion(&rid, result, duration_secs);
     });
-}
+}

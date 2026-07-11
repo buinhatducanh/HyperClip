@@ -47,9 +47,9 @@ pub fn get_youtube_client_priority() -> String {
         }
     }
 
-    // android is fastest (especially with VPN), web is reliable fallback
+    // web is fast and reliable without VPN, android is fallback
     // Removed ios (slow extraction) and tv_embedded (unnecessary) to save ~1-2s
-    "android,web".to_string()
+    "web,android".to_string()
 }
 
 #[derive(Debug, Clone)]
