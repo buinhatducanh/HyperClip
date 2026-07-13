@@ -6,7 +6,7 @@ use crate::token_manager::OAuthFallbackDetector;
 use crate::types::Channel;
 use rand::Rng;
 use serde::Serialize;
-use std::sync::atomic::{AtomicI64, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 
@@ -37,6 +37,8 @@ pub struct Poller {
     min_duration_sec: AtomicU32,
     max_duration_sec: AtomicU32,
     process_fn: Arc<dyn Fn(NewVideoEvent) + Send + Sync>,
+    /// When >0, defer polling to avoid GPU contention with active FFmpeg renders.
+    active_renders: Arc<AtomicI32>,
 }
 
 impl Poller {
@@ -49,6 +51,7 @@ impl Poller {
         min_duration_sec: u32,
         max_duration_sec: u32,
         process_fn: impl Fn(NewVideoEvent) + Send + Sync + 'static,
+        active_renders: Arc<AtomicI32>,
     ) -> Self {
         Self {
             pool,
@@ -65,6 +68,7 @@ impl Poller {
             min_duration_sec: AtomicU32::new(min_duration_sec),
             max_duration_sec: AtomicU32::new(max_duration_sec),
             process_fn: Arc::new(process_fn),
+            active_renders,
         }
     }
 
@@ -214,6 +218,21 @@ impl Poller {
     }
 
     async fn poll_once(self: Arc<Self>) -> Result<()> {
+        // Defer when render is active — spawning 27 parallel Innertube HTTP calls
+        // competes with NVENC for CPU/IO and dropped encode FPS by 40% (1341 → 791)
+        // during observed run. Wait up to 3s for render to clear.
+        let mut defer_iters = 0;
+        while self.active_renders.load(Ordering::Relaxed) > 0 && defer_iters < 30 {
+            if defer_iters == 0 {
+                tracing::info!("[Poller] Deferring poll: {} active render(s) running", self.active_renders.load(Ordering::Relaxed));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            defer_iters += 1;
+        }
+        if defer_iters >= 30 {
+            tracing::warn!("[Poller] Render deferral timeout (3s) — proceeding anyway");
+        }
+
         let now_ms = chrono::Utc::now().timestamp_millis();
         let max_age_ms = self.max_age_ms.load(Ordering::Relaxed);
         let min_duration_sec = self.min_duration_sec.load(Ordering::Relaxed);

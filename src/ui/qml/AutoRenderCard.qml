@@ -192,6 +192,14 @@ SettingsCard {
             value: settings ? settings.autoSplitParts : 2
             editable: true
             onValueModified: if (settings) settings.autoSplitParts = value
+            onActiveFocusChanged: {
+                if (!activeFocus) {
+                    var val = valueFromText(contentItem.text, locale)
+                    val = Math.max(from, Math.min(to, val))
+                    value = val
+                    if (settings) settings.autoSplitParts = val
+                }
+            }
         }
 
         ColumnLayout {
@@ -221,6 +229,14 @@ SettingsCard {
             value: settings ? settings.autoSplitMinutes : 5
             editable: true
             onValueModified: if (settings) settings.autoSplitMinutes = value
+            onActiveFocusChanged: {
+                if (!activeFocus) {
+                    var val = valueFromText(contentItem.text, locale)
+                    val = Math.max(from, Math.min(to, val))
+                    value = val
+                    if (settings) settings.autoSplitMinutes = val
+                }
+            }
         }
  
         ColumnLayout {
@@ -281,6 +297,14 @@ SettingsCard {
             value: settings ? settings.maxConcurrentRenders : 2
             editable: true
             onValueModified: if (settings) settings.maxConcurrentRenders = value
+            onActiveFocusChanged: {
+                if (!activeFocus) {
+                    var val = valueFromText(contentItem.text, locale)
+                    val = Math.max(from, Math.min(to, val))
+                    value = val
+                    if (settings) settings.maxConcurrentRenders = val
+                }
+            }
         }
     }
 }

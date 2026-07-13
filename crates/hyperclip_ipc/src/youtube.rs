@@ -164,10 +164,22 @@ pub fn build_ytdlp_args(opts: &DownloadOptions) -> Vec<String> {
         .unwrap_or(false);
 
     if bypass_vpn {
-        if let Some(ip) = get_physical_ip() {
+        // Allow manual override of the source IP via settings.
+        // Lets users bypass VPN when auto-detection picks the wrong NIC.
+        let manual_ip = s_store.settings.get("sourceAddress")
+            .or_else(|| s_store.settings.get("source_address"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty() && s.parse::<std::net::Ipv4Addr>().is_ok());
+
+        let bind_ip = manual_ip.or_else(get_physical_ip);
+
+        if let Some(ip) = bind_ip {
             tracing::info!("[Youtube] Direct IP binding enabled (build_ytdlp_args). Binding to: {}", ip);
             args.push("--source-address".to_string());
             args.push(ip);
+        } else {
+            tracing::warn!("[Youtube] bypass_vpn=true but no source IP detected — set sourceAddress in settings to override");
         }
     }
 
@@ -236,27 +248,154 @@ pub fn get_ytdlp_cache_dir() -> std::path::PathBuf {
 pub fn get_physical_ip() -> Option<String> {
     #[cfg(target_os = "windows")]
     {
-        let cmd_str = "Get-NetRoute -DestinationPrefix '0.0.0.0/0' | \
-                       Where-Object { $_.InterfaceAlias -notmatch 'warp|vpn|tap|tun|wireguard|tailscale|zerotier|virtualbox|vmware|pseudo' } | \
-                       ForEach-Object { Get-NetIPAddress -InterfaceIndex $_.InterfaceIndex -AddressFamily IPv4 | Select-Object -ExpandProperty IPAddress }";
-        
+        // VPN / virtual NIC patterns in BOTH InterfaceAlias AND InterfaceDescription.
+        // Covers NordVPN/NordLynx, Cloudflare WARP, WireGuard, Tailscale, ZeroTier,
+        // OpenVPN/TAP, ExpressVPN, Mullvad, Surfshark, Windscribe, ProtonVPN,
+        // Radmin VPN, Cisco, SoftEther, IPSec/PPTP/L2TP/SSTP, Hyper-V, VMWare,
+        // VirtualBox, Docker/WSL bridge, generic TAP/WinTun/TunTap adapters.
+        // ALSO matches generic names like "Local Area Connection*" because
+        // some VPN clients don't set a brand-specific alias.
+        let vpn_pattern = "warp|vpn|tap|tun|wireguard|tailscale|zerotier|virtualbox|vmware|pseudo\
+                           |cf-|cloudflare|radmin|openvpn|cisco|softether|ipsec|pptp|l2tp|sstp\
+                           |nord|express|mullvad|surfshark|windscribe|proton|ipvanish|hidemy\
+                           |vypr|hotspot|opera|cyberghost|zenmate|fortinet|paloalto|sophos\
+                           |hyper-v|hyperv|wintun|tuntap|wire|tun$|tap$";
+
+        // Strategy: enumerate ALL adapters with their description + alias + IPs + metric.
+        // Pick the FIRST one that:
+        //   1. Is NOT a known VPN/virtual NIC (matches vpn_pattern in alias OR description)
+        //   2. Has an IPv4 address that's NOT a tunnel range (10.x, 172.16-31.x, 169.254.x)
+        //   3. Is "Up" status
+        // Tie-break: lowest RouteMetric (physical NICs typically have lower metric than tunnel).
+        let cmd_str = format!(
+            "$adapters = Get-NetAdapter -ErrorAction SilentlyContinue | \
+                Where-Object {{ $_.Status -eq 'Up' }}; \
+             foreach ($a in $adapters) {{ \
+                 $ip = Get-NetIPAddress -InterfaceIndex $a.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | \
+                       Select-Object -First 1 -ExpandProperty IPAddress; \
+                 if (-not $ip) {{ continue }}; \
+                 $metric = (Get-NetRoute -InterfaceIndex $a.ifIndex -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | \
+                            Select-Object -First 1 -ExpandProperty RouteMetric); \
+                 if (-not $metric) {{ $metric = 9999 }}; \
+                 Write-Output (\"$($a.Name)|$($a.InterfaceDescription)|$ip|$metric\") \
+             }}",
+        );
+
         let output = Command::new("powershell")
-            .args(&["-NoProfile", "-Command", cmd_str])
+            .args(&["-NoProfile", "-Command", &cmd_str])
             .output();
-        
+
         if let Ok(out) = output {
             if out.status.success() {
                 let stdout = String::from_utf8_lossy(&out.stdout);
+                // Each line: alias|description|ip|metric
+                #[derive(Debug)]
+                struct Candidate {
+                    alias: String,
+                    desc: String,
+                    ip: std::net::Ipv4Addr,
+                    metric: u32,
+                }
+
+                let mut candidates: Vec<Candidate> = Vec::new();
                 for line in stdout.lines() {
                     let trimmed = line.trim();
-                    if !trimmed.is_empty() && trimmed.parse::<std::net::Ipv4Addr>().is_ok() {
-                        return Some(trimmed.to_string());
+                    if trimmed.is_empty() {
+                        continue;
                     }
+                    let parts: Vec<&str> = trimmed.split('|').collect();
+                    if parts.len() < 4 {
+                        continue;
+                    }
+                    let alias = parts[0].to_string();
+                    let desc = parts[1].to_string();
+                    let ip: std::net::Ipv4Addr = match parts[2].parse() {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+                    let metric: u32 = parts[3].parse().unwrap_or(9999);
+                    candidates.push(Candidate { alias, desc, ip, metric });
                 }
+
+                // Filter out VPN/virtual adapters by alias AND description.
+                candidates.retain(|c| {
+                    let combined = format!("{} {}", c.alias.to_lowercase(), c.desc.to_lowercase());
+                    !regex_match_simple(&combined, vpn_pattern)
+                });
+
+                // Filter out loopback / link-local / tunnel IP ranges.
+                candidates.retain(|c| {
+                    let octets = c.ip.octets();
+                    if octets[0] == 127 || (octets[0] == 169 && octets[1] == 254) {
+                        return false;
+                    }
+                    true
+                });
+
+                // Sort by metric ascending (physical NIC has lower metric).
+                candidates.sort_by_key(|c| c.metric);
+
+                // Prefer LAN (192.168.x.x), then 10.x.x.x (some home networks),
+                // then public IPs, then anything else.
+                let score = |ip: std::net::Ipv4Addr| -> u8 {
+                    let o = ip.octets();
+                    if o[0] == 192 && o[1] == 168 { return 0; }      // LAN — best
+                    if o[0] == 10 { return 1; }                       // home router, often LAN
+                    if o[0] == 172 && o[1] >= 16 && o[1] <= 31 { return 4; } // tunnel-ish
+                    return 2;                                          // public
+                };
+                candidates.sort_by_key(|c| (score(c.ip), c.metric));
+
+                if let Some(best) = candidates.first() {
+                    tracing::info!(
+                        "[Youtube] Physical IP detected: {} (alias='{}', desc='{}', metric={})",
+                        best.ip, best.alias, best.desc, best.metric
+                    );
+                    return Some(best.ip.to_string());
+                }
+
+                tracing::warn!("[Youtube] No suitable physical IP found after filtering. Adapters seen but all matched VPN patterns or had tunnel-range IPs.");
+            } else {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                tracing::warn!("[Youtube] get_physical_ip PowerShell failed: {}", stderr);
             }
         }
     }
+    tracing::warn!("[Youtube] Could not detect physical IP — set sourceAddress manually in settings.json");
     None
+}
+
+#[cfg(target_os = "windows")]
+/// Simple case-insensitive substring match against an alternation pattern.
+fn regex_match_simple(input: &str, pattern: &str) -> bool {
+    // pattern is "foo|bar|baz" — split on '|', check any substring match
+    for alt in pattern.split('|') {
+        let alt = alt.trim();
+        if alt.is_empty() {
+            continue;
+        }
+        // Use anchored check: pattern is treated as substring search, not regex.
+        // Allow exact-token match for short patterns ending in $ (e.g., "tap$")
+        if alt.ends_with('$') {
+            let prefix = &alt[..alt.len() - 1];
+            // Match the token boundary: end of string OR whitespace after
+            if let Some(idx) = input.find(prefix) {
+                let after = idx + prefix.len();
+                if after == input.len() {
+                    return true;
+                }
+                let next_char = input[after..].chars().next().unwrap_or(' ');
+                if !next_char.is_alphanumeric() {
+                    return true;
+                }
+            }
+        } else {
+            if input.contains(alt) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Async download with streaming progress via callback.
@@ -296,14 +435,21 @@ where
         .and_then(|v| v.as_bool())
         .unwrap_or(false); // Default to false so we respect VPN by default
 
-    // Performance: --download-sections forces yt-dlp to stream via ffmpeg which is 5-10x
-    // slower than yt-dlp's native HTTP downloader with concurrent fragments.
-    let use_download_sections = if quality <= 360 {
-        tracing::info!("[Youtube] Skipping --download-sections for {}p quality - will download full and trim locally", quality);
-        false
-    } else if let Some(dur) = actual_duration_sec {
+    // Manual override — let users specify the NIC IP directly if auto-detection picks the wrong one.
+    let manual_source_ip = s_store.settings.get("sourceAddress")
+        .or_else(|| s_store.settings.get("source_address"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && s.parse::<std::net::Ipv4Addr>().is_ok());
+
+    // Performance: --download-sections forces yt-dlp to stream via ffmpeg which is slower
+    // than yt-dlp's native HTTP downloader with concurrent fragments. However, for videos
+    // up to ~30 min the network savings from downloading only the needed portion
+    // (often 50-70% smaller) outweigh the ffmpeg overhead. 360p LAN speed ~2-3 MB/s
+    // means downloading 20MB full video takes 8s vs ~4s with download-sections.
+    let use_download_sections = if let Some(dur) = actual_duration_sec {
         let long_video_threshold = 30 * 60; // 30 minutes
-        trim_minutes > 0 && dur > long_video_threshold
+        trim_minutes > 0 && dur <= long_video_threshold
     } else {
         false
     };
@@ -320,9 +466,12 @@ where
         ]);
 
         if bypass_vpn {
-            if let Some(ip) = get_physical_ip() {
+            let bind_ip = manual_source_ip.clone().or_else(get_physical_ip);
+            if let Some(ip) = bind_ip {
                 tracing::info!("[Youtube] Direct IP binding enabled. Binding yt-dlp to local physical IP: {}", ip);
                 cmd.args(["--source-address", &ip]);
+            } else {
+                tracing::warn!("[Youtube] bypass_vpn=true but no source IP detected — set sourceAddress in settings to override");
             }
         }
 
@@ -598,7 +747,10 @@ pub fn download_video(
 
     // Optimization: bypass download sections if the entire video is to be downloaded
     if use_download_sections {
-        let is_entire_video = actual_duration_sec.map(|dur| dur <= (trim_minutes * 60) as u64).unwrap_or(false);
+        let is_entire_video = actual_duration_sec
+            .filter(|&d| d > 0) // duration=0 means unknown (Chrome detect), not "entire video"
+            .map(|dur| dur <= (trim_minutes * 60) as u64)
+            .unwrap_or(false);
         if is_entire_video {
             tracing::info!("[Youtube] Bypassing --download-sections because the entire video is to be downloaded (duration: {:?}s, trim: {}m).", actual_duration_sec, trim_minutes);
             use_download_sections = false;
@@ -939,8 +1091,10 @@ pub fn find_node_runtime_arg() -> String {
 fn maybe_trim_file(output_path: &str, trim_minutes: u32) -> Result<f64, String> {
     let (duration, _, _, _, _) = probe_media_file(output_path);
     let limit_sec = (trim_minutes * 60) as f64;
+    tracing::info!("[Youtube] maybe_trim_file: duration={:.1}s, trim_minutes={}, limit_sec={:.1}s", duration, trim_minutes, limit_sec);
 
     if trim_minutes > 0 && duration > limit_sec {
+        tracing::info!("[Youtube] Trimming file to {}s: {}", limit_sec, output_path);
         let temp_path = format!("{}.temp", output_path);
         if let Err(e) = std::fs::rename(output_path, &temp_path) {
             return Err(format!("Failed to rename file for trimming: {}", e));
@@ -969,17 +1123,21 @@ fn maybe_trim_file(output_path: &str, trim_minutes: u32) -> Result<f64, String> 
         match cmd.output() {
             Ok(out) if out.status.success() => {
                 let _ = std::fs::remove_file(&temp_path);
+                let trimmed_size = std::fs::metadata(output_path).map(|m| m.len()).unwrap_or(0);
+                tracing::info!("[Youtube] Trim successful: {}s → {:.1} MB", limit_sec, trimmed_size as f64 / 1_048_576.0);
                 Ok(limit_sec)
             }
             Ok(out) => {
                 // Restore original file
                 let _ = std::fs::rename(&temp_path, output_path);
                 let err_msg = String::from_utf8_lossy(&out.stderr);
+                tracing::warn!("[Youtube] FFmpeg trimming failed (exit={:?}). Stderr: {}", out.status.code(), err_msg);
                 Err(format!("FFmpeg trimming failed (exit={:?}): {}", out.status.code(), err_msg))
             }
             Err(e) => {
                 // Restore original file
                 let _ = std::fs::rename(&temp_path, output_path);
+                tracing::warn!("[Youtube] FFmpeg trim spawn failed: {}", e);
                 Err(format!("FFmpeg trim spawn failed: {}", e))
             }
         }
@@ -1074,5 +1232,112 @@ mod tests {
         };
         let args = build_ytdlp_args(&opts);
         assert!(!args.iter().any(|a| a.starts_with("*")), "No trim sections when empty: {:?}", args);
+    }
+
+    #[cfg(target_os = "windows")]
+    mod vpn_filter_tests {
+        use super::*;
+
+        // regex_match_simple tests — VPN adapter detection logic
+        const VPN_PATTERN: &str =
+            "warp|vpn|tap|tun|wireguard|tailscale|zerotier|virtualbox|vmware|pseudo\
+             |cf-|cloudflare|radmin|openvpn|cisco|softether|ipsec|pptp|l2tp|sstp\
+             |nord|express|mullvad|surfshark|windscribe|proton|ipvanish|hidemy\
+             |vypr|hotspot|opera|cyberghost|zenmate|fortinet|paloalto|sophos\
+             |hyper-v|hyperv|wintun|tuntap|wire|tun$|tap$";
+
+        #[test]
+        fn test_nordlynx_adapter_detected() {
+            // NordLynx WireGuard adapter — "NordLynx" contains "nord"
+            assert!(regex_match_simple("nordlynx nordlynx", VPN_PATTERN));
+        }
+
+        #[test]
+        fn test_nordvpn_tap_detected() {
+            // NordVPN TAP adapter — "TAP-NordVPN Windows Adapter v9"
+            assert!(regex_match_simple(
+                "tap-nordvpn windows adapter v9 tap-nordvpn windows adapter v9",
+                VPN_PATTERN
+            ));
+        }
+
+        #[test]
+        fn test_cloudflare_warp_detected() {
+            assert!(regex_match_simple(
+                "cloudflare warp cloudflare warp",
+                VPN_PATTERN
+            ));
+        }
+
+        #[test]
+        fn test_wireguard_adapter_detected() {
+            assert!(regex_match_simple(
+                "wireguard tunnel wireguard tunnel",
+                VPN_PATTERN
+            ));
+        }
+
+        #[test]
+        fn test_generic_tap_adapter_detected() {
+            // Some VPNs use "TAP-Windows Adapter V9" or "TAP"
+            assert!(regex_match_simple(
+                "tap-windows adapter v9 tap-windows adapter v9",
+                VPN_PATTERN
+            ));
+            // "tap" at end of input after space
+            assert!(regex_match_simple(
+                "local area connection tap",
+                VPN_PATTERN
+            ));
+        }
+
+        #[test]
+        fn test_real_nic_not_filtered() {
+            // Intel Wi-Fi adapter — should NOT match any VPN pattern
+            assert!(!regex_match_simple(
+                "wi-fi intel(r) wi-fi 6 ax201 160mhz",
+                VPN_PATTERN
+            ));
+        }
+
+        #[test]
+        fn test_real_nic_realtek_not_filtered() {
+            assert!(!regex_match_simple(
+                "ethernet realtek pcie gbe family controller",
+                VPN_PATTERN
+            ));
+        }
+
+        #[test]
+        fn test_hyper_v_detected() {
+            assert!(regex_match_simple(
+                "hyper-v ethernet adapter hyper-v ethernet adapter",
+                VPN_PATTERN
+            ));
+        }
+
+        #[test]
+        fn test_get_physical_ip_returns_valid_ip() {
+            let ip = get_physical_ip();
+            // Should return Some IP on Windows — could be 192.168.x.x
+            if let Some(ip_str) = ip {
+                assert!(ip_str.parse::<std::net::Ipv4Addr>().is_ok(),
+                    "get_physical_ip returned invalid IP: {}", ip_str);
+                let octets: Vec<u8> = ip_str.split('.').map(|s| s.parse().unwrap()).collect();
+                // Should NOT return loopback or link-local
+                assert_ne!(octets[0], 127, "Should not return loopback");
+                assert!(!(octets[0] == 169 && octets[1] == 254),
+                    "Should not return link-local: {}", ip_str);
+            }
+        }
+
+        #[test]
+        fn test_vpn_tunnel_ip_is_skipped() {
+            // 10.5.0.2 is a classic NordVPN/WireGuard tunnel IP — should be deprioritized
+            let ip: std::net::Ipv4Addr = "10.5.0.2".parse().unwrap();
+            let octets = ip.octets();
+            // The IP is in 10.x.x.x range which is VPN tunnel
+            assert_eq!(octets[0], 10, "NordVPN tunnel IP starts with 10");
+        }
     }
 }

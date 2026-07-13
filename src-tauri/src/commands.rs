@@ -5,7 +5,7 @@ pub mod workspace;
 pub mod auth;
 
 use hyperclip_ipc::{get_system_stats, ChannelStore, WorkspaceStore, get_workspaces_path, get_channels_path, get_seen_videos_path, SettingsStore, get_settings_path, get_store_dir, get_uploads_cache_path, get_data_dir};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicI32};
 use hyperclip_ipc::store::{SeenVideos, UploadsCache};
 
 use hyperclip_ipc::cookies::{extract_chrome_cookies, get_chrome_user_data_dir};
@@ -75,6 +75,11 @@ struct AppState {
     poller_started: AtomicBool,
 
     _channels: Arc<RwLock<Vec<Channel>>>,
+
+    /// Number of FFmpeg renders currently in-flight.
+    /// Used to gate non-critical background work (e.g. opening Chrome tabs)
+    /// that would compete with NVENC for GPU/CPU resources.
+    active_renders: Arc<AtomicI32>,
 
     pool: Arc<InnertubeClientPool>,
 
@@ -485,20 +490,21 @@ impl AppState {
                         .or_else(|| s_store.settings.get("default_trim_limit_minutes").and_then(|v| v.as_u64()))
                         .unwrap_or(10) as u32;
 
-                    // Update workspace store with status and downloadStartedAt
+                    // Update workspace store with status
+                    // (downloadStartedAt is set inside the download thread right
+                    // before yt-dlp spawns, so the duration reflects actual
+                    // network time — not detection+resolution overhead.)
                     let ws_path = get_workspaces_path();
                     let mut ws_store = WorkspaceStore::load(&ws_path);
-                    let now_ms = chrono::Utc::now().timestamp_millis() - 2000;
                     ws_store.update(&tid, serde_json::json!({
                         "status": "downloading",
-                        "downloadStartedAt": now_ms,
                     })).ok();
                     ws_store.save(&ws_path).ok();
 
-                    // Emit downloading status
+                    // Emit downloading status (without downloadStartedAt)
                     let dl_event = serde_json::json!({
                         "method": "workspace:update",
-                        "params": {"id": tid, "status": "downloading", "downloadStartedAt": now_ms}
+                        "params": {"id": tid, "status": "downloading"}
                     });
                     hyperclip_ipc::emit_raw(&serde_json::to_string(&dl_event).unwrap_or_default());
 
@@ -516,6 +522,19 @@ impl AppState {
                     let video_id2 = event.video_id.clone();
                     let seen_videos_clone3 = seen_videos_clone.clone();
                     std::thread::spawn(move || {
+                        // Set downloadStartedAt NOW — right before yt-dlp spawns,
+                        // so the duration in UI reflects actual download time only,
+                        // not detection + Innertube resolution overhead.
+                        {
+                            let ws_path = get_workspaces_path();
+                            let mut ws_store = WorkspaceStore::load(&ws_path);
+                            let dl_start_ms = chrono::Utc::now().timestamp_millis();
+                            ws_store.update(&tid, serde_json::json!({
+                                "downloadStartedAt": dl_start_ms,
+                            })).ok();
+                            ws_store.save(&ws_path).ok();
+                        }
+
                         let pool = get_download_worker_pool();
                         let download_res = tokio::runtime::Runtime::new()
                             .map(|rt| rt.block_on(async {
@@ -722,7 +741,15 @@ impl AppState {
                                         .unwrap_or(1.0);
                                     let render_res = s_store.settings.get("autoRenderResolution").or_else(|| s_store.settings.get("auto_render_resolution")).and_then(|v| v.as_str()).unwrap_or("1080p").to_string();
                                     let render_fps = s_store.settings.get("autoRenderFPS").or_else(|| s_store.settings.get("auto_render_fps")).and_then(|v| v.as_u64()).unwrap_or(30) as u32;
-                                    let auto_trim_end = result.duration;
+                                    // Enforce trim limit: even if maybe_trim_file didn't
+                                    // actually truncate the file, limit render to N minutes
+                                    let trim_limit_sec = (trim_minutes as f64) * 60.0;
+                                    let auto_trim_end = if trim_minutes > 0 && result.duration > trim_limit_sec {
+                                        tracing::info!("[AppState] Enforcing trim limit on render: {:.1}s → {:.1}s (defaultTrimLimit={}min)", result.duration, trim_limit_sec, trim_minutes);
+                                        trim_limit_sec
+                                    } else {
+                                        result.duration
+                                    };
                                     let filter_chain = if is_short_val { hyperclip_ipc::ffmpeg::FilterChain::Short } else { hyperclip_ipc::ffmpeg::FilterChain::Landscape };
                                     let hw_cfg = get_resolved_hardware_config();
                                     let ws_path = get_workspaces_path();
@@ -767,6 +794,12 @@ impl AppState {
                                     ws_store.save(&ws_path).ok();
                                     emit_workspace_event(&tid, "rendering", None);
 
+                                    // Increment active render counter (used to defer
+                                    // non-critical background work like opening Chrome tabs
+                                    // so NVENC has dedicated GPU/CPU resources).
+                                    let active_renders = AppState::get_or_init().active_renders.clone();
+                                    active_renders.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
                                     let pid = tid.clone();
                                     let start_time = std::time::Instant::now();
                                     let render_fut = spawn_render_async(opts, move |progress| {
@@ -782,6 +815,7 @@ impl AppState {
                                         }))
                                         .unwrap_or_else(|e| Err(hyperclip_ipc::HyperclipError::BackendCrashed(e.to_string())));
                                     let duration_secs = start_time.elapsed().as_secs_f64();
+                                    active_renders.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
 
                                     if let Err(ref e) = render_res {
                                         tracing::error!("[AppState] Auto-render failed for workspace {}: {:?}", tid, e);
@@ -887,6 +921,8 @@ impl AppState {
                 move |event| process_fn_arc(event)
             };
 
+            let active_renders = Arc::new(AtomicI32::new(0));
+
             let poller = Arc::new(Poller::new(
                 pool.clone(),
                 channels.clone(),
@@ -896,6 +932,7 @@ impl AppState {
                 min_duration_sec,
                 max_duration_sec,
                 poller_process_fn,
+                active_renders.clone(),
             ));
 
             let chrome_watcher = Arc::new(ChromeTabWatcher::new(
@@ -943,6 +980,7 @@ impl AppState {
                 poller_cancel: Mutex::new(CancellationToken::new()),
                 poller_started: AtomicBool::new(false),
                 _channels: channels,
+                active_renders,
                 pool,
                 _process_handle: process_fn_arc,
                 startup_time_ms: chrono::Utc::now().timestamp_millis(),
@@ -951,6 +989,17 @@ impl AppState {
 
         INSTANCE.get().unwrap()
 
+    }
+
+    /// Seconds elapsed since AppState was initialized.
+    fn startup_elapsed_sec(&self) -> i64 {
+        let now = chrono::Utc::now().timestamp_millis();
+        (now - self.startup_time_ms) / 1000
+    }
+
+    /// True when at least one FFmpeg render is running (GPU-bound work in progress).
+    fn has_active_render(&self) -> bool {
+        self.active_renders.load(std::sync::atomic::Ordering::Relaxed) > 0
     }
 
     fn start_poller(&self) {
@@ -1271,12 +1320,22 @@ pub fn get_render_worker_pool() -> Arc<WorkerPool> {
     }
 }
 
-static DOWNLOAD_WORKER_POOL: OnceLock<Arc<WorkerPool>> = OnceLock::new();
+static DOWNLOAD_WORKER_POOL: Mutex<Option<Arc<WorkerPool>>> = Mutex::new(None);
 
 pub fn get_download_worker_pool() -> Arc<WorkerPool> {
-    DOWNLOAD_WORKER_POOL.get_or_init(|| {
-        Arc::new(WorkerPool::new(2)) // Limit to 2 concurrent downloads
-    }).clone()
+    let mut lock = DOWNLOAD_WORKER_POOL.lock().unwrap();
+    let download_workers = get_resolved_hardware_config().download_instances;
+    let needs_init = match &*lock {
+        None => true,
+        Some(p) => p.max_workers() != download_workers,
+    };
+    if needs_init {
+        let new_pool = Arc::new(WorkerPool::new(download_workers));
+        *lock = Some(new_pool.clone());
+        new_pool
+    } else {
+        lock.as_ref().unwrap().clone()
+    }
 }
 
 
@@ -1337,17 +1396,19 @@ pub fn init_appstate() {
             tracing::info!("[cookie-preload] Done: {}/30 profiles have valid sessions", valid_sessions);
             crate::emit(hyperclip_ipc::IpcResponse::event("channel:synced", serde_json::json!({})));
 
-            // After all profiles are loaded, check if Profile-1 needs Chrome login
+            // After all profiles are loaded, only launch Chrome if Profile-1
+            // does NOT already have valid cookies — avoids disruptive Chrome
+            // popup on every startup when user is already logged in.
             let profile_1_ok = match extract_profile_cookies("HyperClip-Profile-1") {
                 Ok(c) => c.contains("SAPISID") || c.contains("__Secure-3PAPISID"),
                 Err(_) => false,
             };
-            if !profile_1_ok {
-                tracing::warn!("[cookie-preload] Profile 1 has no valid cookies — launching Chrome to prompt login");
+            if profile_1_ok {
+                tracing::info!("[cookie-preload] Profile 1 has valid cookies — skipping Chrome launch (not needed)");
             } else {
-                tracing::info!("[cookie-preload] Profile 1 has valid cookies — launching Chrome to observe channel tabs");
+                tracing::warn!("[cookie-preload] Profile 1 has no valid cookies — launching Chrome to prompt login");
+                launch_chrome_profile_async("HyperClip-Profile-1");
             }
-            launch_chrome_profile_async("HyperClip-Profile-1");
         })
         .expect("Failed to spawn cookie-preload thread");
 }
@@ -1801,6 +1862,48 @@ fn refresh_all_profiles_cookies() -> Result<usize, String> {
 }
 
 fn ensure_chrome_tabs_open(profile_id: &str, urls: &[String]) {
+    // ─── GPU contention guard ──────────────────────────────────────────
+    // Wait until:
+    //   1. At least 30 s after app start (let poller/cookies settle)
+    //   2. No active FFmpeg render (NVENC owns GPU exclusively)
+    // Max wait: 120 s total.  Then proceed anyway (tabs > perfect timing).
+    let state = AppState::get_or_init();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    let min_startup_wait = std::time::Duration::from_secs(30);
+    let startup_deadline = std::time::Instant::now() + min_startup_wait;
+
+    loop {
+        if std::time::Instant::now() >= deadline {
+            tracing::warn!(
+                "[Chrome] Timeout waiting for render/startup settle — opening tabs anyway for {}",
+                profile_id
+            );
+            break;
+        }
+
+        let elapsed_sec = state.startup_elapsed_sec();
+        let startup_done = elapsed_sec >= min_startup_wait.as_secs() as i64;
+        let renders_done = !state.has_active_render();
+
+        if startup_done && renders_done {
+            tracing::info!(
+                "[Chrome] System settled (startup={}s, renders_active=false) — opening tabs for {}",
+                elapsed_sec,
+                profile_id
+            );
+            break;
+        }
+
+        tracing::debug!(
+            "[Chrome] Waiting for settle: startup={}s/{}, renders_active={}",
+            elapsed_sec,
+            min_startup_wait.as_secs(),
+            !renders_done
+        );
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+
+    // ─── Open tabs via CDP ────────────────────────────────────────────
     let check_url = "http://127.0.0.1:9222/json";
     let agent = ureq::AgentBuilder::new()
         .try_proxy_from_env(false)
@@ -2391,11 +2494,13 @@ fn file_mtime_ms(path: &Option<String>) -> Option<i64> {
 
 /// Enrich a workspace with computed timing fields for the Management page:
 /// - `downloadedMtime` / `renderedMtime`: file mtime in epoch ms (stat the disk path)
-/// - `downloadDurationSec`: seconds from `createdAt` to download completion
+/// - `downloadDurationSec`: seconds from `downloadStartedAt` to download completion
 /// - `renderDurationSec`: seconds from download completion to render completion
 fn enrich_workspace_for_management(ws: &hyperclip_ipc::store::Workspace) -> Value {
+    // Prefer explicit `downloadedAt` set by caller (accurate); fall back to file mtime
+    // minus 2s flush margin if caller never set it.
     let downloaded_mtime = file_mtime_ms(&ws.downloaded_path).map(|t| t.saturating_sub(2000));
-    let mut download_finished = downloaded_mtime.or(ws.downloaded_at);
+    let mut download_finished = ws.downloaded_at.or(downloaded_mtime);
     if download_finished.is_none() && (ws.status == "done" || ws.status == "rendered" || ws.rendered_path.is_some()) {
         download_finished = Some(ws.created_at);
     }
@@ -3094,6 +3199,13 @@ pub fn get_resolved_hardware_config() -> ResolvedHardwareConfig {
         concurrent_fragments = concurrent_fragments.min(16);
     }
     
+    if let Some(user_val) = s_store.settings.get("maxConcurrentRenders").and_then(|v| v.as_u64()) {
+        render_workers = user_val as usize;
+    }
+    if let Some(user_val) = s_store.settings.get("maxConcurrentDownloads").and_then(|v| v.as_u64()) {
+        download_instances = user_val as usize;
+    }
+    
     ResolvedHardwareConfig {
         render_workers,
         chunk_workers,
@@ -3158,10 +3270,14 @@ fn trigger_startup_render(ws: &hyperclip_ipc::store::Workspace) {
         };
         let pid = rid.clone();
         let start_time = std::time::Instant::now();
+        // Increment active render counter (defer non-critical background work)
+        let active_renders = AppState::get_or_init().active_renders.clone();
+        active_renders.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let result = spawn_render_async(opts, move |progress| {
             let e = serde_json::json!({"method": "render:progress", "params": {"id": pid, "progress": progress}});
             hyperclip_ipc::emit_raw(&serde_json::to_string(&e).unwrap_or_default());
         }).await;
+        active_renders.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         let duration_secs = start_time.elapsed().as_secs_f64();
         handle_render_completion(&rid, result, duration_secs);
     });

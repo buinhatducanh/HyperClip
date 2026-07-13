@@ -79,6 +79,14 @@ SettingsCard {
             value: settings ? settings.autoDownloadMaxAgeMinutes : 1440
             editable: true
             onValueModified: if (settings) settings.autoDownloadMaxAgeMinutes = value
+            onActiveFocusChanged: {
+                if (!activeFocus) {
+                    var val = valueFromText(contentItem.text, locale)
+                    val = Math.max(from, Math.min(to, val))
+                    value = val
+                    if (settings) settings.autoDownloadMaxAgeMinutes = val
+                }
+            }
         }
  
         ColumnLayout {
@@ -107,6 +115,14 @@ SettingsCard {
             value: settings ? settings.defaultTrimLimit : 10
             editable: true
             onValueModified: if (settings) settings.defaultTrimLimit = value
+            onActiveFocusChanged: {
+                if (!activeFocus) {
+                    var val = valueFromText(contentItem.text, locale)
+                    val = Math.max(from, Math.min(to, val))
+                    value = val
+                    if (settings) settings.defaultTrimLimit = val
+                }
+            }
         }
  
         ColumnLayout {
@@ -135,6 +151,14 @@ SettingsCard {
             value: settings ? settings.maxConcurrentDownloads : 1
             editable: true
             onValueModified: if (settings) settings.maxConcurrentDownloads = value
+            onActiveFocusChanged: {
+                if (!activeFocus) {
+                    var val = valueFromText(contentItem.text, locale)
+                    val = Math.max(from, Math.min(to, val))
+                    value = val
+                    if (settings) settings.maxConcurrentDownloads = val
+                }
+            }
         }
 
         ColumnLayout {

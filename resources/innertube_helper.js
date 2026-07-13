@@ -54,6 +54,22 @@ async function resolveChannelId(yt, rawId) {
 
 // ─── LockupView extraction ──────────────────────────────────
 
+function isRelativeTimeText(text) {
+  if (!text) return false;
+  const clean = text.toLowerCase();
+  const indicators = [
+    'ago', 'trước', '前', '전', 'hour', 'min', 'day', 'week', 'month', 'year',
+    'giây', 'phút', 'giờ', 'ngày', 'tuần', 'tháng', 'năm',
+    '秒', '分', '時', '日', '週', '月', '年',
+    '초', '분', '시', '일', '주', '달', '해',
+    'seconds', 'minutes', 'hours', 'days', 'weeks', 'months', 'years',
+    'new', 'mới', 'vừa xong', 'just now', '新着', '新し', 'ライブ', '生放送', '配信中', '公開中',
+    'プレミア', '視聴中', '새로운', '새 동영상', '방금', '최신', '실시간', '라이브', '최초 공개',
+    'live', 'trực tiếp', 'đang phát', 'premiering', 'công chiếu', 'watching', 'đang xem'
+  ];
+  return indicators.some(ind => clean.includes(ind));
+}
+
 function parseRelativeTime(text) {
   if (!text) return 0;
   const cleanText = text.replace(/\u00a0/g, ' ').trim().toLowerCase();
@@ -510,7 +526,7 @@ function extractVideosFromFeedJson(data) {
           if (!row?.metadataParts) continue;
           for (const part of row.metadataParts) {
             const text = part.text?.content || '';
-            if (text.includes('ago') || text.includes('trước') || text.includes('hours') || text.includes('minutes') || text.includes('seconds') || text.includes('giây') || text.includes('phút') || text.includes('giờ')) {
+            if (isRelativeTimeText(text)) {
               publishedText = text;
             }
           }
@@ -664,9 +680,18 @@ async function checkChromeChannelTabs(pollIntervalMs) {
                 let relativeTimeText = '';
                 const metaSpans = item.querySelectorAll('#metadata-line span');
                 for (const span of metaSpans) {
-                  const text = span.textContent.trim();
-                  if (text.includes('ago') || text.includes('trước') || text.includes('前') || text.includes('day') || text.includes('hour') || text.includes('minute') || text.includes('second') || text.includes('ngày') || text.includes('giờ') || text.includes('phút') || text.includes('giây') || text.includes('秒') || text.includes('分') || text.includes('時間') || text.includes('日') || text.includes('週') || text.includes('lịch') || text.includes('năm')) {
-                    relativeTimeText = text;
+                  const text = span.textContent.trim().toLowerCase();
+                  const indicators = [
+                    'ago', 'trước', '前', '전', 'hour', 'min', 'day', 'week', 'month', 'year',
+                    'giây', 'phút', 'giờ', 'ngày', 'tuần', 'tháng', 'năm',
+                    '秒', '分', '時', '日', '週', '月', '年',
+                    '초', '분', '시', '일', '주', '달', '해',
+                    'seconds', 'minutes', 'hours', 'days', 'weeks', 'months', 'years',
+                    'new', 'mới', 'vừa', '방금', '최신', '실시간', '라이브',
+                    'live', 'trực tiếp', 'đang phát', 'công chiếu', 'đang xem'
+                  ];
+                  if (indicators.some(ind => text.includes(ind))) {
+                    relativeTimeText = span.textContent.trim();
                   }
                 }
                 videos.push({ videoId, title, relativeTimeText });

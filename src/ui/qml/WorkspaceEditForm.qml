@@ -56,6 +56,14 @@ ColumnLayout {
             value: workspaceData.trimStart || 0
             editable: true; Layout.fillWidth: true
             onValueModified: workspaceModel.update_field(workspaceId, "trimStart", value, backend)
+            onActiveFocusChanged: {
+                if (!activeFocus) {
+                    var val = valueFromText(contentItem.text, locale)
+                    val = Math.max(from, Math.min(to, val))
+                    value = val
+                    workspaceModel.update_field(workspaceId, "trimStart", val, backend)
+                }
+            }
         }
         Label { text: "→"; color: Theme.text; font.pixelSize: Theme.textSm }
         SpinBox {
@@ -64,6 +72,14 @@ ColumnLayout {
             value: workspaceData.trimEnd || (workspaceData.durationSec || 60)
             editable: true; Layout.fillWidth: true
             onValueModified: workspaceModel.update_field(workspaceId, "trimEnd", value, backend)
+            onActiveFocusChanged: {
+                if (!activeFocus) {
+                    var val = valueFromText(contentItem.text, locale)
+                    val = Math.max(from, Math.min(to, val))
+                    value = val
+                    workspaceModel.update_field(workspaceId, "trimEnd", val, backend)
+                }
+            }
         }
         Label { text: "giây"; color: Theme.textMuted; font.pixelSize: Theme.textXs }
     }

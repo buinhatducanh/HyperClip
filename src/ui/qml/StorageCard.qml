@@ -119,6 +119,14 @@ SettingsCard {
             value: settings ? settings.downloadsCleanupDays : 7
             editable: true
             onValueModified: if (settings) settings.downloadsCleanupDays = value
+            onActiveFocusChanged: {
+                if (!activeFocus) {
+                    var val = valueFromText(contentItem.text, locale)
+                    val = Math.max(from, Math.min(to, val))
+                    value = val
+                    if (settings) settings.downloadsCleanupDays = val
+                }
+            }
         }
     }
  

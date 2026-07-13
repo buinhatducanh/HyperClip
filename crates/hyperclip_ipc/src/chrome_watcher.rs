@@ -6,6 +6,7 @@
 
 use crate::innertube_client::{InnertubeClient, ClientConfig};
 use crate::poller::NewVideoEvent;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
 
@@ -40,6 +41,31 @@ pub struct ChromeTabWatcher {
     was_connected: std::sync::atomic::AtomicBool,
     last_channel_check: Mutex<std::time::Instant>,
     is_checking: Arc<std::sync::atomic::AtomicBool>,
+    /// Cached channel handle → channel_id mappings from open Chrome channel tabs.
+    /// Populated when channel tabs are first detected, used to fill channel_id
+    /// for watch-tab videos without waiting for Innertube lease (saves ~5s).
+    cached_channel_ids: Arc<std::sync::Mutex<HashMap<String, String>>>,
+}
+
+/// Extract YouTube channel_id or handle from a tab URL.
+/// Supports: youtube.com/@handle, youtube.com/@handle/videos,
+///           youtube.com/channel/UCxxx, youtube.com/channel/UCxxx/videos
+/// Returns: (channel_id_or_handle, "handle" | "channel_id")
+fn extract_channel_from_tab_url(url: &str) -> Option<(String, &'static str)> {
+    if url.contains("youtube.com/@") {
+        let after_at = url.split("youtube.com/@").nth(1)?;
+        let handle = after_at.split('/').next()?;
+        if !handle.is_empty() {
+            return Some((handle.to_string(), "handle"));
+        }
+    } else if url.contains("youtube.com/channel/") {
+        let after_channel = url.split("youtube.com/channel/").nth(1)?;
+        let channel_id = after_channel.split('/').next()?;
+        if !channel_id.is_empty() {
+            return Some((channel_id.to_string(), "channel_id"));
+        }
+    }
+    None
 }
 
 impl ChromeTabWatcher {
@@ -69,6 +95,7 @@ impl ChromeTabWatcher {
             was_connected: std::sync::atomic::AtomicBool::new(false),
             last_channel_check: Mutex::new(past_instant),
             is_checking: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            cached_channel_ids: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -122,6 +149,37 @@ impl ChromeTabWatcher {
             }
         };
 
+        // Refresh channel_id cache from open channel tabs (handles + channel_ids).
+        // This lets watch-tab videos inherit the correct channel without waiting
+        // for Innertube lease (saves ~5s on detection → download start).
+        {
+            let ch_path = crate::store::get_channels_path();
+            let ch_store = crate::store::ChannelStore::load(&ch_path);
+            let mut cache = self.cached_channel_ids.lock().unwrap();
+            cache.clear();
+            for tab in &tabs {
+                let url = match tab.url.as_deref() {
+                    Some(u) => u,
+                    None => continue,
+                };
+                if tab.tab_type.as_deref() != Some("page") {
+                    continue;
+                }
+                if let Some((value, kind)) = extract_channel_from_tab_url(url) {
+                    // For handles, find internal channel_id (ch-...) from channel store
+                    // For raw channel_id (UCxxx), use it directly
+                    if kind == "channel_id" {
+                        cache.insert(format!("channel_id:{}", value), value.clone());
+                    } else {
+                        // Look up by handle in channel store to get internal id
+                        if let Some(ch) = ch_store.channels.iter().find(|c| c.handle == value) {
+                            cache.insert(format!("handle:{}", value), ch.id.clone());
+                        }
+                    }
+                }
+            }
+        }
+
         for tab in &tabs {
             if tab.tab_type.as_deref() != Some("page") {
                 continue;
@@ -145,14 +203,31 @@ impl ChromeTabWatcher {
                 let title = tab.title.clone().unwrap_or_default();
                 let now_ms = chrono::Utc::now().timestamp_millis();
 
-                tracing::info!(
-                    "[ChromeWatcher] NEW VIDEO detected from Chrome tab: {} \"{}\"",
-                    video_id,
-                    title
-                );
+                // Try to fill channel_id from cached channel tabs.
+                // Heuristic: if any channel tab is currently active, assign its channel.
+                // (Better than empty channel_id which forces ~5s Innertube lease.)
+                let cached_channel_id = {
+                    let cache = self.cached_channel_ids.lock().unwrap();
+                    cache.values().next().cloned().unwrap_or_default()
+                };
+
+                if !cached_channel_id.is_empty() {
+                    tracing::info!(
+                        "[ChromeWatcher] NEW VIDEO detected from Chrome tab: {} \"{}\" — using cached channel_id {}",
+                        video_id,
+                        title,
+                        cached_channel_id
+                    );
+                } else {
+                    tracing::info!(
+                        "[ChromeWatcher] NEW VIDEO detected from Chrome tab: {} \"{}\"",
+                        video_id,
+                        title
+                    );
+                }
 
                 let event = NewVideoEvent {
-                    channel_id: String::new(), // Unknown from URL alone
+                    channel_id: cached_channel_id,
                     channel_name: String::new(),
                     video_id: video_id.clone(),
                     title,
