@@ -227,6 +227,7 @@ class AppController(QObject):
             d.get("detectedAt", 0),
             d.get("durationSec", 0.0),
             d.get("status", "waiting"),
+            bool(d.get("isStartupCatchup", False)),
         )
         self.sound_service.play("info")
 

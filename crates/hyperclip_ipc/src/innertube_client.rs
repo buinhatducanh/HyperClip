@@ -49,6 +49,9 @@ struct NodeResponse {
     channel_id: Option<String>,
     #[serde(rename = "channelName")]
     channel_name: Option<String>,
+    /// Real publish time (epoch ms) from the player microformat, 0 if unknown.
+    #[serde(rename = "publishedAtMs", default)]
+    published_at_ms: i64,
 }
 
 #[derive(Deserialize)]
@@ -598,7 +601,9 @@ impl InnertubeClient {
     }
 
     /// Resolve channel info for a specific video ID using the persistent daemon.
-    pub async fn get_video_info(&mut self, video_id: &str, cookie: &str) -> Result<(String, String)> {
+    /// Resolve channel id, channel name and the real publish time (epoch ms,
+    /// 0 = unknown) for a video via the daemon's getVideoInfo.
+    pub async fn get_video_info(&mut self, video_id: &str, cookie: &str) -> Result<(String, String, i64)> {
         self.ensure_daemon()?;
 
         let id = self.req_counter.fetch_add(1, Ordering::SeqCst);
@@ -638,7 +643,7 @@ impl InnertubeClient {
                         if r.ok {
                             let cid = r.channel_id.unwrap_or_default();
                             let cname = r.channel_name.unwrap_or_default();
-                            return Ok((cid, cname));
+                            return Ok((cid, cname, r.published_at_ms.max(0)));
                         } else {
                             return Err(HyperclipError::InnertubeTransient(
                                 r.error.unwrap_or_default(),

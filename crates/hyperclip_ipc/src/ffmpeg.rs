@@ -1016,6 +1016,70 @@ fn pre_composite_background(
     Ok(composite_bg_path)
 }
 
+/// Warm the composite-background cache for a workspace ahead of render time.
+///
+/// Replicates the Short-mode asset resolution done in `spawn_render_async`
+/// (canvas sizing, title template, bar color defaults) so the PNG + metadata
+/// sidecar produced here yield a cache HIT when the render actually starts.
+/// Intended to run in a background thread in parallel with the video download —
+/// on the observed RTX 3060 run this generation was a guaranteed cache MISS on
+/// the render critical path.
+pub fn warm_composite_background(
+    workspace_id: &str,
+    resolution: &str,
+    thumbnail_path: &std::path::Path,
+    title: &str,
+    channel_id: &str,
+    channel_name: &str,
+    video_id: &str,
+    bottom_bar_color: Option<&str>,
+) -> Result<PathBuf> {
+    let (mut canvas_w, mut canvas_h) = parse_resolution(resolution);
+    // Short (9:16) needs portrait — swap if landscape was returned
+    if canvas_w > canvas_h {
+        std::mem::swap(&mut canvas_w, &mut canvas_h);
+    }
+    canvas_w = ((canvas_w + 7) / 8) * 8;
+    canvas_h = ((canvas_h + 7) / 8) * 8;
+    let header_h = canvas_h * 3 / 10;
+    let bottom_bar_h = canvas_h * 3 / 10;
+
+    let temp_dir = crate::store::render_temp_dir(channel_id, channel_name);
+
+    let s_path = crate::store::get_settings_path();
+    let s_store = crate::store::SettingsStore::load(&s_path);
+    let mut template = s_store.settings.get("autoRenderTitleTemplate")
+        .or_else(|| s_store.settings.get("auto_render_title_template"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("{title}");
+    if template.is_empty() {
+        template = "{title}";
+    }
+    let workspace_title = if !title.is_empty() { title } else { "PART 1" };
+    let text_title = template
+        .replace("{title}", workspace_title)
+        .replace("{channel}", channel_name)
+        .replace("{video_id}", video_id);
+
+    let color_hex = bottom_bar_color
+        .filter(|s| !s.is_empty())
+        .unwrap_or("#00B4FF");
+
+    pre_composite_background(
+        &get_ffmpeg_path(),
+        &temp_dir,
+        workspace_id,
+        canvas_w,
+        canvas_h,
+        header_h,
+        bottom_bar_h,
+        true,
+        FilterChain::Short,
+        thumbnail_path,
+        &text_title,
+        color_hex,
+    )
+}
 
 pub async fn spawn_render_async<F>(
     opts: RenderOptions,

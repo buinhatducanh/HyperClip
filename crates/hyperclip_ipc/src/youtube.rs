@@ -245,7 +245,65 @@ pub fn get_ytdlp_cache_dir() -> std::path::PathBuf {
     cache_dir
 }
 
+/// Cached NIC detection result. `get_physical_ip` spawns PowerShell (~1-1.5s) —
+/// running it on every download added that cost to the detect→download critical path.
+/// Successful detections are served stale-while-revalidate: after the 5-minute TTL
+/// the cached IP is returned immediately and a background thread refreshes it, so
+/// the critical path never blocks once a value exists (observed: a download after
+/// >5 min idle paid the full PowerShell scan again). Failures are retried after 30s.
+static PHYSICAL_IP_CACHE: std::sync::Mutex<Option<(Option<String>, std::time::Instant)>> =
+    std::sync::Mutex::new(None);
+static PHYSICAL_IP_REFRESHING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 pub fn get_physical_ip() -> Option<String> {
+    const OK_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+    const ERR_TTL: std::time::Duration = std::time::Duration::from_secs(30);
+
+    {
+        let cache = PHYSICAL_IP_CACHE.lock().unwrap();
+        if let Some((ref ip, at)) = *cache {
+            if ip.is_some() {
+                if at.elapsed() >= OK_TTL {
+                    // Stale success: refresh in the background, serve stale now.
+                    spawn_physical_ip_refresh();
+                }
+                return ip.clone();
+            }
+            if at.elapsed() < ERR_TTL {
+                return None;
+            }
+        }
+    }
+
+    let ip = detect_physical_ip_uncached();
+    *PHYSICAL_IP_CACHE.lock().unwrap() = Some((ip.clone(), std::time::Instant::now()));
+    ip
+}
+
+fn spawn_physical_ip_refresh() {
+    use std::sync::atomic::Ordering;
+    if PHYSICAL_IP_REFRESHING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+        let spawned = std::thread::Builder::new()
+            .name("physical-ip-refresh".into())
+            .spawn(|| {
+                let ip = detect_physical_ip_uncached();
+                // Keep the previous good IP if the refresh fails (e.g. transient
+                // PowerShell error) — a stale IP is better than dropping the bind.
+                let mut cache = PHYSICAL_IP_CACHE.lock().unwrap();
+                match (&ip, &*cache) {
+                    (None, Some((Some(_), _))) => {}
+                    _ => *cache = Some((ip, std::time::Instant::now())),
+                }
+                PHYSICAL_IP_REFRESHING.store(false, Ordering::SeqCst);
+            });
+        if spawned.is_err() {
+            PHYSICAL_IP_REFRESHING.store(false, Ordering::SeqCst);
+        }
+    }
+}
+
+fn detect_physical_ip_uncached() -> Option<String> {
     #[cfg(target_os = "windows")]
     {
         // VPN / virtual NIC patterns in BOTH InterfaceAlias AND InterfaceDescription.

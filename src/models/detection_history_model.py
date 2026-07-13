@@ -31,6 +31,12 @@ class DetectionHistoryModel(QAbstractListModel):
     AgeAtDetectionRole = Qt.UserRole + 18
     PublishedDateStrRole = Qt.UserRole + 19
     DetectedDateStrRole = Qt.UserRole + 20
+    LatencySourceRole = Qt.UserRole + 21
+
+    # App-side worst-case detection is ~3s by spec (docs/DETECTION_LATENCY.md);
+    # anything above this threshold means YouTube surfaced the video late on
+    # Innertube — the extra time is not the app's doing.
+    YOUTUBE_DELAY_THRESHOLD_MS = 8000
 
     def __init__(self, parent=None, max_entries: int = 50, backend=None):
         super().__init__(parent)
@@ -86,6 +92,32 @@ class DetectionHistoryModel(QAbstractListModel):
         if parent.isValid():
             return 0
         return len(self._entries)
+
+    def _entry_latency_ms(self, e: dict) -> int:
+        pub_ms = int(e.get("publishedAt", 0))
+        if 0 < pub_ms < 5000000000:
+            pub_ms *= 1000
+        if pub_ms <= 86400 * 1000:
+            return 0
+        det_ms = int(e.get("detectedAt", 0))
+        if 0 < det_ms < 5000000000:
+            det_ms *= 1000
+        return max(0, det_ms - pub_ms)
+
+    def _entry_latency_source(self, e: dict) -> str:
+        """Classify where the publish→detect latency came from.
+
+        catchup — published before this app session started (app was off /
+                  starting up): real-time detection was impossible.
+        youtube — app was running but YouTube surfaced the video late on
+                  Innertube (evidence: channel polled every ~3s without it).
+        app     — normal detection, latency is the app's own cycle.
+        """
+        if e.get("isCatchup"):
+            return "catchup"
+        if self._entry_latency_ms(e) > self.YOUTUBE_DELAY_THRESHOLD_MS:
+            return "youtube"
+        return "app"
 
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid() or index.row() >= len(self._entries):
@@ -213,6 +245,8 @@ class DetectionHistoryModel(QAbstractListModel):
             detected_sec = det_ms // 1000
             lt = time.localtime(detected_sec)
             return f"{lt.tm_mday:02d}/{lt.tm_mon:02d}/{lt.tm_year}"
+        if role == self.LatencySourceRole:
+            return self._entry_latency_source(e)
         return None
 
     def roleNames(self):
@@ -237,11 +271,14 @@ class DetectionHistoryModel(QAbstractListModel):
             self.AgeAtDetectionRole: QByteArray(b"ageAtDetection"),
             self.PublishedDateStrRole: QByteArray(b"publishedDateStr"),
             self.DetectedDateStrRole: QByteArray(b"detectedDateStr"),
+            self.LatencySourceRole: QByteArray(b"latencySource"),
         }
 
     @Slot(str, str, str, str, int, int, float, str)
+    @Slot(str, str, str, str, int, int, float, str, bool)
     def add_detection(self, ws_id: str, video_id: str, title: str, channel_name: str,
-                      published_at: int, detected_at: int, duration_sec: float, status: str):
+                      published_at: int, detected_at: int, duration_sec: float, status: str,
+                      is_catchup: bool = False):
         if published_at <= 86400 * 1000:
             latency = 0
         else:
@@ -264,6 +301,7 @@ class DetectionHistoryModel(QAbstractListModel):
             "latencyMs": max(0, latency),
             "durationSec": duration_sec,
             "status": status,
+            "isCatchup": is_catchup,
         }
 
         self.beginInsertRows(QModelIndex(), 0, 0)
@@ -347,23 +385,29 @@ class DetectionHistoryModel(QAbstractListModel):
 
     @Property(float, notify=changed)
     def averageLatencyMs(self):
-        if not self._entries:
+        # Catch-up detections (published while the app was off) are excluded:
+        # their latency measures downtime, not detection performance.
+        measured = [e for e in self._entries if not e.get("isCatchup")]
+        if not measured:
             return 0.0
-        total = sum(max(0, e.get("latencyMs", 0)) for e in self._entries)
-        return total / len(self._entries)
+        total = sum(max(0, e.get("latencyMs", 0)) for e in measured)
+        return total / len(measured)
 
     @Property(float, notify=changed)
     def slaPercent(self):
-        """Percentage of detections under 5 seconds."""
-        if not self._entries:
+        """Percentage of detections under 5 seconds (catch-up entries excluded)."""
+        measured = [e for e in self._entries if not e.get("isCatchup")]
+        if not measured:
             return 100.0
-        under_5s = sum(1 for e in self._entries if 0 < e.get("latencyMs", 0) < 5000)
-        return (under_5s / len(self._entries)) * 100.0
+        under_5s = sum(1 for e in measured if 0 < e.get("latencyMs", 0) < 5000)
+        return (under_5s / len(measured)) * 100.0
 
     @Property(str, notify=changed)
     def latestLatencyStr(self):
         if not self._entries:
             return "—"
+        if self._entries[0].get("isCatchup"):
+            return "bù"
         lat = self._entries[0].get("latencyMs", 0)
         if lat < 1000:
             return f"~{lat}ms"

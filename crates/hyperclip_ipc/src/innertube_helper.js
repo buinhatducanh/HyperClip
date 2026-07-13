@@ -73,7 +73,22 @@ function isRelativeTimeText(text) {
 function parseRelativeTime(text) {
   if (!text) return 0;
   const cleanText = text.replace(/\u00a0/g, ' ').trim().toLowerCase();
-  
+
+  // UPCOMING premieres/scheduled streams: "Premieres in 5 minutes", "5\ubd84 \ud6c4 \ucd5c\ucd08 \uacf5\uac1c",
+  // "C\u00f4ng chi\u1ebfu sau 5 ph\u00fat", "7/13 21:00 \u306b\u30d7\u30ec\u30df\u30a2\u516c\u958b" \u2014 future times must NOT be
+  // parsed as "X ago" (the digit branch below would return now-5min and the video
+  // would pass the age filter, then loop on yt-dlp "Premieres in..." failures).
+  // Return 0 = unknown publish time \u2192 Rust age filter skips it until it goes live.
+  // Past forms ("Premiered 3 hours ago", "\u0110\u00e3 c\u00f4ng chi\u1ebfu 3 gi\u1edd tr\u01b0\u1edbc", "3\uc2dc\uac04 \uc804\uc5d0
+  // \ucd5c\ucd08 \uacf5\uac1c") contain a past marker and fall through to normal parsing.
+  if (/\d/.test(cleanText)) {
+    const hasPastMarker = ['ago', 'tr\u01b0\u1edbc', '\u524d', '\uc804'].some(m => cleanText.includes(m));
+    const upcomingMarkers = ['premiere', 'scheduled', '\ucd5c\ucd08 \uacf5\uac1c', '\uacf5\uac1c \uc608\uc815', '\u30d7\u30ec\u30df\u30a2\u516c\u958b', '\u516c\u958b\u4e88\u5b9a', 'c\u00f4ng chi\u1ebfu', 'estreno', 'premi\u00e8re'];
+    if (!hasPastMarker && upcomingMarkers.some(m => cleanText.includes(m))) {
+      return 0;
+    }
+  }
+
   // Split by common delimiters to isolate the relative time part
   const parts = cleanText.split(/[\u2022\u00b7\u2023\u2043|•·-]/);
   let timePart = cleanText;
@@ -856,18 +871,30 @@ function runDaemon(initialCookie) {
           continue;
         }
 
-        // Handle getVideoInfo command - resolve channel ID and name for a video
+        // Handle getVideoInfo command - resolve channel ID, name and real publish
+        // time for a video. publishedAtMs comes from the player microformat's
+        // publishDate, which carries a full ISO timestamp — the only per-second
+        // publish time available (LockupView/tab text is minute-granular at best).
         if (req.cmd === 'getVideoInfo') {
           const videoId = req.videoId;
           ensureClient(req.cookie || currentCookie).then(async (client) => {
             try {
               const info = await client.getInfo(videoId);
+              const toMs = (v) => {
+                if (!v) return 0;
+                if (v instanceof Date) { const t = v.getTime(); return isNaN(t) ? 0 : t; }
+                const t = Date.parse(String(v));
+                return isNaN(t) ? 0 : t;
+              };
+              const mf = info.microformat || {};
+              const publishedAtMs = toMs(mf.publish_date) || toMs(mf.publishDate) || 0;
               writeResponse({
                 id: req.id || 0,
                 ok: true,
                 cmd: 'getVideoInfo',
                 channelId: info.basic_info.channel_id || '',
                 channelName: info.basic_info.author || '',
+                publishedAtMs: publishedAtMs,
               });
             } catch (e) {
               writeResponse({ id: req.id || 0, ok: false, cmd: 'getVideoInfo', error: e.message });

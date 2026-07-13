@@ -107,17 +107,19 @@ impl AppState {
             };
             let pool = Arc::new(InnertubeClientPool::initialize(pool_config).unwrap());
             
-            // Load startup active daemon limit from settings.json (default to 8)
+            // Load startup active daemon limit from settings.json.
+            // Default is hardware-aware: max_sessions (14 on RTX 30/50 desktops,
+            // 6 on weak laptops). Innertube daemons are network-bound Node
+            // processes — the old default coupled them to max_workers (a RENDER
+            // worker count, 4 on RTX 3060) which serialized channel polling into
+            // waves and pushed detection latency past 3s.
             let s_path = get_settings_path();
             let s_store = SettingsStore::load(&s_path);
-            let daemon_limit = s_store.settings.get("daemonLimit").and_then(|v| v.as_u64()).unwrap_or(8) as usize;
-            
-            // If gpu_config says we only support 4 workers, don't exceed that if settings are default
-            let final_daemon_limit = if s_store.settings.get("daemonLimit").is_none() {
-                daemon_limit.min(gpu_config.max_workers as usize)
-            } else {
-                daemon_limit
-            };
+            let final_daemon_limit = s_store.settings.get("daemonLimit")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize)
+                .unwrap_or(gpu_config.max_sessions as usize)
+                .max(1);
             pool.max_active_clients.store(final_daemon_limit, std::sync::atomic::Ordering::SeqCst);
 
             pool.set_refresh_callback(move |idx| {
@@ -185,6 +187,18 @@ impl AppState {
             let processing_video_ids_clone = processing_video_ids.clone();
             let pool_clone = pool.clone();
             let process_fn = move |event: NewVideoEvent| {
+                // Premiere backoff: an upcoming premiere gets re-detected every poll
+                // (it was unmarked from seen on failure) — skip it until its start time.
+                {
+                    let mut backoff = premiere_backoff_store().lock().unwrap();
+                    if let Some(&retry_at) = backoff.get(&event.video_id) {
+                        if chrono::Utc::now().timestamp_millis() < retry_at {
+                            return;
+                        }
+                        backoff.remove(&event.video_id);
+                    }
+                }
+
                 // Thread-safe lock to prevent concurrent ingestion of the exact same video ID
                 {
                     let mut guard = processing_video_ids_clone.lock().unwrap();
@@ -214,9 +228,13 @@ impl AppState {
                     let mut event = event;
                     let mut is_matched = false;
 
-                    // If channel_id is empty (from a normal watch tab), try to resolve it via Innertube daemon first
-                    if event.channel_id.is_empty() {
-                        tracing::info!("[AppState] Resolving channel info for watch tab video {} via Innertube...", event.video_id);
+                    // Resolve via Innertube daemon when the channel is unknown (normal watch
+                    // tab) OR the publish time is unknown (ChromeWatcher events carry
+                    // published_at = 0) — the ~0.3-0.5s lookup buys an accurate latency
+                    // badge and is still far ahead of the poller's next cycle.
+                    if event.channel_id.is_empty() || event.published_at <= 1 {
+                        tracing::info!("[AppState] Resolving video info for {} via Innertube (channel_known={}, publish_known={})...",
+                            event.video_id, !event.channel_id.is_empty(), event.published_at > 1);
                         let mut resolved_via_innertube = false;
 
                         // Try to lease a client to call get_video_info
@@ -241,13 +259,20 @@ impl AppState {
 
                         if let (Some(idx), Some(mut cc)) = (session_idx_opt, leased_client) {
                             match cc.client.get_video_info(&event.video_id, &cc.cookie).await {
-                                Ok((cid, cname)) => {
+                                Ok((cid, cname, published_ms)) => {
                                     if !cid.is_empty() {
                                         event.channel_id = cid;
                                         event.channel_name = cname;
                                         resolved_via_innertube = true;
-                                        tracing::info!("[AppState] Innertube resolved watch video {} to channel_id: {}, channel_name: {}", 
+                                        tracing::info!("[AppState] Innertube resolved watch video {} to channel_id: {}, channel_name: {}",
                                             event.video_id, event.channel_id, event.channel_name);
+                                    }
+                                    // Backfill the real publish time for ChromeWatcher events
+                                    // (they arrive with published_at = 0) so the latency badge
+                                    // reflects reality instead of showing "—" or a fake ~0s.
+                                    if event.published_at <= 1 && published_ms > 0 {
+                                        event.published_at = published_ms;
+                                        tracing::info!("[AppState] Resolved real publish time for {}: {}", event.video_id, published_ms);
                                     }
                                 }
                                 Err(e) => {
@@ -257,8 +282,10 @@ impl AppState {
                             pool_clone.return_client(idx, cc.client);
                         }
 
-                        // Fall back to yt-dlp if Innertube resolution failed
-                        if !resolved_via_innertube {
+                        // Fall back to yt-dlp only when the CHANNEL is still unknown —
+                        // it exists to resolve channel info; a missing publish time
+                        // alone is not worth a 2-4s yt-dlp spawn.
+                        if !resolved_via_innertube && event.channel_id.is_empty() {
                             tracing::info!("[AppState] Falling back to yt-dlp to resolve channel info for video: {}", event.video_id);
                             let url = format!("https://youtube.com/watch?v={}", event.video_id);
                             let cookies_path = get_cookies_netscape_path();
@@ -405,11 +432,30 @@ impl AppState {
                     let adjusted_latency = (latency - 2000).max(100);
                     let adjusted_detected_at = if is_fallback_publish { event.detected_at } else { event.published_at + adjusted_latency };
 
-                    let is_startup_catchup = chrono::Utc::now().timestamp_millis() - AppState::get_or_init().startup_time_ms < 60_000;
+                    // Catch-up detection: either we are inside the startup window, or the
+                    // video was published BEFORE this app session started — real-time
+                    // detection was impossible, so its publish→detect latency must not be
+                    // shown as an app failure or counted into the SLA. (Observed: a video
+                    // published while the app was off for a patch install was detected 66s
+                    // after boot — past the old 60s-only window — and showed a red "14.0p".)
+                    let startup_ms = AppState::get_or_init().startup_time_ms;
+                    let is_startup_catchup = chrono::Utc::now().timestamp_millis() - startup_ms < 60_000
+                        || (event.published_at > 86_400 * 1000 && event.published_at < startup_ms);
+
+                    // Workspaces are created as "waiting" (= queued): downloads run through
+                    // a sequential FIFO queue, so status flips to "downloading" only when
+                    // the download worker permit is acquired — the UI must not show a video
+                    // as downloading while it is actually waiting behind another one.
+                    let auto_download = s_store.settings
+                        .get("autoDownloadEnabled")
+                        .or_else(|| s_store.settings.get("auto_download_enabled"))
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(true);
+                    let initial_status = "waiting";
 
                     ws_store.add(hyperclip_ipc::store::Workspace {
                         id: ws_id.clone(),
-                        status: "waiting".to_string(),
+                        status: initial_status.to_string(),
                         video_id: event.video_id.clone(),
                         channel_id: event.channel_id.clone(),
                         channel_name: Some(event.channel_name.clone()),
@@ -418,7 +464,7 @@ impl AppState {
                         published_at: event.published_at,
                         auto_render,
                         fps_target: auto_fps,
-                        export_resolution: auto_res,
+                        export_resolution: auto_res.clone(),
                         video_speed: auto_speed,
                         is_short: true,
                         duration_sec: Some(event.duration_sec.round() as u64),
@@ -453,25 +499,45 @@ impl AppState {
                             "publishedAt": event.published_at,
                             "durationSec": event.duration_sec,
                             "detectedAt": adjusted_detected_at,
-                            "status": "waiting",
+                            "status": initial_status,
                             "isStartupCatchup": is_startup_catchup,
                         }
                     });
                     hyperclip_ipc::emit_raw(&serde_json::to_string(&event_json).unwrap_or_default());
 
-                    // 3. Load settings to check auto-download
-                    let s_path = get_settings_path();
-                    let s_store = SettingsStore::load(&s_path);
-                    let auto_download = s_store.settings
-                        .get("autoDownloadEnabled")
-                        .or_else(|| s_store.settings.get("auto_download_enabled"))
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(true);
-
                     if !auto_download {
                         tracing::debug!("[AppState] Auto-download disabled — workspace {} created but not downloading", ws_id);
                         processing_video_ids_clone.lock().unwrap().remove(&event.video_id);
                         return;
+                    }
+
+                    // 3. Warm render assets in parallel with the download: fetch the
+                    // YouTube thumbnail now (it used to be downloaded synchronously
+                    // AFTER the video finished) and pre-generate the composite
+                    // background so the render-time cache check HITs instead of
+                    // always MISSing on freshly created workspaces.
+                    if auto_render {
+                        let warm_ws_id = ws_id.clone();
+                        let warm_video_id = event.video_id.clone();
+                        let warm_cid = event.channel_id.clone();
+                        let warm_ch_name = event.channel_name.clone();
+                        let warm_title = event.title.clone();
+                        let warm_res = auto_res.clone();
+                        std::thread::spawn(move || {
+                            let thumb_path = get_thumbnail_path(&warm_cid, &warm_ch_name, &warm_video_id);
+                            if !thumb_path.exists() {
+                                let _ = download_youtube_thumbnail_to(&warm_video_id, &thumb_path);
+                            }
+                            if thumb_path.exists() {
+                                match hyperclip_ipc::ffmpeg::warm_composite_background(
+                                    &warm_ws_id, &warm_res, &thumb_path, &warm_title,
+                                    &warm_cid, &warm_ch_name, &warm_video_id, None,
+                                ) {
+                                    Ok(_) => tracing::info!("[AppState] Composite background pre-warmed for {}", warm_ws_id),
+                                    Err(e) => tracing::warn!("[AppState] Composite background pre-warm failed for {}: {:?}", warm_ws_id, e),
+                                }
+                            }
+                        });
                     }
 
                     // 4. Spawn download thread
@@ -490,24 +556,6 @@ impl AppState {
                         .or_else(|| s_store.settings.get("default_trim_limit_minutes").and_then(|v| v.as_u64()))
                         .unwrap_or(10) as u32;
 
-                    // Update workspace store with status
-                    // (downloadStartedAt is set inside the download thread right
-                    // before yt-dlp spawns, so the duration reflects actual
-                    // network time — not detection+resolution overhead.)
-                    let ws_path = get_workspaces_path();
-                    let mut ws_store = WorkspaceStore::load(&ws_path);
-                    ws_store.update(&tid, serde_json::json!({
-                        "status": "downloading",
-                    })).ok();
-                    ws_store.save(&ws_path).ok();
-
-                    // Emit downloading status (without downloadStartedAt)
-                    let dl_event = serde_json::json!({
-                        "method": "workspace:update",
-                        "params": {"id": tid, "status": "downloading"}
-                    });
-                    hyperclip_ipc::emit_raw(&serde_json::to_string(&dl_event).unwrap_or_default());
-
                     // Read quality from settings
                     let auto_dl_quality = parse_quality(s_store.settings.get("autoDownloadQuality"))
                         .or_else(|| parse_quality(s_store.settings.get("defaultQuality")))
@@ -522,23 +570,41 @@ impl AppState {
                     let video_id2 = event.video_id.clone();
                     let seen_videos_clone3 = seen_videos_clone.clone();
                     std::thread::spawn(move || {
-                        // Set downloadStartedAt NOW — right before yt-dlp spawns,
-                        // so the duration in UI reflects actual download time only,
-                        // not detection + Innertube resolution overhead.
-                        {
-                            let ws_path = get_workspaces_path();
-                            let mut ws_store = WorkspaceStore::load(&ws_path);
-                            let dl_start_ms = chrono::Utc::now().timestamp_millis();
-                            ws_store.update(&tid, serde_json::json!({
-                                "downloadStartedAt": dl_start_ms,
-                            })).ok();
-                            ws_store.save(&ws_path).ok();
-                        }
-
+                        let queued_at_ms = chrono::Utc::now().timestamp_millis();
                         let pool = get_download_worker_pool();
                         let download_res = tokio::runtime::Runtime::new()
                             .map(|rt| rt.block_on(async {
+                                // Sequential FIFO queue: tokio's Semaphore hands out permits
+                                // in arrival order, so the first-detected video downloads
+                                // first at full bandwidth (parallel downloads split the
+                                // uplink ~1/N each — observed 3×~1.2MB/s vs ~2.6MB/s solo).
                                 let _permit = pool.acquire().await;
+
+                                // Download ACTUALLY starts now. downloadStartedAt is set
+                                // here — after the queue wait — so downloadDurationSec and
+                                // e2e reflect network time only. The wait is recorded
+                                // separately as queueWaitSec for the UI.
+                                let dl_start_ms = chrono::Utc::now().timestamp_millis();
+                                let queue_wait_sec = ((dl_start_ms - queued_at_ms).max(0) as f64) / 1000.0;
+                                if queue_wait_sec >= 1.0 {
+                                    tracing::info!("[AppState] {} waited {:.1}s in download queue", tid, queue_wait_sec);
+                                }
+                                {
+                                    let ws_path = get_workspaces_path();
+                                    let mut ws_store = WorkspaceStore::load(&ws_path);
+                                    ws_store.update(&tid, serde_json::json!({
+                                        "status": "downloading",
+                                        "downloadStartedAt": dl_start_ms,
+                                        "queueWaitSec": queue_wait_sec,
+                                    })).ok();
+                                    ws_store.save(&ws_path).ok();
+                                }
+                                let dl_event = serde_json::json!({
+                                    "method": "workspace:update",
+                                    "params": {"id": tid, "status": "downloading", "queueWaitSec": queue_wait_sec}
+                                });
+                                hyperclip_ipc::emit_raw(&serde_json::to_string(&dl_event).unwrap_or_default());
+
                                 download_video_streaming(&url, &output_str, &cookies_str, trim_minutes, duration_sec_opt, auto_dl_quality, hw_cfg.concurrent_fragments, |progress| {
                                     emit_download_progress(&tid, &progress);
                                 })
@@ -621,9 +687,14 @@ impl AppState {
                                     return;
                                 }
 
-                                // Download thumbnail to per-channel dir
+                                // Thumbnail is normally fetched in parallel with the download
+                                // (asset warm-up thread). Only fetch here if that didn't happen —
+                                // re-downloading would bump the file mtime and invalidate the
+                                // pre-warmed composite background cache.
                                 let thumb_path = get_thumbnail_path(&cid, &ch_name, &video_id);
-                                let _ = download_youtube_thumbnail_to(&video_id, &thumb_path);
+                                if !thumb_path.exists() {
+                                    let _ = download_youtube_thumbnail_to(&video_id, &thumb_path);
+                                }
                                 let thumb_str = if thumb_path.exists() { Some(thumb_path.to_string_lossy().to_string()) } else { None };
 
                                 // Update workspace store
@@ -831,8 +902,14 @@ impl AppState {
                                 let is_premiere = err_lower.contains("premiere") || err_lower.contains("scheduled");
 
                                 if is_premiere {
-                                    tracing::info!("[AppState] Video {} is a premiere/upcoming. Removing from seen_videos and deleting workspace to retry later.", video_id2);
-                                    
+                                    // Backoff until the premiere actually starts (+30s buffer,
+                                    // default 2 min when yt-dlp didn't say how long) so the
+                                    // re-detection loop doesn't spin every poll cycle.
+                                    let delay_ms = parse_premiere_delay_ms(&err_lower).unwrap_or(120_000);
+                                    let retry_at = chrono::Utc::now().timestamp_millis() + delay_ms + 30_000;
+                                    premiere_backoff_store().lock().unwrap().insert(video_id2.clone(), retry_at);
+                                    tracing::info!("[AppState] Video {} is a premiere/upcoming. Backing off {:.0}s, removing from seen_videos and deleting workspace to retry later.", video_id2, (delay_ms + 30_000) as f64 / 1000.0);
+
                                     // Remove from seen_videos
                                     if let Ok(rt) = tokio::runtime::Runtime::new() {
                                         rt.block_on(async {
@@ -903,10 +980,12 @@ impl AppState {
             // Enforce sane minimum: 10 minutes (600s) so accidental small values
             // don't silently skip almost every new upload.
             let max_age_minutes = if max_age_minutes_raw < 10 { 1440 } else { max_age_minutes_raw };
+            // Default 2000ms: with full-parallel dispatch (sweep ~0.4-0.7s) this
+            // keeps worst-case detection latency under 3s (see docs/DETECTION_LATENCY.md).
             let poll_interval_ms = s_store.settings
                 .get("pollIntervalMs")
                 .and_then(|v| v.as_u64())
-                .unwrap_or(5000) as u64;
+                .unwrap_or(2000) as u64;
             let min_duration_sec = s_store.settings
                 .get("videoMinDurationSec")
                 .and_then(|v| v.as_u64())
@@ -934,6 +1013,16 @@ impl AppState {
                 poller_process_fn,
                 active_renders.clone(),
             ));
+
+            // Poll-concurrency ceiling while renders are active. Weak GPUs need 2
+            // to protect NVENC FPS (27 parallel HTTP calls dropped encode 1341→791
+            // fps on RTX 3060); High-tier machines (RTX 5080, 16 workers) keep
+            // full-speed detection during renders.
+            let render_poll_cap = match gpu_config.tier {
+                hyperclip_ipc::system::GPUTier::High => 8,
+                _ => 2,
+            };
+            poller.set_render_poll_cap(render_poll_cap);
 
             let chrome_watcher = Arc::new(ChromeTabWatcher::new(
                 None, // default port (9222)
@@ -1169,7 +1258,7 @@ impl AppState {
         let poll_interval_ms = s_store.settings
             .get("pollIntervalMs")
             .and_then(|v| v.as_u64())
-            .unwrap_or(5000) as u64;
+            .unwrap_or(2000) as u64;
         let max_age_minutes_raw = s_store.settings
             .get("autoDownloadMaxAgeMinutes")
             .and_then(|v| v.as_u64())
@@ -1348,6 +1437,32 @@ fn detection_events_store() -> &'static Mutex<VecDeque<DetectionEvent>> {
     STORE.get_or_init(|| Mutex::new(VecDeque::new()))
 }
 
+/// Upcoming premieres that failed download: video_id → epoch ms when retry is allowed.
+/// A premiere failure unmarks the video from seen_videos so it can be retried — but
+/// without a backoff the next poll (~2.5s) re-detects it and the whole
+/// detect→workspace→yt-dlp→fail→delete cycle loops until the premiere goes live,
+/// churning the UI and hogging the sequential download queue.
+fn premiere_backoff_store() -> &'static Mutex<HashMap<String, i64>> {
+    static STORE: OnceLock<Mutex<HashMap<String, i64>>> = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Parse the wait from a yt-dlp premiere error, e.g. "Premieres in 5 minutes" /
+/// "This live event will begin in 2 hours". Returns milliseconds.
+fn parse_premiere_delay_ms(err_lower: &str) -> Option<i64> {
+    let idx = err_lower.find(" in ")?;
+    let rest = &err_lower[idx + 4..];
+    let mut tokens = rest.split_whitespace();
+    let val: i64 = tokens.next()?.parse().ok()?;
+    let unit = tokens.next()?;
+    let ms = if unit.starts_with("second") { val * 1000 }
+        else if unit.starts_with("minute") { val * 60_000 }
+        else if unit.starts_with("hour") { val * 3_600_000 }
+        else if unit.starts_with("day") { val * 86_400_000 }
+        else { return None; };
+    Some(ms)
+}
+
 /// Eagerly init POLLER_RT and AppState at startup.
 pub fn init_poller_runtime() {
     POLLER_RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
@@ -1404,13 +1519,64 @@ pub fn init_appstate() {
                 Err(_) => false,
             };
             if profile_1_ok {
-                tracing::info!("[cookie-preload] Profile 1 has valid cookies — skipping Chrome launch (not needed)");
+                tracing::info!("[cookie-preload] Profile 1 has valid cookies — no login prompt needed");
+                // ChromeWatcher still needs a running Chrome (CDP 9222) with the
+                // channel tabs open — skipping the launch here starved the second
+                // detection source for entire sessions (RTX 3060 logs showed only
+                // "Started" from the watcher, while the RTX 5080 — which had tabs
+                // open — caught every new video through them, including videos
+                // that Innertube surfaced 10+ minutes late).
+                // launch_chrome_profile_async handles the already-running case
+                // (ensures tabs via CDP) and ensure_chrome_tabs_open waits out
+                // startup + active renders before touching the GPU.
+                //
+                // Default is tier-aware: on a Mid-tier RTX 3060 the 28 auto-opened
+                // tabs halved NVENC render speed (54x → 24.7x) and slowed downloads
+                // 2.4x (log 17-07-29) — steady-state Chrome contention, not just the
+                // opening burst that ensure_chrome_tabs_open already guards against.
+                // High-tier machines (RTX 5080, 16 workers) run 30+ tabs unharmed.
+                let s_path = get_settings_path();
+                let s_store = SettingsStore::load(&s_path);
+                let tier_default = matches!(
+                    hyperclip_ipc::system::get_gpu_config().tier,
+                    hyperclip_ipc::system::GPUTier::High
+                );
+                let auto_tabs = s_store.settings.get("chromeAutoOpenTabs")
+                    .or_else(|| s_store.settings.get("chrome_auto_open_tabs"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(tier_default);
+                if auto_tabs {
+                    tracing::info!("[cookie-preload] Ensuring Chrome + channel tabs for ChromeWatcher");
+                    launch_chrome_profile_async("HyperClip-Profile-1");
+                } else {
+                    tracing::info!("[cookie-preload] chromeAutoOpenTabs off (tier default or setting) — ChromeWatcher inactive unless Chrome is opened manually. Set chromeAutoOpenTabs=true + chromeTabLimit for priority channels on weaker GPUs.");
+                }
             } else {
                 tracing::warn!("[cookie-preload] Profile 1 has no valid cookies — launching Chrome to prompt login");
                 launch_chrome_profile_async("HyperClip-Profile-1");
             }
         })
         .expect("Failed to spawn cookie-preload thread");
+
+    // Warm the physical-IP cache off the critical path when VPN bypass is on —
+    // the PowerShell NIC scan takes ~1-1.5s and used to run inline on every
+    // download, delaying the first yt-dlp spawn after detection.
+    let s_path = get_settings_path();
+    let s_store = SettingsStore::load(&s_path);
+    let bypass_vpn = s_store.settings.get("bypassVpn")
+        .or_else(|| s_store.settings.get("bypass_vpn"))
+        .or_else(|| s_store.settings.get("directRouteIp"))
+        .or_else(|| s_store.settings.get("direct_route_ip"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if bypass_vpn {
+        std::thread::Builder::new()
+            .name("physical-ip-warm".into())
+            .spawn(|| {
+                let _ = hyperclip_ipc::youtube::get_physical_ip();
+            })
+            .ok();
+    }
 }
 
 fn cleanup_stuck_workspaces() {
@@ -2061,6 +2227,22 @@ fn launch_chrome_profile_async(profile_id: &str) {
                     }
                 }
             }
+        }
+
+        // Cap the number of channel tabs — each open YouTube tab costs CPU/GPU/RAM
+        // that competes with NVENC and yt-dlp on weaker machines. chromeTabLimit
+        // counts CHANNEL tabs (the youtube.com home tab at index 0 is kept).
+        // 0/unset = unlimited (High tier); Mid/Low machines that enable tabs should
+        // set a small limit and put priority channels first in the channel list.
+        let s_path = get_settings_path();
+        let s_store = SettingsStore::load(&s_path);
+        let tab_limit = s_store.settings.get("chromeTabLimit")
+            .or_else(|| s_store.settings.get("chrome_tab_limit"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as usize;
+        if tab_limit > 0 && urls.len() > tab_limit + 1 {
+            tracing::info!("[Chrome] chromeTabLimit={} — opening {} of {} channel tabs", tab_limit, tab_limit, urls.len() - 1);
+            urls.truncate(tab_limit + 1);
         }
     }
 
@@ -3203,9 +3385,16 @@ pub fn get_resolved_hardware_config() -> ResolvedHardwareConfig {
         render_workers = user_val as usize;
     }
     if let Some(user_val) = s_store.settings.get("maxConcurrentDownloads").and_then(|v| v.as_u64()) {
-        download_instances = user_val as usize;
+        download_instances = (user_val as usize).max(1);
+    } else {
+        // Sequential FIFO by default: downloads share one uplink, so N parallel
+        // downloads run at ~1/N speed each (observed 3×~1.2MB/s vs ~2.6MB/s solo)
+        // and EVERY video finishes later than the first would sequentially.
+        // The client wants first-detected = first-optimized. Hardware profiles
+        // above only cap this value; the effective default is 1.
+        download_instances = 1;
     }
-    
+
     ResolvedHardwareConfig {
         render_workers,
         chunk_workers,

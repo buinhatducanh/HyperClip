@@ -152,13 +152,23 @@ SettingsCard {
                         color: Theme.textMuted; font.pixelSize: 14
                         font.family: "monospace"; Layout.preferredWidth: 60
                     }
-                    // Age at detection
+                    // Age at detection — colored by WHO caused the latency:
+                    // catchup (app was off when published) and YouTube-side
+                    // surfacing delays are not app failures, so they must not
+                    // show as red.
                     Label {
-                        text: model.ageAtDetection || "—"
-                        color: (model.latencyMs > 0 && model.latencyMs < 5000) ? Theme.success
+                        text: {
+                            const age = model.ageAtDetection || "—"
+                            if (model.latencySource === "catchup") return age + " bù"
+                            if (model.latencySource === "youtube") return age + " YT"
+                            return age
+                        }
+                        color: model.latencySource === "catchup" ? Theme.textMuted
+                             : model.latencySource === "youtube" ? "#4FC3F7"
+                             : (model.latencyMs > 0 && model.latencyMs < 5000) ? Theme.success
                              : (model.latencyMs < 10000) ? "#FFD93D" : Theme.error
                         font.pixelSize: 14; font.bold: true
-                        Layout.preferredWidth: 45
+                        Layout.preferredWidth: 62
                     }
                     // Status badge
                     Label {

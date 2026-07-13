@@ -232,7 +232,11 @@ impl ChromeTabWatcher {
                     video_id: video_id.clone(),
                     title,
                     thumbnail_url: format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", video_id),
-                    published_at: now_ms, // Use detection time as published_at
+                    // 0 = unknown. The old value (detection time) made the UI latency
+                    // badge always show ~0s regardless of the real publish time —
+                    // process_fn backfills the real timestamp via Innertube when it
+                    // resolves the video, and the UI shows "—" instead of a fake number.
+                    published_at: 0,
                     duration_sec: 0.0,     // Unknown from URL alone
                     detected_at: now_ms,
                 };
@@ -407,7 +411,10 @@ impl ChromeTabWatcher {
                                         video_id: v.video_id.clone(),
                                         title: v.title.clone(),
                                         thumbnail_url: format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", v.video_id),
-                                        published_at: if v.published_at <= 1 { now_ms } else { v.published_at },
+                                        // Keep 0 when the tab DOM had no parseable publish time —
+                                        // substituting detection time made every latency badge on
+                                        // tab-detected videos show ~0s regardless of reality.
+                                        published_at: if v.published_at <= 1 { 0 } else { v.published_at },
                                         duration_sec: 0.0,
                                         detected_at: now_ms,
                                     };

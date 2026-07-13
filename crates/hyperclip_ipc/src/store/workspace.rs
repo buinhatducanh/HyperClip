@@ -70,6 +70,11 @@ pub struct Workspace {
     pub render_codec: Option<String>,
     #[serde(rename = "renderDurationSec")]
     pub render_duration_sec: Option<f64>,
+    /// Seconds spent waiting in the sequential download queue (FIFO) before
+    /// yt-dlp actually started. Excluded from downloadDurationSec/e2e — shown
+    /// separately so the customer can see time deducted due to queueing.
+    #[serde(rename = "queueWaitSec", default, skip_serializing_if = "Option::is_none")]
+    pub queue_wait_sec: Option<f64>,
     #[serde(rename = "bottomBarColor")]
     pub bottom_bar_color: Option<String>,
     #[serde(rename = "isStartupCatchup", default)]
@@ -114,6 +119,7 @@ impl Default for Workspace {
             render_preset: None,
             render_codec: None,
             render_duration_sec: None,
+            queue_wait_sec: None,
             bottom_bar_color: None,
             is_startup_catchup: false,
         }
@@ -308,6 +314,9 @@ impl WorkspaceStore {
             }
             if let Some(orig_qual) = data.get("originalQuality").and_then(|v| v.as_u64()) {
                 ws.original_quality = Some(orig_qual as u32);
+            }
+            if let Some(queue_wait) = data.get("queueWaitSec").and_then(|v| v.as_f64()) {
+                ws.queue_wait_sec = Some(queue_wait);
             }
             if let Some(render_dur) = data.get("renderDurationSec").and_then(|v| v.as_f64()) {
                 ws.render_duration_sec = Some(render_dur);

@@ -141,3 +141,75 @@ Thêm `active_renders: Arc<AtomicI32>` được share giữa `Poller` và `AppSt
 - ✅ `cargo build -p hyperclip-tauri` — 0 errors.
 - Patch: `release/HyperClip-Patch-2026*.zip` (xem lúc build).
 - Render tiếp theo → so sánh FPS encode để verify cải thiện (kỳ vọng > 1000 fps).
+## Pass 5: E2E <10s — critical path optimization (2026-07-13)
+
+Đo từ log máy khách RTX 3060 (`hyperclip.log 2026-07-13_10-28-05`), video `uYibHI1fyJA`:
+detect→rendered = **10.5s** (poll→detect 0.4s, bookkeeping+dò IP 1.5s, yt-dlp 4.7s,
+trim+handoff 1.0s, render 3.3s). 4 fix để xuống <10s:
+
+### 5a. Cache `get_physical_ip` (−1.2s/download)
+
+`get_physical_ip()` spawn PowerShell (`Get-NetAdapter` + `Get-NetIPAddress` + `Get-NetRoute`)
+~1-1.5s trên MỖI lần download. Fix tại [youtube.rs](../crates/hyperclip_ipc/src/youtube.rs):
+cache kết quả — thành công TTL 5 phút, thất bại TTL 30s (cho phép retry nhanh khi vừa cắm mạng).
+Warm cache lúc `init_appstate` (background thread, chỉ khi `bypassVpn=true`).
+
+### 5b. Pre-warm composite background + thumbnail song song với download (−0.7s handoff)
+
+Trước: thumbnail tải đồng bộ SAU khi video xong (commands.rs, critical path), và composite bg
+cache key theo `{ws_id}` → workspace auto mới **luôn MISS** lúc render.
+Fix: khi tạo workspace (auto_render=true) → spawn thread tải thumbnail + gọi
+`warm_composite_background()` mới ([ffmpeg.rs](../crates/hyperclip_ipc/src/ffmpeg.rs)) — replicate
+đúng asset resolution của `spawn_render_async` (canvas Short, title template, color default)
+→ render-time cache HIT. Post-download chỉ tải thumbnail nếu file chưa tồn tại
+(re-download sẽ đổi mtime → invalidate cache).
+
+### 5c. Bỏ render deferral 3s → throttle concurrency (detection không còn bị delay)
+
+Pass 2 defer toàn bộ poll tới 3s khi render active — với render 3-5s/video, video kế tiếp
+bị phát hiện chậm tới 3s. Fix tại [poller.rs](../crates/hyperclip_ipc/src/poller.rs): poll vẫn
+chạy nhưng `max_concurrency` giảm xuống 2 khi `active_renders > 0` — vẫn tránh burst 27 HTTP
+call (nguyên nhân 1341→791 fps) nhưng không hy sinh detection latency.
+
+### 5d. Gộp store I/O trong process_fn + prewarm song song
+
+- Workspace tạo 1 lần với status cuối (`downloading`/`waiting`) — bỏ round-trip
+  load/update/save riêng; bỏ SettingsStore load lần 2.
+- Prewarm 8 Innertube client song song (stagger 100ms) thay vì serial 500ms — cắt 3.5s
+  khỏi thời gian tới poll đầu tiên sau boot.
+
+### Kỳ vọng sau pass 5
+
+detect→rendered ≈ **8.3s** (0.4 + 0.3 + 4.7 + 0.3 + 3.3) trên RTX 3060.
+Bước tiếp theo nếu cần <7s: thay yt-dlp bằng Innertube daemon lấy stream URL + Rust ranged
+download (yt-dlp 4.7s → ~2s, đồng thời biết width/height trước khi tải → khỏi tải video
+portrait rồi discard).
+
+### Test pass 5
+
+- ✅ `cargo test -p hyperclip_ipc` — 94 tests, 0 failures.
+- ✅ `cargo clippy -p hyperclip_ipc` — không có warning mới.
+- ✅ `cargo build -p hyperclip-tauri` — 0 errors.
+- ✅ `python -m pytest tests/` — 4 passed.
+
+## Pass 6: Detection <3s — khôi phục full-parallel dispatch (2026-07-13)
+
+So sánh log RTX 5080 (bản cũ, KHÔNG cap — poll cycle ~3.5s, dispatch 33 kênh trong ~1ms)
+với RTX 3060 (bản mới, cap=8 — cycle ~4.7s, sweep 4 đợt ~1.3s) cho thấy semaphore `min(8)`
+của pass 2 là regression chính của detection latency. Fix:
+
+1. **Bỏ cap cứng 8** (poller.rs): concurrency = `min(daemonLimit, ready_sessions)`.
+2. **`daemonLimit` default = `gpu_config.max_sessions`** (14) thay vì couple vào
+   `max_workers` (=4 trên RTX 3060, là số worker RENDER — sai tài nguyên).
+   ⚠️ settings.json máy khách có `daemonLimit: 8` → xóa key khi deploy.
+3. **`pollIntervalMs` default 5000 → 2000**, floor 1000 (clamp trong Poller).
+4. **Jitter đối xứng ±10%** thay vì +0..20% (công thức cũ chỉ cộng → cadence phình 10%).
+5. **`render_poll_cap` tier-aware**: khi render active, High=8 (RTX 5080 không cần bóp),
+   Mid/Low=2 (giữ bài học 1341→791 fps của pass 2).
+
+Kỳ vọng: worst-case detect ≈ 2.9s, average ≈ 1.4s (27 kênh, daemon 14).
+Spec đầy đủ + invariants: **docs/DETECTION_LATENCY.md** (đọc trước khi sửa poller).
+
+### Test pass 6
+- ✅ `cargo test -p hyperclip_ipc` — 95 tests (thêm test_interval_floor, test_jitter cập nhật ±10%).
+- ✅ `cargo clippy` — không warning mới. ✅ `cargo build -p hyperclip-tauri` — 0 errors.

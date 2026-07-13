@@ -1081,6 +1081,13 @@ Rectangle {
                                             color: Theme.text
                                             font.pixelSize: 11
                                         }
+                                        Label {
+                                            visible: (root.currentVideoData.queueWaitSec || 0) >= 1
+                                            text: "⏸ Đợi hàng chờ tải tuần tự: " + root.fmtDuration(root.currentVideoData.queueWaitSec || 0)
+                                                + " (không tính vào tổng)"
+                                            color: Theme.textMuted
+                                            font.pixelSize: 11
+                                        }
                                     }
 
                                     // ③ Render
@@ -1321,6 +1328,11 @@ Rectangle {
                                     KVRow {
                                         keyText: "Download time"
                                         valueText: root.fmtDuration(root.currentVideoData.downloadDurationSec)
+                                    }
+                                    KVRow {
+                                        visible: (root.currentVideoData.queueWaitSec || 0) >= 1
+                                        keyText: "Queue wait (tuần tự)"
+                                        valueText: root.fmtDuration(root.currentVideoData.queueWaitSec || 0) + " — không tính vào tổng"
                                     }
                                     KVRow {
                                         keyText: "Downloaded at"

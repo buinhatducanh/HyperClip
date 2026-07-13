@@ -303,7 +303,11 @@ impl InnertubeClientPool {
 
                 self.active_clients_count.fetch_add(1, Ordering::SeqCst);
                 let cfg = crate::innertube_client::ClientConfig {
-                    timeout_sec: 45, // Match the client's timeout
+                    // 12s: long enough for a cold daemon's first RPC (~10s observed),
+                    // short enough that a stalled Innertube response frees the blocked
+                    // thread quickly — the fixed-cadence poller re-polls the channel
+                    // on a later cycle anyway.
+                    timeout_sec: 12,
                     ..Default::default()
                 };
                 match crate::innertube_client::InnertubeClient::new(cfg) {

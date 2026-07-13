@@ -10,10 +10,14 @@
 
 ## Auto-Ingestion Pipeline
 
+> **Spec latency + invariants: `docs/DETECTION_LATENCY.md` — ĐỌC TRƯỚC KHI SỬA poller/download.**
+> Mục tiêu: detect < 3s, e2e detect→rendered < 10s.
+
 ```
-YouTubePoller (5 giây ± 20% jitter = 4-6s)
+YouTubePoller (2 giây ± 10% jitter, floor 1s)
          ↓
-fetchSubscriptionFeed() → ALL channels (parallel, max 10 concurrent)
+poll_once() → ALL channels FULL PARALLEL (concurrency = min(daemonLimit=max_sessions, ready);
+              render active → throttle tier-aware: High=8, Mid/Low=2. KHÔNG cap cứng, KHÔNG defer)
          ↓
 1. Innertube API (30 Chrome sessions, SAPISIDHASH) — PRIMARY, NO QUOTA
    → getLatestVideo: check top-1..top-5, seen dedup (return null → continue)
@@ -22,7 +26,9 @@ fetchSubscriptionFeed() → ALL channels (parallel, max 10 concurrent)
          ↓
 Filter: age ≤ 10 min, unseen, not deleted
          ↓
-autoDownload (yt-dlp --download-sections, multi-instance, 16 fragments, tv_embedded client) → workspace ready → notify
+autoDownload (yt-dlp --download-sections, 16 fragments, web,android client; IP bind cached 5min)
+  ∥ song song: thumbnail + composite background pre-warm
+         ↓ workspace ready → auto-render (bg cache HIT) → notify
 ```
 
 **Chi tiết quota system và Innertube failure modes:** xem HYPERCLIP_RULES.md section 3b.

@@ -6,7 +6,7 @@ use crate::token_manager::OAuthFallbackDetector;
 use crate::types::Channel;
 use rand::Rng;
 use serde::Serialize;
-use std::sync::atomic::{AtomicI32, AtomicI64, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicI64, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 
@@ -39,6 +39,15 @@ pub struct Poller {
     process_fn: Arc<dyn Fn(NewVideoEvent) + Send + Sync>,
     /// When >0, defer polling to avoid GPU contention with active FFmpeg renders.
     active_renders: Arc<AtomicI32>,
+    /// Poll concurrency ceiling while a render is active. Tier-aware: weak GPUs
+    /// (Mid/Low) need 2 to protect NVENC FPS; High-tier machines keep full speed.
+    render_poll_cap: AtomicUsize,
+    /// Channels with a get_latest_videos request currently in flight (id → started).
+    /// Poll cycles fire on a fixed cadence and skip these — one channel stalling
+    /// ~10s (observed sporadic Innertube slowness) must not delay detection for
+    /// the other 26. Entries older than 60s are treated as stale and purged, so a
+    /// panicked task can never permanently stop a channel from being polled.
+    in_flight: Arc<Mutex<std::collections::HashMap<String, std::time::Instant>>>,
 }
 
 impl Poller {
@@ -62,14 +71,27 @@ impl Poller {
             health_monitor: Arc::new(Mutex::new(HealthMonitor::new())),
             last_detection_time: Arc::new(Mutex::new(None)),
             consecutive_download_failures: Arc::new(Mutex::new(0)),
-            poll_interval_ms: AtomicU64::new(poll_interval_ms),
+            poll_interval_ms: AtomicU64::new(Self::clamp_interval(poll_interval_ms)),
             _max_videos_per_poll: 5,
             max_age_ms: AtomicI64::new((max_age_minutes as i64) * 60 * 1000),
             min_duration_sec: AtomicU32::new(min_duration_sec),
             max_duration_sec: AtomicU32::new(max_duration_sec),
             process_fn: Arc::new(process_fn),
             active_renders,
+            render_poll_cap: AtomicUsize::new(2),
+            in_flight: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
+    }
+
+    /// Floor the poll interval at 1s — protects against accidental tiny values
+    /// hammering Innertube (30 sessions × 27+ channels).
+    fn clamp_interval(poll_interval_ms: u64) -> u64 {
+        poll_interval_ms.max(1000)
+    }
+
+    /// Set the poll concurrency ceiling used while renders are active.
+    pub fn set_render_poll_cap(&self, cap: usize) {
+        self.render_poll_cap.store(cap.max(1), Ordering::Relaxed);
     }
 
     pub fn set_oauth_detector(&self, detector: Arc<OAuthFallbackDetector>) {
@@ -78,6 +100,7 @@ impl Poller {
     }
 
     pub fn reload_config(&self, poll_interval_ms: u64, max_age_minutes: u64, min_duration_sec: u32, max_duration_sec: u32) {
+        let poll_interval_ms = Self::clamp_interval(poll_interval_ms);
         self.poll_interval_ms.store(poll_interval_ms, Ordering::Relaxed);
         self.max_age_ms.store((max_age_minutes as i64) * 60 * 1000, Ordering::Relaxed);
         self.min_duration_sec.store(min_duration_sec, Ordering::Relaxed);
@@ -132,8 +155,13 @@ impl Poller {
     }
 
     pub fn next_poll_delay_ms(base_ms: u64) -> u64 {
-        let jitter = (base_ms as f64 * 0.2) as u64;
-        base_ms + rand::thread_rng().gen_range(0..=jitter)
+        // Symmetric ±10% jitter: keeps the average cadence at base_ms (the old
+        // +0..20% formula only ever ADDED delay, inflating average latency by 10%)
+        // while still breaking the fixed request pattern.
+        let jitter = (base_ms as f64 * 0.1) as u64;
+        let lo = base_ms.saturating_sub(jitter);
+        let hi = base_ms + jitter;
+        rand::thread_rng().gen_range(lo..=hi)
     }
 
     pub fn is_within_age_limit(published_at: i64, now_ms: i64, max_age_ms: i64) -> bool {
@@ -173,22 +201,26 @@ impl Poller {
     pub async fn prewarm(&self) {
         let pool = self.pool.clone();
         let limit = pool.max_active_clients.load(Ordering::Relaxed).min(8);
-        tracing::info!("[Poller] Prewarming {} Innertube clients...", limit);
+        tracing::info!("[Poller] Prewarming {} Innertube clients in parallel...", limit);
+        // Spawn concurrently with a 100ms stagger (vs the old serial 500ms gaps,
+        // which alone added 3.5s before the first poll could fire). Node daemons
+        // initialize independently, so overlapping their startup is safe.
+        let mut handles = Vec::new();
         for i in 0..limit {
             let pool = pool.clone();
-            let res = tokio::task::spawn_blocking(move || {
+            handles.push(tokio::task::spawn_blocking(move || {
                 pool.prewarm_single_client()
-            }).await;
-            
-            match res {
+            }));
+            if i + 1 < limit {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
+        for (i, handle) in handles.into_iter().enumerate() {
+            match handle.await {
                 Ok(Ok(true)) => tracing::info!("[Poller] Prewarmed client {}/{}", i + 1, limit),
                 Ok(Ok(false)) => tracing::info!("[Poller] Client limit reached during prewarm"),
                 Ok(Err(e)) => tracing::warn!("[Poller] Failed to prewarm client: {}", e),
                 Err(e) => tracing::error!("[Poller] Join error during prewarm: {}", e),
-            }
-
-            if i + 1 < limit {
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             }
         }
     }
@@ -196,9 +228,7 @@ impl Poller {
     pub async fn run(self: Arc<Self>, cancel: tokio_util::sync::CancellationToken) {
         // Poll immediately on startup (no initial sleep)
         tracing::info!("[Poller] Firing initial poll immediately");
-        if let Err(e) = self.clone().poll_once().await {
-            tracing::error!("Initial poll error: {}", e);
-        }
+        self.clone().spawn_poll();
 
         loop {
             tokio::select! {
@@ -209,42 +239,64 @@ impl Poller {
                 _ = tokio::time::sleep(std::time::Duration::from_millis(
                     Self::next_poll_delay_ms(self.poll_interval_ms.load(Ordering::Relaxed)),
                 )) => {
-                    if let Err(e) = self.clone().poll_once().await {
-                        tracing::error!("Poll error: {}", e);
-                    }
+                    self.clone().spawn_poll();
                 }
             }
         }
     }
 
-    async fn poll_once(self: Arc<Self>) -> Result<()> {
-        // Defer when render is active — spawning 27 parallel Innertube HTTP calls
-        // competes with NVENC for CPU/IO and dropped encode FPS by 40% (1341 → 791)
-        // during observed run. Wait up to 3s for render to clear.
-        let mut defer_iters = 0;
-        while self.active_renders.load(Ordering::Relaxed) > 0 && defer_iters < 30 {
-            if defer_iters == 0 {
-                tracing::info!("[Poller] Deferring poll: {} active render(s) running", self.active_renders.load(Ordering::Relaxed));
+    /// Fire a poll cycle without blocking the cadence loop. Cycles used to run
+    /// sequentially (sleep → await poll_once → sleep), so one channel answering
+    /// in ~10s stretched the whole cycle to 12s+ and delayed detection for every
+    /// other channel. Now the ticker keeps a fixed cadence and the in_flight set
+    /// prevents overlapping cycles from double-polling a slow channel.
+    fn spawn_poll(self: Arc<Self>) {
+        tokio::spawn(async move {
+            if let Err(e) = self.poll_once().await {
+                tracing::error!("Poll error: {}", e);
             }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            defer_iters += 1;
-        }
-        if defer_iters >= 30 {
-            tracing::warn!("[Poller] Render deferral timeout (3s) — proceeding anyway");
-        }
+        });
+    }
+
+    async fn poll_once(self: Arc<Self>) -> Result<()> {
+        // Spawning 27 parallel Innertube HTTP calls while NVENC renders competes for
+        // CPU/IO and dropped encode FPS by 40% (1341 → 791) during observed run.
+        // Instead of deferring the whole poll (which delayed detection of the NEXT
+        // video by up to 3s), keep polling but throttle concurrency to 2 while a
+        // render is active — renders finish in 3-5s so the slower sweep still
+        // completes within one poll interval.
+        let render_active = self.active_renders.load(Ordering::Relaxed) > 0;
 
         let now_ms = chrono::Utc::now().timestamp_millis();
         let max_age_ms = self.max_age_ms.load(Ordering::Relaxed);
         let min_duration_sec = self.min_duration_sec.load(Ordering::Relaxed);
         let max_duration_sec = self.max_duration_sec.load(Ordering::Relaxed);
         let channels = self.channels.read().await.clone();
-        let active_channels: Vec<Channel> = channels.into_iter().filter(|c| !c.paused).collect();
+        let total_channels = channels.len();
+        // Skip channels whose previous request is still in flight (slow Innertube
+        // response) — they are excluded up front so the OAuth fallback below does
+        // not treat them as failed either.
+        let skipped_in_flight;
+        let active_channels: Vec<Channel> = {
+            let mut in_flight = self.in_flight.lock().unwrap();
+            in_flight.retain(|_, started| started.elapsed() < std::time::Duration::from_secs(60));
+            let unpaused: Vec<Channel> = channels.into_iter().filter(|c| !c.paused).collect();
+            let before = unpaused.len();
+            let filtered: Vec<Channel> = unpaused.into_iter()
+                .filter(|c| !in_flight.contains_key(&c.id))
+                .collect();
+            skipped_in_flight = before - filtered.len();
+            filtered
+        };
 
+        if skipped_in_flight > 0 {
+            tracing::info!("[Poller] Skipping {} channel(s) with a poll still in flight", skipped_in_flight);
+        }
         if active_channels.is_empty() { return Ok(()); }
 
         tracing::info!(
             "[Poller] Polling {} active channels ({} total)",
-            active_channels.len(), self.channels.read().await.len()
+            active_channels.len(), total_channels
         );
 
         let ready = self.pool.ready_count();
@@ -259,10 +311,22 @@ impl Poller {
         // Public channel polling does not require logged-in sessions (cookies).
         if ready > 0 {
             let polled_successfully = Arc::new(Mutex::new(std::collections::HashSet::new()));
-            let max_concurrency = self.pool.max_active_clients.load(Ordering::SeqCst)
-                .min(8)
+            // Full-parallel dispatch: concurrency is bounded only by available
+            // daemons and ready sessions. The old hard cap of 8 serialized 27+
+            // channels into 4 waves and stretched the sweep from ~0.4s to ~1.4s,
+            // pushing worst-case detection latency past 3s (see
+            // docs/DETECTION_LATENCY.md — the RTX 5080 build without a cap
+            // detected reliably faster).
+            let mut max_concurrency = self.pool.max_active_clients.load(Ordering::SeqCst)
                 .min(ready)
                 .max(1);
+            if render_active {
+                let render_cap = self.render_poll_cap.load(Ordering::Relaxed);
+                if max_concurrency > render_cap {
+                    max_concurrency = render_cap;
+                    tracing::info!("[Poller] Render active — throttling poll concurrency to {}", max_concurrency);
+                }
+            }
             tracing::info!("[Poller] Spawning {} parallel poll tasks (cap={max_concurrency}, channels={})",
                 active_channels.len().min(max_concurrency), active_channels.len());
             let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrency));
@@ -271,8 +335,14 @@ impl Poller {
                 let polled_successfully = Arc::clone(&polled_successfully);
                 let poller = self.clone();
                 let sem = Arc::clone(&semaphore);
+                let flight_id = channel.id.clone();
+                self.in_flight.lock().unwrap().insert(flight_id.clone(), std::time::Instant::now());
 
                 let handle = tokio::spawn(async move {
+                    let poller_for_flight = poller.clone();
+                    // Inner block so every early `return` still clears the
+                    // in_flight entry below.
+                    let task = async move {
                     let _permit = sem.acquire().await.unwrap();
                     tracing::info!("[Poller] Acquiring session for {}", channel.id);
                     let mut leased = None;
@@ -409,6 +479,9 @@ impl Poller {
                             poller.pool.mark_failed(session_idx);
                         }
                     }
+                    };
+                    task.await;
+                    poller_for_flight.in_flight.lock().unwrap().remove(&flight_id);
                 });
                 handles.push(handle);
             }
@@ -521,7 +594,12 @@ impl Poller {
 mod tests {
     use super::*;
     #[test]
-    fn test_jitter() { for _ in 0..100 { let d = Poller::next_poll_delay_ms(5000); assert!(d>=4000&&d<=6000); } }
+    fn test_jitter() { for _ in 0..100 { let d = Poller::next_poll_delay_ms(5000); assert!(d>=4500&&d<=5500); } }
+    #[test]
+    fn test_interval_floor() {
+        assert_eq!(Poller::clamp_interval(100), 1000);
+        assert_eq!(Poller::clamp_interval(2000), 2000);
+    }
     #[test]
     fn test_age_under() { assert!(Poller::is_within_age_limit(1700000000000-5*60*1000, 1700000000000, 10*60*1000)); }
     #[test]
