@@ -113,23 +113,39 @@ impl InnertubeClientPool {
 
     /// Load cookies for every session. Each slot gets the full cookie string
     /// (sessions share the same Chrome profile for now).
+    ///
+    /// Deliberately does NOT clear the idle-client pool: every lease pushes the
+    /// current session cookie into the daemon (setCookie RPC) before use, so a
+    /// warm daemon can never serve a stale cookie. Clearing here destroyed all
+    /// warm daemons on every cookie feed — first as a 2s storm (728 respawns/
+    /// 9min, log 2026-07-14 16-22-08), then still once per 60s tick after the
+    /// "only when changed" guard, because YouTube rotates SIDCC/PSIDTS almost
+    /// every minute so a full-string comparison always reports a change
+    /// (log 17-30-30: respawn wave ~2s after each monitor tick).
     pub fn set_cookies(&self, cookie_string: String) {
         let mut sessions = self.sessions.lock().unwrap();
         for s in sessions.iter_mut() {
             s.cookie = cookie_string.clone();
         }
-        let mut clients = self.clients.lock().unwrap();
-        clients.clear();
     }
 
     /// Load distinct cookies for a specific session index.
+    /// See set_cookies for why this must not clear the client pool.
     pub fn set_session_cookie(&self, idx: usize, cookie_string: String) {
         let mut sessions = self.sessions.lock().unwrap();
         if let Some(s) = sessions.get_mut(idx) {
             s.cookie = cookie_string;
         }
-        let mut clients = self.clients.lock().unwrap();
-        clients.clear();
+    }
+
+    /// Read a session's current cookie string (empty → None).
+    /// Session 0 = HyperClip-Profile-1, the only profile kept fresh via CDP
+    /// while Chrome runs — used as the owner-view cookie for the HTML probe.
+    pub fn session_cookie(&self, idx: usize) -> Option<String> {
+        let sessions = self.sessions.lock().unwrap();
+        sessions.get(idx).and_then(|s| {
+            if s.cookie.is_empty() { None } else { Some(s.cookie.clone()) }
+        })
     }
 
     /// Check if a session cookie contains valid YouTube credentials.

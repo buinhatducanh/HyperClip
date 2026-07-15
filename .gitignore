@@ -138,7 +138,6 @@ data/temp_benchmark/
 .remember/              # tool session memory
 .playwright-mcp/        # playwright test cache
 .idea/
-.vscode/
 
 # ─── OS junk ──────────────────────────────────────────────────
 .DS_Store
@@ -146,6 +145,7 @@ Thumbs.db
 desktop.ini
 
 # ─── Editor artifacts ─────────────────────────────────────────
-.vscode/*
-!.vscode/extensions.json
-!.vscode/settings.json
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+.gitignore
