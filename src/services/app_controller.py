@@ -63,6 +63,7 @@ class AppController(QObject):
         self.bus.download_progress.connect(self._on_download_progress)
         self.bus.system_stats_updated.connect(self._on_system_stats_updated)
         self.bus.new_video_detected.connect(self._on_new_video_detected)
+        self.bus.premiere_scheduled.connect(self._on_premiere_scheduled)
         self.bus.channel_synced.connect(self._on_channel_synced)
         self.bus.notification.connect(self._on_notification)
         self.settings_model.saved.connect(self._on_settings_saved)
@@ -230,6 +231,23 @@ class AppController(QObject):
             bool(d.get("isStartupCatchup", False)),
         )
         self.sound_service.play("info")
+
+    def _on_premiere_scheduled(self, d):
+        """A scheduled premiere was spotted on a monitored channel — surface it
+        as 'Chờ chiếu' so the customer knows the app saw it and is waiting for
+        air time (instead of a red latency badge appearing minutes later)."""
+        self.detection_history_model.add_scheduled(
+            d.get("videoId", ""),
+            d.get("title", ""),
+            d.get("channelName", ""),
+            d.get("scheduleText", ""),
+            d.get("detectedAt", 0),
+        )
+        self.activity_model.add_entry(
+            "auto",
+            f"Chờ công chiếu: {d.get('title', '?')} ({d.get('scheduleText', '')})",
+            "info",
+        )
 
     def _on_channel_synced(self):
         self.workspace_model.load_from_backend(self.client)

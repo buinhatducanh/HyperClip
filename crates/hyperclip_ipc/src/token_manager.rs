@@ -473,6 +473,8 @@ impl OAuthFallbackDetector {
                     height: 0,
                     channel_id: None,
                     channel_name: None,
+                    upcoming: false,
+                    schedule_text: String::new(),
                 });
             }
         }

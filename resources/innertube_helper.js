@@ -2,7 +2,12 @@
 // JSON-RPC: stdin requests -> stdout OR temp file responses
 // v4 — Persistent daemon mode for fast polling + LockupView extraction + handle→UC ID resolution
 
-const { Innertube } = require('youtubei.js');
+const { Innertube, Log } = require('youtubei.js');
+// Daemon stderr is drained into the Rust log since pass 15 — youtubei.js
+// parser warnings ([YOUTUBEJS][Parser] ChipBarView dumps etc.) flooded it
+// with ~5.8k lines/min (62% of customer log 2026-07-14). Only our own dlog()
+// diagnostics belong on stderr.
+try { Log.setLevel(Log.Level.NONE); } catch (_) {}
 
 const clientPromises = new Map(); // cookieStr -> Promise<Innertube>
 let currentCookie = '';
@@ -11,10 +16,22 @@ const resolvedChannelCache = new Map(); // '@handle' -> 'UC...'
 async function ensureClient(cookieStr) {
   currentCookie = cookieStr;
   if (clientPromises.has(cookieStr)) {
-    return clientPromises.get(cookieStr);
+    // LRU bump: re-insert so the most recently used cookie survives eviction.
+    const p = clientPromises.get(cookieStr);
+    clientPromises.delete(cookieStr);
+    clientPromises.set(cookieStr, p);
+    return p;
   }
   const promise = Innertube.create({ cookie: cookieStr, retrieve_player: false });
   clientPromises.set(cookieStr, promise);
+  // Cap the per-cookie client cache: YouTube rotates SIDCC/PSIDTS roughly every
+  // minute, so a 24/7 daemon would otherwise accumulate thousands of Innertube
+  // instances (one per distinct cookie string it ever saw). Keep the 8 most
+  // recently used — a daemon only ever serves a handful of sessions at a time.
+  while (clientPromises.size > 8) {
+    const oldest = clientPromises.keys().next().value;
+    clientPromises.delete(oldest);
+  }
   return promise;
 }
 
@@ -73,7 +90,34 @@ function isRelativeTimeText(text) {
 function parseRelativeTime(text) {
   if (!text) return 0;
   const cleanText = text.replace(/\u00a0/g, ' ').trim().toLowerCase();
-  
+
+  // LIVE / premiering-now with a viewer count: "1,234 watching", "1.2\ucc9c\uba85 \uc2dc\uccad \uc911",
+  // "3.4K \u0111ang xem" \u2014 digits are a VIEWER COUNT, not an age. Without this the
+  // digit branch below returns 0 (no time unit matches) and a premiere that just
+  // went live is never re-detected until it ends.
+  if (/\d/.test(cleanText)) {
+    const liveMarkers = ['watching', '\uc2dc\uccad \uc911', '\u0111ang xem', 'tr\u1ef1c ti\u1ebfp', '\u0111ang ph\u00e1t', 'live now', '\u914d\u4fe1\u4e2d', '\u8996\u8074\u4e2d', '\u30e9\u30a4\u30d6', '\ub77c\uc774\ube0c', '\uc2e4\uc2dc\uac04', '\uc0dd\ubc29\uc1a1', 'viewers', 'en directo'];
+    const hasPast = ['ago', 'tr\u01b0\u1edbc', '\u524d', '\uc804'].some(m => cleanText.includes(m));
+    if (!hasPast && liveMarkers.some(m => cleanText.includes(m))) {
+      return Date.now();
+    }
+  }
+
+  // UPCOMING premieres/scheduled streams: "Premieres in 5 minutes", "5\ubd84 \ud6c4 \ucd5c\ucd08 \uacf5\uac1c",
+  // "C\u00f4ng chi\u1ebfu sau 5 ph\u00fat", "7/13 21:00 \u306b\u30d7\u30ec\u30df\u30a2\u516c\u958b" \u2014 future times must NOT be
+  // parsed as "X ago" (the digit branch below would return now-5min and the video
+  // would pass the age filter, then loop on yt-dlp "Premieres in..." failures).
+  // Return 0 = unknown publish time \u2192 Rust age filter skips it until it goes live.
+  // Past forms ("Premiered 3 hours ago", "\u0110\u00e3 c\u00f4ng chi\u1ebfu 3 gi\u1edd tr\u01b0\u1edbc", "3\uc2dc\uac04 \uc804\uc5d0
+  // \ucd5c\ucd08 \uacf5\uac1c") contain a past marker and fall through to normal parsing.
+  if (/\d/.test(cleanText)) {
+    const hasPastMarker = ['ago', 'tr\u01b0\u1edbc', '\u524d', '\uc804'].some(m => cleanText.includes(m));
+    const upcomingMarkers = ['premiere', 'scheduled', '\ucd5c\ucd08 \uacf5\uac1c', '\uacf5\uac1c \uc608\uc815', '\u30d7\u30ec\u30df\u30a2\u516c\u958b', '\u516c\u958b\u4e88\u5b9a', 'c\u00f4ng chi\u1ebfu', 'estreno', 'premi\u00e8re'];
+    if (!hasPastMarker && upcomingMarkers.some(m => cleanText.includes(m))) {
+      return 0;
+    }
+  }
+
   // Split by common delimiters to isolate the relative time part
   const parts = cleanText.split(/[\u2022\u00b7\u2023\u2043|•·-]/);
   let timePart = cleanText;
@@ -250,13 +294,46 @@ function extractDurationFromLockup(lv) {
   return durationSec;
 }
 
+/// Language-independent upcoming check: scheduled premieres/streams carry an
+/// "UPCOMING" time-status overlay style in the lockup JSON regardless of UI
+/// language — text-marker parsing missed Korean premiere forms and let them
+/// into the pipeline (observed: rckmDHThyT8 detected with a bogus 10-min age).
+function lockupIsUpcoming(lv) {
+  try {
+    const overlays = lv.contentImage?.lockupContentImageViewModel?.overlays
+                  || lv.contentImage?.overlays
+                  || lv.content_image?.overlays
+                  || [];
+    return JSON.stringify(overlays).includes('UPCOMING');
+  } catch (_) { return false; }
+}
+
+/// Collect the raw metadata text of an upcoming lockup ("Công chiếu 18:35",
+/// "Premieres 7/13, 6:35 PM") — shown as-is in the UI, no parsing needed.
+function extractScheduleTextFromLockup(lv) {
+  try {
+    const metadata = lv.metadata?.lockupMetadataViewModel?.metadata?.contentMetadataViewModel
+                  || lv.metadata?.metadata;
+    const rows = metadata?.metadataRows || metadata?.metadata_rows || [];
+    const parts = [];
+    for (const row of rows) {
+      for (const part of (row.metadataParts || row.metadata_parts || [])) {
+        const text = part.text?.content || part.text?.text || (typeof part.text === 'string' ? part.text : '');
+        if (text) parts.push(text.trim());
+      }
+    }
+    return parts.join(' · ').slice(0, 120);
+  } catch (_) { return ''; }
+}
+
 function extractFromLockupView(lv) {
   const videoId = lv.content_id;
   if (!videoId) return null;
-  
+
   const title = lv.metadata?.lockupMetadataViewModel?.title?.content || lv.metadata?.title?.text || '';
-  
-  let publishedAt = extractPublishedAtFromLockup(lv);
+
+  const isUpcoming = lockupIsUpcoming(lv);
+  let publishedAt = isUpcoming ? 0 : extractPublishedAtFromLockup(lv);
   let durationSec = extractDurationFromLockup(lv);
 
   
@@ -267,7 +344,11 @@ function extractFromLockupView(lv) {
                || [];
   if (sources.length > 0) thumbnailUrl = sources[0].url || '';
   
-  return { videoId, title, publishedAt, thumbnailUrl, durationSec };
+  return {
+    videoId, title, publishedAt, thumbnailUrl, durationSec,
+    upcoming: isUpcoming,
+    scheduleText: isUpcoming ? extractScheduleTextFromLockup(lv) : '',
+  };
 }
 
 function extractPublishedAt(v) {
@@ -286,7 +367,7 @@ function normalizeVideo(v) {
   return {
     videoId: v.id || v.videoId || '',
     title: (v.title && v.title.text) || v.title || '',
-    publishedAt: extractPublishedAt(v),
+    publishedAt: (v.is_upcoming || v.upcoming) ? 0 : extractPublishedAt(v),
     thumbnailUrl: (() => { try { const s = [...(v.thumbnails||[])].sort((a,b)=>(b.width||0)-(a.width||0)); return s[0]?.url||''; } catch(_){return'';}})(),
     durationSec: (() => { try { return v.duration?.seconds||v.duration_seconds||0; } catch(_){return 0;} })(),
   };
@@ -299,9 +380,11 @@ async function strategyPlaylistInnertube(client, playlistId) {
       return playlist.items.map(v => ({
         videoId: v.id || '',
         title: v.title?.text || v.title || '',
-        publishedAt: extractPublishedAt(v),
+        publishedAt: (v.is_upcoming || v.upcoming) ? 0 : extractPublishedAt(v),
         thumbnailUrl: v.thumbnails?.[0]?.url || '',
         durationSec: v.duration?.seconds || 0,
+        upcoming: !!(v.is_upcoming || v.upcoming),
+        scheduleText: '',
       })).filter(v => v.videoId);
     }
     const memo = playlist.page?.contents_memo;
@@ -313,7 +396,115 @@ async function strategyPlaylistInnertube(client, playlistId) {
   } catch (_) { return []; }
 }
 
-async function getLatestVideo(channelId, cookieStr) {
+// Fast surface probe — the uploads-playlist WEB PAGE lists brand-new videos
+// immediately, minutes before the Innertube browse/playlist API index catches up
+// (observed: API list stuck at 87 videos for 11 minutes while a new upload was
+// already public). Restored from commit 29b1f01 per the "Instant Playlist HTML
+// Resolver" design in docs/_archived/AUTO_INGESTION_TECH_OVERVIEW.md; the page
+// weighs ~0.5MB so this only runs for fastProbe channels (bandwidth discipline).
+async function strategyPlaylistHTML(channelId, cookieStr) {
+  try {
+    const playlistId = channelId.replace(/^UC/, 'UU');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(`https://www.youtube.com/playlist?list=${playlistId}&_t=${Date.now()}&_r=${Math.random()}`, {
+      signal: controller.signal,
+      headers: {
+        'Cookie': cookieStr || '',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
+    }).finally(() => clearTimeout(timer));
+    if (!res.ok) return [];
+    const html = await res.text();
+    const match = html.match(/var ytInitialData = (\{.*?\});<\/script>/);
+    if (!match) return [];
+    const data = JSON.parse(match[1]);
+    const items = data.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents;
+    if (!items || !Array.isArray(items)) return [];
+    return items.slice(0, 15).map(item => {
+      const lv = item.lockupViewModel;
+      if (!lv) return null;
+      // Upcoming premieres must not enter the instant resolver — they would be
+      // stamped "published now" and loop through yt-dlp premiere failures.
+      if (JSON.stringify(lv.contentImage || {}).includes('UPCOMING')) return null;
+      const videoId = lv.contentId;
+      const title = lv.metadata?.lockupMetadataViewModel?.title?.content || '';
+      return { videoId, title, publishedAt: 0, thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, durationSec: 0 };
+    }).filter(v => v !== null && v.videoId);
+  } catch (_) { return []; }
+}
+
+// Playability gate for HTML-fresh candidates. The playlist page is fetched
+// WITH the operator's session cookie, and for channels owned/managed by that
+// account the owner-view page also lists PRIVATE videos — which never appear
+// in the API playlist, so the resolver mistook them for brand-new uploads and
+// fired downloads that all died in yt-dlp with "Private video" (customer log
+// 2026-07-13 18-57-03: 4 private videos → 4 failed workspaces at startup,
+// each also holding the sequential download queue). Same risk applies to
+// members-only content. Verify via the player endpoint before ingesting;
+// rejected ids are cached and re-checked at most once per minute so a private
+// video that later goes public is still picked up quickly.
+const htmlFreshRejected = new Map(); // videoId -> last rejected-check ms
+// 20s: a rejected candidate (private / still processing) is re-verified at most
+// every 20s, so a video flipped public — or an upload that finishes processing —
+// is picked up within one recheck window. Player call cost only applies to the
+// handful of HTML-fresh candidates, so this stays negligible.
+const HTML_FRESH_RECHECK_MS = 20000;
+
+// stderr is drained into the Rust log (tracing "[InnertubeDaemon]") — stdout
+// carries the JSON protocol, NEVER log there.
+function dlog(msg) { try { process.stderr.write(msg + '\n'); } catch (_) {} }
+
+// The gate must verify with an ANONYMOUS client, not the session client:
+// yt-dlp's first download attempt runs without cookies, and the operator
+// account often OWNS the probed channel — an authenticated check would call
+// the owner's own private videos playable. Client context must be ANDROID:
+// the default WEB /player response without visitor-data/po_token is
+// "UNPLAYABLE Video unavailable" for EVERY video (verified 2026-07-13 with
+// the bundled youtubei.js 17.0.1 — even a public control video), while
+// ANDROID cleanly returns OK for public and LOGIN_REQUIRED for private.
+let gateClientPromise = null;
+function ensureGateClient() {
+  if (!gateClientPromise) {
+    gateClientPromise = Innertube.create({ retrieve_player: false });
+    gateClientPromise.catch(() => { gateClientPromise = null; });
+  }
+  return gateClientPromise;
+}
+
+async function verifyHtmlFreshPlayable(videoId) {
+  const lastRejected = htmlFreshRejected.get(videoId) || 0;
+  if (Date.now() - lastRejected < HTML_FRESH_RECHECK_MS) return { playable: false };
+  if (htmlFreshRejected.size > 200) {
+    for (const [id, ts] of htmlFreshRejected) {
+      if (Date.now() - ts > 3600000) htmlFreshRejected.delete(id);
+    }
+  }
+  try {
+    const gateClient = await ensureGateClient();
+    const info = await gateClient.getBasicInfo(videoId, { client: 'ANDROID' });
+    const status = info.playability_status?.status || '';
+    const playable = status === 'OK' && !info.basic_info?.is_upcoming;
+    if (!playable) {
+      htmlFreshRejected.set(videoId, Date.now());
+      dlog(`[probe-gate] ${videoId} rejected: playability=${status || 'unknown'} reason="${info.playability_status?.reason || ''}" upcoming=${!!info.basic_info?.is_upcoming}`);
+      return { playable: false };
+    }
+    htmlFreshRejected.delete(videoId);
+    return { playable: true, durationSec: info.basic_info?.duration || 0 };
+  } catch (e) {
+    // Player errors (private videos often throw) count as not playable.
+    htmlFreshRejected.set(videoId, Date.now());
+    dlog(`[probe-gate] ${videoId} rejected: player error ${(e && e.message) || e}`);
+    return { playable: false };
+  }
+}
+
+async function getLatestVideo(channelId, cookieStr, fastProbe, probeCookie) {
   try {
     const client = await ensureClient(cookieStr);
     const resolvedId = await resolveChannelId(client, channelId);
@@ -321,7 +512,39 @@ async function getLatestVideo(channelId, cookieStr) {
       return { ok: false, error: 'Could not resolve channel ID: ' + channelId };
     }
     const playlistId = resolvedId.replace(/^UC/, 'UU');
+    // The HTML probe fetch prefers the dedicated probe cookie (CDP-fresh
+    // profile-1 owner cookie): stale session cookies get served the anonymous
+    // public-index view, which lags the owner view by minutes for fresh
+    // uploads/flips. The playability gate below keeps owner-only (private)
+    // items out of the pipeline.
+    const htmlPromise = fastProbe ? strategyPlaylistHTML(resolvedId, probeCookie || cookieStr) : Promise.resolve([]);
     const videos = await strategyPlaylistInnertube(client, playlistId);
+    const htmlVideos = await htmlPromise;
+
+    // Instant Playlist HTML Resolver: a video present on the playlist PAGE but
+    // absent from the API list is a brand-new upload the index hasn't caught up
+    // with — stamp it "published now" so the Rust age filter accepts it (the
+    // seen-ids dedup discards everything already processed). Only trust this
+    // when the API list is non-empty, so a total API failure can't turn 15 old
+    // videos into "new" ones. Each candidate must pass the player playability
+    // gate above — private/members-only/upcoming videos are dropped.
+    if (htmlVideos.length > 0 && videos.length > 0) {
+      const known = new Set(videos.map(v => v.videoId));
+      const fresh = [];
+      for (const hv of htmlVideos) {
+        if (!known.has(hv.videoId)) {
+          const verdict = await verifyHtmlFreshPlayable(hv.videoId);
+          if (!verdict.playable) continue;
+          hv.publishedAt = Date.now();
+          hv.durationSec = verdict.durationSec || 0;
+          dlog(`[probe] ${hv.videoId} HTML-fresh on ${resolvedId} — stamped published=now (dur=${hv.durationSec}s)`);
+          fresh.push(hv);
+        }
+      }
+      if (fresh.length > 0) {
+        return { ok: true, videos: [...fresh, ...videos] };
+      }
+    }
     return { ok: true, videos: videos };
   } catch (e) {
     return { ok: false, error: e.message || String(e) };
@@ -644,10 +867,15 @@ async function checkChromeChannelTabs(pollIntervalMs) {
 
     // 3. Process each open channel tab
     const promises = tabInfoList.map(async ({ tab, wsUrl, channelId }) => {
-      // Reload tab periodically based on poll interval (rust caps channel-check throttle to 1500ms)
+      // Reload tab periodically so the DOM source sees new uploads (an open
+      // channel tab never refreshes itself). Floor at 30s — the previous
+      // `pollIntervalMs * 2` formula collapsed to ~3s once the poll interval
+      // dropped to 2000ms, which would reload 30+ tabs every 3s (huge CPU/
+      // bandwidth + YouTube anti-bot risk). The subscriptions-feed and playlist
+      // API sources below update without any reload, so 30s DOM staleness is fine.
       if (wsUrl) {
         const lastReload = tabReloads[wsUrl] || 0;
-        const reloadThreshold = pollIntervalMs * 2;
+        const reloadThreshold = Math.max(30000, pollIntervalMs * 2);
         if (now - lastReload >= reloadThreshold) {
           tabReloads[wsUrl] = now;
           reloadTab(wsUrl, false).catch(() => {});
@@ -719,21 +947,14 @@ async function checkChromeChannelTabs(pollIntervalMs) {
         }
       }
 
-      // C. Extract from Playlist Poll (Priority 3, fallback)
-      const lastPoll = lastChannelPollTime.get(channelId) || 0;
-      let playlistVideos = [];
-      if (now - lastPoll >= 1500) {
-        lastChannelPollTime.set(channelId, now);
-        const result = await getLatestVideo(channelId, currentCookie);
-        if (result && result.ok && Array.isArray(result.videos)) {
-          playlistVideos = result.videos;
-          channelLastVideos.set(channelId, playlistVideos);
-        } else {
-          playlistVideos = channelLastVideos.get(channelId) || [];
-        }
-      } else {
-        playlistVideos = channelLastVideos.get(channelId) || [];
-      }
+      // C. Playlist Poll (Priority 3) — REMOVED as an active fetch. The Rust
+      // poller already polls every channel's playlist every ~2s with pooled
+      // sessions; doing it AGAIN here per open tab every 1.5s meant 24 tabs
+      // added ~16 req/s on the same IP and YouTube started serving EMPTY
+      // playlists to everything (log 2026-07-14 18-10-56: 14% of all poller
+      // responses "Got 0 videos", detection blind in waves). Keep only the
+      // cached list from previous runs for merge/backfill purposes.
+      const playlistVideos = channelLastVideos.get(channelId) || [];
 
       // Merge videos: Feed -> DOM -> Playlist (no duplicates)
       const mergedVideos = [...feedVideos];
@@ -856,18 +1077,36 @@ function runDaemon(initialCookie) {
           continue;
         }
 
-        // Handle getVideoInfo command - resolve channel ID and name for a video
+        // Handle getVideoInfo command - resolve channel ID, name and real publish
+        // time for a video. publishedAtMs comes from the player microformat's
+        // publishDate, which carries a full ISO timestamp — the only per-second
+        // publish time available (LockupView/tab text is minute-granular at best).
         if (req.cmd === 'getVideoInfo') {
           const videoId = req.videoId;
           ensureClient(req.cookie || currentCookie).then(async (client) => {
             try {
               const info = await client.getInfo(videoId);
+              const toMs = (v) => {
+                if (!v) return 0;
+                if (v instanceof Date) { const t = v.getTime(); return isNaN(t) ? 0 : t; }
+                const t = Date.parse(String(v));
+                return isNaN(t) ? 0 : t;
+              };
+              const mf = info.microformat || {};
+              const publishedAtMs = toMs(mf.publish_date) || toMs(mf.publishDate) || 0;
               writeResponse({
                 id: req.id || 0,
                 ok: true,
                 cmd: 'getVideoInfo',
                 channelId: info.basic_info.channel_id || '',
                 channelName: info.basic_info.author || '',
+                publishedAtMs: publishedAtMs,
+                // Premiere watcher: lets Rust poll a scheduled premiere by video id
+                // and fire the download the moment it stops being "upcoming".
+                isUpcoming: !!info.basic_info.is_upcoming,
+                isLive: !!info.basic_info.is_live,
+                durationSec: info.basic_info.duration || 0,
+                videoTitle: info.basic_info.title || '',
               });
             } catch (e) {
               writeResponse({ id: req.id || 0, ok: false, cmd: 'getVideoInfo', error: e.message });
@@ -886,7 +1125,7 @@ function runDaemon(initialCookie) {
 
         // Normal channel poll request
         const reqId = req.id;
-        getLatestVideo(req.channelId, req.cookie).then(result => {
+        getLatestVideo(req.channelId, req.cookie, !!req.fastProbe, req.probeCookie || '').then(result => {
           writeResponse({ id: reqId, ...result });
         }).catch(e => {
           writeResponse({ id: reqId, ok: false, error: e.message });

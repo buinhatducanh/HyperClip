@@ -47,9 +47,17 @@ pub fn get_youtube_client_priority() -> String {
         }
     }
 
-    // web is fast and reliable without VPN, android is fallback
-    // Removed ios (slow extraction) and tv_embedded (unnecessary) to save ~1-2s
-    "web,android".to_string()
+    // Match the customer-proven MVP chain (build f323d33, branch rtx5080):
+    // ios first serves just-uploaded/just-flipped videos that the web client
+    // still refuses — observed 0 auth failures across MVP sessions vs the
+    // "web,android" chain failing the first attempt on every flipped video.
+    // The earlier "-1-2s extraction" measurement that removed ios/tv_embedded
+    // was taken with tv_embedded FIRST (a failing client in front); ios-first
+    // resolves in a single request for both fresh and normal videos.
+    // tv_embedded is dropped from the MVP chain: the customer's newer yt-dlp
+    // prints `Skipping unsupported client "tv_embedded"` on every download
+    // (log 2026-07-15 14-01-42) — the client no longer exists upstream.
+    "ios,android,web".to_string()
 }
 
 #[derive(Debug, Clone)]
@@ -628,31 +636,45 @@ where
         Ok((status, stderr_output))
     };
 
-    // First attempt: try downloading anonymously (no cookies) so android client works at max speed
-    let (mut status, mut stderr_output) = run_ytdlp_attempt(false, &mut on_progress)?;
+    // First attempt: WITH cookies when a cookie file is available — this is the
+    // proven MVP behavior (build f323d33: cookies-first, 0 auth failures across
+    // observed sessions). The anonymous-first strategy failed on every
+    // just-flipped/private video of the customer's own channels (+2.5s wasted
+    // attempt, then a hard dependency on the cookie fallback), while a public
+    // video downloaded with stale cookies still succeeds (yt-dlp only warns).
+    let use_cookies_first = !clean_cookies.is_empty();
+    let (mut status, mut stderr_output) = run_ytdlp_attempt(use_cookies_first, &mut on_progress)?;
 
-    // Second attempt: if failed and cookies are available, check if we need to retry with cookies
-    if !status.success() && !clean_cookies.is_empty() {
+    // Second attempt: retry ANONYMOUSLY only when the failure smells like the
+    // cookie file itself (rotten/malformed cookies, SAPISIDHASH-context 403,
+    // format gating) — a public video poisoned by bad cookies downloads fine
+    // without them. Auth-REQUIRED failures (private video, age gate, login)
+    // are strictly worse anonymously, so those skip straight to the
+    // cookie-refresh retry at the commands.rs level instead of wasting an
+    // attempt here.
+    if !status.success() && use_cookies_first {
         let err_lower = stderr_output.to_lowercase();
-        let needs_auth = err_lower.contains("confirm your age")
-            || err_lower.contains("sign in to confirm")
-            || err_lower.contains("sign in")
-            || err_lower.contains("login")
-            || err_lower.contains("private video")
-            || err_lower.contains("login_required")
-            || err_lower.contains("unauthorized")
+        let needs_retry = err_lower.contains("no longer valid")
+            || err_lower.contains("cookies")
             || err_lower.contains("format is not available")
             || err_lower.contains("forbidden")
             || err_lower.contains("error 403");
+        let auth_required = err_lower.contains("private video")
+            || err_lower.contains("confirm your age")
+            || err_lower.contains("login_required")
+            // A premiere countdown fails identically for every client — the
+            // premiere backoff at the commands.rs level owns this case, an
+            // anonymous retry only wastes ~4s (observed 2026-07-15 14-01-42).
+            || err_lower.contains("premiere");
 
-        if needs_auth {
-            tracing::info!("[Youtube] Anonymous download failed or restricted. Retrying with cookies...");
+        if needs_retry && !auth_required {
+            tracing::info!("[Youtube] Cookie download failed or restricted. Retrying anonymously...");
             // Clean up any partial files
             let _ = std::fs::remove_file(&clean_out);
             let part_path = format!("{}.part", clean_out);
             let _ = std::fs::remove_file(&part_path);
 
-            let retry_res = run_ytdlp_attempt(true, &mut on_progress)?;
+            let retry_res = run_ytdlp_attempt(false, &mut on_progress)?;
             status = retry_res.0;
             stderr_output = retry_res.1;
         }

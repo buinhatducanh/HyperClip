@@ -259,10 +259,10 @@ impl AppState {
 
                         if let (Some(idx), Some(mut cc)) = (session_idx_opt, leased_client) {
                             match cc.client.get_video_info(&event.video_id, &cc.cookie).await {
-                                Ok((cid, cname, published_ms)) => {
-                                    if !cid.is_empty() {
-                                        event.channel_id = cid;
-                                        event.channel_name = cname;
+                                Ok(info) => {
+                                    if !info.channel_id.is_empty() {
+                                        event.channel_id = info.channel_id;
+                                        event.channel_name = info.channel_name;
                                         resolved_via_innertube = true;
                                         tracing::info!("[AppState] Innertube resolved watch video {} to channel_id: {}, channel_name: {}",
                                             event.video_id, event.channel_id, event.channel_name);
@@ -270,9 +270,18 @@ impl AppState {
                                     // Backfill the real publish time for ChromeWatcher events
                                     // (they arrive with published_at = 0) so the latency badge
                                     // reflects reality instead of showing "—" or a fake ~0s.
-                                    if event.published_at <= 1 && published_ms > 0 {
-                                        event.published_at = published_ms;
-                                        tracing::info!("[AppState] Resolved real publish time for {}: {}", event.video_id, published_ms);
+                                    if event.published_at <= 1 && info.published_at_ms > 0 {
+                                        event.published_at = info.published_at_ms;
+                                        tracing::info!("[AppState] Resolved real publish time for {}: {}", event.video_id, info.published_at_ms);
+                                    }
+                                    // Backfill duration too: ChromeWatcher DOM events carry
+                                    // duration_sec = 0, which let Shorts sail past the
+                                    // min-duration filter all the way to a wasted download
+                                    // that only THEN got discarded as 9:16 (log 18-10-56:
+                                    // 8.7s Short downloaded then dropped, shown as a failed
+                                    // workspace the customer read as "render fail").
+                                    if event.duration_sec <= 0.0 && info.duration_sec > 0.0 {
+                                        event.duration_sec = info.duration_sec;
                                     }
                                 }
                                 Err(e) => {
@@ -363,7 +372,23 @@ impl AppState {
                         return;
                     }
 
-                    let ws_id = format!("ws-ch-{}", event.detected_at);
+                    // ws ids derive from detected_at (ms), but full-parallel detection
+                    // can land several videos in the same millisecond — observed
+                    // 2026-07-13: 3 workspaces sharing one id, so store updates and UI
+                    // events cross-talked between them. Bump to the next unused ms to
+                    // stay unique while keeping the ws-ch-<ms> format (log analysis
+                    // reads the detect timestamp out of the id).
+                    static LAST_WS_ID_MS: std::sync::atomic::AtomicI64 =
+                        std::sync::atomic::AtomicI64::new(0);
+                    let unique_ms = LAST_WS_ID_MS
+                        .fetch_update(
+                            std::sync::atomic::Ordering::SeqCst,
+                            std::sync::atomic::Ordering::SeqCst,
+                            |last| Some(last.max(event.detected_at - 1) + 1),
+                        )
+                        .map(|last| last.max(event.detected_at - 1) + 1)
+                        .unwrap_or(event.detected_at);
+                    let ws_id = format!("ws-ch-{}", unique_ms);
 
                     // 0. Record detection event for UI history
                     {
@@ -415,7 +440,10 @@ impl AppState {
                         .and_then(|v| v.as_f64())
                         .unwrap_or(1.0);
 
-                    // 1.1 Max duration check (skip before download if duration is known)
+                    // 1.1 Duration checks (skip before download if duration is known).
+                    // The poller filters these upstream; ChromeWatcher events arrive
+                    // with duration 0 and get it backfilled from the player above, so
+                    // Shorts must be dropped HERE instead of after a wasted download.
                     let max_duration_sec = s_store.settings
                         .get("videoMaxDurationSec")
                         .and_then(|v| v.as_u64())
@@ -423,6 +451,16 @@ impl AppState {
                     if event.duration_sec > 0.0 && event.duration_sec > max_duration_sec {
                         tracing::info!("[AppState] Skipping video {} because its duration ({:.1}s) exceeds max limit ({}s)",
                             event.video_id, event.duration_sec, max_duration_sec);
+                        processing_video_ids_clone.lock().unwrap().remove(&event.video_id);
+                        return;
+                    }
+                    let min_duration_sec = s_store.settings
+                        .get("videoMinDurationSec")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(60) as f64;
+                    if event.duration_sec > 0.0 && event.duration_sec < min_duration_sec {
+                        tracing::info!("[AppState] Skipping video {} because its duration ({:.1}s) is under the Short limit ({}s)",
+                            event.video_id, event.duration_sec, min_duration_sec);
                         processing_video_ids_clone.lock().unwrap().remove(&event.video_id);
                         return;
                     }
@@ -564,6 +602,7 @@ impl AppState {
                     let ch_name = event.channel_name.clone();
                     let cid = event.channel_id.clone();
                     let video_id = event.video_id.clone();
+                    let title_for_retry = event.title.clone();
                     let hw_cfg = get_resolved_hardware_config();
                     let duration_sec_opt = Some(event.duration_sec.round() as u64);
                     let processing_video_ids_clone2 = processing_video_ids_clone.clone();
@@ -910,6 +949,45 @@ impl AppState {
                                     premiere_backoff_store().lock().unwrap().insert(video_id2.clone(), retry_at);
                                     tracing::info!("[AppState] Video {} is a premiere/upcoming. Backing off {:.0}s, removing from seen_videos and deleting workspace to retry later.", video_id2, (delay_ms + 30_000) as f64 / 1000.0);
 
+                                    // Flip the detection-history entry to a terminal state BEFORE
+                                    // deleting the workspace — it was set to "downloading" when the
+                                    // permit was acquired, and nothing updates it after the delete,
+                                    // leaving the UI stuck on "Đang tải" forever.
+                                    let sched_event = serde_json::json!({
+                                        "method": "workspace:update",
+                                        "params": {"id": tid, "status": "scheduled", "error": "Chờ công chiếu — tự thử lại khi lên sóng"}
+                                    });
+                                    hyperclip_ipc::emit_raw(&serde_json::to_string(&sched_event).unwrap_or_default());
+
+                                    // ACTIVE retry at air time: waiting for the channel poll to
+                                    // re-surface the video is unreliable (while live its duration
+                                    // reads 0 → Short filter; after a long premiere the age filter
+                                    // drops it → "premiere never downloads"). Fire the pipeline
+                                    // directly once the backoff window has passed; if the premiere
+                                    // still hasn't started, this lands back here with a new backoff.
+                                    {
+                                        let retry_video_id = video_id2.clone();
+                                        let retry_cid = cid.clone();
+                                        let retry_cname = ch_name.clone();
+                                        let retry_title = title_for_retry.clone();
+                                        std::thread::spawn(move || {
+                                            std::thread::sleep(std::time::Duration::from_millis((delay_ms + 35_000) as u64));
+                                            let now_ms = chrono::Utc::now().timestamp_millis();
+                                            tracing::info!("[AppState] Premiere retry firing for {}", retry_video_id);
+                                            let ev = NewVideoEvent {
+                                                channel_id: retry_cid,
+                                                channel_name: retry_cname,
+                                                video_id: retry_video_id.clone(),
+                                                title: retry_title,
+                                                thumbnail_url: format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", retry_video_id),
+                                                published_at: now_ms,
+                                                duration_sec: 0.0,
+                                                detected_at: now_ms,
+                                            };
+                                            (AppState::get_or_init()._process_handle)(ev);
+                                        });
+                                    }
+
                                     // Remove from seen_videos
                                     if let Ok(rt) = tokio::runtime::Runtime::new() {
                                         rt.block_on(async {
@@ -933,20 +1011,98 @@ impl AppState {
                                     });
                                     hyperclip_ipc::emit_raw(&serde_json::to_string(&del_event).unwrap_or_default());
                                 } else {
-                                    // Update workspace store status to error to prevent stuck state
-                                    let ws_path = get_workspaces_path();
-                                    let mut ws_store = WorkspaceStore::load(&ws_path);
-                                    ws_store.update(&tid, serde_json::json!({
-                                        "status": "error",
-                                        "error": e.clone(),
-                                    })).ok();
-                                    ws_store.save(&ws_path).ok();
+                                    // Auth-suspect failures get ONE retry after refreshing cookies
+                                    // from the running Chrome (CDP) — the global cookie files are
+                                    // built from a persisted snapshot at boot and YouTube rotates
+                                    // cookies fast enough that stale snapshots fail with "cookies
+                                    // are no longer valid". A fresh owner cookie also downloads the
+                                    // customer's own just-flipped/private test videos.
+                                    let is_cookie_suspect = err_lower.contains("no longer valid")
+                                        || err_lower.contains("private video")
+                                        || err_lower.contains("sign in");
+                                    let first_cookie_retry = is_cookie_suspect
+                                        && cookie_retry_store().lock().unwrap().insert(video_id2.clone());
 
-                                    let err_event = serde_json::json!({
-                                        "method": "workspace:update",
-                                        "params": {"id": tid, "status": "error", "error": e}
-                                    });
-                                    hyperclip_ipc::emit_raw(&serde_json::to_string(&err_event).unwrap_or_default());
+                                    if first_cookie_retry {
+                                        tracing::info!("[AppState] Download for {} failed with stale/invalid cookies — refreshing cookies via Chrome CDP and retrying once", video_id2);
+
+                                        // Terminal-ish state for the history row before the delete
+                                        // (INVARIANT #13) — the retry creates a fresh workspace.
+                                        let wait_event = serde_json::json!({
+                                            "method": "workspace:update",
+                                            "params": {"id": tid, "status": "waiting", "error": "Cookies hết hạn — đang làm mới từ Chrome và tự thử lại"}
+                                        });
+                                        hyperclip_ipc::emit_raw(&serde_json::to_string(&wait_event).unwrap_or_default());
+
+                                        // Delete the failed workspace; seen stays marked so the
+                                        // poller cannot double-detect while we wait — the retry
+                                        // below re-fires process_fn directly.
+                                        let ws_path = get_workspaces_path();
+                                        let mut ws_store = WorkspaceStore::load(&ws_path);
+                                        ws_store.workspaces.retain(|w| w.id != tid);
+                                        let _ = ws_store.save(&ws_path);
+                                        let del_event = serde_json::json!({
+                                            "method": "workspace:delete",
+                                            "params": {"id": tid}
+                                        });
+                                        hyperclip_ipc::emit_raw(&serde_json::to_string(&del_event).unwrap_or_default());
+
+                                        let retry_video_id = video_id2.clone();
+                                        let retry_cid = cid.clone();
+                                        let retry_cname = ch_name.clone();
+                                        let retry_title = title_for_retry.clone();
+                                        std::thread::spawn(move || {
+                                            // Wait for Chrome CDP (auto-launched at startup) so the
+                                            // extraction takes the live-CDP path instead of the
+                                            // stale JSON snapshot. Cap the wait at 120s.
+                                            let agent = ureq::AgentBuilder::new()
+                                                .try_proxy_from_env(false)
+                                                .build();
+                                            for _ in 0..24 {
+                                                let up = agent.get("http://127.0.0.1:9222/json")
+                                                    .timeout(std::time::Duration::from_millis(1000))
+                                                    .call()
+                                                    .is_ok();
+                                                if up { break; }
+                                                std::thread::sleep(std::time::Duration::from_secs(5));
+                                            }
+                                            match extract_profile_cookies_and_feed("HyperClip-Profile-1") {
+                                                Ok(_) => tracing::info!("[AppState] Cookie refresh for retry of {} done", retry_video_id),
+                                                Err(e) => tracing::warn!("[AppState] Cookie refresh for retry of {} failed: {}", retry_video_id, e),
+                                            }
+                                            std::thread::sleep(std::time::Duration::from_secs(1));
+                                            tracing::info!("[AppState] Cookie-refresh retry firing for {}", retry_video_id);
+                                            let now_ms = chrono::Utc::now().timestamp_millis();
+                                            let ev = NewVideoEvent {
+                                                channel_id: retry_cid,
+                                                channel_name: retry_cname,
+                                                video_id: retry_video_id.clone(),
+                                                title: retry_title,
+                                                thumbnail_url: format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", retry_video_id),
+                                                // 0 → process_fn backfills the real publish time via
+                                                // the daemon, keeping the latency badge honest.
+                                                published_at: 0,
+                                                duration_sec: 0.0,
+                                                detected_at: now_ms,
+                                            };
+                                            (AppState::get_or_init()._process_handle)(ev);
+                                        });
+                                    } else {
+                                        // Update workspace store status to error to prevent stuck state
+                                        let ws_path = get_workspaces_path();
+                                        let mut ws_store = WorkspaceStore::load(&ws_path);
+                                        ws_store.update(&tid, serde_json::json!({
+                                            "status": "error",
+                                            "error": e.clone(),
+                                        })).ok();
+                                        ws_store.save(&ws_path).ok();
+
+                                        let err_event = serde_json::json!({
+                                            "method": "workspace:update",
+                                            "params": {"id": tid, "status": "error", "error": e}
+                                        });
+                                        hyperclip_ipc::emit_raw(&serde_json::to_string(&err_event).unwrap_or_default());
+                                    }
                                 }
                             }
                         }
@@ -1023,6 +1179,16 @@ impl AppState {
                 _ => 2,
             };
             poller.set_render_poll_cap(render_poll_cap);
+
+            // Instant Playlist HTML Resolver: the first N channels in the list get
+            // the fast playlist-page probe each poll (catches uploads the API index
+            // lists minutes late). ~0.5MB/channel/cycle — keep N small and put
+            // priority/test channels at the top of the channel list.
+            let fast_probe_limit = s_store.settings.get("fastProbeLimit")
+                .or_else(|| s_store.settings.get("fast_probe_limit"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(3) as usize;
+            poller.set_fast_probe_limit(fast_probe_limit);
 
             let chrome_watcher = Arc::new(ChromeTabWatcher::new(
                 None, // default port (9222)
@@ -1273,6 +1439,11 @@ impl AppState {
             .and_then(|v| v.as_u64())
             .unwrap_or(3600) as u32;
         self.poller.reload_config(poll_interval_ms, max_age_minutes, min_duration_sec, max_duration_sec);
+        let fast_probe_limit = s_store.settings.get("fastProbeLimit")
+            .or_else(|| s_store.settings.get("fast_probe_limit"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3) as usize;
+        self.poller.set_fast_probe_limit(fast_probe_limit);
         self.chrome_watcher.reload_config(poll_interval_ms);
     }
 
@@ -1442,6 +1613,18 @@ fn detection_events_store() -> &'static Mutex<VecDeque<DetectionEvent>> {
 /// without a backoff the next poll (~2.5s) re-detects it and the whole
 /// detect→workspace→yt-dlp→fail→delete cycle loops until the premiere goes live,
 /// churning the UI and hogging the sequential download queue.
+/// Videos that already got one cookie-refresh retry (video_id). Downloads that
+/// die with "cookies are no longer valid"/"Private video" get exactly ONE
+/// retry after re-extracting fresh cookies from the running Chrome via CDP —
+/// the global cookies_netscape.txt is rebuilt from a persisted JSON snapshot at
+/// startup, and YouTube rotates cookies fast enough that a minutes-old snapshot
+/// is already rejected (customer log 2026-07-14 17-15-13: catch-up download
+/// fired 9s after boot, before Chrome/CDP was up, with a 9-minute-old snapshot).
+fn cookie_retry_store() -> &'static Mutex<std::collections::HashSet<String>> {
+    static STORE: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+}
+
 fn premiere_backoff_store() -> &'static Mutex<HashMap<String, i64>> {
     static STORE: OnceLock<Mutex<HashMap<String, i64>>> = OnceLock::new();
     STORE.get_or_init(|| Mutex::new(HashMap::new()))
@@ -1537,19 +1720,24 @@ pub fn init_appstate() {
                 // High-tier machines (RTX 5080, 16 workers) run 30+ tabs unharmed.
                 let s_path = get_settings_path();
                 let s_store = SettingsStore::load(&s_path);
-                let tier_default = matches!(
-                    hyperclip_ipc::system::get_gpu_config().tier,
-                    hyperclip_ipc::system::GPUTier::High
-                );
+                // Default ON for every tier: without Chrome+CDP the watch-tab
+                // ingest path (open a video in a tab → instant, filter-free
+                // download) is dead, which broke the operator's test flow of
+                // flipping private videos public (their publish date stays the
+                // original upload date, so the poller's age filter can never
+                // accept them). Contention on Mid/Low is bounded by the
+                // chromeTabLimit tier default (3 channel tabs) instead of
+                // disabling the whole source — the 17-07-29 regression came
+                // from 28 unlimited tabs, not from Chrome itself.
                 let auto_tabs = s_store.settings.get("chromeAutoOpenTabs")
                     .or_else(|| s_store.settings.get("chrome_auto_open_tabs"))
                     .and_then(|v| v.as_bool())
-                    .unwrap_or(tier_default);
+                    .unwrap_or(true);
                 if auto_tabs {
                     tracing::info!("[cookie-preload] Ensuring Chrome + channel tabs for ChromeWatcher");
                     launch_chrome_profile_async("HyperClip-Profile-1");
                 } else {
-                    tracing::info!("[cookie-preload] chromeAutoOpenTabs off (tier default or setting) — ChromeWatcher inactive unless Chrome is opened manually. Set chromeAutoOpenTabs=true + chromeTabLimit for priority channels on weaker GPUs.");
+                    tracing::info!("[cookie-preload] chromeAutoOpenTabs=false (setting) — ChromeWatcher inactive unless Chrome is opened manually.");
                 }
             } else {
                 tracing::warn!("[cookie-preload] Profile 1 has no valid cookies — launching Chrome to prompt login");
@@ -1973,6 +2161,21 @@ fn extract_profile_cookies(profile_id: &str) -> Result<String, String> {
     }
 }
 
+/// Extract the SAPISID value from a cookie string — the stable account
+/// identity marker (rotating values like SIDCC change constantly, SAPISID
+/// stays fixed per login session's account).
+fn cookie_sapisid(cookie: &str) -> Option<&str> {
+    for part in cookie.split(';') {
+        let part = part.trim();
+        if let Some(v) = part.strip_prefix("SAPISID=") {
+            if !v.is_empty() {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
 fn extract_profile_cookies_and_feed(profile_id: &str) -> Result<String, String> {
     let profile_dir = resolve_profile_dir(profile_id);
     let result = extract_chrome_cookies(&profile_dir, profile_id)
@@ -1983,8 +2186,37 @@ fn extract_profile_cookies_and_feed(profile_id: &str) -> Result<String, String> 
     if profile_id.starts_with("HyperClip-Profile-") {
         if let Ok(num) = profile_id["HyperClip-Profile-".len()..].parse::<usize>() {
             if num >= 1 && num <= 30 {
-                AppState::get_or_init().pool.set_session_cookie(num - 1, cookie_string.clone());
+                let pool = &AppState::get_or_init().pool;
+                pool.set_session_cookie(num - 1, cookie_string.clone());
                 tracing::info!("[Cookies] Extracted and loaded cookies into pool index {} for {}", num - 1, profile_id);
+
+                // Freshness sync: the 30 profiles were never 30 logins — both
+                // customer machines run ONE account's cookie cloned across the
+                // pool (verified 2026-07-15: 16/16 MVP profiles share a single
+                // SAPISID). Only profile-1 gets live CDP refreshes, so the
+                // other sessions decay into the anonymous public-index view
+                // (detection minutes late — the whole 5060-vs-3060 gap).
+                // Propagate profile-1's fresh cookie to every session that is
+                // the SAME identity (same SAPISID) or empty; sessions holding
+                // a genuinely different account login are left untouched.
+                if num == 1 {
+                    if let Some(fresh_sap) = cookie_sapisid(&cookie_string) {
+                        let mut synced = 0usize;
+                        for idx in 1..30 {
+                            let same_identity = match pool.session_cookie(idx) {
+                                Some(existing) => cookie_sapisid(&existing) == Some(fresh_sap),
+                                None => true,
+                            };
+                            if same_identity {
+                                pool.set_session_cookie(idx, cookie_string.clone());
+                                synced += 1;
+                            }
+                        }
+                        if synced > 0 {
+                            tracing::info!("[Cookies] Synced fresh Profile-1 cookie to {} clone/empty sessions", synced);
+                        }
+                    }
+                }
             }
         }
     } else {
@@ -2229,11 +2461,13 @@ fn launch_chrome_profile_async(profile_id: &str) {
             }
         }
 
-        // Cap the number of channel tabs — each open YouTube tab costs CPU/GPU/RAM
-        // that competes with NVENC and yt-dlp on weaker machines. chromeTabLimit
-        // counts CHANNEL tabs (the youtube.com home tab at index 0 is kept).
-        // 0/unset = unlimited (High tier); Mid/Low machines that enable tabs should
-        // set a small limit and put priority channels first in the channel list.
+        // chromeTabLimit counts CHANNEL tabs (the youtube.com home tab at
+        // index 0 is kept). Default 0 = OPEN ALL channels — operator decision
+        // 2026-07-14: full CDP tab coverage on every machine so each channel
+        // gets the ~0s DOM detection source. Known cost on Mid tier (measured
+        // 17-07-29: 28 tabs halved NVENC speed, downloads 2.4x slower) —
+        // set chromeTabLimit in settings.json to cap it if a weaker machine
+        // starts missing e2e targets.
         let s_path = get_settings_path();
         let s_store = SettingsStore::load(&s_path);
         let tab_limit = s_store.settings.get("chromeTabLimit")
@@ -2253,7 +2487,18 @@ fn launch_chrome_profile_async(profile_id: &str) {
         let mut launched = false;
         if is_same_profile_running {
             tracing::info!("[Chrome] Chrome is already running for profile {}. Checking open tabs...", profile_id_owned_clone);
-            
+
+            // Mark the profile active for the whole Chrome lifetime — cookie
+            // extraction then takes the live-CDP path instead of the
+            // persisted-JSON fast path. This branch used to LEAVE the flag
+            // unset (and even cleared it), so every extraction returned a
+            // stale snapshot and yt-dlp downloads died with "cookies are no
+            // longer valid" while fresh cookies sat one CDP call away.
+            // The monitor below clears the flag when Chrome closes.
+            if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
+                *lock = Some(profile_id_owned_clone.clone());
+            }
+
             // Ensure tabs are open in background
             let urls_c = urls_clone.clone();
             let p_id_c = profile_id_owned_clone.clone();
@@ -2261,16 +2506,11 @@ fn launch_chrome_profile_async(profile_id: &str) {
                 ensure_chrome_tabs_open(&p_id_c, &urls_c);
             });
 
-            // Extract cookies immediately
+            // Extract cookies immediately (fresh via CDP — profile marked active)
             match extract_profile_cookies_and_feed(&profile_id_owned_clone) {
                 Ok(_) => {
                     tracing::info!("[Chrome] Successfully extracted and updated cookies for existing Chrome profile {}", profile_id_owned_clone);
                     crate::emit(hyperclip_ipc::IpcResponse::event("channel:synced", serde_json::json!({})));
-                    if let Ok(mut lock) = hyperclip_ipc::cookies::ACTIVE_CHROME_PROFILE.lock() {
-                        if lock.as_deref() == Some(&profile_id_owned_clone) {
-                            *lock = None;
-                        }
-                    }
                 }
                 Err(e) => {
                     tracing::error!("[Chrome] Failed to extract cookies for existing Chrome: {}", e);
@@ -2278,8 +2518,15 @@ fn launch_chrome_profile_async(profile_id: &str) {
                         "title": "Đăng nhập YouTube",
                         "message": "Trình duyệt Chrome đang mở. Vui lòng đăng nhập để hoàn tất đồng bộ tài khoản."
                     })));
+                }
+            }
 
-                    // Spawn a monitor thread to wait for Chrome to close/sync
+            // Monitor Chrome for the rest of its lifetime in BOTH cases:
+            // periodic cookie refresh (60s cadence once logged in) + cleanup
+            // and final extraction on close. Previously this only ran when the
+            // first extraction FAILED, so a healthy session never refreshed
+            // again and the global cookie files aged into rejection.
+            {
                     let profile_id_clone = profile_id_owned_clone.clone();
                     std::thread::spawn(move || {
                         static MONITORED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
@@ -2301,8 +2548,10 @@ fn launch_chrome_profile_async(profile_id: &str) {
                         let check_url = "http://127.0.0.1:9222/json";
 
                         let mut synced = false;
+                        let mut ticks: u32 = 0;
                         loop {
                             std::thread::sleep(std::time::Duration::from_millis(2000));
+                            ticks = ticks.wrapping_add(1);
                             let is_running = agent.get(check_url)
                                 .timeout(std::time::Duration::from_millis(1000))
                                 .call()
@@ -2332,6 +2581,14 @@ fn launch_chrome_profile_async(profile_id: &str) {
                                 break;
                             }
 
+                            // Login-watch cadence: extract every 2s only until a logged-in
+                            // cookie appears; afterwards refresh once per minute (rotation).
+                            // Unthrottled every-2s extraction hammered DPAPI+SQLite and
+                            // re-fed the pool continuously for the whole Chrome lifetime.
+                            if synced && ticks % 30 != 0 {
+                                continue;
+                            }
+
                             match extract_profile_cookies_and_feed(&profile_id_clone) {
                                 Ok(cookie_string) => {
                                     let has_sapisid = cookie_string.contains("SAPISID");
@@ -2358,7 +2615,6 @@ fn launch_chrome_profile_async(profile_id: &str) {
                             }
                         }
                     });
-                }
             }
             launched = true;
         }
@@ -2393,9 +2649,11 @@ fn launch_chrome_profile_async(profile_id: &str) {
                         ensure_chrome_tabs_open(&profile_id_clone, &urls_c);
 
                         let mut synced = false;
+                        let mut ticks: u32 = 0;
                         loop {
                             std::thread::sleep(std::time::Duration::from_millis(2000));
-                            
+                            ticks = ticks.wrapping_add(1);
+
                             let is_closed = match child.try_wait() {
                                 Ok(Some(status)) => {
                                     tracing::info!("[Chrome] Chrome window closed with status: {:?}", status);
@@ -2421,6 +2679,12 @@ fn launch_chrome_profile_async(profile_id: &str) {
                                     let _ = cmd.status();
                                     std::thread::sleep(std::time::Duration::from_millis(500));
                                 }
+                            }
+
+                            // Login-watch cadence: every 2s until logged in, then once per
+                            // minute — same rationale as the existing-Chrome monitor above.
+                            if synced && !is_closed && ticks % 30 != 0 {
+                                continue;
                             }
 
                             match extract_profile_cookies_and_feed(&profile_id_clone) {
