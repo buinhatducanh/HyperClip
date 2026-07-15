@@ -274,4 +274,11 @@ pub struct VideoInfo {
     pub channel_id: Option<String>,
     #[serde(rename = "channelName", default)]
     pub channel_name: Option<String>,
+    /// Scheduled premiere/stream that has not aired yet — announced to the UI
+    /// as "Chờ chiếu" instead of entering the download pipeline.
+    #[serde(default)]
+    pub upcoming: bool,
+    /// Raw localized schedule text from YouTube (shown as-is in the UI).
+    #[serde(rename = "scheduleText", default)]
+    pub schedule_text: String,
 }

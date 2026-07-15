@@ -32,6 +32,7 @@ class DetectionHistoryModel(QAbstractListModel):
     PublishedDateStrRole = Qt.UserRole + 19
     DetectedDateStrRole = Qt.UserRole + 20
     LatencySourceRole = Qt.UserRole + 21
+    ScheduleTextRole = Qt.UserRole + 22
 
     # App-side worst-case detection is ~3s by spec (docs/DETECTION_LATENCY.md);
     # anything above this threshold means YouTube surfaced the video late on
@@ -247,6 +248,8 @@ class DetectionHistoryModel(QAbstractListModel):
             return f"{lt.tm_mday:02d}/{lt.tm_mon:02d}/{lt.tm_year}"
         if role == self.LatencySourceRole:
             return self._entry_latency_source(e)
+        if role == self.ScheduleTextRole:
+            return e.get("scheduleText", "")
         return None
 
     def roleNames(self):
@@ -272,13 +275,60 @@ class DetectionHistoryModel(QAbstractListModel):
             self.PublishedDateStrRole: QByteArray(b"publishedDateStr"),
             self.DetectedDateStrRole: QByteArray(b"detectedDateStr"),
             self.LatencySourceRole: QByteArray(b"latencySource"),
+            self.ScheduleTextRole: QByteArray(b"scheduleText"),
         }
+
+    @Slot(str, str, str, str, int)
+    def add_scheduled(self, video_id: str, title: str, channel_name: str,
+                      schedule_text: str, detected_at: int):
+        """Surface a scheduled premiere as a 'Chờ chiếu' row. Announced once —
+        replaced by the real detection entry when the video airs."""
+        ws_id = f"sched-{video_id}"
+        if self._find_row(ws_id) >= 0:
+            return
+        entry = {
+            "wsId": ws_id,
+            "videoId": video_id,
+            "title": title,
+            "channelName": channel_name,
+            "publishedAt": 0,
+            "detectedAt": detected_at,
+            "latencyMs": 0,
+            "durationSec": 0,
+            "status": "scheduled",
+            "scheduleText": schedule_text,
+            "isCatchup": False,
+        }
+        self.beginInsertRows(QModelIndex(), 0, 0)
+        self._entries.insert(0, entry)
+        self.endInsertRows()
+        self.changed.emit()
+        self.save_to_disk()
+
+    def _remove_scheduled_entry(self, video_id: str):
+        """Drop placeholder 'Chờ chiếu' rows once the premiere airs and a real
+        detection entry takes its place. Covers BOTH row kinds: the
+        sched-<videoId> announce row, and a real workspace row flipped to
+        'scheduled' by the premiere backoff before its workspace was deleted —
+        the retry then downloads under a NEW ws id, so without this the old
+        row sits at 'Chờ chiếu' forever and the customer cannot tell the
+        premiere actually downloaded (observed log 2026-07-15 14-01-42,
+        QxqGuFhSk5I)."""
+        for row in range(len(self._entries) - 1, -1, -1):
+            e = self._entries[row]
+            if e.get("videoId") != video_id:
+                continue
+            if e.get("wsId") == f"sched-{video_id}" or e.get("status") == "scheduled":
+                self.beginRemoveRows(QModelIndex(), row, row)
+                self._entries.pop(row)
+                self.endRemoveRows()
 
     @Slot(str, str, str, str, int, int, float, str)
     @Slot(str, str, str, str, int, int, float, str, bool)
     def add_detection(self, ws_id: str, video_id: str, title: str, channel_name: str,
                       published_at: int, detected_at: int, duration_sec: float, status: str,
                       is_catchup: bool = False):
+        self._remove_scheduled_entry(video_id)
         if published_at <= 86400 * 1000:
             latency = 0
         else:
