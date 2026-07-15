@@ -365,12 +365,21 @@ impl ChromeTabWatcher {
 
                                     if v.published_at <= 1 {
                                         if !bypass_age_limit {
-                                            tracing::info!(
-                                                "[ChromeWatcher] Skipping video {} because published date is unknown/unparseable (index: {}, channel_seen: {})",
-                                                v.video_id,
-                                                index,
-                                                channel_seen_exists
-                                            );
+                                            // Not marked seen (the date may become parseable
+                                            // later, e.g. a private/scheduled row going live),
+                                            // so this re-fires every 1.5s check — log only the
+                                            // first time per video (observed 166 identical
+                                            // lines in a 2-minute session with 27 tabs).
+                                            static SKIP_LOGGED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
+                                            let logged = SKIP_LOGGED.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+                                            if logged.lock().unwrap().insert(v.video_id.clone()) {
+                                                tracing::info!(
+                                                    "[ChromeWatcher] Skipping video {} because published date is unknown/unparseable (index: {}, channel_seen: {}) — further skips logged once",
+                                                    v.video_id,
+                                                    index,
+                                                    channel_seen_exists
+                                                );
+                                            }
                                             continue;
                                         }
                                     }
