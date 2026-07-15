@@ -52,6 +52,27 @@ struct NodeResponse {
     /// Real publish time (epoch ms) from the player microformat, 0 if unknown.
     #[serde(rename = "publishedAtMs", default)]
     published_at_ms: i64,
+    #[serde(rename = "isUpcoming", default)]
+    is_upcoming: bool,
+    #[serde(rename = "isLive", default)]
+    is_live: bool,
+    #[serde(rename = "durationSec", default)]
+    duration_sec_info: f64,
+    #[serde(rename = "videoTitle", default)]
+    video_title: String,
+}
+
+/// Per-video details from the daemon's getVideoInfo (player endpoint).
+#[derive(Debug, Clone, Default)]
+pub struct VideoDetails {
+    pub channel_id: String,
+    pub channel_name: String,
+    /// Real publish time (epoch ms) from the player microformat, 0 if unknown.
+    pub published_at_ms: i64,
+    pub is_upcoming: bool,
+    pub is_live: bool,
+    pub duration_sec: f64,
+    pub title: String,
 }
 
 #[derive(Deserialize)]
@@ -69,6 +90,12 @@ struct NodeVideo {
     channel_id: Option<String>,
     #[serde(rename = "channelName", default)]
     channel_name: Option<String>,
+    /// Scheduled premiere/stream that has not aired yet (UPCOMING overlay).
+    #[serde(default)]
+    upcoming: bool,
+    /// Raw localized schedule text from the lockup (e.g. "Công chiếu 18:35").
+    #[serde(rename = "scheduleText", default)]
+    schedule_text: String,
 }
 
 /// A persistent Node.js worker that communicates via stdin/stdout.
@@ -273,7 +300,11 @@ impl InnertubeClient {
             .current_dir(&project_root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null());
+            // stderr is the helper's diagnostic channel (stdout carries the JSON
+            // protocol). It used to be null'ed, which made the last two customer
+            // incidents (private-video ingest, silent probe decisions) invisible
+            // in the logs — drain it into tracing instead.
+            .stderr(Stdio::piped());
         #[cfg(target_os = "windows")]
         {
             cmd.creation_flags(0x08000000);
@@ -287,6 +318,23 @@ impl InnertubeClient {
         let stdout = child.stdout.take().ok_or_else(|| {
             HyperclipError::BackendCrashed("Failed to capture daemon stdout".into())
         })?;
+        if let Some(stderr) = child.stderr.take() {
+            std::thread::Builder::new()
+                .name("node-daemon-stderr".into())
+                .spawn(move || {
+                    use std::io::{BufRead, BufReader};
+                    for line in BufReader::new(stderr).lines() {
+                        match line {
+                            Ok(l) if !l.trim().is_empty() => {
+                                tracing::info!("[InnertubeDaemon] {}", l.trim());
+                            }
+                            Ok(_) => {}
+                            Err(_) => break,
+                        }
+                    }
+                })
+                .ok();
+        }
 
         // Spawn a background reader thread that reads lines from stdout
         // and sends them through a channel. This avoids Windows pipe buffering issues
@@ -430,10 +478,21 @@ impl InnertubeClient {
     }
 
     /// Fetch latest videos for a channel. Uses the persistent daemon.
+    /// `fast_probe` additionally fetches the uploads-playlist HTML page — a
+    /// surface that lists brand-new uploads minutes before the API index —
+    /// at ~0.5MB per call, so it is reserved for priority channels.
+    /// `probe_cookie`: cookie used for the HTML page fetch specifically.
+    /// Pass the CDP-fresh profile-1 cookie here — the pool session cookies are
+    /// stale clones that YouTube serves an ANONYMOUS (public-index) view for,
+    /// while a fresh OWNER cookie gets the owner view that lists uploads the
+    /// moment they go public (measured 2026-07-15: fresh-cookie machine saw a
+    /// new upload ~5 minutes before the stale-cookie machine's public index).
     pub async fn get_latest_videos(
         &mut self,
         channel_id: &str,
         cookie: &str,
+        fast_probe: bool,
+        probe_cookie: Option<&str>,
     ) -> Result<Vec<VideoInfo>> {
         self.ensure_daemon()?;
 
@@ -442,6 +501,8 @@ impl InnertubeClient {
             "id": id,
             "channelId": channel_id,
             "cookie": cookie,
+            "fastProbe": fast_probe,
+            "probeCookie": probe_cookie.unwrap_or(""),
         });
 
         let start = std::time::Instant::now();
@@ -494,6 +555,8 @@ impl InnertubeClient {
                                     height: 0,
                                     channel_id: v.channel_id,
                                     channel_name: v.channel_name,
+                                    upcoming: v.upcoming,
+                                    schedule_text: v.schedule_text,
                                 })
                                 .collect();
                             tracing::info!(
@@ -579,6 +642,8 @@ impl InnertubeClient {
                                     height: 0,
                                     channel_id: v.channel_id,
                                     channel_name: v.channel_name,
+                                    upcoming: v.upcoming,
+                                    schedule_text: v.schedule_text,
                                 })
                                 .collect();
                             return Ok(videos);
@@ -601,9 +666,9 @@ impl InnertubeClient {
     }
 
     /// Resolve channel info for a specific video ID using the persistent daemon.
-    /// Resolve channel id, channel name and the real publish time (epoch ms,
-    /// 0 = unknown) for a video via the daemon's getVideoInfo.
-    pub async fn get_video_info(&mut self, video_id: &str, cookie: &str) -> Result<(String, String, i64)> {
+    /// Resolve channel, real publish time and live/upcoming state for a video
+    /// via the daemon's getVideoInfo (player endpoint — filter-free).
+    pub async fn get_video_info(&mut self, video_id: &str, cookie: &str) -> Result<VideoDetails> {
         self.ensure_daemon()?;
 
         let id = self.req_counter.fetch_add(1, Ordering::SeqCst);
@@ -641,9 +706,15 @@ impl InnertubeClient {
                     }
                     if r.id == Some(id) {
                         if r.ok {
-                            let cid = r.channel_id.unwrap_or_default();
-                            let cname = r.channel_name.unwrap_or_default();
-                            return Ok((cid, cname, r.published_at_ms.max(0)));
+                            return Ok(VideoDetails {
+                                channel_id: r.channel_id.unwrap_or_default(),
+                                channel_name: r.channel_name.unwrap_or_default(),
+                                published_at_ms: r.published_at_ms.max(0),
+                                is_upcoming: r.is_upcoming,
+                                is_live: r.is_live,
+                                duration_sec: r.duration_sec_info,
+                                title: r.video_title,
+                            });
                         } else {
                             return Err(HyperclipError::InnertubeTransient(
                                 r.error.unwrap_or_default(),

@@ -158,12 +158,14 @@ SettingsCard {
                     // show as red.
                     Label {
                         text: {
+                            if (model.status === "scheduled") return "hẹn giờ"
                             const age = model.ageAtDetection || "—"
                             if (model.latencySource === "catchup") return age + " bù"
                             if (model.latencySource === "youtube") return age + " YT"
                             return age
                         }
-                        color: model.latencySource === "catchup" ? Theme.textMuted
+                        color: model.status === "scheduled" ? "#FFB74D"
+                             : model.latencySource === "catchup" ? Theme.textMuted
                              : model.latencySource === "youtube" ? "#4FC3F7"
                              : (model.latencyMs > 0 && model.latencyMs < 5000) ? Theme.success
                              : (model.latencyMs < 10000) ? "#FFD93D" : Theme.error
@@ -177,6 +179,7 @@ SettingsCard {
                                 case "waiting": return "Chờ"
                                 case "downloading": return "Đang tải"
                                 case "ready": return "Sẵn sàng"
+                                case "scheduled": return "Chờ chiếu"
                                 case "error": return "Lỗi"
                                 default: return model.status || "—"
                             }
@@ -188,9 +191,16 @@ SettingsCard {
                         font.pixelSize: 14; font.bold: true
                         Layout.preferredWidth: 70
                     }
-                    // Title
+                    // Title — scheduled premieres show YouTube's own schedule text
+                    // ("Công chiếu 18:35") so the customer knows the app saw the
+                    // premiere and is waiting for air time.
                     Label {
-                        text: model.title || ""
+                        text: {
+                            const t = model.title || ""
+                            if (model.status === "scheduled" && model.scheduleText)
+                                return t + "  —  " + model.scheduleText
+                            return t
+                        }
                         color: Theme.text; font.pixelSize: 14
                         elide: Text.ElideRight; Layout.fillWidth: true
                     }
