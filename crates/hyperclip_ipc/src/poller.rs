@@ -42,6 +42,15 @@ pub struct Poller {
     /// Poll concurrency ceiling while a render is active. Tier-aware: weak GPUs
     /// (Mid/Low) need 2 to protect NVENC FPS; High-tier machines keep full speed.
     render_poll_cap: AtomicUsize,
+    /// How many channels (from the top of the channel list) get the fast
+    /// playlist-HTML probe per poll — the surface that lists brand-new uploads
+    /// minutes before the API index (Instant Playlist HTML Resolver, see
+    /// docs/_archived/AUTO_INGESTION_TECH_OVERVIEW.md). ~0.5MB/channel/cycle,
+    /// so it is reserved for priority channels.
+    fast_probe_limit: AtomicUsize,
+    /// Premieres already announced to the UI (video_id) — announce once per app
+    /// session; the history entry persists on the Python side across restarts.
+    announced_premieres: Arc<Mutex<std::collections::HashSet<String>>>,
     /// Channels with a get_latest_videos request currently in flight (id → started).
     /// Poll cycles fire on a fixed cadence and skip these — one channel stalling
     /// ~10s (observed sporadic Innertube slowness) must not delay detection for
@@ -79,6 +88,8 @@ impl Poller {
             process_fn: Arc::new(process_fn),
             active_renders,
             render_poll_cap: AtomicUsize::new(2),
+            fast_probe_limit: AtomicUsize::new(3),
+            announced_premieres: Arc::new(Mutex::new(std::collections::HashSet::new())),
             in_flight: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
@@ -92,6 +103,14 @@ impl Poller {
     /// Set the poll concurrency ceiling used while renders are active.
     pub fn set_render_poll_cap(&self, cap: usize) {
         self.render_poll_cap.store(cap.max(1), Ordering::Relaxed);
+    }
+
+    /// Set how many channels (from the top of the channel list) get the
+    /// fast playlist-HTML probe on every poll. The probe sees brand-new
+    /// uploads minutes before the API index but costs ~0.5MB per channel
+    /// per cycle — keep this small (priority/test channels first in the list).
+    pub fn set_fast_probe_limit(&self, limit: usize) {
+        self.fast_probe_limit.store(limit, Ordering::Relaxed);
     }
 
     pub fn set_oauth_detector(&self, detector: Arc<OAuthFallbackDetector>) {
@@ -258,6 +277,77 @@ impl Poller {
         });
     }
 
+    /// Watch a scheduled premiere by video id and fire the ingestion pipeline
+    /// the moment it stops being "upcoming". Checks the player endpoint every
+    /// 45s (1 request per pending premiere — negligible), gives up after 24h.
+    /// This path is deliberately filter-free: process_fn applies its own
+    /// duration cap, and age/Short filters do not make sense for premieres.
+    async fn watch_premiere(
+        poller: Arc<Self>,
+        video_id: String,
+        channel_id: String,
+        channel_name: String,
+        title: String,
+        thumbnail_url: String,
+    ) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(24 * 3600);
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(45)).await;
+            if std::time::Instant::now() >= deadline {
+                tracing::warn!("[Poller] Premiere watcher for {} gave up after 24h", video_id);
+                return;
+            }
+
+            // Skip the check entirely if the video already got ingested some
+            // other way (e.g. detected post-air by the channel poll).
+            if poller.seen_videos.read().await.is_any_seen(&video_id) {
+                tracing::info!("[Poller] Premiere {} already ingested — watcher done", video_id);
+                return;
+            }
+
+            let leased = match poller.pool.acquire_session() {
+                Some(idx) => poller.pool.take_client_for_session(idx).await.map(|cc| (idx, cc)),
+                None => None,
+            };
+            let (session_idx, mut cc) = match leased {
+                Some(v) => v,
+                None => continue,
+            };
+
+            let info_res = cc.client.get_video_info(&video_id, &cc.cookie).await;
+            poller.pool.return_client(session_idx, cc.client);
+
+            match info_res {
+                Ok(info) if !info.is_upcoming => {
+                    let now_ms = chrono::Utc::now().timestamp_millis();
+                    tracing::info!(
+                        "[Poller] Premiere {} is now {} — firing ingestion (duration={:.0}s)",
+                        video_id,
+                        if info.is_live { "LIVE" } else { "published" },
+                        info.duration_sec
+                    );
+                    let event = NewVideoEvent {
+                        channel_id: channel_id.clone(),
+                        channel_name: channel_name.clone(),
+                        video_id: video_id.clone(),
+                        title: if info.title.is_empty() { title.clone() } else { info.title.clone() },
+                        thumbnail_url: thumbnail_url.clone(),
+                        published_at: if info.published_at_ms > 0 { info.published_at_ms } else { now_ms },
+                        duration_sec: info.duration_sec,
+                        detected_at: now_ms,
+                    };
+                    poller.record_detection();
+                    (poller.process_fn)(event);
+                    return;
+                }
+                Ok(_) => {} // still upcoming — keep waiting
+                Err(e) => {
+                    tracing::debug!("[Poller] Premiere watcher getInfo failed for {}: {}", video_id, e);
+                }
+            }
+        }
+    }
+
     async fn poll_once(self: Arc<Self>) -> Result<()> {
         // Spawning 27 parallel Innertube HTTP calls while NVENC renders competes for
         // CPU/IO and dropped encode FPS by 40% (1341 → 791) during observed run.
@@ -331,10 +421,14 @@ impl Poller {
                 active_channels.len().min(max_concurrency), active_channels.len());
             let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrency));
             let mut handles = Vec::new();
-            for channel in active_channels {
+            let fast_probe_limit = self.fast_probe_limit.load(Ordering::Relaxed);
+            for (channel_index, channel) in active_channels.into_iter().enumerate() {
                 let polled_successfully = Arc::clone(&polled_successfully);
                 let poller = self.clone();
                 let sem = Arc::clone(&semaphore);
+                // Priority channels (top of the channel list) get the playlist-HTML
+                // fast probe — put test/priority channels first in the list.
+                let fast_probe = channel_index < fast_probe_limit;
                 let flight_id = channel.id.clone();
                 self.in_flight.lock().unwrap().insert(flight_id.clone(), std::time::Instant::now());
 
@@ -378,7 +472,12 @@ impl Poller {
                     let cid = channel.id.clone();
 
                     tracing::info!("[Poller] Calling get_latest_videos for {cid}...");
-                    let mut videos_res = cc.client.get_latest_videos(&lookup_id, &cc.cookie).await;
+                    // HTML probe fetches use the CDP-fresh profile-1 cookie
+                    // (owner view — lists uploads the moment they go public);
+                    // the leased session cookie may be a stale clone that only
+                    // gets the lagging anonymous index.
+                    let probe_cookie = if fast_probe { poller.pool.session_cookie(0) } else { None };
+                    let mut videos_res = cc.client.get_latest_videos(&lookup_id, &cc.cookie, fast_probe, probe_cookie.as_deref()).await;
 
                     // If failed, check if it's an Auth/Cookie error and attempt to refresh
                     if let Err(ref e) = videos_res {
@@ -399,7 +498,7 @@ impl Poller {
                                         tracing::error!("[Poller] Failed to update client with new cookie: {:?}", err);
                                     }
                                     // Retry the request
-                                    videos_res = cc.client.get_latest_videos(&lookup_id, &new_cookie).await;
+                                    videos_res = cc.client.get_latest_videos(&lookup_id, &new_cookie, fast_probe, probe_cookie.as_deref()).await;
                                 }
                                 Err(ref refresh_err) => {
                                     tracing::error!("[Poller] Failed to refresh cookies for session {session_idx}: {}", refresh_err);
@@ -411,6 +510,18 @@ impl Poller {
                     match videos_res {
                         Ok(videos) => {
                             let total = videos.len();
+                            // An EMPTY playlist response is a throttle symptom, not data:
+                            // when YouTube rate-limits the IP it serves empty results with
+                            // 200-OK (observed 2026-07-14 18-10-56: 14% of responses empty
+                            // in waves, tracked channels all have videos). Treat it as
+                            // neutral — return the client but do NOT mark the poll
+                            // successful, so the OAuth fallback may cover the channel and
+                            // the session gets no false success credit.
+                            if total == 0 {
+                                tracing::info!("[Poller] get_latest_videos returned 0 videos for {cid} — treating as throttled/empty response");
+                                poller.pool.return_client(session_idx, cc.client);
+                                return;
+                            }
                             // Cap to newest 30 — Innertube often returns 100 videos but only
                             // the top few matter for "new uploads". This drastically reduces
                             // filtering CPU when the age limit is short (e.g. 10 min).
@@ -438,6 +549,48 @@ impl Poller {
                                 drop(seen_videos);
 
                                 if is_seen { stats.1 += 1; continue; }
+
+                                // Scheduled premieres are announced to the UI as
+                                // "Chờ chiếu" instead of being silently skipped —
+                                // otherwise the customer sees the video appear
+                                // minutes later with a big red latency badge and
+                                // assumes the app failed. NOT marked seen: the
+                                // video must still be detected when it airs.
+                                if video.upcoming {
+                                    let first_time = poller.announced_premieres.lock().unwrap().insert(video.video_id.clone());
+                                    if first_time {
+                                        tracing::info!("[Poller] Premiere scheduled on {cid}: {} \"{}\" ({})",
+                                            video.video_id, video.title, video.schedule_text);
+                                        let ev = serde_json::json!({
+                                            "method": "premiere:scheduled",
+                                            "params": {
+                                                "videoId": video.video_id,
+                                                "title": video.title,
+                                                "channelId": cid,
+                                                "channelName": channel.name,
+                                                "scheduleText": video.schedule_text,
+                                                "detectedAt": chrono::Utc::now().timestamp_millis(),
+                                            }
+                                        });
+                                        crate::emit_raw(&serde_json::to_string(&ev).unwrap_or_default());
+
+                                        // Active watcher: poll THIS video's player info until it
+                                        // stops being "upcoming", then fire the pipeline directly.
+                                        // The passive path (channel list re-detection) is unreliable
+                                        // for premieres: while live the duration reads 0 (dropped by
+                                        // the Short filter) and after a long premiere the age filter
+                                        // drops it — observed as "premiere never downloads".
+                                        tokio::spawn(Self::watch_premiere(
+                                            poller.clone(),
+                                            video.video_id.clone(),
+                                            cid.clone(),
+                                            channel.name.clone(),
+                                            video.title.clone(),
+                                            video.thumbnail_url.clone(),
+                                        ));
+                                    }
+                                    continue;
+                                }
 
                                 if video.duration_sec < min_duration_sec as f64 {
                                     stats.2 += 1; continue;
