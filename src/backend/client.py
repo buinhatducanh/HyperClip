@@ -305,6 +305,8 @@ class RustClient(QObject):
                 bus.notification.emit(params.get("title", ""), params.get("message", ""))
             elif method == "new_video_detected":
                 bus.new_video_detected.emit(params)
+            elif method == "premiere:scheduled":
+                bus.premiere_scheduled.emit(params)
             elif method == "download:progress-event":
                 bus.download_progress.emit(
                     params.get("workspace_id", ""),
