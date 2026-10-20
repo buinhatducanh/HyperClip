@@ -24,6 +24,7 @@ C:/CapCut*
 
 # Chrome / AdsPower user profiles (huge session data)
 chrome-profiles/
+temp_auto_push.bat
 TikTok-Profiles/
 test-probe-profile/
 HyperClip-Data/chrome-profiles/
@@ -40,3 +41,16 @@ app/_internal/node_modules/
 app/_internal/resources/ffmpeg/
 app/_internal/resources/node/
 app/_internal/PySide6/
+
+# Local backups and runtime archives
+app.backup-*/
+75cb3/
+HyperClip-Patch-*/
+HyperClip-Data/
+HyperClip.exe
+*.bat
+SHA256SUMS.txt
+bg.jpg
+relay-state.json
+.gitignore
+branch_structure.json
