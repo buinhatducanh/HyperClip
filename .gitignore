@@ -40,3 +40,14 @@ app/_internal/node_modules/
 app/_internal/resources/ffmpeg/
 app/_internal/resources/node/
 app/_internal/PySide6/
+
+# Local backups and runtime archives
+app.backup-*/
+75cb3/
+HyperClip-Patch-*/
+HyperClip-Data/
+HyperClip.exe
+*.bat
+SHA256SUMS.txt
+bg.jpg
+relay-state.json
