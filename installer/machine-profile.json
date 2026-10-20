@@ -1,0 +1,99 @@
+{
+  "profileId": "rtx5070-jp",
+  "displayName": "RTX 5070 12GB — may khach Nhat Ban (JST)",
+  "schemaVersion": 1,
+  "targetGpuMatch": ["RTX 5070"],
+  "targetGpuReject": ["RTX 5070 Ti"],
+  "expectedVramGB": 12,
+  "minNvidiaDriver": "572.16",
+  "notes": [
+    "GB205: 12GB VRAM, MOT chip NVENC gen 9, MOT chip NVDEC.",
+    "Khac 5080/5070 Ti (GB203, 16GB, HAI NVENC) — moi con so o day deu tinh cho mot chip encode.",
+    "Moi khoa duoi day deu la khoa THAT doc trong ma nguon; xem field 'why'."
+  ],
+
+  "_comment_removeKeys": "Khoa chet: con lai trong settings.json se lam sai hanh vi hoac gay nham lan.",
+  "removeKeys": [
+    "daemonLimit",
+    "chromeTabLimit",
+    "chromeAutoOpenTabs",
+    "chromeWatcherEnabled",
+    "legacyCookiePreload",
+    "detectionIndexCutMs"
+  ],
+
+  "_comment_autoDetect": "Installer do phan cung that va ghi de vao settings truoc khi ap overlay.",
+  "autoDetect": {
+    "hardwareProfile.vramGB": "gpuVramGB",
+    "hardwareProfile.ramGB": "systemRamGB"
+  },
+
+  "_comment_hardware": "NHOM 1 — phan cung. Doc boi get_resolved_hardware_config() (src-tauri/src/commands.rs:4210).",
+  "settings": {
+    "hardwareProfile": {
+      "vramGB": 12,
+      "ramGB": 32
+    },
+
+    "maxConcurrentRenders": 2,
+    "maxConcurrentDownloads": 1,
+    "parallelChunkRender": false,
+
+    "pollIntervalMs": 2000,
+    "pollingEnabled": true,
+
+    "autoDownloadEnabled": true,
+    "autoDownloadQuality": "720",
+    "autoDownloadMaxAgeMinutes": 1440,
+    "defaultQuality": 1080,
+    "defaultTrimLimit": 5,
+    "defaultTrimLimitMinutes": 10,
+    "videoMinDurationSec": 60,
+    "videoMaxDurationSec": 3600,
+
+    "autoRender": false,
+    "autoRenderResolution": "1080p",
+    "autoRenderFPS": 30,
+    "autoRenderSpeed": 1.1,
+    "autoRenderTitleTemplate": "{title}",
+    "autoSplitEnabled": false,
+    "autoSplitMinutes": 0,
+    "autoSplitMode": "parts",
+    "autoSplitParts": 1,
+
+    "bypassVpn": false,
+    "proxyEnabled": false,
+    "proxyHost": "",
+    "proxyPort": 0,
+    "proxyUsername": "",
+    "proxyPassword": "",
+
+    "minimizeToTray": true,
+    "quitOnClose": false,
+    "downloadsCleanupDays": 7,
+    "onboardingComplete": false,
+    "tiktokUploadEnabled": false
+  },
+
+  "why": {
+    "hardwareProfile.vramGB": "QUAN TRONG NHAT. commands.rs:4219 lay min(profile_vram, vram_do_duoc). Gia tri 6 trong settings.json cu se ep min(6,12)=6 -> nhanh 'Low': render_workers 2, chunk_workers 2, gpu_tier=Low. Tier Low lam ffmpeg.rs:2099 chon h264_nvenc thay vi hevc_nvenc, va h264 @6M cho 720x1280@30 bi doi bitrate -> QP pumping, dung trieu chung 'giat lag' da ghi o ffmpeg.rs:2090. De 12 -> nhanh '>=12 High': preset p3, tier High, hevc_nvenc.",
+    "hardwareProfile.ramGB": "commands.rs:4236 cap theo RAM that: <16GB ep render_workers ve 1, <24GB ve 2, <32GB ve 3. Khai bao thap hon RAM that la tu bop hieu nang.",
+    "maxConcurrentRenders": "commands.rs:4341 — user override thang moi tinh toan phia tren. 2 la tran hop ly cho MOT chip NVENC: worker thu 2 chi lap day phan filter/audio/mux trong khi worker 1 dang encode. 3 tro len chi chia nho cung mot encoder, chua ke ~1.5GB VRAM/worker.",
+    "maxConcurrentDownloads": "1. commands.rs:4348 ghi ro: N download song song thi moi cai chay ~1/N toc do va MOI video deu xong muon hon la lam tuan tu. Khach muon 'phat hien truoc = xong truoc'.",
+    "parallelChunkRender": "false. ffmpeg.rs:1319 should_parallel_chunk() doi tier High + khoa nay. Chunk song song CHI co lai tren card 2+ NVENC (system.rs gpu_has_multi_nvenc). RTX 5070 co mot chip: bat len se lam render CHAM DI (do 0.86x tren may mot NVENC).",
+    "pollIntervalMs": "2000 — nhip mong muon theo spec Pass 6 (san 1000). Day chi la SAN: api_detector tu gian nhip theo ngan sach quota con lai, nen de 2000 khong lam cháy quota.",
+    "autoDownloadQuality": "Nang 360 -> 720. Ban 360p up-scale len khung 1080x1920 nhin ro vo. Doi lai moi video tai nang gap ~3 lan — chap nhan duoc tren duong truyen Nhat. Muon uu tien toc do e2e thi doi lai '360' o dung dong nay.",
+    "autoRenderResolution": "Nang 720p -> 1080p. ffmpeg.rs:2107 cho 1080p tran maxrate 12M (720p chi 6M). RTX 5070 dư suc; day la ly do chinh mua may nay.",
+    "autoRender": "De false theo dung khuyen nghi trong docs/CUSTOMER_SETUP_GUIDE.md — bat sau khi khach da xem thu vai video ra dung y. Bat trong Cai dat, khong can cai lai.",
+    "bypassVpn": "false. Khi true, youtube.rs goi get_physical_ip() -> spawn PowerShell (~1-1.5s/lan, co cache 5 phut) de bind --source-address. May Nhat di thang khong qua VPN nen khong can, va tranh luon chi phi do.",
+    "onboardingComplete": "false — de khach di het wizard 5 buoc va tu dang nhap Chrome tren MAY CUA HO (cookie Chrome ma hoa bang DPAPI theo tai khoan Windows, khong the bung tu may khac sang)."
+  },
+
+  "japanNotes": {
+    "khungGioKenh": "Khung gio quet cua tung kenh (window_start/window_end) tinh theo GIO VIET NAM UTC+7 co dinh — api_detector.rs:76 vn_minute_of_day(), khong doc dong ho may. Tren may Nhat (JST, UTC+9) khung '18:00-23:00' trong app = 20:00-01:00 gio Nhat. Muon dung theo gio Nhat thi tru 2 tieng khi nhap.",
+    "resetQuota": "So quota reset theo 0h gio Pacific, tinh bang UTC-8 co dinh (api_detector.rs:59). Quy ra gio Nhat: 17:00 JST hang ngay.",
+    "ngayNghiepVu": "Bo dem 'kenh nay da bat du n video hom nay' reset theo ngay UTC+7 (api_detector.rs:65) = 02:00 JST.",
+    "dongHoMay": "Ca ba moc tren deu tinh tu epoch UTC nen KHONG phu thuoc timezone Windows. Dat timezone may la Tokyo chi de log de doc.",
+    "cookieChrome": "cookies_dpapi.rs dung CryptUnprotectData — cookie Chrome ma hoa rang buoc tai khoan Windows. Thu muc chrome-profiles bung tu may operator sang may khach se KHONG giai ma duoc. Khach bat buoc phai dang nhap YouTube tren chinh may cua ho o buoc 1 cua wizard."
+  }
+}

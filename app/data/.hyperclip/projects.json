@@ -1,0 +1,334 @@
+{
+  "projects": [
+    {
+      "projectId": "proj-01",
+      "name": "proj-01",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 1778699062166
+    },
+    {
+      "projectId": "proj-02",
+      "name": "proj-02",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "proj-03",
+      "name": "proj-03",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "proj-04",
+      "name": "proj-04",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "vast-reality-494804-r6",
+      "name": "hungmastercode1@gmail.com",
+      "clientId": "687571691838-12jci06pl1efkjlepheu4dnusu8patjk.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "sanguine-tome-494805-j2",
+      "name": "hthanh24806@gmail.com",
+      "clientId": "1046313180305-1ddhgu0p64iuasg28r1v0mlcic1ng2j3.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "hyperclip1a",
+      "name": "proj-01 (hyperclip1a@gmail.com)",
+      "clientId": "296037912945-a17d1d11psjilf4gncjs2uttlbd9lgeq.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 1778699062162
+    },
+    {
+      "projectId": "kuhdf72387932",
+      "name": "proj-02 (anhbndpc05737@gmail.com)",
+      "clientId": "863205553231-hkcm3lh94evf2ohsmo1cqt148mpup8t0.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 1778699062147
+    },
+    {
+      "projectId": "kczilk-495779978021",
+      "name": "proj-03 (kczilk@gmail.com)",
+      "clientId": "495779978021-hed4khk9ui0uvq7kubfgjfmljmd12sll.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 1778699062121
+    },
+    {
+      "projectId": "cyper-clip",
+      "name": "proj-04 (ducan.hthienbinh.suhuynh@gmail.com)",
+      "clientId": "1011864613739-tlom4f4gf6q0a53jgrd03b2b1jf0gh9a.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "animated-rope-494804-m1",
+      "name": "kczilk1@gmail.com",
+      "clientId": "307872922332-nuq21tj9kp34ufq32tmvnhqht7s0ph0p.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "sigma-chemist-494913-b4",
+      "name": "nguyencongnguyen234265 (quỳnh)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "vocal-messenger-494807-d8",
+      "name": "hatheanh772006 (Thế Anh)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "stalwart-realm-494807-u6",
+      "name": "theanh248w (Thế Anh)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "feisty-tempest-494805-g9",
+      "name": "hungmastercode2 (Hùng)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "starry-braid-494805-e1",
+      "name": "dhungmaster (quỳnh)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "nguyentunguyen1333",
+      "name": "nguyentunguyen1333 (quỳnh)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "deft-envoy-494805-a0",
+      "name": "hungmastercode3 (Hùng)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "hyperclip2a",
+      "name": "hyperclip2a (shared with kuhdf72387932)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "cosmic-facility-494812-n0",
+      "name": "hungmastercode4 (Hùng)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "weighty-treat-494812-b5",
+      "name": "doxiu002 (TÀI)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "metal-filament-494812-q4",
+      "name": "doxiu003 (TÀI)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "thinking-leaf-494813-u7",
+      "name": "doxiu004 (TÀI)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "iron-atom-494817-u9",
+      "name": "doxiu005 (TÀI)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "glass-sequence-494818-c9",
+      "name": "taibeanclone001 (TÀI)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "thuyduongq143",
+      "name": "thuyduongq143 (shared with kuhdf72387932)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "tdvt83",
+      "name": "tdvt83 (shared with kuhdf72387932)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "tduong83st",
+      "name": "tduong83st (shared with kuhdf72387932)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "enhanced-kiln-494912-q3",
+      "name": "thuanperry (thuận)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "inner-deck-494913-m6",
+      "name": "hanhnguyen234838 (quỳnh)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "test-2-494912",
+      "name": "tessssting1 (thuận)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "test-3-494913",
+      "name": "tessssting2 (thuận)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    },
+    {
+      "projectId": "sound-aileron-494913-c7",
+      "name": "anhhoangtran1308 (Hoàng Anh)",
+      "clientId": "391800105130-kbc3enc2n9lmdrnnduueccr09oeo7l35.apps.googleusercontent.com",
+      "healthy": true,
+      "quotaUsed": 0,
+      "quotaLimit": 10000,
+      "error": null,
+      "lastRefresh": 0
+    }
+  ]
+}

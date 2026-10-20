@@ -1,0 +1,1 @@
+            poll_interval_ms: AtomicU64::new(Self::clamp_interval(poll_interval_ms)),

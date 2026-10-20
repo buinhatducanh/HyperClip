@@ -1,0 +1,3 @@
+                poller_process_fn,
+                active_renders.clone(),
+            ));

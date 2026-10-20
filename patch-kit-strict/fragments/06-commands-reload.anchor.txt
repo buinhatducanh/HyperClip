@@ -1,0 +1,1 @@
+        self.poller.reload_config(poll_interval_ms, max_age_minutes, min_duration_sec, max_duration_sec);

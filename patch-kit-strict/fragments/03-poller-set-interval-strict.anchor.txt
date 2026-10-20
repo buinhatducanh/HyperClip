@@ -1,0 +1,3 @@
+    /// Nhịp thực tế: không nhanh hơn mong muốn của người dùng, và không nhanh
+    /// hơn mức ngân sách quota còn lại cho phép trải tới lần reset kế tiếp.
+    fn effective_interval_ms(&self, units_per_tick: u32) -> u64 {

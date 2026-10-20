@@ -1,0 +1,34 @@
+        if adaptive == u64::MAX {
+            // Quota cạn HẲN: strict hay không cũng lùi 5 phút — không còn unit
+            // thì ép nhịp chỉ tạo ra một chuỗi call fail.
+            return INTERVAL_EXHAUSTED_MS;
+        }
+        let strict = self
+            .poll_interval_strict
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if strict {
+            // Operator ra lệnh nghe setting — nghe, nhưng nói rõ cái giá:
+            // ETA cạn quota theo đà tiêu hiện tại, WARN 10 phút/lần.
+            if adaptive > desired {
+                let last = self.last_strict_warn_ms.load(Ordering::Relaxed);
+                if now_ms - last > 10 * 60 * 1000
+                    && self
+                        .last_strict_warn_ms
+                        .compare_exchange(last, now_ms, Ordering::Relaxed, Ordering::Relaxed)
+                        .is_ok()
+                {
+                    let ticks_left = (remaining as u64) / (units_per_tick.max(1) as u64);
+                    let exhaust_ms = now_ms + ticks_left.saturating_mul(desired) as i64;
+                    let eta = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(exhaust_ms)
+                        .map(|t| t.format("%H:%M UTC").to_string())
+                        .unwrap_or_else(|| "?".into());
+                    tracing::warn!(
+                        "[Poller] pollIntervalStrict: chạy {}ms theo setting (quota muốn giãn {}ms) — đà này còn {} units, dự kiến CẠN ~{} rồi lùi 5 phút/nhịp tới reset. Thêm project, hoặc đặt \"pollIntervalStrict\": false nếu muốn app tự giãn nhịp.",
+                        desired, adaptive, remaining, eta
+                    );
+                }
+            }
+            return desired.max(INTERVAL_FLOOR_MS);
+        }
+        desired.max(adaptive).max(INTERVAL_FLOOR_MS)
+    }

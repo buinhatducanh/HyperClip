@@ -1,0 +1,42 @@
+# Logs & cache
+*.log
+*.log.*
+HyperClip-Data/logs/
+HyperClipB-Data/logs/
+.cache/
+Crashpad/
+
+# Large downloads & renders
+downloads/
+renders/
+output/
+media/
+HyperClip-Data/downloads/
+HyperClip-Data/renders/
+HyperClip-Data/media/
+HyperClipB-Data/downloads/
+HyperClipB-Data/renders/
+HyperClipB-Data/media/
+C:/CapCut*
+
+# Zip archives
+*.zip
+
+# Chrome / AdsPower user profiles (huge session data)
+chrome-profiles/
+TikTok-Profiles/
+test-probe-profile/
+HyperClip-Data/chrome-profiles/
+HyperClip-Data/TikTok-Profiles/
+HyperClipB-Data/chrome-profiles/
+
+# Node modules
+node_modules/
+app/_internal/node_modules/
+
+# Heavy binaries & runtime libraries (exceed GitHub 100MB limit)
+*.dll
+*.pyd
+app/_internal/resources/ffmpeg/
+app/_internal/resources/node/
+app/_internal/PySide6/

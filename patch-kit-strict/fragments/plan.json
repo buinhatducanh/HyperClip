@@ -1,0 +1,32 @@
+[
+  {
+    "name": "01-poller-struct-fields",
+    "file": "poller",
+    "kind": "insert_after"
+  },
+  {
+    "name": "02-poller-init",
+    "file": "poller",
+    "kind": "insert_after"
+  },
+  {
+    "name": "03-poller-set-interval-strict",
+    "file": "poller",
+    "kind": "replace"
+  },
+  {
+    "name": "04-poller-effective-interval",
+    "file": "poller",
+    "kind": "replace"
+  },
+  {
+    "name": "05-commands-boot",
+    "file": "commands",
+    "kind": "insert_after"
+  },
+  {
+    "name": "06-commands-reload",
+    "file": "commands",
+    "kind": "insert_after"
+  }
+]

@@ -1,0 +1,18 @@
+            // Operator 28/08: "hết quota tôi tự chịu" — MẶC ĐỊNH ép nhịp đúng
+            // pollIntervalMs (bỏ giãn thích ứng theo quota), áp từ lúc boot.
+            // Đặt "pollIntervalStrict": false mới bật lại giãn thích ứng.
+            let interval_strict = s_store.settings
+                .get("pollIntervalStrict")
+                .or_else(|| s_store.settings.get("poll_interval_strict"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            poller.set_interval_strict(interval_strict);
+            // Log boot LUÔN IN (set_interval_strict chỉ log khi đổi trạng thái,
+            // mà mặc định đã BẬT nên boot không đổi gì) — để soi log là biết
+            // nhịp đang chạy chế độ nào.
+            tracing::info!(
+                "[Poller] pollIntervalStrict={} — nhịp {} pollIntervalMs trong settings{}",
+                interval_strict,
+                if interval_strict { "chạy ĐÚNG" } else { "được giãn theo quota trên" },
+                if interval_strict { " (mặc định; quota cạn hẳn vẫn lùi 5 phút/nhịp)" } else { "" }
+            );

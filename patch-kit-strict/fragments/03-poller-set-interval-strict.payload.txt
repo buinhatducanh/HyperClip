@@ -1,0 +1,22 @@
+    /// Bật/tắt chế độ ép nhịp theo setting (`pollIntervalStrict`).
+    pub fn set_interval_strict(&self, strict: bool) {
+        let was = self
+            .poll_interval_strict
+            .swap(strict, std::sync::atomic::Ordering::Relaxed);
+        if was != strict {
+            tracing::info!(
+                "[Poller] pollIntervalStrict={} — nhịp {} setting, {}",
+                strict,
+                if strict { "ÉP THEO" } else { "được giãn theo quota trên" },
+                if strict {
+                    "bỏ giãn thích ứng (mặc định — operator tự chịu rủi ro cạn quota trước reset)"
+                } else {
+                    "giãn thích ứng bật lại theo yêu cầu (pollIntervalStrict=false)"
+                }
+            );
+        }
+    }
+
+    /// Nhịp thực tế: không nhanh hơn mong muốn của người dùng, và không nhanh
+    /// hơn mức ngân sách quota còn lại cho phép trải tới lần reset kế tiếp.
+    fn effective_interval_ms(&self, units_per_tick: u32) -> u64 {

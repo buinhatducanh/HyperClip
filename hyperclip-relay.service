@@ -1,0 +1,24 @@
+# /etc/systemd/system/hyperclip-relay.service
+# Sửa WorkingDirectory/User + env trước khi enable.
+[Unit]
+Description=HyperClip WebSub Relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/hyperclip-relay
+ExecStart=/usr/bin/node relay.js
+Environment=PORT=8787
+Environment=PUBLIC_URL=https://relay.hyperclip.id.vn
+# Environment=TOKEN=doi-token-nay-neu-app-dat-websubRelayToken
+# Environment=HUB_SECRET=chuoi-ngau-nhien-cho-X-Hub-Signature
+Restart=always
+RestartSec=3
+User=nobody
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/hyperclip-relay
+
+[Install]
+WantedBy=multi-user.target

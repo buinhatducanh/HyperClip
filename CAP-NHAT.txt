@@ -1,0 +1,6 @@
+CAP NHAT RELAY WEBSUB (ban nhanh claude/video-publish-time-mismatch-dhk4mk, gitHead 71118f9)
+
+Chep 5 file nay DE len thu muc relay dang chay (thu muc co relay.env va subscriptions.json).
+KHONG dong den relay.env va subscriptions.json.
+
+Roi lam theo huong dan trong chat.

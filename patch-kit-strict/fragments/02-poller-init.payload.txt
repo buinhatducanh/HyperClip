@@ -1,0 +1,2 @@
+            poll_interval_strict: std::sync::atomic::AtomicBool::new(true),
+            last_strict_warn_ms: AtomicI64::new(0),

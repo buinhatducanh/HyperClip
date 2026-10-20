@@ -1,0 +1,11 @@
+﻿{
+    "package":  "HyperClip-rtx5070-jp-20260826-095659",
+    "builtAt":  "2026-08-26T09:57:08.6494433+07:00",
+    "profileId":  "rtx5070-jp",
+    "profileName":  "RTX 5070 12GB — may khach Nhat Ban (JST)",
+    "gitHead":  "9949626",
+    "gitBranch":  "claude/app-setup-machine-5070-6m8bkp",
+    "includesKeys":  true,
+    "fileCount":  5883,
+    "totalMB":  1529.4
+}

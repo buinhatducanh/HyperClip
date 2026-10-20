@@ -1,0 +1,10 @@
+        // Operator 28/08: "app phải nghe lời setting, hết quota tôi tự chịu"
+        // — MẶC ĐỊNH ép nhịp đúng pollIntervalMs, bỏ giãn thích ứng theo
+        // quota (poller tự WARN kèm giờ cạn dự kiến khi đà tiêu vượt ngân
+        // sách). Đặt "pollIntervalStrict": false mới bật lại giãn thích ứng.
+        let strict = s_store.settings
+            .get("pollIntervalStrict")
+            .or_else(|| s_store.settings.get("poll_interval_strict"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        self.poller.set_interval_strict(strict);

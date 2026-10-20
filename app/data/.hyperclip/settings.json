@@ -1,0 +1,39 @@
+{
+  "settings": {
+    "autoDownloadEnabled": true,
+    "autoDownloadMaxAgeMinutes": 1440,
+    "autoDownloadQuality": "360",
+    "autoRender": false,
+    "autoRenderFPS": 30,
+    "autoRenderResolution": "360p",
+    "autoRenderSpeed": 1.2,
+    "autoRenderTitleTemplate": "",
+    "autoSplitMinutes": 0,
+    "autoSplitParts": 1,
+    "defaultQuality": 1080,
+    "defaultTrimLimit": 8,
+    "downloadsCleanupDays": 7,
+    "hardwareProfile": {
+      "ramGB": 16,
+      "vramGB": 4
+    },
+    "maxConcurrentDownloads": 3,
+    "maxConcurrentRenders": 2,
+    "max_video_age_minutes": 1440,
+    "minimizeToTray": true,
+    "onboardingComplete": true,
+    "outputFolder": "~/HyperClip/output",
+    "outputPath": "D:\\TEST DOWNLOAD AND RENDER",
+    "pollIntervalMs": 5000,
+    "pollingEnabled": true,
+    "proxyEnabled": false,
+    "proxyHost": "",
+    "proxyPassword": "",
+    "proxyPort": 8080,
+    "proxyUsername": "",
+    "quitOnClose": true,
+    "videoMaxDurationSec": 0,
+    "videoMinDurationSec": 0,
+    "videoStoragePath": "D:\\TEST DOWNLOAD AND RENDER"
+  }
+}

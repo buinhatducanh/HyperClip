@@ -1,0 +1,140 @@
+diff --git a/source/crates/hyperclip_ipc/src/poller.rs b/source/crates/hyperclip_ipc/src/poller.rs
+index ca42640..e42c4a7 100644
+--- a/source/crates/hyperclip_ipc/src/poller.rs
++++ b/source/crates/hyperclip_ipc/src/poller.rs
+@@ -92,6 +92,16 @@ pub struct Poller {
+     /// Nhịp NGƯỜI DÙNG muốn. Nhịp thực tế = max(cái này, mốc thích ứng theo
+     /// ngân sách quota) — xem `effective_interval_ms`.
+     poll_interval_ms: AtomicU64,
++    /// `pollIntervalStrict` (operator 28/08: "app phải nghe lời setting",
++    /// "hết quota tôi tự chịu"): true (MẶC ĐỊNH) = nhịp CHẠY ĐÚNG setting,
++    /// bỏ giãn thích ứng theo quota — operator tự chịu rủi ro cạn quota
++    /// trước reset, có WARN định kỳ kèm giờ cạn dự kiến để nhìn thấy cái
++    /// giá. Đặt `"pollIntervalStrict": false` mới bật lại giãn thích ứng.
++    /// Quota cạn HẲN thì strict hay không vẫn lùi 5 phút/nhịp (hết units
++    /// là call nào cũng fail, ép nhịp chỉ đốt log).
++    poll_interval_strict: std::sync::atomic::AtomicBool,
++    /// Mốc WARN strict gần nhất — 10 phút một lần, không spam.
++    last_strict_warn_ms: AtomicI64,
+     max_age_ms: AtomicI64,
+     min_duration_sec: AtomicU32,
+     max_duration_sec: AtomicU32,
+@@ -215,6 +225,8 @@ impl Poller {
+             last_detection_time: Arc::new(Mutex::new(None)),
+             consecutive_download_failures: Arc::new(Mutex::new(0)),
+             poll_interval_ms: AtomicU64::new(Self::clamp_interval(poll_interval_ms)),
++            poll_interval_strict: std::sync::atomic::AtomicBool::new(true),
++            last_strict_warn_ms: AtomicI64::new(0),
+             max_age_ms: AtomicI64::new((max_age_minutes as i64) * 60 * 1000),
+             min_duration_sec: AtomicU32::new(min_duration_sec),
+             max_duration_sec: AtomicU32::new(max_duration_sec),
+@@ -378,6 +390,25 @@ impl Poller {
+         );
+     }
+ 
++    /// Bật/tắt chế độ ép nhịp theo setting (`pollIntervalStrict`).
++    pub fn set_interval_strict(&self, strict: bool) {
++        let was = self
++            .poll_interval_strict
++            .swap(strict, std::sync::atomic::Ordering::Relaxed);
++        if was != strict {
++            tracing::info!(
++                "[Poller] pollIntervalStrict={} — nhịp {} setting, {}",
++                strict,
++                if strict { "ÉP THEO" } else { "được giãn theo quota trên" },
++                if strict {
++                    "bỏ giãn thích ứng (mặc định — operator tự chịu rủi ro cạn quota trước reset)"
++                } else {
++                    "giãn thích ứng bật lại theo yêu cầu (pollIntervalStrict=false)"
++                }
++            );
++        }
++    }
++
+     /// Nhịp thực tế: không nhanh hơn mong muốn của người dùng, và không nhanh
+     /// hơn mức ngân sách quota còn lại cho phép trải tới lần reset kế tiếp.
+     fn effective_interval_ms(&self, units_per_tick: u32) -> u64 {
+@@ -391,8 +422,37 @@ impl Poller {
+         let now_ms = chrono::Utc::now().timestamp_millis();
+         let adaptive = api_detector::adaptive_min_interval_ms(units_per_tick, remaining, now_ms);
+         if adaptive == u64::MAX {
++            // Quota cạn HẲN: strict hay không cũng lùi 5 phút — không còn unit
++            // thì ép nhịp chỉ tạo ra một chuỗi call fail.
+             return INTERVAL_EXHAUSTED_MS;
+         }
++        let strict = self
++            .poll_interval_strict
++            .load(std::sync::atomic::Ordering::Relaxed);
++        if strict {
++            // Operator ra lệnh nghe setting — nghe, nhưng nói rõ cái giá:
++            // ETA cạn quota theo đà tiêu hiện tại, WARN 10 phút/lần.
++            if adaptive > desired {
++                let last = self.last_strict_warn_ms.load(Ordering::Relaxed);
++                if now_ms - last > 10 * 60 * 1000
++                    && self
++                        .last_strict_warn_ms
++                        .compare_exchange(last, now_ms, Ordering::Relaxed, Ordering::Relaxed)
++                        .is_ok()
++                {
++                    let ticks_left = (remaining as u64) / (units_per_tick.max(1) as u64);
++                    let exhaust_ms = now_ms + ticks_left.saturating_mul(desired) as i64;
++                    let eta = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(exhaust_ms)
++                        .map(|t| t.format("%H:%M UTC").to_string())
++                        .unwrap_or_else(|| "?".into());
++                    tracing::warn!(
++                        "[Poller] pollIntervalStrict: chạy {}ms theo setting (quota muốn giãn {}ms) — đà này còn {} units, dự kiến CẠN ~{} rồi lùi 5 phút/nhịp tới reset. Thêm project, hoặc đặt \"pollIntervalStrict\": false nếu muốn app tự giãn nhịp.",
++                        desired, adaptive, remaining, eta
++                    );
++                }
++            }
++            return desired.max(INTERVAL_FLOOR_MS);
++        }
+         desired.max(adaptive).max(INTERVAL_FLOOR_MS)
+     }
+ 
+diff --git a/source/src-tauri/src/commands.rs b/source/src-tauri/src/commands.rs
+index 2851b9a..2db1afc 100644
+--- a/source/src-tauri/src/commands.rs
++++ b/source/src-tauri/src/commands.rs
+@@ -1360,6 +1360,24 @@ impl AppState {
+                 poller_process_fn,
+                 active_renders.clone(),
+             ));
++            // Operator 28/08: "hết quota tôi tự chịu" — MẶC ĐỊNH ép nhịp đúng
++            // pollIntervalMs (bỏ giãn thích ứng theo quota), áp từ lúc boot.
++            // Đặt "pollIntervalStrict": false mới bật lại giãn thích ứng.
++            let interval_strict = s_store.settings
++                .get("pollIntervalStrict")
++                .or_else(|| s_store.settings.get("poll_interval_strict"))
++                .and_then(|v| v.as_bool())
++                .unwrap_or(true);
++            poller.set_interval_strict(interval_strict);
++            // Log boot LUÔN IN (set_interval_strict chỉ log khi đổi trạng thái,
++            // mà mặc định đã BẬT nên boot không đổi gì) — để soi log là biết
++            // nhịp đang chạy chế độ nào.
++            tracing::info!(
++                "[Poller] pollIntervalStrict={} — nhịp {} pollIntervalMs trong settings{}",
++                interval_strict,
++                if interval_strict { "chạy ĐÚNG" } else { "được giãn theo quota trên" },
++                if interval_strict { " (mặc định; quota cạn hẳn vẫn lùi 5 phút/nhịp)" } else { "" }
++            );
+ 
+             if api_detector.project_count() == 0 {
+                 tracing::warn!(
+@@ -1606,6 +1624,16 @@ impl AppState {
+             .and_then(|v| v.as_u64())
+             .unwrap_or(3600) as u32;
+         self.poller.reload_config(poll_interval_ms, max_age_minutes, min_duration_sec, max_duration_sec);
++        // Operator 28/08: "app phải nghe lời setting, hết quota tôi tự chịu"
++        // — MẶC ĐỊNH ép nhịp đúng pollIntervalMs, bỏ giãn thích ứng theo
++        // quota (poller tự WARN kèm giờ cạn dự kiến khi đà tiêu vượt ngân
++        // sách). Đặt "pollIntervalStrict": false mới bật lại giãn thích ứng.
++        let strict = s_store.settings
++            .get("pollIntervalStrict")
++            .or_else(|| s_store.settings.get("poll_interval_strict"))
++            .and_then(|v| v.as_bool())
++            .unwrap_or(true);
++        self.poller.set_interval_strict(strict);
+         // Pool project có thể vừa được thêm/xoá qua UI — nạp lại để nhịp sau
+         // dùng đúng ngân sách.
+         self.api.set_projects(load_gcp_projects());

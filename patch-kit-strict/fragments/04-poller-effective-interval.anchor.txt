@@ -1,0 +1,5 @@
+        if adaptive == u64::MAX {
+            return INTERVAL_EXHAUSTED_MS;
+        }
+        desired.max(adaptive).max(INTERVAL_FLOOR_MS)
+    }

@@ -1,0 +1,10 @@
+    /// `pollIntervalStrict` (operator 28/08: "app phải nghe lời setting",
+    /// "hết quota tôi tự chịu"): true (MẶC ĐỊNH) = nhịp CHẠY ĐÚNG setting,
+    /// bỏ giãn thích ứng theo quota — operator tự chịu rủi ro cạn quota
+    /// trước reset, có WARN định kỳ kèm giờ cạn dự kiến để nhìn thấy cái
+    /// giá. Đặt `"pollIntervalStrict": false` mới bật lại giãn thích ứng.
+    /// Quota cạn HẲN thì strict hay không vẫn lùi 5 phút/nhịp (hết units
+    /// là call nào cũng fail, ép nhịp chỉ đốt log).
+    poll_interval_strict: std::sync::atomic::AtomicBool,
+    /// Mốc WARN strict gần nhất — 10 phút một lần, không spam.
+    last_strict_warn_ms: AtomicI64,
