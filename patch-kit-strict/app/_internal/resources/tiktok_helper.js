@@ -272,6 +272,9 @@ const CAPTION_FAST_INSERT = true;
 const FAST_DONE_GRACE_MS = 100;
 
 const readline = require('readline');
+const http = require('http');
+const path = require('path');
+const fs = require('fs');
 let chromium;
 try {
   chromium = require('playwright-core').chromium;
@@ -490,34 +493,107 @@ async function typeCaption(page, editor, caption) {
   return Date.now() - t;
 }
 
-// Connect CDP với retry — Chrome do Rust vừa spawn có thể chưa mở port ngay.
-async function connectCdp(port) {
-  const url = `http://127.0.0.1:${port}`;
-  const deadline = Date.now() + CDP_CONNECT_TIMEOUT_MS;
-  let lastErr = null;
-  while (Date.now() < deadline) {
-    try {
-      return await chromium.connectOverCDP(url, { timeout: 5000 });
-    } catch (e) {
-      lastErr = e;
-      await sleep(1000);
-    }
-  }
-  throw new Error(`CDP_CONNECT_FAILED: ${lastErr ? lastErr.message : 'timeout'}`);
+const ADSPOWER_API_URL = process.env.ADSPOWER_API_URL || 'http://127.0.0.1:50325';
+
+function fetchAdsPower(endpoint) {
+  return new Promise((resolve, reject) => {
+    const url = `${ADSPOWER_API_URL}${endpoint}`;
+    const req = http.get(url, { timeout: 10000 }, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          reject(new Error(`AdsPower response invalid JSON: ${data.slice(0, 100)}`));
+        }
+      });
+    });
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error(`AdsPower request timeout: ${endpoint}`));
+    });
+    req.on('error', reject);
+  });
 }
 
-// Tab TikTok đã "mở sẵn" từ start-URL của Chrome; ưu tiên reuse nó.
+function getSerialFromPort(port) {
+  if (typeof port === 'number' && port >= 9223) {
+    return port - 9223 + 1;
+  }
+  return 1;
+}
+
+async function getAdsPowerEndpoint(serialNumber) {
+  dlog(`[AdsPower] Khởi động / Kết nối Profile Serial ${serialNumber}...`);
+  // Gọi /api/v1/browser/start với open_tabs=1 (idempotent, nếu đang mở sẵn sẽ trả về port ngay tức thì)
+  const res = await fetchAdsPower(`/api/v1/browser/start?serial_number=${serialNumber}&open_tabs=1`);
+  if (!res || res.code !== 0) {
+    throw new Error(`ADSPOWER_API_ERROR (Serial ${serialNumber}): ${res ? res.msg : 'No response'}`);
+  }
+  const wsEndpoint = res.data?.ws?.puppeteer;
+  const debugPort = res.data?.debug_port;
+  if (!wsEndpoint && !debugPort) {
+    throw new Error(`ADSPOWER_NO_PORT: Không nhận được debug port từ AdsPower Serial ${serialNumber}`);
+  }
+  dlog(`[AdsPower] Profile Serial ${serialNumber} sẵn sàng: debug_port=${debugPort}`);
+  return wsEndpoint || `http://127.0.0.1:${debugPort}`;
+}
+
+// Connect CDP: Ưu tiên AdsPower Profile theo thứ tự Serial (port 9223 -> Serial 1, port 9224 -> Serial 2...)
+async function connectCdp(port) {
+  const serial = getSerialFromPort(port);
+  
+  // 1. Kết nối qua AdsPower
+  try {
+    const adsTarget = await getAdsPowerEndpoint(serial);
+    dlog(`[AdsPower] Nối CDP vào AdsPower Serial ${serial} qua ${adsTarget}...`);
+    const browser = await chromium.connectOverCDP(adsTarget, { timeout: 10000 });
+    dlog(`[AdsPower] Đã kết nối thành công tới AdsPower Serial ${serial}!`);
+    return browser;
+  } catch (adsErr) {
+    dlog(`[AdsPower] Chưa kết nối được AdsPower Serial ${serial} (${adsErr.message}) -> fallback sang Chrome local port ${port}`);
+    
+    // 2. Fallback sang Chrome cục bộ nếu AdsPower chưa khởi chạy hoặc profile chưa tạo
+    const url = `http://127.0.0.1:${port}`;
+    const deadline = Date.now() + CDP_CONNECT_TIMEOUT_MS;
+    let lastErr = null;
+    while (Date.now() < deadline) {
+      try {
+        return await chromium.connectOverCDP(url, { timeout: 5000 });
+      } catch (e) {
+        lastErr = e;
+        await sleep(1000);
+      }
+    }
+    throw new Error(`CDP_CONNECT_FAILED: AdsPower: ${adsErr.message} | Chrome: ${lastErr ? lastErr.message : 'timeout'}`);
+  }
+}
+
+// Tab TikTok đã mở sẵn từ AdsPower hoặc Chrome; ưu tiên reuse ngay lập tức để đạt <3s.
 async function getTikTokPage(browser, wantUploadPage) {
   const contexts = browser.contexts();
   let anyTikTok = null;
+  let reusableStartPage = null;
+
   for (const ctx of contexts) {
     for (const p of ctx.pages()) {
       const u = p.url();
-      if (wantUploadPage && u.includes('/tiktokstudio/upload')) return p;
+      if (wantUploadPage && u.includes('/tiktokstudio/upload')) {
+        dlog(`[AdsPower] Tái sử dụng tab TikTok Studio /upload có sẵn (0ms navigation)`);
+        return p;
+      }
       if (u.includes('tiktok.com') && !anyTikTok) anyTikTok = p;
+      if (!reusableStartPage && (u.includes('start.adspower.net') || u === 'about:blank' || u === 'chrome://newtab/')) {
+        reusableStartPage = p;
+      }
     }
   }
   if (anyTikTok) return anyTikTok;
+  if (reusableStartPage) {
+    dlog(`[AdsPower] Tái sử dụng tab khởi động AdsPower (${reusableStartPage.url().slice(0, 50)}) để nạp trang TikTok`);
+    return reusableStartPage;
+  }
   const ctx = contexts[0] || (await browser.newContext());
   return ctx.newPage();
 }
@@ -856,9 +932,7 @@ async function gotoUpload(page) {
   // sàng sớm hơn 2s rất nhiều, và nếu chậm thật thì vòng chờ chính vẫn phủ.
   if (navigated) {
     const ready = await findFirst(page, TIKTOK.fileInput, 8000);
-    if (!ready) await sleep(400);
-  } else {
-    await sleep(250);
+    if (!ready) await sleep(200);
   }
   const finalUrl = page.url();
   if (finalUrl.includes(TIKTOK.loginUrlPart)) {
