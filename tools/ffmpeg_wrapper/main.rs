@@ -4,11 +4,20 @@ use std::process::{Command, Stdio};
 fn main() {
     let mut args: Vec<String> = env::args().skip(1).collect();
     for i in 0..args.len() {
-        if args[i] == "-b:a" && i + 1 < args.len() && args[i + 1] == "192k" {
-            args[i + 1] = "64k".to_string();
+        // Tối ưu audio bitrate xuống 48k (tiết kiệm ~5 MB cho video 5p)
+        if args[i] == "-b:a" && i + 1 < args.len() {
+            args[i + 1] = "48k".to_string();
         }
-        if args[i] == "-maxrate" && i + 1 < args.len() && (args[i + 1] == "1M" || args[i + 1] == "800k") {
-            args[i + 1] = "600k".to_string();
+        // Khống chế trần bitrate video xuống 320k để file 5 phút chỉ còn ~10-11 MB
+        if args[i] == "-maxrate" && i + 1 < args.len() {
+            args[i + 1] = "320k".to_string();
+        }
+        if args[i] == "-bufsize" && i + 1 < args.len() {
+            args[i + 1] = "640k".to_string();
+        }
+        // Nâng CQ từ 21 lên 26 để bộ mã hóa HEVC tối ưu kích thước dữ liệu
+        if args[i] == "-cq" && i + 1 < args.len() {
+            args[i + 1] = "26".to_string();
         }
     }
     let exe_dir = env::current_exe().unwrap().parent().unwrap().to_path_buf();
