@@ -517,42 +517,66 @@ function fetchAdsPower(endpoint) {
   });
 }
 
-function getSerialFromPort(port) {
-  if (typeof port === 'number' && port >= 9223) {
-    return port - 9223 + 1;
+function getAdsPowerProfileIdentifier(port) {
+  const accountIndex = (typeof port === 'number' && port >= 9223) ? (port - 9223) : 0;
+  try {
+    const candidatePaths = [
+      process.env.HYPERCLIP_DATA_DIR ? path.join(process.env.HYPERCLIP_DATA_DIR, '.hyperclip', 'tiktok.json') : null,
+      path.resolve(__dirname, '../../HyperClip-Data/.hyperclip/tiktok.json'),
+      path.resolve(__dirname, '../../HyperClipB-Data/.hyperclip/tiktok.json'),
+      'C:/HyperClipB-Package/HyperClipB-Data/.hyperclip/tiktok.json'
+    ].filter(Boolean);
+
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) {
+        const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+        if (data && Array.isArray(data.accounts) && data.accounts[accountIndex]) {
+          const acc = data.accounts[accountIndex];
+          if (acc.profileId) return { type: 'user_id', value: acc.profileId };
+          if (acc.adsPowerSerial) return { type: 'serial_number', value: acc.adsPowerSerial };
+        }
+      }
+    }
+  } catch (err) {
+    dlog(`[AdsPower] Không đọc được profileId từ tiktok.json: ${err.message}`);
   }
-  return 1;
+  return { type: 'serial_number', value: accountIndex + 1 };
 }
 
-async function getAdsPowerEndpoint(serialNumber) {
-  dlog(`[AdsPower] Khởi động / Kết nối Profile Serial ${serialNumber}...`);
+async function getAdsPowerEndpoint(target) {
+  const queryParam = (target.type === 'user_id')
+    ? `user_id=${encodeURIComponent(target.value)}`
+    : `serial_number=${encodeURIComponent(target.value)}`;
+
+  dlog(`[AdsPower] Khởi động / Kết nối Profile (${queryParam})...`);
   // Gọi /api/v1/browser/start với open_tabs=1 (idempotent, nếu đang mở sẵn sẽ trả về port ngay tức thì)
-  const res = await fetchAdsPower(`/api/v1/browser/start?serial_number=${serialNumber}&open_tabs=1`);
+  const res = await fetchAdsPower(`/api/v1/browser/start?${queryParam}&open_tabs=1`);
   if (!res || res.code !== 0) {
-    throw new Error(`ADSPOWER_API_ERROR (Serial ${serialNumber}): ${res ? res.msg : 'No response'}`);
+    throw new Error(`ADSPOWER_API_ERROR (${queryParam}): ${res ? res.msg : 'No response'}`);
   }
   const wsEndpoint = res.data?.ws?.puppeteer;
   const debugPort = res.data?.debug_port;
   if (!wsEndpoint && !debugPort) {
-    throw new Error(`ADSPOWER_NO_PORT: Không nhận được debug port từ AdsPower Serial ${serialNumber}`);
+    throw new Error(`ADSPOWER_NO_PORT: Không nhận được debug port từ AdsPower (${queryParam})`);
   }
-  dlog(`[AdsPower] Profile Serial ${serialNumber} sẵn sàng: debug_port=${debugPort}`);
+  dlog(`[AdsPower] Profile (${queryParam}) sẵn sàng: debug_port=${debugPort}`);
   return wsEndpoint || `http://127.0.0.1:${debugPort}`;
 }
 
-// Connect CDP: Ưu tiên AdsPower Profile theo thứ tự Serial (port 9223 -> Serial 1, port 9224 -> Serial 2...)
+// Connect CDP: Ưu tiên AdsPower Profile theo profileId hoặc Serial
 async function connectCdp(port) {
-  const serial = getSerialFromPort(port);
+  const target = getAdsPowerProfileIdentifier(port);
+  const targetLabel = `${target.type}=${target.value}`;
   
   // 1. Kết nối qua AdsPower
   try {
-    const adsTarget = await getAdsPowerEndpoint(serial);
-    dlog(`[AdsPower] Nối CDP vào AdsPower Serial ${serial} qua ${adsTarget}...`);
+    const adsTarget = await getAdsPowerEndpoint(target);
+    dlog(`[AdsPower] Nối CDP vào AdsPower Profile (${targetLabel}) qua ${adsTarget}...`);
     const browser = await chromium.connectOverCDP(adsTarget, { timeout: 10000 });
-    dlog(`[AdsPower] Đã kết nối thành công tới AdsPower Serial ${serial}!`);
+    dlog(`[AdsPower] Đã kết nối thành công tới AdsPower Profile (${targetLabel})!`);
     return browser;
   } catch (adsErr) {
-    dlog(`[AdsPower] Chưa kết nối được AdsPower Serial ${serial} (${adsErr.message}) -> fallback sang Chrome local port ${port}`);
+    dlog(`[AdsPower] Chưa kết nối được AdsPower Profile (${targetLabel}) (${adsErr.message}) -> fallback sang Chrome local port ${port}`);
     
     // 2. Fallback sang Chrome cục bộ nếu AdsPower chưa khởi chạy hoặc profile chưa tạo
     const url = `http://127.0.0.1:${port}`;
