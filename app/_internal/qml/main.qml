@@ -13,7 +13,7 @@ ApplicationWindow {
     minimumWidth: 900
     minimumHeight: 600
     visible: true
-    title: (typeof isShortEdition !== "undefined" && isShortEdition) ? "HyperShort" : "HyperClipB"
+    title: (typeof isShortEdition !== "undefined" && isShortEdition) ? "HyperShort" : "HyperClip"
     color: Theme.bg
 
     onClosing: function(close) {
