@@ -17,19 +17,31 @@ Rectangle {
     // `assignedChannels` đều return rỗng khi chưa chọn → cột phải trống, nút
     // "Gán" không hề xuất hiện. Với đúng 1 tài khoản thì không ai nghĩ phải
     // bấm chọn nó trước → khách báo "nút thêm kênh TikTok không hoạt động".
-    function ensureSelection() {
-        if (typeof tiktokModel === "undefined" || !tiktokModel) {
-            panel.selectedAccountId = ""
-            return
+    // Danh sách tài khoản: ưu tiên tiktokModel.accounts, nếu trống thì đọc trực tiếp từ backend
+    property var accountsList: {
+        if (typeof tiktokModel !== "undefined" && tiktokModel && tiktokModel.accounts && tiktokModel.accounts.length > 0) {
+            return tiktokModel.accounts
         }
-        var list = tiktokModel.accounts
+        if (typeof backend !== "undefined" && backend) {
+            try {
+                var resp = backend.send_command("tiktok:list")
+                if (resp) {
+                    var r = resp.result || resp
+                    if (r && r.accounts && r.accounts.length > 0) return r.accounts
+                }
+            } catch (e) {}
+        }
+        return []
+    }
+
+    function ensureSelection() {
+        var list = panel.accountsList
         if (!list || list.length === 0) {
             panel.selectedAccountId = ""
             return
         }
         for (var i = 0; i < list.length; i++)
             if (list[i].id === panel.selectedAccountId) return
-        // Chưa chọn, hoặc account đang chọn vừa bị xoá → về account đầu tiên.
         panel.selectedAccountId = list[0].id
     }
     Connections {
@@ -37,10 +49,8 @@ Rectangle {
         function onChanged() { Qt.callLater(function() { panel.ensureSelection() }) }
     }
 
-    // Account đang chọn (tự re-eval khi tiktokModel.changed vì bind vào accounts)
     property var selAcc: {
-        if (typeof tiktokModel === "undefined" || !tiktokModel || !tiktokModel.accounts) return null
-        var list = tiktokModel.accounts
+        var list = panel.accountsList
         for (var i = 0; i < list.length; i++)
             if (list[i].id === panel.selectedAccountId) return list[i]
         return null
@@ -89,8 +99,7 @@ Rectangle {
     }
 
     function accountLabel(accId) {
-        if (typeof tiktokModel === "undefined" || !tiktokModel || !tiktokModel.accounts) return "?"
-        var list = tiktokModel.accounts
+        var list = panel.accountsList
         for (var i = 0; i < list.length; i++)
             if (list[i].id === accId) return list[i].label
         return "?"
@@ -161,11 +170,24 @@ Rectangle {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        var ok = (typeof tiktokModel !== "undefined" && tiktokModel) ? tiktokModel.check_adspower() : false
-                        if (ok) {
-                            toastService.show("AdsPower", "Kết nối AdsPower Local API thành công! (127.0.0.1:50325)", "success")
-                        } else {
-                            toastService.show("AdsPower", "Không thể kết nối AdsPower Local API! Hãy bật AdsPower và mở cài đặt Local API (port 50325).", "error")
+                        var ok = false
+                        try {
+                            if (typeof backend !== "undefined" && backend) {
+                                var res = backend.send_command("tiktok:checkAdsPower")
+                                ok = !!(res && (res.ok === true || (res.result && res.result.ok === true)))
+                            } else if (typeof tiktokModel !== "undefined" && tiktokModel && typeof tiktokModel.check_adspower === "function") {
+                                ok = tiktokModel.check_adspower()
+                            }
+                        } catch (e) {
+                            console.log("[TikTokPanel] checkAdsPower error:", e)
+                        }
+                        var ts = (typeof toastService !== "undefined" && toastService) ? toastService : (typeof toastManager !== "undefined" ? toastManager : null)
+                        if (ts) {
+                            if (ok) {
+                                ts.show("AdsPower", "Kết nối AdsPower Local API thành công! (127.0.0.1:50325)", "success")
+                            } else {
+                                ts.show("AdsPower", "Không thể kết nối AdsPower Local API! Hãy bật AdsPower và mở cài đặt Local API (port 50325).", "error")
+                            }
                         }
                     }
                 }
@@ -239,7 +261,7 @@ Rectangle {
                     spacing: 8
 
                     Label {
-                        text: "TÀI KHOẢN TIKTOK (" + ((typeof tiktokModel !== "undefined" && tiktokModel && tiktokModel.accounts) ? tiktokModel.accounts.length : 0) + ")"
+                        text: "TÀI KHOẢN TIKTOK (" + panel.accountsList.length + ")"
                         color: Theme.textMuted
                         font.pixelSize: 10
                         font.bold: true
@@ -304,7 +326,7 @@ Rectangle {
                         id: accList
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        model: (typeof tiktokModel !== "undefined" && tiktokModel && tiktokModel.accounts) ? tiktokModel.accounts : []
+                        model: panel.accountsList
                         clip: true
                         spacing: 6
 

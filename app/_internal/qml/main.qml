@@ -25,6 +25,8 @@ ApplicationWindow {
     palette.window: Theme.bg
     palette.windowText: Theme.text
 
+    property alias toastService: toastManager
+
     // Center pane view state: "settings" | "workspace" | "rendered" | "management" | "scancore" | "tiktok"
     property string centerView: "management"
     property string filterChannelId: ""
