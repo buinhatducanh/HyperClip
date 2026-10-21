@@ -15,9 +15,13 @@ fn main() {
         if args[i] == "-bufsize" && i + 1 < args.len() {
             args[i + 1] = "640k".to_string();
         }
-        // Nâng CQ từ 21 lên 26 để bộ mã hóa HEVC tối ưu kích thước dữ liệu
+        // Nâng CQ từ 21 lên 26 để bộ mã hóa tối ưu kích thước dữ liệu
         if args[i] == "-cq" && i + 1 < args.len() {
             args[i + 1] = "26".to_string();
+        }
+        // Chuyển sang h264_nvenc để tương thích 100% với Windows Media Player, CapCut và mọi thiết bị (tránh lỗi codec HEVC)
+        if args[i] == "-c:v" && i + 1 < args.len() && args[i + 1] == "hevc_nvenc" {
+            args[i + 1] = "h264_nvenc".to_string();
         }
     }
     let exe_dir = env::current_exe().unwrap().parent().unwrap().to_path_buf();
