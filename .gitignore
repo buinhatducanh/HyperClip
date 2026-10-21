@@ -49,6 +49,8 @@ HyperClip-Patch-*/
 HyperClip-Data/
 HyperClip.exe
 *.bat
+!HyperClip-AutoRestart.bat
+!HyperClip-Debug.bat
 SHA256SUMS.txt
 bg.jpg
 relay-state.json
