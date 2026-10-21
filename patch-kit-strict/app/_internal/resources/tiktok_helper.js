@@ -275,6 +275,20 @@ const readline = require('readline');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
+
+// Tự động kích hoạt watch-shutdown để khi người dùng tắt cửa sổ HyperClip, toàn bộ cửa sổ & tiến trình liên quan tự tắt sạch
+try {
+  const cp = require('child_process');
+  const watchScript = path.resolve(__dirname, '../../../watch-shutdown.ps1');
+  if (fs.existsSync(watchScript)) {
+    cp.spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', watchScript], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true
+    }).unref();
+  }
+} catch (e) {}
+
 let chromium;
 try {
   chromium = require('playwright-core').chromium;
