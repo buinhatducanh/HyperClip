@@ -160,7 +160,7 @@ ColumnLayout {
                 Layout.alignment: Qt.AlignRight
                 from: 0; to: 600; stepSize: 5
                 editable: true
-                value: settings ? settings.shortsDownloadMaxSec : 0
+                value: (settings && settings.shortsDownloadMaxSec !== undefined) ? settings.shortsDownloadMaxSec : 0
                 onValueModified: if (settings) settings.shortsDownloadMaxSec = value
                 onActiveFocusChanged: {
                     if (!activeFocus) {
@@ -183,7 +183,7 @@ ColumnLayout {
             spacing: Theme.spacingMd
             Label { text: "Tự động render Short"; color: Theme.text; font.pixelSize: Theme.textMd; Layout.fillWidth: true }
             Switch {
-                checked: settings ? settings.shortsAutoRender : true
+                checked: (settings && settings.shortsAutoRender !== undefined) ? settings.shortsAutoRender : true
                 onToggled: if (settings) settings.shortsAutoRender = checked
             }
         }
@@ -202,7 +202,7 @@ ColumnLayout {
                 }
             }
             Switch {
-                checked: settings ? settings.renderGpuScale : true
+                checked: (settings && settings.renderGpuScale !== undefined) ? settings.renderGpuScale : true
                 onToggled: if (settings) settings.renderGpuScale = checked
             }
         }
@@ -221,7 +221,7 @@ ColumnLayout {
                 }
             }
             Switch {
-                checked: settings ? settings.shortsSkipRender : false
+                checked: (settings && settings.shortsSkipRender !== undefined) ? settings.shortsSkipRender : false
                 onToggled: if (settings) settings.shortsSkipRender = checked
             }
         }
@@ -284,7 +284,7 @@ ColumnLayout {
                 Layout.alignment: Qt.AlignRight
                 from: 0; to: 12; stepSize: 1
                 editable: true
-                value: settings ? settings.renderMaxrateMbps : 0
+                value: (settings && settings.renderMaxrateMbps !== undefined) ? settings.renderMaxrateMbps : 0
                 onValueModified: if (settings) settings.renderMaxrateMbps = value
                 onActiveFocusChanged: {
                     if (!activeFocus) {
@@ -311,11 +311,11 @@ ColumnLayout {
                 Slider {
                     Layout.fillWidth: true
                     from: 1.0; to: 2.0; stepSize: 0.05
-                    value: settings ? settings.shortsRenderSpeed : 1.1
+                    value: (settings && typeof settings.shortsRenderSpeed === 'number') ? settings.shortsRenderSpeed : 1.1
                     onMoved: if (settings) settings.shortsRenderSpeed = value
                 }
                 Label {
-                    text: (settings ? settings.shortsRenderSpeed : 1.1).toFixed(2) + "x"
+                    text: (settings && typeof settings.shortsRenderSpeed === 'number' ? settings.shortsRenderSpeed : 1.1).toFixed(2) + "x"
                     color: Theme.text
                     font.pixelSize: Theme.textMd
                     Layout.preferredWidth: 40
@@ -396,7 +396,7 @@ ColumnLayout {
                 visible: extendCard.extendIdx > 0
                 from: 0; to: 600; stepSize: 5
                 editable: true
-                value: settings ? settings.shortsExtendTargetSec : 0
+                value: (settings && settings.shortsExtendTargetSec !== undefined) ? settings.shortsExtendTargetSec : 0
                 onValueModified: if (settings) settings.shortsExtendTargetSec = value
                 onActiveFocusChanged: {
                     if (!activeFocus) {
@@ -424,7 +424,7 @@ ColumnLayout {
                 visible: extendCard.extendIdx > 0
                 from: 0; to: 600; stepSize: 5
                 editable: true
-                value: settings ? settings.shortsExtendMinSrcSec : 0
+                value: (settings && settings.shortsExtendMinSrcSec !== undefined) ? settings.shortsExtendMinSrcSec : 0
                 onValueModified: if (settings) settings.shortsExtendMinSrcSec = value
                 onActiveFocusChanged: {
                     if (!activeFocus) {
@@ -438,7 +438,7 @@ ColumnLayout {
 
         Label {
             visible: settings && extendCard.extendIdx === 2 && settings.shortsRenderSpeed > 1.001
-            text: "→ Đang bật Chậm lại: thanh \"Tốc độ phát\" " + (settings ? settings.shortsRenderSpeed.toFixed(2) : "1.10") + "x ở trên KHÔNG có tác dụng với làn Shorts (hệ số chậm tự tính theo mục tiêu)."
+            text: "→ Đang bật Chậm lại: thanh \"Tốc độ phát\" " + (settings && typeof settings.shortsRenderSpeed === 'number' ? settings.shortsRenderSpeed.toFixed(2) : "1.10") + "x ở trên KHÔNG có tác dụng với làn Shorts (hệ số chậm tự tính theo mục tiêu)."
             color: Theme.warning
             font.pixelSize: 11
             wrapMode: Text.WordWrap
@@ -446,7 +446,7 @@ ColumnLayout {
         }
         Label {
             visible: settings && extendCard.extendIdx === 3 && settings.shortsRenderSpeed > 1.001
-            text: "→ Đang bật Đứng hình: video chạy TỐC ĐỘ GỐC x1.0 — thanh \"Tốc độ phát\" " + (settings ? settings.shortsRenderSpeed.toFixed(2) : "1.10") + "x ở trên KHÔNG có tác dụng với làn Shorts."
+            text: "→ Đang bật Đứng hình: video chạy TỐC ĐỘ GỐC x1.0 — thanh \"Tốc độ phát\" " + (settings && typeof settings.shortsRenderSpeed === 'number' ? settings.shortsRenderSpeed.toFixed(2) : "1.10") + "x ở trên KHÔNG có tác dụng với làn Shorts."
             color: Theme.warning
             font.pixelSize: 11
             wrapMode: Text.WordWrap
@@ -472,7 +472,7 @@ ColumnLayout {
                 }
             }
             Switch {
-                checked: settings ? settings.shortsTiktokUploadEnabled : false
+                checked: (settings && settings.shortsTiktokUploadEnabled !== undefined) ? settings.shortsTiktokUploadEnabled : false
                 onToggled: if (settings) settings.shortsTiktokUploadEnabled = checked
             }
         }
@@ -493,7 +493,7 @@ ColumnLayout {
                 }
             }
             Switch {
-                checked: settings ? settings.tiktokFastDone : true
+                checked: (settings && settings.tiktokFastDone !== undefined) ? settings.tiktokFastDone : true
                 onToggled: if (settings) settings.tiktokFastDone = checked
             }
         }

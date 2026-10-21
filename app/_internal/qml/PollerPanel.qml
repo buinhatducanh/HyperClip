@@ -48,89 +48,18 @@ SettingsCard {
         }
     }
 
-    // Pass 84: mặt cắt nhanh BẬT mà thiếu phiên đăng nhập → đường cắt giây
-    // chạy câm (view ẩn danh). Backend chỉ WARN một dòng lúc boot; ở đây nói
-    // thẳng cho vận hành, ngay dưới trạng thái quét.
-    Rectangle {
-        visible: poller && poller.fastSurfaceCookieMissing
-        Layout.fillWidth: true
-        implicitHeight: fastSurfaceWarnLabel.implicitHeight + 10
-        // Nền vàng mờ 10%. (Bản cũ ghép chuỗi Theme.warning+"18" — Qt đọc 8 hex là
-        // #AARRGGBB nên ra màu ĐỤC #D93D18 chứ không phải vàng mờ như ý.)
-        color: Qt.rgba(Theme.warning.r, Theme.warning.g, Theme.warning.b, 0.10); radius: 4
-        border.color: Theme.warning; border.width: 1
-        Label {
-            id: fastSurfaceWarnLabel
-            anchors.fill: parent
-            anchors.margins: 5
-            text: poller ? poller.fastSurfaceWarning : ""
-            color: Theme.warning
-            font.pixelSize: 11
-            wrapMode: Text.WordWrap
-        }
-    }
-
-
-    // Pass 88: đồng hồ máy lệch ≥1,5s so với Google (đo từ header Date của
-    // Data API). Số "raw"/verdict theo publishedAt lệch đúng ngần đó — nói
-    // thẳng ở đây, kèm cách chỉnh, thay vì để khách đối chiếu bằng mắt.
-    Rectangle {
-        visible: poller && poller.clockSkewWarn
-        Layout.fillWidth: true
-        implicitHeight: clockWarnLabel.implicitHeight + 10
-        color: Qt.rgba(Theme.warning.r, Theme.warning.g, Theme.warning.b, 0.10); radius: 4
-        border.color: Theme.warning; border.width: 1
-        Label {
-            id: clockWarnLabel
-            anchors.fill: parent
-            anchors.margins: 5
-            text: poller ? poller.clockSkewWarning : ""
-            color: Theme.warning
-            font.pixelSize: 11
-            wrapMode: Text.WordWrap
-        }
-    }
-
-    // Pass 146 & Pass 135b: subscription WebSub chết âm thầm (hub không xác minh, hoặc
-    // POST của Google bị Cloudflare chặn) — log khách 03/09 & 05/09.
-    Rectangle {
-        // `!!` + `|| ""`: model Python cũ (bundle chưa build lại) không có hai
-        // property này → undefined; ép kiểu để không rơi "Unable to assign
-        // [undefined]" vào uiqt.log như TikTokPanel từng bị.
-        visible: !!(poller && (poller.websubWarn || poller.websubSilent))
-        Layout.fillWidth: true
-        implicitHeight: websubWarnLabel.implicitHeight + 10
-        color: Qt.rgba(Theme.warning.r, Theme.warning.g, Theme.warning.b, 0.10); radius: 4
-        border.color: Theme.warning; border.width: 1
-        Label {
-            id: websubWarnLabel
-            anchors.fill: parent
-            anchors.margins: 5
-            text: (poller && poller.websubWarning) || ""
-            color: Theme.warning
-            font.pixelSize: 11
-            wrapMode: Text.WordWrap
-        }
-    }
-
     // ─── 3 metric chips ────────────────────────────────────
     RowLayout {
         spacing: 4
 
         Rectangle {
             Layout.fillWidth: true; Layout.preferredHeight: 22
-            color: ((poller && poller.lastDetectionLatencyStr !== "—") ? poller.latencyColor : Theme.textMuted) + "18"; radius: 4
-            border.color: (poller && poller.lastDetectionLatencyStr !== "—") ? poller.latencyColor : Theme.textMuted; border.width: 1
+            color: ((poller && poller.detectionsToday > 0 && poller.lastDetectionLatencyStr !== "—") ? poller.latencyColor : Theme.textMuted) + "18"; radius: 4
+            border.color: (poller && poller.detectionsToday > 0 && poller.lastDetectionLatencyStr !== "—") ? poller.latencyColor : Theme.textMuted; border.width: 1
             Label {
                 anchors.centerIn: parent
-                // `lastDetectionLatencyStr` đã tự mang phần quy trách nhiệm
-                // ("App khởi động" / "~3.4s YT"). Hàng bù không ghép " cuối":
-                // "App khởi động cuối" là câu vô nghĩa.
-                text: !poller ? "— cuối"
-                     : poller.lastDetectionKind === "catchup"
-                       ? poller.lastDetectionLatencyStr
-                       : poller.lastDetectionLatencyStr + " cuối"
-                color: (poller && poller.lastDetectionLatencyStr !== "—") ? poller.latencyColor : Theme.textMuted
+                text: (poller && poller.detectionsToday > 0) ? poller.lastDetectionLatencyStr + " cuối" : "— cuối"
+                color: (poller && poller.detectionsToday > 0 && poller.lastDetectionLatencyStr !== "—") ? poller.latencyColor : Theme.textMuted
                 font.pixelSize: 14; font.bold: true
             }
         }
@@ -141,10 +70,8 @@ SettingsCard {
             border.color: (poller && poller.detectionsToday > 0) ? poller.slaColor : Theme.textMuted; border.width: 1
             Label {
                 anchors.centerIn: parent
-                // `slaStr` tự trả "— <5s" khi chưa có mẫu đo được (mọi lượt đều
-                // là hàng bù) — đừng suy ra từ detectionsToday nữa.
-                text: poller ? poller.slaStr : "— <5s"
-                color: poller ? poller.slaColor : Theme.textMuted
+                text: (poller && poller.detectionsToday > 0) ? poller.slaPercent.toFixed(0) + "% <5s" : "— <5s"
+                color: (poller && poller.detectionsToday > 0) ? poller.slaColor : Theme.textMuted
                 font.pixelSize: 14; font.bold: true
             }
         }
@@ -160,17 +87,6 @@ SettingsCard {
                 font.pixelSize: 14; font.bold: true
             }
         }
-    }
-
-    // Pass 71: nói rõ chip trên đã LOẠI gì, thay vì âm thầm lọc. Không có dòng
-    // này thì "0% <5s" và "3 hôm nay" trông như mâu thuẫn.
-    Label {
-        visible: poller && poller.detectionAttributionNote !== ""
-        text: poller ? poller.detectionAttributionNote : ""
-        color: Theme.textMuted
-        font.pixelSize: 10
-        wrapMode: Text.WordWrap
-        Layout.fillWidth: true
     }
 
     // ─── Activity list ───────────────────────────────────────
@@ -236,14 +152,6 @@ SettingsCard {
                         color: Theme.textMuted; font.pixelSize: 14
                         font.family: "monospace"; Layout.preferredWidth: 60
                     }
-                    // Avatar CHUẨN của kênh — lịch sử phát hiện chỉ lưu TÊN
-                    // kênh, nên tra qua `channelDir` (bảng dựng sẵn từ
-                    // channel:list) thay vì hỏi backend cho từng dòng.
-                    ChannelAvatarFor {
-                        fallbackName: model.channelName || ""
-                        diameter: 18
-                        Layout.alignment: Qt.AlignVCenter
-                    }
                     // Age at detection — colored by WHO caused the latency:
                     // catchup (app was off when published) and YouTube-side
                     // surfacing delays are not app failures, so they must not
@@ -252,67 +160,17 @@ SettingsCard {
                         text: {
                             if (model.status === "scheduled") return "hẹn giờ"
                             const age = model.ageAtDetection || "—"
-                            // Hàng bù: KHÔNG đặt bất kỳ con số KHOẢNG THỜI GIAN
-                            // nào ở cột này. Tuổi video ("3.4p") bị đọc thành
-                            // "app chậm 3,4 phút"; và "kể từ lúc khởi động" cũng
-                            // không cứu được vì tiến trình backend sống qua các
-                            // lần mở lại UI nên số đó có thể là vài phút.
-                            // Đặt MỐC GIỜ ĐĂNG + chữ "App khởi động": không có
-                            // khoảng thời gian nào để quy cho app.
-                            // Pass 79 — MỘT THƯỚC CHO CẢ HAI PANEL (bài học
-                            // tháng 7, lặp lại 15/08): timeline ① hiện cửa sổ
-                            // app (2.1s) mà cột này (Pass 77) hiện tổng từ
-                            // publishedAt (3.6p vì publishedAt = mốc UPLOAD)
-                            // → khách thấy hai số cho cùng một video, không
-                            // giải thích được. Operator chốt 15/08: "thay vì
-                            // cũng 2.2s" — cột này về CÙNG thước với timeline.
-                            //  1. Có ping WebSub → "X công khai" (mốc thật
-                            //     trùng nhãn web — thước tốt nhất, khi có).
-                            //  2. Chưa có ping → CỬA SỔ APP, y hệt dòng ① của
-                            //     timeline; tag YT khi phần trễ là của YouTube.
-                            // Số publishedAt-anchored vẫn ở hàng mở rộng
-                            // (INVARIANT #24 — không giấu số đo được).
-                            if (model.latencySource === "catchup") {
-                                return (model.publishedTimeStr || "—")
-                                     + " · App khởi động"
-                            }
-                            // Pass 88b: kèm phần của APP (cửa sổ hỏi) ngay cạnh số
-                            // công khai — 2,9s công khai mà app chỉ 1,1s thì phần còn
-                            // lại là YouTube giữ index; khách phải thấy được điều đó
-                            // trong MỘT liếc, không phải mở hàng.
-                            if (model.publicLatencyStr)
-                                return model.publicLatencyStr + " công khai"
-                                     + (model.appWindowStr && model.appWindowMs < model.publicLatencyMs
-                                        ? " · app " + model.appWindowStr : "")
-                            // Pass 88: nhân chứng watch đang đo mốc công khai
-                            // (≤ ~25s) → nói rõ số đang hiện là CỬA SỔ HỎI tạm,
-                            // sẽ được thay bằng một số chốt — không phải số nhảy.
-                            if (model.appWindowStr)
-                                return model.appWindowStr
-                                     + (model.publicPending ? " · đang đo…"
-                                        : model.latencySource === "youtube" ? " · YT" : "")
-                            // Backend cũ / chưa đủ lịch sử hỏi: còn mỗi số thô.
+                            if (model.latencySource === "catchup") return age + " bù"
                             if (model.latencySource === "youtube") return age + " YT"
                             return age
                         }
-                        // Màu vẫn theo CỬA SỔ APP (phần app chịu trách nhiệm):
-                        // hàng "3.4p YT · app 2.4s" tô XANH vì app nhanh — đỏ
-                        // để dành cho lúc app thật sự chậm. Số nói thật từ lúc
-                        // đăng, màu phân xử ai gây trễ: hai việc, hai kênh.
                         color: model.status === "scheduled" ? "#FFB74D"
                              : model.latencySource === "catchup" ? Theme.textMuted
-                             : (model.appWindowMs > 0)
-                               ? (model.appWindowMs < 5000 ? Theme.success
-                                  : model.appWindowMs < 10000 ? Theme.warning : Theme.error)
                              : model.latencySource === "youtube" ? "#4FC3F7"
                              : (model.latencyMs > 0 && model.latencyMs < 5000) ? Theme.success
-                             : (model.latencyMs < 10000) ? Theme.warning : Theme.error
-                        // Hàng bù và hàng "X công khai" dài hơn một con số
-                        // trần — cỡ nhỏ lại; cột giữ NGUYÊN bề rộng.
-                        font.pixelSize: (model.latencySource === "catchup"
-                                         || model.publicLatencyStr) ? 11 : 14
-                        font.bold: model.latencySource !== "catchup"
-                        Layout.preferredWidth: 120
+                             : (model.latencyMs < 10000) ? "#FFD93D" : Theme.error
+                        font.pixelSize: 14; font.bold: true
+                        Layout.preferredWidth: 62
                     }
                     // Status badge
                     Label {
@@ -328,7 +186,7 @@ SettingsCard {
                         }
                         color: model.status === "ready" ? Theme.success
                              : model.status === "error" ? Theme.error
-                             : model.status === "downloading" ? Theme.warning
+                             : model.status === "downloading" ? "#FFD93D"
                              : Theme.textMuted
                         font.pixelSize: 14; font.bold: true
                         Layout.preferredWidth: 70
@@ -347,7 +205,7 @@ SettingsCard {
                         }
                         color: model.tiktokStatus === "uploaded" ? Theme.success
                              : model.tiktokStatus === "failed" ? Theme.error
-                             : Theme.warning
+                             : "#FFD93D"
                         font.pixelSize: 14; font.bold: true
                     }
                     // Title — scheduled premieres show YouTube's own schedule text
@@ -383,67 +241,11 @@ SettingsCard {
                         Label { text: "Kênh"; color: Theme.textMuted; font.pixelSize: 12; Layout.preferredWidth: 70 }
                         Label { text: model.channelName || "—"; color: Theme.text; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
                     }
-                    // Pass 71: tuổi video của hàng bù chuyển xuống đây — vẫn hiện
-                    // đủ (INVARIANT #24 không cho phép giấu số đo được), nhưng
-                    // không còn nằm ở cột độ trễ nơi nó bị đọc thành "app chậm".
-                    RowLayout { Layout.fillWidth: true; spacing: 8; Layout.preferredHeight: 16
-                        visible: model.latencySource === "catchup"
-                        Label { text: "Hàng bù"; color: Theme.textMuted; font.pixelSize: 12; Layout.preferredWidth: 70 }
-                        Label {
-                            // Chỉ nêu SỰ KIỆN, không quy kết. Phần "app bắt sau X
-                            // kể từ khởi động" chỉ hiện khi X còn nhỏ — backend
-                            // sống qua các lần mở lại UI nên X có thể là vài
-                            // phút, và lúc đó nó gây hiểu sai y như tuổi video.
-                            text: "Video đăng " + (model.publishedTimeStr || "—")
-                                  + ", trước khi app mở · tuổi lúc bắt "
-                                  + (model.ageAtDetection || "—")
-                                  + ((model.sinceStartStr && model.sinceStartStr.indexOf("p") < 0)
-                                     ? " · app bắt sau " + model.sinceStartStr + " kể từ lúc khởi động"
-                                     : "")
-                            color: Theme.text; font.pixelSize: 12
-                            elide: Text.ElideRight; Layout.fillWidth: true
-                        }
-                    }
-                    // Pass 72: số THÔ theo lời khai của YouTube vẫn hiện đủ
-                    // (INVARIANT #24 cấm giấu số đo được) — nhưng ở đây, kèm
-                    // mốc giờ để đọc ra ngay "khai sớm hơn thực tế bao nhiêu".
-                    RowLayout { Layout.fillWidth: true; spacing: 8; Layout.preferredHeight: 16
-                        visible: model.latencySource === "youtube" && model.appWindowMs > 0
-                        Label { text: "Giờ đăng"; color: Theme.textMuted; font.pixelSize: 12; Layout.preferredWidth: 70 }
-                        Label {
-                            text: "YouTube khai " + (model.publishedTimeStr || "—")
-                                  + " — sớm hơn lúc bắt " + (model.ageAtDetection || "—")
-                                  + " (upload trước, công khai sau / YouTube giữ index) · app: "
-                                  + (model.appWindowStr || "—")
-                            color: Theme.textMuted; font.pixelSize: 12
-                            elide: Text.ElideRight; Layout.fillWidth: true
-                        }
-                    }
                     RowLayout { Layout.fillWidth: true; spacing: 8; Layout.preferredHeight: 16
                         Label { text: "Download"; color: Theme.textMuted; font.pixelSize: 12; Layout.preferredWidth: 70 }
                         Label { text: model.downloadedSize > 0 ? (model.downloadedSize/1048576).toFixed(1)+"MB in "+(model.downloadTimeSec || 0).toFixed(1)+"s" : "—"; color: Theme.text; font.pixelSize: 12 }
                         Item { Layout.fillWidth: true }
                         Label { text: model.width > 0 ? model.width+"×"+model.height : ""; color: Theme.textMuted; font.pixelSize: 12 }
-                    }
-                    RowLayout { Layout.fillWidth: true; spacing: 8; Layout.preferredHeight: 16
-                        visible: !!model.e2eStr
-                        Label { text: "E2E"; color: Theme.textMuted; font.pixelSize: 12; Layout.preferredWidth: 70 }
-                        // Pass 121: CÙNG NEO với "TIMELINE (TỔNG)" trang Quản
-                        // lí (Pass 96) — chặng ① là CỬA SỔ APP; trước đây hàng
-                        // này giữ mốc công khai nên cùng một video hai trang
-                        // lệch nhau ~1,3s (ảnh khách 27/08: 11,1s vs 12,4s).
-                        // Nhãn đi theo mốc THẬT được _billed_detection_ms chọn
-                        // (nhãn lệch số là bug Pass 115). Số công khai→bắt vẫn
-                        // hiện nguyên ở badge độ trễ + trang Lõi quét (#24).
-                        Label {
-                            // Đuôi nhãn theo phạm vi thật của con số: đã đăng
-                            // xong thì tổng GỒM chặng đăng (như timeline).
-                            text: (model.appWindowMs > 0 ? "Cửa sổ hỏi"
-                                  : model.publicLatencyMs > 0 ? "Công khai" : "Cửa sổ hỏi")
-                                  + (model.tiktokStatus === "uploaded" ? " → Đăng xong " : " → Xử lý xong ")
-                                  + model.e2eStr
-                            color: Theme.success; font.pixelSize: 12
-                        }
                     }
                     // TikTok upload perf (Pass 42): trạng thái · thời gian upload · e2e phát hiện→đăng
                     RowLayout { Layout.fillWidth: true; spacing: 8; Layout.preferredHeight: 16

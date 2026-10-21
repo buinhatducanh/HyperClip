@@ -15,7 +15,7 @@ Rectangle {
 
     gradient: Gradient {
         GradientStop { position: 0.0; color: Theme.cardBg }
-        GradientStop { position: 1.0; color: Theme.rowEven }
+        GradientStop { position: 1.0; color: "#161616" }
     }
 
     ColumnLayout {

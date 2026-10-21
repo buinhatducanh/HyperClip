@@ -1,5 +1,11 @@
-// src/ui/qml/ManagementPipelineDetails.qml
-// Card chi tiết pipeline video: Header, YouTube Gốc, Tải về, Render, TikTok Telemetry
+// ManagementPipelineDetails.qml
+// Card thông số kỹ thuật chi tiết dành cho Developer / Operator:
+// 1. Tệp video đầu ra (Output Hero Card - Phát nhanh, Copy đường dẫn, Mở thư mục)
+// 2. Phát hiện & Mốc thời gian (WatchProbe / Metadata)
+// 3. Cấu hình & Tải về (Download specs)
+// 4. Render & GPU NVENC (Render specs)
+// 5. Xuất bản TikTok (Distribution telemetry)
+// 6. Thao tác nhanh cho Dev
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -18,6 +24,20 @@ ColumnLayout {
 
     spacing: Theme.spacingMd
     Layout.fillWidth: true
+    width: parent ? parent.width : implicitWidth
+
+    function openFileSafe(path) {
+        if (!path) return
+        backend.send_command_async("system:openFile", {"path": path})
+    }
+
+    function copyToClipboardSafe(text) {
+        if (!text) return
+        backend.send_command_async("system:copyToClipboard", {"text": text})
+        if (typeof toastService !== "undefined" && toastService) {
+            toastService.show("Sao chép", "Đã sao chép đường dẫn vào bộ nhớ tạm", "success")
+        }
+    }
 
     // ─── Detail Section Helper ───────────────────────────────────────
     component SectionCard: Rectangle {
@@ -28,6 +48,7 @@ ColumnLayout {
         border.width: 1
         radius: Theme.radiusLg
         Layout.fillWidth: true
+        width: detailsRoot.width
         implicitHeight: cardCol.implicitHeight + 24
         ColumnLayout {
             id: cardCol
@@ -36,7 +57,7 @@ ColumnLayout {
             spacing: 8
             Label {
                 text: sectionTitle
-                color: Theme.accent
+                color: Theme.text
                 font.pixelSize: 11
                 font.bold: true
                 font.letterSpacing: 0.6
@@ -44,75 +65,8 @@ ColumnLayout {
             Item {
                 id: bodyHolder
                 Layout.fillWidth: true
+                width: cardCol.width
                 implicitHeight: bodyHolder.childrenRect.height
-            }
-        }
-    }
-
-    component PremiumSpinner: Item {
-        id: spinnerRoot
-        implicitWidth: 24
-        implicitHeight: 24
-        property real angle: 0.0
-
-        NumberAnimation on angle {
-            from: 0
-            to: 360
-            duration: 1000
-            loops: Animation.Infinite
-            running: spinnerRoot.visible
-        }
-
-        Rectangle {
-            anchors.fill: parent
-            radius: width / 2
-            color: "transparent"
-            border.color: Theme.border
-            border.width: 2.5
-        }
-
-        Item {
-            anchors.fill: parent
-            rotation: spinnerRoot.angle
-
-            Canvas {
-                anchors.fill: parent
-                onWidthChanged: requestPaint()
-                onHeightChanged: requestPaint()
-                onPaint: {
-                    var ctx = getContext("2d");
-                    ctx.reset();
-                    ctx.strokeStyle = Theme.accent;
-                    ctx.lineWidth = 2.5;
-                    ctx.lineCap = "round";
-                    ctx.beginPath();
-                    ctx.arc(width/2, height/2, width/2 - 1.25, 0, Math.PI * 0.6);
-                    ctx.stroke();
-                }
-            }
-        }
-    }
-
-    component PanelLoadingPlaceholder: Rectangle {
-        id: placeholderRoot
-        property string message: "Đang xử lý..."
-        color: "transparent"
-        width: parent ? parent.width : 0
-        implicitHeight: 80
-        height: visible ? implicitHeight : 0
-        visible: false
-
-        RowLayout {
-            anchors.centerIn: parent
-            spacing: 12
-            PremiumSpinner {
-                Layout.preferredWidth: 24
-                Layout.preferredHeight: 24
-            }
-            Label {
-                text: placeholderRoot.message
-                color: Theme.textMuted
-                font.pixelSize: 12
             }
         }
     }
@@ -133,7 +87,7 @@ ColumnLayout {
             text: keyText
             color: Theme.textMuted
             font.pixelSize: 12
-            Layout.preferredWidth: 130
+            Layout.preferredWidth: 140
             Layout.alignment: multiline ? Qt.AlignTop : Qt.AlignVCenter
             elide: Text.ElideRight
         }
@@ -146,7 +100,7 @@ ColumnLayout {
         }
         Label {
             text: valueText || "—"
-            color: kvRow.valueColor !== null && kvRow.valueColor !== undefined ? kvRow.valueColor : (clickable && valueText && valueText !== "—" ? Theme.accent : (valueText ? Theme.text : Theme.textMuted))
+            color: kvRow.valueColor !== null && kvRow.valueColor !== undefined ? kvRow.valueColor : Theme.text
             font.pixelSize: 12
             font.family: mono ? "monospace" : "sans-serif"
             font.underline: clickable && valueText && valueText !== "—"
@@ -174,79 +128,431 @@ ColumnLayout {
         return ""
     }
 
-    // ─── 1. Header card ──────────────────────────────────────────────
-    SectionCard {
-        sectionTitle: "VIDEO"
-        RowLayout {
-            width: parent.width
+    // ════════════════════════════════════════════════════════════════
+    // 1. OUTPUT HERO CARD (TỆP XUẤT BẢN ĐẦU RA CHÍNH)
+    // ════════════════════════════════════════════════════════════════
+    Rectangle {
+        id: heroCard
+        Layout.fillWidth: true
+        color: "#181D29"
+        border.color: (detailsRoot.videoData.renderedPath || detailsRoot.splitParts.length > 0) ? (Theme.success + "50") : (Theme.accent + "40")
+        border.width: 1
+        radius: 8
+        implicitHeight: heroCol.implicitHeight + 24
+
+        ColumnLayout {
+            id: heroCol
+            anchors.fill: parent
+            anchors.margins: 14
             spacing: 12
-            Rectangle {
-                Layout.preferredWidth: 200
-                Layout.preferredHeight: 112
-                radius: Theme.radiusMd
-                color: Theme.bg
-                border.color: Theme.border
-                border.width: 1
-                clip: true
-                Image {
-                    anchors.fill: parent
-                    source: Fmt.thumbnailSource(detailsRoot.videoData.thumbnailLocal, detailsRoot.videoData.video_id)
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: true
-                    cache: true
-                }
-            }
-            ColumnLayout {
+
+            // Tiêu đề Hero + Trạng thái
+            RowLayout {
                 Layout.fillWidth: true
-                spacing: 4
-                Label {
-                    text: detailsRoot.videoData.title || "(không có tiêu đề)"
-                    color: Theme.text
-                    font.pixelSize: 16
-                    font.bold: true
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
-                    maximumLineCount: 3
-                    elide: Text.ElideRight
-                }
-                RowLayout {
-                    spacing: 6
-                    StatusDot {
-                        state: Fmt.statusToDotState(detailsRoot.videoData.status)
-                        size: 8
-                        showRing: true
+                spacing: 8
+
+                Rectangle {
+                    width: 26; height: 26; radius: 13
+                    color: (detailsRoot.videoData.renderedPath || detailsRoot.splitParts.length > 0) ? (Theme.success + "20") : (Theme.accent + "20")
+                    border.color: (detailsRoot.videoData.renderedPath || detailsRoot.splitParts.length > 0) ? Theme.success : Theme.accent
+                    border.width: 1
+                    Icon {
+                        anchors.centerIn: parent
+                        name: "film"
+                        size: 13
+                        color: (detailsRoot.videoData.renderedPath || detailsRoot.splitParts.length > 0) ? Theme.success : Theme.accent
                     }
+                }
+
+                Label {
+                    text: "TỆP VIDEO ĐẦU RA (RENDERED OUTPUT)"
+                    color: Theme.text
+                    font.pixelSize: 12
+                    font.bold: true
+                    font.letterSpacing: 0.5
+                }
+
+                Item { Layout.fillWidth: true }
+
+                Rectangle {
+                    radius: 4
+                    color: (detailsRoot.videoData.renderedPath || detailsRoot.splitParts.length > 0) ? (Theme.success + "25") : (Theme.accent + "25")
+                    border.color: (detailsRoot.videoData.renderedPath || detailsRoot.splitParts.length > 0) ? Theme.success : Theme.accent
+                    border.width: 1
+                    Layout.preferredHeight: 22
+                    Layout.preferredWidth: heroBadgeLbl.implicitWidth + 14
+
                     Label {
-                        text: Fmt.statusLabel(detailsRoot.videoData.status)
-                        color: Theme.accent
-                        font.pixelSize: 12
+                        id: heroBadgeLbl
+                        anchors.centerIn: parent
+                        text: {
+                            if (detailsRoot.videoData.renderedPath || detailsRoot.splitParts.length > 0) return "✓ SẴN SÀNG"
+                            if (detailsRoot.aggregateStatus === "rendering") return "⚡ ĐANG RENDER"
+                            if (detailsRoot.videoData.status === "downloading") return "⬇ ĐANG TẢI"
+                            if (detailsRoot.videoData.status === "error" || detailsRoot.videoData.status === "failed") return "✕ THẤT BẠI"
+                            return "⏳ CHỜ BIÊN TẬP"
+                        }
+                        color: (detailsRoot.videoData.renderedPath || detailsRoot.splitParts.length > 0) ? Theme.success : Theme.accent
+                        font.pixelSize: 10
                         font.bold: true
                     }
                 }
+            }
+
+            // Đường dẫn tệp chính (Single video hoặc Part 1)
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 36
+                color: "#11141C"
+                border.color: "#2C3446"
+                border.width: 1
+                radius: 4
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 10
+                    anchors.rightMargin: 6
+                    spacing: 8
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: {
+                            if (detailsRoot.videoData.renderedPath) return detailsRoot.videoData.renderedPath
+                            if (detailsRoot.splitParts.length > 0 && detailsRoot.splitParts[0].renderedPath) return detailsRoot.splitParts[0].renderedPath
+                            if (detailsRoot.videoData.downloadedPath) return "[Đệm tải] " + detailsRoot.videoData.downloadedPath
+                            return "Chưa có tệp video đầu ra..."
+                        }
+                        color: (detailsRoot.videoData.renderedPath || detailsRoot.splitParts.length > 0) ? Theme.text : Theme.textMuted
+                        font.pixelSize: 11
+                        font.family: "Consolas"
+                        elide: Text.ElideMiddle
+                    }
+
+                    // Nút Copy Path nhanh
+                    Rectangle {
+                        visible: !!(detailsRoot.videoData.renderedPath || detailsRoot.videoData.downloadedPath || (detailsRoot.splitParts.length > 0 && detailsRoot.splitParts[0].renderedPath))
+                        radius: 3
+                        color: "#222838"
+                        border.color: "#3A455A"
+                        border.width: 1
+                        Layout.preferredHeight: 24
+                        Layout.preferredWidth: heroCopyLbl.implicitWidth + 12
+                        Label {
+                            id: heroCopyLbl
+                            anchors.centerIn: parent
+                            text: "📋 Chép path"
+                            color: Theme.text
+                            font.pixelSize: 10
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                let p = detailsRoot.videoData.renderedPath || (detailsRoot.splitParts.length > 0 ? detailsRoot.splitParts[0].renderedPath : detailsRoot.videoData.downloadedPath)
+                                detailsRoot.copyToClipboardSafe(p)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Thanh hành động nhanh (Play Video, Open Folder, Copy Path)
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                // Nút Phát Video
+                Rectangle {
+                    visible: !!(detailsRoot.videoData.renderedPath || (detailsRoot.splitParts.length > 0 && detailsRoot.splitParts[0].renderedPath))
+                    radius: 4
+                    color: Theme.accent
+                    Layout.preferredHeight: 28
+                    Layout.preferredWidth: playLbl.implicitWidth + 24
+
+                    RowLayout {
+                        anchors.centerIn: parent
+                        spacing: 4
+                        Label {
+                            text: "▶"
+                            color: "#FFFFFF"
+                            font.pixelSize: 11
+                            font.bold: true
+                        }
+                        Label {
+                            id: playLbl
+                            text: "Phát video"
+                            color: "#FFFFFF"
+                            font.pixelSize: 11
+                            font.bold: true
+                        }
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            let p = detailsRoot.videoData.renderedPath || (detailsRoot.splitParts.length > 0 ? detailsRoot.splitParts[0].renderedPath : "")
+                            detailsRoot.openFileSafe(p)
+                        }
+                    }
+                }
+
+                // Nút Mở Thư Mục Chứa
+                Rectangle {
+                    visible: !!(detailsRoot.videoData.renderedPath || detailsRoot.videoData.downloadedPath || (detailsRoot.splitParts.length > 0 && detailsRoot.splitParts[0].renderedPath))
+                    radius: 4
+                    color: "#252B3A"
+                    border.color: "#3D485C"
+                    border.width: 1
+                    Layout.preferredHeight: 28
+                    Layout.preferredWidth: folderLbl.implicitWidth + 20
+
+                    RowLayout {
+                        anchors.centerIn: parent
+                        spacing: 6
+                        Label {
+                            text: "📁"
+                            font.pixelSize: 11
+                        }
+                        Label {
+                            id: folderLbl
+                            text: "Mở thư mục"
+                            color: Theme.text
+                            font.pixelSize: 11
+                            font.bold: true
+                        }
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            let p = detailsRoot.videoData.renderedPath || (detailsRoot.splitParts.length > 0 ? detailsRoot.splitParts[0].renderedPath : detailsRoot.videoData.downloadedPath)
+                            detailsRoot.openFolder(p)
+                        }
+                    }
+                }
+
+                // Nút Xem trên YouTube
+                Rectangle {
+                    visible: !!detailsRoot.videoData.video_id
+                    radius: 4
+                    color: "#252B3A"
+                    border.color: "#3D485C"
+                    border.width: 1
+                    Layout.preferredHeight: 28
+                    Layout.preferredWidth: ytLinkLbl.implicitWidth + 20
+
+                    RowLayout {
+                        anchors.centerIn: parent
+                        spacing: 6
+                        Label {
+                            text: "🔗"
+                            font.pixelSize: 11
+                        }
+                        Label {
+                            id: ytLinkLbl
+                            text: "YouTube"
+                            color: Theme.text
+                            font.pixelSize: 11
+                        }
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (detailsRoot.videoData.video_id) {
+                                detailsRoot.openUrl("https://www.youtube.com/watch?v=" + detailsRoot.videoData.video_id)
+                            }
+                        }
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+            }
+
+            // Danh sách các phần tách (Nếu có split parts P1, P2...)
+            ColumnLayout {
+                visible: detailsRoot.splitParts.length > 1
+                Layout.fillWidth: true
+                spacing: 6
+
                 Label {
-                    text: detailsRoot.videoData.video_id || ""
+                    text: "CÁC PHẦN ĐÃ TÁCH (" + detailsRoot.splitParts.length + " PHẦN):"
                     color: Theme.textMuted
                     font.pixelSize: 10
-                    font.family: "monospace"
+                    font.bold: true
                 }
-                Label {
-                    text: detailsRoot.videoData.video_id
-                        ? "https://youtu.be/" + detailsRoot.videoData.video_id
-                        : "—"
-                    color: Theme.accent
-                    font.pixelSize: 11
-                    font.family: "monospace"
+
+                Repeater {
+                    model: detailsRoot.splitParts
+
+                    Rectangle {
+                        required property var modelData
+                        required property int index
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 32
+                        color: "#1E2432"
+                        border.color: "#2F394C"
+                        border.width: 1
+                        radius: 4
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 10
+                            anchors.rightMargin: 8
+                            spacing: 8
+
+                            Label {
+                                text: "Phần " + (index + 1)
+                                color: Theme.accent
+                                font.pixelSize: 11
+                                font.bold: true
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: modelData.renderedPath || "— (đang render...)"
+                                color: modelData.renderedPath ? Theme.text : Theme.textMuted
+                                font.pixelSize: 10
+                                font.family: "Consolas"
+                                elide: Text.ElideMiddle
+                            }
+
+                            // Phát phần này
+                            Rectangle {
+                                visible: !!modelData.renderedPath
+                                radius: 3
+                                color: Theme.accent + "30"
+                                border.color: Theme.accent
+                                border.width: 1
+                                Layout.preferredHeight: 22
+                                Layout.preferredWidth: partPlayLbl.implicitWidth + 10
+                                Label {
+                                    id: partPlayLbl
+                                    anchors.centerIn: parent
+                                    text: "▶ Phát"
+                                    color: Theme.accent
+                                    font.pixelSize: 9
+                                    font.bold: true
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: detailsRoot.openFileSafe(modelData.renderedPath)
+                                }
+                            }
+
+                            // Mở thư mục phần này
+                            Rectangle {
+                                visible: !!modelData.renderedPath
+                                radius: 3
+                                color: "#2A3244"
+                                border.color: "#3D485C"
+                                border.width: 1
+                                Layout.preferredHeight: 22
+                                Layout.preferredWidth: partFolderLbl.implicitWidth + 10
+                                Label {
+                                    id: partFolderLbl
+                                    anchors.centerIn: parent
+                                    text: "📁"
+                                    font.pixelSize: 9
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: detailsRoot.openFolder(modelData.renderedPath)
+                                }
+                            }
+                        }
+                    }
                 }
+            }
+
+            // Dải micro-chips thông số kỹ thuật đầu ra
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 6
+
+                Rectangle {
+                    radius: 3
+                    color: "#222838"
+                    border.color: "#353F54"
+                    border.width: 1
+                    Layout.preferredHeight: 20
+                    Layout.preferredWidth: chipCodecLbl.implicitWidth + 12
+                    Label {
+                        id: chipCodecLbl
+                        anchors.centerIn: parent
+                        text: (detailsRoot.videoData.renderCodec || "h264_nvenc") + " · GPU NVENC P1"
+                        color: Theme.textMuted
+                        font.pixelSize: 9
+                        font.bold: true
+                    }
+                }
+
+                Rectangle {
+                    visible: detailsRoot.videoData.renderFps > 0
+                    radius: 3
+                    color: "#222838"
+                    border.color: "#353F54"
+                    border.width: 1
+                    Layout.preferredHeight: 20
+                    Layout.preferredWidth: chipFpsLbl.implicitWidth + 12
+                    Label {
+                        id: chipFpsLbl
+                        anchors.centerIn: parent
+                        text: "Tốc độ: " + Math.round(detailsRoot.videoData.renderFps || 0) + " fps"
+                        color: Theme.textMuted
+                        font.pixelSize: 9
+                    }
+                }
+
+                Rectangle {
+                    visible: detailsRoot.videoData.renderDurationSec > 0
+                    radius: 3
+                    color: "#222838"
+                    border.color: "#353F54"
+                    border.width: 1
+                    Layout.preferredHeight: 20
+                    Layout.preferredWidth: chipDurLbl.implicitWidth + 12
+                    Label {
+                        id: chipDurLbl
+                        anchors.centerIn: parent
+                        text: "Thời gian render: " + Fmt.duration(detailsRoot.videoData.renderDurationSec)
+                        color: Theme.textMuted
+                        font.pixelSize: 9
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
             }
         }
     }
 
-    // ─── 2. YouTube gốc ──────────────────────────────────────────────
+    // ─── Header Tiêu Đề Khu Vực Kỹ Thuật (Dev Inspector) ────────────
+    RowLayout {
+        Layout.fillWidth: true
+        Layout.topMargin: 4
+        spacing: 8
+        Rectangle {
+            width: 3; height: 14; radius: 2; color: Theme.accent
+        }
+        Label {
+            text: "THÔNG SỐ KỸ THUẬT TOÀN TRÌNH (DEVELOPER INSPECTOR)"
+            color: Theme.text
+            font.pixelSize: 11
+            font.bold: true
+            font.letterSpacing: 0.8
+        }
+    }
+
+    // ─── 2. PHÁT HIỆN & THỜI ĐIỂM (WATCHPROBE & METADATA) ─────────────
     SectionCard {
-        sectionTitle: "YOUTUBE GỐC"
+        sectionTitle: "2. PHÁT HIỆN & THỜI ĐIỂM (WATCHPROBE / METADATA)"
         ColumnLayout {
+            id: metadataCol
             width: parent.width
-            spacing: 4
+            spacing: 5
+
             DetailKVRow {
                 keyText: "Channel"
                 valueText: detailsRoot.videoData.channelName
@@ -262,32 +568,50 @@ ColumnLayout {
             }
             DetailKVRow {
                 keyText: "Video ID"
-                valueText: detailsRoot.videoData.video_id || ""
+                valueText: detailsRoot.videoData.video_id || detailsRoot.videoData.id || ""
                 mono: true
-            }
-            DetailKVRow {
-                keyText: "URL"
-                valueText: detailsRoot.videoData.video_id
-                    ? "https://www.youtube.com/watch?v=" + detailsRoot.videoData.video_id
-                    : ""
-                mono: true
-                clickable: true
+                clickable: !!(detailsRoot.videoData.video_id || detailsRoot.videoData.id)
                 onClicked: {
-                    if (valueText) {
-                        detailsRoot.openUrl(valueText)
-                    }
+                    let vid = detailsRoot.videoData.video_id || detailsRoot.videoData.id
+                    if (vid) detailsRoot.openUrl("https://www.youtube.com/watch?v=" + vid)
                 }
             }
+
+            readonly property double pubMs: (detailsRoot.videoData && detailsRoot.videoData.publicMarkMs && detailsRoot.videoData.publicMarkMs > 0)
+                ? detailsRoot.videoData.publicMarkMs
+                : ((detailsRoot.videoData && detailsRoot.videoData.publicAtMs && detailsRoot.videoData.publicAtMs > 0)
+                    ? detailsRoot.videoData.publicAtMs
+                    : ((detailsRoot.videoData && detailsRoot.videoData.publishedAt && detailsRoot.videoData.publishedAt > 86400000) ? detailsRoot.videoData.publishedAt : 0))
+
             DetailKVRow {
-                keyText: "Published"
-                valueText: Fmt.fullTime(detailsRoot.videoData.publishedAt)
+                keyText: "Mốc công khai YouTube"
+                valueText: metadataCol.pubMs > 0 ? (Fmt.timeMs(metadataCol.pubMs) + " · " + Fmt.fullTime(metadataCol.pubMs)) : "Chưa có mốc"
             }
+
             DetailKVRow {
-                keyText: "Detected"
-                valueText: Fmt.fullTime(detailsRoot.videoData.createdAt)
+                visible: metadataCol.pubMs > 0 && detailsRoot.videoData && detailsRoot.videoData.publishedAt > 0 && Math.abs(detailsRoot.videoData.publishedAt - metadataCol.pubMs) >= 5000
+                keyText: "Mốc tải lên (Studio)"
+                valueText: Fmt.fullTime(detailsRoot.videoData.publishedAt) + " (lệch " + Fmt.duration(Math.abs(metadataCol.pubMs - detailsRoot.videoData.publishedAt) / 1000) + ")"
             }
+
             DetailKVRow {
-                keyText: "Duration (gốc)"
+                keyText: "App bắt được (Detected)"
+                valueText: Fmt.timeMs(detailsRoot.videoData.createdAt) + " · " + Fmt.fullTime(detailsRoot.videoData.createdAt)
+            }
+
+            DetailKVRow {
+                keyText: "Mặt phẳng phát hiện"
+                valueText: {
+                    const s = detailsRoot.videoData.surface || ""
+                    if (s === "cdp") return "Chrome CDP Active Tab (Quét DOM tức thì)"
+                    if (s === "playlistHtml") return "HTML Scrape (Dual-Race WebSub/Poller)"
+                    return "YouTube Data API v3 (Poll vòng)"
+                }
+                valueColor: (detailsRoot.videoData.surface === "cdp" || detailsRoot.videoData.surface === "playlistHtml") ? "#B388FF" : Theme.text
+            }
+
+            DetailKVRow {
+                keyText: "Thời lượng video"
                 valueText: {
                     const original = Fmt.duration(detailsRoot.videoData.originalDurationSec || detailsRoot.videoData.durationSec)
                     const speed = detailsRoot.videoData.videoSpeed || 1.0
@@ -301,438 +625,330 @@ ColumnLayout {
                     return original
                 }
             }
+        }
+    }
+
+    // ─── 3. THÔNG SỐ TẢI VỀ (DOWNLOAD ENGINE SPECS) ──────────────────
+    SectionCard {
+        sectionTitle: "3. TẢI VỀ & BỘ ĐỆM (DOWNLOAD ENGINE SPECS)"
+        ColumnLayout {
+            width: parent.width
+            spacing: 5
+
             DetailKVRow {
-                keyText: "Chất lượng (gốc)"
-                valueText: detailsRoot.videoData.originalQuality
-                    ? detailsRoot.videoData.originalQuality + "p"
-                    : "—"
+                keyText: "Engine tải về"
+                valueText: detailsRoot.videoData.downloadPath || "yt-dlp native"
             }
-        }
-    }
-
-    // ─── 3. Download config ──────────────────────────────────────────
-    SectionCard {
-        sectionTitle: "CẤU HÌNH TẢI VỀ"
-        Item {
-            width: parent.width
-            height: loadingDownload.visible ? loadingDownload.height : contentDownload.height
-
-            PanelLoadingPlaceholder {
-                id: loadingDownload
-                visible: {
-                    const s = detailsRoot.videoData.status
-                    return s === "downloading" || s === "waiting" || s === "pending" || s === "new"
-                }
-                message: detailsRoot.videoData.status === "downloading"
-                    ? "Đang tải video... " + (detailsRoot.videoData.progress ? Math.round(detailsRoot.videoData.progress) + "%" : "")
-                    : "Đang chờ tải video..."
+            DetailKVRow {
+                keyText: "Chất lượng target"
+                valueText: detailsRoot.videoData.quality ? (detailsRoot.videoData.quality + "p") : "Gốc (Best)"
             }
-
-            ColumnLayout {
-                id: contentDownload
-                width: parent.width
-                spacing: 4
-                visible: !loadingDownload.visible
-                height: visible ? implicitHeight : 0
-                clip: true
-                DetailKVRow {
-                    keyText: "Quality target"
-                    valueText: detailsRoot.videoData.quality
-                        ? detailsRoot.videoData.quality + "p" : "—"
+            DetailKVRow {
+                keyText: "Trim range"
+                valueText: {
+                    const s = detailsRoot.videoData.trimStart || 0
+                    const e = detailsRoot.videoData.trimEnd || 0
+                    return (s > 0 || e > 0) ? (Fmt.clock(s) + " → " + Fmt.clock(e)) : "Không cắt"
                 }
-                DetailKVRow {
-                    keyText: "Client priority"
-                    valueText: {
-                        const pri = (typeof settings !== "undefined" && settings !== null && settings.ytDlpClientPriority)
-                            ? settings.ytDlpClientPriority.join(" → ")
-                            : "tv_embedded → web → ios"
-                        return pri
-                    }
-                }
-                DetailKVRow {
-                    keyText: "Trim range"
-                    valueText: {
-                        const s = detailsRoot.videoData.trimStart || 0
-                        const e = detailsRoot.videoData.trimEnd || 0
-                        return (s > 0 || e > 0)
-                            ? Fmt.clock(s) + " → " + Fmt.clock(e)
-                            : "Không cắt"
-                    }
-                }
-                DetailKVRow {
-                    keyText: "Concurrent frag."
-                    valueText: "16"
-                }
-                DetailKVRow {
-                    keyText: "File size"
-                    valueText: Fmt.bytes(detailsRoot.videoData.fileSize
-                        || detailsRoot.videoData.downloadedSize)
-                }
-                DetailKVRow {
-                    keyText: "Download speed"
-                    valueText: detailsRoot.videoData.downloadSpeed || "—"
-                }
-                DetailKVRow {
-                    keyText: "Download time"
-                    valueText: Fmt.duration(detailsRoot.videoData.downloadDurationSec)
-                }
-                DetailKVRow {
-                    visible: (detailsRoot.videoData.queueWaitSec || 0) >= 1
-                    keyText: "Queue wait (tuần tự)"
-                    valueText: Fmt.duration(detailsRoot.videoData.queueWaitSec || 0) + " — không tính vào tổng"
-                }
-                // Pass 142 (khách 04/09: "bắt :52 → bắt đầu tải :54"): hàng
-                // "Downloaded at" cũ là lúc tải XONG, bị đọc thành lúc bắt đầu.
-                // In mốc BẮT ĐẦU TẢI (3 ms sau Detected ở mọi log) rồi mới tới
-                // mốc xong, đặt tên rõ để không phải suy.
-                DetailKVRow {
-                    visible: (detailsRoot.videoData.downloadStartedAt || 0) > 0
-                    keyText: "Bắt đầu tải"
-                    valueText: {
-                        const d = detailsRoot.videoData
-                        const st = d.downloadStartedAt || 0
-                        let s = Fmt.timeMs(st)
-                        if (d.createdAt > 0)
-                            s += "  (+" + Fmt.duration(Math.max(0, st - d.createdAt) / 1000) + " sau Detected)"
-                        return s
-                    }
-                }
-                DetailKVRow {
-                    keyText: "Tải xong lúc"
-                    valueText: Fmt.timeMs(
-                        detailsRoot.videoData.downloadedMtime
-                        || detailsRoot.videoData.downloadedAt)
-                }
-                DetailKVRow {
-                    keyText: "Path"
-                    valueText: detailsRoot.videoData.downloadedPath || ""
-                    mono: true
-                    multiline: true
-                    clickable: true
-                    onClicked: {
-                        if (valueText) {
-                            detailsRoot.openFolder(valueText)
-                        }
-                    }
+            }
+            DetailKVRow {
+                keyText: "Dung lượng tải về"
+                valueText: Fmt.bytes(detailsRoot.videoData.fileSize || detailsRoot.videoData.downloadedSize)
+            }
+            DetailKVRow {
+                keyText: "Tốc độ tải downlink"
+                valueText: detailsRoot.videoData.downloadSpeed || "—"
+            }
+            DetailKVRow {
+                keyText: "Thời gian tải"
+                valueText: Fmt.duration(detailsRoot.videoData.downloadDurationSec)
+            }
+            DetailKVRow {
+                visible: (detailsRoot.videoData.queueWaitSec || 0) >= 1
+                keyText: "Chờ hàng đợi"
+                valueText: Fmt.duration(detailsRoot.videoData.queueWaitSec || 0) + " (không tính vào E2E)"
+            }
+            DetailKVRow {
+                keyText: "Mốc tải xong"
+                valueText: Fmt.timeMs(detailsRoot.videoData.downloadedMtime || detailsRoot.videoData.downloadedAt)
+            }
+            DetailKVRow {
+                keyText: "Đường dẫn đệm tải"
+                valueText: detailsRoot.videoData.downloadedPath || ""
+                mono: true
+                multiline: true
+                clickable: !!detailsRoot.videoData.downloadedPath
+                onClicked: {
+                    if (valueText) detailsRoot.openFolder(valueText)
                 }
             }
         }
     }
 
-    // ─── 4. Render config ────────────────────────────────────────────
+    // ─── 4. THÔNG SỐ RENDER & GPU (RENDER SPECS) ─────────────────────
     SectionCard {
-        sectionTitle: "CẤU HÌNH RENDER"
-        visible: {
-            const s = detailsRoot.aggregateStatus
-            return s !== "new" && s !== "waiting" && s !== "pending" && s !== "downloading"
-        }
-        Item {
+        sectionTitle: "4. RENDER & GPU NVENC (HARDWARE ACCELERATION)"
+        ColumnLayout {
             width: parent.width
-            height: loadingRender.visible ? loadingRender.height : contentRender.height
+            spacing: 5
 
-            PanelLoadingPlaceholder {
-                id: loadingRender
-                visible: detailsRoot.aggregateStatus === "rendering"
-                message: "Đang render video... " + Math.round(detailsRoot.aggregateProgress) + "%"
+            DetailKVRow {
+                keyText: "Bộ mã hóa Video"
+                valueText: (detailsRoot.videoData.renderCodec || "h264_nvenc") + " · NVIDIA NVENC P1 ULL"
+            }
+            DetailKVRow {
+                keyText: "Render workers"
+                valueText: detailsRoot.videoData.renderWorkers ? ("" + detailsRoot.videoData.renderWorkers) : "1"
+            }
+            DetailKVRow {
+                keyText: "Tốc độ GPU"
+                valueText: detailsRoot.videoData.renderFps > 0 ? (Math.round(detailsRoot.videoData.renderFps) + " fps") : "—"
+            }
+            DetailKVRow {
+                keyText: "Thời gian Render"
+                valueText: Fmt.duration(detailsRoot.videoData.renderDurationSec)
+            }
+            DetailKVRow {
+                keyText: "Mốc render xong"
+                valueText: Fmt.timeMs(detailsRoot.videoData.renderedMtime || detailsRoot.videoData.renderedAt)
+            }
+            DetailKVRow {
+                keyText: "Đường dẫn video xuất"
+                valueText: {
+                    if (detailsRoot.videoData.status === "error" || detailsRoot.videoData.status === "failed") {
+                        return "— (Lỗi: " + (detailsRoot.videoData.error || "Không rõ nguyên nhân") + ")"
+                    }
+                    return detailsRoot.videoData.renderedPath || "—"
+                }
+                valueColor: (detailsRoot.videoData.status === "error" || detailsRoot.videoData.status === "failed") ? Theme.error : Theme.text
+                mono: true
+                multiline: true
+                clickable: !!detailsRoot.videoData.renderedPath && detailsRoot.videoData.status !== "error" && detailsRoot.videoData.status !== "failed"
+                visible: detailsRoot.splitParts.length === 0
+                onClicked: {
+                    if (detailsRoot.videoData.renderedPath) detailsRoot.openFolder(detailsRoot.videoData.renderedPath)
+                }
             }
 
-            ColumnLayout {
-                id: contentRender
-                width: parent.width
-                spacing: 4
-                visible: !loadingRender.visible
-                height: visible ? implicitHeight : 0
-                clip: true
-                DetailKVRow {
-                    keyText: "Auto render"
-                    valueText: detailsRoot.videoData.autoRender ? "BẬT" : "TẮT"
-                }
-                DetailKVRow {
-                    keyText: "Speed (tăng tốc)"
-                    valueText: (detailsRoot.videoData.videoSpeed || 1.0) + "×"
-                }
-                DetailKVRow {
-                    keyText: "Thời lượng đầu ra"
+            // Danh sách các phần tách (nếu có split parts)
+            Repeater {
+                model: detailsRoot.splitParts
+                delegate: DetailKVRow {
+                    keyText: "Đầu ra (Phần " + (index + 1) + ")"
                     valueText: {
-                        const speed = detailsRoot.videoData.videoSpeed || 1.0
-                        const dur = detailsRoot.videoData.durationSec || 0
-                        const s = detailsRoot.videoData.trimStart || 0
-                        const e = detailsRoot.videoData.trimEnd || dur
-                        const target = (e - s) / speed
-                        return Fmt.clockMS(target)
-                    }
-                }
-                DetailKVRow {
-                    keyText: "Trim start"
-                    valueText: Fmt.clock(detailsRoot.videoData.trimStart || 0)
-                }
-                DetailKVRow {
-                    keyText: "Trim end"
-                    valueText: detailsRoot.videoData.trimEnd ? Fmt.clock(detailsRoot.videoData.trimEnd) : "Hết video"
-                }
-                DetailKVRow {
-                    keyText: "FPS target"
-                    valueText: {
-                        const fps = detailsRoot.videoData.fpsTarget || ((typeof settings !== "undefined" && settings !== null) ? settings.autoRenderFPS : 30) || 30
-                        return fps + " fps"
-                    }
-                }
-                DetailKVRow {
-                    keyText: "Export resolution"
-                    valueText: detailsRoot.videoData.exportResolution || ((typeof settings !== "undefined" && settings !== null) ? settings.autoRenderResolution : "1080p") || "1080p"
-                }
-                DetailKVRow {
-                    keyText: "Render FPS (thực tế)"
-                    valueText: detailsRoot.videoData.renderFps
-                        ? detailsRoot.videoData.renderFps + " fps" : "—"
-                }
-                DetailKVRow {
-                    keyText: "Render preset"
-                    valueText: detailsRoot.videoData.renderPreset || "—"
-                }
-                DetailKVRow {
-                    keyText: "Render codec"
-                    valueText: detailsRoot.videoData.renderCodec || "—"
-                }
-                DetailKVRow {
-                    keyText: "Render workers"
-                    valueText: detailsRoot.videoData.renderWorkers
-                        ? "" + detailsRoot.videoData.renderWorkers : "—"
-                }
-                DetailKVRow {
-                    keyText: "Render time"
-                    valueText: Fmt.duration(detailsRoot.videoData.renderDurationSec)
-                }
-                DetailKVRow {
-                    keyText: "Rendered at"
-                    valueText: Fmt.fullTime(detailsRoot.videoData.renderedMtime)
-                }
-                DetailKVRow {
-                    keyText: "Output path"
-                    valueText: {
-                        if (detailsRoot.videoData.status === "error" || detailsRoot.videoData.status === "failed") {
-                            return "— (Lỗi: " + (detailsRoot.videoData.error || "Không rõ nguyên nhân") + ")"
+                        if (modelData.status === "error" || modelData.status === "failed") {
+                            return "— (Lỗi: " + (modelData.error || "Không rõ nguyên nhân") + ")"
                         }
-                        return detailsRoot.videoData.renderedPath || "—"
+                        return modelData.renderedPath || "— (đang render...)"
                     }
-                    valueColor: (detailsRoot.videoData.status === "error" || detailsRoot.videoData.status === "failed") ? Theme.error : Theme.text
+                    valueColor: (modelData.status === "error" || modelData.status === "failed") ? Theme.error : Theme.text
                     mono: true
                     multiline: true
-                    clickable: !!detailsRoot.videoData.renderedPath && detailsRoot.videoData.status !== "error" && detailsRoot.videoData.status !== "failed"
-                    visible: detailsRoot.splitParts.length === 0
+                    clickable: !!modelData.renderedPath && modelData.status !== "error" && modelData.status !== "failed"
                     onClicked: {
-                        if (detailsRoot.videoData.renderedPath && detailsRoot.videoData.status !== "error" && detailsRoot.videoData.status !== "failed") {
+                        if (modelData.renderedPath) detailsRoot.openFolder(modelData.renderedPath)
+                    }
+                }
+            }
+        }
+    }
+
+    // ─── 5. XUẤT BẢN TIKTOK (TIKTOK DISTRIBUTION) ────────────────────
+    SectionCard {
+        visible: !!detailsRoot.videoData.tiktokStatus
+        sectionTitle: "5. XUẤT BẢN TIKTOK (TIKTOK DISTRIBUTION)"
+        ColumnLayout {
+            width: parent.width
+            spacing: 5
+
+            DetailKVRow {
+                keyText: "Trạng thái TikTok"
+                valueText: {
+                    let s = detailsRoot.videoData.tiktokStatus
+                    if (s === "uploaded") return "Đã đăng bài thành công"
+                    if (s === "failed") return "Thất bại (Cần thử lại)"
+                    if (s === "uploading") return "Đang truyền tệp video..."
+                    if (s === "queued") return "Chờ xuất bản theo lịch"
+                    return s || "Chưa xuất bản"
+                }
+                valueColor: detailsRoot.videoData.tiktokStatus === "uploaded" ? Theme.success
+                          : (detailsRoot.videoData.tiktokStatus === "failed" ? Theme.error : Theme.accent)
+            }
+
+            // Nút Thử lại khi TikTok bị lỗi
+            RowLayout {
+                visible: detailsRoot.videoData.tiktokStatus === "failed"
+                Layout.fillWidth: true
+                spacing: 10
+                Item { Layout.preferredWidth: 140 }
+                Rectangle {
+                    radius: 4
+                    color: Theme.accent + "20"
+                    border.color: Theme.accent + "60"
+                    border.width: 1
+                    implicitHeight: 28
+                    implicitWidth: retryLbl.implicitWidth + 20
+                    Label {
+                        id: retryLbl
+                        anchors.centerIn: parent
+                        text: "🔁 Thử đăng lại ngay"
+                        color: Theme.accent
+                        font.pixelSize: 11
+                        font.bold: true
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: detailsRoot.retryTikTok(detailsRoot.videoData.id)
+                    }
+                }
+            }
+
+            DetailKVRow {
+                keyText: "Thời gian upload"
+                valueText: {
+                    let ms = detailsRoot.videoData.tiktokUploadMs
+                    return ms ? Fmt.duration(ms / 1000.0) : "—"
+                }
+                valueColor: detailsRoot.videoData.tiktokUploadMs ? Theme.accent : null
+            }
+
+            DetailKVRow {
+                visible: !!detailsRoot.ttPhase("app")
+                keyText: "Phân rã trễ mạng"
+                valueText: "App CDP điều khiển: " + detailsRoot.ttPhase("app") + "s · Máy chủ TikTok: " + detailsRoot.ttPhase("tiktok") + "s"
+                valueColor: parseFloat(detailsRoot.ttPhase("app")) > 1.5 ? Theme.warning : Theme.textMuted
+            }
+
+            DetailKVRow {
+                visible: !!detailsRoot.ttPhase("tiktok")
+                keyText: "Chi tiết chặng"
+                valueText: "Nạp file: " + detailsRoot.ttPhase("file") + "s · Editor: " + detailsRoot.ttPhase("editor")
+                    + "s · Caption: " + detailsRoot.ttPhase("caption") + "s · Xử lý: " + detailsRoot.ttPhase("process")
+                    + "s · Đăng: " + detailsRoot.ttPhase("confirm") + "s"
+            }
+
+            DetailKVRow {
+                visible: !!detailsRoot.videoData.tiktokUploadedAt
+                keyText: "Mốc đăng xong"
+                valueText: Fmt.timeMs(detailsRoot.videoData.tiktokUploadedAt) + " · " + Fmt.fullTime(detailsRoot.videoData.tiktokUploadedAt)
+            }
+
+            // Khối hiển thị lỗi TikTok
+            Rectangle {
+                visible: !!detailsRoot.videoData.tiktokError
+                Layout.fillWidth: true
+                Layout.preferredHeight: ttErrCol.implicitHeight + 12
+                radius: 4
+                color: Theme.error + "15"
+                border.color: Theme.error + "50"
+                border.width: 1
+                ColumnLayout {
+                    id: ttErrCol
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    spacing: 2
+                    Label {
+                        text: "LỖI XUẤT BẢN TIKTOK"
+                        color: Theme.error
+                        font.pixelSize: 10
+                        font.bold: true
+                    }
+                    Label {
+                        text: detailsRoot.videoData.tiktokError || ""
+                        color: Theme.text
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+                }
+            }
+        }
+    }
+
+    // ─── 6. CÔNG CỤ DEV & THAO TÁC NHANH (DEVELOPER ACTIONS) ────────
+    SectionCard {
+        sectionTitle: "6. CÔNG CỤ THAO TÁC DEV (DEVELOPER ACTIONS)"
+        RowLayout {
+            width: parent.width
+            spacing: 10
+
+            Rectangle {
+                visible: !!detailsRoot.videoData.downloadedPath
+                radius: 4
+                color: "#232836"
+                border.color: "#3A4456"
+                border.width: 1
+                implicitHeight: 30
+                implicitWidth: btnDlLbl.implicitWidth + 20
+                Label {
+                    id: btnDlLbl
+                    anchors.centerIn: parent
+                    text: "📂 Thư mục tải"
+                    color: Theme.text
+                    font.pixelSize: 11
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        if (detailsRoot.videoData.downloadedPath) {
+                            detailsRoot.openFolder(detailsRoot.videoData.downloadedPath)
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                visible: !!detailsRoot.videoData.renderedPath
+                radius: 4
+                color: "#232836"
+                border.color: "#3A4456"
+                border.width: 1
+                implicitHeight: 30
+                implicitWidth: btnRenLbl.implicitWidth + 20
+                Label {
+                    id: btnRenLbl
+                    anchors.centerIn: parent
+                    text: "📂 Thư mục render"
+                    color: Theme.text
+                    font.pixelSize: 11
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        if (detailsRoot.videoData.renderedPath) {
                             detailsRoot.openFolder(detailsRoot.videoData.renderedPath)
                         }
                     }
                 }
-                Repeater {
-                    model: detailsRoot.splitParts
-                    delegate: DetailKVRow {
-                        keyText: "Đầu ra (Phần " + (index + 1) + ")"
-                        valueText: {
-                            if (modelData.status === "error" || modelData.status === "failed") {
-                                return "— (Lỗi: " + (modelData.error || "Không rõ nguyên nhân") + ")"
-                            }
-                            return modelData.renderedPath || "— (đang render...)"
-                        }
-                        valueColor: (modelData.status === "error" || modelData.status === "failed") ? Theme.error : Theme.text
-                        mono: true
-                        multiline: true
-                        clickable: !!modelData.renderedPath && modelData.status !== "error" && modelData.status !== "failed"
-                        onClicked: {
-                            if (modelData.renderedPath && modelData.status !== "error" && modelData.status !== "failed") {
-                                detailsRoot.openFolder(modelData.renderedPath)
-                            }
-                        }
-                    }
-                }
             }
-        }
-    }
 
-    // ─── 5. TikTok Upload detail ──────────────────────────────────────
-    SectionCard {
-        sectionTitle: "TIKTOK UPLOAD"
-        visible: !!detailsRoot.videoData.tiktokStatus
-        Item {
-            width: parent.width
-            height: contentTikTok.height
-
-            ColumnLayout {
-                id: contentTikTok
-                width: parent.width
-                spacing: 4
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 8
-                    Rectangle {
-                        Layout.preferredHeight: 18
-                        Layout.preferredWidth: ttStatusLabel.implicitWidth + 16
-                        radius: 4
-                        property color ttColor: detailsRoot.videoData.tiktokStatus === "uploaded" ? Theme.success
-                            : detailsRoot.videoData.tiktokStatus === "failed" ? Theme.error
-                            : Theme.accent
-                        color: ttColor + "20"
-                        border.color: ttColor
-                        border.width: 1
-                        Label {
-                            id: ttStatusLabel
-                            anchors.centerIn: parent
-                            text: ({
-                                "uploaded": "✓ ĐÃ ĐĂNG",
-                                "failed": "✗ THẤT BẠI",
-                                "uploading": "⏳ ĐANG ĐĂNG",
-                                "queued": "⏳ CHỜ ĐĂNG"
-                            })[detailsRoot.videoData.tiktokStatus] || (detailsRoot.videoData.tiktokStatus || "")
-                            color: parent.ttColor
-                            font.pixelSize: 10
-                            font.bold: true
-                        }
-                    }
-                    Item { Layout.fillWidth: true }
-                    // Retry button when failed
-                    Rectangle {
-                        visible: detailsRoot.videoData.tiktokStatus === "failed"
-                        Layout.preferredHeight: 24
-                        Layout.preferredWidth: retryTtLabel.implicitWidth + 16
-                        radius: 4
-                        color: retryTtMa.containsMouse ? Theme.error + "40" : Theme.error + "20"
-                        border.color: Theme.error
-                        border.width: 1
-                        Label {
-                            id: retryTtLabel
-                            anchors.centerIn: parent
-                            text: "↻ Đăng lại"
-                            color: Theme.error
-                            font.pixelSize: 10
-                            font.bold: true
-                        }
-                        MouseArea {
-                            id: retryTtMa
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: detailsRoot.retryTikTok(detailsRoot.videoData.id)
-                        }
-                    }
-                    // Retry button when uploaded (upload again)
-                    Rectangle {
-                        visible: detailsRoot.videoData.tiktokStatus === "uploaded"
-                        Layout.preferredHeight: 24
-                        Layout.preferredWidth: retryAgainTtLabel.implicitWidth + 16
-                        radius: 4
-                        color: retryAgainTtMa.containsMouse ? Theme.accent + "40" : Theme.accent + "20"
-                        border.color: Theme.accent
-                        border.width: 1
-                        Label {
-                            id: retryAgainTtLabel
-                            anchors.centerIn: parent
-                            text: "↻ Đăng lại"
-                            color: Theme.accent
-                            font.pixelSize: 10
-                            font.bold: true
-                        }
-                        MouseArea {
-                            id: retryAgainTtMa
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: detailsRoot.retryTikTok(detailsRoot.videoData.id)
+            Rectangle {
+                visible: !!detailsRoot.videoData.video_id
+                radius: 4
+                color: "#232836"
+                border.color: "#3A4456"
+                border.width: 1
+                implicitHeight: 30
+                implicitWidth: btnYtLbl.implicitWidth + 20
+                Label {
+                    id: btnYtLbl
+                    anchors.centerIn: parent
+                    text: "🌐 Xem YouTube"
+                    color: Theme.text
+                    font.pixelSize: 11
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        if (detailsRoot.videoData.video_id) {
+                            detailsRoot.openUrl("https://www.youtube.com/watch?v=" + detailsRoot.videoData.video_id)
                         }
                     }
                 }
-
-                DetailKVRow {
-                    keyText: "Thời gian upload"
-                    valueText: {
-                        let ms = detailsRoot.videoData.tiktokUploadMs
-                        if (!ms) return "—"
-                        return Fmt.duration(ms / 1000.0)
-                    }
-                    valueColor: detailsRoot.videoData.tiktokUploadMs ? Theme.accent : null
-                }
-
-                DetailKVRow {
-                    visible: !!detailsRoot.ttPhase("app")
-                    keyText: "Trong đó"
-                    valueText: "app " + detailsRoot.ttPhase("app") + "s · TikTok " + detailsRoot.ttPhase("tiktok") + "s"
-                    valueColor: parseFloat(detailsRoot.ttPhase("app")) > 1.5 ? Theme.warning : Theme.textMuted
-                }
-                DetailKVRow {
-                    visible: !!detailsRoot.ttPhase("tiktok")
-                    keyText: "Chi tiết chặng"
-                    valueText: "nạp file " + detailsRoot.ttPhase("file") + "s · TikTok nhận " + detailsRoot.ttPhase("editor")
-                        + "s · caption " + detailsRoot.ttPhase("caption") + "s · TikTok xử lý " + detailsRoot.ttPhase("process")
-                        + "s · đăng " + detailsRoot.ttPhase("confirm") + "s"
-                }
-
-                DetailKVRow {
-                    visible: !!detailsRoot.videoData.tiktokUploadedAt
-                    keyText: "Đăng xong lúc"
-                    valueText: Fmt.fullTime(detailsRoot.videoData.tiktokUploadedAt)
-                }
-
-                Rectangle {
-                    visible: !!detailsRoot.videoData.tiktokError
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: ttErrCol.implicitHeight + 12
-                    radius: 4
-                    color: Theme.error + "15"
-                    border.color: Theme.error + "50"
-                    border.width: 1
-                    ColumnLayout {
-                        id: ttErrCol
-                        anchors.fill: parent
-                        anchors.margins: 6
-                        spacing: 2
-                        Label {
-                            text: "LỖI"
-                            color: Theme.error
-                            font.pixelSize: 10
-                            font.bold: true
-                            font.letterSpacing: 0.6
-                        }
-                        Label {
-                            text: detailsRoot.videoData.tiktokError || ""
-                            color: Theme.text
-                            font.pixelSize: 12
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // ─── 6. General Error message ────────────────────────────────────
-    Rectangle {
-        visible: !!detailsRoot.videoData.error
-        Layout.fillWidth: true
-        color: Theme.error + "20"
-        border.color: Theme.error + "60"
-        border.width: 1
-        radius: Theme.radiusMd
-        implicitHeight: errCol.implicitHeight + 16
-        ColumnLayout {
-            id: errCol
-            anchors.fill: parent
-            anchors.margins: 8
-            Label {
-                text: "LỖI"
-                color: Theme.error
-                font.pixelSize: 10
-                font.bold: true
-                font.letterSpacing: 0.8
-            }
-            Label {
-                text: detailsRoot.videoData.error || ""
-                color: Theme.text
-                font.pixelSize: 12
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
             }
         }
     }

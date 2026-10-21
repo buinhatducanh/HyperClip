@@ -8,58 +8,327 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import "ProjectActions.js" as PA
 
 Rectangle {
     id: root
     color: Theme.cardBg
     border.color: quota && quota.projectCount === 0 ? Theme.error : Theme.border
-    border.width: 1
-    radius: Theme.radiusLg
 
     signal addProjectRequested()
 
-    /// Project đang được "Kiểm tra lại" — khoá các nút test trong lúc chờ.
+     /// Project đang được "Kiểm tra lại" — khoá các nút test trong lúc chờ.
     property string testingId: ""
 
-    // Cột cố định — header và hàng dùng CHUNG các số này nên không thể lệch.
-    readonly property int colBar: 170
-    readonly property int colNumbers: 96
-    readonly property int colConsole: 96
-    readonly property int colActions: 58
-    readonly property int colEgress: 140
+    // Multi-selection state
+    property var selectedIds: ({})
+    property int selectedCount: 0
 
-    // Ba hành động pool project dùng chung với QuotaPoolCard — logic ở
-    // ProjectActions.js (trước đây copy nguyên văn ở cả hai file).
-    readonly property var paDeps: ({ backend: backend, toast: (typeof toastService !== "undefined" ? toastService : null), quota: quota })
-    function consoleUrlFor(projectId, errText) { return PA.consoleUrlFor(projectId, errText) }
-    function testProject(projectId) { PA.testProject(root, root.paDeps, projectId) }
-    function removeProject(projectId, name) { PA.removeProject(confirmRemove, root.paDeps, projectId, name) }
-
+    // Egress & Proxy mapping state
     property var egressMap: ({})
+
     function loadEgressMap() {
         if (typeof backend === "undefined" || !backend) return;
         try {
-            var resp = backend.send_command("project:getEgressMap")
-            if (resp && resp.ok && resp.result) {
-                egressMap = resp.result
+            var resp = backend.send_command("quota:summary")
+            if (resp && resp.result && resp.result.projects) {
+                var projs = resp.result.projects
+                var map = {}
+                for (var i = 0; i < projs.length; i++) {
+                    var p = projs[i]
+                    var pid = p.projectId || p.id
+                    if (pid) {
+                        map[pid] = p.egress || "direct"
+                    }
+                }
+                root.egressMap = map
             }
         } catch (e) {
             console.warn("[ProjectPoolTable] loadEgressMap err:", e)
         }
     }
-    function getEgress(pid) {
-        return (egressMap && egressMap[pid]) ? egressMap[pid] : "direct"
-    }
-    function openProxyModal(pid, eg) {
-        proxyConfigPopup.openFor(pid, eg)
+
+    function getEgress(projectId) {
+        return (root.egressMap && root.egressMap[projectId]) || "direct"
     }
 
-    Component.onCompleted: loadEgressMap()
+    function openProxyModal(projectId, currentEgress) {
+        proxyConfigPopup.openFor(projectId, currentEgress)
+    }
+
+    Component.onCompleted: {
+        loadEgressMap()
+    }
+
+    function isSelected(id) {
+        return Boolean(root.selectedIds && root.selectedIds[id])
+    }
+
+    function toggleSelect(id) {
+        var s = Object.assign({}, root.selectedIds)
+        if (s[id]) delete s[id]
+        else s[id] = true
+        root.selectedIds = s
+        root.selectedCount = Object.keys(s).length
+    }
+
+    function selectBrokenOnly() {
+        var broken = (quota && quota.projects && typeof quota.projects.get_broken_project_ids === "function")
+            ? quota.projects.get_broken_project_ids() : []
+        if (!broken || broken.length === 0) {
+            try {
+                var resp = backend.send_command("quota:summary")
+                if (resp && resp.result && resp.result.projects) {
+                    var projs = resp.result.projects
+                    broken = []
+                    for (var i = 0; i < projs.length; i++) {
+                        var p = projs[i]
+                        if (p.blocked && p.error !== "Hết quota hôm nay" && p.projectId) {
+                            broken.push(p.projectId)
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn("[ProjectPoolTable] selectBrokenOnly err:", err)
+            }
+        }
+        var s = {}
+        for (var i = 0; i < broken.length; i++) {
+            s[broken[i]] = true
+        }
+        root.selectedIds = s
+        root.selectedCount = Object.keys(s).length
+        if (root.selectedCount === 0) {
+            if (typeof toastService !== "undefined" && toastService)
+                toastService.show("Thông báo", "Hiện không có project nào bị lỗi hoặc bị đình chỉ!", "info")
+        } else {
+            if (typeof toastService !== "undefined" && toastService)
+                toastService.show("Đã chọn key lỗi", "Đã chọn " + root.selectedCount + " project/key bị Google đình chỉ hoặc lỗi.", "warning")
+        }
+    }
+
+    function selectAll() {
+        var all = (quota && quota.projects && typeof quota.projects.get_all_project_ids === "function")
+            ? quota.projects.get_all_project_ids() : []
+        if (!all || all.length === 0) {
+            try {
+                var resp = backend.send_command("quota:summary")
+                if (resp && resp.result && resp.result.projects) {
+                    var projs = resp.result.projects
+                    all = []
+                    for (var i = 0; i < projs.length; i++) {
+                        if (projs[i].projectId) all.push(projs[i].projectId)
+                    }
+                }
+            } catch (err) {}
+        }
+        var s = {}
+        for (var i = 0; i < all.length; i++) {
+            s[all[i]] = true
+        }
+        root.selectedIds = s
+        root.selectedCount = Object.keys(s).length
+    }
+
+    function clearSelection() {
+        root.selectedIds = {}
+        root.selectedCount = 0
+    }
+
+    function selectedBrokenCount() {
+        var broken = (quota && quota.projects && typeof quota.projects.get_broken_project_ids === "function")
+            ? quota.projects.get_broken_project_ids() : []
+        if (!broken || broken.length === 0) {
+            try {
+                var resp = backend.send_command("quota:summary")
+                if (resp && resp.result && resp.result.projects) {
+                    var projs = resp.result.projects
+                    broken = []
+                    for (var i = 0; i < projs.length; i++) {
+                        var p = projs[i]
+                        if (p.blocked && p.error !== "Hết quota hôm nay" && p.projectId) {
+                            broken.push(p.projectId)
+                        }
+                    }
+                }
+            } catch (err) {}
+        }
+        var cnt = 0
+        for (var i = 0; i < broken.length; i++) {
+            if (root.selectedIds && root.selectedIds[broken[i]]) cnt++
+        }
+        return cnt
+    }
+
+    function promptBatchRemove() {
+        var ids = Object.keys(root.selectedIds)
+        if (ids.length === 0) return
+        confirmBatchPopup.openFor(ids)
+    }
+
+    function executeBatchRemove(ids) {
+        if (!ids || ids.length === 0) return
+        Qt.callLater(function() {
+            backend.send_command("project:removeBatch", {"projectIds": ids})
+            root.clearSelection()
+            if (typeof toastService !== "undefined" && toastService) {
+                toastService.show("Đã dọn dẹp API keys", "Đã xoá " + ids.length + " project/key khỏi pool quét.", "success")
+            }
+            if (quota) quota.refresh_from_backend(backend)
+        })
+    }
+
+    // Cột cố định — header và hàng dùng CHUNG các số này nên không thể lệch.
+    readonly property int colCheck: 28
+    readonly property int colEgress: 120
+    readonly property int colBar: 160
+    readonly property int colNumbers: 96
+    readonly property int colConsole: 96
+    readonly property int colActions: 88
+
+    /// Trang Console đúng với loại lỗi — triết lý GcpWizard: mỗi lỗi một nút
+    /// mở đúng chỗ phải sửa, không bắt khách tự mò.
+    function consoleUrlFor(projectId, errText) {
+        // Key lẻ chưa gán project ("key:AIza…") không deep-link được.
+        const q = projectId.indexOf("key:") === 0 ? "" : "?project=" + projectId
+        const e = (errText || "").toLowerCase()
+        if (e.indexOf("chưa bật") >= 0 || e.indexOf("accessnotconfigured") >= 0)
+            return "https://console.cloud.google.com/apis/library/youtube.googleapis.com" + q
+        return "https://console.cloud.google.com/apis/credentials" + q
+    }
+
+    function testProject(projectId) {
+        root.testingId = projectId
+        Qt.callLater(function() {
+            const resp = backend.send_command("project:testOne", {"projectId": projectId})
+            root.testingId = ""
+            const r = (resp && resp.result) || {}
+            if (!resp || resp.ok === false || !r.success) {
+                if (toastService) toastService.show("Không kiểm tra được",
+                    (resp && resp.error) || r.error || "", "error")
+                return
+            }
+            if (r.ok) {
+                if (toastService) toastService.show("Project dùng được",
+                    projectId + " đã quay lại vòng xoay quét", "success")
+            } else {
+                if (toastService) toastService.show("Project vẫn hỏng", r.error || "", "warning")
+            }
+            if (quota) quota.refresh_from_backend(backend)
+        })
+    }
+
+    function removeProject(projectId, name) {
+        confirmRemove.openFor(projectId, name || projectId, function(id) {
+            Qt.callLater(function() {
+                backend.send_command("project:remove", {"projectId": id})
+                if (toastService) toastService.show("Đã xoá project",
+                    id + " không còn trong pool quét", "info")
+                if (quota) quota.refresh_from_backend(backend)
+            })
+        })
+    }
 
     ConfirmationDialog {
         id: confirmRemove
         anchors.centerIn: Overlay.overlay
+    }
+
+    // Modal xác nhận xoá hàng loạt
+    Popup {
+        id: confirmBatchPopup
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        anchors.centerIn: Overlay.overlay
+        width: 420
+        padding: 20
+
+        property var idsToRemove: []
+
+        function openFor(ids) {
+            idsToRemove = ids
+            open()
+        }
+
+        background: Rectangle {
+            color: Theme.cardBg
+            border.color: Theme.error
+            border.width: 1
+            radius: Theme.radiusLg
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+            RowLayout {
+                spacing: 10
+                Rectangle {
+                    width: 36; height: 36; radius: 18
+                    color: Theme.error + "25"
+                    Icon {
+                        name: "trash"
+                        size: 18
+                        color: Theme.error
+                        anchors.centerIn: parent
+                    }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+                    Label {
+                        text: "XÁC NHẬN XOÁ HÀNG LOẠT"
+                        color: Theme.error
+                        font.pixelSize: 13
+                        font.bold: true
+                    }
+                    Label {
+                        text: "Xoá " + confirmBatchPopup.idsToRemove.length + " project / API key"
+                        color: Theme.text
+                        font.pixelSize: 15
+                        font.bold: true
+                    }
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: "Bạn có chắc chắn muốn xoá " + confirmBatchPopup.idsToRemove.length + " project/key đã chọn khỏi pool quét không?\n\n• Trong đó có " + root.selectedBrokenCount() + " project đang bị Google đình chỉ hoặc báo lỗi.\n• Các project này sẽ bị xoá khỏi danh sách quét ngay lập tức."
+                color: Theme.textMuted
+                font.pixelSize: 12
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 8
+                spacing: 8
+                Item { Layout.fillWidth: true }
+                IconButton {
+                    iconName: "close"
+                    label: "Hủy bỏ"
+                    iconSize: 11
+                    Layout.preferredHeight: 30
+                    Layout.preferredWidth: 80
+                    onClicked: confirmBatchPopup.close()
+                }
+                IconButton {
+                    iconName: "trash"
+                    label: "Xoá tất cả"
+                    iconSize: 11
+                    Layout.preferredHeight: 30
+                    Layout.minimumWidth: 120
+                    colorIdle: Theme.error + "35"
+                    colorHover: Theme.error + "60"
+                    border.color: Theme.error
+                    iconColorIdle: Theme.error
+                    iconColorHover: "#FFF"
+                    onClicked: {
+                        var ids = confirmBatchPopup.idsToRemove
+                        confirmBatchPopup.close()
+                        root.executeBatchRemove(ids)
+                    }
+                }
+            }
+        }
     }
 
     // Modal cấu hình Proxy cho từng Project
@@ -367,54 +636,46 @@ Rectangle {
                 font.letterSpacing: 0.6
             }
             Label {
-                text: quota ? ("— " + quota.projectCount + " project, hỏng "
-                               + quota.brokenProjects) : ""
-                color: quota && quota.brokenProjects > 0 ? Theme.error : Theme.textMuted
+                text: quota ? ("— " + quota.projectCount + " project") : ""
+                color: Theme.textMuted
                 font.pixelSize: 11
             }
-            Item { Layout.fillWidth: true }
+
+            // Nút bấm chọn nhanh các key bị lỗi / đình chỉ
             IconButton {
-                // Pass 92: pool khách có ~20% key bị Google đình chỉ — xoá
-                // từng cái qua dialog là cực hình, đây là lối thoát một phát.
                 visible: quota && quota.brokenProjects > 0
-                iconName: "delete"
-                label: "Xoá " + (quota ? quota.brokenProjects : 0) + " hỏng"
+                iconName: "alert"
+                label: "Chọn " + (quota ? quota.brokenProjects : 0) + " key bị đình chỉ"
                 iconSize: 11
                 Layout.preferredHeight: 26
-                ToolTip.text: "Xoá mọi project có key đình chỉ / lỗi cấu hình (không đụng project chỉ hết quota hôm nay)"
+                colorIdle: Theme.error + "20"
+                colorHover: Theme.error + "40"
+                border.color: Theme.error
+                iconColorIdle: Theme.error
+                ToolTip.text: "Tự động chọn tất cả các project/key đang bị Google đình chỉ hoặc lỗi cấu hình để xoá nhanh"
                 ToolTip.visible: hovered
-                ToolTip.delay: 400
-                onClicked: PA.removeAllBroken(confirmRemove, root.paDeps,
-                                              quota ? quota.brokenProjects : 0)
+                ToolTip.delay: 300
+                onClicked: root.selectBrokenOnly()
             }
+
+            Item { Layout.fillWidth: true }
+
+            // Nút chọn tất cả / bỏ chọn
+            IconButton {
+                visible: quota && quota.projectCount > 0
+                iconName: root.selectedCount > 0 ? "close" : "check"
+                label: root.selectedCount > 0 ? ("Bỏ chọn (" + root.selectedCount + ")") : "Chọn tất cả"
+                iconSize: 11
+                Layout.preferredHeight: 26
+                onClicked: root.selectedCount > 0 ? root.clearSelection() : root.selectAll()
+            }
+
             IconButton {
                 iconName: "add"
                 label: "Thêm project"
                 iconSize: 11
                 Layout.preferredHeight: 26
                 onClicked: root.addProjectRequested()
-            }
-            IconButton {
-                iconName: "retry"
-                label: "Reset Quota"
-                iconSize: 11
-                Layout.preferredHeight: 26
-                ToolTip.text: "Kiểm tra kết nối Google và giải phóng sổ Quota nếu Google đã reset (hoặc sau 14:00 VN)"
-                ToolTip.visible: hovered
-                ToolTip.delay: 400
-                onClicked: {
-                    var resp = backend.send_command("quota:forceReset", {"force": false})
-                    var r = (resp && resp.result) ? resp.result : {}
-                    if (quota) quota.refresh_from_backend(backend)
-                    if (typeof toastService !== "undefined" && toastService) {
-                        if (resp && resp.ok && r.success) {
-                            toastService.show("Đã reset Quota", r.message || "Toàn bộ project đã được gỡ chặn và làm mới", "success")
-                        } else {
-                            var errMsg = (r && r.error) || (resp && resp.error) || "Chưa thể reset quota lúc này"
-                            toastService.show("Chưa thể reset Quota", errMsg, "warning")
-                        }
-                    }
-                }
             }
             IconButton {
                 iconName: "refresh"
@@ -425,6 +686,58 @@ Rectangle {
                 ToolTip.visible: hovered
                 ToolTip.delay: 400
                 onClicked: if (quota) quota.reload_projects(backend)
+            }
+        }
+
+        // ─── Thanh tác vụ hàng loạt (Hiện khi có item được chọn) ───
+        Rectangle {
+            visible: root.selectedCount > 0
+            Layout.fillWidth: true
+            Layout.preferredHeight: 38
+            radius: Theme.radiusMd
+            color: root.selectedBrokenCount() > 0 ? (Theme.error + "18") : (Theme.accent + "18")
+            border.color: root.selectedBrokenCount() > 0 ? Theme.error : Theme.accent
+            border.width: 1
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                spacing: 10
+
+                Icon {
+                    name: "check"
+                    size: 14
+                    color: root.selectedBrokenCount() > 0 ? Theme.error : Theme.accent
+                }
+
+                Label {
+                    text: "Đã chọn <b>" + root.selectedCount + "</b> project" +
+                          (root.selectedBrokenCount() > 0 ? " (trong đó có <font color='" + Theme.error + "'><b>" + root.selectedBrokenCount() + "</b> key bị đình chỉ/lỗi</font>)" : "")
+                    color: Theme.text
+                    font.pixelSize: 12
+                    Layout.fillWidth: true
+                }
+
+                IconButton {
+                    iconName: "trash"
+                    label: "Xoá " + root.selectedCount + " project đã chọn"
+                    iconSize: 11
+                    Layout.preferredHeight: 26
+                    colorIdle: Theme.error + "30"
+                    colorHover: Theme.error + "50"
+                    border.color: Theme.error
+                    iconColorIdle: Theme.error
+                    onClicked: root.promptBatchRemove()
+                }
+
+                IconButton {
+                    iconName: "close"
+                    label: "Bỏ chọn"
+                    iconSize: 10
+                    Layout.preferredHeight: 26
+                    onClicked: root.clearSelection()
+                }
             }
         }
 
@@ -462,6 +775,34 @@ Rectangle {
             Layout.leftMargin: 8
             Layout.rightMargin: 8
             spacing: 8
+
+            // Cột checkbox chọn tất cả
+            Rectangle {
+                Layout.preferredWidth: root.colCheck
+                Layout.preferredHeight: 16
+                color: "transparent"
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 14; height: 14; radius: 3
+                    color: root.selectedCount > 0 ? Theme.accent : "transparent"
+                    border.color: root.selectedCount > 0 ? Theme.accent : Theme.border
+                    border.width: 1
+                    Icon {
+                        name: "check"
+                        size: 9
+                        color: "#FFFFFF"
+                        visible: root.selectedCount > 0
+                        anchors.centerIn: parent
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.selectedCount > 0 ? root.clearSelection() : root.selectAll()
+                    }
+                }
+            }
+
             // Cell 1 dựng cùng bộ xương với hàng (chỗ trống 7px thế chân dot)
             // để footprint fill-share giống hệt nhau.
             RowLayout {
@@ -524,8 +865,11 @@ Rectangle {
                 width: projList.width
                 height: 34
                 radius: 3
-                color: projRow.pBlocked ? Theme.error + "0C"
-                     : (index % 2 === 0 ? Theme.rowEven : "transparent")
+                color: root.isSelected(projRow.pId) ? (Theme.accent + "1C")
+                     : (projRow.pBlocked ? Theme.error + "0C"
+                     : (index % 2 === 0 ? Theme.rowEven : "transparent"))
+                border.color: root.isSelected(projRow.pId) ? (Theme.accent + "60") : "transparent"
+                border.width: 1
 
                 // Sao chép roles lên delegate: trong closure `model` có thể đã
                 // chết theo delegate (bẫy 18/07).
@@ -539,6 +883,33 @@ Rectangle {
                     anchors.leftMargin: 8
                     anchors.rightMargin: 8
                     spacing: 8
+
+                    // Checkbox chọn từng dòng
+                    Rectangle {
+                        Layout.preferredWidth: root.colCheck
+                        Layout.preferredHeight: 18
+                        color: "transparent"
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 15; height: 15; radius: 3
+                            color: root.isSelected(projRow.pId) ? Theme.accent : "transparent"
+                            border.color: root.isSelected(projRow.pId) ? Theme.accent : (projRow.pBlocked ? Theme.error : Theme.border)
+                            border.width: 1
+                            Icon {
+                                name: "check"
+                                size: 10
+                                color: "#FFFFFF"
+                                visible: root.isSelected(projRow.pId)
+                                anchors.centerIn: parent
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.toggleSelect(projRow.pId)
+                            }
+                        }
+                    }
 
                     // Project
                     RowLayout {
@@ -642,7 +1013,7 @@ Rectangle {
                             width: Math.max(0, (parent.width - 2) * model.percent)
                             radius: 2
                             color: projRow.pBlocked ? Theme.error
-                                 : model.percent > 0.9 ? Theme.warning : Theme.success
+                                 : model.percent > 0.9 ? "#FFD93D" : Theme.success
                         }
                     }
 

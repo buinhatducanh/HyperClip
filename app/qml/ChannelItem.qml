@@ -3,6 +3,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import Qt5Compat.GraphicalEffects
 
 Rectangle {
     id: item
@@ -26,15 +27,48 @@ Rectangle {
         anchors.rightMargin: 6
         spacing: 8
 
-        // Bản dựng chung `ChannelAvatar` — trước đây khối Image ẩn + OpacityMask
-        // được chép tay ở đây và ở Sidebar (hai bản, sửa một là quên một).
-        ChannelAvatar {
-            url: model.avatarUrl || ""
-            channelName: model.name || ""
-            // Kênh tạm dừng: xám hẳn cả viền lẫn chữ cái dự phòng — đúng như
-            // bản chép tay cũ, chỉ khác là không còn dựng lại khối vẽ.
-            tint: item.isPaused ? Theme.textMuted : (model.avatarColor || Theme.accent)
-            diameter: 22
+        Rectangle {
+            id: avatarWrapper
+            width: 22
+            height: 22
+            Layout.preferredWidth: 22
+            Layout.preferredHeight: 22
+            radius: 11
+            color: item.isPaused ? Theme.textMuted : (model.avatarColor || Theme.accent) + "22"
+            border.color: item.isPaused ? Theme.textMuted : (model.avatarColor || Theme.accent)
+            border.width: 1
+
+            Image {
+                id: avatarImg
+                anchors.fill: parent
+                source: model.avatarUrl || ""
+                fillMode: Image.PreserveAspectCrop
+                visible: false
+                asynchronous: true
+            }
+
+            Rectangle {
+                id: roundMask
+                anchors.fill: parent
+                radius: 11
+                visible: false
+            }
+
+            OpacityMask {
+                anchors.fill: parent
+                source: avatarImg
+                maskSource: roundMask
+                visible: !!model.avatarUrl && avatarImg.status === Image.Ready
+            }
+
+            Label {
+                anchors.centerIn: parent
+                visible: !model.avatarUrl || avatarImg.status !== Image.Ready
+                text: model.name ? model.name[0].toUpperCase() : "?"
+                color: item.isPaused ? "white" : (model.avatarColor || Theme.accent)
+                font.pixelSize: 10
+                font.bold: true
+            }
         }
         ColumnLayout {
             Layout.fillWidth: true

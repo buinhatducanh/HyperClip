@@ -64,24 +64,6 @@ function absTime(ms) {
         + " · " + pad2(d.getDate()) + "/" + pad2(d.getMonth() + 1)
 }
 
-/// epoch ms → "HH:MM:SS.d" (giờ máy, 1 số lẻ giây). ≤0 → "—".
-/// Pass 137: dòng ① timeline in cả mốc CÔNG KHAI lẫn mốc BẮT để khách đối
-/// chiếu với đồng hồ/hệ thống khác không phải cộng trừ — hai mốc cách nhau
-/// vài giây nên phải có phần lẻ.
-function timeMs(ms) {
-    if (!ms || ms <= 0) return "—"
-    const d = new Date(ms)
-    return pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds())
-        + "." + Math.floor((ms % 1000) / 100)
-}
-
-/// epoch ms → "DD/MM/YYYY". ≤0 → "—".
-function dateOnly(ms) {
-    if (!ms || ms <= 0) return "—"
-    const d = new Date(ms)
-    return pad2(d.getDate()) + "/" + pad2(d.getMonth() + 1) + "/" + d.getFullYear()
-}
-
 /// epoch ms → "HH:MM:SS DD/MM/YYYY". ≤0 → "—".
 function fullTime(ms) {
     if (!ms || ms <= 0) return "—"
@@ -139,4 +121,13 @@ function thumbnailSource(thumbnailLocal, videoId) {
         return t
     }
     return "file:///" + t.replace(/\\/g, "/")
+}
+
+
+/// epoch ms -> "HH:MM:SS.s" (mốc thời gian chính xác 0.1s).
+function timeMs(ms) {
+    if (!ms || ms <= 0) return "—"
+    const d = new Date(ms)
+    return pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds())
+        + "." + Math.floor((ms % 1000) / 100)
 }

@@ -13,23 +13,20 @@ ApplicationWindow {
     minimumWidth: 900
     minimumHeight: 600
     visible: true
-    title: (typeof isShortEdition !== "undefined" && isShortEdition) ? "HyperShort" : "HyperClip"
+    title: (typeof isShortEdition !== "undefined" && isShortEdition) ? "HyperShort" : "HyperClipB"
     color: Theme.bg
+
+    onClosing: function(close) {
+        Qt.quit()
+    }
 
     palette.highlight: Theme.accent
     palette.highlightedText: "#FFFFFF"
     palette.window: Theme.bg
     palette.windowText: Theme.text
-    palette.base: Theme.cardBg
-    palette.text: Theme.text
-    palette.button: Theme.inputBg
-    palette.buttonText: Theme.text
-    palette.alternateBase: Theme.rowEven
-    palette.toolTipBase: Theme.cardBg
-    palette.toolTipText: Theme.text
 
     // Center pane view state: "settings" | "workspace" | "rendered" | "management" | "scancore" | "tiktok"
-    property string centerView: "settings"
+    property string centerView: "management"
     property string filterChannelId: ""
     property string pendingView: ""
     // Các trang chiếm toàn màn hình (ẩn Sidebar + cột queue phải).
@@ -105,7 +102,8 @@ ApplicationWindow {
                 }
             }
 
-            // Center: Settings / VideoDetail / Rendered / Operation
+            // Center: Settings / VideoDetail / Rendered / Management / ScanCore / TikTok
+            // Optimized with Lazy View Caching & Persistent Visibility for 0ms instantaneous page transitions
             Rectangle {
                 id: centerPane
                 Layout.fillWidth: true
@@ -114,34 +112,72 @@ ApplicationWindow {
                 color: Theme.bg
 
                 Loader {
-                    id: centerLoader
+                    id: managementLoader
                     anchors.fill: parent
-                    asynchronous: true
-                    sourceComponent: root.getCenterComponent(root.centerView)
-                    NumberAnimation on opacity {
-                        id: fadeAnim
-                        from: 0.7
-                        to: 1.0
-                        duration: Theme.animFast
-                        easing.type: Easing.OutCubic
+                    active: root.centerView === "management" || (item !== null)
+                    visible: root.centerView === "management"
+                    sourceComponent: Component {
+                        ManagementPanel {
+                            onOpenScanCore: root.changeView("scancore")
+                        }
                     }
-                    onLoaded: fadeAnim.restart()
                 }
 
-                Component { id: settingsView; SettingsPage {} }
-                Component { id: workspaceView; VideoDetailPanel {
-                    workspaceId: detailEditor.currentWorkspaceId
-                    workspaceData: detailEditor.currentWorkspaceData
-                } }
-                Component { id: renderedView; RenderedVideoDetail {
-                    videoId: detailEditor.currentRenderedId
-                    videoData: detailEditor.currentRenderedData
-                } }
-                                Component { id: managementView; ManagementPanel {
-                    onOpenScanCore: root.changeView("scancore")
-                } }
-                Component { id: scanCoreView; ScanCorePanel {} }
-                Component { id: tiktokView; TikTokPanel {} }
+                Loader {
+                    id: scanCoreLoader
+                    anchors.fill: parent
+                    active: root.centerView === "scancore" || (item !== null)
+                    visible: root.centerView === "scancore"
+                    sourceComponent: Component {
+                        ScanCorePanel {}
+                    }
+                }
+
+                Loader {
+                    id: tiktokLoader
+                    anchors.fill: parent
+                    active: root.centerView === "tiktok" || (item !== null)
+                    visible: root.centerView === "tiktok"
+                    sourceComponent: Component {
+                        TikTokPanel {}
+                    }
+                }
+
+                Loader {
+                    id: settingsLoader
+                    anchors.fill: parent
+                    active: root.centerView === "settings" || (item !== null)
+                    visible: root.centerView === "settings"
+                    sourceComponent: Component {
+                        SettingsPage {}
+                    }
+                }
+
+                Loader {
+                    id: workspaceLoader
+                    anchors.fill: parent
+                    active: root.centerView === "workspace"
+                    visible: root.centerView === "workspace"
+                    sourceComponent: Component {
+                        VideoDetailPanel {
+                            workspaceId: detailEditor.currentWorkspaceId
+                            workspaceData: detailEditor.currentWorkspaceData
+                        }
+                    }
+                }
+
+                Loader {
+                    id: renderedLoader
+                    anchors.fill: parent
+                    active: root.centerView === "rendered"
+                    visible: root.centerView === "rendered"
+                    sourceComponent: Component {
+                        RenderedVideoDetail {
+                            videoId: detailEditor.currentRenderedId
+                            videoData: detailEditor.currentRenderedData
+                        }
+                    }
+                }
             }
 
             // Right: WorkspaceQueue (240-400px) + rendered mini above — HIDDEN in Settings + wide views
@@ -342,7 +378,7 @@ ApplicationWindow {
     LoginScreen {
         id: loginOverlay
         anchors.fill: parent
-        visible: auth ? !auth.isReady : true
+        visible: !loginOverlay.dismissed && (auth ? !auth.isReady : true)
         z: 999
     }
 
@@ -350,7 +386,7 @@ ApplicationWindow {
     OnboardingPage {
         id: onboardingOverlay
         anchors.fill: parent
-        visible: (auth && auth.isReady) && (settings ? !settings.onboardingComplete : true)
+        visible: !loginOverlay.visible && (settings ? !settings.onboardingComplete : false)
         z: 998
     }
 
@@ -378,42 +414,51 @@ ApplicationWindow {
         id: unsavedDialog
         title: "Thay đổi chưa lưu"
         modal: true
-        anchors.centerIn: Overlay.overlay
-        width: 460
+        anchors.centerIn: parent
+        width: 420
         standardButtons: Dialog.NoButton
-        padding: 0
 
         background: Rectangle {
             color: Theme.cardBg
             border.color: Theme.border
             border.width: 1
-            radius: Theme.radiusLg
+            radius: 12
             Rectangle {
                 anchors.top: parent.top
                 anchors.left: parent.left
                 anchors.right: parent.right
                 height: 4
                 color: Theme.accent
-                radius: Theme.radiusLg
+                radius: 12
+            }
+            Rectangle {
+                anchors.top: parent.top
+                anchors.topMargin: 2
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 10
+                color: Theme.cardBg
+                z: -1
             }
         }
 
         header: Rectangle {
             color: "transparent"
-            height: 52
+            height: 56
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 20
                 anchors.rightMargin: 20
                 spacing: 10
                 Text {
-                    text: "⚠️"
-                    font.pixelSize: 18
+                    text: "▲"
+                    color: Theme.warning
+                    font.pixelSize: 20
                 }
                 Label {
                     text: "Xác nhận chuyển trang"
                     color: Theme.text
-                    font.pixelSize: 15
+                    font.pixelSize: 16
                     font.bold: true
                     Layout.fillWidth: true
                 }
@@ -421,12 +466,12 @@ ApplicationWindow {
         }
 
         contentItem: ColumnLayout {
-            spacing: 16
-
+            spacing: 20
+            
             Label {
                 text: "Bạn có thay đổi cài đặt chưa lưu. Bạn có muốn lưu các thay đổi này trước khi chuyển trang không?"
-                color: Theme.text
-                font.pixelSize: Theme.textSm
+                color: "#CCCCCC"
+                font.pixelSize: 13
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
                 Layout.leftMargin: 20
@@ -454,18 +499,18 @@ ApplicationWindow {
                     text: "Hủy"
                     contentItem: Text {
                         text: cancelBtn.text
-                        font.pixelSize: Theme.textSm
+                        font.pixelSize: 13
                         font.bold: true
-                        color: cancelBtn.hovered ? Theme.text : Theme.textMuted
+                        color: cancelBtn.hovered ? "#FFFFFF" : Theme.textMuted
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
                     background: Rectangle {
                         implicitWidth: 80
-                        implicitHeight: 34
-                        color: cancelBtn.hovered ? Theme.cardElevatedBg : "transparent"
-                        border.color: cancelBtn.hovered ? Theme.border : "transparent"
-                        radius: Theme.radiusMd
+                        implicitHeight: 36
+                        color: cancelBtn.hovered ? "#333333" : "transparent"
+                        border.color: cancelBtn.hovered ? "#444444" : "transparent"
+                        radius: 6
                     }
                     onClicked: {
                         unsavedDialog.close()
@@ -479,19 +524,19 @@ ApplicationWindow {
                     text: "Không lưu"
                     contentItem: Text {
                         text: discardBtn.text
-                        font.pixelSize: Theme.textSm
+                        font.pixelSize: 13
                         font.bold: true
-                        color: Theme.error
+                        color: discardBtn.hovered ? "#FF6666" : "#FF4444"
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
                     background: Rectangle {
                         implicitWidth: 100
-                        implicitHeight: 34
-                        color: discardBtn.hovered ? Theme.error + "25" : "transparent"
-                        border.color: Theme.error + "60"
+                        implicitHeight: 36
+                        color: discardBtn.hovered ? "#2D1A1A" : "transparent"
+                        border.color: "#FF4444"
                         border.width: 1
-                        radius: Theme.radiusMd
+                        radius: 6
                     }
                     onClicked: {
                         settings.discard_changes()
@@ -506,7 +551,7 @@ ApplicationWindow {
                     text: "Lưu cài đặt"
                     contentItem: Text {
                         text: saveBtn.text
-                        font.pixelSize: Theme.textSm
+                        font.pixelSize: 13
                         font.bold: true
                         color: "#FFFFFF"
                         horizontalAlignment: Text.AlignHCenter
@@ -514,9 +559,9 @@ ApplicationWindow {
                     }
                     background: Rectangle {
                         implicitWidth: 110
-                        implicitHeight: 34
-                        color: saveBtn.hovered ? Qt.lighter(Theme.accent, 1.15) : Theme.accent
-                        radius: Theme.radiusMd
+                        implicitHeight: 36
+                        color: saveBtn.hovered ? "#00A4EF" : Theme.accent
+                        radius: 6
                     }
                     onClicked: {
                         if (settings.save_to_backend(backend)) {

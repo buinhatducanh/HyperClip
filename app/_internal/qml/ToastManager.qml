@@ -12,8 +12,8 @@ Item {
     ColumnLayout {
         id: stack
         anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.margins: 16
+        anchors.top: parent.top
+        anchors.margins: 20
         spacing: 8
     }
 
@@ -25,19 +25,15 @@ Item {
     function show(title, message, level) {
         if (stack.children.length >= 5) {
             stack.children[0].dismiss()
-            stack.children[0].destroy()
         }
-        // ToastNotification chỉ biết info|success|warn|error; nhiều nơi gọi
-        // "warning" (Sidebar, QuotaPoolCard, main.qml, AppController) → trước
-        // đây rơi về kiểu info (mất viền vàng). Chuẩn hoá tại cửa vào.
-        let lvl = level || "info"
-        if (lvl === "warning") lvl = "warn"
         const t = toastComponent.createObject(stack, {
             title: title || "",
             message: message || "",
-            level: lvl
+            level: level || "info"
         })
-        t.show()
+        if (t) {
+            t.show()
+        }
     }
 
     // Connect to Python toast service

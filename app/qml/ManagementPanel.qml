@@ -32,9 +32,27 @@ Rectangle {
     property double nowMs: Date.now()
     Timer {
         interval: 1000
-        running: true
+        running: root.visible
         repeat: true
         onTriggered: root.nowMs = Date.now()
+    }
+
+    // ─── Debounce Timer: detail panel RPC refresh ─────────────────────
+    // Khi backend bắn 5-8 event trong 4 giây (RTX 5070 GPU render cực
+    // nhanh), chỉ gọi managementGet RPC MỘT LẦN sau event cuối cùng
+    // 300ms — tránh nghẽn UI do gọi đồng bộ RPC liên tục.
+    Timer {
+        id: detailRefreshTimer
+        interval: 300
+        repeat: false
+        onTriggered: {
+            if (root.currentVideoId) {
+                const resp = backend.send_command("workspace:managementGet", {"id": root.currentVideoId});
+                if (resp && resp.ok !== false && resp.result) {
+                    root.currentVideoData = resp.result;
+                }
+            }
+        }
     }
 
 
@@ -71,6 +89,8 @@ Rectangle {
     property var selectedIds: []
 
     property bool isDeleteSelectMode: false
+    property string queueFilterMode: "all" // "all" | "done" | "active" | "high_delay" | "error"
+    property string queueSearchQuery: ""
 
     // ─── Analytics 24h KPIs ──────────────────────────────────────────
     property int statTotalCount: {
@@ -96,7 +116,7 @@ Rectangle {
         let cnt = 0;
         for (let i = 0; i < workspaces.length; i++) {
             let ws = workspaces[i];
-            if (ws.id.indexOf("-part") === -1 && (ws.status === "rendered" || ws.isRendered)) {
+            if (ws.id.indexOf("-part") === -1 && (ws.status === "done" || ws.status === "rendered" || ws.renderedPath || (ws.renderedMtime && ws.renderedMtime > 0))) {
                 cnt++;
             }
         }
@@ -120,7 +140,7 @@ Rectangle {
         for (let i = 0; i < workspaces.length; i++) {
             let ws = workspaces[i];
             if (ws.id.indexOf("-part") === -1) {
-                let pubMs = (ws.publicAtMs && ws.publicAtMs > 0) ? ws.publicAtMs : ((ws.publishedAt && ws.publishedAt > 86400000) ? ws.publishedAt : 0);
+                let pubMs = (ws.publicMarkMs && ws.publicMarkMs > 0) ? ws.publicMarkMs : ((ws.publicAtMs && ws.publicAtMs > 0) ? ws.publicAtMs : ((ws.publishedAt && ws.publishedAt > 86400000) ? ws.publishedAt : 0));
                 let sec = (pubMs > 0 && ws.createdAt >= pubMs) ? ((ws.createdAt - pubMs) / 1000) : (ws.detectionPublicSec || ws.detectionDurationSec || 0);
                 if (sec > 0 && sec < 3600) {
                     totalSec += sec;
@@ -230,14 +250,14 @@ Rectangle {
                 updatedList.push(newWs);
                 found = true;
                 if (ws.id === root.currentVideoId || ws.id.startsWith(root.currentVideoId + "-part")) {
-                    Qt.callLater(function() {
-                        if (root.currentVideoId) {
-                            const resp = backend.send_command("workspace:managementGet", {"id": root.currentVideoId});
-                            if (resp && resp.ok !== false && resp.result) {
-                                root.currentVideoData = resp.result;
-                            }
-                        }
-                    });
+                    // Instant merge: event payload từ Rust đã chứa data
+                    // enriched (downloadedMtime, renderedMtime, status...)
+                    // → cập nhật UI tức thì, không đợi RPC
+                    let merged = Object.assign({}, root.currentVideoData, params);
+                    root.currentVideoData = merged;
+                    // Debounce full RPC refresh — chỉ gọi 1 lần sau 300ms
+                    // thay vì mỗi event 1 lần (5-8 lần trong 4 giây)
+                    detailRefreshTimer.restart();
                 }
             } else {
                 updatedList.push(ws);
@@ -306,11 +326,6 @@ Rectangle {
         listLoading = true
 
         errorText = ""
-
-        if (typeof backend === "undefined" || !backend || !backend.send_command) {
-            listLoading = false
-            return
-        }
 
         const resp = backend.send_command("workspace:managementList")
 
@@ -709,60 +724,62 @@ Rectangle {
 
     // timeline chi tiết). Ưu tiên trừ mốc CÔNG KHAI thật (YouTube publicAtMs).
 
+            function getPublicMs(d) {
+        if (!d) return 0
+        if (d.publicMarkMs && d.publicMarkMs > 0) return d.publicMarkMs
+        if (d.public_mark_ms && d.public_mark_ms > 0) return d.public_mark_ms
+        if (d.publicAtMs && d.publicAtMs > 0) return d.publicAtMs
+        if (d.public_at_ms && d.public_at_ms > 0) return d.public_at_ms
+        if (d.publishedAt && d.publishedAt > 86400000) return d.publishedAt
+        if (d.published_at && d.published_at > 86400000) return d.published_at
+        return 0
+    }
+
     function detectionSecForTotal(d) {
-
         if (!d) return 0.0
+        const createdAt = d.createdAt || d.created_at || 0
+        const dlStart = (d.downloadStartedAt && d.downloadStartedAt > 0) ? d.downloadStartedAt : ((d.download_started_at && d.download_started_at > 0) ? d.download_started_at : createdAt)
+        const refStart = dlStart > 0 ? dlStart : createdAt
+        const pubMs = getPublicMs(d)
 
-        if (d.publicAtMs !== undefined && d.publicAtMs !== null && d.publicAtMs > 0
+        // Ưu tiên tính từ mốc công khai YouTube đến khi bắt đầu tải (độ trễ phát hiện thật)
+        if (pubMs > 0 && refStart >= pubMs) {
+            return (refStart - pubMs) / 1000.0
+        }
 
-            && d.createdAt > 0 && d.createdAt >= d.publicAtMs)
+        if (d.detectionPublicSec !== undefined && d.detectionPublicSec !== null && d.detectionPublicSec > 0)
+            return d.detectionPublicSec
+        if (d.detection_public_sec !== undefined && d.detection_public_sec !== null && d.detection_public_sec > 0)
+            return d.detection_public_sec
 
-            return (d.createdAt - d.publicAtMs) / 1000
+        if (d.detectionBilledSec !== undefined && d.detectionBilledSec > 0) return d.detectionBilledSec
+        if (d.detection_billed_sec !== undefined && d.detection_billed_sec > 0) return d.detection_billed_sec
 
-        if (d.detectionPublicSec !== undefined && d.detectionPublicSec !== null
-
-            && d.detectionPublicSec > 0) return d.detectionPublicSec
-
-        if (d.detectionBilledSec !== undefined) return d.detectionBilledSec || 0
-
-        if (d.isStartupCatchup) return 0.0
-
-        return d.detectionDurationSec || 0
-
+        return d.detectionDurationSec || d.detection_duration_sec || 0.0
     }
 
     function e2eEndMs(d) {
-
         if (!d) return 0
-
         if (d.tiktokStatus === "uploaded" && d.tiktokUploadedAt > 0) return d.tiktokUploadedAt
-
         if ((d.status === "done" || d.status === "rendered") && getRenderedMtime(d) > 0) return getRenderedMtime(d)
-
+        if (d.renderedMtime && d.renderedMtime > 0) return d.renderedMtime
+        if (d.renderedAt && d.renderedAt > 0) return d.renderedAt
         return 0
-
     }
 
     function e2eTotalSec(d, renSec) {
-
         if (!d) return 0.0
-
-        const start = (d.publicAtMs && d.publicAtMs > 0 && d.createdAt >= d.publicAtMs) ? d.publicAtMs : 0
-
+        const createdAt = d.createdAt || d.created_at || 0
+        const dlStart = (d.downloadStartedAt && d.downloadStartedAt > 0) ? d.downloadStartedAt : ((d.download_started_at && d.download_started_at > 0) ? d.download_started_at : createdAt)
+        const pubMs = getPublicMs(d)
+        const start = pubMs > 0 ? pubMs : (dlStart > 0 ? dlStart : createdAt)
         const end = e2eEndMs(d)
-
         if (start > 0 && end > start && getSplitPartsFor(d.id).length === 0)
-
-            return (end - start) / 1000
-
+            return (end - start) / 1000.0
         return detectionSecForTotal(d)
-
-             + (d.downloadDurationSec || 0)
-
+             + (d.downloadDurationSec || d.download_duration_sec || 0)
              + (renSec || 0)
-
              + tiktokBonusSec(d)
-
     }
 
     function getRenderStatusText(wsData) {
@@ -923,7 +940,7 @@ Rectangle {
 
     function statusToDotState(s) {
 
-        if (s === "done" || s === "rendered") return "ready"
+        if (s === "done" || s === "rendered" || s === "ready" || s === "detected") return "ready"
 
         if (s === "error" || s === "failed") return "error"
 
@@ -944,6 +961,8 @@ Rectangle {
             "downloading": "ĐANG TẢI",
 
             "ready": "SẴN SÀNG",
+
+            "detected": "ĐÃ BẮT",
 
             "rendering": "ĐANG RENDER",
 
@@ -1392,7 +1411,7 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 64
                 radius: 8
-                color: "#141722"
+                color: Theme.cardBg
                 border.color: c1Ma.containsMouse ? "#00B4FF80" : "#232838"
                 border.width: 1
 
@@ -1409,8 +1428,8 @@ Rectangle {
 
                     Rectangle {
                         width: 40; height: 40; radius: 10
-                        color: "#00B4FF15"
-                        border.color: "#00B4FF40"
+                        color: Theme.surfaceHover
+                        border.color: Theme.cardBorder
                         border.width: 1
                         Icon { anchors.centerIn: parent; name: "bolt"; size: 18; color: "#00B4FF" }
                     }
@@ -1440,8 +1459,8 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 64
                 radius: 8
-                color: "#141722"
-                border.color: c2Ma.containsMouse ? "#00FF8880" : "#232838"
+                color: Theme.cardBg
+                border.color: c2Ma.containsMouse ? Theme.cardBorderHover : Theme.cardBorder
                 border.width: 1
 
                 MouseArea {
@@ -1457,10 +1476,10 @@ Rectangle {
 
                     Rectangle {
                         width: 40; height: 40; radius: 10
-                        color: "#00FF8815"
-                        border.color: "#00FF8840"
+                        color: Theme.surfaceHover
+                        border.color: Theme.cardBorder
                         border.width: 1
-                        Icon { anchors.centerIn: parent; name: "star"; size: 16; color: "#00FF88" }
+                        Icon { anchors.centerIn: parent; name: "star"; size: 16; color: Theme.text }
                     }
 
                     ColumnLayout {
@@ -1470,14 +1489,14 @@ Rectangle {
                             spacing: 8
                             Label {
                                 text: root.statAvgDetectionSec > 0 ? (root.statAvgDetectionSec.toFixed(1) + "s") : "< 0.5s"
-                                color: "#00FF88"
+                                color: Theme.text
                                 font.pixelSize: 17
                                 font.bold: true
                             }
                             Rectangle {
                                 radius: 4
-                                color: "#00FF8818"
-                                border.color: "#00FF8845"
+                                color: "#10B98118"
+                                border.color: "#10B98135"
                                 border.width: 1
                                 Layout.preferredHeight: 18
                                 Layout.preferredWidth: spdLbl.implicitWidth + 10
@@ -1485,7 +1504,7 @@ Rectangle {
                                     id: spdLbl
                                     anchors.centerIn: parent
                                     text: "Siêu tốc"
-                                    color: "#00FF88"
+                                    color: Theme.text
                                     font.pixelSize: 9
                                     font.bold: true
                                 }
@@ -1507,8 +1526,8 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 64
                 radius: 8
-                color: "#141722"
-                border.color: c3Ma.containsMouse ? "#FF980080" : "#232838"
+                color: Theme.cardBg
+                border.color: c3Ma.containsMouse ? Theme.cardBorderHover : Theme.cardBorder
                 border.width: 1
 
                 MouseArea {
@@ -1524,10 +1543,10 @@ Rectangle {
 
                     Rectangle {
                         width: 40; height: 40; radius: 10
-                        color: "#FF980015"
-                        border.color: "#FF980040"
+                        color: Theme.surfaceHover
+                        border.color: Theme.cardBorder
                         border.width: 1
-                        Icon { anchors.centerIn: parent; name: "download"; size: 18; color: "#FF9800" }
+                        Icon { anchors.centerIn: parent; name: "download"; size: 16; color: Theme.text }
                     }
 
                     ColumnLayout {
@@ -1551,8 +1570,8 @@ Rectangle {
                             Rectangle {
                                 visible: root.statTotalCount > 0
                                 radius: 4
-                                color: "#FF980018"
-                                border.color: "#FF980045"
+                                color: "#38BDF818"
+                                border.color: "#38BDF835"
                                 border.width: 1
                                 Layout.preferredHeight: 18
                                 Layout.preferredWidth: dlPctLbl.implicitWidth + 10
@@ -1560,7 +1579,7 @@ Rectangle {
                                     id: dlPctLbl
                                     anchors.centerIn: parent
                                     text: Math.round((root.statDownloadedCount / Math.max(1, root.statTotalCount)) * 100) + "%"
-                                    color: "#FF9800"
+                                    color: "#38BDF8"
                                     font.pixelSize: 9
                                     font.bold: true
                                 }
@@ -1582,8 +1601,8 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 64
                 radius: 8
-                color: "#141722"
-                border.color: c4Ma.containsMouse ? "#B388FF80" : "#232838"
+                color: Theme.cardBg
+                border.color: c4Ma.containsMouse ? Theme.cardBorderHover : Theme.cardBorder
                 border.width: 1
 
                 MouseArea {
@@ -1599,10 +1618,10 @@ Rectangle {
 
                     Rectangle {
                         width: 40; height: 40; radius: 10
-                        color: "#B388FF15"
-                        border.color: "#B388FF40"
+                        color: Theme.surfaceHover
+                        border.color: Theme.cardBorder
                         border.width: 1
-                        Icon { anchors.centerIn: parent; name: "render"; size: 16; color: "#B388FF" }
+                        Icon { anchors.centerIn: parent; name: "render"; size: 16; color: Theme.text }
                     }
 
                     ColumnLayout {
@@ -1612,7 +1631,7 @@ Rectangle {
                             spacing: 8
                             Label {
                                 text: root.statRenderedCount + " video"
-                                color: root.statRenderedCount > 0 ? "#B388FF" : "#FFFFFF"
+                                color: "#FFFFFF"
                                 font.pixelSize: 17
                                 font.bold: true
                             }
@@ -1915,6 +1934,102 @@ Rectangle {
 
                     }
 
+                    // ─── Search Bar ───
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 28
+                        radius: 4
+                        color: "#161922"
+                        border.color: searchInput.activeFocus ? Theme.accent : Theme.border
+                        border.width: 1
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 8
+                            anchors.rightMargin: 8
+                            spacing: 6
+
+                            Label {
+                                text: "🔍"
+                                font.pixelSize: 10
+                            }
+
+                            TextInput {
+                                id: searchInput
+                                Layout.fillWidth: true
+                                text: root.queueSearchQuery
+                                color: Theme.text
+                                font.pixelSize: 11
+                                clip: true
+                                selectByMouse: true
+                                onTextChanged: root.queueSearchQuery = text
+
+                                Label {
+                                    anchors.fill: parent
+                                    visible: !parent.text && !parent.activeFocus
+                                    text: "Tìm theo kênh hoặc tiêu đề..."
+                                    color: Theme.textMuted
+                                    font.pixelSize: 11
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                            }
+
+                            IconButton {
+                                visible: !!root.queueSearchQuery
+                                iconName: "close"
+                                iconSize: 8
+                                Layout.preferredHeight: 18
+                                Layout.preferredWidth: 18
+                                onClicked: {
+                                    root.queueSearchQuery = ""
+                                    searchInput.text = ""
+                                }
+                            }
+                        }
+                    }
+
+                    // ─── Filter Pills Bar ───
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 4
+
+                        Repeater {
+                            model: [
+                                { id: "all", label: "Tất cả" },
+                                { id: "done", label: "Hoàn tất" },
+                                { id: "active", label: "Đang chạy" },
+                                { id: "high_delay", label: "Trễ >30s" },
+                                { id: "error", label: "Lỗi" }
+                            ]
+
+                            Rectangle {
+                                required property var modelData
+                                readonly property bool isSelected: root.queueFilterMode === modelData.id
+                                radius: 3
+                                color: isSelected ? (Theme.accent + "30") : "#1D2230"
+                                border.color: isSelected ? Theme.accent : "#2E3748"
+                                border.width: 1
+                                Layout.preferredHeight: 20
+                                Layout.preferredWidth: pillLbl.implicitWidth + 10
+
+                                Label {
+                                    id: pillLbl
+                                    anchors.centerIn: parent
+                                    text: parent.modelData.label
+                                    color: parent.isSelected ? Theme.accent : Theme.textMuted
+                                    font.pixelSize: 9
+                                    font.bold: parent.isSelected
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.queueFilterMode = parent.modelData.id
+                                }
+                            }
+                        }
+                    }
+
                     ListView {
 
                         id: queueList
@@ -1936,25 +2051,47 @@ Rectangle {
                             // 2026-07-17).
 
                             let parents = root.workspaces.filter(function(ws) {
-                                return ws && ws.id && ws.id.indexOf("-part") === -1 && ws.status !== "deleted";
+                                if (!ws || !ws.id || ws.id.indexOf("-part") !== -1 || ws.status === "deleted") return false;
+
+                                if (root.queueSearchQuery) {
+                                    let q = root.queueSearchQuery.toLowerCase().trim();
+                                    let title = (ws.title || "").toLowerCase();
+                                    let ch = (ws.channelName || ws.channelId || ws.channel_id || "").toLowerCase();
+                                    let vid = (ws.video_id || ws.id || "").toLowerCase();
+                                    if (title.indexOf(q) === -1 && ch.indexOf(q) === -1 && vid.indexOf(q) === -1) {
+                                        return false;
+                                    }
+                                }
+
+                                if (root.queueFilterMode === "done") {
+                                    let isDone = (ws.status === "done" || ws.status === "rendered" || (ws.renderedPath && ws.renderedPath.length > 0));
+                                    if (!isDone) return false;
+                                } else if (root.queueFilterMode === "active") {
+                                    let isActive = (ws.status === "downloading" || ws.status === "rendering" || ws.status === "uploading" || ws.status === "waiting");
+                                    if (!isActive) return false;
+                                } else if (root.queueFilterMode === "high_delay") {
+                                    let pub = (ws.publicMarkMs && ws.publicMarkMs > 0) ? ws.publicMarkMs : (ws.publicAtMs || ws.publishedAt || 0);
+                                    let start = (ws.downloadStartedAt && ws.downloadStartedAt > 0) ? ws.downloadStartedAt : (ws.createdAt || 0);
+                                    let delaySec = (pub > 0 && start >= pub) ? (start - pub) / 1000.0 : 0;
+                                    if (delaySec < 30.0) return false;
+                                } else if (root.queueFilterMode === "error") {
+                                    let isErr = (ws.status === "error" || ws.status === "failed" || ws.tiktokStatus === "failed");
+                                    if (!isErr) return false;
+                                }
+
+                                return true;
                             });
 
                             let out = [];
-
                             for (let i = 0; i < parents.length; i++) {
-
                                 out.push(parents[i]);
-
                                 let parts = root.getSplitPartsFor(parents[i].id);
-
                                 for (let j = 0; j < parts.length; j++) {
                                     if (parts[j] && parts[j].status !== "deleted") {
                                         out.push(parts[j]);
                                     }
                                 }
-
                             }
-
                             return out;
 
                         }
@@ -1968,7 +2105,7 @@ Rectangle {
                         delegate: Rectangle {
                             id: delegateRoot
                             width: queueList.width
-                            height: (modelData && modelData.id && modelData.status !== "deleted") ? 64 : 0
+                            height: (modelData && modelData.id && modelData.status !== "deleted") ? 66 : 0
                             visible: !!(modelData && modelData.id && modelData.status !== "deleted")
 
                             radius: Theme.radiusMd
@@ -2015,72 +2152,131 @@ Rectangle {
 
                             }
 
-                            // Delete button on the right
-
-                            IconButton {
-
-                                id: delBtn
-
+                            // Quick Action Bar on Hover (Top-Right Floating Pill)
+                            Rectangle {
+                                id: cardHoverActions
+                                anchors.top: parent.top
+                                anchors.topMargin: 5
                                 anchors.right: parent.right
-
                                 anchors.rightMargin: 6
-
-                                anchors.verticalCenter: parent.verticalCenter
-
-                                z: 10
-
-                                iconName: "trash"
-
-                                iconSize: 12
-
-                                padding: 4
-
-                                radiusVal: 3
-
-                                iconColorIdle: Theme.textMuted
-
-                                iconColorHover: Theme.error
-
-                                opacity: delBtn.hovered ? 1.0 : (queueMa.containsMouse ? 0.85 : 0.0)
-
-                                onClicked: {
-                                    let targetId = (typeof modelData !== "undefined" && modelData) ? modelData.id : ""
-                                    let targetTitle = (typeof modelData !== "undefined" && modelData) ? (modelData.title || modelData.id) : ""
-                                    if (!targetId) return
-                                    confirmDlg.openFor(targetId, targetTitle, function(confirmedId) {
-                                        root.deleteWorkspace(confirmedId || targetId)
-                                    })
-                                }
-
+                                z: 20
+                                height: 22
+                                width: actionRow.implicitWidth + 6
+                                radius: 4
+                                color: "#161D2B"
+                                border.color: "#2C384D"
+                                border.width: 1
+                                opacity: (queueMa.containsMouse || root.currentVideoId === modelData.id) ? 1.0 : 0.0
+                                visible: opacity > 0
                                 Behavior on opacity { NumberAnimation { duration: 150 } }
 
+                                RowLayout {
+                                    id: actionRow
+                                    anchors.centerIn: parent
+                                    spacing: 3
+
+                                    // Quick Play
+                                    IconButton {
+                                        visible: !!modelData.renderedPath
+                                        iconName: "play"
+                                        iconSize: 10
+                                        padding: 2
+                                        minWidth: 18
+                                        minHeight: 18
+                                        radiusVal: 3
+                                        colorIdle: "#133E3B"
+                                        colorHover: "#2FD1C5"
+                                        border.color: "#2FD1C566"
+                                        iconColorIdle: "#2FD1C5"
+                                        iconColorHover: "#0F172A"
+                                        tooltipText: "Phát video đã render"
+                                        onClicked: {
+                                            if (modelData.renderedPath) {
+                                                backend.send_command_async("system:openFile", {"path": modelData.renderedPath})
+                                            }
+                                        }
+                                    }
+
+                                    // Open Folder
+                                    IconButton {
+                                        visible: !!(modelData.renderedPath || modelData.downloadedPath)
+                                        iconName: "folder"
+                                        iconSize: 10
+                                        padding: 2
+                                        minWidth: 18
+                                        minHeight: 18
+                                        radiusVal: 3
+                                        colorIdle: "#1E2533"
+                                        colorHover: "#3B82F6"
+                                        border.color: "#334155"
+                                        iconColorIdle: "#E2E8F0"
+                                        iconColorHover: "#FFFFFF"
+                                        tooltipText: "Mở thư mục chứa"
+                                        onClicked: {
+                                            let p = modelData.renderedPath || modelData.downloadedPath
+                                            if (p) backend.send_command_async("system:openFolder", {"path": p})
+                                        }
+                                    }
+
+                                    // Open YouTube
+                                    IconButton {
+                                        visible: !!modelData.video_id
+                                        iconName: "link"
+                                        iconSize: 10
+                                        padding: 2
+                                        minWidth: 18
+                                        minHeight: 18
+                                        radiusVal: 3
+                                        colorIdle: "#1E2533"
+                                        colorHover: "#DC2626"
+                                        border.color: "#334155"
+                                        iconColorIdle: "#FCA5A5"
+                                        iconColorHover: "#FFFFFF"
+                                        tooltipText: "Mở YouTube"
+                                        onClicked: {
+                                            if (modelData.video_id) {
+                                                backend.send_command_async("system:openUrl", {"url": "https://www.youtube.com/watch?v=" + modelData.video_id})
+                                            }
+                                        }
+                                    }
+
+                                    // Delete
+                                    IconButton {
+                                        iconName: "trash"
+                                        iconSize: 10
+                                        padding: 2
+                                        minWidth: 18
+                                        minHeight: 18
+                                        radiusVal: 3
+                                        colorIdle: "#1E2533"
+                                        colorHover: "#EF4444"
+                                        border.color: "#334155"
+                                        iconColorIdle: "#CBD5E1"
+                                        iconColorHover: "#FFFFFF"
+                                        tooltipText: "Xóa video này"
+                                        onClicked: {
+                                            let targetId = (typeof modelData !== "undefined" && modelData) ? modelData.id : ""
+                                            if (!targetId) return
+                                            root.deleteWorkspace(targetId)
+                                        }
+                                    }
+                                }
                             }
 
                             RowLayout {
-
                                 z: 5
-
-                                anchors.left: parent.left
-
-                                anchors.right: delBtn.left
-
-                                anchors.top: parent.top
-
-                                anchors.bottom: parent.bottom
-
-                                anchors.leftMargin: 12
-
+                                anchors.fill: parent
+                                anchors.leftMargin: 8
                                 anchors.rightMargin: 8
-
+                                anchors.topMargin: 5
+                                anchors.bottomMargin: 5
                                 spacing: 8
 
                                 // Thumbnail
-
                                 Rectangle {
-
-                                    Layout.preferredWidth: 80
-
+                                    Layout.preferredWidth: 76
                                     Layout.preferredHeight: 52
+                                    Layout.alignment: Qt.AlignVCenter
 
                                     radius: 3
 
@@ -2121,139 +2317,136 @@ Rectangle {
                                     spacing: 2
 
                                     RowLayout {
-
                                         Layout.fillWidth: true
-
+                                        Layout.rightMargin: (cardHoverActions.width > 0) ? (cardHoverActions.width + 4) : 0
                                         spacing: 6
 
                                         Rectangle {
-
                                             visible: (modelData.partTotal || 0) >= 2 && (modelData.partIndex || 0) >= 1
-
                                             Layout.preferredHeight: 16
-
                                             Layout.preferredWidth: mgmtPartLabel.implicitWidth + 8
-
                                             radius: 3
-
                                             color: Theme.accent + "25"
-
                                             border.color: Theme.accent
-
                                             border.width: 1
 
                                             Label {
-
                                                 id: mgmtPartLabel
-
                                                 anchors.centerIn: parent
-
                                                 text: "P" + (modelData.partIndex || 0) + "/" + (modelData.partTotal || 0)
-
                                                 color: Theme.accent
-
                                                 font.pixelSize: 9
-
                                                 font.bold: true
-
                                             }
-
                                         }
 
                                         Label {
-
                                             text: modelData.title || "(không có tiêu đề)"
-
                                             color: Theme.text
-
-                                            font.pixelSize: 12
-
+                                            font.pixelSize: 11
                                             font.bold: true
-
                                             elide: Text.ElideRight
-
                                             Layout.fillWidth: true
-
                                             maximumLineCount: 1
-
                                         }
-
                                     }
 
                                     Label {
-
                                         text: (modelData.channelName || modelData.channelId || modelData.channel_id || "—")
-
                                             + " · " + root.fmtTimeAgo(modelData.createdAt)
-
                                             + root.getPartsSummary(modelData.id)
-
                                         color: Theme.textMuted
-
                                         font.pixelSize: 10
-
                                         elide: Text.ElideRight
-
                                         Layout.fillWidth: true
-
                                         maximumLineCount: 1
-
                                     }
 
                                     RowLayout {
-
                                         spacing: 6
 
-                                        // Part đã hiện thành hàng riêng — mỗi hàng
-
-                                        // hiển thị trạng thái CỦA CHÍNH NÓ (aggregate
-
-                                        // cũ làm part 1 xong vẫn báo "đang tải").
-
+                                        // Hiển thị trạng thái của chính part này
                                         StatusDot {
-
-                                            state: root.statusToDotState(modelData.status)
-
+                                            state: (modelData.tiktokStatus === "failed") ? "error" : root.statusToDotState(modelData.status)
                                             size: 6
-
                                             showRing: false
-
                                         }
 
                                         Label {
-
-                                            text: root.statusLabel(modelData.status)
-
-                                            color: Theme.textMuted
-
-                                            font.pixelSize: 10
-
-                                            font.bold: true
-
-                                        }
-
-                                        Label {
-
                                             text: {
+                                                if (modelData.tiktokStatus === "failed") return "LỖI ĐĂNG"
+                                                if (modelData.tiktokStatus === "uploading") return "ĐANG ĐĂNG"
+                                                return root.statusLabel(modelData.status)
+                                            }
+                                            color: (modelData.tiktokStatus === "failed") ? Theme.error : Theme.textMuted
+                                            font.pixelSize: 10
+                                            font.bold: true
+                                        }
 
-                                                // Tổng của CHÍNH hàng này (render riêng của nó —
+                                        // Chip thời lượng video
+                                        Rectangle {
+                                            visible: (modelData.durationSec || modelData.duration || 0) > 0
+                                            Layout.preferredHeight: 15
+                                            Layout.preferredWidth: durChipLbl.implicitWidth + 8
+                                            radius: 3
+                                            color: "#1E2432"
+                                            border.color: "#2C374A"
+                                            border.width: 1
+                                            Label {
+                                                id: durChipLbl
+                                                anchors.centerIn: parent
+                                                text: root.fmtClockMS(modelData.durationSec || modelData.duration || 0)
+                                                color: Theme.textMuted
+                                                font.pixelSize: 9
+                                                font.family: "Consolas"
+                                            }
+                                        }
 
-                                                // part là hàng riêng từ pass 29) + chặng TikTok.
+                                        // Chip độ trễ phát hiện / tổng thời gian E2E
+                                        Rectangle {
+                                            readonly property double pub: (modelData.publicMarkMs && modelData.publicMarkMs > 0)
+                                                ? modelData.publicMarkMs
+                                                : ((modelData.publicAtMs && modelData.publicAtMs > 0) ? modelData.publicAtMs : ((modelData.publishedAt && modelData.publishedAt > 86400000) ? modelData.publishedAt : 0))
+                                            readonly property double start: (modelData.downloadStartedAt && modelData.downloadStartedAt > 0)
+                                                ? modelData.downloadStartedAt
+                                                : (modelData.createdAt || 0)
+                                            readonly property double latSec: (pub > 0 && start >= pub) ? (start - pub) / 1000.0 : -1
+                                            readonly property double totalSec: root.e2eTotalSec(modelData, modelData.renderDurationSec || 0)
+                                            readonly property bool isDone: (modelData.status === "done" || modelData.status === "rendered")
 
-                                                let total = root.e2eTotalSec(modelData, modelData.renderDurationSec || 0)
+                                            visible: isDone ? (totalSec > 0) : (latSec >= 0)
+                                            Layout.preferredHeight: 15
+                                            Layout.preferredWidth: latChipLbl.implicitWidth + 8
+                                            radius: 3
 
-                                                return " · TỔNG: " + root.fmtDuration(total)
-
+                                            property color badgeColor: {
+                                                if (isDone) return Theme.accent
+                                                if (latSec > 30.0) return "#FFA726"
+                                                if (latSec > 10.0) return Theme.accent
+                                                return Theme.success
                                             }
 
-                                            color: Theme.textMuted
+                                            color: badgeColor + "20"
+                                            border.color: badgeColor + "70"
+                                            border.width: 1
 
-                                            font.pixelSize: 10
-
-                                            font.bold: true
-
+                                            Label {
+                                                id: latChipLbl
+                                                anchors.centerIn: parent
+                                                text: {
+                                                    if (parent.isDone) {
+                                                        return "TỔNG: " + root.fmtDuration(parent.totalSec)
+                                                    }
+                                                    if (parent.latSec > 30.0) {
+                                                        return "⏱️ " + root.fmtDuration(parent.latSec) + " (YT)"
+                                                    }
+                                                    return "⚡ " + root.fmtDuration(parent.latSec)
+                                                }
+                                                color: parent.badgeColor
+                                                font.pixelSize: 9
+                                                font.bold: true
+                                            }
                                         }
-
                                         // Pass 38: trạng thái auto-upload TikTok của part này
 
                                         Rectangle {
@@ -2299,9 +2492,9 @@ Rectangle {
                                                 font.bold: true
 
                                             }
-
                                         }
 
+                                        Item { Layout.fillWidth: true }
                                     }
 
                                 }
@@ -2439,1565 +2632,178 @@ Rectangle {
                 // Detail content
 
                 ScrollView {
-
+                    id: detailScrollView
                     anchors.fill: parent
-
                     clip: true
-
+                    contentWidth: availableWidth
+                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
                     visible: !root.detailLoading
-
                              && root.currentVideoId
-
                              && root.currentVideoData._error === undefined
 
                     ColumnLayout {
-
-                        width: parent.width - 24
-
+                        id: detailCol
+                        width: detailScrollView.availableWidth - 24
                         x: 12; y: 12
-
                         spacing: Theme.spacingMd
 
-                                                // ─── Timeline (Modern Flow Stepper Cards) ─────────────────
-                        // ─── Timeline (Modern Flow Stepper Cards) ─────────────────
+                        // ─── 1. Header Card (Video Info) ─────────────
                         SectionCard {
-                            sectionTitle: {
-                                let ren = root.getRenderDurationSec(root.currentVideoData)
-                                let total = root.e2eTotalSec(root.currentVideoData, ren)
-                                let ttSec = root.tiktokBonusSec(root.currentVideoData)
-                                let label = "TIMELINE TOÀN TRÌNH E2E (TỔNG: " + root.fmtDuration(total) + ")"
-                                if (ttSec > 0) label += "  ·  upload " + root.fmtDuration(ttSec)
-                                return label
-                            }
-
-                            ColumnLayout {
-                                width: parent.width
-                                spacing: 10
-
-                                // ① Bước Phát hiện (Detected)
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: detStepCol.implicitHeight + 20
-                                    radius: 6
-                                    color: "#161922"
-                                    border.color: Theme.accent + "40"
-                                    border.width: 1
-
-                                    RowLayout {
-                                        id: detStepCol
-                                        anchors.fill: parent
-                                        anchors.margins: 12
-                                        spacing: 12
-
-                                        Rectangle {
-                                            width: 36; height: 36; radius: 18
-                                            color: Theme.accent + "18"
-                                            border.color: Theme.accent + "60"
-                                            border.width: 1
-                                            Icon { anchors.centerIn: parent; name: "bolt"; size: 16; color: Theme.accent }
-                                        }
-
-                                        ColumnLayout {
-                                            Layout.fillWidth: true
-                                            spacing: 4
-
-                                            RowLayout {
-                                                spacing: 8
-                                                Label {
-                                                    text: "① PHÁT HIỆN VIDEO (DETECTED)"
-                                                    color: Theme.accent
-                                                    font.pixelSize: 11
-                                                    font.bold: true
-                                                }
-                                                Rectangle {
-                                                    property var pubMs: (root.currentVideoData.publicMarkMs && root.currentVideoData.publicMarkMs > 0)
-                                                                        ? root.currentVideoData.publicMarkMs
-                                                                        : ((root.currentVideoData.publicAtMs && root.currentVideoData.publicAtMs > 0)
-                                                                            ? root.currentVideoData.publicAtMs
-                                                                            : ((root.currentVideoData.publishedAt && root.currentVideoData.publishedAt > 86400000) ? root.currentVideoData.publishedAt : 0))
-                                                    property real rawDiffSec: pubMs > 0 ? (root.currentVideoData.createdAt - pubMs) / 1000.0 : 0
-                                                    property string detDelayText: {
-                                                        if (pubMs <= 0) return ""
-                                                        if (rawDiffSec >= 0) return root.fmtDetectionDuration(rawDiffSec)
-                                                        if (rawDiffSec >= -2.0) return "< 0.5s (Tức thì)"
-                                                        return "0.0s"
-                                                    }
-                                                    visible: pubMs > 0
-                                                    radius: 4
-                                                    color: Theme.accent + "25"
-                                                    border.color: Theme.accent + "50"
-                                                    border.width: 1
-                                                    Layout.preferredHeight: 20
-                                                    Layout.preferredWidth: detBadgeLbl.implicitWidth + 12
-                                                    Label {
-                                                        id: detBadgeLbl
-                                                        anchors.centerIn: parent
-                                                        text: "Độ trễ: " + parent.detDelayText
-                                                        color: Theme.accent
-                                                        font.pixelSize: 10
-                                                        font.bold: true
-                                                    }
-                                                }
-                                                Rectangle {
-                                                    readonly property bool isDualRace: (root.currentVideoData.surface === "playlistHtml" || root.currentVideoData.surface === "cdp" || root.currentVideoData.anchor === "player_microformat")
-                                                    radius: 4
-                                                    color: isDualRace ? "#B388FF25" : "#00E67620"
-                                                    border.color: isDualRace ? "#B388FF60" : "#00E67650"
-                                                    border.width: 1
-                                                    Layout.preferredHeight: 20
-                                                    Layout.preferredWidth: apiBadgeLbl.implicitWidth + 12
-                                                    Label {
-                                                        id: apiBadgeLbl
-                                                        anchors.centerIn: parent
-                                                        text: parent.parent.isDualRace ? "⚡ ĐUA KÉP: HTML/CDP THẮNG" : "YouTube API v3"
-                                                        color: parent.parent.isDualRace ? "#B388FF" : "#00E676"
-                                                        font.pixelSize: 10
-                                                        font.bold: true
-                                                    }
-                                                }
-                                            }
-
-                                            Label {
-                                                property var pubMs: (root.currentVideoData.publicMarkMs && root.currentVideoData.publicMarkMs > 0)
-                                                                    ? root.currentVideoData.publicMarkMs
-                                                                    : ((root.currentVideoData.publicAtMs && root.currentVideoData.publicAtMs > 0)
-                                                                        ? root.currentVideoData.publicAtMs
-                                                                        : ((root.currentVideoData.publishedAt && root.currentVideoData.publishedAt > 86400000) ? root.currentVideoData.publishedAt : 0))
-                                                property real rawDiffSec: pubMs > 0 ? (root.currentVideoData.createdAt - pubMs) / 1000.0 : 0
-                                                text: {
-                                                    if (pubMs <= 0) return "Bắt lúc: " + root.fmtFullTime(root.currentVideoData.createdAt)
-                                                    let s = "Chủ kênh bấm Đăng (Công khai): " + root.fmtFullTime(pubMs) + "  →  Bắt lúc: " + root.fmtFullTime(root.currentVideoData.createdAt)
-                                                    if (rawDiffSec >= 0) {
-                                                        return s + " (độ trễ: " + root.fmtDetectionDuration(rawDiffSec) + ")"
-                                                    } else if (rawDiffSec >= -2.0) {
-                                                        return s + " (⚡ Bắt tức thì — chênh lệch với tem YouTube: " + Math.round(rawDiffSec * 1000) + "ms)"
-                                                    } else {
-                                                        return s + " (mất " + root.fmtDetectionDuration(Math.abs(rawDiffSec)) + ")"
-                                                    }
-                                                }
-                                                color: Theme.text
-                                                font.pixelSize: 11
-                                                font.weight: Font.Medium
-                                            }
-
-                                            Label {
-                                                readonly property bool isDualRace: (root.currentVideoData.surface === "playlistHtml" || root.currentVideoData.surface === "cdp" || root.currentVideoData.anchor === "player_microformat")
-                                                text: isDualRace 
-                                                      ? "⚡ Mốc công khai là thời điểm chủ kênh bấm Đăng (khớp nhãn 'vài giây trước'). Mặt phẳng Đua kép bắt trước API ~3.5s."
-                                                      : "⚡ Mốc công khai là thời điểm chủ kênh bấm Đăng trên YouTube Studio (khớp nhãn 'vài giây trước'). Quét tự động qua YouTube API v3."
-                                                color: isDualRace ? "#B388FF" : Theme.textMuted
-                                                font.pixelSize: 10
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // ② Bước Tải về (Download)
-                                Rectangle {
-                                    readonly property bool isDownloaded: !!(root.currentVideoData.downloadedAt || root.currentVideoData.downloadedMtime)
-                                    readonly property bool isDownloading: root.currentVideoData.status === "downloading"
-                                    readonly property bool isDlError: root.currentVideoData.status === "error" && !root.currentVideoData.downloadedPath
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: dlStepCol.implicitHeight + 20
-                                    radius: 6
-                                    color: "#161922"
-                                    border.color: isDownloaded ? (Theme.success + "40") : (isDownloading ? (Theme.statusDownloading + "50") : (isDlError ? Theme.error : "#232836"))
-                                    border.width: 1
-
-                                    RowLayout {
-                                        id: dlStepCol
-                                        anchors.fill: parent
-                                        anchors.margins: 12
-                                        spacing: 12
-
-                                        Rectangle {
-                                            width: 36; height: 36; radius: 18
-                                            color: parent.parent.isDownloaded ? (Theme.success + "18") : (parent.parent.isDownloading ? (Theme.statusDownloading + "18") : "#232836")
-                                            border.color: parent.parent.isDownloaded ? Theme.success : (parent.parent.isDownloading ? Theme.statusDownloading : "#3A4456")
-                                            border.width: 1
-                                            Icon {
-                                                anchors.centerIn: parent
-                                                name: parent.parent.parent.isDownloaded ? "check" : "download"
-                                                size: 16
-                                                color: parent.parent.parent.isDownloaded ? Theme.success : (parent.parent.parent.isDownloading ? Theme.statusDownloading : Theme.textMuted)
-                                            }
-                                        }
-
-                                        ColumnLayout {
-                                            Layout.fillWidth: true
-                                            spacing: 4
-
-                                            RowLayout {
-                                                spacing: 8
-                                                Label {
-                                                    text: "② TẢI XUỐNG BỘ NHỚ ĐỆM (DOWNLOAD)"
-                                                    color: parent.parent.parent.parent.isDownloaded ? Theme.success : (parent.parent.parent.parent.isDownloading ? Theme.statusDownloading : (parent.parent.parent.parent.isDlError ? Theme.error : Theme.textMuted))
-                                                    font.pixelSize: 11
-                                                    font.bold: true
-                                                }
-                                                Rectangle {
-                                                    visible: parent.parent.parent.parent.isDownloaded && root.currentVideoData.fileSize > 0
-                                                    radius: 4
-                                                    color: Theme.success + "20"
-                                                    border.color: Theme.success + "50"
-                                                    border.width: 1
-                                                    Layout.preferredHeight: 20
-                                                    Layout.preferredWidth: dlSizeLbl.implicitWidth + 12
-                                                    Label {
-                                                        id: dlSizeLbl
-                                                        anchors.centerIn: parent
-                                                        text: root.fmtBytes(root.currentVideoData.fileSize)
-                                                        color: Theme.success
-                                                        font.pixelSize: 10
-                                                        font.bold: true
-                                                    }
-                                                }
-                                                Rectangle {
-                                                    visible: !!root.currentVideoData.downloadPath
-                                                    radius: 4
-                                                    color: "#232836"
-                                                    border.color: "#3A4456"
-                                                    border.width: 1
-                                                    Layout.preferredHeight: 20
-                                                    Layout.preferredWidth: dlEngineLbl.implicitWidth + 12
-                                                    Label {
-                                                        id: dlEngineLbl
-                                                        anchors.centerIn: parent
-                                                        text: root.currentVideoData.downloadPath || "yt-dlp"
-                                                        color: Theme.textMuted
-                                                        font.pixelSize: 10
-                                                    }
-                                                }
-                                            }
-
-                                            Label {
-                                                property var dlTime: (root.currentVideoData.downloadedAt || root.currentVideoData.downloadedMtime || 0)
-                                                property real dlSec: (root.currentVideoData.downloadDurationSec > 0)
-                                                                     ? root.currentVideoData.downloadDurationSec
-                                                                     : (root.currentVideoData.downloadTime ? parseFloat(root.currentVideoData.downloadTime) : 0)
-                                                property string subInfo: {
-                                                    let parts = []
-                                                    if (root.currentVideoData.downloadSpeed) parts.push("Tốc độ: " + root.currentVideoData.downloadSpeed)
-                                                    return parts.length > 0 ? ("  ·  " + parts.join(" · ")) : ""
-                                                }
-                                                text: dlTime > 0
-                                                    ? ("Hoàn tất tải: " + root.fmtFullTime(dlTime) + "  ·  Thời gian tải: " + root.fmtDuration(dlSec) + subInfo)
-                                                    : (parent.parent.parent.parent.isDownloading ? "Đang truyền dữ liệu video về đĩa..." : (root.currentVideoData.status === "waiting" ? "Chờ slot tải downlink..." : (parent.parent.parent.parent.isDlError ? ("Lỗi tải: " + (root.currentVideoData.error || "")) : "Chưa tải")))
-                                                color: Theme.text
-                                                font.pixelSize: 11
-                                                font.weight: Font.Medium
-                                            }
-
-                                            Label {
-                                                text: root.currentVideoData.downloadedPath ? ("📁 Vị trí lưu: " + root.currentVideoData.downloadedPath) : "📁 Tệp lưu trữ: Bộ nhớ đệm cục bộ /downloads"
-                                                color: Theme.textMuted
-                                                font.pixelSize: 10
-                                                elide: Text.ElideMiddle
-                                                Layout.fillWidth: true
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // ③ Bước Render (Rendered)
-                                Rectangle {
-                                    readonly property bool isRenderDone: root.getIsRendered(root.currentVideoData)
-                                    readonly property bool isRendering: root.getAggregateStatus(root.currentVideoData) === "rendering"
-                                    readonly property bool isRenderError: root.getAggregateStatus(root.currentVideoData) === "error"
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: renStepCol.implicitHeight + 20
-                                    radius: 6
-                                    color: "#161922"
-                                    border.color: isRenderDone ? ("#B388FF50") : (isRendering ? (Theme.accent + "50") : (isRenderError ? Theme.error : "#232836"))
-                                    border.width: 1
-
-                                    RowLayout {
-                                        id: renStepCol
-                                        anchors.fill: parent
-                                        anchors.margins: 12
-                                        spacing: 12
-
-                                        Rectangle {
-                                            width: 36; height: 36; radius: 18
-                                            color: parent.parent.isRenderDone ? ("#B388FF20") : (parent.parent.isRendering ? (Theme.accent + "20") : "#232836")
-                                            border.color: parent.parent.isRenderDone ? "#B388FF" : (parent.parent.isRendering ? Theme.accent : "#3A4456")
-                                            border.width: 1
-                                            Icon {
-                                                anchors.centerIn: parent
-                                                name: parent.parent.parent.isRenderDone ? "check" : "render"
-                                                size: 16
-                                                color: parent.parent.parent.isRenderDone ? "#B388FF" : (parent.parent.parent.isRendering ? Theme.accent : Theme.textMuted)
-                                            }
-                                        }
-
-                                        ColumnLayout {
-                                            Layout.fillWidth: true
-                                            spacing: 4
-
-                                            RowLayout {
-                                                spacing: 8
-                                                Label {
-                                                    text: "③ BIÊN TẬP & RENDER VIDEO"
-                                                    color: parent.parent.parent.parent.isRenderDone ? "#B388FF" : (parent.parent.parent.parent.isRendering ? Theme.accent : (parent.parent.parent.parent.isRenderError ? Theme.error : Theme.textMuted))
-                                                    font.pixelSize: 11
-                                                    font.bold: true
-                                                }
-                                                Rectangle {
-                                                    radius: 4
-                                                    color: parent.parent.parent.parent.isRenderDone ? "#B388FF25" : "#232836"
-                                                    border.color: parent.parent.parent.parent.isRenderDone ? "#B388FF50" : "#3A4456"
-                                                    border.width: 1
-                                                    Layout.preferredHeight: 20
-                                                    Layout.preferredWidth: renBadgeLbl.implicitWidth + 12
-                                                    Label {
-                                                        id: renBadgeLbl
-                                                        anchors.centerIn: parent
-                                                        text: parent.parent.parent.parent.parent.isRenderDone ? "NVENC Xong" : "NVENC Sẵn sàng"
-                                                        color: parent.parent.parent.parent.parent.isRenderDone ? "#B388FF" : Theme.textMuted
-                                                        font.pixelSize: 10
-                                                        font.bold: true
-                                                    }
-                                                }
-                                            }
-
-                                            Label {
-                                                text: {
-                                                    let statusText = root.getRenderStatusText(root.currentVideoData);
-                                                    if (parent.parent.parent.parent.isRenderError) {
-                                                        let err = root.currentVideoData.error;
-                                                        let parts = root.getSplitPartsFor(root.currentVideoId);
-                                                        for (let i = 0; i < parts.length; i++) {
-                                                            if (parts[i].error) { err = "P" + (i+1) + ": " + parts[i].error; break; }
-                                                        }
-                                                        return "Lỗi: " + (err || "Không rõ nguyên nhân");
-                                                    }
-                                                    if (parent.parent.parent.parent.isRenderDone) return statusText;
-                                                    return "Cấu hình: " + (root.currentVideoData.exportResolution || "1080p") + " · Tốc độ " + (root.currentVideoData.videoSpeed || 1.1) + "x · FPS " + (root.currentVideoData.fpsTarget || 30) + " · Cắt " + (root.currentVideoData.durationSec || 300) + "s";
-                                                }
-                                                color: parent.parent.parent.parent.isRenderError ? Theme.error : Theme.text
-                                                font.pixelSize: 11
-                                                font.weight: Font.Medium
-                                            }
-
-                                            Label {
-                                                text: parent.parent.parent.parent.isRenderDone 
-                                                      ? "🚀 Công nghệ: NVIDIA NVENC Hardware Accelerated · Preset P1 ULL"
-                                                      : "⏸ Video nguồn đã hoàn tất trong bộ nhớ đệm, sẵn sàng render tự động hoặc thủ công"
-                                                color: Theme.textMuted
-                                                font.pixelSize: 10
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // ④ Bước Đăng TikTok (Luôn hiển thị trạng thái rõ ràng)
-                                Rectangle {
-                                    readonly property bool isTtUploaded: root.currentVideoData.tiktokStatus === "uploaded"
-                                    readonly property bool isTtFailed: root.currentVideoData.tiktokStatus === "failed"
-                                    readonly property bool isTtConfigured: !!root.currentVideoData.tiktokStatus
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: ttStepCol.implicitHeight + 20
-                                    radius: 6
-                                    color: "#161922"
-                                    border.color: isTtUploaded ? (Theme.success + "40") : (isTtFailed ? Theme.error : "#232836")
-                                    border.width: 1
-
-                                    RowLayout {
-                                        id: ttStepCol
-                                        anchors.fill: parent
-                                        anchors.margins: 12
-                                        spacing: 12
-
-                                        Rectangle {
-                                            width: 36; height: 36; radius: 18
-                                            color: parent.parent.isTtUploaded ? (Theme.success + "18") : (parent.parent.isTtFailed ? (Theme.error + "18") : "#232836")
-                                            border.color: parent.parent.isTtUploaded ? Theme.success : (parent.parent.isTtFailed ? Theme.error : "#3A4456")
-                                            border.width: 1
-                                            Icon {
-                                                anchors.centerIn: parent
-                                                name: parent.parent.parent.isTtUploaded ? "check" : "upload"
-                                                size: 16
-                                                color: parent.parent.parent.isTtUploaded ? Theme.success : (parent.parent.parent.isTtFailed ? Theme.error : Theme.textMuted)
-                                            }
-                                        }
-
-                                        ColumnLayout {
-                                            Layout.fillWidth: true
-                                            spacing: 4
-
-                                            RowLayout {
-                                                spacing: 8
-                                                Label {
-                                                    text: "④ XUẤT BẢN TIKTOK"
-                                                    color: parent.parent.parent.parent.isTtUploaded ? Theme.success : (parent.parent.parent.parent.isTtFailed ? Theme.error : Theme.textMuted)
-                                                    font.pixelSize: 11
-                                                    font.bold: true
-                                                }
-                                                Rectangle {
-                                                    radius: 4
-                                                    color: parent.parent.parent.parent.isTtUploaded ? (Theme.success + "20") : "#232836"
-                                                    border.color: parent.parent.parent.parent.isTtUploaded ? (Theme.success + "50") : "#3A4456"
-                                                    border.width: 1
-                                                    Layout.preferredHeight: 20
-                                                    Layout.preferredWidth: ttBadgeLbl.implicitWidth + 12
-                                                    Label {
-                                                        id: ttBadgeLbl
-                                                        anchors.centerIn: parent
-                                                        text: parent.parent.parent.parent.parent.isTtUploaded ? "Đã đăng bài" : "Chờ kích hoạt"
-                                                        color: parent.parent.parent.parent.parent.isTtUploaded ? Theme.success : Theme.textMuted
-                                                        font.pixelSize: 10
-                                                        font.bold: true
-                                                    }
-                                                }
-                                            }
-
-                                            Label {
-                                                text: {
-                                                    let s = root.currentVideoData.tiktokStatus
-                                                    let tt = root.currentVideoData.tiktokUploadedAt
-                                                    let ms = root.currentVideoData.tiktokUploadMs
-                                                    if (s === "uploaded") return "Đăng thành công lúc: " + root.fmtFullTime(tt) + (ms ? ("  ·  Thời gian upload: " + root.fmtDuration(ms / 1000.0)) : "")
-                                                    if (s === "failed") return "Lỗi đăng: " + (root.currentVideoData.tiktokError || "Không rõ nguyên nhân")
-                                                    if (s === "uploading") return "Đang đẩy tệp lên TikTok..."
-                                                    if (s === "queued") return "Chờ xuất bản TikTok theo lịch"
-                                                    return "Chưa bật chế độ đăng bài tự động hoặc chưa liên kết tài khoản TikTok"
-                                                }
-                                                color: parent.parent.parent.parent.isTtFailed ? Theme.error : Theme.text
-                                                font.pixelSize: 11
-                                                font.weight: Font.Medium
-                                            }
-
-                                            Label {
-                                                text: "🎵 Nền tảng: TikTok Web Automation qua Chrome CDP an toàn · Không lưu cookie ngoài phạm vi"
-                                                color: Theme.textMuted
-                                                font.pixelSize: 10
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // ─── 1. Header card ──────────────────────────
-
-                        SectionCard {
-
                             sectionTitle: "VIDEO"
-
                             RowLayout {
-
                                 width: parent.width
-
                                 spacing: 12
-
                                 Rectangle {
-
                                     Layout.preferredWidth: 200
-
                                     Layout.preferredHeight: 112
-
                                     radius: Theme.radiusMd
-
                                     color: Theme.bg
-
                                     border.color: Theme.border
-
                                     border.width: 1
-
                                     clip: true
-
                                     Image {
-
                                         anchors.fill: parent
-
                                         source: root.getThumbnailSource(root.currentVideoData.thumbnailLocal, root.currentVideoData.video_id)
-
                                         fillMode: Image.PreserveAspectCrop
-
                                         asynchronous: true
-
                                         cache: true
-
                                     }
-
                                 }
-
                                 ColumnLayout {
-
                                     Layout.fillWidth: true
-
                                     spacing: 4
-
                                     Label {
-
                                         text: root.currentVideoData.title || "(không có tiêu đề)"
-
                                         color: Theme.text
-
                                         font.pixelSize: 16
-
                                         font.bold: true
-
                                         wrapMode: Text.WordWrap
-
                                         Layout.fillWidth: true
-
                                         maximumLineCount: 3
-
                                         elide: Text.ElideRight
-
                                     }
-
                                     RowLayout {
-
                                         spacing: 6
-
                                         StatusDot {
-
                                             state: root.statusToDotState(root.currentVideoData.status)
-
                                             size: 8
-
                                             showRing: true
-
                                         }
-
                                         Label {
-
                                             text: root.statusLabel(root.currentVideoData.status)
-
                                             color: Theme.accent
-
                                             font.pixelSize: 12
-
                                             font.bold: true
-
                                         }
-
                                     }
-
                                     Label {
-
                                         text: root.currentVideoData.video_id || ""
-
                                         color: Theme.textMuted
-
                                         font.pixelSize: 10
-
                                         font.family: "monospace"
-
                                     }
-
                                     Label {
-
                                         text: root.currentVideoData.video_id
-
                                             ? "https://youtu.be/" + root.currentVideoData.video_id
-
                                             : "—"
-
                                         color: Theme.accent
-
                                         font.pixelSize: 11
-
                                         font.family: "monospace"
-
                                     }
-
                                 }
-
                             }
-
                         }
 
-                        // ─── 2. YouTube gốc ───────────────────────────
-
-                        SectionCard {
-
-                            sectionTitle: "YOUTUBE GỐC"
-
-                            ColumnLayout {
-
-                                width: parent.width
-
-                                spacing: 4
-
-                                KVRow {
-
-                                    keyText: "Channel"
-
-                                    valueText: root.currentVideoData.channelName
-
-                                        || root.currentVideoData.channelId || root.currentVideoData.channel_id || ""
-
-                                }
-
-                                KVRow {
-
-                                    keyText: "Channel ID"
-
-                                    valueText: root.currentVideoData.channelId || root.currentVideoData.channel_id || ""
-
-                                    mono: true
-
-                                }
-
-                                KVRow {
-
-                                    keyText: "Video ID"
-
-                                    valueText: root.currentVideoData.video_id || ""
-
-                                    mono: true
-
-                                }
-
-                                KVRow {
-
-                                    keyText: "URL"
-
-                                    valueText: root.currentVideoData.video_id
-
-                                        ? "https://www.youtube.com/watch?v=" + root.currentVideoData.video_id
-
-                                        : ""
-
-                                    mono: true
-
-                                    clickable: true
-
-                                    onClicked: {
-
-                                        if (valueText) {
-
-                                            backend.send_command_async("system:openUrl", {"url": valueText})
-
-                                        }
-
-                                    }
-
-                                }
-
-                                KVRow {
-                                    property var pubMs: (root.currentVideoData.publicMarkMs && root.currentVideoData.publicMarkMs > 0)
-                                                        ? root.currentVideoData.publicMarkMs
-                                                        : ((root.currentVideoData.publicAtMs && root.currentVideoData.publicAtMs > 0)
-                                                            ? root.currentVideoData.publicAtMs
-                                                            : ((root.currentVideoData.publishedAt && root.currentVideoData.publishedAt > 86400000) ? root.currentVideoData.publishedAt : 0))
-                                    keyText: "Chủ kênh bấm Đăng"
-                                    valueText: pubMs > 0 
-                                                ? root.fmtFullTime(pubMs) + (root.currentVideoData.anchor ? " (" + root.currentVideoData.anchor + ")" : (root.currentVideoData.publicAnchor ? " (" + root.currentVideoData.publicAnchor + ")" : " (Công khai)"))
-                                                : "Chưa rõ"
-                                }
-
-                                KVRow {
-                                    property var pubMs: (root.currentVideoData.publicMarkMs && root.currentVideoData.publicMarkMs > 0)
-                                                        ? root.currentVideoData.publicMarkMs
-                                                        : ((root.currentVideoData.publicAtMs && root.currentVideoData.publicAtMs > 0) ? root.currentVideoData.publicAtMs : 0)
-                                    visible: pubMs > 0 && root.currentVideoData.publishedAt > 0 && Math.abs(root.currentVideoData.publishedAt - pubMs) >= 5000
-                                    keyText: "Bắt đầu tải lên (Upload)"
-                                    valueText: root.fmtFullTime(root.currentVideoData.publishedAt) + " (lệch " + root.fmtDuration(Math.abs(pubMs - root.currentVideoData.publishedAt) / 1000) + ")"
-                                }
-
-                                KVRow {
-                                    keyText: "App bắt được (Detected)"
-                                    valueText: root.fmtFullTime(root.currentVideoData.createdAt)
-                                }
-
-                                KVRow {
-
-                                    keyText: "Duration (gốc)"
-
-                                    valueText: {
-
-                                        const original = root.fmtDuration(root.currentVideoData.originalDurationSec || root.currentVideoData.durationSec)
-
-                                        const speed = root.currentVideoData.videoSpeed || 1.0
-
-                                        const s = root.currentVideoData.trimStart || 0
-
-                                        const e = root.currentVideoData.trimEnd || (root.currentVideoData.durationSec || 0)
-
-                                        const hasTrim = s > 0 || (root.currentVideoData.trimEnd && e < (root.currentVideoData.durationSec || 0))
-
-                                        if (speed !== 1.0 || hasTrim) {
-
-                                            const target = (e - s) / speed
-
-                                            return original + " (Đầu ra: " + root.fmtClockMS(target) + " do x" + speed + ")"
-
-                                        }
-
-                                        return original
-
-                                    }
-
-                                }
-
-                                KVRow {
-
-                                    keyText: "Chất lượng (gốc)"
-
-                                    valueText: root.currentVideoData.originalQuality
-
-                                        ? root.currentVideoData.originalQuality + "p"
-
-                                        : "—"
-
-                                }
-
-                            }
-
-                        }
-
-                        // ─── 3. Download config ──────────────────────
-
-                        SectionCard {
-
-                            sectionTitle: "CẤU HÌNH TẢI VỀ"
-
-                            Item {
-
-                                width: parent.width
-
-                                height: loadingDownload.visible ? loadingDownload.height : contentDownload.height
-
-                                PanelLoadingPlaceholder {
-
-                                    id: loadingDownload
-
-                                    visible: {
-
-                                        const s = root.currentVideoData.status
-
-                                        return s === "downloading" || s === "waiting" || s === "pending" || s === "new"
-
-                                    }
-
-                                    message: root.currentVideoData.status === "downloading"
-
-                                        ? "Đang tải video... " + (root.currentVideoData.progress ? Math.round(root.currentVideoData.progress) + "%" : "")
-
-                                        : "Đang chờ tải video..."
-
-                                }
-
-                                ColumnLayout {
-
-                                    id: contentDownload
-
-                                    width: parent.width
-
-                                    spacing: 4
-
-                                    visible: !loadingDownload.visible
-
-                                    height: visible ? implicitHeight : 0
-
-                                    clip: true
-
-                                    KVRow {
-
-                                        keyText: "Quality target"
-
-                                        valueText: root.currentVideoData.quality
-
-                                            ? root.currentVideoData.quality + "p" : "—"
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Client priority"
-
-                                        valueText: {
-
-                                            const pri = (typeof settings !== "undefined" && settings !== null && settings.ytDlpClientPriority)
-
-                                                ? settings.ytDlpClientPriority.join(" → ")
-
-                                                : "tv_embedded → web → ios"
-
-                                            return pri
-
-                                        }
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Trim range"
-
-                                        valueText: {
-
-                                            const s = root.currentVideoData.trimStart || 0
-
-                                            const e = root.currentVideoData.trimEnd || 0
-
-                                            return (s > 0 || e > 0)
-
-                                                ? root.fmtClock(s) + " → " + root.fmtClock(e)
-
-                                                : "Không cắt"
-
-                                        }
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Concurrent frag."
-
-                                        valueText: "16"
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "File size"
-
-                                        valueText: root.fmtBytes(root.currentVideoData.fileSize
-
-                                            || root.currentVideoData.downloadedSize)
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Download speed"
-
-                                        valueText: root.currentVideoData.downloadSpeed || "—"
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Download time"
-
-                                        valueText: root.fmtDuration(root.currentVideoData.downloadDurationSec)
-
-                                    }
-
-                                    KVRow {
-
-                                        visible: (root.currentVideoData.queueWaitSec || 0) >= 1
-
-                                        keyText: "Queue wait (tuần tự)"
-
-                                        valueText: root.fmtDuration(root.currentVideoData.queueWaitSec || 0) + " — không tính vào tổng"
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Downloaded at"
-
-                                        valueText: root.fmtFullTime(
-
-                                            root.currentVideoData.downloadedMtime
-
-                                            || root.currentVideoData.downloadedAt)
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Path"
-
-                                        valueText: root.currentVideoData.downloadedPath || ""
-
-                                        mono: true
-
-                                        multiline: true
-
-                                        clickable: true
-
-                                        onClicked: {
-
-                                            if (valueText) {
-
-                                                backend.send_command_async("system:openFolder", {"path": valueText})
-
-                                            }
-
-                                        }
-
-                                    }
-
-                                }
-
-                            }
-
-                        }
-
-                        // ─── 4. Render config ────────────────────────
-
-                        SectionCard {
-
-                            sectionTitle: "CẤU HÌNH RENDER"
-
-                            visible: {
-
-                                const s = root.getAggregateStatus(root.currentVideoData)
-
-                                return s !== "new" && s !== "waiting" && s !== "pending" && s !== "downloading"
-
-                            }
-
-                            Item {
-
-                                width: parent.width
-
-                                height: loadingRender.visible ? loadingRender.height : contentRender.height
-
-                                PanelLoadingPlaceholder {
-
-                                    id: loadingRender
-
-                                    visible: root.getAggregateStatus(root.currentVideoData) === "rendering"
-
-                                    message: "Đang render video... " + Math.round(root.getAggregateProgress(root.currentVideoData)) + "%"
-
-                                }
-
-                                ColumnLayout {
-
-                                    id: contentRender
-
-                                    width: parent.width
-
-                                    spacing: 4
-
-                                    visible: !loadingRender.visible
-
-                                    height: visible ? implicitHeight : 0
-
-                                    clip: true
-
-                                    KVRow {
-
-                                        keyText: "Auto render"
-
-                                        valueText: root.currentVideoData.autoRender ? "BẬT" : "TẮT"
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Speed (tăng tốc)"
-
-                                        valueText: (root.currentVideoData.videoSpeed || 1.0) + "×"
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Thời lượng đầu ra"
-
-                                        valueText: {
-
-                                            const speed = root.currentVideoData.videoSpeed || 1.0
-
-                                            const dur = root.currentVideoData.durationSec || 0
-
-                                            const s = root.currentVideoData.trimStart || 0
-
-                                            const e = root.currentVideoData.trimEnd || dur
-
-                                            const target = (e - s) / speed
-
-                                            return root.fmtClockMS(target)
-
-                                        }
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Trim start"
-
-                                        valueText: root.fmtClock(root.currentVideoData.trimStart || 0)
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Trim end"
-
-                                        valueText: root.currentVideoData.trimEnd ? root.fmtClock(root.currentVideoData.trimEnd) : "Hết video"
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "FPS target"
-
-                                        valueText: {
-
-                                            const fps = root.currentVideoData.fpsTarget || ((typeof settings !== "undefined" && settings !== null) ? settings.autoRenderFPS : 30) || 30
-
-                                            return fps + " fps"
-
-                                        }
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Export resolution"
-
-                                        valueText: root.currentVideoData.exportResolution || ((typeof settings !== "undefined" && settings !== null) ? settings.autoRenderResolution : "1080p") || "1080p"
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Render FPS (thực tế)"
-
-                                        valueText: root.currentVideoData.renderFps
-
-                                            ? root.currentVideoData.renderFps + " fps" : "—"
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Render preset"
-
-                                        valueText: root.currentVideoData.renderPreset || "—"
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Render codec"
-
-                                        valueText: root.currentVideoData.renderCodec || "—"
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Render workers"
-
-                                        valueText: root.currentVideoData.renderWorkers
-
-                                            ? "" + root.currentVideoData.renderWorkers : "—"
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Render time"
-
-                                        valueText: root.fmtDuration(root.currentVideoData.renderDurationSec)
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Rendered at"
-
-                                        valueText: root.fmtFullTime(root.currentVideoData.renderedMtime)
-
-                                    }
-
-                                    KVRow {
-
-                                        keyText: "Output path"
-
-                                        valueText: {
-
-                                            if (root.currentVideoData.status === "error" || root.currentVideoData.status === "failed") {
-
-                                                return "— (Lỗi: " + (root.currentVideoData.error || "Không rõ nguyên nhân") + ")"
-
-                                            }
-
-                                            return root.currentVideoData.renderedPath || "—"
-
-                                        }
-
-                                        valueColor: (root.currentVideoData.status === "error" || root.currentVideoData.status === "failed") ? Theme.error : Theme.text
-
-                                        mono: true
-
-                                        multiline: true
-
-                                        clickable: !!root.currentVideoData.renderedPath && root.currentVideoData.status !== "error" && root.currentVideoData.status !== "failed"
-
-                                        visible: getSplitPartsFor(root.currentVideoId).length === 0
-
-                                        onClicked: {
-
-                                            if (root.currentVideoData.renderedPath && root.currentVideoData.status !== "error" && root.currentVideoData.status !== "failed") {
-
-                                                backend.send_command_async("system:openFolder", {"path": root.currentVideoData.renderedPath})
-
-                                            }
-
-                                        }
-
-                                    }
-
-                                    Repeater {
-
-                                        model: getSplitPartsFor(root.currentVideoId)
-
-                                        delegate: KVRow {
-
-                                            keyText: "Đầu ra (Phần " + (index + 1) + ")"
-
-                                            valueText: {
-
-                                                if (modelData.status === "error" || modelData.status === "failed") {
-
-                                                    return "— (Lỗi: " + (modelData.error || "Không rõ nguyên nhân") + ")"
-
-                                                }
-
-                                                return modelData.renderedPath || "— (đang render...)"
-
-                                            }
-
-                                            valueColor: (modelData.status === "error" || modelData.status === "failed") ? Theme.error : Theme.text
-
-                                            mono: true
-
-                                            multiline: true
-
-                                            clickable: !!modelData.renderedPath && modelData.status !== "error" && modelData.status !== "failed"
-
-                                            onClicked: {
-
-                                                if (modelData.renderedPath && modelData.status !== "error" && modelData.status !== "failed") {
-
-                                                    backend.send_command_async("system:openFolder", {"path": modelData.renderedPath})
-
-                                                }
-
-                                            }
-
-                                        }
-
-                                    }
-
-                                }
-
-                            }
-
-                        }
-
-                        // ─── 5. TikTok Upload detail ──────────────────
-
-                        SectionCard {
-
-                            sectionTitle: "TIKTOK UPLOAD"
-
-                            visible: !!root.currentVideoData.tiktokStatus
-
-                            Item {
-
-                                width: parent.width
-
-                                height: contentTikTok.height
-
-                                ColumnLayout {
-
-                                    id: contentTikTok
-
-                                    width: parent.width
-
-                                    spacing: 4
-
-                                    // Status + badge row
-
-                                    RowLayout {
-
-                                        Layout.fillWidth: true
-
-                                        spacing: 8
-
-                                        Rectangle {
-
-                                            Layout.preferredHeight: 18
-
-                                            Layout.preferredWidth: ttStatusLabel.implicitWidth + 16
-
-                                            radius: 4
-
-                                            property color ttColor: root.currentVideoData.tiktokStatus === "uploaded" ? Theme.success
-
-                                                : root.currentVideoData.tiktokStatus === "failed" ? Theme.error
-
-                                                : Theme.accent
-
-                                            color: ttColor + "20"
-
-                                            border.color: ttColor
-
-                                            border.width: 1
-
-                                            Label {
-
-                                                id: ttStatusLabel
-
-                                                anchors.centerIn: parent
-
-                                                text: ({
-
-                                                    "uploaded": "✓ ĐÃ ĐĂNG",
-
-                                                    "failed": "✗ THẤT BẠI",
-
-                                                    "uploading": "⏳ ĐANG ĐĂNG",
-
-                                                    "queued": "⏳ CHỜ ĐĂNG",
-
-                                                // `|| status` để nguyên sẽ trả UNDEFINED khi
-
-                                                // status chưa có → QML warn "Unable to assign
-
-                                                // [undefined] to QString" (ui-qt.log máy khách
-
-                                                // 26/07, 21 dòng). Ép về "" cho chắc.
-
-                                                })[root.currentVideoData.tiktokStatus] || (root.currentVideoData.tiktokStatus || "")
-
-                                                color: parent.ttColor
-
-                                                font.pixelSize: 10
-
-                                                font.bold: true
-
-                                            }
-
-                                        }
-
-                                        Item { Layout.fillWidth: true }
-
-                                        // Retry button when failed
-
-                                        Rectangle {
-
-                                            visible: root.currentVideoData.tiktokStatus === "failed"
-
-                                            Layout.preferredHeight: 24
-
-                                            Layout.preferredWidth: retryTtLabel.implicitWidth + 16
-
-                                            radius: 4
-
-                                            color: retryTtMa.containsMouse ? Theme.error + "40" : Theme.error + "20"
-
-                                            border.color: Theme.error
-
-                                            border.width: 1
-
-                                            Label {
-
-                                                id: retryTtLabel
-
-                                                anchors.centerIn: parent
-
-                                                text: "↻ Đăng lại"
-
-                                                color: Theme.error
-
-                                                font.pixelSize: 10
-
-                                                font.bold: true
-
-                                            }
-
-                                            MouseArea {
-
-                                                id: retryTtMa
-
-                                                anchors.fill: parent
-
-                                                hoverEnabled: true
-
-                                                cursorShape: Qt.PointingHandCursor
-
-                                                onClicked: {
-
-                                                    tiktokModel.retry_upload(root.currentVideoId)
-
-                                                    toastService.show("TikTok", "Đang kill Chrome + mở fresh để đăng lại...", "info")
-
-                                                }
-
-                                            }
-
-                                        }
-
-                                        // Retry button when uploaded (upload again)
-
-                                        Rectangle {
-
-                                            visible: root.currentVideoData.tiktokStatus === "uploaded"
-
-                                            Layout.preferredHeight: 24
-
-                                            Layout.preferredWidth: retryAgainTtLabel.implicitWidth + 16
-
-                                            radius: 4
-
-                                            color: retryAgainTtMa.containsMouse ? Theme.accent + "40" : Theme.accent + "20"
-
-                                            border.color: Theme.accent
-
-                                            border.width: 1
-
-                                            Label {
-
-                                                id: retryAgainTtLabel
-
-                                                anchors.centerIn: parent
-
-                                                text: "↻ Đăng lại"
-
-                                                color: Theme.accent
-
-                                                font.pixelSize: 10
-
-                                                font.bold: true
-
-                                            }
-
-                                            MouseArea {
-
-                                                id: retryAgainTtMa
-
-                                                anchors.fill: parent
-
-                                                hoverEnabled: true
-
-                                                cursorShape: Qt.PointingHandCursor
-
-                                                onClicked: {
-
-                                                    tiktokModel.retry_upload(root.currentVideoId)
-
-                                                    toastService.show("TikTok", "Đang kill Chrome + mở fresh để đăng lại...", "info")
-
-                                                }
-
-                                            }
-
-                                        }
-
-                                    }
-
-                                    // Upload time
-
-                                    KVRow {
-
-                                        keyText: "Thời gian upload"
-
-                                        valueText: {
-
-                                            let ms = root.currentVideoData.tiktokUploadMs
-
-                                            if (!ms) return "—"
-
-                                            return root.fmtDuration(ms / 1000.0)
-
-                                        }
-
-                                        valueColor: root.currentVideoData.tiktokUploadMs ? Theme.accent : null
-
-                                    }
-
-                                    // Pass 48c: quy trách nhiệm thời gian upload —
-
-                                    // "app" là phần HyperClip điều khiển (CDP,
-
-                                    // nạp file, gõ caption), "TikTok" là phần
-
-                                    // phía họ (nhận file, xử lý video, đăng).
-
-                                    // Không có dòng này thì mọi báo cáo "đăng
-
-                                    // chậm" đều phải mở log mới phân xử được.
-
-                                    KVRow {
-
-                                        visible: !!root.ttPhase("app")
-
-                                        keyText: "Trong đó"
-
-                                        valueText: "app " + root.ttPhase("app") + "s · TikTok " + root.ttPhase("tiktok") + "s"
-
-                                        valueColor: parseFloat(root.ttPhase("app")) > 1.5 ? Theme.warning : Theme.textMuted
-
-                                    }
-
-                                    KVRow {
-
-                                        visible: !!root.ttPhase("tiktok")
-
-                                        keyText: "Chi tiết chặng"
-
-                                        valueText: "nạp file " + root.ttPhase("file") + "s · TikTok nhận " + root.ttPhase("editor")
-
-                                            + "s · caption " + root.ttPhase("caption") + "s · TikTok xử lý " + root.ttPhase("process")
-
-                                            + "s · đăng " + root.ttPhase("confirm") + "s"
-
-                                    }
-
-                                    // Upload completed at
-
-                                    KVRow {
-
-                                        visible: !!root.currentVideoData.tiktokUploadedAt
-
-                                        keyText: "Đăng xong lúc"
-
-                                        valueText: root.fmtFullTime(root.currentVideoData.tiktokUploadedAt)
-
-                                    }
-
-                                    // Error message
-
-                                    Rectangle {
-
-                                        visible: !!root.currentVideoData.tiktokError
-
-                                        Layout.fillWidth: true
-
-                                        Layout.preferredHeight: ttErrCol.implicitHeight + 12
-
-                                        radius: 4
-
-                                        color: Theme.error + "15"
-
-                                        border.color: Theme.error + "50"
-
-                                        border.width: 1
-
-                                        ColumnLayout {
-
-                                            id: ttErrCol
-
-                                            anchors.fill: parent
-
-                                            anchors.margins: 6
-
-                                            spacing: 2
-
-                                            Label {
-
-                                                text: "LỖI"
-
-                                                color: Theme.error
-
-                                                font.pixelSize: 10
-
-                                                font.bold: true
-
-                                                font.letterSpacing: 0.6
-
-                                            }
-
-                                            Label {
-
-                                                text: root.currentVideoData.tiktokError || ""
-
-                                                color: Theme.text
-
-                                                font.pixelSize: 12
-
-                                                wrapMode: Text.WordWrap
-
-                                                Layout.fillWidth: true
-
-                                            }
-
-                                        }
-
-                                    }
-
-                                }
-
-                            }
-
-                        }
-
-                        // Error message (if any)
-
-                        Rectangle {
-
-                            visible: !!root.currentVideoData.error
-
+                        // ─── 2. Timeline Card (4-5 chặng trực quan, đẹp, mốc chuẩn) ──
+                        ManagementTimelineCard {
                             Layout.fillWidth: true
-
-                            color: Theme.error + "20"
-
-                            border.color: Theme.error + "60"
-
-                            border.width: 1
-
-                            radius: Theme.radiusMd
-
-                            implicitHeight: errCol.implicitHeight + 16
-
-                            ColumnLayout {
-
-                                id: errCol
-
-                                anchors.fill: parent
-
-                                anchors.margins: 8
-
-                                Label {
-
-                                    text: "LỖI"
-
-                                    color: Theme.error
-
-                                    font.pixelSize: 10
-
-                                    font.bold: true
-
-                                    font.letterSpacing: 0.8
-
-                                }
-
-                                Label {
-
-                                    text: root.currentVideoData.error || ""
-
-                                    color: Theme.text
-
-                                    font.pixelSize: 12
-
-                                    wrapMode: Text.WordWrap
-
-                                    Layout.fillWidth: true
-
-                                }
-
-                            }
-
+                            width: detailCol.width
+                            videoData: root.currentVideoData
+                            nowMs: root.nowMs
+                            isRendered: root.getIsRendered(root.currentVideoData)
+                            aggregateStatus: root.getAggregateStatus(root.currentVideoData) || "ready"
+                            renderStatusText: root.getRenderStatusText(root.currentVideoData) || ""
+                            splitParts: root.getSplitPartsFor(root.currentVideoId)
+                            e2eTotalSec: root.e2eTotalSec(root.currentVideoData, root.getRenderDurationSec(root.currentVideoData))
+                            tiktokBonusSec: root.tiktokBonusSec(root.currentVideoData)
                         }
 
+                        // ─── 3. Developer Inspector (Thông số chi tiết kỹ thuật) ──────
+                        ManagementPipelineDetails {
+                            Layout.fillWidth: true
+                            width: detailCol.width
+                            videoData: root.currentVideoData
+                            aggregateStatus: root.getAggregateStatus(root.currentVideoData) || "ready"
+                            aggregateProgress: root.getAggregateProgress(root.currentVideoData)
+                            splitParts: root.getSplitPartsFor(root.currentVideoId)
+                            onRetryTikTok: function(vid) {
+                                tiktokModel.retry_upload(vid)
+                                toastService.show("TikTok", "Đang kill Chrome + mở fresh để đăng lại...", "info")
+                            }
+                            onOpenFolder: function(path) {
+                                backend.send_command_async("system:openFolder", {"path": path})
+                            }
+                            onOpenUrl: function(url) {
+                                backend.send_command_async("system:openUrl", {"url": url})
+                            }
+                        }
+
+                        // ─── 4. Error message (nếu có lỗi tổng) ───────
+                        Rectangle {
+                            visible: !!root.currentVideoData.error
+                            Layout.fillWidth: true
+                            color: Theme.error + "20"
+                            border.color: Theme.error + "60"
+                            border.width: 1
+                            radius: Theme.radiusMd
+                            implicitHeight: errCol.implicitHeight + 16
+                            ColumnLayout {
+                                id: errCol
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                Label {
+                                    text: "LỖI PIPELINE"
+                                    color: Theme.error
+                                    font.pixelSize: 10
+                                    font.bold: true
+                                    font.letterSpacing: 0.8
+                                }
+                                Label {
+                                    text: root.currentVideoData.error || ""
+                                    color: Theme.text
+                                    font.pixelSize: 12
+                                    wrapMode: Text.WordWrap
+                                    Layout.fillWidth: true
+                                }
+                            }
+                        }
                     }
-
                 }
-
             }
-
         }
-
     }
 
     ConfirmationDialog {
-
         id: confirmDlg
-
+        onConfirmed: function(id, name) {
+            if (id === "all") {
+                backend.send_command("workspace:clear")
+                root.workspaces = []
+                root.clearSelection()
+                root.refreshList()
+                root.currentVideoId = ""
+                root.currentVideoData = {}
+            } else if (id === "selection") {
+                let toDelete = root.selectedIds.slice()
+                for (let i = 0; i < toDelete.length; i++) {
+                    backend.send_command("workspace:delete", {"id": toDelete[i]})
+                }
+                root.clearSelection()
+                root.refreshList()
+            } else if (id) {
+                root.deleteWorkspace(id)
+            }
+        }
     }
 
 }

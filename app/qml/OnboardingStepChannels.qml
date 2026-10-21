@@ -5,16 +5,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 
 Item {
-    id: root
-
-    // Chạy NGOÀI context delegate (xem chú thích tại onDeleteClicked): toast
-    // trước, mutate model sau — mutate làm ListView huỷ delegate đang gọi.
-    function doDeleteChannel(id, name) {
-        if (activityModel) activityModel.add_entry("channel", "Đã xóa: " + name, "info")
-        if (toastService) toastService.show("Đã xóa", "Kênh " + name + " đã được xóa", "info")
-        Qt.callLater(function() { channelListModel.remove_channel(id) })
-    }
-
+    id: stepRoot
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 24
@@ -26,7 +17,7 @@ Item {
         }
         
         Label {
-            text: "Nhập đường dẫn kênh (URL) hoặc ID kênh YouTube bạn muốn tự động bắt video. Hệ thống sẽ quét song song tất cả các kênh này cứ sau mỗi 5 giây (có độ lệch ngẫu nhiên để tránh Google phát hiện bot) và tải ngay khi có video mới xuất bản."
+            text: "Nhập đường dẫn kênh (URL) hoặc @handle YouTube bạn muốn tự động bắt video. Hệ thống tự động gộp 50 kênh trong một request Data API v3 với sổ quota theo project, quản trị nhịp máy chuẩn xác và bắt video mới ngay khi xuất bản."
             color: Theme.textMuted
             font.pixelSize: Theme.textMd
             wrapMode: Text.WordWrap
@@ -34,24 +25,83 @@ Item {
             lineHeight: 1.2
         }
 
-        // Pass 130: AddChannelForm phát signal addClicked nhưng TRƯỚC ĐÂY không
-        // nơi nào nối — bấm "+" ở bước onboarding chỉ xoá trắng ô nhập, không
-        // gửi lệnh nào xuống backend. Đây là màn hình ĐẦU TIÊN khách mới gặp.
         AddChannelForm {
+            id: addForm
             Layout.fillWidth: true
             onAddClicked: function(url) {
-                if (!url || url.length === 0) return
-                channelListModel.add_channel(url)
-                if (toastService) toastService.show("Đang thêm kênh", url, "info")
+                if (channelListModel) {
+                    channelListModel.add_channel(url)
+                }
+                if (activityModel) {
+                    activityModel.add_entry("channel", "Đang thêm: " + url, "info")
+                }
             }
         }
 
-        Connections {
-            target: channelListModel
-            function onAddResult(ok, message) {
-                if (!toastService) return
-                if (ok) toastService.show("Đã thêm kênh", "", "success")
-                else toastService.show("Không thêm được kênh", message, "warning")
+        // Action banner when at least 1 channel added
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 48
+            color: Theme.accent + "20"
+            border.color: Theme.accent
+            border.width: 1
+            radius: 8
+            visible: chList.count > 0
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 8
+                spacing: 12
+                Label {
+                    text: "✓ Đã thêm " + chList.count + " kênh vào danh sách theo dõi."
+                    color: Theme.text
+                    font.pixelSize: 13
+                    font.bold: true
+                    Layout.fillWidth: true
+                }
+                Button {
+                    id: inlineNextBtn
+                    text: "Tiếp tục sang bước 3 (Projects) →"
+                    Layout.preferredHeight: 32
+                    Layout.preferredWidth: 230
+                    contentItem: Text {
+                        text: inlineNextBtn.text
+                        font.bold: true
+                        font.pixelSize: 12
+                        color: "white"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        color: inlineNextBtn.down ? Qt.darker(Theme.accent, 1.2) : (inlineNextBtn.hovered ? Qt.lighter(Theme.accent, 1.15) : Theme.accent)
+                        radius: 6
+                    }
+                    onClicked: {
+                        if (typeof stepLoader !== "undefined" && stepLoader.page) {
+                            stepLoader.page.next()
+                        } else if (typeof page !== "undefined" && page.next) {
+                            page.next()
+                        }
+                    }
+                }
+            }
+        }
+
+        // Placeholder if no channels added yet
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 40
+            color: Theme.hoverBg
+            radius: 6
+            visible: chList.count === 0
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 8
+                Label {
+                    text: "💡 Bạn có thể dán link kênh ở trên rồi bấm '+', hoặc bấm 'Tiếp →' bên dưới để cấu hình sau."
+                    color: Theme.accent
+                    font.pixelSize: 13
+                    Layout.fillWidth: true
+                }
             }
         }
 
@@ -67,31 +117,17 @@ Item {
                 isPaused: model.paused
                 newCount: model.newCount
                 onPauseClicked: {
-                    // toggle_pause (Python) tự chọn channel:pause / channel:resume
-                    // theo trạng thái hiện tại + cập nhật UI lạc quan — QML không
-                    // gửi thêm lệnh trực tiếp (2 lệnh ngược nhau → nút không ăn).
-                    if (toastService) toastService.show(model.paused ? "Kênh đã tiếp tục" : "Kênh đã tạm dừng", model.name, "info")
-                    channelListModel.toggle_pause(model.id)
+                    if (channelListModel) channelListModel.toggle_pause(model.id)
                 }
-                // Callback là hàm ở GỐC file, không phải closure khai trong
-                // delegate: remove_channel chạy beginResetModel/endResetModel
-                // ngay trong thân callback → ListView huỷ delegate đã sinh ra
-                // closure đó, dòng kế tiếp đọc vào object đã chết (ReferenceError
-                // — đúng lớp lỗi ghi ở CODE_MAP mục 11).
-                onDeleteClicked: confirmDelete.openFor(model.id, model.name, root.doDeleteChannel)
-                onCompareClicked: compareModal.openFor(model.channelId, model.name)
+                onDeleteClicked: {
+                    if (channelListModel) channelListModel.remove_channel(model.id)
+                }
+                onCompareClicked: {}
             }
             
             ScrollBar.vertical: ScrollBar {
                 active: true
             }
         }
-    }
-
-    ConfirmationDialog {
-        id: confirmDelete
-    }
-    VideoCompareModal {
-        id: compareModal
     }
 }

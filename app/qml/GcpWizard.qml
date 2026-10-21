@@ -25,7 +25,7 @@ Popup {
     signal projectAdded()
 
     property int step: 0
-    property string emailLabel: ""
+    property string projectId: ""
     property string apiKey: ""
     property string errorText: ""
     property bool busy: false
@@ -37,13 +37,13 @@ Popup {
 
     function reset() {
         step = 0
-        emailLabel = ""
+        projectId = ""
         apiKey = ""
         errorText = ""
         busy = false
         bulkResults = []
         bulkSummary = ""
-        emailField.text = ""
+        pidField.text = ""
         keyField.text = ""
         bulkField.text = ""
     }
@@ -53,22 +53,8 @@ Popup {
         wizard.errorText = ""
         const text = bulkField.text
         Qt.callLater(function() {
-            // Pass 130 — TIMEOUT PHẢI THEO SỐ KEY, không được để trần 5s mặc
-            // định: Rust kiểm chứng TỪNG key bằng HTTP thật (~12s/key xấu nhất,
-            // 8 luồng) nên dán 19 key luôn vượt 5s → QML nhận "backend timeout",
-            // bảng kết quả rỗng, pool không nạp lại, khách chạy tiếp với 0
-            // project (đúng log máy 5070 19:39 và "nút dán hàng loạt câm" 3060).
-            // Backend vẫn lưu key bình thường — chỉ UI tưởng hỏng.
-            const nKeys = Math.max(1, (text.match(/AIza/g) || []).length)
-            const budget = Math.min(300, 30 + nKeys * 8)
-            if (typeof backend === "undefined" || !backend || !backend.send_command) {
-                wizard.busy = false
-                wizard.errorText = "Backend chÆ°a sáºµn sÃ ng"
-                return
-            }
             const resp = backend.send_command("project:addBulk",
-                                              {"text": text, "verifyOnly": verifyOnly},
-                                              budget)
+                                              {"text": text, "verifyOnly": verifyOnly})
             wizard.busy = false
             if (!resp || resp.ok === false) {
                 wizard.errorText = (resp && resp.error) || "Không gọi được backend"
@@ -82,8 +68,8 @@ Popup {
             }
             wizard.bulkResults = r.results || []
             let s = "Đọc được " + r.parsed + " key"
-            if (r.skippedExisting > 0) s += " · " + r.skippedExisting + " TRÙNG (đã có sẵn, bỏ qua)"
-            s += " · " + (r.checked - r.failed) + " dùng được"
+            if (r.skippedExisting > 0) s += " · " + r.skippedExisting + " đã có sẵn"
+            s += " · " + (r.results.filter(function(x){return x.ok}).length) + " dùng được"
             if (r.failed > 0) s += " · " + r.failed + " hỏng"
             if (!verifyOnly && r.added > 0) s += "  →  ĐÃ THÊM " + r.added
             wizard.bulkSummary = s
@@ -199,14 +185,14 @@ Popup {
                     spacing: 10
 
                     Label {
-                        text: "Dán danh sách API key — mỗi key một dòng, CHỈ CẦN KEY là chạy. Kèm email thì app lấy email làm nhãn quản lý. App tự kiểm chứng từng key bằng lời gọi thật và tự bỏ qua key trùng."
+                        text: "Dán cả danh sách API key vào đây — mỗi key một dòng. App tự nhận dạng và kiểm chứng từng cái bằng lời gọi thật."
                         color: Theme.textMuted
                         font.pixelSize: 12
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
                     Label {
-                        text: "Dán NGUYÊN bảng Excel/Sheets cũng được (kể cả cột OAuth / secret / tình trạng thừa) — app chỉ nhặt key + email, bỏ phần còn lại. Dòng trống và ghi chú (#) được bỏ qua."
+                        text: "Chấp nhận mọi dạng: chỉ key, hoặc \"project,key\" / \"project | key\" / dán từ Excel / JSON export của app. Dòng trống và ghi chú (#) được bỏ qua."
                         color: Theme.textMuted
                         font.pixelSize: 11
                         wrapMode: Text.WordWrap
@@ -227,7 +213,7 @@ Popup {
                             anchors.margins: 6
                             TextArea {
                                 id: bulkField
-                                placeholderText: "AIzaSy...\nmail2@gmail.com  AIzaSy...\n(dán nguyên bảng Excel cũng được)"
+                                placeholderText: "AIzaSy...\nproj-02, AIzaSy...\nproj-03 | AIzaSy..."
                                 color: Theme.text
                                 font.pixelSize: 12
                                 font.family: "monospace"
@@ -279,16 +265,15 @@ Popup {
                                 anchors.rightMargin: 8
                                 spacing: 8
                                 Icon {
-                                    name: modelData.dup ? "info" : (modelData.ok ? "check" : "warning")
+                                    name: modelData.ok ? "check" : "warning"
                                     size: 11
-                                    color: modelData.dup ? Theme.textMuted : (modelData.ok ? Theme.success : Theme.error)
+                                    color: modelData.ok ? Theme.success : Theme.error
                                 }
                                 Label {
-                                    // Nhãn email đứng trước; không có email thì project id.
-                                    text: (modelData.label && modelData.label !== "") ? modelData.label : modelData.projectId
-                                    color: modelData.dup ? Theme.textMuted : Theme.text
+                                    text: modelData.projectId
+                                    color: Theme.text
                                     font.pixelSize: 11
-                                    Layout.preferredWidth: 170
+                                    Layout.preferredWidth: 150
                                     elide: Text.ElideRight
                                 }
                                 Label {
@@ -299,10 +284,8 @@ Popup {
                                     Layout.preferredWidth: 110
                                 }
                                 Label {
-                                    text: modelData.dup ? modelData.error
-                                          : (modelData.ok ? "dùng được" : modelData.error)
-                                    color: modelData.dup ? Theme.textMuted
-                                           : (modelData.ok ? Theme.success : Theme.error)
+                                    text: modelData.ok ? "dùng được" : modelData.error
+                                    color: modelData.ok ? Theme.success : Theme.error
                                     font.pixelSize: 10
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
@@ -392,7 +375,7 @@ Popup {
                     StepRow {
                         num: 1
                         title: "Tạo project mới"
-                        hint: "Đặt tên gì cũng được, ví dụ hyperclip-01. Không cần ghi lại Project ID — app chỉ cần API key."
+                        hint: "Đặt tên gì cũng được, ví dụ hyperclip-01. Ghi lại Project ID (chuỗi thật, không phải tên hiển thị)."
                         url: "https://console.cloud.google.com/projectcreate"
                     }
                     StepRow {
@@ -440,7 +423,7 @@ Popup {
                     spacing: 12
 
                     Label {
-                        text: "Dán API key vừa lấy. App gọi thử YouTube API để chắc chắn key dùng được (và không trùng key đã có) trước khi lưu."
+                        text: "Dán hai giá trị vừa lấy được. App sẽ gọi thử YouTube API để chắc chắn nó dùng được trước khi lưu."
                         color: Theme.textMuted
                         font.pixelSize: 12
                         wrapMode: Text.WordWrap
@@ -450,22 +433,22 @@ Popup {
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 4
-                        Label { text: "Email (nhãn quản lý — không bắt buộc)"; color: Theme.textMuted; font.pixelSize: 11 }
+                        Label { text: "Project ID"; color: Theme.textMuted; font.pixelSize: 11 }
                         TextField {
-                            id: emailField
+                            id: pidField
                             Layout.fillWidth: true
-                            placeholderText: "vd: mail-tao-key@gmail.com — để trống cũng được"
+                            placeholderText: "ví dụ: hyperclip-01-473210"
                             color: Theme.text
                             font.pixelSize: 13
                             font.family: "monospace"
                             enabled: !wizard.busy
                             background: Rectangle {
                                 color: Theme.inputBg
-                                border.color: emailField.activeFocus ? Theme.accent : Theme.border
+                                border.color: pidField.activeFocus ? Theme.accent : Theme.border
                                 border.width: 1
                                 radius: Theme.radiusMd
                             }
-                            onTextChanged: { wizard.emailLabel = text.trim(); wizard.errorText = "" }
+                            onTextChanged: { wizard.projectId = text.trim(); wizard.errorText = "" }
                         }
                     }
 
@@ -593,7 +576,8 @@ Popup {
                     colorHover: Theme.accent + "45"
                     border.color: Theme.accent
                     enabled: !wizard.busy
-                             && (wizard.step === 0 || wizard.apiKey !== "")
+                             && (wizard.step === 0
+                                 || (wizard.projectId !== "" && wizard.apiKey !== ""))
                     onClicked: {
                         if (wizard.step === 0) {
                             wizard.step = 1
@@ -605,12 +589,11 @@ Popup {
                         // lồng nhau, gọi thẳng trong onClicked là hủy delegate
                         // giữa lúc chuột đang được xử lý (crash 18/07).
                         Qt.callLater(function() {
-                            // Kiểm chứng 1 key bằng call thật: tối đa ~12s phía
-                            // Rust, nên trần 5s mặc định của QML là quá sát.
                             const resp = backend.send_command("project:addFull", {
+                                "projectId": wizard.projectId,
                                 "apiKey": wizard.apiKey,
-                                "email": wizard.emailLabel
-                            }, 45)
+                                "name": wizard.projectId
+                            })
                             wizard.busy = false
                             if (!resp || resp.ok === false) {
                                 wizard.errorText = (resp && resp.error) || "Không gọi được backend"

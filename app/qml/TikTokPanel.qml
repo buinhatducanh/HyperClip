@@ -18,7 +18,11 @@ Rectangle {
     // "Gán" không hề xuất hiện. Với đúng 1 tài khoản thì không ai nghĩ phải
     // bấm chọn nó trước → khách báo "nút thêm kênh TikTok không hoạt động".
     function ensureSelection() {
-        var list = (tiktokModel && tiktokModel.accounts) ? tiktokModel.accounts : []
+        if (typeof tiktokModel === "undefined" || !tiktokModel) {
+            panel.selectedAccountId = ""
+            return
+        }
+        var list = tiktokModel.accounts
         if (!list || list.length === 0) {
             panel.selectedAccountId = ""
             return
@@ -30,17 +34,13 @@ Rectangle {
     }
     Connections {
         target: (typeof tiktokModel !== "undefined") ? tiktokModel : null
-        // Qt.callLater: onChanged bắn TRONG lúc model đang refresh (send_command
-        // đồng bộ = nested event loop). Chạy ensureSelection ngay tại đây làm
-        // ghi property giữa vòng lặp lồng → Loader ở main.qml báo
-        // "Binding loop detected for property sourceComponent" 4-5 lần/giây
-        // (log khách 26/07 17:48). Hoãn ra đầu vòng event loop kế tiếp.
         function onChanged() { Qt.callLater(function() { panel.ensureSelection() }) }
     }
 
     // Account đang chọn (tự re-eval khi tiktokModel.changed vì bind vào accounts)
     property var selAcc: {
-        var list = (tiktokModel && tiktokModel.accounts) ? tiktokModel.accounts : []
+        if (typeof tiktokModel === "undefined" || !tiktokModel || !tiktokModel.accounts) return null
+        var list = tiktokModel.accounts
         for (var i = 0; i < list.length; i++)
             if (list[i].id === panel.selectedAccountId) return list[i]
         return null
@@ -49,9 +49,9 @@ Rectangle {
     // Kênh đã gán vào account đang chọn (match theo channelId YouTube UC…)
     property var assignedChannels: {
         var out = []
-        if (!panel.selectedAccountId) return out
-        var chs = (tiktokModel && tiktokModel.channels) ? tiktokModel.channels : []
-        var maps = (tiktokModel && tiktokModel.mappings) ? tiktokModel.mappings : {}
+        if (!panel.selectedAccountId || typeof tiktokModel === "undefined" || !tiktokModel || !tiktokModel.channels || !tiktokModel.mappings) return out
+        var chs = tiktokModel.channels
+        var maps = tiktokModel.mappings
         for (var i = 0; i < chs.length; i++) {
             var cid = chs[i].channelId
             if (cid && maps[cid] === panel.selectedAccountId) out.push(chs[i])
@@ -59,42 +59,13 @@ Rectangle {
         return out
     }
 
-    // Kênh đã gán cho MỘT account bất kỳ — thẻ account bên cột trái cần lấy
-    // danh sách của chính nó, không phải của account đang chọn.
-    function channelsOf(accId) {
-        var out = []
-        if (!accId) return out
-        var chs = (tiktokModel && tiktokModel.channels) ? tiktokModel.channels : []
-        var maps = (tiktokModel && tiktokModel.mappings) ? tiktokModel.mappings : {}
-        for (var i = 0; i < chs.length; i++) {
-            var cid = chs[i].channelId
-            if (cid && maps[cid] === accId) out.push(chs[i])
-        }
-        return out
-    }
-
-    // Màu nhận dạng kênh — PHẢI trùng trang Quản lí kênh / Chính sách quét.
-    // Bên đó (`ChannelListModel.PALETTE`) lấy màu theo VỊ TRÍ kênh trong sổ;
-    // `tiktok:list` và `channel:list` cùng đọc `ChannelStore` theo đúng thứ tự
-    // nên chỉ số ở đây khớp, không cần backend trả thêm trường nào.
-    readonly property var avatarPalette: [
-        "#00B4FF", "#00FF88", "#FF6B6B", "#FFD93D", "#A78BFA", "#FB7185", "#34D399"
-    ]
-    function avatarTint(chStoreId) {
-        var chs = (tiktokModel && tiktokModel.channels) ? tiktokModel.channels : []
-        for (var i = 0; i < chs.length; i++)
-            if (chs[i].id === chStoreId)
-                return panel.avatarPalette[i % panel.avatarPalette.length]
-        return Theme.accent
-    }
-
     // Kênh chưa gán account nào (hoặc gán account khác — hiện mờ) + filter search
     property string channelFilter: ""
     property var pickerChannels: {
         var out = []
-        if (!panel.selectedAccountId) return out
-        var chs = (tiktokModel && tiktokModel.channels) ? tiktokModel.channels : []
-        var maps = (tiktokModel && tiktokModel.mappings) ? tiktokModel.mappings : {}
+        if (!panel.selectedAccountId || typeof tiktokModel === "undefined" || !tiktokModel || !tiktokModel.channels || !tiktokModel.mappings) return out
+        var chs = tiktokModel.channels
+        var maps = tiktokModel.mappings
         var f = panel.channelFilter.toLowerCase()
         for (var i = 0; i < chs.length; i++) {
             var ch = chs[i]
@@ -113,10 +84,13 @@ Rectangle {
         captionCustom.checked = !!(selAcc && selAcc.captionMode === "custom")
         if (!tplInput.activeFocus)
             tplInput.text = selAcc ? (selAcc.captionTemplate || "") : ""
+        if (typeof profileIdInput !== "undefined" && profileIdInput && !profileIdInput.activeFocus)
+            profileIdInput.text = selAcc ? (selAcc.profileId || "") : ""
     }
 
     function accountLabel(accId) {
-        var list = (tiktokModel && tiktokModel.accounts) ? tiktokModel.accounts : []
+        if (typeof tiktokModel === "undefined" || !tiktokModel || !tiktokModel.accounts) return "?"
+        var list = tiktokModel.accounts
         for (var i = 0; i < list.length; i++)
             if (list[i].id === accId) return list[i].label
         return "?"
@@ -152,24 +126,53 @@ Rectangle {
             }
             Switch {
                 id: enableSwitch
-                checked: settings ? settings.tiktokUploadEnabled : false
+                checked: Boolean(settings && settings.tiktokUploadEnabled)
                 onToggled: {
-                    if (!settings) return
-                    settings.tiktokUploadEnabled = checked
-                    if (settings.save_to_backend(backend)) {
-                        toastService.show("TikTok", checked ? "Đã BẬT tự động đăng TikTok" : "Đã TẮT tự động đăng TikTok", "info")
-                    } else {
-                        // Lưu hỏng: hoàn tác setting + khôi phục binding để công
-                        // tắc không lệch trạng thái thật trên đĩa (bug desync #4).
-                        settings.tiktokUploadEnabled = !checked
-                        enableSwitch.checked = Qt.binding(function() { return settings ? settings.tiktokUploadEnabled : false })
-                        toastService.show("TikTok", "Không lưu được cài đặt — đã hoàn tác", "error")
+                    if (settings) {
+                        settings.tiktokUploadEnabled = checked
+                        if (typeof backend !== "undefined" && typeof settings.save_to_backend === "function" && settings.save_to_backend(backend)) {
+                            toastService.show("TikTok", checked ? "Đã BẬT tự động đăng TikTok" : "Đã TẮT tự động đăng TikTok", "info")
+                        } else {
+                            settings.tiktokUploadEnabled = !checked
+                            enableSwitch.checked = Qt.binding(function() { return settings.tiktokUploadEnabled })
+                            toastService.show("TikTok", "Không lưu được cài đặt — đã hoàn tác", "error")
+                        }
                     }
                 }
             }
             Item { Layout.fillWidth: true }
             Rectangle {
-                visible: tiktokModel ? (tiktokModel.queueLength > 0 || tiktokModel.uploading !== "") : false
+                Layout.preferredHeight: 24
+                Layout.preferredWidth: checkAdsLbl.implicitWidth + 16
+                radius: 4
+                color: checkAdsMa.containsMouse ? Theme.hoverBg : "transparent"
+                border.color: Theme.border
+                border.width: 1
+                Label {
+                    id: checkAdsLbl
+                    anchors.centerIn: parent
+                    text: "⚡ Kiểm tra AdsPower"
+                    color: Theme.text
+                    font.pixelSize: 11
+                }
+                MouseArea {
+                    id: checkAdsMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        var ok = (typeof tiktokModel !== "undefined" && tiktokModel) ? tiktokModel.check_adspower() : false
+                        if (ok) {
+                            toastService.show("AdsPower", "Kết nối AdsPower Local API thành công! (127.0.0.1:50325)", "success")
+                        } else {
+                            toastService.show("AdsPower", "Không thể kết nối AdsPower Local API! Hãy bật AdsPower và mở cài đặt Local API (port 50325).", "error")
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                visible: (typeof tiktokModel !== "undefined" && tiktokModel) ? (tiktokModel.queueLength > 0 || (tiktokModel.uploading && tiktokModel.uploading !== "")) : false
                 Layout.preferredHeight: 22
                 Layout.preferredWidth: queueLabel.implicitWidth + 16
                 radius: 4
@@ -179,7 +182,7 @@ Rectangle {
                 Label {
                     id: queueLabel
                     anchors.centerIn: parent
-                    text: (tiktokModel ? ((tiktokModel.uploading !== "" ? "Đang đăng 1 · " : "") + tiktokModel.queueLength + " chờ") : "")
+                    text: (typeof tiktokModel !== "undefined" && tiktokModel) ? (((tiktokModel.uploading && tiktokModel.uploading !== "") ? "Đang đăng 1 · " : "") + (tiktokModel.queueLength || 0) + " chờ") : ""
                     color: Theme.accent
                     font.pixelSize: 11
                     font.bold: true
@@ -188,7 +191,7 @@ Rectangle {
         }
 
         Label {
-            text: "Mỗi tài khoản TikTok gắn 1 Chrome profile riêng. Khuyến nghị 1-2 kênh YouTube / tài khoản. Video render xong sẽ tự đăng theo mapping."
+            text: "Tự động đăng TikTok qua AdsPower Browser (Local API: 127.0.0.1:50325). Khuyến nghị 1-2 kênh YouTube / tài khoản. Video render xong sẽ tự đăng theo mapping."
             color: Theme.textMuted
             font.pixelSize: 11
             wrapMode: Text.WordWrap
@@ -197,7 +200,7 @@ Rectangle {
 
         // Pass 42: có kênh gán mà switch tổng tắt = flow chết im lặng (18/07)
         Rectangle {
-            visible: settings ? (!settings.tiktokUploadEnabled && (tiktokModel && tiktokModel.mappings && Object.keys(tiktokModel.mappings).length > 0)) : false
+            visible: Boolean(settings && !settings.tiktokUploadEnabled && typeof tiktokModel !== "undefined" && tiktokModel && tiktokModel.mappings && Object.keys(tiktokModel.mappings).length > 0)
             Layout.fillWidth: true
             Layout.preferredHeight: offWarnLbl.implicitHeight + 12
             radius: 4
@@ -208,7 +211,7 @@ Rectangle {
                 id: offWarnLbl
                 anchors.fill: parent
                 anchors.margins: 6
-                text: "⚠ Đã gán " + ((tiktokModel && tiktokModel.mappings) ? Object.keys(tiktokModel.mappings).length : 0) + " kênh nhưng công tắc tổng đang TẮT — video render xong sẽ KHÔNG tự đăng. Bật công tắc phía trên để kích hoạt."
+                text: "⚠ Đã gán " + ((typeof tiktokModel !== "undefined" && tiktokModel && tiktokModel.mappings) ? Object.keys(tiktokModel.mappings).length : 0) + " kênh nhưng công tắc tổng đang TẮT — video render xong sẽ KHÔNG tự đăng. Bật công tắc phía trên để kích hoạt."
                 color: "#FFB800"
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
@@ -223,7 +226,7 @@ Rectangle {
 
             // ══ Cột trái: danh sách tài khoản ══
             Rectangle {
-                Layout.preferredWidth: 300
+                Layout.preferredWidth: 320
                 Layout.fillHeight: true
                 color: Theme.cardBg
                 border.color: Theme.border
@@ -236,38 +239,53 @@ Rectangle {
                     spacing: 8
 
                     Label {
-                        text: "TÀI KHOẢN TIKTOK (" + ((tiktokModel && tiktokModel.accounts) ? tiktokModel.accounts.length : 0) + ")"
+                        text: "TÀI KHOẢN TIKTOK (" + ((typeof tiktokModel !== "undefined" && tiktokModel && tiktokModel.accounts) ? tiktokModel.accounts.length : 0) + ")"
                         color: Theme.textMuted
                         font.pixelSize: 10
                         font.bold: true
                     }
 
                     // Thêm tài khoản
-                    RowLayout {
+                    ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 6
-                        TextField {
-                            id: newAccInput
+
+                        RowLayout {
                             Layout.fillWidth: true
-                            placeholderText: "@username TikTok…"
-                            font.pixelSize: 12
-                            onAccepted: addAccBtn.doAdd()
+                            spacing: 6
+                            TextField {
+                                id: newAccInput
+                                Layout.fillWidth: true
+                                placeholderText: "@username TikTok…"
+                                font.pixelSize: 12
+                                onAccepted: newProfileIdInput.forceActiveFocus()
+                            }
+                            TextField {
+                                id: newProfileIdInput
+                                Layout.preferredWidth: 105
+                                placeholderText: "AdsPower ID…"
+                                font.pixelSize: 12
+                                onAccepted: addAccBtn.doAdd()
+                            }
                         }
+
                         Rectangle {
                             id: addAccBtn
-                            Layout.preferredWidth: 60
+                            Layout.fillWidth: true
                             Layout.preferredHeight: 28
                             radius: 4
                             color: addMa.containsMouse ? "#00A4EF" : Theme.accent
                             function doAdd() {
                                 var label = newAccInput.text.trim()
-                                if (!label || !tiktokModel) return
-                                tiktokModel.add_account(label)
+                                var pid = newProfileIdInput.text.trim()
+                                if (!label) return
+                                tiktokModel.add_account(label, pid)
                                 newAccInput.text = ""
+                                newProfileIdInput.text = ""
                             }
                             Label {
                                 anchors.centerIn: parent
-                                text: "+ Thêm"
+                                text: "+ Thêm tài khoản AdsPower"
                                 color: "white"
                                 font.pixelSize: 11
                                 font.bold: true
@@ -286,19 +304,35 @@ Rectangle {
                         id: accList
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        model: (tiktokModel && tiktokModel.accounts) ? tiktokModel.accounts : []
+                        model: (typeof tiktokModel !== "undefined" && tiktokModel && tiktokModel.accounts) ? tiktokModel.accounts : []
                         clip: true
                         spacing: 6
 
                         delegate: Rectangle {
+                            id: accItem
                             width: accList.width
-                            // Cao theo nội dung (trước là 74 cứng): thẻ chưa gán
-                            // kênh nào thì không thừa một dải trống ở đáy.
-                            height: accCol.implicitHeight + 16
+                            height: 114
                             radius: 6
                             color: modelData.id === panel.selectedAccountId ? Theme.hoverBg : Theme.bg
                             border.color: modelData.id === panel.selectedAccountId ? Theme.accent : Theme.border
                             border.width: 1
+
+                            // Danh sách các kênh YouTube được gán vào tài khoản TikTok này
+                            readonly property var assignedChannelsList: {
+                                var res = []
+                                if (typeof tiktokModel === "undefined" || !tiktokModel || !tiktokModel.channels || !tiktokModel.mappings) return res
+                                var chs = tiktokModel.channels
+                                var maps = tiktokModel.mappings
+                                var accId = modelData.id
+                                for (var i = 0; i < chs.length; i++) {
+                                    var cid = chs[i].channelId
+                                    var id = chs[i].id
+                                    if ((cid && maps[cid] === accId) || (id && maps[id] === accId)) {
+                                        res.push(chs[i])
+                                    }
+                                }
+                                return res
+                            }
 
                             MouseArea {
                                 anchors.fill: parent
@@ -307,19 +341,32 @@ Rectangle {
                             }
 
                             ColumnLayout {
-                                id: accCol
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.top: parent.top
+                                anchors.fill: parent
                                 anchors.margins: 8
                                 spacing: 4
 
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    spacing: 6
+                                    spacing: 8
                                     Rectangle {
-                                        width: 8; height: 8; radius: 4
-                                        color: panel.statusColor(modelData.status)
+                                        width: 24; height: 24; radius: 12
+                                        color: Theme.surfaceHover
+                                        border.color: Theme.border
+                                        border.width: 1
+                                        Icon {
+                                            anchors.centerIn: parent
+                                            name: "upload"
+                                            size: 12
+                                            color: Theme.accent
+                                        }
+                                        Rectangle {
+                                            width: 7; height: 7; radius: 3.5
+                                            anchors.right: parent.right
+                                            anchors.bottom: parent.bottom
+                                            color: panel.statusColor(modelData.status)
+                                            border.color: Theme.bg
+                                            border.width: 1
+                                        }
                                     }
                                     Label {
                                         text: modelData.label
@@ -330,10 +377,82 @@ Rectangle {
                                         Layout.fillWidth: true
                                     }
                                     Label {
-                                        text: modelData.channelCount + " kênh"
-                                        color: modelData.channelCount > 2 ? "#FFB800" : Theme.textMuted
+                                        text: (accItem.assignedChannelsList.length > 0 ? accItem.assignedChannelsList.length : modelData.channelCount) + " kênh"
+                                        color: (accItem.assignedChannelsList.length > 2 || modelData.channelCount > 2) ? "#FFB800" : Theme.textMuted
+                                        font.pixelSize: 10
+                                        font.bold: true
+                                    }
+                                }
+
+                                // Hàng hiển thị Profile ID AdsPower
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 4
+                                    Label {
+                                        text: "AdsPower ID:"
+                                        color: Theme.textMuted
                                         font.pixelSize: 10
                                     }
+                                    Label {
+                                        text: modelData.profileId ? modelData.profileId : "Chưa đặt"
+                                        color: modelData.profileId ? Theme.accent : "#FFB800"
+                                        font.pixelSize: 10
+                                        font.bold: true
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
+                                }
+
+                                // Hàng hiển thị danh sách icon / avatar các kênh YouTube được gán
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+                                    visible: accItem.assignedChannelsList.length > 0
+
+                                    Row {
+                                        spacing: 4
+                                        Layout.alignment: Qt.AlignVCenter
+                                        Repeater {
+                                            model: accItem.assignedChannelsList
+                                            delegate: Item {
+                                                width: 18
+                                                height: 18
+                                                ChannelAvatarFor {
+                                                    anchors.fill: parent
+                                                    channelKey: modelData.channelId || modelData.id || ""
+                                                    fallbackName: modelData.name || ""
+                                                    directUrl: modelData.avatarUrl || ""
+                                                    diameter: 18
+                                                }
+                                                ToolTip.text: modelData.name || ""
+                                                ToolTip.visible: chMa.containsMouse
+                                                ToolTip.delay: 200
+                                                MouseArea {
+                                                    id: chMa
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Label {
+                                        text: accItem.assignedChannelsList.map(function(c) { return c.name }).join(" · ")
+                                        color: Theme.textMuted
+                                        font.pixelSize: 10
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                        Layout.alignment: Qt.AlignVCenter
+                                    }
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    visible: accItem.assignedChannelsList.length === 0
+                                    text: "Chưa gắn kênh YouTube"
+                                    color: Theme.textMuted
+                                    font.pixelSize: 10
+                                    font.italic: true
                                 }
 
                                 RowLayout {
@@ -347,7 +466,7 @@ Rectangle {
                                         Layout.fillWidth: true
                                     }
 
-                                    // Đăng nhập (mở Chrome cửa sổ thường)
+                                    // Mở trình duyệt AdsPower
                                     Rectangle {
                                         Layout.preferredWidth: loginLbl.implicitWidth + 12
                                         Layout.preferredHeight: 20
@@ -358,7 +477,7 @@ Rectangle {
                                         Label {
                                             id: loginLbl
                                             anchors.centerIn: parent
-                                            text: "Đăng nhập"
+                                            text: "Mở AdsPower"
                                             color: Theme.text
                                             font.pixelSize: 10
                                         }
@@ -369,7 +488,7 @@ Rectangle {
                                             cursorShape: Qt.PointingHandCursor
                                             onClicked: {
                                                 tiktokModel.start_login(modelData.id)
-                                                toastService.show("TikTok", "Đang mở Chrome — đăng nhập TikTok rồi đóng cửa sổ, sau đó bấm Kiểm tra", "info")
+                                                toastService.show("TikTok", "Đang mở trình duyệt AdsPower (" + (modelData.profileId || modelData.id) + ")…", "info")
                                             }
                                         }
                                     }
@@ -401,11 +520,7 @@ Rectangle {
                                         }
                                     }
 
-                                    // Xoá account (Pass 58) — trước đây là icon 20×20
-                                    // trong suốt, chỉ hiện viền khi hover nên khách
-                                    // không tìm thấy ("cần chức năng xoá"). Nay nhãn
-                                    // rõ + XÁC NHẬN 2 BƯỚC: xoá account kéo theo mất
-                                    // toàn bộ mapping kênh của nó, không hoàn tác được.
+                                    // Xoá account (Pass 58)
                                     Rectangle {
                                         id: delBtn
                                         property bool armed: false
@@ -441,7 +556,7 @@ Rectangle {
                                                     if (toastService)
                                                         toastService.show("Xoá tài khoản TikTok",
                                                             "Bấm 'Xoá thật?' để xoá " + modelData.label
-                                                            + " (mất mapping kênh + dữ liệu Chrome của account này)", "warning")
+                                                            + " (mất mapping kênh)", "warning")
                                                     return
                                                 }
                                                 delDisarm.stop()
@@ -454,52 +569,13 @@ Rectangle {
                                         }
                                     }
                                 }
-
-                                // Kênh YouTube nào chảy vào tài khoản này —
-                                // trước chỉ có con số "N kênh", muốn biết là
-                                // kênh nào phải bấm vào từng thẻ.
-                                RowLayout {
-                                    id: accChRow
-                                    property var accChannels: panel.channelsOf(modelData.id)
-                                    Layout.fillWidth: true
-                                    Layout.topMargin: 1
-                                    spacing: 4
-                                    visible: accChRow.accChannels.length > 0
-
-                                    Repeater {
-                                        model: accChRow.accChannels.slice(0, 4)
-                                        delegate: ChannelAvatar {
-                                            url: modelData.avatarUrl || ""
-                                            channelName: modelData.name
-                                            tint: panel.avatarTint(modelData.id)
-                                            diameter: 16
-                                            opacity: modelData.paused ? 0.45 : 1.0
-                                        }
-                                    }
-                                    Label {
-                                        visible: accChRow.accChannels.length > 4
-                                        text: "+" + (accChRow.accChannels.length - 4)
-                                        color: Theme.textMuted
-                                        font.pixelSize: 10
-                                        font.bold: true
-                                    }
-                                    Label {
-                                        text: accChRow.accChannels.map(function(c) {
-                                            return c.name }).join(", ")
-                                        color: Theme.textMuted
-                                        font.pixelSize: 10
-                                        elide: Text.ElideRight
-                                        Layout.fillWidth: true
-                                        Layout.minimumWidth: 0
-                                    }
-                                }
                             }
                         }
 
                         Label {
                             anchors.centerIn: parent
                             visible: accList.count === 0
-                            text: "Chưa có tài khoản.\nThêm @username rồi bấm Đăng nhập."
+                            text: "Chưa có tài khoản.\nNhập @username + AdsPower ID rồi bấm Thêm."
                             color: Theme.textMuted
                             font.pixelSize: 11
                             horizontalAlignment: Text.AlignHCenter
@@ -537,6 +613,64 @@ Rectangle {
                         id: detailCol
                         width: detailFlick.width
                         spacing: 14
+
+                        // ─ AdsPower Profile ID ─
+                        Label {
+                            text: "ADSPOWER PROFILE ID"
+                            color: Theme.textMuted
+                            font.pixelSize: 10
+                            font.bold: true
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            TextField {
+                                id: profileIdInput
+                                Layout.fillWidth: true
+                                placeholderText: "Nhập User ID của AdsPower Profile (ví dụ: k9b12345)"
+                                font.pixelSize: 12
+                                text: panel.selAcc ? (panel.selAcc.profileId || "") : ""
+                                onAccepted: savePidBtn.doSave()
+                            }
+                            Rectangle {
+                                id: savePidBtn
+                                Layout.preferredWidth: 64
+                                Layout.preferredHeight: 30
+                                radius: 4
+                                color: savePidMa.containsMouse ? "#00A4EF" : Theme.accent
+                                function doSave() {
+                                    if (panel.selectedAccountId) {
+                                        tiktokModel.set_profile_id(panel.selectedAccountId, profileIdInput.text.trim())
+                                        toastService.show("TikTok", "Đã cập nhật AdsPower Profile ID", "success")
+                                    }
+                                }
+                                Label {
+                                    anchors.centerIn: parent
+                                    text: "Lưu ID"
+                                    color: "white"
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                }
+                                MouseArea {
+                                    id: savePidMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: savePidBtn.doSave()
+                                }
+                            }
+                        }
+
+                        Label {
+                            text: "User ID lấy từ AdsPower (cột ID). HyperClip dùng AdsPower Local API (127.0.0.1:50325) để tự động mở và tải video lên TikTok."
+                            color: Theme.textMuted
+                            font.pixelSize: 10
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
 
                         // ─ Kênh đã gán ─
                         Label {
@@ -581,11 +715,13 @@ Rectangle {
                                         id: chipRow
                                         anchors.centerIn: parent
                                         spacing: 6
-                                        ChannelAvatar {
+                                        ChannelAvatarFor {
+                                            channelKey: modelData.channelId || ""
+                                            fallbackName: modelData.name || ""
+                                            directUrl: modelData.avatarUrl || ""
                                             url: modelData.avatarUrl || ""
-                                            channelName: modelData.name
-                                            tint: panel.avatarTint(modelData.id)
-                                            diameter: 18
+                                            diameter: 16
+                                            Layout.alignment: Qt.AlignVCenter
                                         }
                                         Label {
                                             text: modelData.name
@@ -656,12 +792,15 @@ Rectangle {
                                     anchors.rightMargin: 8
                                     spacing: 8
 
-                                    ChannelAvatar {
+                                    ChannelAvatarFor {
+                                        channelKey: modelData.ch.channelId || ""
+                                        fallbackName: modelData.ch.name || ""
+                                        directUrl: modelData.ch.avatarUrl || ""
                                         url: modelData.ch.avatarUrl || ""
-                                        channelName: modelData.ch.name
-                                        tint: panel.avatarTint(modelData.ch.id)
                                         diameter: 20
+                                        Layout.alignment: Qt.AlignVCenter
                                     }
+
                                     Label {
                                         text: modelData.ch.name
                                         color: Theme.text
@@ -762,18 +901,6 @@ Rectangle {
                             color: Theme.textMuted
                             font.pixelSize: 10
                         }
-                        // Pass 85: "Tự nhập" đăng ĐÚNG chữ đã nhập — không có
-                        // {title} là không có tiêu đề YouTube (đảo Pass 70 theo
-                        // khách 15/08). Nói rõ để khách không tưởng bị mất chữ.
-                        Label {
-                            visible: tplInput.visible && tplInput.text.length > 0
-                                     && tplInput.text.indexOf("{title}") < 0
-                            text: "ℹ Mẫu không có {title} → caption KHÔNG kèm tiêu đề YouTube. Đặt {title} vào nếu muốn có."
-                            color: Theme.textMuted
-                            font.pixelSize: 10
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
 
                         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
 
@@ -788,7 +915,8 @@ Rectangle {
                         Repeater {
                             model: {
                                 var out = []
-                                var h = (tiktokModel && tiktokModel.history) ? tiktokModel.history : []
+                                if (typeof tiktokModel === "undefined" || !tiktokModel || !tiktokModel.history) return out
+                                var h = tiktokModel.history
                                 for (var i = 0; i < h.length; i++)
                                     if (h[i].accountId === panel.selectedAccountId) out.push(h[i])
                                 return out.slice(0, 15)
@@ -884,7 +1012,8 @@ Rectangle {
 
                         Label {
                             visible: {
-                                var h = (tiktokModel && tiktokModel.history) ? tiktokModel.history : []
+                                if (typeof tiktokModel === "undefined" || !tiktokModel || !tiktokModel.history) return true
+                                var h = tiktokModel.history
                                 for (var i = 0; i < h.length; i++)
                                     if (h[i].accountId === panel.selectedAccountId) return false
                                 return true
@@ -912,7 +1041,9 @@ Rectangle {
     // (sự cố 26/07 17:48). `refresh_soon()` là bản dồn-về-đầu-event-loop có sẵn
     // trong model, đúng cho tình huống này.
     Component.onCompleted: {
-        tiktokModel.refresh_soon()
+        if (typeof tiktokModel !== "undefined" && tiktokModel) {
+            tiktokModel.refresh_soon()
+        }
         Qt.callLater(function() { panel.ensureSelection() })
     }
 }

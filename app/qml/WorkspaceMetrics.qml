@@ -9,11 +9,22 @@ ColumnLayout {
     property var workspaceData: ({})
     spacing: 8
 
-    // Đọc qua slot model — QML không được biết số role (Qt.UserRole + N):
-    // bản cũ hard-code +1/+2/+3/+8/+16, đổi thứ tự role trong Python là vỡ câm.
     function getSplitPartsFor(parentId) {
         if (!parentId) return [];
-        return workspaceModel.split_parts_of(parentId)
+        let parts = [];
+        for (let i = 0; i < workspaceModel.rowCount(); i++) {
+            let idx = workspaceModel.index(i, 0);
+            let wsId = workspaceModel.data(idx, Qt.UserRole + 1); // IdRole
+            if (wsId && wsId.startsWith(parentId + "-part")) {
+                let title = workspaceModel.data(idx, Qt.UserRole + 3); // TitleRole
+                let rPath = workspaceModel.data(idx, Qt.UserRole + 8); // RenderedRole
+                let status = workspaceModel.data(idx, Qt.UserRole + 2); // StatusRole
+                let error = workspaceModel.data(idx, Qt.UserRole + 16); // ErrorRole
+                parts.push({ "id": wsId, "title": title, "renderedPath": rPath, "status": status, "error": error });
+            }
+        }
+        parts.sort((a, b) => a.id.localeCompare(b.id));
+        return parts;
     }
 
     // Download section

@@ -10,7 +10,7 @@ Rectangle {
         sessionsList.model = null
     }
     color: Theme.bg
-    border.color: Theme.border
+    border.color: Theme.cardBorder
     border.width: 1
     clip: true
     Layout.preferredHeight: 320
@@ -78,8 +78,8 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 52
-            color: Qt.rgba(255, 68, 68, 0.08)
-            border.color: Theme.border
+            color: Theme.surfaceHover
+            border.color: Theme.cardBorder
             border.width: 1
             radius: Theme.radiusMd
 
@@ -88,7 +88,8 @@ Rectangle {
                 anchors.margins: 8
                 spacing: 8
                 Text {
-                    text: "⚠️"
+                    text: "▲"
+                    color: Theme.warning
                     font.pixelSize: 16
                     Layout.alignment: Qt.AlignVCenter
                 }

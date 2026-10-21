@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 import QtQuick.Shapes
+import Qt5Compat.GraphicalEffects
 
 Rectangle {
     id: sideRoot
@@ -20,13 +21,13 @@ Rectangle {
     border.color: Theme.border
     border.width: 0
 
-    // ─── Logo block ────────────────────────────────────────────────
+    // ─── Section Header: Kênh theo dõi ─────────────────────────────
     Rectangle {
         id: logoBlock
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        height: 44
+        height: 38
         color: "transparent"
 
         RowLayout {
@@ -36,35 +37,42 @@ Rectangle {
             spacing: 8
 
             Rectangle {
-                id: brandIcon
-                Layout.preferredWidth: 28
-                Layout.preferredHeight: 28
-                radius: 8
-                gradient: Gradient {
-                    GradientStop { position: 0.0; color: "#00E5FF" }
-                    GradientStop { position: 1.0; color: "#0088FF" }
-                }
-
-                Shape {
-                    anchors.fill: parent
-                    anchors.margins: 8
-                    antialiasing: true
-                    ShapePath {
-                        fillColor: "white"
-                        startX: 0
-                        startY: 0
-                        PathLine { x: 9; y: 6 }
-                        PathLine { x: 0; y: 12 }
-                        PathLine { x: 0; y: 0 }
-                    }
+                Layout.preferredWidth: 20
+                Layout.preferredHeight: 20
+                radius: 4
+                color: Theme.accent + "20"
+                border.color: Theme.accent + "50"
+                border.width: 1
+                Icon {
+                    anchors.centerIn: parent
+                    name: "folder"
+                    size: 10
+                    color: Theme.accent
                 }
             }
             Label {
-                text: (typeof isShortEdition !== "undefined" && isShortEdition) ? "HyperShort" : "HyperClip"
+                text: "KÊNH THEO DÕI"
                 color: Theme.text
-                font.pixelSize: 13
+                font.pixelSize: 11
                 font.bold: true
+                font.letterSpacing: 0.5
                 Layout.fillWidth: true
+            }
+            Rectangle {
+                Layout.preferredHeight: 18
+                Layout.preferredWidth: chCountBadge.implicitWidth + 10
+                radius: 9
+                color: Theme.surfaceHover
+                border.color: Theme.cardBorder
+                border.width: 1
+                Label {
+                    id: chCountBadge
+                    anchors.centerIn: parent
+                    text: channelListModel ? (channelListModel.rowCount ? channelListModel.rowCount() : 0) : 0
+                    color: Theme.accent
+                    font.pixelSize: 10
+                    font.bold: true
+                }
             }
         }
     }
@@ -213,8 +221,7 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: searchAddRow.bottom
-        // 36 cho hàng nhập + 4 khoảng cách + 26 cho nút "Kiểm tra kênh trùng".
-        height: showAddForm ? 66 : 0
+        height: showAddForm ? 70 : 0
         visible: height > 0
         clip: true
         color: "transparent"
@@ -223,128 +230,120 @@ Rectangle {
             NumberAnimation { duration: 180; easing.type: Easing.InOutQuad }
         }
 
-        RowLayout {
-            // Chỉ chiếm 36px trên cùng của addBox — 30px còn lại dành cho nút
-            // "Kiểm tra kênh trùng" bên dưới (trước đây fill cả khung nên khi
-            // khung cao thêm thì hai thứ chồng nhau).
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            height: 36
+        ColumnLayout {
+            anchors.fill: parent
             anchors.leftMargin: 8
             anchors.rightMargin: 8
-            anchors.topMargin: 4
-            spacing: 4
+            anchors.topMargin: 2
+            anchors.bottomMargin: 2
+            spacing: 6
 
-            Rectangle {
+            // Row 1: Nhập link/handle + nút thêm
+            RowLayout {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 28
-                color: Theme.bg
-                border.color: addInput.activeFocus ? Theme.accent : Theme.border
-                border.width: 1
-                radius: Theme.radiusMd
+                spacing: 4
 
-                TextField {
-                    id: addInput
-                    anchors.fill: parent
-                    anchors.leftMargin: 6
-                    anchors.rightMargin: 6
-                    placeholderText: "Nhập URL hoặc @handle..."
-                    color: Theme.text
-                    font.pixelSize: 11
-                    background: Rectangle { color: "transparent"; border.width: 0 }
-                    onAccepted: {
-                        if (text.length > 0) {
-                            sideRoot.addChannel(text.trim())
-                            text = ""
-                            showAddForm = false
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 28
+                    color: Theme.bg
+                    border.color: addInput.activeFocus ? Theme.accent : Theme.border
+                    border.width: 1
+                    radius: Theme.radiusMd
+                    clip: true
+
+                    TextField {
+                        id: addInput
+                        anchors.fill: parent
+                        anchors.leftMargin: 6
+                        anchors.rightMargin: 6
+                        placeholderText: "Nhập URL hoặc @handle..."
+                        color: Theme.text
+                        font.pixelSize: 11
+                        selectByMouse: true
+                        background: Rectangle { color: "transparent"; border.width: 0 }
+                        onAccepted: {
+                            if (text.length > 0) {
+                                sideRoot.addChannel(text.trim())
+                                text = ""
+                                showAddForm = false
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
+                    radius: Theme.radiusMd
+                    color: addInput.text.length > 0 ? Theme.accent : Theme.bg
+                    border.color: Theme.border
+                    border.width: 1
+                    Icon {
+                        anchors.centerIn: parent
+                        name: "upload"
+                        size: 13
+                        color: addInput.text.length > 0 ? "white" : Theme.text
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (addInput.text.length > 0) {
+                                sideRoot.addChannel(addInput.text.trim())
+                                addInput.text = ""
+                                showAddForm = false
+                            }
                         }
                     }
                 }
             }
 
+            // Row 2: Pass 54 — dọn kênh trùng
             Rectangle {
-                Layout.preferredWidth: 28
-                Layout.preferredHeight: 28
+                id: dedupeBtn
+                Layout.fillWidth: true
+                Layout.preferredHeight: 24
                 radius: Theme.radiusMd
-                color: addInput.text.length > 0 ? Theme.accent : Theme.bg
-                border.color: Theme.border
+                color: dedupeMa.containsMouse ? Theme.hoverBg : Theme.bg
+                border.color: dedupeFound > 0 ? Theme.warning : Theme.border
                 border.width: 1
-                Icon {
+                property int dedupeFound: -1   // -1 = chưa quét
+                Label {
                     anchors.centerIn: parent
-                    name: "upload"
-                    size: 12
-                    color: addInput.text.length > 0 ? "white" : Theme.text
+                    text: dedupeBtn.dedupeFound < 0
+                        ? "Kiểm tra kênh trùng"
+                        : (dedupeBtn.dedupeFound === 0
+                            ? "Không có kênh trùng ✓"
+                            : "Gộp " + dedupeBtn.dedupeFound + " kênh trùng →")
+                    color: dedupeBtn.dedupeFound > 0 ? Theme.warning : Theme.textMuted
+                    font.pixelSize: 10
+                    font.bold: true
                 }
                 MouseArea {
+                    id: dedupeMa
                     anchors.fill: parent
+                    hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        if (addInput.text.length > 0) {
-                            sideRoot.addChannel(addInput.text.trim())
-                            addInput.text = ""
-                            showAddForm = false
+                        if (dedupeBtn.dedupeFound > 0) {
+                            var applied = channelListModel.find_duplicates(true)
+                            if (toastService)
+                                toastService.show("Đã gộp kênh trùng",
+                                    "Xoá " + (applied.duplicateCount || 0) + " kênh trùng", "success")
+                            dedupeBtn.dedupeFound = 0
+                            return
                         }
-                    }
-                }
-            }
-        }
-
-        // Pass 54 — dọn kênh trùng: bấm 1 lần để QUÉT (chỉ báo cáo), bấm lần
-        // hai để GỘP. Không tự xoá khi mở panel — mất kênh của khách là không
-        // hoàn tác được. Bản giữ lại là bản "giá trị nhất" (có mapping TikTok →
-        // có lịch sử seen → tạo sớm nhất).
-        // Pass 130: dedupeBtn là con TRỰC TIẾP của addBox (Rectangle), không
-        // nằm trong RowLayout — thuộc tính gắn Layout.* ở đây VÔ HIỆU, nút bị
-        // vẽ 0x0 nên khách không bao giờ thấy (đúng lớp lỗi (c) ở CODE_MAP mục
-        // 11). Neo tay bằng anchors + chiều cao cố định; addBox cũng phải cao
-        // thêm để chứa nó.
-        Rectangle {
-            id: dedupeBtn
-            visible: showAddForm
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.topMargin: 36
-            height: 26
-            radius: Theme.radiusMd
-            color: dedupeMa.containsMouse ? Theme.hoverBg : Theme.bg
-            border.color: dedupeFound > 0 ? Theme.warning : Theme.border
-            border.width: 1
-            property int dedupeFound: -1   // -1 = chưa quét
-            Label {
-                anchors.centerIn: parent
-                text: dedupeBtn.dedupeFound < 0
-                    ? "Kiểm tra kênh trùng"
-                    : (dedupeBtn.dedupeFound === 0
-                        ? "Không có kênh trùng ✓"
-                        : "Gộp " + dedupeBtn.dedupeFound + " kênh trùng →")
-                color: dedupeBtn.dedupeFound > 0 ? Theme.warning : Theme.textMuted
-                font.pixelSize: 10
-                font.bold: true
-            }
-            MouseArea {
-                id: dedupeMa
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: {
-                    if (dedupeBtn.dedupeFound > 0) {
-                        var applied = channelListModel.find_duplicates(true)
-                        if (toastService)
-                            toastService.show("Đã gộp kênh trùng",
-                                "Xoá " + (applied.duplicateCount || 0) + " kênh trùng", "success")
-                        dedupeBtn.dedupeFound = 0
-                        return
-                    }
-                    var r = channelListModel.find_duplicates(false)
-                    dedupeBtn.dedupeFound = r.duplicateCount || 0
-                    if (toastService) {
-                        if (dedupeBtn.dedupeFound === 0)
-                            toastService.show("Kênh trùng", "Không tìm thấy kênh trùng", "success")
-                        else
-                            toastService.show("Tìm thấy kênh trùng",
-                                dedupeBtn.dedupeFound + " kênh trùng — bấm lần nữa để gộp", "warning")
+                        var r = channelListModel.find_duplicates(false)
+                        dedupeBtn.dedupeFound = r.duplicateCount || 0
+                        if (toastService) {
+                            if (dedupeBtn.dedupeFound === 0)
+                                toastService.show("Kênh trùng", "Không tìm thấy kênh trùng", "success")
+                            else
+                                toastService.show("Tìm thấy kênh trùng",
+                                    dedupeBtn.dedupeFound + " kênh trùng — bấm lần nữa để gộp", "warning")
+                        }
                     }
                 }
             }
@@ -407,20 +406,54 @@ Rectangle {
                 spacing: 8
 
                 // --- ROUND CHANNEL AVATAR / FALLBACK PLACEHOLDER ---
-                // Bản dựng chung `ChannelAvatar` (trước đây khối Image ẩn +
-                // OpacityMask được chép tay ở đây và ở ChannelItem).
-                ChannelAvatar {
-                    url: model.avatarUrl || ""
-                    channelName: model.name || ""
-                    tint: model.avatarColor || Theme.accent
-                    diameter: 28
-                    border.color: sideRoot.activeChannelId === model.id
-                        ? Theme.accent
-                        : Qt.rgba(tint.r, tint.g, tint.b, 0.27)
+                Rectangle {
+                    id: avatarWrapper
+                    width: 28
+                    height: 28
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
+                    radius: 14
+                    color: (model.avatarColor || Theme.accent) + "22"
+                    border.color: sideRoot.activeChannelId === model.id 
+                        ? Theme.accent 
+                        : ((model.avatarColor || Theme.accent) + "44")
+                    border.width: 1
 
                     scale: rowHover ? 1.05 : 1.0
                     Behavior on scale {
                         NumberAnimation { duration: 120; easing.type: Easing.OutQuad }
+                    }
+
+                    Image {
+                        id: avatarImg
+                        anchors.fill: parent
+                        source: model.avatarUrl || ""
+                        fillMode: Image.PreserveAspectCrop
+                        visible: false
+                        asynchronous: true
+                    }
+
+                    Rectangle {
+                        id: roundMask
+                        anchors.fill: parent
+                        radius: 14
+                        visible: false
+                    }
+
+                    OpacityMask {
+                        anchors.fill: parent
+                        source: avatarImg
+                        maskSource: roundMask
+                        visible: !!model.avatarUrl && avatarImg.status === Image.Ready
+                    }
+
+                    Label {
+                        anchors.centerIn: parent
+                        visible: !model.avatarUrl || avatarImg.status !== Image.Ready
+                        text: model.name ? model.name[0].toUpperCase() : "?"
+                        color: model.avatarColor || Theme.accent
+                        font.pixelSize: 11
+                        font.bold: true
                     }
                 }
 
@@ -434,49 +467,21 @@ Rectangle {
                     opacity: model.paused ? 0.6 : 1.0
                 }
 
-                // Pass 130 — KÊNH KHÔNG QUÉT ĐƯỢC phải lộ ra ngay tại danh sách.
-                // Kênh chưa có UC id (chỉ có handle) không lên được lớp cảm biến
-                // và không suy ra được uploads playlist, nên nó nằm im vĩnh viễn
-                // mà trước đây trông y hệt kênh khoẻ — khách máy 5070 (29/08) mất
-                // cả buổi test vì không có dấu hiệu nào.
-                Label {
-                    visible: !(("" + (model.channelId || "")).indexOf("UC") === 0)
-                    text: "⚠"
-                    font.pixelSize: 11
-                    color: Theme.error
-                    ToolTip.text: "Chưa xác định được ID kênh — kênh này KHÔNG được quét.\nXoá và thêm lại bằng link kênh đầy đủ."
-                    ToolTip.visible: warnHover.hovered
-                    HoverHandler { id: warnHover }
-                }
-
-                // CDP ChromeWatcher indicator — always visible when enabled
-                Rectangle {
-                    visible: model.cdpEnabled === true
-                    Layout.preferredWidth: 26
-                    Layout.preferredHeight: 14
-                    radius: 3
-                    color: "#1A00FF88"
-                    border.color: "#00FF88"
-                    border.width: 1
-                    Label {
-                        anchors.centerIn: parent
-                        text: "CDP"
-                        font.pixelSize: 8
-                        font.bold: true
-                        color: "#00FF88"
-                    }
-                    ToolTip.text: "ChromeWatcher CDP đang quét kênh này qua Chrome DevTools (Tắt quét Google API)"
-                    ToolTip.visible: cdpBadgeHover.hovered
-                    HoverHandler { id: cdpBadgeHover }
-                }
-
                 // Fast-probe (priority detection) indicator — always visible
                 // so the operator can see which channels are being HTML-probed
                 Label {
                     visible: model.fastProbe === true
                     text: "⚡"
                     font.pixelSize: 10
-                    color: Theme.warning
+                    color: "#FFD93D"
+                }
+
+                // Standard focus channel indicator (CDP Tab Watcher)
+                Label {
+                    visible: model.isStandard === true
+                    text: "★"
+                    font.pixelSize: 10
+                    color: "#38BDF8"
                 }
 
                 // Paused indicator (small icon)
@@ -508,44 +513,10 @@ Rectangle {
                     visible: sideRoot.expanded
                     opacity: rowHover ? 1.0 : 0.0
                     spacing: 2
-                    Layout.preferredWidth: 88
+                    Layout.preferredWidth: 66
 
                     Behavior on opacity {
                         NumberAnimation { duration: 120 }
-                    }
-
-                    // CDP toggle: ChromeWatcher CDP scanning via Chrome port 9222
-                    Rectangle {
-                        Layout.preferredWidth: 18
-                        Layout.preferredHeight: 18
-                        color: cdpMa.containsMouse ? Theme.hoverBg : (model.cdpEnabled ? "#2000FF88" : "transparent")
-                        radius: 3
-                        border.color: model.cdpEnabled ? "#00FF88" : "transparent"
-                        border.width: 1
-                        Label {
-                            anchors.centerIn: parent
-                            text: "🌐"
-                            font.pixelSize: 10
-                            opacity: model.cdpEnabled ? 1.0 : 0.45
-                        }
-                        MouseArea {
-                            id: cdpMa
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                if (channelListModel && channelListModel.set_cdp) {
-                                    channelListModel.set_cdp(backend, model.id, !model.cdpEnabled)
-                                } else {
-                                    backend.send_command_async("channel:setCdpEnabled", {"id": model.id, "enabled": !model.cdpEnabled})
-                                }
-                            }
-                        }
-                        ToolTip.visible: cdpMa.containsMouse
-                        ToolTip.delay: 400
-                        ToolTip.text: model.cdpEnabled
-                            ? "Đang quét bằng ChromeWatcher CDP — bấm để tắt (chuyển lại quét Google API)"
-                            : "Bật quét ChromeWatcher CDP (Chrome DevTools port 9222, bắt video tức thì và TẮT quét API kênh này)"
                     }
 
                     // Fast-probe toggle: channel gets the playlist-HTML probe
@@ -560,7 +531,7 @@ Rectangle {
                             anchors.centerIn: parent
                             text: "⚡"
                             font.pixelSize: 11
-                            color: model.fastProbe ? Theme.warning : Theme.textMuted
+                            color: model.fastProbe ? "#FFD93D" : Theme.textMuted
                             opacity: model.fastProbe ? 1.0 : 0.45
                         }
                         MouseArea {
@@ -588,7 +559,7 @@ Rectangle {
                             anchors.centerIn: parent
                             name: model.paused ? "play" : "pause"
                             size: 10
-                            color: model.paused ? Theme.success : Theme.warning
+                            color: model.paused ? Theme.success : "#FFD93D"
                         }
                         MouseArea {
                             id: pauseMa
