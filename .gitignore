@@ -55,3 +55,6 @@ SHA256SUMS.txt
 bg.jpg
 relay-state.json
 branch_structure.json
+*.pdb
+tools/**/*.exe
+.gitignore
