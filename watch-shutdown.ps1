@@ -1,12 +1,6 @@
 # watch-shutdown.ps1
-# Theo dõi tiến trình HyperClip.exe, khi cửa sổ HyperClip đóng -> tự động dọn sạch 100% tiến trình liên quan
-param(
-    [int]$TargetPid = 0
-)
+# Tự động theo dõi tiến trình HyperClip. Khi cửa sổ HyperClip đóng -> tự động dọn sạch 100% cửa sổ và tiến trình liên quan
 
-$ErrorActionPreference = "SilentlyContinue"
-
-# Đảm bảo chỉ 1 tiến trình watch chạy duy nhất
 $mutexName = "Global\HyperClip_WatchShutdown_Mutex"
 $createdNew = $false
 $mutex = $null
@@ -19,36 +13,46 @@ try {
     exit 0
 }
 
-$proc = $null
-if ($TargetPid -gt 0) {
-    $proc = Get-Process -Id $TargetPid -ErrorAction SilentlyContinue
-}
-
-# Nếu không truyền PID hoặc PID không tìm thấy, tìm theo tên
-if (-not $proc) {
-    # Chờ tối đa 20s để HyperClip khởi chạy
-    for ($i = 0; $i -lt 20; $i++) {
-        $proc = Get-Process | Where-Object { $_.ProcessName -eq "HyperClip" -and $_.MainWindowTitle -ne "" } | Select-Object -First 1
-        if (-not $proc) {
-            $proc = Get-Process | Where-Object { $_.ProcessName -match "HyperClip" -and $_.ProcessName -notmatch "tauri" } | Select-Object -First 1
-        }
-        if ($proc) { break }
-        Start-Sleep -Seconds 1
-    }
-}
-
-if ($proc) {
-    try {
-        $proc.WaitForExit()
-    } catch {}
-}
-
-# HyperClip đã đóng -> Thực hiện tắt sạch toàn bộ các cửa sổ và tiến trình liên quan
 $cleanupScript = Join-Path $PSScriptRoot "cleanup-all.ps1"
-if (Test-Path $cleanupScript) {
-    & $cleanupScript
-}
 
-if ($mutex) {
-    try { $mutex.ReleaseMutex() } catch {}
+while ($true) {
+    # 1. Tìm tiến trình UI HyperClip (app\HyperClip.exe)
+    $target = $null
+    while (-not $target) {
+        $procs = Get-Process -Name "HyperClip" -ErrorAction SilentlyContinue
+        foreach ($p in $procs) {
+            try {
+                if ($p.Path -match "app\\HyperClip\.exe") {
+                    $target = $p
+                    break
+                }
+            } catch {}
+        }
+        if (-not $target) {
+            Start-Sleep -Seconds 2
+        }
+    }
+
+    # 2. HyperClip đang mở. Theo dõi cho đến khi tiến trình kết thúc (người dùng đóng cửa sổ)
+    try {
+        $target.WaitForExit()
+    } catch {
+        while (Get-Process -Id $target.Id -ErrorAction SilentlyContinue) {
+            Start-Sleep -Seconds 1
+        }
+    }
+
+    # 3. Đợi 1.5 giây để kiểm tra lại
+    Start-Sleep -Milliseconds 1500
+
+    $remaining = Get-Process -Name "HyperClip" -ErrorAction SilentlyContinue | Where-Object {
+        try { $_.Path -match "app\\HyperClip\.exe" } catch { $false }
+    }
+
+    if (-not $remaining) {
+        # CỬA SỔ HYPERCLIP ĐÃ ĐÓNG -> TẮT SẠCH TOÀN BỘ CÁC CỬA SỔ & TIẾN TRÌNH LIÊN QUAN
+        if (Test-Path $cleanupScript) {
+            & $cleanupScript
+        }
+    }
 }
