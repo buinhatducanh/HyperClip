@@ -1187,7 +1187,9 @@ async function doUpload(port, filePath, caption, fastDone) {
     while (Date.now() < postDeadline) {
       let ready = false;
       let found = null;
-      const strict = Date.now() < STRICT_CLICKABLE_UNTIL;
+      // Pass 136: Khi fastDone=true, click dùng {force: true} nên không cần chờ lớp phủ/toast biến mất.
+      // Cho phép bấm Đăng ngay tích tắc nút vừa enable (tiết kiệm 1-2s cho video dài 5p).
+      const strict = fastDone ? false : (Date.now() < STRICT_CLICKABLE_UNTIL);
       try {
         await page.waitForFunction(POST_BTN_READY, strict, { timeout: 1000, polling: 10 });
         ready = true;
