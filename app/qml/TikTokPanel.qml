@@ -170,24 +170,47 @@ Rectangle {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        var ok = false
-                        try {
-                            if (typeof backend !== "undefined" && backend) {
-                                var res = backend.send_command("tiktok:checkAdsPower")
-                                ok = !!(res && (res.ok === true || (res.result && res.result.ok === true)))
-                            } else if (typeof tiktokModel !== "undefined" && tiktokModel && typeof tiktokModel.check_adspower === "function") {
-                                ok = tiktokModel.check_adspower()
-                            }
-                        } catch (e) {
-                            console.log("[TikTokPanel] checkAdsPower error:", e)
-                        }
                         var ts = (typeof toastService !== "undefined" && toastService) ? toastService : (typeof toastManager !== "undefined" ? toastManager : null)
-                        if (ts) {
-                            if (ok) {
-                                ts.show("AdsPower", "Kết nối AdsPower Local API thành công! (127.0.0.1:50325)", "success")
-                            } else {
-                                ts.show("AdsPower", "Không thể kết nối AdsPower Local API! Hãy bật AdsPower và mở cài đặt Local API (port 50325).", "error")
+                        try {
+                            var xhr = new XMLHttpRequest()
+                            xhr.open("GET", "http://127.0.0.1:50325/status")
+                            xhr.timeout = 3000
+                            xhr.onreadystatechange = function() {
+                                if (xhr.readyState === XMLHttpRequest.DONE) {
+                                    if (xhr.status === 200) {
+                                        try {
+                                            var json = JSON.parse(xhr.responseText)
+                                            if (json.code === 0) {
+                                                if (ts) ts.show("AdsPower", "Kết nối AdsPower Local API thành công! (127.0.0.1:50325)", "success")
+                                                return
+                                            }
+                                        } catch (e) {}
+                                    }
+                                    var ok = false
+                                    try {
+                                        if (typeof backend !== "undefined" && backend) {
+                                            var res = backend.send_command("tiktok:checkAdsPower")
+                                            ok = !!(res && (res.ok === true || (res.result && res.result.ok === true)))
+                                        }
+                                    } catch (e2) {}
+                                    if (ts) {
+                                        if (ok) {
+                                            ts.show("AdsPower", "Kết nối AdsPower Local API thành công! (127.0.0.1:50325)", "success")
+                                        } else {
+                                            ts.show("AdsPower", "Không thể kết nối AdsPower Local API! Hãy bật AdsPower và mở cài đặt Local API (port 50325).", "error")
+                                        }
+                                    }
+                                }
                             }
+                            xhr.ontimeout = function() {
+                                if (ts) ts.show("AdsPower", "Hết thời gian chờ kết nối AdsPower Local API (127.0.0.1:50325).", "error")
+                            }
+                            xhr.onerror = function() {
+                                if (ts) ts.show("AdsPower", "Không thể kết nối AdsPower Local API! Hãy bật AdsPower và mở cài đặt Local API (port 50325).", "error")
+                            }
+                            xhr.send()
+                        } catch (err) {
+                            if (ts) ts.show("AdsPower", "Lỗi kiểm tra AdsPower: " + err, "error")
                         }
                     }
                 }
