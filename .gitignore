@@ -54,3 +54,8 @@ bg.jpg
 relay-state.json
 .gitignore
 branch_structure.json
+
+# Development and package folders from other branches
+source/
+HyperClipB-Package/
+7zr.exe
