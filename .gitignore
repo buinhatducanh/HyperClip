@@ -51,6 +51,7 @@ HyperClip.exe
 *.bat
 !HyperClip-AutoRestart.bat
 !HyperClip-Debug.bat
+!DONG_BO_ADSPOWER.bat
 SHA256SUMS.txt
 bg.jpg
 relay-state.json
