@@ -43,10 +43,17 @@ Rectangle {
             onClicked: {
                 if (addInput.text.length === 0) return
                 let url = addInput.text.trim()
-                if (url.startsWith("@")) {
+                if (url.startsWith("http://") || url.startsWith("https://")) {
+                    // URL YouTube đầy đủ: giữ nguyên
+                } else if (url.startsWith("@")) {
                     url = "https://www.youtube.com/" + url
-                } else if (!url.startsWith("http")) {
-                    url = "https://www.youtube.com/" + (url.startsWith("@") ? url : "@" + url)
+                } else if (url.startsWith("UC") && url.length >= 22) {
+                    url = "https://www.youtube.com/channel/" + url
+                } else if (!url.includes(" ") && !url.includes("/") && url.length >= 3 && url.length <= 30 && /^[\w\.\-]+$/.test(url)) {
+                    // Handle YouTube hợp lệ: thêm @
+                    url = "https://www.youtube.com/@" + url
+                } else {
+                    // Tên hiển thị (như 'Nhật Đức Anh Bùi'): giữ nguyên để backend resolve chính xác
                 }
                 parent.parent.addClicked(url)
                 addInput.text = ""

@@ -43,7 +43,7 @@ Item {
                 RowLayout {
                     spacing: 8
                     Icon { name: "check"; size: 12; color: Theme.success }
-                    Label { text: "Cookie Chrome: Tự động trích xuất để bypass Quota."; color: Theme.text; font.pixelSize: Theme.textMd }
+                    Label { text: "Cookie YouTube: Tự động trích xuất để tải video hạn chế độ tuổi & hội viên."; color: Theme.text; font.pixelSize: Theme.textMd }
                 }
                 RowLayout {
                     spacing: 8

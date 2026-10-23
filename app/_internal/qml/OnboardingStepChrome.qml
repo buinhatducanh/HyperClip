@@ -31,11 +31,11 @@ Item {
                 spacing: Theme.spacingSm
 
                 Label {
-                    text: "💡 CƠ CHẾ HOẠT ĐỘNG BẰNG COOKIE:"
+                    text: "💡 VAI TRÒ CỦA ĐĂNG NHẬP CHROME:"
                     color: Theme.accent; font.pixelSize: 12; font.bold: true
                 }
                 Label {
-                    text: "HyperClip tự động giám sát 100+ kênh YouTube bằng cách giả lập kết nối qua 30 tài khoản Chrome cục bộ (Innertube API). Phương thức này hoàn toàn KHÔNG tốn Quota API của Google, giúp hệ thống hoạt động ổn định và phát hiện video mới trong vòng 5 giây."
+                    text: "HyperClip dùng phiên đăng nhập Chrome để trích xuất cookie an toàn qua CDP, phục vụ việc tải video giới hạn độ tuổi và video hội viên. Luồng quét và phát hiện video mới chạy độc lập bằng YouTube Data API v3 gộp 50 kênh/lệnh theo project GCP."
                     color: Theme.text
                     font.pixelSize: Theme.textMd
                     wrapMode: Text.WordWrap
@@ -45,12 +45,12 @@ Item {
             }
         }
 
-        // Critical Warning Card
+        // Chrome Login Guidance Card
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 100
-            color: Qt.rgba(255, 68, 68, 0.08)
-            border.color: Theme.error
+            Layout.preferredHeight: 90
+            color: Qt.rgba(0, 180, 255, 0.08)
+            border.color: Theme.accent
             border.width: 1
             radius: Theme.radiusLg
 
@@ -60,7 +60,7 @@ Item {
                 spacing: 12
 
                 Text {
-                    text: "⚠️"
+                    text: "ℹ️"
                     font.pixelSize: 24
                     Layout.alignment: Qt.AlignVCenter
                 }
@@ -69,11 +69,11 @@ Item {
                     Layout.fillWidth: true
                     spacing: 2
                     Label {
-                        text: "LƯU Ý QUAN TRỌNG (ĐÓNG CHROME):"
-                        color: Theme.error; font.pixelSize: 11; font.bold: true
+                        text: "HƯỚNG DẪN ĐĂNG NHẬP:"
+                        color: Theme.accent; font.pixelSize: 11; font.bold: true
                     }
                     Label {
-                        text: "Vui lòng đóng hoàn toàn trình duyệt Chrome của bạn trước khi bắt đầu. Windows sẽ khóa file dữ liệu cookie nếu Chrome đang chạy, khiến HyperClip không thể trích xuất thông tin tài khoản."
+                        text: "Bấm nút bên dưới để HyperClip mở cửa sổ Chrome riêng biệt cho bạn đăng nhập. Quá trình trích xuất cookie sẽ tự động hoàn tất qua giao thức CDP mà không xung đột với các phiên Chrome khác."
                         color: Theme.text
                         font.pixelSize: Theme.textSm
                         wrapMode: Text.WordWrap
@@ -86,9 +86,9 @@ Item {
 
         Button {
             id: oauthBtn
-            text: (auth && auth.isReady) ? "Tiếp tục →" : "Khởi động OAuth Flow"
+            text: (auth && auth.isReady) ? "Tiếp tục →" : "Đăng nhập YouTube qua Chrome"
             Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: 220
+            Layout.preferredWidth: 250
             Layout.preferredHeight: 40
             highlighted: true
             onClicked: {
@@ -99,7 +99,7 @@ Item {
                 }
             }
             
-            ToolTip.text: (auth && auth.isReady) ? "Tài khoản đã được liên kết. Đi tiếp sang bước tiếp theo." : "Mở trình duyệt để xác thực tài khoản YouTube chính của bạn"
+            ToolTip.text: (auth && auth.isReady) ? "Tài khoản đã được liên kết. Đi tiếp sang bước tiếp theo." : "Mở trình duyệt Chrome để đăng nhập tài khoản YouTube của bạn"
             ToolTip.visible: hovered
             ToolTip.delay: 300
         }

@@ -137,10 +137,7 @@ Rectangle {
         currentWorkspaceId = id
         currentView = "workspace"
         // Minimal snapshot from model — full data fetched async by main.qml via workspace:get
-        // Vá 18/08: chụp rowCount MỘT lần — gọi trong điều kiện vòng lặp nghĩa
-        // là model đổi giữa chừng thì cận trên trượt theo, vòng lặp có thể treo.
-        const n = workspaceModel ? workspaceModel.rowCount() : 0
-        for (let i = 0; i < n; i++) {
+        for (let i = 0; i < workspaceModel.rowCount(); i++) {
             const idx = workspaceModel.index(i, 0)
             if (workspaceModel.data(idx, root._roleId) === id) {
                 currentWorkspaceData = normalizeWorkspaceData({

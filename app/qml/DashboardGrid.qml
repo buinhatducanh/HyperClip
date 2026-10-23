@@ -101,7 +101,7 @@ Rectangle {
                                 Rectangle {
                                     Layout.fillWidth: true
                                     height: 18
-                                    color: (poller && poller.lastDetectionLatencyStr !== "—") ? poller.latencyColor : Theme.textMuted
+                                    color: (poller && poller.detectionsToday > 0 && poller.lastDetectionLatencyStr !== "—") ? poller.latencyColor : Theme.textMuted
                                     opacity: 0.2
                                     radius: 3
                                     Label {
@@ -113,14 +113,12 @@ Rectangle {
                                 Rectangle {
                                     Layout.fillWidth: true
                                     height: 18
-                                    color: (poller && poller.slaColor) ? poller.slaColor : Theme.textMuted
+                                    color: (poller && poller.detectionsToday > 0) ? poller.slaColor : Theme.textMuted
                                     opacity: 0.2
                                     radius: 3
                                     Label {
                                         anchors.centerIn: parent
-                                        // Pass 71: cùng nguồn với PollerPanel —
-                                        // "— <5s" khi chưa có mẫu đo được.
-                                        text: (poller && poller.slaStr) ? poller.slaStr : "— <5s"
+                                        text: (poller && poller.detectionsToday > 0) ? (poller.slaPercent.toFixed(0) + "% <5s") : "— <5s"
                                         font.pixelSize: 11; font.bold: true
                                     }
                                 }
@@ -179,13 +177,10 @@ Rectangle {
                                         anchors.margins: 4
                                         spacing: 4
 
-                                        // Avatar kênh thay cho icon 🎬 chung: cùng
-                                        // một chỗ tra với Sidebar/Quản lí, và nói
-                                        // được video này của kênh nào.
-                                        ChannelAvatarFor {
-                                            fallbackName: model.channelName || ""
-                                            diameter: 18
-                                            Layout.alignment: Qt.AlignVCenter
+                                        Label {
+                                            text: "🎬"
+                                            font.pixelSize: 14
+                                            Layout.preferredWidth: 18
                                         }
                                         ColumnLayout {
                                             Layout.fillWidth: true

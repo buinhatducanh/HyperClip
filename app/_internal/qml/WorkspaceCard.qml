@@ -15,8 +15,6 @@ Rectangle {
     property string title: ""
     property real progress: 0
     property string channel_name: ""
-    /// id kênh trong store (`ch-…`) — khoá tra avatar cho card.
-    property string channelId: ""
     property string thumbnail: ""
     property bool isShort: true
     property int durationSec: 0
@@ -24,7 +22,6 @@ Rectangle {
     property real speed: 1.0
     property string fileSize: ""
     property string ageLabel: ""
-    property string publishedTimeStr: ""
     property real totalDurationSec: 0
     property bool isStartupCatchup: false
     property int partIndex: 0
@@ -44,7 +41,6 @@ Rectangle {
         title: card.title
         progress: card.progress
         channel_name: card.channel_name
-        channelId: card.channelId
         thumbnail: card.thumbnail
         isShort: card.isShort
         durationSec: card.durationSec
@@ -52,7 +48,6 @@ Rectangle {
         speed: card.speed
         fileSize: card.fileSize
         ageLabel: card.ageLabel
-        publishedTimeStr: card.publishedTimeStr
         totalDurationSec: card.totalDurationSec
         isStartupCatchup: card.isStartupCatchup
         partIndex: card.partIndex

@@ -91,9 +91,9 @@ ColumnLayout {
         spacing: 8
         Label {
             text: "Màu thanh dưới"
-            color: Theme.textMuted
-            font.pixelSize: Theme.textSm
-            Layout.preferredWidth: 95
+            color: "#888"
+            font.pixelSize: 16
+            Layout.preferredWidth: 80
         }
         RowLayout {
             Layout.fillWidth: true
@@ -131,10 +131,10 @@ ColumnLayout {
                 Layout.preferredHeight: 28
                 placeholderText: "Hex (VD: #00B4FF)"
                 font.pixelSize: 14
-                color: Theme.text
+                color: "#fff"
                 background: Rectangle {
-                    color: Theme.inputBg
-                    border.color: customColorInput.activeFocus ? (Theme.accent || "#00B4FF") : Theme.border
+                    color: "#1e1e1e"
+                    border.color: customColorInput.activeFocus ? (Theme.accent || "#00B4FF") : "#333"
                     border.width: 1
                     radius: 2
                 }

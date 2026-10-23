@@ -2,6 +2,7 @@
 // Thể hiện trực quan, chuẩn xác toàn trình 4-5 chặng:
 // 1. Công khai (YouTube) -> 2. Bắt đầu tải -> 3. Tải xong -> 4. Render xong -> [5. Upload xong]
 // Kèm mốc thời gian chuẩn (HH:MM:SS.s) và khoảng cách thời gian giữa mỗi chặng (+X.Xs).
+// Hỗ trợ chế độ Rút gọn (Compact Horizontal Pipeline) & Chi tiết (Vertical Stepper).
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -17,6 +18,27 @@ Rectangle {
     property var splitParts: []
     property double e2eTotalSec: 0.0
     property double tiktokBonusSec: 0.0
+    property bool isCompact: false
+    readonly property bool isDlDisabled: (videoData.status === "detected" || videoData.status === "ready") && !videoData.downloadedPath
+
+    // Tổng thời gian toàn trình: cộng tổng toàn bộ các khoảng cách chặng (Độ trễ phát hiện + Tải + Render + Upload)
+    readonly property double timelineTotalSec: {
+        let total = 0.0
+        let hasStagesDelta = false
+        for (let i = 0; i < timelineStages.length; i++) {
+            let st = timelineStages[i]
+            if (st.deltaSec && st.deltaSec > 0) {
+                total += st.deltaSec
+                hasStagesDelta = true
+            }
+        }
+        if (hasStagesDelta && total > 0) return total
+
+        let a = firstMs(), b = lastMs()
+        if (a > 0 && b > a) return (b - a) / 1000.0
+
+        return (cardRoot.e2eTotalSec && cardRoot.e2eTotalSec > 0) ? cardRoot.e2eTotalSec : 0.0
+    }
 
     color: "#161922"
     border.color: Theme.accent + "33"
@@ -48,10 +70,11 @@ Rectangle {
         const dlDone = d.downloadedMtime || d.downloadedAt || 0
         const isDlSuccess = !!(dlDone > 0)
         const isDlActive = (d.status === "downloading")
+        const isDlDisabled = (d.status === "detected" || d.status === "ready") && !d.downloadedPath
         const isDlError = (d.status === "error" && !d.downloadedPath)
 
-        const rDone = (cardRoot.isRendered && (d.renderedMtime || d.renderedAt || 0)) ? (d.renderedMtime || d.renderedAt) : 0
-        const isRenSuccess = !!(rDone > 0)
+        const rDone = (d.renderedAt && d.renderedAt > 0) ? d.renderedAt : ((d.renderedMtime && d.renderedMtime > 0) ? d.renderedMtime : 0)
+        const isRenSuccess = (rDone > 0) || (d.status === "done") || (d.status === "rendered") || cardRoot.isRendered
         const isRenActive = (cardRoot.aggregateStatus === "rendering")
         const isRenError = (cardRoot.aggregateStatus === "error")
 
@@ -67,7 +90,7 @@ Rectangle {
             const anchor = d.publicAnchor || d.anchor || ""
             if (anchor === "watch_probe_label") pubSub = "🎯 Đo chuẩn WatchProbe (sai số ±0.5s)"
             else if (anchor === "player_microformat") pubSub = "📡 Mốc ISO YouTube Player"
-            else if (anchor === "owner_publish_mark") pubSub = "⚡ Bắt tức thì qua Chrome CDP"
+            else if (anchor === "owner_publish_mark" || d.surface === "cdp") pubSub = "⚡ Bắt tức thì qua Chrome CDP"
             else if (anchor) pubSub = "Nguồn: " + anchor
             else pubSub = "Mốc chuẩn công khai YouTube"
         } else {
@@ -79,42 +102,65 @@ Rectangle {
             stageId: "public",
             stepNumber: "①",
             title: "CÔNG KHAI (YOUTUBE)",
+            shortTitle: "Công khai",
             ms: pub > 0 ? pub : 0,
             status: pub > 0 ? "done" : "active",
             sub: pubSub,
             deltaSec: -1,
-            deltaLabel: ""
+            deltaLabel: "",
+            deltaBreakdown: "",
+            stageStartMs: pub > 0 ? pub : 0
         })
 
         // KHOẢNG CÁCH 1 -> 2: Phát hiện video
         const deltaPubToStart = (pub > 0 && dlStart >= pub) ? secBetween(pub, dlStart) : -1
+        let deltaBreakdown = ""
+        let ytCdnDelay = -1
+        let appReaction = -1
+        if (deltaPubToStart >= 5.0) {
+            appReaction = (d.queueWaitSec && d.queueWaitSec > 0 && d.queueWaitSec < 5.0) ? d.queueWaitSec : 1.2
+            ytCdnDelay = Math.max(0, deltaPubToStart - appReaction)
+            deltaBreakdown = "YouTube CDN: ~" + ytCdnDelay.toFixed(1) + "s · HyperClip: " + appReaction.toFixed(1) + "s"
+        }
 
         // CHẶNG 2: BẮT ĐẦU TẢI
         let startSub = []
         if (d.surface) startSub.push("Mặt phẳng: " + (d.surface === "cdp" ? "Chrome CDP" : (d.surface === "playlistHtml" ? "HTML Scrape" : "API v3")))
         if (d.channelName) startSub.push(d.channelName)
+        if (d.queueWaitSec && d.queueWaitSec >= 1.0) startSub.push("Chờ queue: " + d.queueWaitSec.toFixed(1) + "s")
         stages.push({
             stageId: "start",
             stepNumber: "②",
-            title: "BẮT ĐẦU TẢI",
+            title: isDlDisabled ? "ĐÃ PHÁT HIỆN" : "BẮT ĐẦU TẢI",
+            shortTitle: "Bắt đầu",
             ms: dlStart,
             status: "done",
-            sub: startSub.join(" · ") || "Khởi tạo tác vụ tải về bộ đệm",
+            sub: isDlDisabled ? "Tự động tải đang tắt · Ghi nhận độ trễ phát hiện" : (startSub.join(" · ") || "Khởi tạo tác vụ tải về bộ đệm"),
             deltaSec: deltaPubToStart,
-            deltaLabel: "Độ trễ phát hiện"
+            deltaLabel: "Độ trễ phát hiện",
+            deltaBreakdown: deltaBreakdown,
+            ytDelay: ytCdnDelay,
+            appDelay: appReaction,
+            stageStartMs: dlStart
         })
 
-        // KHOẢNG CÁCH 2 -> 3: Thời gian tải
-        const deltaDl = (dlStart > 0 && dlDone >= dlStart) ? secBetween(dlStart, dlDone) : -1
+        // KHOẢNG CÁCH 2 -> 3: Thời gian tải (ưu tiên số đo mạng downloadDurationSec)
+        const deltaDl = (d.downloadDurationSec && d.downloadDurationSec > 0)
+                        ? d.downloadDurationSec
+                        : ((dlStart > 0 && dlDone >= dlStart) ? secBetween(dlStart, dlDone) : -1)
 
         // CHẶNG 3: TẢI XONG
         let dlSub = []
-        if (isDlSuccess) {
+        if (isDlDisabled) {
+            dlSub.push("Tự động tải đang tắt (Chờ tải thủ công)")
+        } else if (isDlSuccess) {
             if (d.fileSize > 0) dlSub.push(Fmt.bytes(d.fileSize))
             if (d.downloadSpeed) dlSub.push(d.downloadSpeed)
             dlSub.push("Bộ đệm /downloads")
         } else if (isDlActive) {
             dlSub.push("Đang nhận luồng dữ liệu...")
+        } else if (d.status === "waiting") {
+            dlSub.push("Đang xếp hàng chờ tải...")
         } else if (isDlError) {
             dlSub.push(d.error || "Lỗi tải video")
         } else {
@@ -125,11 +171,14 @@ Rectangle {
             stageId: "download",
             stepNumber: "③",
             title: "TẢI XONG",
+            shortTitle: "Tải xong",
             ms: dlDone,
-            status: isDlSuccess ? "done" : (isDlActive ? "active" : (isDlError ? "error" : "pending")),
+            status: isDlSuccess ? "done" : (isDlActive ? "active" : (isDlDisabled ? "pending" : (isDlError ? "error" : "pending"))),
             sub: dlSub.join(" · "),
             deltaSec: deltaDl,
-            deltaLabel: "Thời gian tải"
+            deltaLabel: "Thời gian tải",
+            deltaBreakdown: "",
+            stageStartMs: dlStart
         })
 
         // KHOẢNG CÁCH 3 -> 4: Thời gian biên tập & Render
@@ -138,7 +187,9 @@ Rectangle {
 
         // CHẶNG 4: RENDER XONG
         let renSub = []
-        if (isRenSuccess) {
+        if (isDlDisabled) {
+            renSub.push("Chờ có video gốc để biên tập")
+        } else if (isRenSuccess) {
             renSub.push(d.renderCodec || "h264_nvenc")
             if (d.renderFps > 0) renSub.push(Math.round(d.renderFps) + " fps")
             renSub.push("GPU NVENC P1 ULL")
@@ -155,11 +206,14 @@ Rectangle {
             stageId: "render",
             stepNumber: "④",
             title: "RENDER XONG",
+            shortTitle: "Render",
             ms: rDone,
-            status: isRenSuccess ? "done" : (isRenActive ? "active" : (isRenError ? "error" : "pending")),
+            status: isRenSuccess ? "done" : (isRenActive ? "active" : (isDlDisabled ? "pending" : (isRenError ? "error" : "pending"))),
             sub: renSub.join(" · "),
             deltaSec: deltaRen,
-            deltaLabel: "Thời gian render"
+            deltaLabel: "Thời gian render",
+            deltaBreakdown: "",
+            stageStartMs: renRefStart
         })
 
         // CHẶNG 5 (TIKTOK) NẾU CÓ CẤU HÌNH HOẶC CÓ TRẠNG THÁI
@@ -183,11 +237,14 @@ Rectangle {
                 stageId: "tiktok",
                 stepNumber: "⑤",
                 title: "UPLOAD XONG",
+                shortTitle: "TikTok",
                 ms: ttDone,
                 status: isTtSuccess ? "done" : (isTtActive ? "active" : (isTtError ? "error" : "pending")),
                 sub: ttSub.join(" · "),
                 deltaSec: deltaTt,
-                deltaLabel: "Thời gian upload"
+                deltaLabel: "Thời gian upload",
+                deltaBreakdown: "",
+                stageStartMs: renRef
             })
         }
 
@@ -250,7 +307,7 @@ Rectangle {
                         Label {
                             id: totalBadgeLbl
                             anchors.centerIn: parent
-                            text: "TỔNG: " + Fmt.duration(cardRoot.e2eTotalSec)
+                            text: (cardRoot.isDlDisabled ? "BẮT: " : "TỔNG: ") + Fmt.duration(cardRoot.timelineTotalSec)
                             color: Theme.accent
                             font.pixelSize: 10
                             font.bold: true
@@ -273,6 +330,32 @@ Rectangle {
                             font.bold: true
                         }
                     }
+
+                    Item { Layout.fillWidth: true }
+
+                    // TOGGLE NÚT RÚT GỌN / CHI TIẾT
+                    Rectangle {
+                        id: modeToggleBtn
+                        radius: 4
+                        color: cardRoot.isCompact ? (Theme.accent + "30") : "#232836"
+                        border.color: cardRoot.isCompact ? Theme.accent : "#3A4456"
+                        border.width: 1
+                        Layout.preferredHeight: 22
+                        Layout.preferredWidth: modeToggleLbl.implicitWidth + 16
+                        Label {
+                            id: modeToggleLbl
+                            anchors.centerIn: parent
+                            text: cardRoot.isCompact ? "☷ Rút gọn" : "☰ Chi tiết"
+                            color: cardRoot.isCompact ? Theme.accent : Theme.textMuted
+                            font.pixelSize: 10
+                            font.bold: true
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: cardRoot.isCompact = !cardRoot.isCompact
+                        }
+                    }
                 }
 
                 Label {
@@ -287,8 +370,143 @@ Rectangle {
             }
         }
 
-        // BẢNG 4-5 CHẶNG DẠNG STEPPER RÕ RÀNG
+        // ════════════════════════════════════════════════════════════════
+        // CHẾ ĐỘ 1: RÚT GỌN (COMPACT HORIZONTAL BAR)
+        // ════════════════════════════════════════════════════════════════
+        Rectangle {
+            visible: cardRoot.isCompact
+            Layout.fillWidth: true
+            Layout.preferredHeight: 64
+            color: "#1B202C"
+            border.color: "#2C3444"
+            border.width: 1
+            radius: 6
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                spacing: 0
+
+                Repeater {
+                    model: cardRoot.timelineStages
+
+                    RowLayout {
+                        id: compactStageItem
+                        required property var modelData
+                        required property int index
+                        readonly property bool isLast: index === cardRoot.timelineStages.length - 1
+                        Layout.fillWidth: isLast ? false : true
+                        spacing: 0
+
+                        // Node thông tin của stage
+                        RowLayout {
+                            spacing: 8
+                            Layout.alignment: Qt.AlignVCenter
+
+                            // Mini dot
+                            Rectangle {
+                                width: 22; height: 22; radius: 11
+                                color: {
+                                    if (compactStageItem.modelData.status === "done") return Theme.success + "25"
+                                    if (compactStageItem.modelData.status === "active") return Theme.accent + "30"
+                                    if (compactStageItem.modelData.status === "error") return Theme.error + "25"
+                                    return "#232836"
+                                }
+                                border.width: 2
+                                border.color: {
+                                    if (compactStageItem.modelData.status === "done") return Theme.success
+                                    if (compactStageItem.modelData.status === "active") return Theme.accent
+                                    if (compactStageItem.modelData.status === "error") return Theme.error
+                                    return "#454F63"
+                                }
+                                Label {
+                                    anchors.centerIn: parent
+                                    text: {
+                                        if (compactStageItem.modelData.status === "done") return "✓"
+                                        if (compactStageItem.modelData.status === "error") return "!"
+                                        return compactStageItem.modelData.stepNumber
+                                    }
+                                    color: {
+                                        if (compactStageItem.modelData.status === "done") return Theme.success
+                                        if (compactStageItem.modelData.status === "active") return Theme.accent
+                                        if (compactStageItem.modelData.status === "error") return Theme.error
+                                        return Theme.textMuted
+                                    }
+                                    font.pixelSize: 10
+                                    font.bold: true
+                                }
+                            }
+
+                            ColumnLayout {
+                                spacing: 1
+                                Label {
+                                    text: compactStageItem.modelData.shortTitle || compactStageItem.modelData.title
+                                    color: compactStageItem.modelData.status === "done" ? Theme.text : (compactStageItem.modelData.status === "active" ? Theme.accent : Theme.textMuted)
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                }
+                                Label {
+                                    text: compactStageItem.modelData.ms > 0 ? Fmt.timeMs(compactStageItem.modelData.ms) : "—"
+                                    color: Theme.textMuted
+                                    font.pixelSize: 10
+                                    font.family: "Consolas"
+                                }
+                            }
+                        }
+
+                        // Thanh nối ngang + badge delta ở giữa
+                        Item {
+                            visible: !compactStageItem.isLast
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 30
+                            Layout.minimumWidth: 40
+
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: parent.width - 8
+                                height: 2
+                                color: "#2E3646"
+                            }
+
+                            Rectangle {
+                                anchors.centerIn: parent
+                                visible: {
+                                    let nextIdx = compactStageItem.index + 1
+                                    let nextSt = cardRoot.timelineStages[nextIdx]
+                                    return nextSt && nextSt.deltaSec >= 0
+                                }
+                                radius: 8
+                                color: "#191D26"
+                                border.color: Theme.accent + "50"
+                                border.width: 1
+                                implicitHeight: 18
+                                implicitWidth: compactDeltaLbl.implicitWidth + 8
+
+                                Label {
+                                    id: compactDeltaLbl
+                                    anchors.centerIn: parent
+                                    text: {
+                                        let nextIdx = compactStageItem.index + 1
+                                        let nextSt = cardRoot.timelineStages[nextIdx]
+                                        return (nextSt && nextSt.deltaSec >= 0) ? ("+" + Fmt.duration(nextSt.deltaSec)) : ""
+                                    }
+                                    color: Theme.accent
+                                    font.pixelSize: 9
+                                    font.bold: true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        // CHẾ ĐỘ 2: CHI TIẾT (VERTICAL STEPPER ĐẦY ĐỦ)
+        // ════════════════════════════════════════════════════════════════
         ColumnLayout {
+            visible: !cardRoot.isCompact
             Layout.fillWidth: true
             spacing: 0
 
@@ -307,7 +525,7 @@ Rectangle {
                     Item {
                         visible: index > 0
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 34
+                        Layout.preferredHeight: stageItem.modelData.deltaBreakdown ? 40 : 34
 
                         // Đường line dọc nối giữa các chặng
                         Rectangle {
@@ -325,19 +543,19 @@ Rectangle {
                             visible: stageItem.modelData.deltaSec >= 0
                             radius: 10
                             color: "#1E222D"
-                            border.color: Theme.accent + "50"
+                            border.color: (stageItem.modelData.deltaSec > 30) ? "#FFB74D70" : (Theme.accent + "50")
                             border.width: 1
-                            implicitHeight: 20
+                            implicitHeight: stageItem.modelData.deltaBreakdown ? 26 : 20
                             implicitWidth: (typeof deltaRow !== "undefined" && deltaRow) ? (deltaRow.implicitWidth + 16) : 70
 
                             RowLayout {
                                 id: deltaRow
                                 anchors.centerIn: parent
-                                spacing: 4
+                                spacing: 6
                                 Label {
                                     id: deltaLbl
                                     text: "⏱️ +" + Fmt.duration(stageItem.modelData.deltaSec)
-                                    color: Theme.accent
+                                    color: (stageItem.modelData.deltaSec > 30) ? "#FFB74D" : Theme.accent
                                     font.pixelSize: 10
                                     font.bold: true
                                 }
@@ -345,6 +563,25 @@ Rectangle {
                                     text: "(" + stageItem.modelData.deltaLabel + ")"
                                     color: Theme.textMuted
                                     font.pixelSize: 9
+                                }
+
+                                // PHÂN RÃ CHI TIẾT TRỄ YOUTUBE CDN VS HYPERCLIP APP
+                                Rectangle {
+                                    visible: !!stageItem.modelData.deltaBreakdown
+                                    radius: 3
+                                    color: "#2C2214"
+                                    border.color: "#FFB74D50"
+                                    border.width: 1
+                                    Layout.preferredHeight: 18
+                                    Layout.preferredWidth: bdLbl.implicitWidth + 8
+                                    Label {
+                                        id: bdLbl
+                                        anchors.centerIn: parent
+                                        text: stageItem.modelData.deltaBreakdown
+                                        color: "#FFCC80"
+                                        font.pixelSize: 9
+                                        font.bold: true
+                                    }
                                 }
                             }
                         }
@@ -423,7 +660,6 @@ Rectangle {
 
                         // CỘT 3: TÊN CHẶNG & THÔNG SỐ PHỤ
                         ColumnLayout {
-
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignVCenter
                             spacing: 2
@@ -477,6 +713,28 @@ Rectangle {
                                         }
                                         font.pixelSize: 9
                                         font.bold: true
+                                    }
+                                }
+
+                                // LIVE TICKING COUNTER KHI ACTIVE
+                                Rectangle {
+                                    visible: stageItem.modelData.status === "active" && stageItem.modelData.stageStartMs > 0 && cardRoot.nowMs > stageItem.modelData.stageStartMs
+                                    radius: 3
+                                    color: Theme.accent + "20"
+                                    border.color: Theme.accent + "60"
+                                    border.width: 1
+                                    Layout.preferredHeight: 18
+                                    Layout.preferredWidth: liveTickLbl.implicitWidth + 8
+
+                                    Label {
+                                        id: liveTickLbl
+                                        anchors.centerIn: parent
+                                        readonly property real elapsedSec: Math.max(0, (cardRoot.nowMs - stageItem.modelData.stageStartMs) / 1000.0)
+                                        text: "⏳ +" + elapsedSec.toFixed(1) + "s"
+                                        color: Theme.accent
+                                        font.pixelSize: 9
+                                        font.bold: true
+                                        font.family: "Consolas"
                                     }
                                 }
                             }

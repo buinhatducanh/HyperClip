@@ -19,6 +19,7 @@ Dialog {
     property string confirmMessage: "Bạn có chắc chắn muốn xóa mục này? Hành động này sẽ loại bỏ dữ liệu khỏi hàng đợi và không thể hoàn tác."
     property string acceptLabel: "Xóa ngay"
     property var onAcceptCallback: null
+    signal confirmed(string id, string name)
 
     function openFor(id, name, callback, customTitle, customMsg, customAccept) {
         targetId = id
@@ -69,8 +70,8 @@ Dialog {
                     width: 32
                     height: 32
                     radius: 16
-                    color: Theme.error + "25"
-                    border.color: Theme.error + "66"
+                    color: Qt.rgba(Theme.error.r, Theme.error.g, Theme.error.b, 0.15)
+                    border.color: Qt.rgba(Theme.error.r, Theme.error.g, Theme.error.b, 0.4)
                     border.width: 1
 
                     Icon {
@@ -202,7 +203,7 @@ Dialog {
                     Layout.preferredWidth: 110
                     Layout.preferredHeight: 34
                     radius: Theme.radiusMd
-                    color: acceptMa.containsMouse ? Theme.error : Theme.error + "D0"
+                    color: acceptMa.containsMouse ? Theme.error : Qt.rgba(Theme.error.r, Theme.error.g, Theme.error.b, 0.85)
 
                     RowLayout {
                         anchors.centerIn: parent
@@ -226,9 +227,16 @@ Dialog {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
+                            let curId = dlg.targetId
+                            let curName = dlg.targetName
                             if (dlg.onAcceptCallback) {
-                                dlg.onAcceptCallback(dlg.targetId, dlg.targetName)
+                                try {
+                                    dlg.onAcceptCallback(curId, curName)
+                                } catch (e) {
+                                    console.log("[ConfirmationDialog] callback error:", e)
+                                }
                             }
+                            dlg.confirmed(curId, curName)
                             dlg.close()
                         }
                     }

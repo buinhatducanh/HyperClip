@@ -7,51 +7,90 @@ import QtQuick.Controls
 
 Rectangle {
     id: root
-    // Overlay backdrop
-    color: Theme.overlay
+    // Opaque dark overlay — page không xuyên qua được, triệt tiêu hoàn toàn
+    color: "#0D0D0D"
     anchors.fill: parent
     z: 999
 
-    function close() { visible = false }
-    function show() { visible = true }
+    property bool isWaitingChrome: false
+    property bool dismissed: false
 
-    // ─── Card shadow layer ─────────────────────────────────────────
+    function close() { dismissed = true; visible = false }
+    function show() { dismissed = false; visible = true }
+
+    // ─── Auto-poll backend while login overlay is visible ─────────
+    Timer {
+        id: pollTimer
+        interval: 1500
+        running: root.visible && (!auth || !auth.isReady)
+        repeat: true
+        onTriggered: {
+            if (auth) {
+                auth.refresh_from_backend(backend)
+            }
+        }
+    }
+
+    // ─── Auto-close after successful login ────────────────────────
+    Connections {
+        target: auth
+        function onChanged() {
+            if (auth && auth.isReady && root.visible) {
+                autoCloseTimer.start()
+            }
+        }
+    }
+
+    Timer {
+        id: autoCloseTimer
+        interval: 800
+        running: false
+        repeat: false
+        onTriggered: {
+            root.close()
+            if (typeof toastService !== "undefined" && toastService) {
+                toastService.show("YouTube", "Đã kết nối tài khoản YouTube thành công!", "success")
+            }
+        }
+    }
+
+    // ─── Card shadow layer (đổ bóng ra 4 phía) ────────────────────
     Rectangle {
         x: card.x + 4
         y: card.y + 4
         width: card.width
         height: card.height
-        radius: Theme.radiusLg
+        radius: 8
         color: "#000000"
-        opacity: Theme.isLight ? 0.12 : 0.6
+        opacity: 0.6
     }
     Rectangle {
         x: card.x - 2
         y: card.y - 2
         width: card.width + 4
         height: card.height + 4
-        radius: Theme.radiusLg + 2
+        radius: 10
         color: "transparent"
-        border.color: Theme.accent
+        border.color: (auth && auth.isReady) ? "#00FF88" : "#00B4FF"
         border.width: 1
-        opacity: Theme.isLight ? 0.25 : 0.15
+        opacity: 0.25
     }
 
     // ─── Center card ────────────────────────────────────────────────
     Rectangle {
         id: card
-        width: 440
-        height: 480
-        radius: Theme.radiusLg
-        color: Theme.cardBg
-        border.color: Theme.border
+        width: 460
+        height: 520
+        radius: 10
+        color: "#161616"
+        border.color: (auth && auth.isReady) ? "#00FF88" : "#2A2A2A"
         border.width: 1
 
         anchors.centerIn: parent
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: 40
+            anchors.margins: 36
             spacing: 0
 
             // ─── Icon / Logo ─────────────────────────────────────
@@ -60,69 +99,69 @@ Rectangle {
                 Layout.preferredWidth: 64
                 Layout.preferredHeight: 64
                 radius: 32
-                color: Theme.isLight ? "#E0F2FE" : "#0A2A3A"
-                border.color: Theme.accent
+                color: (auth && auth.isReady) ? "#0A2A1E" : "#0A2A3A"
+                border.color: (auth && auth.isReady) ? "#00FF88" : "#00B4FF"
                 border.width: 1
                 Label {
                     anchors.centerIn: parent
-                    text: (typeof isShortEdition !== "undefined" && isShortEdition) ? "HS" : "HC"
-                    color: Theme.accent
-                    font.pixelSize: 30
+                    text: (auth && auth.isReady) ? "✓" : "HC"
+                    color: (auth && auth.isReady) ? "#00FF88" : "#00B4FF"
+                    font.pixelSize: 32
                     font.bold: true
                 }
             }
 
-            Item { Layout.preferredHeight: 24; Layout.fillWidth: true }
+            Item { Layout.preferredHeight: 18; Layout.fillWidth: true }
 
             Label {
-                text: (typeof isShortEdition !== "undefined" && isShortEdition) ? "HyperShort" : "HyperClip"
-                color: Theme.text
-                font.pixelSize: 38
+                text: "HyperClip"
+                color: "#FFFFFF"
+                font.pixelSize: 36
                 font.bold: true
                 font.letterSpacing: 3
                 Layout.alignment: Qt.AlignHCenter
             }
 
-            Item { Layout.preferredHeight: 6; Layout.fillWidth: true }
+            Item { Layout.preferredHeight: 4; Layout.fillWidth: true }
 
             Label {
-                text: (typeof isShortEdition !== "undefined" && isShortEdition)
-                    ? "24/7 Shorts Auto-Capture & NVENC Pipeline"
-                    : "24/7 YouTube Auto-Capture Pipeline"
-                color: Theme.textMuted
+                text: "24/7 YouTube Auto-Capture Pipeline"
+                color: "#777777"
                 font.pixelSize: 14
                 font.letterSpacing: 1
                 Layout.alignment: Qt.AlignHCenter
             }
 
-            Item { Layout.preferredHeight: 28; Layout.fillWidth: true }
+            Item { Layout.preferredHeight: 20; Layout.fillWidth: true }
 
             // ─── Separator ───────────────────────────────────────
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 1
-                color: Theme.border
+                color: "#2A2A2A"
             }
 
-            Item { Layout.preferredHeight: 24; Layout.fillWidth: true }
+            Item { Layout.preferredHeight: 18; Layout.fillWidth: true }
 
             // ─── Status indicator ─────────────────────────────────
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 80
-                radius: Theme.radiusMd
-                color: (auth && auth.isReady) ? (Theme.isLight ? "#E8F8EE" : "#0A1F14")
-                     : (auth && auth.cookieCritical) ? (Theme.isLight ? "#FDE8E8" : "#1F0A0A")
-                     : Theme.inputBg
-                border.color: (auth && auth.isReady) ? Theme.success
-                            : (auth && auth.cookieCritical) ? Theme.error
-                            : Theme.border
+                Layout.preferredHeight: 90
+                radius: 6
+                color: (auth && auth.isReady) ? "#0A2416"
+                     : isWaitingChrome ? "#0A1F2E"
+                     : (auth && auth.cookieCritical) ? "#240A0A"
+                     : "#1C1C1C"
+                border.color: (auth && auth.isReady) ? "#00FF88"
+                            : isWaitingChrome ? "#00B4FF"
+                            : (auth && auth.cookieCritical) ? "#FF4444"
+                            : "#333333"
                 border.width: 1
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 16
-                    spacing: 8
+                    anchors.margins: 14
+                    spacing: 6
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -132,17 +171,20 @@ Rectangle {
                             Layout.preferredWidth: 10
                             Layout.preferredHeight: 10
                             radius: 5
-                            color: (auth && auth.isReady) ? Theme.success
-                                 : (auth && auth.cookieCritical) ? Theme.error
-                                 : Theme.textMuted
+                            color: (auth && auth.isReady) ? "#00FF88"
+                                 : isWaitingChrome ? "#00B4FF"
+                                 : (auth && auth.cookieCritical) ? "#FF4444"
+                                 : "#888888"
                         }
                         Label {
-                            text: (auth && auth.isReady) ? "Đã xác thực YouTube"
+                            text: (auth && auth.isReady) ? "Đã xác thực thành công (Ready)"
+                                 : isWaitingChrome ? "Đang chờ đăng nhập trên Chrome..."
                                  : (auth && auth.cookieCritical) ? "Cookies không hợp lệ"
-                                 : "Chưa xác thực"
-                            color: (auth && auth.isReady) ? Theme.success
-                                 : (auth && auth.cookieCritical) ? Theme.error
-                                 : Theme.text
+                                 : "Chưa đăng nhập YouTube"
+                            color: (auth && auth.isReady) ? "#00FF88"
+                                 : isWaitingChrome ? "#00B4FF"
+                                 : (auth && auth.cookieCritical) ? "#FF4444"
+                                 : "#DDDDDD"
                             font.pixelSize: 16
                             font.bold: true
                         }
@@ -153,55 +195,111 @@ Rectangle {
                         Layout.fillWidth: true
                         spacing: 8
                         Label {
-                            text: "Account:"
-                            color: Theme.textMuted
-                            font.pixelSize: 14
-                        }
-                        Label {
-                            text: auth ? (auth.accountName || "—") : "—"
-                            color: Theme.text
-                            font.pixelSize: 14
+                            text: (auth && auth.isReady) ? "Đang tự động chuyển vào bàn làm việc..."
+                                 : isWaitingChrome ? "Hoàn tất đăng nhập trên cửa sổ Chrome vừa mở."
+                                 : "Đăng nhập YouTube qua Chrome để tải video giới hạn độ tuổi."
+                            color: "#888888"
+                            font.pixelSize: 13
                             elide: Text.ElideRight
                             Layout.fillWidth: true
                         }
                         Label {
                             text: "Cookies: " + (auth ? auth.cookieCount : 0)
-                            color: Theme.textMuted
-                            font.pixelSize: 14
+                            color: (auth && auth.cookieCount > 0) ? "#00FF88" : "#666666"
+                            font.pixelSize: 13
                         }
                     }
                 }
             }
 
-            Item { Layout.preferredHeight: 24; Layout.fillWidth: true }
+            Item { Layout.preferredHeight: 18; Layout.fillWidth: true }
 
             // ─── Buttons ─────────────────────────────────────────
             Button {
                 id: mainBtn
                 Layout.fillWidth: true
-                Layout.preferredHeight: 42
+                Layout.preferredHeight: 44
 
                 background: Rectangle {
-                    radius: Theme.radiusMd
-                    color: mainBtn.enabled ? Theme.accent : (Theme.isLight ? "#E5E5EA" : "#0A2A3A")
-                    border.color: Theme.accent
-                    border.width: mainBtn.enabled ? 1 : 0
+                    radius: 4
+                    color: (auth && auth.isReady) ? "#00B86B"
+                         : isWaitingChrome ? "#0A2A3A"
+                         : mainBtn.enabled ? "#00B4FF" : "#0A2A3A"
+                    border.color: (auth && auth.isReady) ? "#00FF88"
+                                : isWaitingChrome ? "#00B4FF"
+                                : "#00B4FF"
+                    border.width: 1
                 }
                 contentItem: Label {
-                    text: mainBtn.text
-                    color: mainBtn.enabled ? "#FFFFFF" : Theme.textMuted
-                    font.pixelSize: 18
+                    text: (auth && auth.isReady) ? "Vào ứng dụng ngay →"
+                        : isWaitingChrome ? "🔄 Kiểm tra lại đăng nhập"
+                        : "Đăng nhập YouTube qua Chrome"
+                    color: "#FFFFFF"
+                    font.pixelSize: 17
                     font.bold: true
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
 
-                text: (auth && auth.isReady) ? "Tiếp tục →" : "Đăng nhập YouTube"
                 onClicked: {
-                    if (auth && auth.isReady) root.close()
-                    else if (auth) auth.start_oauth(backend)
+                    if (auth && auth.isReady) {
+                        root.close()
+                    } else if (isWaitingChrome) {
+                        if (auth) auth.refresh_from_backend(backend)
+                    } else if (auth) {
+                        isWaitingChrome = true
+                        auth.start_oauth(backend)
+                    }
                 }
-                enabled: auth ? !auth.cookieCritical : false
+                enabled: Boolean(auth)
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                visible: isWaitingChrome && (!auth || !auth.isReady)
+                spacing: 10
+
+                Button {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 32
+                    background: Rectangle {
+                        radius: 4
+                        color: "#1E1E1E"
+                        border.color: "#00B4FF"
+                        border.width: 1
+                    }
+                    contentItem: Label {
+                        text: "🌐 Mở lại Chrome"
+                        color: "#00B4FF"
+                        font.pixelSize: 12
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: {
+                        if (auth) auth.start_oauth(backend)
+                    }
+                }
+
+                Button {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 32
+                    background: Rectangle {
+                        radius: 4
+                        color: "#1E1E1E"
+                        border.color: "#555555"
+                        border.width: 1
+                    }
+                    contentItem: Label {
+                        text: "✕ Đặt lại"
+                        color: "#AAAAAA"
+                        font.pixelSize: 12
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: {
+                        root.isWaitingChrome = false
+                    }
+                }
             }
 
             Item { Layout.preferredHeight: 10; Layout.fillWidth: true }
@@ -209,24 +307,36 @@ Rectangle {
             Button {
                 id: skipBtn
                 Layout.fillWidth: true
-                Layout.preferredHeight: 36
+                Layout.preferredHeight: 38
 
                 background: Rectangle {
-                    radius: Theme.radiusMd
-                    color: "transparent"
-                    border.color: Theme.border
+                    radius: 4
+                    color: "#1E1E1E"
+                    border.color: "#3A3A3A"
                     border.width: 1
                 }
                 contentItem: Label {
-                    text: skipBtn.text
-                    color: Theme.textMuted
+                    text: "Bỏ qua & Vào bàn làm việc"
+                    color: "#AAAAAA"
                     font.pixelSize: 14
+                    font.bold: true
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
 
-                text: "Bỏ qua — dùng cookies thủ công"
                 onClicked: root.close()
+            }
+
+            Item { Layout.preferredHeight: 8; Layout.fillWidth: true }
+
+            Label {
+                text: "💡 Quét kênh & bắt video mới chạy 100% bằng GCP API, không cần đăng nhập."
+                color: "#666666"
+                font.pixelSize: 12
+                Layout.alignment: Qt.AlignHCenter
+                wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
+                Layout.fillWidth: true
             }
 
             Item { Layout.fillHeight: true; Layout.fillWidth: true }
@@ -236,19 +346,19 @@ Rectangle {
     // ─── Auth error banner (dưới card) ────────────────────────────
     Rectangle {
         anchors.top: card.bottom
-        anchors.topMargin: 16
+        anchors.topMargin: 12
         anchors.horizontalCenter: parent.horizontalCenter
         width: card.width
         height: (auth && auth.cookieCritical) ? 36 : 0
         visible: auth && auth.cookieCritical
-        color: Theme.isLight ? "#FDE8E8" : "#2A1010"
-        border.color: Theme.error
+        color: "#2A1010"
+        border.color: "#FF4444"
         border.width: 1
-        radius: Theme.radiusMd
+        radius: 4
         Label {
             anchors.centerIn: parent
             text: auth ? (auth.cookieError || "Cookie invalid") : "Cookie invalid"
-            color: Theme.error
+            color: "#FF4444"
             font.pixelSize: 14
             elide: Text.ElideRight
             leftPadding: 12
@@ -256,3 +366,4 @@ Rectangle {
         }
     }
 }
+

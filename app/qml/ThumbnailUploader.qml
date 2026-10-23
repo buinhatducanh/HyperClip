@@ -24,12 +24,10 @@ Rectangle {
 
         // Preview
         Rectangle {
-            Layout.preferredWidth: 110
-            Layout.preferredHeight: 62
+            Layout.preferredWidth: 128
+            Layout.preferredHeight: 72
             color: "#000"
             border.color: Theme.border
-            radius: Theme.radiusSm
-            clip: true
 
             Image {
                 anchors.fill: parent
@@ -46,20 +44,17 @@ Rectangle {
             Label {
                 text: "Thumbnail (PNG/JPG)"
                 color: Theme.textMuted
-                font.pixelSize: Theme.textSm
-                font.bold: true
+                font.pixelSize: 15
             }
 
             RowLayout {
-                spacing: 6
+                spacing: 4
                 Button {
-                    text: "Tải ảnh lên"
-                    Layout.preferredHeight: 28
+                    text: "Upload"
                     onClicked: fileDialog.open()
                 }
                 Button {
-                    text: "Lấy từ YouTube"
-                    Layout.preferredHeight: 28
+                    text: "YouTube"
                     onClicked: {
                         if (root.workspaceId) {
                             var path = thumbnailService.download_thumbnail(root.workspaceId)
@@ -72,8 +67,7 @@ Rectangle {
                     enabled: root.workspaceId !== ""
                 }
                 Button {
-                    text: "Xóa"
-                    Layout.preferredHeight: 28
+                    text: "Clear"
                     onClicked: {
                         root.localThumbnail = ""
                         root.thumbnailChanged("")

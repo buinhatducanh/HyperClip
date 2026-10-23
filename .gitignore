@@ -49,13 +49,19 @@ HyperClip-Patch-*/
 HyperClip-Data/
 HyperClip.exe
 *.bat
+!HyperClip-AutoRestart.bat
+!HyperClip-Debug.bat
 SHA256SUMS.txt
 bg.jpg
 relay-state.json
-.gitignore
 branch_structure.json
-
 # Development and package folders from other branches
 source/
 HyperClipB-Package/
 7zr.exe
+
+# Build artifacts
+*.pdb
+tools/**/*.exe
+.gitignore
+

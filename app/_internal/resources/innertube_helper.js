@@ -1837,7 +1837,12 @@ async function strategyChannelVideos(client, channelId) {
       const lv = richItem?.lockupViewModel || item?.lockupViewModel;
       if (lv) {
         const v = extractFromLockupView(lv);
-        if (v && v.videoId) out.push(v);
+        if (v && v.videoId) {
+          if (!v.upcoming && (!v.publishedAt || v.publishedAt <= 1)) {
+            v.publishedAt = Date.now();
+          }
+          out.push(v);
+        }
         continue;
       }
       const vr = richItem?.videoRenderer || item?.videoRenderer || item?.gridVideoRenderer;
@@ -1845,10 +1850,12 @@ async function strategyChannelVideos(client, channelId) {
         const vid = vr.videoId;
         if (vid) {
           const title = vr.title?.runs?.[0]?.text || vr.title?.simpleText || '';
+          const publishedText = vr.publishedTimeText?.simpleText || vr.publishedTimeText?.runs?.[0]?.text || '';
+          const publishedAt = parseRelativeTime(publishedText) || Date.now();
           out.push({
             videoId: vid,
             title,
-            publishedAt: 0,
+            publishedAt,
             thumbnailUrl: `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`,
             durationSec: 0,
             upcoming: false,
