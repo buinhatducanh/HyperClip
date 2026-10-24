@@ -51,9 +51,17 @@ HyperClip.exe
 *.bat
 !HyperClip-AutoRestart.bat
 !HyperClip-Debug.bat
+!DONG_BO_ADSPOWER.bat
 SHA256SUMS.txt
 bg.jpg
 relay-state.json
 branch_structure.json
+
+# Development and package folders from other branches
+source/
+HyperClipB-Package/
+7zr.exe
+
+# Build artifacts
 *.pdb
 tools/**/*.exe

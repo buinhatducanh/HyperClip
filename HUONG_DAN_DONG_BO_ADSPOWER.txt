@@ -1,0 +1,56 @@
+================================================================================
+          HƯỚNG DẪN KẾT NỐI & ĐỒNG BỘ HỒ SƠ ADSPOWER VÀO HYPERCLIP
+================================================================================
+
+Chào bạn, tài liệu này hướng dẫn cách kết nối tự động toàn bộ hồ sơ (Profile)
+trên trình duyệt AdsPower vào phần mềm HyperClip chỉ với 1 cú nhấp chuột.
+
+* LƯU Ý QUAN TRỌNG:
+  - Bạn KHÔNG CẦN copy/dán cookie TikTok thủ công.
+  - AdsPower tự động quản lý cookie, proxy và vân tay trình duyệt an toàn 100%.
+
+--------------------------------------------------------------------------------
+BƯỚC 1: BẬT TÍNH NĂNG "LOCAL API" TRÊN ADSPOWER
+--------------------------------------------------------------------------------
+1. Mở ứng dụng AdsPower trên máy tính của bạn.
+2. Nhìn góc dưới bên trái, bấm vào biểu tượng "Cài đặt" (Settings / hình bánh răng).
+3. Chọn mục "Local API".
+4. Bật công tắc sang [ON] (Kích hoạt).
+5. Đảm bảo cổng kết nối (Port) là: 50325 (Đây là cổng mặc định).
+6. Hãy chắc chắn rằng bạn đã tạo các Profile trên AdsPower và đã đăng nhập sẵn
+   nick TikTok trong các Profile đó.
+
+--------------------------------------------------------------------------------
+BƯỚC 2: CHẠY FILE ĐỒNG BỘ VÀO HYPERCLIP
+--------------------------------------------------------------------------------
+1. Copy file [DONG_BO_ADSPOWER.bat] bỏ vào thư mục chứa phần mềm HyperClip.
+2. Nhấp đúp chuột vào file [DONG_BO_ADSPOWER.bat] để chạy.
+3. Màn hình màu đen sẽ xuất hiện và tự động làm mọi việc:
+   - Kết nối tới AdsPower.
+   - Lấy danh sách toàn bộ hồ sơ (Tên, ID Profile, Số Serial).
+   - Nạp thẳng vào cấu hình của HyperClip.
+   - In bảng danh sách các hồ sơ đã liên kết thành công.
+4. Bấm phím bất kỳ để đóng cửa sổ khi có thông báo "Hoàn tất!".
+
+--------------------------------------------------------------------------------
+BƯỚC 3: MỞ HYPERCLIP & BẮT ĐẦU SỬ DỤNG
+--------------------------------------------------------------------------------
+1. Mở phần mềm HyperClip (chạy file CHAY_HYPERCLIP_B.bat hoặc HyperClip.exe).
+2. Bấm vào tab "TikTok" trên thanh menu bên trái.
+3. Bạn sẽ thấy danh sách tất cả các tài khoản AdsPower đã hiển thị sẵn sàng.
+4. Bạn có thể bấm nút "Mở AdsPower" ở từng tài khoản để kiểm tra (phần mềm sẽ
+   tự ra lệnh cho AdsPower bật đúng profile đó lên).
+5. Từ bây giờ, mỗi khi có video render xong, HyperClip sẽ tự động điều khiển
+   AdsPower đăng video lên TikTok mà không cần bạn phải thao tác bằng tay.
+
+--------------------------------------------------------------------------------
+XỬ LÝ MỘT SỐ LỖI THƯỜNG GẶP (TROUBLESHOOTING)
+--------------------------------------------------------------------------------
+Q: File báo lỗi "Không kết nối được tới AdsPower Local API"?
+A: Do AdsPower chưa bật hoặc chưa bật Local API. Bạn hãy mở AdsPower lên, vào
+   Cài đặt -> Local API -> Bật ON rồi chạy lại file DONG_BO_ADSPOWER.bat là được.
+
+Q: Tôi mới thêm thêm 1 nick TikTok mới vào AdsPower thì làm thế nào?
+A: Bạn chỉ cần chạy lại file [DONG_BO_ADSPOWER.bat], phần mềm sẽ tự quét và cập
+   nhật thêm các tài khoản mới nhất vào HyperClip.
+================================================================================
