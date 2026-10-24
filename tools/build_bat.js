@@ -54,14 +54,15 @@ Write-Host "[3/3] Dang cap nhat vao cau hinh HyperClip (tiktok.json)..." -Foregr
 $scriptDir = (Get-Location).Path
 
 $candidatePaths = @(
-    (Join-Path $scriptDir "HyperClipB-Package\\HyperClipB-Data\\.hyperclip\\tiktok.json"),
-    (Join-Path $scriptDir "HyperClipB-Data\\.hyperclip\\tiktok.json"),
     (Join-Path $scriptDir "HyperClip-Data\\.hyperclip\\tiktok.json"),
+    (Join-Path $scriptDir "HyperClipB-Data\\.hyperclip\\tiktok.json"),
+    (Join-Path $scriptDir "app\\data\\.hyperclip\\tiktok.json"),
+    (Join-Path $scriptDir "HyperClipB-Package\\HyperClipB-Data\\.hyperclip\\tiktok.json"),
     (Join-Path $scriptDir "..\\HyperClipB-Package\\HyperClipB-Data\\.hyperclip\\tiktok.json"),
     (Join-Path $scriptDir "..\\HyperClipB-Data\\.hyperclip\\tiktok.json"),
     (Join-Path $scriptDir "..\\HyperClip-Data\\.hyperclip\\tiktok.json"),
-    "C:\\HyperClipB-Package\\HyperClipB-Data\\.hyperclip\\tiktok.json",
-    "C:\\HyperClip-Data\\.hyperclip\\tiktok.json"
+    "C:\\HyperClip-Data\\.hyperclip\\tiktok.json",
+    "C:\\HyperClipB-Package\\HyperClipB-Data\\.hyperclip\\tiktok.json"
 )
 
 $newAccounts = @()

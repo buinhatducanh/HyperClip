@@ -70,8 +70,10 @@ async function main() {
   // 3. Tìm các file tiktok.json của HyperClip để đồng bộ
   console.log('[3/3] Đang cập nhật vào cấu hình HyperClip (tiktok.json)...');
   const targetPaths = [
-    path.resolve(__dirname, '../HyperClipB-Package/HyperClipB-Data/.hyperclip/tiktok.json'),
     path.resolve(__dirname, '../HyperClip-Data/.hyperclip/tiktok.json'),
+    path.resolve(__dirname, '../HyperClipB-Data/.hyperclip/tiktok.json'),
+    path.resolve(__dirname, '../app/data/.hyperclip/tiktok.json'),
+    path.resolve(__dirname, '../HyperClipB-Package/HyperClipB-Data/.hyperclip/tiktok.json'),
   ];
 
   const newAccounts = profileList.map((p, idx) => {
