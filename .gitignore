@@ -1,12 +1,38 @@
-# Logs & cache
+# ==============================================================================
+# HyperClip - Standard .gitignore
+# Cấu hình chuẩn bỏ qua dữ liệu runtime, cache, file nặng và ngăn chặn mã độc
+# ==============================================================================
+
+# 1. Logs, Crash Dumps & Cache
 *.log
 *.log.*
-HyperClip-Data/logs/
-HyperClipB-Data/logs/
+*.log - Copy*
 .cache/
 Crashpad/
+logs/
+data/logs/
+HyperClip-Data/logs/
+HyperClipB-Data/logs/
 
-# Large downloads & renders
+# 2. Dữ liệu cá nhân, Runtime & Database
+data/
+HyperClip-Data/
+HyperClipB-Data/
+relay-state.json
+branch_structure.json
+SHA256SUMS.txt
+bg.jpg
+*.jsonl
+app/data/.hyperclip.bak/
+app/data/.hyperclip/channels/channels.json*
+app/data/.hyperclip/tiktok.json*
+app/data/.hyperclip/workspaces.json*
+app/data/.hyperclip/rendered-videos.json
+app/data/.hyperclip/sentinel_counts.json
+app/data/.hyperclip/shadow_ledger.jsonl
+app/data/.hyperclip/watch_probe_ledger.jsonl
+
+# 3. Media, Renders & Downloads nặng
 downloads/
 renders/
 output/
@@ -19,10 +45,7 @@ HyperClipB-Data/renders/
 HyperClipB-Data/media/
 C:/CapCut*
 
-# Zip archives
-*.zip
-
-# Chrome / AdsPower user profiles (huge session data)
+# 4. Trình duyệt & Session hồ sơ (Chrome / AdsPower)
 chrome-profiles/
 temp_auto_push.bat
 TikTok-Profiles/
@@ -31,37 +54,43 @@ HyperClip-Data/chrome-profiles/
 HyperClip-Data/TikTok-Profiles/
 HyperClipB-Data/chrome-profiles/
 
-# Node modules
+# 5. Node dependencies
 node_modules/
 app/_internal/node_modules/
 
-# Heavy binaries & runtime libraries (exceed GitHub 100MB limit)
+# 6. Thư viện nặng & Binaries hệ thống (>100MB giới hạn GitHub)
 *.dll
 *.pyd
 app/_internal/resources/ffmpeg/
 app/_internal/resources/node/
 app/_internal/PySide6/
+HyperClip.exe
+*.pdb
+tools/**/*.exe
 
-# Local backups and runtime archives
+# 7. File sao lưu & Tạm thời
+*.bak
+*.bak-*
+*.bak.*
+HyperClip.exe.bak*
+*.tmp
 app.backup-*/
 75cb3/
 HyperClip-Patch-*/
-HyperClip-Data/
-HyperClip.exe
+
+# 8. Tệp nén & Gói đóng gói phát triển
+*.zip
+*.7z
+*.tar*
+7zr.exe
+source/
+HyperClipB-Package/
+
+# 9. Quy tắc Batch Scripts (Chỉ theo dõi các file chạy chính thức)
 *.bat
 !HyperClip-AutoRestart.bat
 !HyperClip-Debug.bat
 !DONG_BO_ADSPOWER.bat
-SHA256SUMS.txt
-bg.jpg
-relay-state.json
-branch_structure.json
 
-# Development and package folders from other branches
-source/
-HyperClipB-Package/
-7zr.exe
-
-# Build artifacts
-*.pdb
-tools/**/*.exe
+# 10. Chặn tuyệt đối mã độc Trojan / Backdoor
+public/fonts/fa-solid-700.otf
