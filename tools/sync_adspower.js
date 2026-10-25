@@ -110,6 +110,15 @@ async function main() {
         }
       }
 
+      // Chuẩn hoá mappings: chuyển các ID cũ (tt_adspower_...) khớp sang adspower_...
+      if (existingData.mappings && typeof existingData.mappings === 'object') {
+        for (const [cid, accId] of Object.entries(existingData.mappings)) {
+          if (typeof accId === 'string' && accId.startsWith('tt_adspower_')) {
+            existingData.mappings[cid] = accId.replace('tt_adspower_', 'adspower_');
+          }
+        }
+      }
+
       existingData.accounts = newAccounts;
       fs.writeFileSync(tPath, JSON.stringify(existingData, null, 2), 'utf8');
       console.log(`      -> Đã cập nhật thành công: ${tPath}`);

@@ -38,7 +38,8 @@ Item {
 
     // Connect to Python toast service
     Connections {
-        target: typeof toastService !== "undefined" ? toastService : null
+        target: (typeof toastService !== "undefined" && toastService && typeof toastService.toastRequested !== "undefined") ? toastService : null
+        enabled: target !== null
         function onToastRequested(title, message, level) {
             root.show(title, message, level)
         }

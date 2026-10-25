@@ -24,8 +24,8 @@ echo.
 
 "%SCRIPT_DIR%HyperClip.exe" --debug
 
-:: Doi cho den khi app\HyperClip.exe thuc su tat
-powershell -ExecutionPolicy Bypass -NoProfile -Command "$p = $null; for ($i=0; $i -lt 15; $i++) { $p = Get-Process -Name HyperClip -ErrorAction SilentlyContinue | Where-Object { $_.Path -match 'app\\HyperClip\.exe' } | Select-Object -First 1; if ($p) { break }; Start-Sleep -Seconds 1 }; if ($p) { $p.WaitForExit() }"
+:: Doi cho den khi app\HyperClip.exe khoi dong va thuc su tat
+powershell -ExecutionPolicy Bypass -NoProfile -Command "$p = $null; for ($i=0; $i -lt 30; $i++) { $p = Get-Process -Name HyperClip -ErrorAction SilentlyContinue | Where-Object { $_.Path -match 'app\\HyperClip\.exe' } | Select-Object -First 1; if ($p) { break }; Start-Sleep -Seconds 1 }; if ($p) { Write-Host '       -> HyperClip dang chay (PID: ' + $p.Id + ')'; $p.WaitForExit() } else { Write-Host '       -> Khong tim thay tien trinh HyperClip sau 30 giay.' -ForegroundColor Yellow }"
 
 echo.
 echo =======================================================================
