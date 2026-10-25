@@ -42,15 +42,21 @@ while ($true) {
         }
     }
 
-    # 3. Đợi 1.5 giây để kiểm tra lại
-    Start-Sleep -Milliseconds 1500
-
-    $remaining = Get-Process -Name "HyperClip" -ErrorAction SilentlyContinue | Where-Object {
-        try { $_.Path -match "app\\HyperClip\.exe" } catch { $false }
+    # 3. Đợi khoảng thời gian 10 giây (grace period) để kiểm tra xem app có đang reload/restart không
+    $isReallyGone = $true
+    for ($check = 0; $check -lt 5; $check++) {
+        Start-Sleep -Seconds 2
+        $running = Get-Process -Name "HyperClip" -ErrorAction SilentlyContinue | Where-Object {
+            try { $_.Path -match "app\\HyperClip\.exe" } catch { $false }
+        }
+        if ($running) {
+            $isReallyGone = $false
+            break
+        }
     }
 
-    if (-not $remaining) {
-        # CỬA SỔ HYPERCLIP ĐÃ ĐÓNG -> TẮT SẠCH TOÀN BỘ CÁC CỬA SỔ & TIẾN TRÌNH LIÊN QUAN
+    if ($isReallyGone) {
+        # CỬA SỔ HYPERCLIP ĐÃ ĐÓNG HOÀN TOÀN -> DỌN SẠCH CÁC TIẾN TRÌNH CON
         if (Test-Path $cleanupScript) {
             & $cleanupScript
         }

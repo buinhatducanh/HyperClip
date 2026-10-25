@@ -31,6 +31,17 @@ ApplicationWindow {
     property string centerView: "management"
     property string filterChannelId: ""
     property string pendingView: ""
+    property bool managementLoaded: true
+    property bool scanCoreLoaded: false
+    property bool tiktokLoaded: false
+    property bool settingsLoaded: false
+
+    onCenterViewChanged: {
+        if (centerView === "management") managementLoaded = true
+        else if (centerView === "scancore") scanCoreLoaded = true
+        else if (centerView === "tiktok") tiktokLoaded = true
+        else if (centerView === "settings") settingsLoaded = true
+    }
     // Các trang chiếm toàn màn hình (ẩn Sidebar + cột queue phải).
     readonly property bool wideView: centerView === "management"
                                      || centerView === "tiktok" || centerView === "scancore"
@@ -116,7 +127,7 @@ ApplicationWindow {
                 Loader {
                     id: managementLoader
                     anchors.fill: parent
-                    active: root.centerView === "management" || (item !== null)
+                    active: root.centerView === "management" || root.managementLoaded
                     visible: root.centerView === "management"
                     sourceComponent: Component {
                         ManagementPanel {
@@ -128,7 +139,7 @@ ApplicationWindow {
                 Loader {
                     id: scanCoreLoader
                     anchors.fill: parent
-                    active: root.centerView === "scancore" || (item !== null)
+                    active: root.centerView === "scancore" || root.scanCoreLoaded
                     visible: root.centerView === "scancore"
                     sourceComponent: Component {
                         ScanCorePanel {}
@@ -138,7 +149,7 @@ ApplicationWindow {
                 Loader {
                     id: tiktokLoader
                     anchors.fill: parent
-                    active: root.centerView === "tiktok" || (item !== null)
+                    active: root.centerView === "tiktok" || root.tiktokLoaded
                     visible: root.centerView === "tiktok"
                     sourceComponent: Component {
                         TikTokPanel {}
@@ -148,7 +159,7 @@ ApplicationWindow {
                 Loader {
                     id: settingsLoader
                     anchors.fill: parent
-                    active: root.centerView === "settings" || (item !== null)
+                    active: root.centerView === "settings" || root.settingsLoaded
                     visible: root.centerView === "settings"
                     sourceComponent: Component {
                         SettingsPage {}

@@ -275,7 +275,7 @@ SettingsCard {
             Layout.alignment: Qt.AlignRight
             Switch {
                 id: overlaySwitch
-                checked: settings ? settings.renderTitleOverlay : true
+                checked: (settings && typeof settings.renderTitleOverlay !== "undefined") ? Boolean(settings.renderTitleOverlay) : true
                 onToggled: if (settings) settings.renderTitleOverlay = checked
                 ToolTip.text: checked ? "Đang nướng chữ vào video. Bấm để tắt." : "Đang TẮT chữ — thanh dưới chỉ còn nền."
                 ToolTip.visible: hovered
@@ -393,7 +393,7 @@ SettingsCard {
         }
         Switch {
             Layout.alignment: Qt.AlignRight
-            checked: settings ? settings.tiktokFastDone : true
+            checked: (settings && typeof settings.tiktokFastDone !== "undefined") ? Boolean(settings.tiktokFastDone) : true
             onToggled: if (settings) settings.tiktokFastDone = checked
         }
     }

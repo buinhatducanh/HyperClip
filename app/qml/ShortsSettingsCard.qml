@@ -87,8 +87,8 @@ ColumnLayout {
 
         // Cảnh báo chồng lấn với làn dài: video 60–180s thuộc Shorts khi cả hai bật.
         Label {
-            visible: settings && settings.longEnabled && settings.shortsEnabled
-                     && settings.videoMinDurationSec <= settings.shortsMaxDurationSec
+            visible: !!(settings && settings.longEnabled && settings.shortsEnabled
+                        && settings.videoMinDurationSec <= settings.shortsMaxDurationSec)
             text: "→ Cả hai làn đang bật: video từ " + (settings ? settings.videoMinDurationSec : 60) + "s đến "
                   + (settings ? settings.shortsMaxDurationSec : 180) + "s sẽ vào làn SHORTS (Short xét trước), làn Video dài chỉ nhận phần dài hơn."
             color: Theme.warning
@@ -97,8 +97,8 @@ ColumnLayout {
             Layout.fillWidth: true
         }
         Label {
-            visible: settings && settings.longEnabled && settings.shortsEnabled
-                     && settings.videoMinDurationSec > settings.shortsMaxDurationSec + 1
+            visible: !!(settings && settings.longEnabled && settings.shortsEnabled
+                        && settings.videoMinDurationSec > settings.shortsMaxDurationSec + 1)
             text: "→ Khe hở: video từ " + (settings ? settings.shortsMaxDurationSec + 1 : 181) + "s đến "
                   + (settings ? settings.videoMinDurationSec - 1 : 59) + "s KHÔNG làn nào nhận — bị bỏ ngay ở vòng quét (0 unit)."
             color: Theme.warning
@@ -473,7 +473,39 @@ ColumnLayout {
             }
             Switch {
                 checked: (settings && settings.shortsTiktokUploadEnabled !== undefined) ? settings.shortsTiktokUploadEnabled : false
-                onToggled: if (settings) settings.shortsTiktokUploadEnabled = checked
+                onToggled: {
+                    if (settings) {
+                        settings.shortsTiktokUploadEnabled = checked
+                        if (checked) {
+                            try {
+                                if (typeof backend !== "undefined" && backend) {
+                                    var resp = backend.send_command("tiktok:list")
+                                    var r = (resp && resp.result) ? resp.result : resp
+                                    if (r && r.mappings && r.accounts) {
+                                        var accMap = {}
+                                        for (var cid in r.mappings) {
+                                            var aid = r.mappings[cid]
+                                            if (aid) {
+                                                accMap[aid] = true
+                                                accMap[String(aid).replace(/^tt_/, "")] = true
+                                            }
+                                        }
+                                        for (var i = 0; i < r.accounts.length; i++) {
+                                            var a = r.accounts[i]
+                                            var cleanId = String(a.id).replace(/^tt_/, "")
+                                            if (accMap[a.id] || accMap[cleanId]) {
+                                                var tgt = a.profileId ? ("user_id=" + encodeURIComponent(a.profileId)) : ("serial_number=" + encodeURIComponent(a.adsPowerSerial || (i + 1)))
+                                                var req = new XMLHttpRequest()
+                                                req.open("GET", "http://127.0.0.1:50325/api/v1/browser/start?" + tgt + "&open_tabs=1")
+                                                req.send()
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (e) {}
+                        }
+                    }
+                }
             }
         }
 

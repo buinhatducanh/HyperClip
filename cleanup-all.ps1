@@ -58,12 +58,14 @@ if ($IncludeHyperClip) {
     Get-Process | Where-Object { $_.ProcessName -match "HyperClip|HyperShort" } | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 
-# 7. Đóng cửa sổ CMD chạy watchdog/debug nếu HyperClip đã tắt
-Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-    $_.Name -eq "cmd.exe" -and (
-        $_.CommandLine -match "HyperClip-Debug.bat" -or
-        $_.CommandLine -match "HyperClip-AutoRestart.bat"
-    )
-} | ForEach-Object {
-    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+# 7. Đóng cửa sổ CMD chạy watchdog/debug nếu được yêu cầu tắt hoàn toàn
+if ($IncludeHyperClip) {
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -eq "cmd.exe" -and (
+            $_.CommandLine -match "HyperClip-Debug.bat" -or
+            $_.CommandLine -match "HyperClip-AutoRestart.bat"
+        )
+    } | ForEach-Object {
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    }
 }

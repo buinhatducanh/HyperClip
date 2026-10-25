@@ -518,11 +518,19 @@ function fetchAdsPower(endpoint) {
 }
 
 function getAdsPowerProfileIdentifier(port) {
-  const accountIndex = (typeof port === 'number' && port >= 9223) ? (port - 9223) : 0;
+  let targetAcc = null;
+  const portStr = String(port || '').trim();
+  const accountIndex = (typeof port === 'number' && port >= 9223) ? (port - 9223) : -1;
+
   try {
     const candidatePaths = [
       process.env.HYPERCLIP_DATA_DIR ? path.join(process.env.HYPERCLIP_DATA_DIR, '.hyperclip', 'tiktok.json') : null,
+      path.resolve(__dirname, '../../../HyperClip-Data/.hyperclip/tiktok.json'),
       path.resolve(__dirname, '../../HyperClip-Data/.hyperclip/tiktok.json'),
+      path.resolve(__dirname, '../data/.hyperclip/tiktok.json'),
+      path.resolve(__dirname, '../../data/.hyperclip/tiktok.json'),
+      path.resolve(__dirname, '../../../data/.hyperclip/tiktok.json'),
+      path.resolve(__dirname, '../../../HyperClipB-Data/.hyperclip/tiktok.json'),
       path.resolve(__dirname, '../../HyperClipB-Data/.hyperclip/tiktok.json'),
       'C:/HyperClipB-Package/HyperClipB-Data/.hyperclip/tiktok.json'
     ].filter(Boolean);
@@ -530,17 +538,34 @@ function getAdsPowerProfileIdentifier(port) {
     for (const p of candidatePaths) {
       if (fs.existsSync(p)) {
         const data = JSON.parse(fs.readFileSync(p, 'utf8'));
-        if (data && Array.isArray(data.accounts) && data.accounts[accountIndex]) {
-          const acc = data.accounts[accountIndex];
-          if (acc.profileId) return { type: 'user_id', value: acc.profileId };
-          if (acc.adsPowerSerial) return { type: 'serial_number', value: acc.adsPowerSerial };
+        if (data && Array.isArray(data.accounts)) {
+          targetAcc = data.accounts.find(a => 
+            a.id === portStr || 
+            a.profileId === portStr || 
+            String(a.adsPowerSerial) === portStr ||
+            `adspower_${a.profileId}` === portStr
+          );
+          if (!targetAcc && accountIndex >= 0 && data.accounts[accountIndex]) {
+            targetAcc = data.accounts[accountIndex];
+          }
+          if (targetAcc) {
+            if (targetAcc.profileId) return { type: 'user_id', value: targetAcc.profileId };
+            if (targetAcc.adsPowerSerial) return { type: 'serial_number', value: targetAcc.adsPowerSerial };
+          }
         }
       }
     }
   } catch (err) {
     dlog(`[AdsPower] Không đọc được profileId từ tiktok.json: ${err.message}`);
   }
-  return { type: 'serial_number', value: accountIndex + 1 };
+
+  if (accountIndex >= 0) {
+    return { type: 'serial_number', value: accountIndex + 1 };
+  }
+  if (portStr && portStr.startsWith('k')) {
+    return { type: 'user_id', value: portStr };
+  }
+  return { type: 'serial_number', value: 1 };
 }
 
 async function getAdsPowerEndpoint(target) {
@@ -549,8 +574,9 @@ async function getAdsPowerEndpoint(target) {
     : `serial_number=${encodeURIComponent(target.value)}`;
 
   dlog(`[AdsPower] Khởi động / Kết nối Profile (${queryParam})...`);
-  // Gọi /api/v1/browser/start với open_tabs=1 (idempotent, nếu đang mở sẵn sẽ trả về port ngay tức thì)
-  const res = await fetchAdsPower(`/api/v1/browser/start?${queryParam}&open_tabs=1`);
+  const launchArgs = encodeURIComponent(JSON.stringify(['https://www.tiktok.com/tiktokstudio/upload']));
+  // Gọi /api/v1/browser/start với open_tabs=1 và launch_args vào thẳng Upload
+  const res = await fetchAdsPower(`/api/v1/browser/start?${queryParam}&open_tabs=1&launch_args=${launchArgs}`);
   if (!res || res.code !== 0) {
     throw new Error(`ADSPOWER_API_ERROR (${queryParam}): ${res ? res.msg : 'No response'}`);
   }
@@ -563,34 +589,21 @@ async function getAdsPowerEndpoint(target) {
   return wsEndpoint || `http://127.0.0.1:${debugPort}`;
 }
 
-// Connect CDP: Ưu tiên AdsPower Profile theo profileId hoặc Serial
+// Connect CDP: Kết nối độc quyền AdsPower Profile theo profileId hoặc Serial
 async function connectCdp(port) {
   const target = getAdsPowerProfileIdentifier(port);
   const targetLabel = `${target.type}=${target.value}`;
   
-  // 1. Kết nối qua AdsPower
+  // Kết nối qua AdsPower (Đã gỡ bỏ vĩnh viễn cơ chế mở Google Chrome thường)
   try {
     const adsTarget = await getAdsPowerEndpoint(target);
     dlog(`[AdsPower] Nối CDP vào AdsPower Profile (${targetLabel}) qua ${adsTarget}...`);
-    const browser = await chromium.connectOverCDP(adsTarget, { timeout: 10000 });
+    const browser = await chromium.connectOverCDP(adsTarget, { timeout: 15000 });
     dlog(`[AdsPower] Đã kết nối thành công tới AdsPower Profile (${targetLabel})!`);
     return browser;
   } catch (adsErr) {
-    dlog(`[AdsPower] Chưa kết nối được AdsPower Profile (${targetLabel}) (${adsErr.message}) -> fallback sang Chrome local port ${port}`);
-    
-    // 2. Fallback sang Chrome cục bộ nếu AdsPower chưa khởi chạy hoặc profile chưa tạo
-    const url = `http://127.0.0.1:${port}`;
-    const deadline = Date.now() + CDP_CONNECT_TIMEOUT_MS;
-    let lastErr = null;
-    while (Date.now() < deadline) {
-      try {
-        return await chromium.connectOverCDP(url, { timeout: 5000 });
-      } catch (e) {
-        lastErr = e;
-        await sleep(1000);
-      }
-    }
-    throw new Error(`CDP_CONNECT_FAILED: AdsPower: ${adsErr.message} | Chrome: ${lastErr ? lastErr.message : 'timeout'}`);
+    dlog(`[AdsPower] Không thể kết nối AdsPower Profile (${targetLabel}): ${adsErr.message}`);
+    throw new Error(`ADSPOWER_CONNECT_FAILED (${targetLabel}): ${adsErr.message}. Vui lòng mở phần mềm AdsPower!`);
   }
 }
 
