@@ -27,16 +27,14 @@ try {
 # 2. Đóng dứt điểm bất kỳ tiến trình SunBrowser nào còn sót lại
 Get-Process -Name SunBrowser -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
-# 3. Đóng các trình duyệt Chrome chạy riêng cho HyperClip (YouTube CDP port 9222, TikTok profiles)
+# 3. Đóng các trình duyệt Chrome chạy riêng cho HyperClip (YouTube CDP port 9222, TikTok profiles 9223-9260)
 # TUYỆT ĐỐI không tắt nhầm Chrome cá nhân của người dùng
 Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
     $_.Name -eq "chrome.exe" -and (
         $_.CommandLine -match "HyperClip-Data" -or
         $_.CommandLine -match "TikTok-Profiles" -or
         $_.CommandLine -match "HyperClipB-Data" -or
-        $_.CommandLine -match "remote-debugging-port=9222" -or
-        $_.CommandLine -match "remote-debugging-port=9223" -or
-        $_.CommandLine -match "remote-debugging-port=9224"
+        $_.CommandLine -match "remote-debugging-port=92"
     )
 } | ForEach-Object {
     Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
@@ -48,7 +46,7 @@ Get-Process -Name "hyperclip-tauri" -ErrorAction SilentlyContinue | Stop-Process
 # 5. Đóng các tiến trình render hoặc helper con của HyperClip
 Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
     ($_.Name -match "ffmpeg|ffprobe" -and $_.ExecutablePath -match "HyperClip") -or
-    ($_.Name -eq "node.exe" -and $_.CommandLine -match "tiktok_helper|innertube_helper")
+    ($_.Name -eq "node.exe" -and $_.CommandLine -match "tiktok_helper|innertube_helper|start_all_browsers")
 } | ForEach-Object {
     Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
 }

@@ -91,6 +91,8 @@ HyperClipB-Package/
 !HyperClip-AutoRestart.bat
 !HyperClip-Debug.bat
 !DONG_BO_ADSPOWER.bat
+!MO_TAT_CA_ADSPOWER.bat
+!MO_TOAN_BO_TRINH_DUYET.bat
 
 # 10. Chặn tuyệt đối mã độc Trojan / Backdoor
 public/fonts/fa-solid-700.otf

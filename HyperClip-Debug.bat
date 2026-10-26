@@ -8,8 +8,9 @@ echo =========================================================
 echo    Starting HyperClip (Video Dai) - Debug Mode
 echo =========================================================
 
-:: Khoi dong bo theo doi tu dong don dep khi thoat
+:: Khoi dong bo theo doi tu dong don dep khi thoat & mo song song Chrome + AdsPower
 start "" /B powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File "%SCRIPT_DIR%watch-shutdown.ps1"
+start "" /B "%SCRIPT_DIR%app\_internal\resources\node\node.exe" "%SCRIPT_DIR%tools\start_all_browsers.js"
 
 :: Khoi dong app
 "%SCRIPT_DIR%HyperClip.exe" --debug

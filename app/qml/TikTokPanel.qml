@@ -152,6 +152,35 @@ Rectangle {
             Item { Layout.fillWidth: true }
             Rectangle {
                 Layout.preferredHeight: 24
+                Layout.preferredWidth: openAllBrowsersLbl.implicitWidth + 16
+                radius: 4
+                color: openAllBrowsersMa.containsMouse ? Theme.accent : Theme.accent + "22"
+                border.color: Theme.accent
+                border.width: 1
+                Label {
+                    id: openAllBrowsersLbl
+                    anchors.centerIn: parent
+                    text: "🚀 Mở toàn bộ Chrome + AdsPower (Hot Upload)"
+                    color: openAllBrowsersMa.containsMouse ? "#ffffff" : Theme.accent
+                    font.pixelSize: 11
+                    font.bold: true
+                }
+                MouseArea {
+                    id: openAllBrowsersMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        var ts = (typeof toastService !== "undefined" && toastService) ? toastService : (typeof toastManager !== "undefined" ? toastManager : null)
+                        if (ts) ts.show("Trình duyệt", "Đang mở song song toàn bộ Chrome + AdsPower cho tất cả tài khoản...", "info")
+                        if (typeof backend !== "undefined" && backend) {
+                            backend.send_command_async("system:openFile", { "path": "C:\\Users\\Administrator\\Desktop\\HyperClip\\MO_TOAN_BO_TRINH_DUYET.bat" })
+                        }
+                    }
+                }
+            }
+            Rectangle {
+                Layout.preferredHeight: 24
                 Layout.preferredWidth: checkAdsLbl.implicitWidth + 16
                 radius: 4
                 color: checkAdsMa.containsMouse ? Theme.hoverBg : "transparent"

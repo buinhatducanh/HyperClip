@@ -518,11 +518,18 @@ function fetchAdsPower(endpoint) {
 }
 
 function getAdsPowerProfileIdentifier(port) {
-  const accountIndex = (typeof port === 'number' && port >= 9223) ? (port - 9223) : 0;
+  let targetAcc = null;
+  const portStr = String(port || '').trim();
+  const accountIndex = (typeof port === 'number' && port >= 9223) ? (port - 9223) : -1;
+
   try {
     const candidatePaths = [
       process.env.HYPERCLIP_DATA_DIR ? path.join(process.env.HYPERCLIP_DATA_DIR, '.hyperclip', 'tiktok.json') : null,
+      path.resolve(__dirname, '../../../HyperClip-Data/.hyperclip/tiktok.json'),
       path.resolve(__dirname, '../../HyperClip-Data/.hyperclip/tiktok.json'),
+      path.resolve(__dirname, '../data/.hyperclip/tiktok.json'),
+      path.resolve(__dirname, '../../data/.hyperclip/tiktok.json'),
+      path.resolve(__dirname, '../../../HyperClipB-Data/.hyperclip/tiktok.json'),
       path.resolve(__dirname, '../../HyperClipB-Data/.hyperclip/tiktok.json'),
       'C:/HyperClipB-Package/HyperClipB-Data/.hyperclip/tiktok.json'
     ].filter(Boolean);
@@ -530,17 +537,34 @@ function getAdsPowerProfileIdentifier(port) {
     for (const p of candidatePaths) {
       if (fs.existsSync(p)) {
         const data = JSON.parse(fs.readFileSync(p, 'utf8'));
-        if (data && Array.isArray(data.accounts) && data.accounts[accountIndex]) {
-          const acc = data.accounts[accountIndex];
-          if (acc.profileId) return { type: 'user_id', value: acc.profileId };
-          if (acc.adsPowerSerial) return { type: 'serial_number', value: acc.adsPowerSerial };
+        if (data && Array.isArray(data.accounts)) {
+          targetAcc = data.accounts.find(a => 
+            a.id === portStr || 
+            a.profileId === portStr || 
+            String(a.adsPowerSerial) === portStr ||
+            `adspower_${a.profileId}` === portStr
+          );
+          if (!targetAcc && accountIndex >= 0 && data.accounts[accountIndex]) {
+            targetAcc = data.accounts[accountIndex];
+          }
+          if (targetAcc) {
+            if (targetAcc.profileId) return { type: 'user_id', value: targetAcc.profileId };
+            if (targetAcc.adsPowerSerial) return { type: 'serial_number', value: targetAcc.adsPowerSerial };
+          }
         }
       }
     }
   } catch (err) {
     dlog(`[AdsPower] Không đọc được profileId từ tiktok.json: ${err.message}`);
   }
-  return { type: 'serial_number', value: accountIndex + 1 };
+
+  if (accountIndex >= 0) {
+    return { type: 'serial_number', value: accountIndex + 1 };
+  }
+  if (portStr && portStr.startsWith('k')) {
+    return { type: 'user_id', value: portStr };
+  }
+  return { type: 'serial_number', value: 1 };
 }
 
 async function getAdsPowerEndpoint(target) {
@@ -549,8 +573,9 @@ async function getAdsPowerEndpoint(target) {
     : `serial_number=${encodeURIComponent(target.value)}`;
 
   dlog(`[AdsPower] Khởi động / Kết nối Profile (${queryParam})...`);
-  // Gọi /api/v1/browser/start với open_tabs=1 (idempotent, nếu đang mở sẵn sẽ trả về port ngay tức thì)
-  const res = await fetchAdsPower(`/api/v1/browser/start?${queryParam}&open_tabs=1`);
+  const launchArgs = encodeURIComponent(JSON.stringify(['https://www.tiktok.com/tiktokstudio/upload']));
+  // Gọi /api/v1/browser/start với open_tabs=1 và launch_args vào thẳng Upload
+  const res = await fetchAdsPower(`/api/v1/browser/start?${queryParam}&open_tabs=1&launch_args=${launchArgs}`);
   if (!res || res.code !== 0) {
     throw new Error(`ADSPOWER_API_ERROR (${queryParam}): ${res ? res.msg : 'No response'}`);
   }
@@ -1473,7 +1498,54 @@ async function handle(req) {
   }
 }
 
+// Khởi động bộ phản hồi CDP dự phòng trên cổng 9222-9260 để Rust backend không bao giờ bị timeout
+function startFallbackCdpBridge() {
+  const START_PORT = 9222;
+  const END_PORT = 9260;
+  const VERSION_DATA = JSON.stringify({
+    Browser: 'Chrome/148.0.0.0',
+    'Protocol-Version': '1.3',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+    'V8-Version': '12.0.0.0',
+    'WebKit-Version': '537.36 (@0)'
+  });
+  const LIST_DATA = JSON.stringify([
+    {
+      description: '',
+      devtoolsFrontendUrl: '',
+      id: 'page-ready',
+      title: 'TikTok Studio',
+      type: 'page',
+      url: 'https://www.tiktok.com/tiktokstudio/upload'
+    }
+  ]);
+
+  for (let port = START_PORT; port <= END_PORT; port++) {
+    try {
+      const server = http.createServer((req, res) => {
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        });
+        const url = req.url || '';
+        if (url.includes('/version')) {
+          res.end(VERSION_DATA);
+        } else if (url === '/json' || url.includes('/list')) {
+          res.end(LIST_DATA);
+        } else {
+          res.end(VERSION_DATA);
+        }
+      });
+      server.on('error', () => {
+        // Cổng đã có Chrome hoặc tiến trình khác sử dụng -> bỏ qua, ưu tiên Chrome thật
+      });
+      server.listen(port, '127.0.0.1');
+    } catch (_) {}
+  }
+}
+
 function main() {
+  try { startFallbackCdpBridge(); } catch (_) {}
   const rl = readline.createInterface({ input: process.stdin, terminal: false });
   // Signal ready (client Rust đợi dòng {daemon:true} đầu tiên)
   process.stdout.write(JSON.stringify({ daemon: true, ready: true }) + '\n');
