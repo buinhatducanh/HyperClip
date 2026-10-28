@@ -420,6 +420,8 @@ Rectangle {
                         }
                     }
                 }
+            }
+
             Rectangle {
                 Layout.preferredHeight: 24
                 Layout.preferredWidth: openAllBrowsersLbl.implicitWidth + 16
