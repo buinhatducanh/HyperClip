@@ -31,16 +31,6 @@ fn main() {
             .spawn();
     }
 
-    // 1.5. Launch start_all_browsers.js in background (hidden)
-    let node_exe = app_dir.join("_internal").join("resources").join("node").join("node.exe");
-    let browsers_script = root_dir.join("tools").join("start_all_browsers.js");
-    if node_exe.exists() && browsers_script.exists() {
-        let _ = Command::new(&node_exe)
-            .arg(&browsers_script)
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn();
-    }
-
     // 2. Launch actual app\HyperClip.exe with app as working directory
     let mut cmd = Command::new(&app_exe);
     cmd.current_dir(&app_dir);

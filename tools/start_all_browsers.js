@@ -101,6 +101,14 @@ async function main() {
     console.log(`      AdsPower Local API: Chưa kết nối được (${err.message})\n`);
   }
 
+  const allowRawChrome = process.argv.includes('--force-chrome');
+  if (!adsPowerOnline && !allowRawChrome) {
+    console.log('[THÔNG BÁO] AdsPower chưa được mở (Local API 50325 offline).');
+    console.log('-> Đã an toàn dừng lại, KHÔNG tự ý mở hàng loạt cửa sổ Chrome.');
+    console.log('-> Hãy bật AdsPower trước, sau đó thao tác trên giao diện app TikTok.\n');
+    return;
+  }
+
   // 2. Đọc danh sách tài khoản
   console.log('[2/3] Đang nạp danh sách tài khoản TikTok...');
   const candidatePaths = [
