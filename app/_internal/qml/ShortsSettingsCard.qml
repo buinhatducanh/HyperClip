@@ -87,8 +87,8 @@ ColumnLayout {
 
         // Cảnh báo chồng lấn với làn dài: video 60–180s thuộc Shorts khi cả hai bật.
         Label {
-            visible: settings && settings.longEnabled && settings.shortsEnabled
-                     && settings.videoMinDurationSec <= settings.shortsMaxDurationSec
+            visible: Boolean(settings && settings.longEnabled && settings.shortsEnabled
+                     && settings.videoMinDurationSec <= settings.shortsMaxDurationSec)
             text: "→ Cả hai làn đang bật: video từ " + (settings ? settings.videoMinDurationSec : 60) + "s đến "
                   + (settings ? settings.shortsMaxDurationSec : 180) + "s sẽ vào làn SHORTS (Short xét trước), làn Video dài chỉ nhận phần dài hơn."
             color: Theme.warning
@@ -97,8 +97,8 @@ ColumnLayout {
             Layout.fillWidth: true
         }
         Label {
-            visible: settings && settings.longEnabled && settings.shortsEnabled
-                     && settings.videoMinDurationSec > settings.shortsMaxDurationSec + 1
+            visible: Boolean(settings && settings.longEnabled && settings.shortsEnabled
+                     && settings.videoMinDurationSec > settings.shortsMaxDurationSec + 1)
             text: "→ Khe hở: video từ " + (settings ? settings.shortsMaxDurationSec + 1 : 181) + "s đến "
                   + (settings ? settings.videoMinDurationSec - 1 : 59) + "s KHÔNG làn nào nhận — bị bỏ ngay ở vòng quét (0 unit)."
             color: Theme.warning
@@ -267,15 +267,58 @@ ColumnLayout {
                 onActivated: if (settings) settings.shortsRenderFps = model[currentIndex]
             }
 
-            // Pass 105: van bitrate — trước chỉ sửa được bằng tay trong
-            // settings.json nên máy khách chưa từng bật; file render to làm
-            // TikTok "xử lý video" lâu thêm ~1s mỗi lượt (log 24/08: 2,3s).
+            // Cài đặt chất lượng video (Tăng/giảm để đánh đổi tốc độ upload & render)
+            ColumnLayout {
+                spacing: 2
+                Layout.fillWidth: true
+                Label { text: "Chất lượng video & Tốc độ"; color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true }
+                Label {
+                    text: "Tăng chất lượng để hình ảnh nét mượt hơn (đánh đổi tốc độ render và upload). Giảm để tối ưu tốc độ nhanh nhất (upload TikTok ~2.5s)."
+                    color: Theme.textMuted; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                }
+            }
+            ComboBox {
+                id: shortsQualityCombo
+                Layout.preferredWidth: 160
+                Layout.alignment: Qt.AlignRight
+                font.pixelSize: Theme.textMd
+                model: [
+                    "⚡ Tốc độ tối đa",
+                    "⚖️ Cân bằng (2M)",
+                    "✨ Chất lượng cao (4M)",
+                    "🔥 Cực nét (8M)",
+                    "🛠️ Tuỳ chỉnh"
+                ]
+
+                function getQualityIndex(rate) {
+                    var r = (rate !== undefined && rate !== null) ? Math.round(rate) : 0
+                    if (r <= 0) return 0
+                    if (r === 2) return 1
+                    if (r === 4) return 2
+                    if (r === 8) return 3
+                    return 4
+                }
+
+                currentIndex: getQualityIndex(settings ? settings.renderMaxrateMbps : 0)
+                onActivated: function(index) {
+                    if (!settings) return
+                    if (index === 0) settings.renderMaxrateMbps = 0
+                    else if (index === 1) settings.renderMaxrateMbps = 2
+                    else if (index === 2) settings.renderMaxrateMbps = 4
+                    else if (index === 3) settings.renderMaxrateMbps = 8
+                    // Khôi phục binding chống vỡ binding khi tương tác qua lại (Fix BUG-02)
+                    currentIndex = Qt.binding(function() {
+                        return getQualityIndex(settings ? settings.renderMaxrateMbps : 0)
+                    })
+                }
+            }
+
             ColumnLayout {
                 spacing: 2
                 Layout.fillWidth: true
                 Label { text: "Trần bitrate render (Mbps)"; color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true }
                 Label {
-                    text: "0 = tự động theo card (720p ≈ 6). Đặt 3 cho file nhẹ hơn nửa — TikTok nhận & xử lý nhanh hơn, mắt thường không phân biệt được (TikTok nén lại ~1 Mbps). XEM THỬ video đầu rồi hẵng để tự động chạy."
+                    text: "0 = Tốc độ tối đa (~320k). Đặt 1-12 Mbps để nâng chất lượng hình ảnh theo ý muốn."
                     color: Theme.textMuted; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
                 }
             }
@@ -284,13 +327,153 @@ ColumnLayout {
                 Layout.alignment: Qt.AlignRight
                 from: 0; to: 12; stepSize: 1
                 editable: true
-                value: (settings && settings.renderMaxrateMbps !== undefined) ? settings.renderMaxrateMbps : 0
+                value: (settings && settings.renderMaxrateMbps !== undefined) ? Math.round(settings.renderMaxrateMbps) : 0
                 onValueModified: if (settings) settings.renderMaxrateMbps = value
                 onActiveFocusChanged: {
                     if (!activeFocus) {
                         var v = Math.max(from, Math.min(to, valueFromText(contentItem.text, locale)))
                         value = v
                         if (settings) settings.renderMaxrateMbps = v
+                    }
+                }
+            }
+
+            // Cảnh báo không tương thích Bitrate & Resolution (Fix BUG-06)
+            Rectangle {
+                Layout.columnSpan: 2
+                Layout.fillWidth: true
+                visible: Boolean(settings && (settings.shortsRenderResolution === "1080p") && (!settings.renderMaxrateMbps || settings.renderMaxrateMbps <= 0.05))
+                radius: Theme.radiusMd
+                color: Qt.rgba(0.96, 0.62, 0.04, 0.12)
+                border.color: "#F59E0B"
+                border.width: 1
+                implicitHeight: shortsWarnRow.implicitHeight + 14
+
+                RowLayout {
+                    id: shortsWarnRow
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    spacing: 8
+                    Label {
+                        text: "⚠️"
+                        font.pixelSize: 13
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        font.pixelSize: 11
+                        color: "#FDE68A"
+                        wrapMode: Text.WordWrap
+                        text: "Cảnh báo chất lượng: Độ phân giải 1080p kết hợp mức Tốc độ tối đa (320k) có thể gây vỡ khối (QP pumping) ở cảnh chuyển động nhanh. Đề xuất nâng lên mức '⚖️ Cân bằng (2M)' để hình ảnh mượt mà."
+                    }
+                }
+            }
+
+            // Bảng phân tích đánh đổi trực quan (Fix BUG-07: tính toán động theo thời lượng Short thực tế)
+            Rectangle {
+                Layout.columnSpan: 2
+                Layout.fillWidth: true
+                Layout.topMargin: 2
+                Layout.bottomMargin: 6
+                radius: Theme.radiusMd
+                color: Theme.surface
+                border.color: Theme.border
+                border.width: 1
+                implicitHeight: shortsQualityCol.implicitHeight + 16
+
+                readonly property int sampleShortSec: {
+                    if (!settings) return 60
+                    var maxSec = settings.shortsMaxDurationSec || 60
+                    return Math.max(15, Math.min(maxSec, 60))
+                }
+
+                ColumnLayout {
+                    id: shortsQualityCol
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        Rectangle {
+                            Layout.preferredHeight: 22
+                            Layout.preferredWidth: shortsBadgeLbl.implicitWidth + 14
+                            radius: 11
+                            readonly property real currentMbps: (settings && settings.renderMaxrateMbps !== undefined) ? settings.renderMaxrateMbps : 0
+                            color: currentMbps <= 0.05 ? Qt.rgba(0.06, 0.73, 0.51, 0.2)
+                                 : currentMbps <= 2.5  ? Qt.rgba(0.22, 0.74, 0.97, 0.2)
+                                 : currentMbps <= 5.0  ? Qt.rgba(0.96, 0.62, 0.04, 0.2)
+                                 : Qt.rgba(0.93, 0.28, 0.60, 0.2)
+                            border.color: currentMbps <= 0.05 ? "#10B981"
+                                        : currentMbps <= 2.5  ? "#38BDF8"
+                                        : currentMbps <= 5.0  ? "#F59E0B"
+                                        : "#EC4899"
+                            border.width: 1
+
+                            Label {
+                                id: shortsBadgeLbl
+                                anchors.centerIn: parent
+                                font.pixelSize: 11
+                                font.bold: true
+                                readonly property real currentMbps: (settings && settings.renderMaxrateMbps !== undefined) ? settings.renderMaxrateMbps : 0
+                                color: currentMbps <= 0.05 ? "#10B981"
+                                     : currentMbps <= 2.5  ? "#38BDF8"
+                                     : currentMbps <= 5.0  ? "#F59E0B"
+                                     : "#EC4899"
+                                text: currentMbps <= 0.05 ? "⚡ TỐC ĐỘ TỐI ĐA"
+                                    : currentMbps <= 2.5  ? "⚖️ CÂN BẰNG NÉT CHUẨN"
+                                    : currentMbps <= 5.0  ? "✨ CHẤT LƯỢNG CAO (HQ)"
+                                    : "🔥 CỰC NÉT TỐI ĐA"
+                            }
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            font.pixelSize: 11
+                            font.bold: true
+                            color: Theme.text
+                            readonly property real currentMbps: (settings && settings.renderMaxrateMbps !== undefined) ? settings.renderMaxrateMbps : 0
+                            readonly property int sec: parent.parent.parent.sampleShortSec
+                            text: {
+                                if (currentMbps <= 0.05) {
+                                    var mb = Math.max(1, Math.round(sec * 0.045))
+                                    var upSec = (0.3 + sec * 0.02).toFixed(1)
+                                    return "Dung lượng Short (" + sec + "s): ~" + mb + " MB  •  Upload TikTok: ~" + upSec + "s  •  CQ 26 (Audio 48k)"
+                                } else if (currentMbps <= 2.5) {
+                                    var mb = Math.max(2, Math.round(sec * 0.26))
+                                    var upSec = (0.5 + sec * 0.04).toFixed(1)
+                                    return "Dung lượng Short (" + sec + "s): ~" + mb + " MB  •  Upload TikTok: ~" + upSec + "s  •  CQ 23 (Audio 96k)"
+                                } else if (currentMbps <= 5.0) {
+                                    var mb = Math.max(4, Math.round(sec * 0.52))
+                                    var upSec = (0.8 + sec * 0.08).toFixed(1)
+                                    return "Dung lượng Short (" + sec + "s): ~" + mb + " MB  •  Upload TikTok: ~" + upSec + "s  •  CQ 21 (Audio 128k)"
+                                } else {
+                                    var mb = Math.max(8, Math.round(sec * 1.05))
+                                    var upSec = (1.5 + sec * 0.15).toFixed(1)
+                                    return "Dung lượng Short (" + sec + "s): ~" + mb + " MB  •  Upload TikTok: ~" + upSec + "s  •  CQ 18 (Audio 192k)"
+                                }
+                            }
+                        }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        font.pixelSize: 11
+                        color: Theme.textMuted
+                        wrapMode: Text.WordWrap
+                        readonly property real currentMbps: (settings && settings.renderMaxrateMbps !== undefined) ? settings.renderMaxrateMbps : 0
+                        text: {
+                            if (currentMbps <= 0.05) {
+                                return "→ Đánh đổi: File siêu nhẹ, render cực nhanh, tối ưu upload TikTok tức thì (~1.5s). Phù hợp cày số lượng lớn."
+                            } else if (currentMbps <= 2.5) {
+                                return "→ Đánh đổi: Hình ảnh sắc nét hơn rõ rệt, giảm vỡ khối khi xem trên màn hình lớn. Đánh đổi thêm ~1-2s upload."
+                            } else if (currentMbps <= 5.0) {
+                                return "→ Đánh đổi: Độ nét cao, giữ trọn khung hình và âm thanh sinh động. Render & upload chậm hơn ~2-3s."
+                            } else {
+                                return "→ Đánh đổi: Độ nét tối đa (1080p), chất lượng hình ảnh cao nhất. Upload và render lâu hơn."
+                            }
+                        }
                     }
                 }
             }

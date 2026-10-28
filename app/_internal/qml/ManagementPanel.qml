@@ -981,13 +981,9 @@ Rectangle {
     function getThumbnailSource(thumbnailLocal, videoId) {
 
         if (!thumbnailLocal) {
-
-            return videoId
-
+            return (videoId && videoId.indexOf("PL") !== 0)
                 ? "https://i.ytimg.com/vi/" + videoId + "/hqdefault.jpg"
-
                 : "";
-
         }
 
         let t = thumbnailLocal.trim();

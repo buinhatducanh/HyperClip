@@ -32,18 +32,57 @@ app/data/.hyperclip/sentinel_counts.json
 app/data/.hyperclip/shadow_ledger.jsonl
 app/data/.hyperclip/watch_probe_ledger.jsonl
 
-# 3. Media, Renders & Downloads nặng
+# 3. Media, Renders & Downloads nặng (Video, Audio, Images)
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.wmv
+*.flv
+*.webm
+*.m4v
+*.3gp
+*.ts
+*.m3u8
+
+*.mp3
+*.wav
+*.aac
+*.flac
+*.m4a
+*.ogg
+
+app/file#/
+file#/
+**/file#/
+**/CapCut*
+C:/CapCut*
 downloads/
+**/downloads/
 renders/
+**/renders/
 output/
+**/output/
 media/
+**/media/
+thumbnails/
+**/thumbnails/
 HyperClip-Data/downloads/
 HyperClip-Data/renders/
 HyperClip-Data/media/
 HyperClipB-Data/downloads/
 HyperClipB-Data/renders/
 HyperClipB-Data/media/
-C:/CapCut*
+
+# Bỏ qua hình ảnh tải về / thumbnail / render (giữ lại icon và tài nguyên tĩnh của app)
+*.jpg
+*.jpeg
+*.webp
+*.bmp
+*.gif
+!app/resources/**
+!app/_internal/resources/**
+!public/**
 
 # 4. Trình duyệt & Session hồ sơ (Chrome / AdsPower)
 chrome-profiles/

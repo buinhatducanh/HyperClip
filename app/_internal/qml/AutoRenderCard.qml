@@ -275,7 +275,7 @@ SettingsCard {
             Layout.alignment: Qt.AlignRight
             Switch {
                 id: overlaySwitch
-                checked: settings ? settings.renderTitleOverlay : true
+                checked: Boolean(settings && settings.renderTitleOverlay !== undefined ? settings.renderTitleOverlay : true)
                 onToggled: if (settings) settings.renderTitleOverlay = checked
                 ToolTip.text: checked ? "Đang nướng chữ vào video. Bấm để tắt." : "Đang TẮT chữ — thanh dưới chỉ còn nền."
                 ToolTip.visible: hovered
@@ -342,6 +342,57 @@ SettingsCard {
         // bấm tới được hai núm này — đúng cái bẫy mà Pass 105 sinh ra để chữa:
         // thứ gì ảnh hưởng e2e phải có trong UI, và "có trong UI" nghĩa là có ở
         // làn mà máy đó đang chạy.
+        // Cài đặt chất lượng video (Tăng/giảm để đánh đổi tốc độ upload & render)
+        ColumnLayout {
+            spacing: 2
+            Layout.fillWidth: true
+            Label {
+                text: "Chất lượng video & Tốc độ"
+                color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true
+            }
+            Label {
+                text: "Tăng chất lượng để hình ảnh sắc nét, mượt mà hơn (đánh đổi tốc độ render và thời gian upload). "
+                      + "Giảm chất lượng để tối ưu tốc độ nhanh nhất (upload TikTok chỉ ~2.5s)."
+                color: Theme.textMuted; font.pixelSize: 11
+                wrapMode: Text.WordWrap; Layout.fillWidth: true
+            }
+        }
+        ComboBox {
+            id: qualityPresetCombo
+            Layout.preferredWidth: 180
+            Layout.alignment: Qt.AlignRight
+            font.pixelSize: Theme.textMd
+            model: [
+                "⚡ Tốc độ tối đa",
+                "⚖️ Cân bằng (2M)",
+                "✨ Chất lượng cao (4M)",
+                "🔥 Cực nét (8M)",
+                "🛠️ Tuỳ chỉnh"
+            ]
+
+            function getQualityIndex(rate) {
+                var r = (rate !== undefined && rate !== null) ? Math.round(rate) : 0
+                if (r <= 0) return 0
+                if (r === 2) return 1
+                if (r === 4) return 2
+                if (r === 8) return 3
+                return 4
+            }
+
+            currentIndex: getQualityIndex(settings ? settings.renderMaxrateMbps : 0)
+            onActivated: function(index) {
+                if (!settings) return
+                if (index === 0) settings.renderMaxrateMbps = 0
+                else if (index === 1) settings.renderMaxrateMbps = 2
+                else if (index === 2) settings.renderMaxrateMbps = 4
+                else if (index === 3) settings.renderMaxrateMbps = 8
+                // Khôi phục binding chống vỡ binding khi tương tác qua lại (Fix BUG-02)
+                currentIndex = Qt.binding(function() {
+                    return getQualityIndex(settings ? settings.renderMaxrateMbps : 0)
+                })
+            }
+        }
+
         ColumnLayout {
             spacing: 2
             Layout.fillWidth: true
@@ -350,11 +401,7 @@ SettingsCard {
                 color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true
             }
             Label {
-                text: "0 = tự động theo card. Với part video dài, đây là đòn bẩy ĐO ĐƯỢC: "
-                      + "file 120 MB thì TikTok xử lý 2,9s, còn 57–91 MB chỉ 1,1–2,0s. "
-                      + "Đặt 3 rồi XEM THỬ video đầu — TikTok vốn nén lại còn ~1 Mbps. "
-                      + "Nấc 1 dành cho khi cần ép giây tối đa: PHẢI xem thử bằng mắt trước, "
-                      + "720p ở 1 Mbps dễ lộ khối ở cảnh chuyển động."
+                text: "0 = Tốc độ tối đa (~320k). Đặt 1-12 Mbps để nâng chất lượng hình ảnh theo ý muốn."
                 color: Theme.textMuted; font.pixelSize: 11
                 wrapMode: Text.WordWrap; Layout.fillWidth: true
             }
@@ -365,13 +412,154 @@ SettingsCard {
             font.pixelSize: Theme.textMd
             from: 0; to: 12; stepSize: 1
             editable: true
-            value: settings ? settings.renderMaxrateMbps : 0
+            value: settings ? Math.round(settings.renderMaxrateMbps) : 0
             onValueModified: if (settings) settings.renderMaxrateMbps = value
             onActiveFocusChanged: {
                 if (!activeFocus) {
                     var v = Math.max(from, Math.min(to, valueFromText(contentItem.text, locale)))
                     value = v
                     if (settings) settings.renderMaxrateMbps = v
+                }
+            }
+        }
+
+        // Cảnh báo không tương thích Bitrate & Resolution (Fix BUG-06)
+        Rectangle {
+            Layout.columnSpan: 2
+            Layout.fillWidth: true
+            visible: Boolean(settings && (settings.autoRenderResolution === "1080p") && (!settings.renderMaxrateMbps || settings.renderMaxrateMbps <= 0.05))
+            radius: Theme.radiusMd
+            color: Qt.rgba(0.96, 0.62, 0.04, 0.12)
+            border.color: "#F59E0B"
+            border.width: 1
+            implicitHeight: warnRow.implicitHeight + 14
+
+            RowLayout {
+                id: warnRow
+                anchors.fill: parent
+                anchors.margins: 8
+                spacing: 8
+                Label {
+                    text: "⚠️"
+                    font.pixelSize: 13
+                }
+                Label {
+                    Layout.fillWidth: true
+                    font.pixelSize: 11
+                    color: "#FDE68A"
+                    wrapMode: Text.WordWrap
+                    text: "Cảnh báo chất lượng: Độ phân giải 1080p kết hợp mức Tốc độ tối đa (320k) có thể gây vỡ khối (QP pumping) ở cảnh chuyển động nhanh. Đề xuất nâng lên mức '⚖️ Cân bằng (2M)' để hình ảnh mượt mà."
+                }
+            }
+        }
+
+        // Bảng phân tích đánh đổi trực quan (Fix BUG-07: tính toán động theo thời lượng cắt thực tế)
+        Rectangle {
+            Layout.columnSpan: 2
+            Layout.fillWidth: true
+            Layout.topMargin: 2
+            Layout.bottomMargin: 6
+            radius: Theme.radiusMd
+            color: Theme.surface
+            border.color: Theme.border
+            border.width: 1
+            implicitHeight: qualityDetailCol.implicitHeight + 16
+
+            readonly property int sampleDurationMins: {
+                if (!settings) return 1
+                if (settings.autoSplitEnabled && settings.autoSplitMinutes > 0) return settings.autoSplitMinutes
+                if (settings.defaultTrimLimitMinutes > 0) return settings.defaultTrimLimitMinutes
+                return 1
+            }
+
+            ColumnLayout {
+                id: qualityDetailCol
+                anchors.fill: parent
+                anchors.margins: 10
+                spacing: 6
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Rectangle {
+                        Layout.preferredHeight: 22
+                        Layout.preferredWidth: badgeLabel.implicitWidth + 14
+                        radius: 11
+                        readonly property real currentMbps: settings ? settings.renderMaxrateMbps : 0
+                        color: currentMbps <= 0.05 ? Qt.rgba(0.06, 0.73, 0.51, 0.2)
+                             : currentMbps <= 2.5  ? Qt.rgba(0.22, 0.74, 0.97, 0.2)
+                             : currentMbps <= 5.0  ? Qt.rgba(0.96, 0.62, 0.04, 0.2)
+                             : Qt.rgba(0.93, 0.28, 0.60, 0.2)
+                        border.color: currentMbps <= 0.05 ? "#10B981"
+                                    : currentMbps <= 2.5  ? "#38BDF8"
+                                    : currentMbps <= 5.0  ? "#F59E0B"
+                                    : "#EC4899"
+                        border.width: 1
+
+                        Label {
+                            id: badgeLabel
+                            anchors.centerIn: parent
+                            font.pixelSize: 11
+                            font.bold: true
+                            readonly property real currentMbps: settings ? settings.renderMaxrateMbps : 0
+                            color: currentMbps <= 0.05 ? "#10B981"
+                                 : currentMbps <= 2.5  ? "#38BDF8"
+                                 : currentMbps <= 5.0  ? "#F59E0B"
+                                 : "#EC4899"
+                            text: currentMbps <= 0.05 ? "⚡ TỐC ĐỘ TỐI ĐA"
+                                : currentMbps <= 2.5  ? "⚖️ CÂN BẰNG NÉT CHUẨN"
+                                : currentMbps <= 5.0  ? "✨ CHẤT LƯỢNG CAO (HQ)"
+                                : "🔥 CỰC NÉT TỐI ĐA"
+                        }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        font.pixelSize: 11
+                        font.bold: true
+                        color: Theme.text
+                        readonly property real currentMbps: settings ? settings.renderMaxrateMbps : 0
+                        readonly property int mins: parent.parent.parent.sampleDurationMins
+                        text: {
+                            if (currentMbps <= 0.05) {
+                                var mb = Math.max(2, Math.round(mins * 2.6))
+                                var sec = (0.5 + mins * 0.4).toFixed(1)
+                                return "Dung lượng (" + mins + " phút): ~" + mb + " MB  •  Upload TikTok: ~" + sec + "s  •  CQ 26 (Audio 48k)"
+                            } else if (currentMbps <= 2.5) {
+                                var mb = Math.max(7, Math.round(mins * 7.5))
+                                var sec = (1.0 + mins * 0.9).toFixed(1)
+                                return "Dung lượng (" + mins + " phút): ~" + mb + " MB  •  Upload TikTok: ~" + sec + "s  •  CQ 23 (Audio 96k)"
+                            } else if (currentMbps <= 5.0) {
+                                var mb = Math.max(15, Math.round(mins * 15.0))
+                                var sec = (1.5 + mins * 1.8).toFixed(1)
+                                return "Dung lượng (" + mins + " phút): ~" + mb + " MB  •  Upload TikTok: ~" + sec + "s  •  CQ 21 (Audio 128k)"
+                            } else {
+                                var mb = Math.max(30, Math.round(mins * 30.0))
+                                var sec = (2.5 + mins * 3.8).toFixed(1)
+                                return "Dung lượng (" + mins + " phút): ~" + mb + " MB  •  Upload TikTok: ~" + sec + "s  •  CQ 18 (Audio 192k)"
+                            }
+                        }
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    font.pixelSize: 11
+                    color: Theme.textMuted
+                    wrapMode: Text.WordWrap
+                    readonly property real currentMbps: settings ? settings.renderMaxrateMbps : 0
+                    text: {
+                        if (currentMbps <= 0.05) {
+                            return "→ Đánh đổi: File siêu nhẹ, render cực nhanh, tối ưu upload vượt ngưỡng mạng proxy. Phù hợp cày số lượng video lớn."
+                        } else if (currentMbps <= 2.5) {
+                            return "→ Đánh đổi: Hình ảnh sắc nét hơn rõ rệt, giảm hiện tượng vỡ hạt khi chuyển động nhanh. Đánh đổi thêm ~1-2 giây upload."
+                        } else if (currentMbps <= 5.0) {
+                            return "→ Đánh đổi: Độ nét cao, giữ trọn vẹn chi tiết khung hình và âm thanh stereo trong trẻo. Render và upload sẽ mất thêm ~3-5 giây."
+                        } else {
+                            return "→ Đánh đổi: Độ nét tối đa (1080p), tận dụng tối đa sức mạnh GPU RTX 5070. File nặng và upload lâu hơn đáng kể."
+                        }
+                    }
                 }
             }
         }
@@ -393,7 +581,7 @@ SettingsCard {
         }
         Switch {
             Layout.alignment: Qt.AlignRight
-            checked: settings ? settings.tiktokFastDone : true
+            checked: Boolean(settings && settings.tiktokFastDone !== undefined ? settings.tiktokFastDone : true)
             onToggled: if (settings) settings.tiktokFastDone = checked
         }
     }
