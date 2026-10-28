@@ -11,4 +11,4 @@ oShell.Run "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File ""C
 oShell.Run """C:\Users\Administrator\Desktop\HyperClip\app\_internal\resources\node\node.exe"" ""C:\Users\Administrator\Desktop\HyperClip\tools\start_all_browsers.js""", 0, False
 
 ' 3. Khoi dong HyperClip truc tiep (giao dien UI binh thuong, khong hien CMD)
-oShell.Run """C:\Users\Administrator\Desktop\HyperClip\HyperClip.exe""", 1, False
+oShell.Run """C:\Users\Administrator\Desktop\HyperClip\app\HyperClip.exe""", 1, False
