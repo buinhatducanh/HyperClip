@@ -11,6 +11,11 @@ import QtQuick.Layouts
 import QtQuick.Controls
 
 Item {
+    Component.onCompleted: {
+        if (typeof quota !== "undefined" && quota) {
+            quota.refresh_from_backend(backend)
+        }
+    }
     GcpWizard {
         id: wizard
         onProjectAdded: if (quota) quota.refresh_from_backend(backend)

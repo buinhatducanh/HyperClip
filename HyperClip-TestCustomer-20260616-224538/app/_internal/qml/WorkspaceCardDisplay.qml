@@ -3,7 +3,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import "Fmt.js" as Fmt
 
 Rectangle {
     id: displayRoot
@@ -11,18 +10,15 @@ Rectangle {
     property string title: ""
     property real progress: 0
     property string channel_name: ""
-    /// id kênh trong store (`ch-…`) — khoá tra avatar; rỗng thì tra theo tên.
     property string channelId: ""
+    property string publishedTimeStr: ""
     property string thumbnail: ""
     property bool isShort: true
     property int durationSec: 0
     property int quality: 1080
     property real speed: 1.0
     property string fileSize: ""
-    /// "bắt được cách đây bao lâu" — KHÔNG phải tuổi video lúc bắt.
     property string ageLabel: ""
-    /// Giờ ĐĂNG của video (HH:MM:SS). Hàng bù hiện mốc này, không hiện khoảng.
-    property string publishedTimeStr: ""
     property bool isSelected: false
     property bool selectionActive: false
     property bool isStartupCatchup: false
@@ -32,7 +28,15 @@ Rectangle {
     property int partTotal: 0
     property real sourceDupRatio: 0
 
-    function formatDuration1Dec(sec) { return Fmt.durationOr(sec, "") }
+    function formatDuration1Dec(sec) {
+        if (!sec || sec <= 0) return ""
+        const h = Math.floor(sec / 3600)
+        const m = Math.floor((sec % 3600) / 60)
+        const s = sec % 60
+        if (h > 0) return h + "h " + m + "m " + s.toFixed(1) + "s"
+        if (m > 0) return m + "m " + s.toFixed(1) + "s"
+        return s.toFixed(1) + "s"
+    }
 
     color: hovered ? Theme.hoverBg : Theme.cardBg
     border.color: isSelected ? Theme.accent
@@ -48,31 +52,44 @@ Rectangle {
     Behavior on color { ColorAnimation { duration: 150 } }
     Behavior on border.color { ColorAnimation { duration: 150 } }
 
-    function statusIcon() {
+        function statusIcon() {
         switch (status) {
-            case "pending": return "⏳"
-            case "waiting": return "⏸"
-            case "downloading": return "⬇"
-            case "ready": return "✅"
-            case "editing": return "✏"
-            case "rendering": return "🎬"
-            case "done": return "✓"
-            case "error": return "✗"
-            default: return "?"
+            case "pending": return "waiting"
+            case "waiting": return "waiting"
+            case "downloading": return "download"
+            case "ready": return "check"
+            case "editing": return "edit"
+            case "rendering": return "render"
+            case "done": return "check"
+            case "error": return "warning"
+            default: return "info"
         }
     }
     
     function statusLabel() {
         switch (status) {
-            case "pending": return "Chờ"
-            case "waiting": return "Chờ DL"
+            case "pending": return "Chờ xử lý"
+            case "waiting": return "Chờ tải"
             case "downloading": return "Đang tải"
-            case "ready": return "Sẵn sàng"
+            case "ready": return "Hoàn thành"
             case "editing": return "Đang sửa"
             case "rendering": return "Đang render"
-            case "done": return "Xong"
-            case "error": return "Lỗi"
+            case "done": return "Hoàn thành"
+            case "error": return "Thất bại"
             default: return status
+        }
+    }
+
+    function statusColor() {
+        switch (status) {
+            case "pending":
+            case "waiting": return Theme.statusWaiting
+            case "downloading": return Theme.statusDownloading
+            case "rendering": return Theme.statusRendering
+            case "ready":
+            case "done": return Theme.statusReady
+            case "error": return Theme.statusError
+            default: return Theme.textMuted
         }
     }
 
@@ -83,12 +100,7 @@ Rectangle {
         anchors.left: parent.left
         anchors.top: parent.top
         anchors.bottom: parent.bottom
-        color: status === "error" ? Theme.error
-             : status === "rendering" ? Theme.accent
-             : status === "done" ? Theme.success
-             : status === "downloading" ? "#FFA500"
-             : status === "ready" ? Theme.success
-             : "transparent"
+        color: displayRoot.statusColor()
     }
 
     RowLayout {
@@ -245,45 +257,19 @@ Rectangle {
                 }
             }
 
-            // Channel name row — kèm avatar chuẩn của kênh (cùng bảng tra với
-            // Sidebar / Quản lí / Vận hành, không tự đi lấy ảnh riêng).
-            RowLayout {
+            // Channel name row
+            Label {
+                text: channel_name || "—"
+                color: Theme.accent
+                font.pixelSize: Theme.textSm
+                font.bold: true
+                elide: Text.ElideRight
                 Layout.fillWidth: true
-                spacing: 4
-                ChannelAvatarFor {
-                    channelKey: displayRoot.channelId
-                    fallbackName: displayRoot.channel_name
-                    diameter: 14
-                    Layout.alignment: Qt.AlignVCenter
-                }
-                Label {
-                    text: channel_name || "—"
-                    color: Theme.accent
-                    font.pixelSize: Theme.textSm
-                    font.bold: true
-                    elide: Text.ElideRight
-                    Layout.fillWidth: true
-                }
             }
 
             // Detailed metadata line
             Label {
-                // "Khởi động" đọc thành "app khởi động mất ngần này" — sai
-                // hẳn nghĩa: nó chỉ có nghĩa video ĐÃ ĐĂNG TRƯỚC KHI mở app.
-                // Khách hỏi đúng: "app quét bằng API thì khởi động gì?". Nói
-                // bằng chữ của việc thật: đây là hàng BÙ.
-                // Pass 71: hàng bù hiện MỐC GIỜ ĐĂNG + "App khởi động", không
-                // hiện khoảng thời gian nào — giống hàng LỊCH SỬ PHÁT HIỆN.
-                //
-                // Pass 74: `ageLabel` = "bắt cách đây bao lâu" (now − detectedAt).
-                // Pass 73 từng đổi sang publishedAt — SAI HƯỚNG: đó là mốc bắt
-                // đầu UPLOAD, sớm hơn công khai 3-4 phút với video dài (đo
-                // 14/08: khai 11:16:06, bấm Đăng 11:19:29), nhãn lệch THÊM chứ
-                // không khớp nhãn YouTube hơn.
-                text: (isStartupCatchup
-                       ? ((publishedTimeStr !== "" ? "đăng " + publishedTimeStr + " · " : "")
-                          + "App khởi động")
-                       : (ageLabel !== "" ? ageLabel : "")) +
+                text: (isStartupCatchup ? "Khởi động" : (ageLabel !== "" ? ageLabel : "")) +
                       (fileSize !== "" ? " · " + fileSize : "") +
                       (durationSec > 0 ? " · " + (function() {
                           const actualDur = Math.round(durationSec / speed)
@@ -293,7 +279,7 @@ Rectangle {
                       })() : "") +
                       " · " + quality + "p" +
                       (speed > 1 ? " · " + speed.toFixed(1) + "x" : "") +
-                      (totalDurationSec > 0 ? " · E2E Tổng: " + formatDuration1Dec(totalDurationSec) : "")
+                      (totalDurationSec > 0 ? " · Tổng: " + formatDuration1Dec(totalDurationSec) : "")
                 color: Theme.textMuted
                 font.pixelSize: Theme.textXs
                 elide: Text.ElideRight

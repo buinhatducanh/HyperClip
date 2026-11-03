@@ -275,7 +275,7 @@ SettingsCard {
             Layout.alignment: Qt.AlignRight
             Switch {
                 id: overlaySwitch
-                checked: settings ? settings.renderTitleOverlay : true
+                checked: (settings && typeof settings.renderTitleOverlay !== "undefined") ? Boolean(settings.renderTitleOverlay) : true
                 onToggled: if (settings) settings.renderTitleOverlay = checked
                 ToolTip.text: checked ? "Đang nướng chữ vào video. Bấm để tắt." : "Đang TẮT chữ — thanh dưới chỉ còn nền."
                 ToolTip.visible: hovered
@@ -332,6 +332,69 @@ SettingsCard {
                     if (settings) settings.maxConcurrentRenders = val
                 }
             }
+        }
+
+        // Pass 119 — HAI NÚM E2E TRƯỚC ĐÂY CHỈ CÓ Ở CARD SHORTS.
+        //
+        // Pass 105 đưa `renderMaxrateMbps` + `tiktokFastDone` ra UI, nhưng đặt
+        // trong ShortsSettingsCard. Từ Pass 104 trang Cài đặt chỉ hiện card của
+        // LÀN ĐANG BẬT, nên máy chạy làn Video dài (Shorts=TẮT) KHÔNG BAO GIỜ
+        // bấm tới được hai núm này — đúng cái bẫy mà Pass 105 sinh ra để chữa:
+        // thứ gì ảnh hưởng e2e phải có trong UI, và "có trong UI" nghĩa là có ở
+        // làn mà máy đó đang chạy.
+        ColumnLayout {
+            spacing: 2
+            Layout.fillWidth: true
+            Label {
+                text: "Trần bitrate render (Mbps)"
+                color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true
+            }
+            Label {
+                text: "0 = tự động theo card. Với part video dài, đây là đòn bẩy ĐO ĐƯỢC: "
+                      + "file 120 MB thì TikTok xử lý 2,9s, còn 57–91 MB chỉ 1,1–2,0s. "
+                      + "Đặt 3 rồi XEM THỬ video đầu — TikTok vốn nén lại còn ~1 Mbps. "
+                      + "Nấc 1 dành cho khi cần ép giây tối đa: PHẢI xem thử bằng mắt trước, "
+                      + "720p ở 1 Mbps dễ lộ khối ở cảnh chuyển động."
+                color: Theme.textMuted; font.pixelSize: 11
+                wrapMode: Text.WordWrap; Layout.fillWidth: true
+            }
+        }
+        SpinBox {
+            Layout.preferredWidth: 180
+            Layout.alignment: Qt.AlignRight
+            font.pixelSize: Theme.textMd
+            from: 0; to: 12; stepSize: 1
+            editable: true
+            value: settings ? settings.renderMaxrateMbps : 0
+            onValueModified: if (settings) settings.renderMaxrateMbps = value
+            onActiveFocusChanged: {
+                if (!activeFocus) {
+                    var v = Math.max(from, Math.min(to, valueFromText(contentItem.text, locale)))
+                    value = v
+                    if (settings) settings.renderMaxrateMbps = v
+                }
+            }
+        }
+
+        ColumnLayout {
+            spacing: 2
+            Layout.fillWidth: true
+            Label {
+                text: "Đăng TikTok: xong ngay khi gửi lệnh đăng"
+                color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true
+            }
+            Label {
+                text: "Không chờ TikTok chuyển trang xác nhận. Đo trên máy khách: chặng "
+                      + "xác nhận 1,5–2,1s xuống còn 0,5–0,7s. Đánh đổi: nếu TikTok hỏng "
+                      + "SAU cú bấm Đăng thì app đã báo xong — log ghi rõ \"fastDone\"."
+                color: Theme.textMuted; font.pixelSize: 11
+                wrapMode: Text.WordWrap; Layout.fillWidth: true
+            }
+        }
+        Switch {
+            Layout.alignment: Qt.AlignRight
+            checked: (settings && typeof settings.tiktokFastDone !== "undefined") ? Boolean(settings.tiktokFastDone) : true
+            onToggled: if (settings) settings.tiktokFastDone = checked
         }
     }
 }

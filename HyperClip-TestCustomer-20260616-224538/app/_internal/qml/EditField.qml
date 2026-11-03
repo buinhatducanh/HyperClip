@@ -1,3 +1,5 @@
+// src/ui/qml/EditField.qml
+// Standardized inline editable field conforming to Theme tokens.
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -11,18 +13,40 @@ Rectangle {
 
     color: "transparent"
     Layout.fillWidth: true
-    Layout.preferredHeight: 36
+    Layout.preferredHeight: 34
 
     RowLayout {
-        anchors.fill: parent; anchors.margins: 8; spacing: 8
-        Label { text: root.label; color: "#888"; font.pixelSize: 16; Layout.preferredWidth: 80 }
+        anchors.fill: parent
+        anchors.margins: 4
+        spacing: 8
+
+        Label {
+            text: root.label
+            color: Theme.textMuted
+            font.pixelSize: Theme.textSm
+            Layout.preferredWidth: 80
+        }
+
         TextField {
+            id: inputField
             text: root.value !== null ? root.value.toString() : ""
             Layout.fillWidth: true
             onEditingFinished: root.valueModified(text)
-            color: "#fff"; font.pixelSize: 16
-            background: Rectangle { color: "#1e1e1e"; border.color: "#333"; radius: 2 }
+            color: Theme.text
+            font.pixelSize: Theme.textSm
+            background: Rectangle {
+                color: Theme.inputBg
+                border.color: inputField.activeFocus ? Theme.accent : Theme.border
+                border.width: 1
+                radius: Theme.radiusSm
+            }
         }
-        Label { text: root.unit; color: "#888"; font.pixelSize: 16; visible: root.unit !== "" }
+
+        Label {
+            text: root.unit
+            color: Theme.textMuted
+            font.pixelSize: Theme.textSm
+            visible: root.unit !== ""
+        }
     }
 }

@@ -26,7 +26,7 @@ Item {
             case "success":    return Theme.success
             case "paused":     return Theme.textMuted
             case "idle":       return Theme.textMuted
-            case "warning":    return Theme.warning
+            case "warning":    return "#FFD93D"
             case "error":      return Theme.error
             case "connecting": return Theme.accent
             case "ready":      return Theme.accent

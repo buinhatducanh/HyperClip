@@ -8,7 +8,7 @@ Rectangle {
     id: card
     default property alias content: body.data
     property string title: ""
-    property color titleColor: Theme.accent
+    property color titleColor: Theme.text
     property int bodySpacing: Theme.spacingSm
 
     color: Theme.cardBg
@@ -27,9 +27,9 @@ Rectangle {
             visible: card.title !== ""
             text: card.title
             color: card.titleColor
-            font.pixelSize: Theme.textLg
+            font.pixelSize: Theme.textSm
             font.bold: true
-            font.letterSpacing: 0.8
+            font.letterSpacing: 1.2
             Layout.fillWidth: true
         }
 

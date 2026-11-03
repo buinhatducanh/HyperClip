@@ -1,5 +1,5 @@
 // src/ui/qml/ToastNotification.qml
-// Chrome-style toast — bottom-right corner, auto-dismiss with progress bar,
+// Chrome-style toast — top-right corner, auto-dismiss with progress bar,
 // supports multiple levels (info/success/warn/error), and optional click action.
 import QtQuick
 import QtQuick.Layouts
@@ -22,36 +22,48 @@ Rectangle {
          : level === "warn"  ? "#1F1A10"
          : level === "success" ? "#0F1F14"
          : "#1A1A1A"
-    border.color: level === "error" ? Theme.error
-               : level === "warn"  ? Theme.warning
-               : level === "success" ? Theme.success
+    border.color: level === "error" ? "#FF4444"
+               : level === "warn"  ? "#FFD93D"
+               : level === "success" ? "#00FF88"
                : Theme.accent
     border.width: 1
     opacity: 0
+    visible: opacity > 0.01
+    enabled: opacity > 0.01
 
-    // Slide-in animation
-    x: parent ? parent.width - width - 16 : 0
-    y: parent ? parent.height - height - 16 - (toast.parent ? toast.parent.toastOffset || 0 : 0) : 0
-
-    Behavior on x { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
-    Behavior on opacity { NumberAnimation { duration: 200 } }
+    Behavior on opacity {
+        NumberAnimation {
+            duration: 200
+            onRunningChanged: {
+                if (!running && toast.opacity <= 0.01) {
+                    toast.destroy()
+                }
+            }
+        }
+    }
 
     function show() {
+        visible = true
+        enabled = true
         opacity = 1
         progressBar.width = 0
         progressAnim.restart()
         autoCloseTimer.interval = autoCloseMs
         autoCloseTimer.restart()
     }
+
     function dismiss() {
         autoCloseTimer.stop()
         opacity = 0
+        visible = false
+        enabled = false
+        toast.destroy(250)
     }
 
     Timer {
         id: autoCloseTimer
         repeat: false
-        onTriggered: toast.opacity = 0
+        onTriggered: toast.dismiss()
     }
 
     // Auto-dismiss progress bar
@@ -160,10 +172,11 @@ Rectangle {
         }
     }
 
-    // Click anywhere on toast to dismiss (unless action button is hit)
+    // Click anywhere on toast to dismiss
     MouseArea {
         anchors.fill: parent
         acceptedButtons: Qt.LeftButton
+        enabled: toast.opacity > 0.01
         onClicked: toast.dismiss()
         z: -1
     }

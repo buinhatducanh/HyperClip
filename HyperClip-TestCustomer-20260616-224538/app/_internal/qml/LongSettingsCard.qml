@@ -85,8 +85,8 @@ ColumnLayout {
     // Chỉ các ô THUỘC LÀN (tự động tải/chất lượng/cắt phút · tự động render/
     // độ phân giải/fps/tốc độ/tách phần). Tuổi video tối đa, số luồng tải,
     // bypass VPN, chữ thanh dưới, render song song là CHUNG → trang Cài đặt.
-    DownloadCard { globalFields: false; Layout.fillWidth: true }
-    AutoRenderCard { globalFields: false; Layout.fillWidth: true }
+    DownloadCard { Layout.fillWidth: true }
+    AutoRenderCard { Layout.fillWidth: true }
 
     SettingsCard {
         Layout.fillWidth: true
@@ -106,7 +106,39 @@ ColumnLayout {
             }
             Switch {
                 checked: settings ? settings.tiktokUploadEnabled : false
-                onToggled: if (settings) settings.tiktokUploadEnabled = checked
+                onToggled: {
+                    if (settings) {
+                        settings.tiktokUploadEnabled = checked
+                        if (checked) {
+                            try {
+                                if (typeof backend !== "undefined" && backend) {
+                                    var resp = backend.send_command("tiktok:list")
+                                    var r = (resp && resp.result) ? resp.result : resp
+                                    if (r && r.mappings && r.accounts) {
+                                        var accMap = {}
+                                        for (var cid in r.mappings) {
+                                            var aid = r.mappings[cid]
+                                            if (aid) {
+                                                accMap[aid] = true
+                                                accMap[String(aid).replace(/^tt_/, "")] = true
+                                            }
+                                        }
+                                        for (var i = 0; i < r.accounts.length; i++) {
+                                            var a = r.accounts[i]
+                                            var cleanId = String(a.id).replace(/^tt_/, "")
+                                            if (accMap[a.id] || accMap[cleanId]) {
+                                                var tgt = a.profileId ? ("user_id=" + encodeURIComponent(a.profileId)) : ("serial_number=" + encodeURIComponent(a.adsPowerSerial || (i + 1)))
+                                                var req = new XMLHttpRequest()
+                                                req.open("GET", "http://127.0.0.1:50325/api/v1/browser/start?" + tgt + "&open_tabs=1")
+                                                req.send()
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (e) {}
+                        }
+                    }
+                }
             }
         }
     }

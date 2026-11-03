@@ -21,7 +21,7 @@ Rectangle {
     readonly property color budgetColor: {
         if (!quota) return Theme.textMuted
         if (quota.exhausted) return Theme.error
-        if (!quota.coversReset) return Theme.warning
+        if (!quota.coversReset) return "#FFD93D"
         return Theme.success
     }
 
@@ -134,7 +134,7 @@ Rectangle {
                             }
                             Label {
                                 text: quota ? quota.runwayStr : ""
-                                color: quota && !quota.coversReset ? Theme.warning : Theme.textMuted
+                                color: quota && !quota.coversReset ? "#FFD93D" : Theme.textMuted
                                 font.pixelSize: 11
                                 font.bold: quota && !quota.coversReset
                             }
@@ -164,57 +164,77 @@ Rectangle {
                     }
 
                     component Metric: Rectangle {
+                        id: metricRoot
                         property string metricLabel: ""
                         property string metricValue: ""
                         property color metricColor: Theme.text
-                        Layout.preferredWidth: 118
-                        Layout.preferredHeight: 46
+                        property string tipText: ""
+                        Layout.preferredWidth: 124
+                        Layout.preferredHeight: 52
                         radius: Theme.radiusMd
-                        color: Theme.bg
-                        border.color: Theme.border
+                        color: metricMa.containsMouse ? (Theme.cardBg) : Theme.bg
+                        border.color: metricMa.containsMouse ? metricColor : Theme.border
                         border.width: 1
+
+                        Behavior on border.color { ColorAnimation { duration: 150 } }
+                        Behavior on color { ColorAnimation { duration: 150 } }
+
                         ColumnLayout {
                             anchors.centerIn: parent
-                            spacing: 1
+                            spacing: 2
                             Label {
-                                text: metricValue
-                                color: metricColor
-                                font.pixelSize: 14
+                                text: metricRoot.metricValue
+                                color: metricRoot.metricColor
+                                font.pixelSize: 15
                                 font.bold: true
                                 Layout.alignment: Qt.AlignHCenter
                             }
                             Label {
-                                text: metricLabel
+                                text: metricRoot.metricLabel
                                 color: Theme.textMuted
                                 font.pixelSize: 9
+                                font.bold: true
+                                font.letterSpacing: 0.5
                                 Layout.alignment: Qt.AlignHCenter
                             }
                         }
+
+                        MouseArea {
+                            id: metricMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                        }
+
+                        ToolTip.visible: metricMa.containsMouse && tipText !== ""
+                        ToolTip.text: tipText
+                        ToolTip.delay: 300
                     }
 
                     Metric {
-                        // Khi bị giãn, ghi luôn nhịp khách ĐẶT ngay trong nhãn —
-                        // khách phải thấy con số họ chỉnh không phải số đang chạy.
                         metricLabel: quota && quota.throttled
                             ? ("NHỊP (ĐẶT " + quota.desiredIntervalStr + ")")
                             : "NHỊP QUÉT"
                         metricValue: quota ? quota.intervalStr : "—"
-                        metricColor: quota && quota.throttled ? Theme.warning : Theme.success
+                        metricColor: quota && quota.throttled ? "#FFD93D" : Theme.success
+                        tipText: "Chu kỳ gửi request hỏi YouTube Data API v3 theo nhịp điều phối toàn máy."
                     }
                     Metric {
                         metricLabel: "UNITS / NHỊP"
                         metricValue: quota ? String(quota.unitsPerTick) : "—"
                         metricColor: Theme.accent
+                        tipText: "Số đơn vị hạn mức YouTube tiêu hao trong mỗi vòng quét kênh."
                     }
                     Metric {
                         metricLabel: "ĐANG SOI"
                         metricValue: quota ? String(quota.sentinelChannels + quota.hotChannels) : "—"
                         metricColor: Theme.text
+                        tipText: "Tổng số kênh ưu tiên (Hot) và kênh thường (Sentinel) đang quét."
                     }
                     Metric {
                         metricLabel: "ĐÃ ĐỦ HÔM NAY"
                         metricValue: quota ? String(quota.satisfiedChannels) : "—"
                         metricColor: quota && quota.satisfiedChannels > 0 ? Theme.success : Theme.textMuted
+                        tipText: "Số kênh đã bắt đủ video hôm nay và được cho nghỉ để tiết kiệm quota."
                     }
 
                     // Project hỏng phải nổi lên ngay tầng trạng thái — bấm là
@@ -260,7 +280,7 @@ Rectangle {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
                     text: "Nhịp đang bị giãn để ngân sách đủ tới lúc reset. Muốn quét nhanh hơn: thêm project, hoặc đặt chính sách \"n video/ngày\" cho các kênh ít đăng."
-                    color: Theme.warning
+                    color: "#FFD93D"
                     font.pixelSize: 11
                 }
             }

@@ -15,14 +15,22 @@ Rectangle {
     property var selectedIds: []
     property bool isDeleteSelectMode: false
     property var channelOptions: []
+    property string laneFilter: ""
+    property bool allowClearAll: true
 
     signal openWorkspace(string ws_id)
     signal selectChannelFilter(string channelId)
 
-    function passFilter(itemStatus, itemTitle, itemChannel) {
+    function passFilter(itemStatus, itemTitle, itemChannel, itemIsShort) {
+        if (!itemStatus || itemStatus === "deleted" || itemStatus === "hidden")
+            return false
         if (statusFilter !== "all" && statusFilter !== itemStatus)
             return false
         if (channelFilter && channelFilter !== itemChannel)
+            return false
+        if (laneFilter === "long" && itemIsShort)
+            return false
+        if (laneFilter === "shorts" && !itemIsShort)
             return false
         return true
     }
@@ -177,12 +185,10 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 24
                 onClicked: {
-                    // Vá 18/08 (giữ khi trả UI cũ): đụng model SAU CÙNG và hoãn
-                    // ra khỏi stack sự kiện — clear_all → load_from_backend →
-                    // beginResetModel huỷ delegate đang chạy dở handler.
-                    if (!workspaceModel) return
-                    root.clearSelection()
-                    Qt.callLater(function() { workspaceModel.clear_all(backend) })
+                    if (workspaceModel) {
+                        workspaceModel.clear_all(backend)
+                        root.clearSelection()
+                    }
                 }
             }
         }
@@ -224,11 +230,10 @@ Rectangle {
                         Layout.preferredHeight: 20
                         Layout.preferredWidth: 95
                         onClicked: {
-                            // Vá 18/08: chụp danh sách trước, đụng model sau.
-                            if (!workspaceModel) return
-                            const ids = root.selectedIds.slice()
-                            root.clearSelection()
-                            Qt.callLater(function() { workspaceModel.delete_workspaces(backend, ids) })
+                            if (workspaceModel) {
+                                workspaceModel.delete_workspaces(backend, root.selectedIds)
+                                root.clearSelection()
+                            }
                         }
                     }
 
@@ -264,13 +269,12 @@ Rectangle {
             delegate: WorkspaceCard {
                 width: queueList.width
                 ws_id: model.id
-                status: root.passFilter(model.status || "pending", model.title, model.channelId) ? model.status || "pending" : "hidden"
-                visible: status !== "hidden"
-                height: status === "hidden" ? 0 : 82
+                status: root.passFilter(model.status || "pending", model.title, model.channelId, model.isShort) ? model.status || "pending" : "hidden"
+                visible: status !== "hidden" && status !== "deleted" && !!model.id
+                height: (status === "hidden" || status === "deleted" || !model.id) ? 0 : 82
                 title: model.title
                 progress: model.progress || 0
                 channel_name: model.channel_name
-                channelId: model.channelId || ""
                 thumbnail: model.thumbnail
                 isShort: model.isShort
                 durationSec: model.durationSec || 0
@@ -278,7 +282,6 @@ Rectangle {
                 speed: model.speed || 1.0
                 fileSize: model.fileSize || ""
                 ageLabel: model.ageLabel || ""
-                publishedTimeStr: model.publishedTimeStr || ""
                 totalDurationSec: model.totalDurationSec || 0
                 isStartupCatchup: model.isStartupCatchup || false
                 partIndex: model.partIndex || 0
@@ -290,22 +293,16 @@ Rectangle {
                 onSelectToggled: {
                     root.toggleSelect(model.id)
                 }
-                // Vá 18/08 (LỖI THẬT trong ui-qt.log khách 14:19:52 —
-                // "WorkspaceQueue.qml:307 ReferenceError: root is not defined"):
-                // delete_workspace → load_from_backend → beginResetModel huỷ
-                // SẠCH delegate, kể cả delegate đang chạy dở chính handler này;
-                // dòng sau đó đọc `root`/`model` là đọc object đã chết. Luật:
-                // CHỤP giá trị trước, đụng model SAU CÙNG qua Qt.callLater.
                 onDeleteClicked: {
-                    if (!workspaceModel) return
-                    const wsId = model.id
-                    const idx = root.selectedIds.indexOf(wsId)
-                    if (idx >= 0) {
-                        var temp = root.selectedIds.slice()
-                        temp.splice(idx, 1)
-                        root.selectedIds = temp
+                    if (workspaceModel) {
+                        workspaceModel.delete_workspace(backend, model.id)
+                        var idx = root.selectedIds.indexOf(model.id)
+                        if (idx >= 0) {
+                            var temp = root.selectedIds.slice()
+                            temp.splice(idx, 1)
+                            root.selectedIds = temp
+                        }
                     }
-                    Qt.callLater(function() { workspaceModel.delete_workspace(backend, wsId) })
                 }
                 onWorkspaceClicked: function(id) {
                     if (root.isDeleteSelectMode) {

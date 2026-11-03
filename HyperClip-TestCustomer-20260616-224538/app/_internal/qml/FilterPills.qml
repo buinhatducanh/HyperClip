@@ -1,15 +1,5 @@
 // FilterPills.qml
-// Hàng pill lọc theo trạng thái của hàng đợi.
-//
-// SỬA 18/08/2026 (lộ ra khi dựng tab làn): trước đây mỗi pill nằm trong một
-// `Loader`, mà `Layout.preferredWidth/Height` là thuộc tính GẮN của Layout —
-// chỉ có tác dụng khi item là con TRỰC TIẾP của Layout. Nằm trong Loader thì
-// hai dòng đó vô nghĩa, Rectangle không có kích thước ẩn nào khác nên cả 5
-// pill rộng 0 và chữ chồng đè lên nhau thành một cục ở mép trái (nội dung
-// `anchors.centerIn` vẫn vẽ). Nay dùng `Repeater` — delegate là con trực tiếp
-// của RowLayout — và bề rộng lấy từ chính nội dung thay vì đếm ký tự.
-// Hàm `createPill(...)` cũ đã bỏ: không nơi nào gọi, và nó tạo object với
-// parent null (không bao giờ hiện).
+// Standardized Queue Status Filter Pills with unified theme colors.
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -22,50 +12,77 @@ RowLayout {
     property string current: "all"
     signal filterChanged(string value)
 
-    Repeater {
-        model: [
-            { value: "all",         label: "Tất cả",    color: Theme.accent,  icon: "circle" },
-            { value: "ready",       label: "Sẵn sàng",  color: Theme.success, icon: "ready" },
-            { value: "rendering",   label: "Render",    color: Theme.accent,  icon: "rendering" },
-            { value: "downloading", label: "Tải",       color: Theme.processing, icon: "downloading" },
-            { value: "error",       label: "Lỗi",       color: Theme.error,   icon: "error" }
-        ]
-        delegate: Rectangle {
+    Component {
+        id: rectComp
+        Rectangle {
             id: pillRect
-            required property var modelData
-            readonly property bool on: rootPill.current === modelData.value
-            Layout.preferredHeight: 22
-            Layout.preferredWidth: pillRow.implicitWidth + 16
-            radius: 11
-            color: on ? modelData.color : Theme.cardBg
-            border.color: on ? modelData.color : Theme.border
+            property string pillValue: "all"
+            property string pillLabel: "Tất cả"
+            property var pillColor: Theme.accent
+            property string pillIcon: "circle"
+
+            readonly property bool isSelected: rootPill.current === pillValue
+            Layout.preferredHeight: 24
+            Layout.preferredWidth: pillLabel.length * 7 + 18 + (pillIcon !== "" ? 14 : 0)
+            radius: 12
+            color: isSelected ? pillColor : (pillMa.containsMouse ? Theme.hoverBg : Theme.cardBg)
+            border.color: isSelected ? pillColor : (pillMa.containsMouse ? Theme.cardBorderHover : Theme.border)
             border.width: 1
 
+            Behavior on color { ColorAnimation { duration: 120 } }
+            Behavior on border.color { ColorAnimation { duration: 120 } }
+
             Row {
-                id: pillRow
-                anchors.centerIn: parent
+                anchors.centerIn: pillRect
                 spacing: 4
                 Icon {
-                    visible: pillRect.modelData.icon !== ""
-                    name: pillRect.modelData.icon
+                    visible: pillRect.pillIcon !== ""
+                    name: pillRect.pillIcon
                     size: 10
-                    color: pillRect.on ? "white" : Theme.textMuted
+                    color: pillRect.isSelected ? "#FFFFFF" : pillRect.pillColor
                     anchors.verticalCenter: parent.verticalCenter
                 }
                 Label {
-                    text: pillRect.modelData.label
-                    color: pillRect.on ? "white" : Theme.textMuted
+                    text: pillRect.pillLabel
+                    color: pillRect.isSelected ? "#FFFFFF" : Theme.textMuted
                     font.pixelSize: 11
-                    font.bold: pillRect.on
+                    font.bold: pillRect.isSelected
                     anchors.verticalCenter: parent.verticalCenter
                 }
             }
             MouseArea {
+                id: pillMa
                 anchors.fill: parent
+                hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: rootPill.filterChanged(pillRect.modelData.value)
+                onClicked: rootPill.filterChanged(pillRect.pillValue)
             }
         }
+    }
+
+    Loader {
+        sourceComponent: rectComp
+        onLoaded: { item.pillValue = "all"; item.pillLabel = "Tất cả"; item.pillColor = Theme.accent; item.pillIcon = "circle" }
+    }
+    Loader {
+        sourceComponent: rectComp
+        onLoaded: { item.pillValue = "pending"; item.pillLabel = "Chờ xử lý"; item.pillColor = Theme.statusWaiting; item.pillIcon = "waiting" }
+    }
+    Loader {
+        sourceComponent: rectComp
+        onLoaded: { item.pillValue = "downloading"; item.pillLabel = "Đang tải"; item.pillColor = Theme.statusDownloading; item.pillIcon = "downloading" }
+    }
+    Loader {
+        sourceComponent: rectComp
+        onLoaded: { item.pillValue = "rendering"; item.pillLabel = "Render"; item.pillColor = Theme.statusRendering; item.pillIcon = "rendering" }
+    }
+    Loader {
+        sourceComponent: rectComp
+        onLoaded: { item.pillValue = "ready"; item.pillLabel = "Hoàn thành"; item.pillColor = Theme.statusReady; item.pillIcon = "ready" }
+    }
+    Loader {
+        sourceComponent: rectComp
+        onLoaded: { item.pillValue = "error"; item.pillLabel = "Lỗi"; item.pillColor = Theme.statusError; item.pillIcon = "error" }
     }
     Item { Layout.fillWidth: true }
 }

@@ -10,7 +10,6 @@ ScrollView {
 
     Component.onCompleted: {
         if (typeof sessionModel !== 'undefined' && sessionModel) sessionModel.refresh(backend)
-        if (typeof projectModel !== 'undefined' && projectModel) projectModel.refresh(backend)
         if (typeof keyModel !== 'undefined' && keyModel) keyModel.refresh(backend)
     }
 
@@ -31,7 +30,6 @@ ScrollView {
 
         AuthPanel { Layout.fillWidth: true; Layout.preferredHeight: 220 }
         SessionsPanel { Layout.fillWidth: true; Layout.preferredHeight: 320 }
-        ProjectsPanel { Layout.fillWidth: true; Layout.preferredHeight: 280 }
         KeysPanel { Layout.fillWidth: true; Layout.preferredHeight: 280 }
     }
 }

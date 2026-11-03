@@ -56,16 +56,13 @@ async function ensureWindow() {
   opening = (async () => {
     ctx = await chromium.launchPersistentContext(USER_DATA_DIR, {
       channel: 'chrome',
-      headless: false,
+      headless: true,
       viewport: null,
       args: [
         '--disable-blink-features=AutomationControlled',
         '--no-first-run',
         '--no-default-browser-check',
         '--mute-audio',
-        // Cửa sổ nhỏ, nép góc: đây là cửa sổ ĐO, không phải để xem.
-        '--window-size=520,420',
-        '--window-position=40,40',
       ],
     });
     const pages = ctx.pages();
@@ -77,8 +74,8 @@ async function ensureWindow() {
       if (t === 'image' || t === 'media' || t === 'font') return route.abort();
       return route.continue();
     });
-    await page.goto('https://www.youtube.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    log(`cửa sổ sẵn sàng (profile ${USER_DATA_DIR})`);
+    await page.goto('about:blank', { waitUntil: 'domcontentloaded', timeout: 10000 });
+    log(`cửa sổ sẵn sàng (profile ${USER_DATA_DIR}, headless)`);
   })();
 
   try {

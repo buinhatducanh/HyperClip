@@ -13,21 +13,47 @@ ApplicationWindow {
     minimumWidth: 900
     minimumHeight: 600
     visible: true
-    title: "HyperClip"
+    title: (typeof isShortEdition !== "undefined" && isShortEdition) ? "HyperShort" : "HyperClip"
     color: Theme.bg
+
+    onClosing: function(close) {
+        Qt.quit()
+    }
 
     palette.highlight: Theme.accent
     palette.highlightedText: "#FFFFFF"
     palette.window: Theme.bg
     palette.windowText: Theme.text
 
-    // Center pane view state: "settings" | "workspace" | "rendered" | "operation" | "management" | "scancore" | "tiktok"
-    property string centerView: "settings"
+    property alias toastService: toastManager
+
+    // Center pane view state: "settings" | "workspace" | "rendered" | "management" | "scancore" | "tiktok"
+    property string centerView: "management"
     property string filterChannelId: ""
     property string pendingView: ""
+    property bool managementLoaded: true
+    property bool scanCoreLoaded: false
+    property bool tiktokLoaded: false
+    property bool settingsLoaded: false
+
+    onCenterViewChanged: {
+        if (centerView === "management") managementLoaded = true
+        else if (centerView === "scancore") scanCoreLoaded = true
+        else if (centerView === "tiktok") tiktokLoaded = true
+        else if (centerView === "settings") settingsLoaded = true
+    }
     // Các trang chiếm toàn màn hình (ẩn Sidebar + cột queue phải).
-    readonly property bool wideView: centerView === "operation" || centerView === "management"
+    readonly property bool wideView: centerView === "management"
                                      || centerView === "tiktok" || centerView === "scancore"
+
+    function getCenterComponent(view) {
+        if (view === "workspace") return workspaceView
+        if (view === "rendered") return renderedView
+        if (view === "management") return managementView
+        if (view === "scancore") return scanCoreView
+        if (view === "tiktok") return tiktokView
+        return settingsView
+    }
 
     function changeView(view) {
         if (root.centerView === "settings" && view !== "settings" && settings.dirty) {
@@ -89,7 +115,8 @@ ApplicationWindow {
                 }
             }
 
-            // Center: Settings / VideoDetail / Rendered / Operation
+            // Center: Settings / VideoDetail / Rendered / Management / ScanCore / TikTok
+            // Optimized with Lazy View Caching & Persistent Visibility for 0ms instantaneous page transitions
             Rectangle {
                 id: centerPane
                 Layout.fillWidth: true
@@ -98,34 +125,72 @@ ApplicationWindow {
                 color: Theme.bg
 
                 Loader {
-                    id: centerLoader
+                    id: managementLoader
                     anchors.fill: parent
-                    sourceComponent: {
-                        if (root.centerView === "workspace") return workspaceView
-                        if (root.centerView === "rendered") return renderedView
-                        if (root.centerView === "operation") return operationView
-                        if (root.centerView === "management") return managementView
-                        if (root.centerView === "scancore") return scanCoreView
-                        if (root.centerView === "tiktok") return tiktokView
-                        return settingsView
+                    active: root.centerView === "management" || root.managementLoaded
+                    visible: root.centerView === "management"
+                    sourceComponent: Component {
+                        ManagementPanel {
+                            onOpenScanCore: root.changeView("scancore")
+                        }
                     }
                 }
 
-                Component { id: settingsView; SettingsPage {} }
-                Component { id: workspaceView; VideoDetailPanel {
-                    workspaceId: detailEditor.currentWorkspaceId
-                    workspaceData: detailEditor.currentWorkspaceData
-                } }
-                Component { id: renderedView; RenderedVideoDetail {
-                    videoId: detailEditor.currentRenderedId
-                    videoData: detailEditor.currentRenderedData
-                } }
-                Component { id: operationView; OperationPanel {} }
-                Component { id: managementView; ManagementPanel {
-                    onOpenScanCore: root.changeView("scancore")
-                } }
-                Component { id: scanCoreView; ScanCorePanel {} }
-                Component { id: tiktokView; TikTokPanel {} }
+                Loader {
+                    id: scanCoreLoader
+                    anchors.fill: parent
+                    active: root.centerView === "scancore" || root.scanCoreLoaded
+                    visible: root.centerView === "scancore"
+                    sourceComponent: Component {
+                        ScanCorePanel {}
+                    }
+                }
+
+                Loader {
+                    id: tiktokLoader
+                    anchors.fill: parent
+                    active: root.centerView === "tiktok" || root.tiktokLoaded
+                    visible: root.centerView === "tiktok"
+                    sourceComponent: Component {
+                        TikTokPanel {}
+                    }
+                }
+
+                Loader {
+                    id: settingsLoader
+                    anchors.fill: parent
+                    active: root.centerView === "settings" || root.settingsLoaded
+                    visible: root.centerView === "settings"
+                    sourceComponent: Component {
+                        SettingsPage {}
+                    }
+                }
+
+                Loader {
+                    id: workspaceLoader
+                    anchors.fill: parent
+                    active: root.centerView === "workspace"
+                    visible: root.centerView === "workspace"
+                    sourceComponent: Component {
+                        VideoDetailPanel {
+                            workspaceId: detailEditor.currentWorkspaceId
+                            workspaceData: detailEditor.currentWorkspaceData
+                        }
+                    }
+                }
+
+                Loader {
+                    id: renderedLoader
+                    anchors.fill: parent
+                    active: root.centerView === "rendered"
+                    visible: root.centerView === "rendered"
+                    sourceComponent: Component {
+                        RenderedVideoDetail {
+                            videoId: detailEditor.currentRenderedId
+                            videoData: detailEditor.currentRenderedData
+                        }
+                    }
+                }
             }
 
             // Right: WorkspaceQueue (240-400px) + rendered mini above — HIDDEN in Settings + wide views
@@ -326,7 +391,7 @@ ApplicationWindow {
     LoginScreen {
         id: loginOverlay
         anchors.fill: parent
-        visible: auth ? !auth.isReady : true
+        visible: !loginOverlay.dismissed && (auth ? !auth.isReady : true)
         z: 999
     }
 
@@ -334,7 +399,7 @@ ApplicationWindow {
     OnboardingPage {
         id: onboardingOverlay
         anchors.fill: parent
-        visible: (auth && auth.isReady) && (settings ? !settings.onboardingComplete : true)
+        visible: !loginOverlay.visible && (settings ? !settings.onboardingComplete : false)
         z: 998
     }
 
@@ -399,7 +464,8 @@ ApplicationWindow {
                 anchors.rightMargin: 20
                 spacing: 10
                 Text {
-                    text: "⚠️"
+                    text: "▲"
+                    color: Theme.warning
                     font.pixelSize: 20
                 }
                 Label {

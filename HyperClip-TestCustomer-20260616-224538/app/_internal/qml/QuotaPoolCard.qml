@@ -11,10 +11,14 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import "ProjectActions.js" as PA
 
 Rectangle {
     id: root
+    Component.onCompleted: {
+        if (typeof quota !== "undefined" && quota) {
+            quota.refresh_from_backend(backend)
+        }
+    }
     color: Theme.cardBg
     border.color: quota && quota.exhausted ? Theme.error
                 : (quota && quota.projectCount === 0 ? Theme.error : Theme.border)
@@ -36,16 +40,54 @@ Rectangle {
     readonly property color budgetColor: {
         if (!quota) return Theme.textMuted
         if (quota.exhausted) return Theme.error
-        if (!quota.coversReset) return Theme.warning
+        if (!quota.coversReset) return "#FFD93D"
         return Theme.success
     }
 
-    // Ba hành động pool project dùng chung với ProjectPoolTable — logic ở
-    // ProjectActions.js (trước đây copy nguyên văn ở cả hai file).
-    readonly property var paDeps: ({ backend: backend, toast: (typeof toastService !== "undefined" ? toastService : null), quota: quota })
-    function consoleUrlFor(projectId, errText) { return PA.consoleUrlFor(projectId, errText) }
-    function testProject(projectId) { PA.testProject(root, root.paDeps, projectId) }
-    function removeProject(projectId, name) { PA.removeProject(confirmRemove, root.paDeps, projectId, name) }
+    /// Trang Console đúng với loại lỗi — triết lý GcpWizard: mỗi lỗi một nút
+    /// mở đúng chỗ phải sửa, không bắt khách tự mò.
+    function consoleUrlFor(projectId, errText) {
+        // Key lẻ chưa gán project ("key:AIza…") không deep-link được.
+        const q = projectId.indexOf("key:") === 0 ? "" : "?project=" + projectId
+        const e = (errText || "").toLowerCase()
+        if (e.indexOf("chưa bật") >= 0 || e.indexOf("accessnotconfigured") >= 0)
+            return "https://console.cloud.google.com/apis/library/youtube.googleapis.com" + q
+        return "https://console.cloud.google.com/apis/credentials" + q
+    }
+
+    function testProject(projectId) {
+        root.testingId = projectId
+        // Hoãn ra khỏi stack click: send_command đồng bộ spin nested loop,
+        // gọi thẳng trong onClicked là hủy delegate giữa chừng (crash 18/07).
+        Qt.callLater(function() {
+            const resp = backend.send_command("project:testOne", {"projectId": projectId})
+            root.testingId = ""
+            const r = (resp && resp.result) || {}
+            if (!resp || resp.ok === false || !r.success) {
+                if (toastService) toastService.show("Không kiểm tra được",
+                    (resp && resp.error) || r.error || "", "error")
+                return
+            }
+            if (r.ok) {
+                if (toastService) toastService.show("Project dùng được",
+                    projectId + " đã quay lại vòng xoay quét", "success")
+            } else {
+                if (toastService) toastService.show("Project vẫn hỏng", r.error || "", "warning")
+            }
+            if (quota) quota.refresh_from_backend(backend)
+        })
+    }
+
+    function removeProject(projectId, name) {
+        confirmRemove.openFor(projectId, name || projectId, function(id) {
+            Qt.callLater(function() {
+                backend.send_command("project:remove", {"projectId": id})
+                if (toastService) toastService.show("Đã xoá project",
+                    id + " không còn trong pool quét", "info")
+                if (quota) quota.refresh_from_backend(backend)
+            })
+        })
+    }
 
     ConfirmationDialog {
         id: confirmRemove
@@ -182,7 +224,7 @@ Rectangle {
 
             Label {
                 text: quota ? quota.runwayStr : ""
-                color: quota && !quota.coversReset ? Theme.warning : Theme.textMuted
+                color: quota && !quota.coversReset ? "#FFD93D" : Theme.textMuted
                 font.pixelSize: 11
                 font.bold: quota && !quota.coversReset
             }
@@ -232,7 +274,7 @@ Rectangle {
                     ? ("NHỊP (ĐẶT " + quota.desiredIntervalStr + ")")
                     : "NHỊP QUÉT"
                 metricValue: quota ? quota.intervalStr : "—"
-                metricColor: quota && quota.throttled ? Theme.warning : Theme.success
+                metricColor: quota && quota.throttled ? "#FFD93D" : Theme.success
             }
             Metric {
                 metricLabel: "UNITS / NHỊP"
@@ -256,7 +298,7 @@ Rectangle {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             text: "Nhịp đang bị giãn để ngân sách đủ tới lúc reset. Muốn quét nhanh hơn: thêm project, hoặc đặt chính sách \"n video/ngày\" cho các kênh ít đăng."
-            color: Theme.warning
+            color: "#FFD93D"
             font.pixelSize: 11
         }
 
@@ -359,7 +401,7 @@ Rectangle {
                                 width: Math.max(0, (parent.width - 2) * model.percent)
                                 radius: 2
                                 color: projRow.pBlocked ? Theme.error
-                                     : model.percent > 0.9 ? Theme.warning : Theme.success
+                                     : model.percent > 0.9 ? "#FFD93D" : Theme.success
                             }
                         }
                         Label {

@@ -1,33 +1,366 @@
 ﻿{
-    "builtAt":  "2026-08-21T16:45:51+07:00",
+    "builtAt":  "2026-09-25T09:32:54+07:00",
     "version":  "0.1.0",
-    "gitBranch":  "pass-60-61-detect-3s",
-    "gitHead":  "11e80e3",
     "files":  [
                   {
+                      "path":  "apply-patch.bat",
+                      "sha256":  "bceb09b6c4e3cc062bb0c61683948d210ef899a70aefa1a7bb071e6aa06dc24f",
+                      "size":  277
+                  },
+                  {
+                      "path":  "apply-patch.ps1",
+                      "sha256":  "39c43f2b5b4d55c5d1187838bcc76fb51c9398ccffde0cd59e965e183de14cd8",
+                      "size":  15527
+                  },
+                  {
+                      "path":  "cap-nhat-websub.bat",
+                      "sha256":  "1e49794cdc10a741eb16ff3f6b1b63d063c7df29e19755a0f2d25d4d487272c1",
+                      "size":  2128
+                  },
+                  {
+                      "path":  "HyperClip-Debug.bat",
+                      "sha256":  "8e8f3b7ab60224a6c9c72c8fe47e5170841dc1b33fc1591c9c356c007277460e",
+                      "size":  437
+                  },
+                  {
                       "path":  "HyperClip.exe",
-                      "sha256":  "6f8e2b70194b689f6cc385971c2fa2fc61b2a20ab1f0197e8a31f5ac2e06793d",
-                      "size":  598016
+                      "sha256":  "75c41b664489047df42116f3b8fcd53d2eeee75da6653f3569ff08b9ca534a3f",
+                      "size":  608768
+                  },
+                  {
+                      "path":  "app/hyperclip-tauri.exe",
+                      "sha256":  "8ee719942115da62e2111c63f975e7d6ec203d0e6e3520f92a945c0017047c4c",
+                      "size":  19994112
                   },
                   {
                       "path":  "app/HyperClip.exe",
-                      "sha256":  "333cc82007508afc7dada3eb7db9f725b89934590309c97769d7269fad4d86d1",
-                      "size":  2457364
+                      "sha256":  "e3efc9b37e0c32ef6c95d729167f13c08baf7b2be8d11bacfa1b72c8ba9857cb",
+                      "size":  2443958
                   },
                   {
-                      "path":  "app/_internal/hyperclip-tauri.exe",
-                      "sha256":  "8d97966c6cdbd1c22d0c843f47608567a9236af5364f5255e52ee95561fc202b",
-                      "size":  18256384
+                      "path":  "app/qml/AddChannelForm.qml",
+                      "sha256":  "cdd4fa971427abda77730045fb2abda3847acbb71ff1823b8f9b8f9954a17722",
+                      "size":  1779
+                  },
+                  {
+                      "path":  "app/qml/AuthPanel.qml",
+                      "sha256":  "c62fd95f9eb200c2562810cc174119259bd28ee4de6b457e3fedbf01929a3986",
+                      "size":  4650
+                  },
+                  {
+                      "path":  "app/qml/AutoRenderCard.qml",
+                      "sha256":  "e939740a15c49720312508a8838c90d0f5317f08749f253aa85e26c1fc512a85",
+                      "size":  16402
+                  },
+                  {
+                      "path":  "app/qml/ChannelAvatar.qml",
+                      "sha256":  "f43a621acc21e4d1bce58527c07abcc81cb73c2d5bbb938fa813f9175e596953",
+                      "size":  2529
+                  },
+                  {
+                      "path":  "app/qml/ChannelAvatarFor.qml",
+                      "sha256":  "08e30ba4a894089c3a62015587cab07185b8a6d1b81b5910b40e0fc9ab5d1388",
+                      "size":  2018
+                  },
+                  {
+                      "path":  "app/qml/ChannelItem.qml",
+                      "sha256":  "e07e7f1ac73e621db2ad5c32d5448a143e3bef888461661c9a54bedb2580babf",
+                      "size":  3366
+                  },
+                  {
+                      "path":  "app/qml/ChannelPolicyTable.qml",
+                      "sha256":  "bb76966a514e48fbfc641877f528040561b670588600eae1cb11c68e022efaed",
+                      "size":  34666
+                  },
+                  {
+                      "path":  "app/qml/ConfirmationDialog.qml",
+                      "sha256":  "feb6d8c1206b57378d3ba32c55fdbb2b2cde8ac6bb4104de0d272ed3992fa4d1",
+                      "size":  7906
+                  },
+                  {
+                      "path":  "app/qml/DashboardGrid.qml",
+                      "sha256":  "8cc41960312b8453d7cdd56eed7bfd5ff28e3a16c8ff8e931aa8ae4d495f9c77",
+                      "size":  10902
+                  },
+                  {
+                      "path":  "app/qml/DetailEditor.qml",
+                      "sha256":  "8b8ba32b77758cedab84feccc7822a7fbb29797d00df4e9e57d96087ac3a30f8",
+                      "size":  8326
+                  },
+                  {
+                      "path":  "app/qml/DetectionPanel.qml",
+                      "sha256":  "eb277fb9b86cde429be8c5ce2fc8afa68ae49d8082a376dd846042d9e4faa051",
+                      "size":  15405
+                  },
+                  {
+                      "path":  "app/qml/DownloadCard.qml",
+                      "sha256":  "a76cd2a8f36713da487448d961c7755bd64041fc6062570a506e6b73eaf840ed",
+                      "size":  16009
+                  },
+                  {
+                      "path":  "app/qml/EditField.qml",
+                      "sha256":  "5a780ac5f366365803577622e4981c87f1f5f5fb52b2c4c4126d77c83bfda036",
+                      "size":  1412
+                  },
+                  {
+                      "path":  "app/qml/FilterPills.qml",
+                      "sha256":  "4d939de4ca98c9427bb09deb07d8a56ceb82ee862fe2d11c449d8ad417e81cde",
+                      "size":  3503
+                  },
+                  {
+                      "path":  "app/qml/Fmt.js",
+                      "sha256":  "5e8fbb1646ffffeb3a0837d02f510f17c62305f82449c319834a72e66fad3516",
+                      "size":  6112
+                  },
+                  {
+                      "path":  "app/qml/GcpWizard.qml",
+                      "sha256":  "590570b4f2a529e1b749c0a89e58f753b3bbf62c56359308c8d129609efb220f",
+                      "size":  30026
+                  },
+                  {
+                      "path":  "app/qml/HardwareProfileCard.qml",
+                      "sha256":  "24b0154d97eec382a2eb8f822cbf3b1a106488ff0b835253770eee887083793f",
+                      "size":  7444
+                  },
+                  {
+                      "path":  "app/qml/Icon.qml",
+                      "sha256":  "ff214700bbaad04ba57662b88401b2eaf5b0969563b6fff2783ea2efdb5dc96c",
+                      "size":  3093
+                  },
+                  {
+                      "path":  "app/qml/IconButton.qml",
+                      "sha256":  "e7bf4bf020e09826409cf44657c9815bde107e6fae8233953a8542dfd0d12fb5",
+                      "size":  5309
+                  },
+                  {
+                      "path":  "app/qml/KeysPanel.qml",
+                      "sha256":  "64fcd8769d5b24718ff073a99125de013ad0027ddc85b751485201a1f2d839bb",
+                      "size":  3958
+                  },
+                  {
+                      "path":  "app/qml/LoginScreen.qml",
+                      "sha256":  "54929ee19335caf8175ab8916c1c55963f58ae112e9e8a44b8db13164eb0a8ed",
+                      "size":  10157
+                  },
+                  {
+                      "path":  "app/qml/main.qml",
+                      "sha256":  "448c321ca80fb0c1641805178a214d3379d31741c2a07b336c33545a555dfaba",
+                      "size":  22338
+                  },
+                  {
+                      "path":  "app/qml/ManagementPanel.qml",
+                      "sha256":  "506ebdb9bcc98cf2adec7b9f28a798c3eda8788a2a1c009a4d9749d5d6743f06",
+                      "size":  144126
+                  },
+                  {
+                      "path":  "app/qml/ManagementPipelineDetails.qml",
+                      "sha256":  "13530c0b1a63a037aa75766cabdc40b8533c493ffa14644355c36726be23737e",
+                      "size":  31773
+                  },
+                  {
+                      "path":  "app/qml/ManagementTimelineCard.qml",
+                      "sha256":  "98711b5808e66c6b621c3882f9f81986b7436e0ff255ed90dab937b330127fe3",
+                      "size":  22861
+                  },
+                  {
+                      "path":  "app/qml/OnboardingPage.qml",
+                      "sha256":  "1a28eea348e8ec2d8dbfeddbc5c89dad8c9bbf4705a6bff9ae7dfa3f708b5cb1",
+                      "size":  5193
+                  },
+                  {
+                      "path":  "app/qml/OnboardingStepChannels.qml",
+                      "sha256":  "10314be227c5e9cd238b07eb12fbd3cb2cace9b7bc153ffb0585b811ab7d4184",
+                      "size":  4218
+                  },
+                  {
+                      "path":  "app/qml/OnboardingStepChrome.qml",
+                      "sha256":  "6e9baf509210513ac4702b1ac1cd9250e5234c376eb7e88f83743052d30f77c7",
+                      "size":  4577
+                  },
+                  {
+                      "path":  "app/qml/OnboardingStepComplete.qml",
+                      "sha256":  "ebc871b9385b03d2041bb1ed849eec166fa89d428f5c6c823c616994049e642e",
+                      "size":  2957
+                  },
+                  {
+                      "path":  "app/qml/OnboardingStepProjects.qml",
+                      "sha256":  "218883becce071f2908088bd7ab46e8f7f5217a67da0f4242806c70c268083fd",
+                      "size":  2656
+                  },
+                  {
+                      "path":  "app/qml/OnboardingStepQuality.qml",
+                      "sha256":  "2fd58746cf8db21e9a9289bac3c8f748b89c0e71508d7c91687077dab8ca4c4b",
+                      "size":  1106
+                  },
+                  {
+                      "path":  "app/qml/PollerPanel.qml",
+                      "sha256":  "9e42604e7cbd3a538795f65c97546193d8dfe59e718a96e21292937f7cb305af",
+                      "size":  27354
+                  },
+                  {
+                      "path":  "app/qml/ProjectActions.js",
+                      "sha256":  "032e5c006cd01acbca5ac34f79d44ab84012ae2db8ab469f843059d008cdb493",
+                      "size":  3916
+                  },
+                  {
+                      "path":  "app/qml/ProjectPoolTable.qml",
+                      "sha256":  "6b2a30811d88007e1809ee77bedca764ebcdf5766d04efd8fc212c946b188f3e",
+                      "size":  34331
+                  },
+                  {
+                      "path":  "app/qml/ProxySettingsCard.qml",
+                      "sha256":  "5673bbb5eb829e7c594a23b14a2b7824c13998c6ce9bbccd5a9f08efaaa3f320",
+                      "size":  17973
+                  },
+                  {
+                      "path":  "app/qml/qmldir",
+                      "sha256":  "b28c2975fa84e242f7eb84c354bfdec419711a24f17bd0a637058d5cecccac18",
+                      "size":  2214
+                  },
+                  {
+                      "path":  "app/qml/QuotaPoolCard.qml",
+                      "sha256":  "4c35bbb1d3f8c478126b65ea945df5544657e04f569497efc85dcf27682fe119",
+                      "size":  21184
+                  },
+                  {
+                      "path":  "app/qml/RenderedVideoDetail.qml",
+                      "sha256":  "72a9724579112d3af056476892dd0bcd9981e7b1b264584b9ace9d67f98fac47",
+                      "size":  7172
+                  },
+                  {
+                      "path":  "app/qml/ScanCorePanel.qml",
+                      "sha256":  "19dc0e53259204dd080174370fa082eb20527f5549f4b71443399d12b13df5a5",
+                      "size":  16452
+                  },
+                  {
+                      "path":  "app/qml/SessionsPanel.qml",
+                      "sha256":  "6a184124fb89638fc4adc904c7d111ab07db3f3f1d548800ab4e689601706178",
+                      "size":  7510
+                  },
+                  {
+                      "path":  "app/qml/SettingsCard.qml",
+                      "sha256":  "2bb1acb0fd943dec4ca641ee4000b92749682ec87faedce33f509dc050e72cd5",
+                      "size":  1046
+                  },
+                  {
+                      "path":  "app/qml/SettingsPage.qml",
+                      "sha256":  "eb2f2dca1e637aed542e35ed1fcc3b14fbeca8ba49ec6bd53b4d5125edfdf2a8",
+                      "size":  46900
+                  },
+                  {
+                      "path":  "app/qml/ShortsSettingsCard.qml",
+                      "sha256":  "c28377aba2c089bc6ba8f360fc2636931c74cf2b98fdf596bf8742ae638b5e37",
+                      "size":  27446
+                  },
+                  {
+                      "path":  "app/qml/Sidebar.qml",
+                      "sha256":  "43c06b5e63e5a8a555ceebcf058bfa417e9fa096bf027f9308da0beee667a183",
+                      "size":  28940
+                  },
+                  {
+                      "path":  "app/qml/SplitModal.qml",
+                      "sha256":  "43743251013a077567d47be8ecfbb823de1c0ad46d1d4a3f089d249bc7d414f3",
+                      "size":  17690
+                  },
+                  {
+                      "path":  "app/qml/StatusDot.qml",
+                      "sha256":  "58af45091f395440a0fc306318e52e3bfc9ca0f536daec2e0f0bf4d75edc14b1",
+                      "size":  3564
+                  },
+                  {
+                      "path":  "app/qml/StorageCard.qml",
+                      "sha256":  "2e80329f0f614619ca59171dd0609927f228c9e878df0735f602ad8881c3be6a",
+                      "size":  6573
+                  },
+                  {
+                      "path":  "app/qml/SystemMonitor.qml",
+                      "sha256":  "fdca3dccebc8ae4e0f53a36044131e6cb4d240ec1c5c7ce2c789b8c7b2f83f70",
+                      "size":  7532
+                  },
+                  {
+                      "path":  "app/qml/Theme.qml",
+                      "sha256":  "8bcc09f9ac7fecb87e747fa4364fc20daf02d2633ba0169f2df1ac3ebb84cbbf",
+                      "size":  3200
+                  },
+                  {
+                      "path":  "app/qml/ThumbnailUploader.qml",
+                      "sha256":  "f4b321e79272bfdba6672c146779aa82ff594a7ae8c96ddb25cff8c478b8ddb7",
+                      "size":  2984
+                  },
+                  {
+                      "path":  "app/qml/TikTokPanel.qml",
+                      "sha256":  "63bca06cfbfe187a63ee91fe4c6df7c56687b6085bc2fe2b3bda0be181859a62",
+                      "size":  49358
+                  },
+                  {
+                      "path":  "app/qml/ToastManager.qml",
+                      "sha256":  "1e7092419e1b10f500391e7ea99da287f75560c322d1108ab4dd23a04dbe20cb",
+                      "size":  1479
+                  },
+                  {
+                      "path":  "app/qml/ToastNotification.qml",
+                      "sha256":  "9f876336431f235c1ee134bc7a4123b6ebc2864c1329d4a8397e5725f32faf17",
+                      "size":  5329
+                  },
+                  {
+                      "path":  "app/qml/TopMenuBar.qml",
+                      "sha256":  "8688647851764ec1a49f1d4911232af2f40a04413a8d637e94f8ebbc3726c6f0",
+                      "size":  7074
+                  },
+                  {
+                      "path":  "app/qml/VideoCompareModal.qml",
+                      "sha256":  "831588296b6b752b2076f2d90cef2c54053a29c0c8e35c960217246eb45ca3cc",
+                      "size":  11579
+                  },
+                  {
+                      "path":  "app/qml/VideoDetailPanel.qml",
+                      "sha256":  "7002dc4f9747a60023319daa03f77e5e68286cc98f3f394cc2809ebf87a6fa35",
+                      "size":  5053
+                  },
+                  {
+                      "path":  "app/qml/WorkspaceCard.qml",
+                      "sha256":  "52402c44bd26ccce60ba01437e898b93d2832d510ea930a378dd27907e4479e1",
+                      "size":  2933
+                  },
+                  {
+                      "path":  "app/qml/WorkspaceCardDisplay.qml",
+                      "sha256":  "d2550f15fa1f14df3748fd063e2285a2c036f99d8139f64da4ca44a758d9bd9a",
+                      "size":  12480
+                  },
+                  {
+                      "path":  "app/qml/WorkspaceEditForm.qml",
+                      "sha256":  "1733dac0877da502aef508ce359775e1dc8f3947144e290a20bcd347d8b226c8",
+                      "size":  6093
+                  },
+                  {
+                      "path":  "app/qml/WorkspaceMetrics.qml",
+                      "sha256":  "94c945f5dff1dd1356a485a80aa4103cb9e5455e367a8ebe2566512f90327357",
+                      "size":  9394
+                  },
+                  {
+                      "path":  "app/qml/WorkspaceQueue.qml",
+                      "sha256":  "1a9b557cf6b872698a00aeb09299152ff8f1dc3c650f9c32b9fcfb4cbfdf153f",
+                      "size":  11956
+                  },
+                  {
+                      "path":  "app/qml/__init__.py",
+                      "sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                      "size":  0
                   },
                   {
                       "path":  "app/_internal/base_library.zip",
-                      "sha256":  "cb0f880b51045b471dc1046d7c0a0f9317669cba94e67afa93ef77aa26e3b3b9",
+                      "sha256":  "c6d5addf21ead9bdd992d89ddc310b13cf1fa23472c571582e7451bcbbdc3bbd",
                       "size":  1389034
                   },
                   {
+                      "path":  "app/_internal/hyperclip-tauri.exe",
+                      "sha256":  "8ee719942115da62e2111c63f975e7d6ec203d0e6e3520f92a945c0017047c4c",
+                      "size":  19994112
+                  },
+                  {
                       "path":  "app/_internal/qml/AddChannelForm.qml",
-                      "sha256":  "0bd98cd86ada4073a3144a810c7964d998a900af51034539868bdedaf381d20e",
-                      "size":  1564
+                      "sha256":  "cdd4fa971427abda77730045fb2abda3847acbb71ff1823b8f9b8f9954a17722",
+                      "size":  1779
                   },
                   {
                       "path":  "app/_internal/qml/AuthPanel.qml",
@@ -36,18 +369,18 @@
                   },
                   {
                       "path":  "app/_internal/qml/AutoRenderCard.qml",
-                      "sha256":  "703959226ab96df958f975eddfc197ea72792612a3cf442c842a89bc0491a43f",
-                      "size":  13177
+                      "sha256":  "e939740a15c49720312508a8838c90d0f5317f08749f253aa85e26c1fc512a85",
+                      "size":  16402
                   },
                   {
                       "path":  "app/_internal/qml/ChannelAvatar.qml",
-                      "sha256":  "97cd32728c6b3b18d881884b64d4885d4fd87beecc500e3f7458a62b622fa587",
-                      "size":  2459
+                      "sha256":  "f43a621acc21e4d1bce58527c07abcc81cb73c2d5bbb938fa813f9175e596953",
+                      "size":  2529
                   },
                   {
                       "path":  "app/_internal/qml/ChannelAvatarFor.qml",
-                      "sha256":  "3a602370a5be85fd0cc4d59fa34101453c7528c74b08c8cf925d3b232f763d94",
-                      "size":  1970
+                      "sha256":  "08e30ba4a894089c3a62015587cab07185b8a6d1b81b5910b40e0fc9ab5d1388",
+                      "size":  2018
                   },
                   {
                       "path":  "app/_internal/qml/ChannelItem.qml",
@@ -56,13 +389,13 @@
                   },
                   {
                       "path":  "app/_internal/qml/ChannelPolicyTable.qml",
-                      "sha256":  "f8ef7608445834d51967d3dc63bfb2dafc6e45b938072f8c17401d3f0882cc01",
-                      "size":  32763
+                      "sha256":  "bb76966a514e48fbfc641877f528040561b670588600eae1cb11c68e022efaed",
+                      "size":  34666
                   },
                   {
                       "path":  "app/_internal/qml/ConfirmationDialog.qml",
-                      "sha256":  "4a6a8b0745e77bfb374fb9c1411616ece9144acad95c56bc8499d7783b11e82b",
-                      "size":  938
+                      "sha256":  "feb6d8c1206b57378d3ba32c55fdbb2b2cde8ac6bb4104de0d272ed3992fa4d1",
+                      "size":  7906
                   },
                   {
                       "path":  "app/_internal/qml/DashboardGrid.qml",
@@ -76,33 +409,33 @@
                   },
                   {
                       "path":  "app/_internal/qml/DetectionPanel.qml",
-                      "sha256":  "6bd31e09525a6696d5bfc424d362bb039c2df2ba5cb1806229b07a1ef8628944",
-                      "size":  12264
+                      "sha256":  "eb277fb9b86cde429be8c5ce2fc8afa68ae49d8082a376dd846042d9e4faa051",
+                      "size":  15405
                   },
                   {
                       "path":  "app/_internal/qml/DownloadCard.qml",
-                      "sha256":  "1d8851d847e967fd4ccf7cba28f462d67bfece134a94a956a6111c18329a6a45",
-                      "size":  6428
+                      "sha256":  "a76cd2a8f36713da487448d961c7755bd64041fc6062570a506e6b73eaf840ed",
+                      "size":  16009
                   },
                   {
                       "path":  "app/_internal/qml/EditField.qml",
-                      "sha256":  "e3b79e54e9561403dc10510791648a368e102b10f7d1d47b8867156ffadd3c1b",
-                      "size":  926
+                      "sha256":  "5a780ac5f366365803577622e4981c87f1f5f5fb52b2c4c4126d77c83bfda036",
+                      "size":  1412
                   },
                   {
                       "path":  "app/_internal/qml/FilterPills.qml",
-                      "sha256":  "c737a523f821b6970d62cb95202b1ccc8ee5befc405961acea759f210eef3e7f",
-                      "size":  3069
+                      "sha256":  "4d939de4ca98c9427bb09deb07d8a56ceb82ee862fe2d11c449d8ad417e81cde",
+                      "size":  3503
                   },
                   {
                       "path":  "app/_internal/qml/Fmt.js",
-                      "sha256":  "a186eb2da35c5266831be95ca6aca9ff796776d8cfd8b0d343a776f476f75043",
-                      "size":  5204
+                      "sha256":  "5e8fbb1646ffffeb3a0837d02f510f17c62305f82449c319834a72e66fad3516",
+                      "size":  6112
                   },
                   {
                       "path":  "app/_internal/qml/GcpWizard.qml",
-                      "sha256":  "ece5eac805e6feab510f994551762d93463409f7d31f3e8ecedee6daac74f7aa",
-                      "size":  27952
+                      "sha256":  "590570b4f2a529e1b749c0a89e58f753b3bbf62c56359308c8d129609efb220f",
+                      "size":  30026
                   },
                   {
                       "path":  "app/_internal/qml/HardwareProfileCard.qml",
@@ -111,13 +444,13 @@
                   },
                   {
                       "path":  "app/_internal/qml/Icon.qml",
-                      "sha256":  "addb62eefeea4996f7f89ba505a05022f15f6f8f7e736913f2442956c73ab1bf",
-                      "size":  2877
+                      "sha256":  "ff214700bbaad04ba57662b88401b2eaf5b0969563b6fff2783ea2efdb5dc96c",
+                      "size":  3093
                   },
                   {
                       "path":  "app/_internal/qml/IconButton.qml",
-                      "sha256":  "94f3cdaf8dd1abe695a9518547284eef1105203384ecb592d69820e193b16245",
-                      "size":  2339
+                      "sha256":  "e7bf4bf020e09826409cf44657c9815bde107e6fae8233953a8542dfd0d12fb5",
+                      "size":  5309
                   },
                   {
                       "path":  "app/_internal/qml/KeysPanel.qml",
@@ -126,18 +459,28 @@
                   },
                   {
                       "path":  "app/_internal/qml/LoginScreen.qml",
-                      "sha256":  "98d123b9af12d231fbef11dcc599b4295994ca085093e0b062da8315b2b05b1d",
-                      "size":  9489
+                      "sha256":  "54929ee19335caf8175ab8916c1c55963f58ae112e9e8a44b8db13164eb0a8ed",
+                      "size":  10157
                   },
                   {
                       "path":  "app/_internal/qml/main.qml",
-                      "sha256":  "9a56d4dabd8a8c044f3d032dfe31b7541d6283ae327c63528008d0c401ea290c",
-                      "size":  22054
+                      "sha256":  "448c321ca80fb0c1641805178a214d3379d31741c2a07b336c33545a555dfaba",
+                      "size":  22338
                   },
                   {
                       "path":  "app/_internal/qml/ManagementPanel.qml",
-                      "sha256":  "5e5f8630e406cb4acd29cf9df7d19ac67947b3e3bfaa1ded03d64c601303f0c1",
-                      "size":  111931
+                      "sha256":  "506ebdb9bcc98cf2adec7b9f28a798c3eda8788a2a1c009a4d9749d5d6743f06",
+                      "size":  144126
+                  },
+                  {
+                      "path":  "app/_internal/qml/ManagementPipelineDetails.qml",
+                      "sha256":  "13530c0b1a63a037aa75766cabdc40b8533c493ffa14644355c36726be23737e",
+                      "size":  31773
+                  },
+                  {
+                      "path":  "app/_internal/qml/ManagementTimelineCard.qml",
+                      "sha256":  "98711b5808e66c6b621c3882f9f81986b7436e0ff255ed90dab937b330127fe3",
+                      "size":  22861
                   },
                   {
                       "path":  "app/_internal/qml/OnboardingPage.qml",
@@ -146,8 +489,8 @@
                   },
                   {
                       "path":  "app/_internal/qml/OnboardingStepChannels.qml",
-                      "sha256":  "ded5324da90658f5a63f768f21a7082650ada31313b98d976b80d6d43f4a2234",
-                      "size":  2647
+                      "sha256":  "10314be227c5e9cd238b07eb12fbd3cb2cace9b7bc153ffb0585b811ab7d4184",
+                      "size":  4218
                   },
                   {
                       "path":  "app/_internal/qml/OnboardingStepChrome.qml",
@@ -170,34 +513,34 @@
                       "size":  1106
                   },
                   {
-                      "path":  "app/_internal/qml/OperationPanel.qml",
-                      "sha256":  "11e72405cd4b0e5faf12844d8a70e1d403b8b358a1054936e161bdee2dcd20da",
-                      "size":  2608
-                  },
-                  {
                       "path":  "app/_internal/qml/PollerPanel.qml",
-                      "sha256":  "913b6440164b365effcd43f0bd9a438566599b412ad20a4b938a632d4c1a1890",
-                      "size":  25631
+                      "sha256":  "9e42604e7cbd3a538795f65c97546193d8dfe59e718a96e21292937f7cb305af",
+                      "size":  27354
                   },
                   {
                       "path":  "app/_internal/qml/ProjectActions.js",
-                      "sha256":  "7a34b825525353780f640d7734eb1d3ce652307156b996e8c9108f48f05c4e28",
-                      "size":  3842
+                      "sha256":  "032e5c006cd01acbca5ac34f79d44ab84012ae2db8ab469f843059d008cdb493",
+                      "size":  3916
                   },
                   {
                       "path":  "app/_internal/qml/ProjectPoolTable.qml",
-                      "sha256":  "731aff629e98346b48bd71106f86b79d841278623edf8d62f6bed8466da0de58",
-                      "size":  15371
+                      "sha256":  "6b2a30811d88007e1809ee77bedca764ebcdf5766d04efd8fc212c946b188f3e",
+                      "size":  34331
+                  },
+                  {
+                      "path":  "app/_internal/qml/ProxySettingsCard.qml",
+                      "sha256":  "5673bbb5eb829e7c594a23b14a2b7824c13998c6ce9bbccd5a9f08efaaa3f320",
+                      "size":  17973
                   },
                   {
                       "path":  "app/_internal/qml/qmldir",
-                      "sha256":  "ee941f594a50f7a998d618dda434f2017c50177dea7d539b18b8e4603f4a35bd",
-                      "size":  2092
+                      "sha256":  "b28c2975fa84e242f7eb84c354bfdec419711a24f17bd0a637058d5cecccac18",
+                      "size":  2214
                   },
                   {
                       "path":  "app/_internal/qml/QuotaPoolCard.qml",
-                      "sha256":  "725802589b6798b8d8039ad72814b78baaf8f4ba470dfdddb359df7552246f3e",
-                      "size":  19470
+                      "sha256":  "4c35bbb1d3f8c478126b65ea945df5544657e04f569497efc85dcf27682fe119",
+                      "size":  21184
                   },
                   {
                       "path":  "app/_internal/qml/RenderedVideoDetail.qml",
@@ -206,8 +549,8 @@
                   },
                   {
                       "path":  "app/_internal/qml/ScanCorePanel.qml",
-                      "sha256":  "9dba69fc8382aef073799df734deccbebce71c92c86dcb17de0b36a3c907de9b",
-                      "size":  14987
+                      "sha256":  "19dc0e53259204dd080174370fa082eb20527f5549f4b71443399d12b13df5a5",
+                      "size":  16452
                   },
                   {
                       "path":  "app/_internal/qml/SessionsPanel.qml",
@@ -221,28 +564,28 @@
                   },
                   {
                       "path":  "app/_internal/qml/SettingsPage.qml",
-                      "sha256":  "b4b7cc40b85758dc50622c67b3d30f4eca5b44f781e12c38a0166aa4e0fa8a0c",
-                      "size":  10817
+                      "sha256":  "eb2f2dca1e637aed542e35ed1fcc3b14fbeca8ba49ec6bd53b4d5125edfdf2a8",
+                      "size":  46900
                   },
                   {
                       "path":  "app/_internal/qml/ShortsSettingsCard.qml",
-                      "sha256":  "c432a3d7ff5252299f4a09b8e1eba934c745fa68e3ec6c68e84e949dc397a528",
-                      "size":  12713
+                      "sha256":  "c28377aba2c089bc6ba8f360fc2636931c74cf2b98fdf596bf8742ae638b5e37",
+                      "size":  27446
                   },
                   {
                       "path":  "app/_internal/qml/Sidebar.qml",
-                      "sha256":  "41b477b4c6686c6e5b992f73863afee3e4d0fdc87e5d5cf439c79a10abfa778b",
-                      "size":  24045
+                      "sha256":  "43c06b5e63e5a8a555ceebcf058bfa417e9fa096bf027f9308da0beee667a183",
+                      "size":  28940
                   },
                   {
                       "path":  "app/_internal/qml/SplitModal.qml",
-                      "sha256":  "741925482cab31d7848df09b6f1acbde9cc52737b574f04adec301873d8aa9af",
-                      "size":  7696
+                      "sha256":  "43743251013a077567d47be8ecfbb823de1c0ad46d1d4a3f089d249bc7d414f3",
+                      "size":  17690
                   },
                   {
                       "path":  "app/_internal/qml/StatusDot.qml",
-                      "sha256":  "d7bb2fef5c9c9d729349e3ddff49159029940cf39d71c15c0bd4cb1a7a491e81",
-                      "size":  3458
+                      "sha256":  "58af45091f395440a0fc306318e52e3bfc9ca0f536daec2e0f0bf4d75edc14b1",
+                      "size":  3564
                   },
                   {
                       "path":  "app/_internal/qml/StorageCard.qml",
@@ -251,43 +594,43 @@
                   },
                   {
                       "path":  "app/_internal/qml/SystemMonitor.qml",
-                      "sha256":  "11761b97dfb8d90d3ae82eb404cb7a559412495a864364a00bb3d0a44edf4ae0",
-                      "size":  7527
+                      "sha256":  "fdca3dccebc8ae4e0f53a36044131e6cb4d240ec1c5c7ce2c789b8c7b2f83f70",
+                      "size":  7532
                   },
                   {
                       "path":  "app/_internal/qml/Theme.qml",
-                      "sha256":  "e0f826449762d79d3a0438c281dd0ba2f7ce7537407716cb9e76c13eca7bd690",
-                      "size":  2676
+                      "sha256":  "8bcc09f9ac7fecb87e747fa4364fc20daf02d2633ba0169f2df1ac3ebb84cbbf",
+                      "size":  3200
                   },
                   {
                       "path":  "app/_internal/qml/ThumbnailUploader.qml",
-                      "sha256":  "58c7e9199fc32b1844e81eea27f4694e9154edec23e98903cb515cc3998a8e9b",
-                      "size":  2717
+                      "sha256":  "f4b321e79272bfdba6672c146779aa82ff594a7ae8c96ddb25cff8c478b8ddb7",
+                      "size":  2984
                   },
                   {
                       "path":  "app/_internal/qml/TikTokPanel.qml",
-                      "sha256":  "58b61f2d744433c3248b767553cab6313055532dde7f076e6a3c4520c1cd395f",
-                      "size":  48431
+                      "sha256":  "63bca06cfbfe187a63ee91fe4c6df7c56687b6085bc2fe2b3bda0be181859a62",
+                      "size":  49358
                   },
                   {
                       "path":  "app/_internal/qml/ToastManager.qml",
-                      "sha256":  "fefa4822fb456b3fc25ec0f2ab3a478f67074f75aefa7df9ccee31687c437a8a",
-                      "size":  1429
+                      "sha256":  "1e7092419e1b10f500391e7ea99da287f75560c322d1108ab4dd23a04dbe20cb",
+                      "size":  1479
                   },
                   {
                       "path":  "app/_internal/qml/ToastNotification.qml",
-                      "sha256":  "c596b48226d9957d97ccd330037d1f6114ecb1e4e2db9e5f9d4e47121af38911",
-                      "size":  5113
+                      "sha256":  "9f876336431f235c1ee134bc7a4123b6ebc2864c1329d4a8397e5725f32faf17",
+                      "size":  5329
                   },
                   {
                       "path":  "app/_internal/qml/TopMenuBar.qml",
-                      "sha256":  "ccc19f75af9559721a504fdf733965c4901c36fe5aab84dca42b3c2c83f40b08",
-                      "size":  5634
+                      "sha256":  "8688647851764ec1a49f1d4911232af2f40a04413a8d637e94f8ebbc3726c6f0",
+                      "size":  7074
                   },
                   {
                       "path":  "app/_internal/qml/VideoCompareModal.qml",
-                      "sha256":  "b11ece8f23c22454a3cbe8e517cda2a4f484539d85c608b5b5ef92b9b00aaad2",
-                      "size":  3463
+                      "sha256":  "831588296b6b752b2076f2d90cef2c54053a29c0c8e35c960217246eb45ca3cc",
+                      "size":  11579
                   },
                   {
                       "path":  "app/_internal/qml/VideoDetailPanel.qml",
@@ -301,13 +644,13 @@
                   },
                   {
                       "path":  "app/_internal/qml/WorkspaceCardDisplay.qml",
-                      "sha256":  "d79a10b064df05ac062a9cde0898b623665546bd43689f235bb20ffae3d9c263",
-                      "size":  13922
+                      "sha256":  "d2550f15fa1f14df3748fd063e2285a2c036f99d8139f64da4ca44a758d9bd9a",
+                      "size":  12480
                   },
                   {
                       "path":  "app/_internal/qml/WorkspaceEditForm.qml",
-                      "sha256":  "73cf42cc25314afe3316dc29dc23dae5bade6e61de3382e3f145816f091713cf",
-                      "size":  6060
+                      "sha256":  "1733dac0877da502aef508ce359775e1dc8f3947144e290a20bcd347d8b226c8",
+                      "size":  6093
                   },
                   {
                       "path":  "app/_internal/qml/WorkspaceMetrics.qml",
@@ -316,8 +659,8 @@
                   },
                   {
                       "path":  "app/_internal/qml/WorkspaceQueue.qml",
-                      "sha256":  "a2e344ce0ef6e2a15517b6b0c7871105780b6b68604a7fcbf30b27a91dca08cf",
-                      "size":  12587
+                      "sha256":  "1a9b557cf6b872698a00aeb09299152ff8f1dc3c650f9c32b9fcfb4cbfdf153f",
+                      "size":  11956
                   },
                   {
                       "path":  "app/_internal/qml/__init__.py",
@@ -325,556 +668,17 @@
                       "size":  0
                   },
                   {
-                      "path":  "app/_internal/qml/__pycache__/__init__.cpython-314.pyc",
-                      "sha256":  "1dca5104a38d00e96f2dd9a09ced88b7b249e89a72f6844be51a533b81ca2a0e",
-                      "size":  197
-                  },
-                  {
                       "path":  "app/_internal/resources/innertube_helper.js",
-                      "sha256":  "966b215c22ca10bf9fd6df3d6fd5fb7e97a363b63211566d8fded3ca8022fae8",
-                      "size":  106524
+                      "sha256":  "8a369aa0266a9f9e2de542c97f77ad80b2329e2b07ff2fc1117fc4493e5e546b",
+                      "size":  122167
                   },
                   {
                       "path":  "app/_internal/resources/tiktok_helper.js",
-                      "sha256":  "43e3aea035132387fc23dc1e1577f8928520f191bc2880f43ec9b32c3aecc100",
-                      "size":  41255
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/browsers.json",
-                      "sha256":  "ee39bc924bc3d1bd895626c2910f1292d109bbfeeb5abd113acb45e1951cc942",
-                      "size":  1939
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/cli.js",
-                      "sha256":  "f1c4075aef116c766092250d7f37b3249a7cee6465d953207fc38c8f6145becd",
-                      "size":  839
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/index.d.ts",
-                      "sha256":  "7a8ec10b0834eb7183e4bfcd929838ac77583828e343211bb73676d1e47f6f01",
-                      "size":  634
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/index.js",
-                      "sha256":  "a58fb2cec4293e7dcf73c58a179898a4f3986666451a19da4e731fa3af63265b",
-                      "size":  697
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/index.mjs",
-                      "sha256":  "3d36e2132d3c8b62397d23f0bb4177336aaee503203ae2a2c90fbeb5bf3317dd",
-                      "size":  1063
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/LICENSE",
-                      "sha256":  "45873d00a0dd243596deb4aa23b2493b3d1f0671921bf2538ea431d7380220eb",
-                      "size":  11601
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/NOTICE",
-                      "sha256":  "6d602191187b35b9b01d2cffa01c8469c2c8d9de8a96f1bf868e0f264f51c81d",
-                      "size":  254
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/package.json",
-                      "sha256":  "759e376f995bf39edd4810d699b99469bab1d7428b6fbc78d41912f367df7ba9",
-                      "size":  876
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/README.md",
-                      "sha256":  "d16ff7f8e38fa1fc954f695ad551cdc118d9c9bdd5f3d83203901f4c317d7d7e",
-                      "size":  120
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/ThirdPartyNotices.txt",
-                      "sha256":  "a549d329bad8806fe279f0ecae0fc0270dec7e7c2dc8ec10f90e394f7c32b144",
-                      "size":  676
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/bin/install_media_pack.ps1",
-                      "sha256":  "bc20f049badf021e3a53bdb4156603caa5ef482c9a9a251f927605e676a44171",
-                      "size":  174
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/bin/install_webkit_wsl.ps1",
-                      "sha256":  "bc61beda37a808eef27d39ce684baa792f6d17737a25a432b1a84d3b591ab815",
-                      "size":  1464
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/bin/reinstall_chrome_beta_linux.sh",
-                      "sha256":  "dc8c22b9dde76583cece2857575b88094299615f3136a3c598149710c45dee3a",
-                      "size":  1217
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/bin/reinstall_chrome_beta_mac.sh",
-                      "sha256":  "a92eaeb4ebcf5633a4e9c981481e14c80764fc81b6fcbc0565398e50ff319433",
-                      "size":  563
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/bin/reinstall_chrome_beta_win.ps1",
-                      "sha256":  "b6d9e44742feafb98d5edc56fa20042949973cf30d141a1c5b4fb384096967c5",
-                      "size":  957
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/bin/reinstall_chrome_stable_linux.sh",
-                      "sha256":  "dc72ab3567a4ce43bd8353d4ecf41f1d9c03e870169367cd3ed9043aabf67dd1",
-                      "size":  1212
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/bin/reinstall_chrome_stable_mac.sh",
-                      "sha256":  "bb43a96c192a6cc81524ade0264686fff7809c019a89f7db0a9849635879c3be",
-                      "size":  519
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/bin/reinstall_chrome_stable_win.ps1",
-                      "sha256":  "3d96c4e2f4ebbb3fad44cf3ba58d9cf90af1c9fb3073e3b27d45a74cf005515b",
-                      "size":  923
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/bin/reinstall_msedge_beta_linux.sh",
-                      "sha256":  "10b26f35dbc2000b94edf1172d803a29c5873a4eb8d523afbc687997b642767e",
-                      "size":  1494
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/bin/reinstall_msedge_beta_mac.sh",
-                      "sha256":  "0036d738bc90d686100d81f328ba0003bf07863f5500b792c8da391d149750fa",
-                      "size":  377
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/bin/reinstall_msedge_beta_win.ps1",
-                      "sha256":  "b173c378a59f0cc38033cee702de1f44f09276c9b2270d1a650ebe66ee312433",
-                      "size":  874
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/bin/reinstall_msedge_dev_linux.sh",
-                      "sha256":  "00e4947e7a4f8339c6db09c87976d808583c07f9179e4aa7694d88614b82fe95",
-                      "size":  1489
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/bin/reinstall_msedge_dev_mac.sh",
-                      "sha256":  "6f899e3b311f742c24ca37ff9e32298e8290514ffc14bf588cc51556a29da4c0",
-                      "size":  372
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/bin/reinstall_msedge_dev_win.ps1",
-                      "sha256":  "46f7f98c81cb0abe687d7f4a5afea9b897a38d2a6dd6f6662fbd847f7a22bd51",
-                      "size":  869
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/bin/reinstall_msedge_stable_linux.sh",
-                      "sha256":  "ec0a31a5f09c565e108473a1850895a4458ab00c713ac1de3aa2001912e4668f",
-                      "size":  1507
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/bin/reinstall_msedge_stable_mac.sh",
-                      "sha256":  "3af1e893527ff2257aa2dbc3b259a053b92f45c3eadb13e38eba46e87902655d",
-                      "size":  371
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/bin/reinstall_msedge_stable_win.ps1",
-                      "sha256":  "40bb5fcbfcebbbe2ce43c6e736e7c5deefc5be03b6e9c6914423c06ec1f591be",
-                      "size":  856
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/bootstrap.js",
-                      "sha256":  "97ffe165e8e45f1b51a713b3f380d383e4e183727135fe9a5e045ec62e9310ab",
-                      "size":  3481
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/coreBundle.js",
-                      "sha256":  "6be5c2ea035554e9b184b1dbc7aa5e7f1fb428dd1b5c202022858dcfae9bee27",
-                      "size":  3352341
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/package.js",
-                      "sha256":  "9f938e1d44a0dd231b1660ca62f7dae964859b79cbdc370b8542c5d375ca3c05",
-                      "size":  2112
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/serverRegistry.js",
-                      "sha256":  "85f63dbf8dc73fa651dcf046a732d78a86dbda401084b1d144d5a1ef1a59730d",
-                      "size":  247050
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/serverRegistry.js.LICENSE",
-                      "sha256":  "5cf540fe55a2ba9bcf0eb76e739b454faa8581e2f1a0f777602ef0855534302e",
-                      "size":  18617
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/utilsBundle.js",
-                      "sha256":  "1295945f0054d2504c9b751945b15aa3c672530ad5a340f3f9636e5e238f304a",
-                      "size":  3143574
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/utilsBundle.js.LICENSE",
-                      "sha256":  "e3f91eea8ba98019d8e65ec61756af34a67e170070005a09d1fc6f49a64b544b",
-                      "size":  110417
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/xdg-open",
-                      "sha256":  "2e79a4d5171dd384d20a75b023dfe0e9f4330cdb5d441f6c3859a11fce3db51a",
-                      "size":  25778
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/entry/cliDaemon.js",
-                      "sha256":  "062f256fb29a7bf91793a014b9c3f1f9cf2dc6b12e40a8a2ebba88a630ae16a0",
-                      "size":  197
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/entry/dashboardApp.js",
-                      "sha256":  "209962c6eaeef11629f226d6a2ab33ec7a2480754242b6e19590a9e6eb71d126",
-                      "size":  108
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/entry/mcp.js",
-                      "sha256":  "cc87dc0020cb41caebbf04f50e42bc7835b033a6d80e9c3f0a3d0b3dbdf341c7",
-                      "size":  442
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/entry/oopBrowserDownload.js",
-                      "sha256":  "87567cdbd67dd2f50bb232d47d3784701ece7c81e39c0287bb7d1b466b68cf06",
-                      "size":  120
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/server/deviceDescriptorsSource.json",
-                      "sha256":  "796ff93bfd5e38b84541a1e8745a7abcbccba54d440fb3b7a1acec0655d056cc",
-                      "size":  80785
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/server/chromium/appIcon.png",
-                      "sha256":  "6ba994f05c5cf18e22d9b6bef9898fbdec6ad4d4d77f5187d0609cb42d72d01e",
-                      "size":  16565
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/server/electron/loader.js",
-                      "sha256":  "8c99c632a9fcef9d691160954d01acdf374ba15566e153bef7fb61b0d3796e6d",
-                      "size":  4821
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/channelSessions.js",
-                      "sha256":  "6b9c613e87340f48ad7182addd7495a8ff3fbe55feb1bbd0ce04f59f1552e126",
-                      "size":  7087
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/cli.js",
-                      "sha256":  "dfde8e9dfde30c4b3914eb25ba1c5a8524ec64651d866171d75cd7b41a827180",
-                      "size":  153
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/help.json",
-                      "sha256":  "961a8792b8b4e43f6d28d8d3029f6b3b7fa2e04d04d84fb0590bd0d759d2c456",
-                      "size":  36596
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/minimist.js",
-                      "sha256":  "1d200627373a367e0097f1abeaaa4d67cde2c33f2e5efca5cb55222c7667adc3",
-                      "size":  4106
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/output.js",
-                      "sha256":  "2eace914547a487b2aa1dc34af787fe92168f0b7b3dde24f2b127e817cc9b2b4",
-                      "size":  11703
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/program.js",
-                      "sha256":  "722f00475112d4a3b569af51172e0bd88d1e4627a65ed8a2245031e08e7cc1ec",
-                      "size":  16054
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/registry.js",
-                      "sha256":  "c11d278e05542808ba37bdb032018eccf9dc78377f8025bd74fa906ae009ca30",
-                      "size":  6662
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/session.js",
-                      "sha256":  "c47202e7886ddd17ad2ce3e7f4b893f751e0e074cb1111a8bbc20fd33ecec800",
-                      "size":  9395
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/skill/SKILL.md",
-                      "sha256":  "b4c81c39e39f30e4790607e57b12283878f3751daca9c0e44f301899f2108b13",
-                      "size":  11869
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/skill/references/element-attributes.md",
-                      "sha256":  "bf19aa4671e0a50a0fefa9c790f39124e803060eefe395042b723c29fcb7faa2",
-                      "size":  665
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/skill/references/playwright-tests.md",
-                      "sha256":  "c5b0719fef2cfdff50bd744051b2f9afc119775db4b48e9b2882c1cf3886797c",
-                      "size":  1690
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/skill/references/request-mocking.md",
-                      "sha256":  "54e801c9663fc2b6d68ceb058cb1c360724c2499f42acc7852a68e83e5b5f37c",
-                      "size":  2182
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/skill/references/running-code.md",
-                      "sha256":  "d95c539a5990b71d02d8bdf1d9414df16191eb6cff95b0063820518b7a13dcb2",
-                      "size":  5642
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/skill/references/session-management.md",
-                      "sha256":  "cd3e261b8763bf952f1e371b876cb78d054379afec85482f9250633e1b7e6c44",
-                      "size":  5671
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/skill/references/spec-driven-testing.md",
-                      "sha256":  "3326b3af65ed6e05180aa394a7fd578f29822e67bde9f22f7c7f94e6c8e3a594",
-                      "size":  11578
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/skill/references/storage-state.md",
-                      "sha256":  "9ac47f9ae4a1aedcd2077f8ac9ab1ba6bee1962cb83ff51adcd36fb6d83b5ec6",
-                      "size":  5198
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/skill/references/test-generation.md",
-                      "sha256":  "2a9c4d94effa31b05cf367dfa8bbace8874a3bc9799987ad2b03269af224d299",
-                      "size":  4585
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/skill/references/tracing.md",
-                      "sha256":  "792e0ac7705e56ac48df84c0f5400221ce86107897c671590a64a4ea6a82508e",
-                      "size":  3440
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/cli-client/skill/references/video-recording.md",
-                      "sha256":  "8555ab5400df0d90e66318aacc0a8a4418fbf872e7463824d55d5c41615abd83",
-                      "size":  5387
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/dashboard/appIcon.png",
-                      "sha256":  "38037bcf18c7f9b950da2e1a2d8800d38fb27637ccda293d38368a3704b67f18",
-                      "size":  18945
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/trace/SKILL.md",
-                      "sha256":  "df85506bfa8a445c961efa1ac244cca733667b717711bcc99c1f93994c29d5dc",
-                      "size":  4712
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/utils/extension.js",
-                      "sha256":  "c07d365ccff8c7fab3d65848bc01616c74e422f3be7b1c0e7b587b84ef866ada",
-                      "size":  3132
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/tools/utils/socketConnection.js",
-                      "sha256":  "973c2bea70a1f1445f4673f99e9fa351e50a2ec9fd93d7381b2c41bb4de764dd",
-                      "size":  3317
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/dashboard/index.html",
-                      "sha256":  "1025839f364c006a0a3b6f94196a630fdbec355cfe15de3777d975e725c915c7",
-                      "size":  1078
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/dashboard/playwright-logo.svg",
-                      "sha256":  "511524a1c145819303a18fb71870a4307c3e740f9e9722f7686a2b42b0995b6c",
-                      "size":  5645
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/dashboard/assets/codicon-DCmgc-ay.ttf",
-                      "sha256":  "0f1d5219934e96e83b8db162d60b4d8c09b5de1e7d38031cbafe4a3c0f2889c9",
-                      "size":  80340
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/dashboard/assets/firefox-1bWoP6pv.svg",
-                      "sha256":  "3f3742d1e78c0db6c2d3531250f70c30675ee5310de32fa89befaf738c54efd0",
-                      "size":  7488
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/dashboard/assets/firefox-beta-k3eOH_eK.svg",
-                      "sha256":  "7eab5ffdc25903ba33a7202f7fffa1999f119c7be45a39e9e703c118904f917a",
-                      "size":  9280
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/dashboard/assets/firefox-nightly-Cp5nfeDT.svg",
-                      "sha256":  "f311c074b0fa999fcd6b73441301fb54ee87a48ff3bf05f318647928110476da",
-                      "size":  9143
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/dashboard/assets/index-BY2S1tHT.css",
-                      "sha256":  "4e741ba6be0fb15305f6dfd907e245e68554f6dbd5282a58dcc1e9d2493eb917",
-                      "size":  142433
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/dashboard/assets/index-C_5TMfeg.js",
-                      "sha256":  "cf991b92763fb3b3759e9c5b9839e3625b351041db4199501a53c3c82bd2e28c",
-                      "size":  331501
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/dashboard/assets/safari-na3_-uQk.svg",
-                      "sha256":  "80fd72ca5eb8545f1981277b31f4f92951d469d4efebd078e4086b676fe517dc",
-                      "size":  5254
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/htmlReport/index.html",
-                      "sha256":  "ce7c098020a0eb9ce10edd416245ea6da50dfeaab18dfd0a2176979d22643be6",
-                      "size":  464
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/htmlReport/report.css",
-                      "sha256":  "3298f11062d5112516c8b3fa2368c6138b4700aa9fa215bb5fc0a1f0efe94e3f",
-                      "size":  108330
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/htmlReport/report.js",
-                      "sha256":  "9e7baad230ee5aec5af605ac4687687cf0e079f3299423811aa9768543d8947b",
-                      "size":  416009
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/recorder/index.html",
-                      "sha256":  "a02e5446589dc2515a986f9944918029df332418db0f706a819d3bf1a0bf7fa3",
-                      "size":  1078
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/recorder/playwright-logo.svg",
-                      "sha256":  "6b0a4367bdeab10995bc239278f04c68c10e48adbec15e799e01909a0d66dcb9",
-                      "size":  5033
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/recorder/assets/codeMirrorModule-DeBYQozu.js",
-                      "sha256":  "f4ad79265956fe5186af9d2b8ebcf4c0e40ec8d0405ab623471a6cecb22bc1d7",
-                      "size":  313009
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/recorder/assets/codeMirrorModule-DYBRYzYX.css",
-                      "sha256":  "70bf421a13e87857ca684bfa2cc55f06d7c5a50f71253a3ff1d74769b14a957e",
-                      "size":  6421
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/recorder/assets/codicon-DCmgc-ay.ttf",
-                      "sha256":  "0f1d5219934e96e83b8db162d60b4d8c09b5de1e7d38031cbafe4a3c0f2889c9",
-                      "size":  80340
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/recorder/assets/index-4ZiSSCmn.css",
-                      "sha256":  "4278e600a533667369328e9eb52a212693d52e46072ec37228e0ef8621a48ead",
-                      "size":  92234
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/recorder/assets/index-Bq-mQf8S.js",
-                      "sha256":  "b9215ab0e84dba105788f7ae82559892b4ebab1e9c7cde479d00a381e8375c40",
-                      "size":  365888
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/codeMirrorModule.DYBRYzYX.css",
-                      "sha256":  "70bf421a13e87857ca684bfa2cc55f06d7c5a50f71253a3ff1d74769b14a957e",
-                      "size":  6421
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/codicon.DCmgc-ay.ttf",
-                      "sha256":  "0f1d5219934e96e83b8db162d60b4d8c09b5de1e7d38031cbafe4a3c0f2889c9",
-                      "size":  80340
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/defaultSettingsView.CjdS-WJx.css",
-                      "sha256":  "de9c068d0e8043820fe42f30558e972eb7e2a8a45a34f65c7c8f73fa2dbc9fd0",
-                      "size":  112258
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/index.CzXZzn5A.css",
-                      "sha256":  "4ec2a3d49db259ce9025cb4fa48d73b1afd58215e567eef3b4a4cbf76c1674d9",
-                      "size":  2111
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/index.DMMX1gXU.js",
-                      "sha256":  "f33ceae71f13fde446a244c113548fec5ef890bf7b93ded7b861bebcebaa3e23",
-                      "size":  6547
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/index.html",
-                      "sha256":  "5ced36d3feb5bbbc0e8350330be0a293a1b4784ddecb6e58e1851323a93640cc",
-                      "size":  2363
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/manifest.webmanifest",
-                      "sha256":  "d8540500603a32a39fe7e5a0375dc0f9ebafd11118e06a846db7efc608223ab9",
-                      "size":  429
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/playwright-logo.svg",
-                      "sha256":  "6b0a4367bdeab10995bc239278f04c68c10e48adbec15e799e01909a0d66dcb9",
-                      "size":  5033
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/snapshot.html",
-                      "sha256":  "11c80efe4f4424fa59004bcc71fed77a420d2da5f199790e355c30a5b965d0cd",
-                      "size":  389
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/snapshot.v8KI4P3m.js",
-                      "sha256":  "97a3cd6d67aaac66efc838d7d743ac51bbf7d272e1287981c11758fca21a0657",
-                      "size":  660
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/sw.bundle.js",
-                      "sha256":  "5237c6c68ba1f3591caf8cf951be4873192342a72fbcc31e5a667f7a7904c624",
-                      "size":  95855
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/uiMode.BZQ54Kgt.css",
-                      "sha256":  "a548cd88f2041433da2d60fd3a33ef23af2fb8ddf2557b7bef79806364498e57",
-                      "size":  60311
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/uiMode.html",
-                      "sha256":  "95bf648d76d380b779770aae1c560b58ee456096b2b3b02922e629af29e3d492",
-                      "size":  727
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/uiMode.Ut8wwJNp.js",
-                      "sha256":  "0ab1e917250833c3f6b3ed3ae3f359158bf68cd2d9951163ee6edff9b8ed1e5b",
-                      "size":  38514
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/xtermModule.DYP7pi_n.css",
-                      "sha256":  "7c5a01f382f76539fc9b4db6b18e18a7035741845fd14968c5cdc0a7e373d817",
-                      "size":  4150
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/assets/codeMirrorModule-LEHpjmcn.js",
-                      "sha256":  "e3d682edfb4dd1fa17882466dd15058120278b27ff1101785a57b6df4db7ada5",
-                      "size":  313054
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/assets/defaultSettingsView-BNmKHKpQ.js",
-                      "sha256":  "f21839cd274944763d12ad24529345b9f8ebf339409f51f4dbe52f9d9baeb09c",
-                      "size":  658064
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/assets/urlMatch-BYQrIQwR.js",
-                      "sha256":  "168c4dee4815ea8d3c131a504033cd23d4b15aefa0209dd10ad3f643e8f1d8a7",
-                      "size":  819
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/lib/vite/traceViewer/assets/xtermModule-CsJ4vdCR.js",
-                      "sha256":  "4aa82b0448cef1cf951bbe0ac80bf2d2b7c5d279dd74bcc798a9e563e98e5295",
-                      "size":  292244
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/types/protocol.d.ts",
-                      "sha256":  "17c6561066a9708a09115ad4b49ff23cf81a607f54278c9b9b5865964906f415",
-                      "size":  814471
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/types/structs.d.ts",
-                      "sha256":  "32727845ab5bd8a9ef3e4844c567c09f6d418fcf0f90d381c00652a6f23e7f6e",
-                      "size":  2103
-                  },
-                  {
-                      "path":  "app/_internal/node_modules/playwright-core/types/types.d.ts",
-                      "sha256":  "60200590d8ecf247a6e9c769c6b79bd8e688c3af14ef208072d0c6954b25f125",
-                      "size":  1003279
-                  },
-                  {
-                      "path":  "apply-patch.ps1",
-                      "sha256":  "48df36e4fda074ce9942f6faa6916f944f17cfc9fe04eded9e4e6c31df2b6533",
-                      "size":  14090
+                      "sha256":  "bec1c4c58b9150cc9c82e60daa590cf1c41f380a199310db87b7109f51c0eb79",
+                      "size":  61240
                   }
               ],
-    "totalSize":  36171244,
-    "fileCount":  174
+    "totalSize":  46318732,
+    "edition":  "HyperClip (Video Dai)",
+    "fileCount":  135
 }

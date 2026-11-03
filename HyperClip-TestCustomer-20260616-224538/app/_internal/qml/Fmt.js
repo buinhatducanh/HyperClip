@@ -122,3 +122,12 @@ function thumbnailSource(thumbnailLocal, videoId) {
     }
     return "file:///" + t.replace(/\\/g, "/")
 }
+
+
+/// epoch ms -> "HH:MM:SS.s" (mốc thời gian chính xác 0.1s).
+function timeMs(ms) {
+    if (!ms || ms <= 0) return "—"
+    const d = new Date(ms)
+    return pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds())
+        + "." + Math.floor((ms % 1000) / 100)
+}

@@ -199,9 +199,10 @@ function parseRelativeTime(text) {
     const unit = m[2].trim();
     const now = Date.now();
     
-    // Seconds
+    // Seconds — includes abbreviated "5s ago" format (YouTube sometimes uses it)
     if (
-      unit.startsWith('second') || unit.startsWith('sec') || unit.includes('giây') || 
+      unit.startsWith('second') || unit.startsWith('sec') || unit === 's ago' ||
+      unit.startsWith('s ') || unit.includes('giây') || 
       unit.includes('秒') || unit.includes('초') || unit.includes('sekunde') || 
       unit.includes('segundo') || unit.includes('секунд')
     ) {
@@ -349,23 +350,50 @@ function extractScheduleTextFromLockup(lv) {
   } catch (_) { return ''; }
 }
 
+// Pass 146 — rút UC id từ một khối metadata bất kỳ (LockupView của feed đăng
+// ký). Cấu trúc lockup đổi theo mùa, còn browseId của kênh thì luôn nằm đâu đó
+// trong onTap/endpoint — quét chuỗi là cách bền nhất, và ta chỉ cần đúng 1 id.
+function extractChannelIdLoose(obj) {
+  try {
+    const s = JSON.stringify(obj || {});
+    const m = s.match(/"browseId":"(UC[\w-]{22})"/) || s.match(/\/channel\/(UC[\w-]{22})/);
+    return m ? m[1] : '';
+  } catch (_) { return ''; }
+}
+
+// Pass 146 — rút UC id từ một khối metadata bất kỳ (LockupView của feed đăng
+// ký). Cấu trúc lockup đổi theo mùa, còn browseId của kênh thì luôn nằm đâu đó
+// trong onTap/endpoint — quét chuỗi là cách bền nhất, và ta chỉ cần đúng 1 id.
+function extractChannelIdLoose(obj) {
+  try {
+    const s = JSON.stringify(obj || {});
+    const m = s.match(/"browseId":"(UC[\w-]{22})"/) || s.match(/\/channel\/(UC[\w-]{22})/);
+    return m ? m[1] : '';
+  } catch (_) { return ''; }
+}
+
 function extractFromLockupView(lv) {
-  const videoId = lv.content_id;
+  const videoId = lv.content_id || lv.contentId;
   if (!videoId) return null;
 
-  const title = lv.metadata?.lockupMetadataViewModel?.title?.content || lv.metadata?.title?.text || '';
+  const title = lv.metadata?.lockupMetadataViewModel?.title?.content 
+             || lv.metadata?.title?.text 
+             || lv.metadata?.title?.runs?.[0]?.text 
+             || '';
 
   const isUpcoming = lockupIsUpcoming(lv);
   let publishedAt = isUpcoming ? 0 : extractPublishedAtFromLockup(lv);
   let durationSec = extractDurationFromLockup(lv);
 
-  
   let thumbnailUrl = '';
   const sources = lv.contentImage?.lockupContentImageViewModel?.image?.sources 
+               || lv.contentImage?.thumbnailViewModel?.image?.sources
+               || lv.contentImage?.image?.sources
                || lv.contentImage?.image 
                || lv.content_image?.image 
                || [];
   if (sources.length > 0) thumbnailUrl = sources[0].url || '';
+  if (!thumbnailUrl && videoId) thumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
   
   return {
     videoId, title, publishedAt, thumbnailUrl, durationSec,
@@ -659,7 +687,7 @@ function computeByteRange(format, durationSec, limitSec) {
     if (bitrate > 0 && durationSec > 0) estBytes = Math.ceil((bitrate / 8) * durationSec);
   }
   if (limitSec > 0 && durationSec > limitSec && estBytes > 0) {
-    const capped = Math.min(estBytes - 1, Math.ceil(estBytes * (limitSec / durationSec) * 1.15));
+    const capped = Math.min(estBytes - 1, Math.ceil(estBytes * (limitSec / durationSec) * 1.08));
     return { start: 0, end: capped };
   }
   return null;
@@ -853,6 +881,28 @@ function pct(arr, p) {
   return s[Math.min(s.length - 1, Math.floor(s.length * p))];
 }
 function hostOf(url) { try { return new URL(url).host; } catch (_) { return '?'; } }
+
+// Pass 101: host DỰ PHÒNG của googlevideo suy từ chính URL — tham số `mn` chứa
+// HAI tên mirror (ngăn bằng phẩy), `fvip` là số đầu subdomain dạng
+// r{fvip}---{mn}. Đây là cơ chế failover chuẩn của web player/yt-dlp. Không
+// suy được → null (không đua). Dùng cho cuộc đua byte-đầu: mỗi chunk bắn song
+// song lên cả hai host, header nào về trước thắng — TTFB hiệu dụng =
+// min(hai host), bên thua bị huỷ ngay sau khi phân thắng bại (phí vài KB).
+function deriveFallbackUrl(u) {
+  try {
+    const p = new URL(u);
+    if (!/\.googlevideo\.com$/.test(p.hostname)) return null;
+    const mn = p.searchParams.get('mn');
+    if (!mn || !mn.includes(',')) return null;
+    const alt = mn.split(',')[1].trim();
+    if (!alt) return null;
+    const fvip = p.searchParams.get('fvip') || '1';
+    const altHost = `r${fvip}---${alt}.googlevideo.com`;
+    if (altHost === p.hostname) return null;
+    p.hostname = altHost;
+    return p.toString();
+  } catch (_) { return null; }
+}
 
 // Parallel ranged fetch: googlevideo caps throughput PER CONNECTION on
 // progressive itags (~3MB/s observed 2026-07-15 19-13-54: 12.3MB in 4.7s),
@@ -1060,6 +1110,14 @@ async function fetchUrlToFileParallelV2(url, range, outputPath, localAddress, ua
     : (endWanted !== null
         ? Math.max(MIN_SLICE_BYTES, Math.ceil((endWanted + 1) / N))
         : V2_CHUNK_BYTES);
+  // Pass 101: đua byte-đầu 2 host (kill switch `nativeFetchHostRace` phía
+  // Rust). Chỉ khi suy được host dự phòng và file ≤32MB (Shorts/360p — vùng
+  // mà vài KB lãng phí của bên thua không đáng kể). Alt đi lại đúng đường
+  // hedge 'won/lost' sẵn có; alt LỖI không được tính vào sổ retry của chunk
+  // (host phụ 403 thì đường chính chạy y như không có cuộc đua).
+  const fallbackUrl = (opts && opts.hostRace) ? deriveFallbackUrl(url) : null;
+  const raceOn = !!fallbackUrl && (endWanted === null || endWanted < 32 * 1024 * 1024);
+  let altStarts = 0, altWins = 0;
   // Hàng chunk: {start,end,retries,done,inflight:Set<worker>,received}
   const chunks = [];
   const planUpTo = (e) => {
@@ -1067,7 +1125,7 @@ async function fetchUrlToFileParallelV2(url, range, outputPath, localAddress, ua
     let s = chunks.length ? chunks[chunks.length - 1].end + 1 : 0;
     while (s <= e) {
       const ee = Math.min(e, s + chunkBytes - 1);
-      chunks.push({ start: s, end: ee, retries: 0, done: false, inflight: new Set(), received: 0, hedged: false });
+      chunks.push({ start: s, end: ee, retries: 0, done: false, inflight: new Set(), received: 0, hedged: false, altTaken: false });
       s = ee + 1;
     }
   };
@@ -1102,7 +1160,22 @@ async function fetchUrlToFileParallelV2(url, range, outputPath, localAddress, ua
   const takeChunk = () => {
     while (nextIdx < chunks.length) {
       const c = chunks[nextIdx++];
-      if (!c.done) return c;
+      if (!c.done) return { c, alt: false };
+    }
+    // Pass 101: hết chunk mới → phát bản ALT (host dự phòng) cho chunk còn
+    // đang chờ byte đầu trên host chính — mỗi chunk đúng một lần, chỉ khi
+    // host chính CHƯA nhả byte nào (đã có byte = TTFB xong, đua vô nghĩa) VÀ
+    // đã chờ ≥100ms (host ấm trả header ~100ms — khỏi tốn request đua; host
+    // lạnh 500-700ms thì 100ms chờ không sứt mẻ phần thắng).
+    if (raceOn) {
+      const now = Date.now();
+      for (const c of chunks) {
+        if (!c.done && !c.altTaken && c.inflight.size === 1 && c.received === 0
+            && now - [...c.inflight][0].t0 >= 100) {
+          c.altTaken = true;
+          return { c, alt: true };
+        }
+      }
     }
     return null;
   };
@@ -1126,10 +1199,16 @@ async function fetchUrlToFileParallelV2(url, range, outputPath, localAddress, ua
     return best;
   };
 
-  const fetchChunkOn = (worker, c, isHedge) => new Promise((resolve) => {
-    // Vị trí bắt đầu: hedge lấy từ chỗ kết nối chính ĐÃ nhận (snapshot),
-    // ghi cùng offset nên không cần đồng bộ.
-    const from = isHedge ? c.start + c.received : c.start;
+  const fetchChunkOn = (worker, c, isHedge, isAlt) => new Promise((resolve) => {
+    // Vị trí bắt đầu: hedge/alt lấy từ chỗ kết nối chính ĐÃ nhận (snapshot),
+    // ghi cùng offset nên không cần đồng bộ (hai nguồn cùng nội dung — ghi
+    // trùng vị trí là vô hại).
+    const from = (isHedge || isAlt) ? c.start + c.received : c.start;
+    // Pass 101: alt đi host dự phòng và KHÔNG dùng DNS cache của host chính
+    // (lookup trả IP của host chính cho MỌI hostname — đưa cho alt là trỏ
+    // nhầm mirror về IP cũ, cuộc đua thành giả).
+    const reqUrl = isAlt ? fallbackUrl : url;
+    const reqLookup = isAlt ? null : lookup;
     const tr = Date.now();
     worker.t0 = tr;
     c.inflight.add(worker);
@@ -1137,7 +1216,7 @@ async function fetchUrlToFileParallelV2(url, range, outputPath, localAddress, ua
     worker.stop = stop;
     // Socket timeout 8 s (thay 30 s): chunk 768 KB không có lý do im 8 s;
     // pha truyền đã có stall detector 2,5 s, đây là lưới cho pha connect/TTFB.
-    httpGetRange(url, from, c.end, ua, localAddress, agent, 8000, lookup).then(async (res) => {
+    httpGetRange(reqUrl, from, c.end, ua, localAddress, agent, 8000, reqLookup).then(async (res) => {
       const rec = { hdrMs: Date.now() - tr, bytes: 0, xferMs: 0, reused: !!res.hcReusedSocket, t1: Date.now() };
       slices.push(rec);
       if (!connHdr) connHdr = String(res.headers['connection'] || res.headers['Connection'] || '-') + '/' + res.httpVersion;
@@ -1194,9 +1273,9 @@ async function fetchUrlToFileParallelV2(url, range, outputPath, localAddress, ua
       if (ctx && ctx.aborted) return resolve('aborted');
       if (e && e.httpStatus === 416) {
         // Ước lượng vượt EOF (chưa biết total) hoặc chunk hoàn toàn ngoài file.
-        // Hedge xuất phát từ chỗ kết nối chính đã nhận: 416 ở đây nghĩa là
+        // Hedge/alt xuất phát từ chỗ kết nối chính đã nhận: 416 ở đây nghĩa là
         // kết nối chính đã chạm EOF → coi như thua, không đụng `total`.
-        return resolve(isHedge ? 'lost' : 'eof');
+        return resolve((isHedge || isAlt) ? 'lost' : 'eof');
       }
       resolve('error:' + ((e && e.message) || e));
     });
@@ -1206,7 +1285,9 @@ async function fetchUrlToFileParallelV2(url, range, outputPath, localAddress, ua
     let idleSpins = 0;
     for (;;) {
       if (fatal || (ctx && ctx.aborted)) return;
-      let c = takeChunk();
+      const entry = takeChunk();
+      let c = entry ? entry.c : null;
+      let isAlt = entry ? entry.alt : false;
       let isHedge = false;
       if (!c) {
         c = pickHedge();
@@ -1222,14 +1303,34 @@ async function fetchUrlToFileParallelV2(url, range, outputPath, localAddress, ua
         isHedge = true; c.hedged = true; hedges++;
       }
       idleSpins = 0;
-      const r = await fetchChunkOn(w, c, isHedge);
+      if (isAlt) altStarts++;
+      const r = await fetchChunkOn(w, c, isHedge, isAlt);
       c.inflight.delete(w);
       if (r === 'done') {
         if (!c.done) {
           c.done = true; written += c.end - c.start + 1;
+          if (isAlt) altWins++;
           // Kẻ còn lại trên chunk này dừng ngay.
           for (const other of c.inflight) { if (other.stop) { other.stop.reason = 'won'; other.stop.aborted = true; } }
           chunkStats.push(Date.now() - w.t0);
+        }
+        continue;
+      }
+      if (isAlt) {
+        // Pass 101: alt thua/lỗi/stall — KHÔNG đụng sổ retry của chunk.
+        if (r === 'aborted') return;
+        // NHƯNG nếu host chính đã rớt TRONG LÚC alt bay (nhánh retry của nó
+        // thấy inflight≠0 nên bỏ qua requeue) và giờ alt cũng rớt → chunk
+        // mồ côi, không ai xếp lại → treo tới trần idle rồi 'chunks left
+        // undone' (bắt được ở A/B thật 24/08, video jNQXAC9IVRw kẹt 43s).
+        // Xếp lại phần còn thiếu tại đây, vẫn không tính vào sổ retry.
+        if (!c.done && c.inflight.size === 0) {
+          const from = c.start + c.received;
+          if (from <= c.end) {
+            const nc = { start: from, end: c.end, retries: c.retries, done: false, inflight: new Set(), received: 0, hedged: false, altTaken: true };
+            c.done = true; written += c.received;
+            chunks.splice(nextIdx, 0, nc);
+          } else { c.done = true; written += c.received; }
         }
         continue;
       }
@@ -1251,7 +1352,7 @@ async function fetchUrlToFileParallelV2(url, range, outputPath, localAddress, ua
         // Đẩy lại chính chunk này lên đầu hàng: tạo chunk mới cho phần còn lại.
         const from = c.start + c.received;
         if (from <= c.end) {
-          const nc = { start: from, end: c.end, retries: c.retries, done: false, inflight: new Set(), received: 0, hedged: false };
+          const nc = { start: from, end: c.end, retries: c.retries, done: false, inflight: new Set(), received: 0, hedged: false, altTaken: false };
           // Chunk cũ coi như xong phần đã nhận.
           if (!c.done) { c.done = true; written += c.received; }
           chunks.splice(nextIdx, 0, nc);
@@ -1285,7 +1386,7 @@ async function fetchUrlToFileParallelV2(url, range, outputPath, localAddress, ua
     const secs = (Date.now() - tStart) / 1000;
     const mbps = written / 1048576 / Math.max(secs, 0.001);
     dlog(`[native-dl] parallel fetch ${N} conns, ${written} bytes, ${mbps.toFixed(1)} MB/s (v2)`);
-    logSliceTelemetry('v2', url, slices, `total_ms=${Date.now() - tStart} dns_ms=${dnsMs} chunks=${chunks.length} hedges=${hedges} stalls=${stalls} retries=${retriesTotal} conn=${connHdr}`);
+    logSliceTelemetry('v2', url, slices, `total_ms=${Date.now() - tStart} dns_ms=${dnsMs} chunks=${chunks.length} hedges=${hedges} stalls=${stalls} retries=${retriesTotal} conn=${connHdr}${raceOn ? ` hrace=${altStarts}/${altWins}` : ''}`);
     if (mbps < 2 && secs > 2) {
       dlog(`[native-dl] CHẬM: ${mbps.toFixed(1)} MB/s trên ${N} kết nối (v2) — xem dòng slices tail= và [NetGov] để phân xử nghẽn chung/straggler`);
     }
@@ -1398,7 +1499,7 @@ function makePreconnAgent(videoId, host, n) {
       return super.createConnection(options, cb);
     }
   }
-  const agent = new PreconnAgent({ keepAlive: false, maxSockets: n });
+  const agent = new PreconnAgent({ keepAlive: true, keepAliveMsecs: 15000, maxSockets: Math.max(n, 24) });
   agent.hcPreconn = usable ? usable.sockets.length : 0;
   agent.hcDestroyPool = () => { if (usable) for (const s of usable.sockets) { try { s.destroy(); } catch (_) {} } };
   return agent;
@@ -1496,6 +1597,9 @@ async function downloadVideoNative(req, ctx) {
   if (req.conns) {
     PARALLEL_CONNECTIONS = Math.max(1, Math.min(PARALLEL_CONNECTIONS_MAX, Number(req.conns) || PARALLEL_CONNECTIONS_DEFAULT));
   }
+  if (req.limitSec && req.limitSec > 0 && req.limitSec <= 65) {
+    PARALLEL_CONNECTIONS = Math.min(PARALLEL_CONNECTIONS, 8);
+  }
   // Pass 90 (A1): URL đã resolve sớm + socket mở sẵn → bỏ qua /player+decipher.
   // Lỗi bất kỳ (403 vì URL/IP lệch, 416, socket chết…) → chạy lại chain đầy đủ
   // như chưa có gì — không tệ hơn đường cũ.
@@ -1518,7 +1622,7 @@ async function downloadVideoNative(req, ctx) {
       let written;
       try {
         written = useV2
-          ? await fetchUrlToFileParallelV2(cached.directUrl, cached.range, outputPath, sourceIp, cached.ua, ctx, { chunkKb: Number(req.chunkKb) || 0, agent })
+          ? await fetchUrlToFileParallelV2(cached.directUrl, cached.range, outputPath, sourceIp, cached.ua, ctx, { chunkKb: Number(req.chunkKb) || 0, agent, hostRace: req.hostRace !== false })
           : await fetchUrlToFileParallel(cached.directUrl, cached.range, outputPath, sourceIp, cached.ua, ctx, agent);
       } finally {
         try { agent.hcDestroyPool(); agent.destroy(); } catch (_) {}
@@ -1644,7 +1748,7 @@ async function downloadVideoNative(req, ctx) {
       // request possible.
       const doFetch = (r) => directUrl
         ? (useV2
-            ? fetchUrlToFileParallelV2(directUrl, r, outputPath, sourceIp, ua, ctx, { chunkKb: Number(req.chunkKb) || 0 })
+            ? fetchUrlToFileParallelV2(directUrl, r, outputPath, sourceIp, ua, ctx, { chunkKb: Number(req.chunkKb) || 0, hostRace: req.hostRace !== false })
             : fetchUrlToFileParallel(directUrl, r, outputPath, sourceIp, ua, ctx))
         : fetchToFile(info, format.itag, r, outputPath);
       const doFetchFull = () => directUrl
@@ -1717,6 +1821,56 @@ async function downloadVideoNative(req, ctx) {
   throw finalErr;
 }
 
+// Pass 148: Quét trực tiếp tab Videos của kênh qua InnerTube /browse (params: Egh2aWRlb3PyBgQKAjoA).
+// Bỏ qua hoàn toàn cache 15s của playlist UU, phản ứng tức thì 250-400ms ngay khi video công khai.
+async function strategyChannelVideos(client, channelId) {
+  try {
+    const res = await client.actions.execute('/browse', { browseId: channelId, params: 'Egh2aWRlb3PyBgQKAjoA' });
+    const data = res && (res.data || res);
+    const tabs = data?.contents?.twoColumnBrowseResultsRenderer?.tabs || [];
+    const selectedTab = tabs.find(t => t.tabRenderer?.selected) || tabs[1] || tabs[0];
+    const richGrid = selectedTab?.tabRenderer?.content?.richGridRenderer;
+    const items = richGrid?.contents || [];
+    const out = [];
+    for (const item of items) {
+      const richItem = item?.richItemRenderer?.content;
+      const lv = richItem?.lockupViewModel || item?.lockupViewModel;
+      if (lv) {
+        const v = extractFromLockupView(lv);
+        if (v && v.videoId) {
+          if (!v.upcoming && (!v.publishedAt || v.publishedAt <= 1)) {
+            v.publishedAt = Date.now();
+          }
+          out.push(v);
+        }
+        continue;
+      }
+      const vr = richItem?.videoRenderer || item?.videoRenderer || item?.gridVideoRenderer;
+      if (vr) {
+        const vid = vr.videoId;
+        if (vid) {
+          const title = vr.title?.runs?.[0]?.text || vr.title?.simpleText || '';
+          const publishedText = vr.publishedTimeText?.simpleText || vr.publishedTimeText?.runs?.[0]?.text || '';
+          const publishedAt = parseRelativeTime(publishedText) || Date.now();
+          out.push({
+            videoId: vid,
+            title,
+            publishedAt,
+            thumbnailUrl: `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`,
+            durationSec: 0,
+            upcoming: false,
+            scheduleText: ''
+          });
+        }
+      }
+    }
+    return out;
+  } catch (e) {
+    dlog(`[strategyChannelVideos] ${channelId} lỗi: ${e && e.message ? e.message : e}`);
+    return [];
+  }
+}
+
 async function getLatestVideo(channelId, cookieStr, fastProbe, probeCookie) {
   try {
     const client = await ensureClient(cookieStr);
@@ -1724,6 +1878,13 @@ async function getLatestVideo(channelId, cookieStr, fastProbe, probeCookie) {
     if (!resolvedId || !resolvedId.startsWith('UC')) {
       return { ok: false, error: 'Could not resolve channel ID: ' + channelId };
     }
+
+    // Pass 148: Ưu tiên số 1 — Tab Videos của kênh phản xạ ngay tức thì 250-400ms
+    const browseVideos = await strategyChannelVideos(client, resolvedId);
+    if (browseVideos.length > 0) {
+      return { ok: true, videos: browseVideos };
+    }
+
     const playlistId = resolvedId.replace(/^UC/, 'UU');
     // The HTML probe fetch prefers the dedicated probe cookie (CDP-fresh
     // profile-1 owner cookie): stale session cookies get served the anonymous
@@ -1871,7 +2032,11 @@ function runDaemon(initialCookie) {
             if (!text) return null;
             const t = String(text).toLowerCase();
             if (t.includes('vừa xong') || t.includes('just now')) return 0;
-            if (!(t.includes('giây') || t.includes('second'))) return null;
+            // YouTube dùng CẢ dạng đầy đủ ("5 seconds ago") lẫn dạng tắt ("5s ago").
+            // Log 17-40-33: nhãn "5s ago" bị loại vì chỉ check "second".
+            const isSeconds = t.includes('giây') || t.includes('second')
+              || /^\d+s\s/.test(t.trim()); // "5s ago", "5s trước"
+            if (!isSeconds) return null;
             const m = t.match(/(\d+)/);
             if (!m) return null;
             const v = parseInt(m[1], 10);
@@ -1990,7 +2155,10 @@ function runDaemon(initialCookie) {
         // + N socket TLS mở sẵn 25 s; `downloadVideo` tới sau sẽ dùng.
         if (req.cmd === 'resolveMedia') {
           const tR = Date.now();
-          const n = Math.max(1, Math.min(PARALLEL_CONNECTIONS_MAX, Number(req.conns) || PARALLEL_CONNECTIONS_DEFAULT));
+          let n = Math.max(1, Math.min(PARALLEL_CONNECTIONS_MAX, Number(req.conns) || PARALLEL_CONNECTIONS_DEFAULT));
+          if (req.limitSec && req.limitSec > 0 && req.limitSec <= 65) {
+            n = Math.min(n, 8);
+          }
           const p = resolveMediaNative(req).then((r) => {
             resolvedMedia.set(req.videoId, r);
             const pool = preconnect(req.videoId, r.host, n, req.sourceIp || null);
@@ -2034,6 +2202,130 @@ function runDaemon(initialCookie) {
         // Handle ping/heartbeat
         if (req.cmd === 'ping') {
           writeResponse({ id: req.id || 0, ok: true, cmd: 'pong' });
+          continue;
+        }
+
+        // ── Pass 146: SUBSCRIPTIONS FEED — bề mặt fan-out theo NGƯỜI XEM ──
+        //
+        // Mọi bề mặt đang đua (playlistItems/activities/Atom/trang kênh/browse
+        // kênh) đều là index CÔNG KHAI của kênh — log 05/09: cả năm cùng câm
+        // 54s cho một video dài. Feed đăng ký (`FEsubscriptions`) là fan-out
+        // vào hộp thư của NGƯỜI XEM ngay lúc publish, đường dữ liệu khác hẳn
+        // (Pass 46 từng dùng và bị gỡ chung với Chrome watcher ở Pass 58). MỘT
+        // request phủ mọi kênh Profile-1 đã subscribe, 0 quota Data API.
+        // Điều kiện vận hành: Profile-1 PHẢI subscribe các kênh theo dõi.
+        if (req.cmd === 'getSubscriptionsFeed') {
+          const cookie = req.cookie || currentCookie;
+          if (!cookie || !/SAPISID=/.test(cookie)) {
+            writeResponse({ id: req.id || 0, ok: false, cmd: 'getSubscriptionsFeed', error: 'no logged-in cookie (SAPISID) — feed đăng ký cần phiên Profile-1' });
+            continue;
+          }
+          const limit = Math.max(5, Math.min(60, Number(req.limit) || 40));
+          ensureClient(cookie).then(async (client) => {
+            const t0 = Date.now();
+            try {
+              const feed = await client.getSubscriptionsFeed();
+              const out = [];
+              const seen = new Set();
+              const push = (v) => {
+                if (v && v.videoId && !seen.has(v.videoId)) { seen.add(v.videoId); out.push(v); }
+              };
+              // 1) LockupView (UI mới của YouTube) — parser đã trận mạc từ playlist.
+              try {
+                const memo = feed.page?.contents_memo;
+                const lockups = (memo && memo.get && memo.get('LockupView')) || [];
+                for (const lv of lockups) {
+                  const v = extractFromLockupView(lv);
+                  if (!v) continue;
+                  v.channelId = extractChannelIdLoose(lv.metadata) || extractChannelIdLoose(lv) || '';
+                  push(v);
+                }
+              } catch (e) { dlog(`[subs] lockup parse: ${e && e.message ? e.message : e}`); }
+              // 2) Video/GridVideo (UI cũ) — youtubei.js gom sẵn trong feed.videos.
+              try {
+                for (const v of (feed.videos || [])) {
+                  const n = normalizeVideo(v);
+                  n.channelId = (v.author && v.author.id) || extractChannelIdLoose(v.author) || '';
+                  n.upcoming = !!(v.is_upcoming || v.upcoming);
+                  n.scheduleText = '';
+                  push(n);
+                }
+              } catch (e) { dlog(`[subs] videos parse: ${e && e.message ? e.message : e}`); }
+              if (out.length === 0) {
+                dlog(`[subs] feed rỗng sau ${Date.now() - t0}ms — Profile-1 chưa subscribe kênh nào, hoặc YouTube throttle/đổi cấu trúc`);
+              }
+              writeResponse({
+                id: req.id || 0, ok: true, cmd: 'getSubscriptionsFeed',
+                videos: out.slice(0, limit), elapsedMs: Date.now() - t0,
+              });
+            } catch (e) {
+              writeResponse({ id: req.id || 0, ok: false, cmd: 'getSubscriptionsFeed', error: (e && e.message) || String(e) });
+            }
+          }).catch(e => {
+            writeResponse({ id: req.id || 0, ok: false, cmd: 'getSubscriptionsFeed', error: (e && e.message) || String(e) });
+          });
+          continue;
+        }
+
+        // ── Pass 146: SUBSCRIPTIONS FEED — bề mặt fan-out theo NGƯỜI XEM ──
+        //
+        // Mọi bề mặt đang đua (playlistItems/activities/Atom/trang kênh/browse
+        // kênh) đều là index CÔNG KHAI của kênh — log 05/09: cả năm cùng câm
+        // 54s cho một video dài. Feed đăng ký (`FEsubscriptions`) là fan-out
+        // vào hộp thư của NGƯỜI XEM ngay lúc publish, đường dữ liệu khác hẳn
+        // (Pass 46 từng dùng và bị gỡ chung với Chrome watcher ở Pass 58). MỘT
+        // request phủ mọi kênh Profile-1 đã subscribe, 0 quota Data API.
+        // Điều kiện vận hành: Profile-1 PHẢI subscribe các kênh theo dõi.
+        if (req.cmd === 'getSubscriptionsFeed') {
+          const cookie = req.cookie || currentCookie;
+          if (!cookie || !/SAPISID=/.test(cookie)) {
+            writeResponse({ id: req.id || 0, ok: false, cmd: 'getSubscriptionsFeed', error: 'no logged-in cookie (SAPISID) — feed đăng ký cần phiên Profile-1' });
+            continue;
+          }
+          const limit = Math.max(5, Math.min(60, Number(req.limit) || 40));
+          ensureClient(cookie).then(async (client) => {
+            const t0 = Date.now();
+            try {
+              const feed = await client.getSubscriptionsFeed();
+              const out = [];
+              const seen = new Set();
+              const push = (v) => {
+                if (v && v.videoId && !seen.has(v.videoId)) { seen.add(v.videoId); out.push(v); }
+              };
+              // 1) LockupView (UI mới của YouTube) — parser đã trận mạc từ playlist.
+              try {
+                const memo = feed.page?.contents_memo;
+                const lockups = (memo && memo.get && memo.get('LockupView')) || [];
+                for (const lv of lockups) {
+                  const v = extractFromLockupView(lv);
+                  if (!v) continue;
+                  v.channelId = extractChannelIdLoose(lv.metadata) || extractChannelIdLoose(lv) || '';
+                  push(v);
+                }
+              } catch (e) { dlog(`[subs] lockup parse: ${e && e.message ? e.message : e}`); }
+              // 2) Video/GridVideo (UI cũ) — youtubei.js gom sẵn trong feed.videos.
+              try {
+                for (const v of (feed.videos || [])) {
+                  const n = normalizeVideo(v);
+                  n.channelId = (v.author && v.author.id) || extractChannelIdLoose(v.author) || '';
+                  n.upcoming = !!(v.is_upcoming || v.upcoming);
+                  n.scheduleText = '';
+                  push(n);
+                }
+              } catch (e) { dlog(`[subs] videos parse: ${e && e.message ? e.message : e}`); }
+              if (out.length === 0) {
+                dlog(`[subs] feed rỗng sau ${Date.now() - t0}ms — Profile-1 chưa subscribe kênh nào, hoặc YouTube throttle/đổi cấu trúc`);
+              }
+              writeResponse({
+                id: req.id || 0, ok: true, cmd: 'getSubscriptionsFeed',
+                videos: out.slice(0, limit), elapsedMs: Date.now() - t0,
+              });
+            } catch (e) {
+              writeResponse({ id: req.id || 0, ok: false, cmd: 'getSubscriptionsFeed', error: (e && e.message) || String(e) });
+            }
+          }).catch(e => {
+            writeResponse({ id: req.id || 0, ok: false, cmd: 'getSubscriptionsFeed', error: (e && e.message) || String(e) });
+          });
           continue;
         }
 
