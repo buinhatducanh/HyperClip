@@ -1,0 +1,345 @@
+﻿{
+    "builtAt":  "2026-07-17T08:44:14+07:00",
+    "version":  "0.1.0",
+    "gitBranch":  "main",
+    "gitHead":  "6095a20",
+    "files":  [
+                  {
+                      "path":  "HyperClip.exe",
+                      "sha256":  "452944c51ee19cc91d9101cc0ca62530069eedb1d153e3bcf2675bd52405122d",
+                      "size":  598016
+                  },
+                  {
+                      "path":  "app/HyperClip.exe",
+                      "sha256":  "07300e1a7cbd009ec55c2c37dba5136c746e7260a246d0ae10964baee4e0e342",
+                      "size":  2410360
+                  },
+                  {
+                      "path":  "app/_internal/hyperclip-tauri.exe",
+                      "sha256":  "c0b51e439333656aa70ef4ea08f4c5aa253dace6fb5fbbe4a81b4271c3987a7c",
+                      "size":  16921088
+                  },
+                  {
+                      "path":  "app/_internal/base_library.zip",
+                      "sha256":  "e5cf8dd5d63b4ccdfea0d8be644e9e4b99a5e95ac147146cb20a285bc8cf0aaf",
+                      "size":  1389034
+                  },
+                  {
+                      "path":  "app/_internal/qml/ActivityLogCard.qml",
+                      "sha256":  "234da0445f18ccc77fc97ecf6c21d7c0452b7153a68806bc060ba59b9c202c3f",
+                      "size":  7906
+                  },
+                  {
+                      "path":  "app/_internal/qml/AddChannelForm.qml",
+                      "sha256":  "0bd98cd86ada4073a3144a810c7964d998a900af51034539868bdedaf381d20e",
+                      "size":  1564
+                  },
+                  {
+                      "path":  "app/_internal/qml/AlternatingListDelegate.qml",
+                      "sha256":  "0b0bee7f9a572814dbda2c427bf0c2ac203dbaed8cc1d38b2daa2f5ea4974185",
+                      "size":  911
+                  },
+                  {
+                      "path":  "app/_internal/qml/AuthOverviewPanel.qml",
+                      "sha256":  "9cdad54d4b72a43ce2914beadeebe55b67fdee235e87c48749bda03f550b1dbe",
+                      "size":  1149
+                  },
+                  {
+                      "path":  "app/_internal/qml/AuthPanel.qml",
+                      "sha256":  "c62fd95f9eb200c2562810cc174119259bd28ee4de6b457e3fedbf01929a3986",
+                      "size":  4650
+                  },
+                  {
+                      "path":  "app/_internal/qml/AutoRenderCard.qml",
+                      "sha256":  "60030cfb26d7daedc007171479753926ccfc18a13fd4c49f6896d2fd174c716b",
+                      "size":  11537
+                  },
+                  {
+                      "path":  "app/_internal/qml/ChannelItem.qml",
+                      "sha256":  "523314cd6231acea0cae07e9580c57e2476f93819a2a42044918340e0d1fb82f",
+                      "size":  4276
+                  },
+                  {
+                      "path":  "app/_internal/qml/ChannelList.qml",
+                      "sha256":  "0ffe17c64993f503bb4e757c49d374f4e9a7312606345375115a00bc2db8c336",
+                      "size":  2272
+                  },
+                  {
+                      "path":  "app/_internal/qml/ChannelsStrip.qml",
+                      "sha256":  "d357c2270702ea036cbd0bcc72dcb8cf5e78f423798f1e2dd545af27e1a8c76e",
+                      "size":  5834
+                  },
+                  {
+                      "path":  "app/_internal/qml/ConfirmationDialog.qml",
+                      "sha256":  "4a6a8b0745e77bfb374fb9c1411616ece9144acad95c56bc8499d7783b11e82b",
+                      "size":  938
+                  },
+                  {
+                      "path":  "app/_internal/qml/DashboardGrid.qml",
+                      "sha256":  "df49db31f41e8b9fe69125f6aa8a00340fe63723b47aedc02549ca83c4565859",
+                      "size":  10542
+                  },
+                  {
+                      "path":  "app/_internal/qml/DetailEditor.qml",
+                      "sha256":  "5ad72709b58fe028f6d4223a4deafc9def55c9ff43f6f118f4c6aaddda94b60b",
+                      "size":  8079
+                  },
+                  {
+                      "path":  "app/_internal/qml/DetectionCard.qml",
+                      "sha256":  "29417caadb59dde3cc79e52cf3689a4e78ec61a3f97c9f11542efb4ff89572ac",
+                      "size":  4400
+                  },
+                  {
+                      "path":  "app/_internal/qml/DetectionPanel.qml",
+                      "sha256":  "f3c42424a012b473751c1ef9d8b149f34129c576833ef5d2ae497ab750acc9dd",
+                      "size":  7656
+                  },
+                  {
+                      "path":  "app/_internal/qml/DetectionStatusBar.qml",
+                      "sha256":  "c2347377512e7e6ada0ed3a47bc2f9f0bc199fd7c7ce27fef2fbf11075f5a10c",
+                      "size":  2074
+                  },
+                  {
+                      "path":  "app/_internal/qml/DownloadCard.qml",
+                      "sha256":  "1d8851d847e967fd4ccf7cba28f462d67bfece134a94a956a6111c18329a6a45",
+                      "size":  6428
+                  },
+                  {
+                      "path":  "app/_internal/qml/EditField.qml",
+                      "sha256":  "e3b79e54e9561403dc10510791648a368e102b10f7d1d47b8867156ffadd3c1b",
+                      "size":  926
+                  },
+                  {
+                      "path":  "app/_internal/qml/FilterPills.qml",
+                      "sha256":  "be1f1d7f721154773ac4ce76e7b0f54d03dfefbec53441da99855b80bfe67f81",
+                      "size":  3185
+                  },
+                  {
+                      "path":  "app/_internal/qml/HardwareProfileCard.qml",
+                      "sha256":  "24b0154d97eec382a2eb8f822cbf3b1a106488ff0b835253770eee887083793f",
+                      "size":  7444
+                  },
+                  {
+                      "path":  "app/_internal/qml/Icon.qml",
+                      "sha256":  "daa9e85f2f78210bbf309ba66da756e0f59af093b1d22ef1ea3934d258f4f7e6",
+                      "size":  2778
+                  },
+                  {
+                      "path":  "app/_internal/qml/IconButton.qml",
+                      "sha256":  "94f3cdaf8dd1abe695a9518547284eef1105203384ecb592d69820e193b16245",
+                      "size":  2339
+                  },
+                  {
+                      "path":  "app/_internal/qml/KeysPanel.qml",
+                      "sha256":  "64fcd8769d5b24718ff073a99125de013ad0027ddc85b751485201a1f2d839bb",
+                      "size":  3958
+                  },
+                  {
+                      "path":  "app/_internal/qml/LoginScreen.qml",
+                      "sha256":  "98d123b9af12d231fbef11dcc599b4295994ca085093e0b062da8315b2b05b1d",
+                      "size":  9489
+                  },
+                  {
+                      "path":  "app/_internal/qml/LogViewer.qml",
+                      "sha256":  "9417aa21f1bf91f7d30065069eb4342ee50421d0936aaad129ef194aab83076a",
+                      "size":  3121
+                  },
+                  {
+                      "path":  "app/_internal/qml/main.qml",
+                      "sha256":  "8024f22c2360fa5394cfa574eda6716d194daf1a20afe26e03b08aa90e6b0665",
+                      "size":  20337
+                  },
+                  {
+                      "path":  "app/_internal/qml/ManagementPanel.qml",
+                      "sha256":  "3a77386e48f6414305ed44dcaa431906f63d1f08dbe03370aede6875c33409d2",
+                      "size":  76198
+                  },
+                  {
+                      "path":  "app/_internal/qml/OnboardingPage.qml",
+                      "sha256":  "1a28eea348e8ec2d8dbfeddbc5c89dad8c9bbf4705a6bff9ae7dfa3f708b5cb1",
+                      "size":  5193
+                  },
+                  {
+                      "path":  "app/_internal/qml/OnboardingStepChannels.qml",
+                      "sha256":  "943ce3bef3b4a81822bc3fa1b2250e8bfc689844c3316616c0c85d4a8609070f",
+                      "size":  2753
+                  },
+                  {
+                      "path":  "app/_internal/qml/OnboardingStepChrome.qml",
+                      "sha256":  "6e9baf509210513ac4702b1ac1cd9250e5234c376eb7e88f83743052d30f77c7",
+                      "size":  4577
+                  },
+                  {
+                      "path":  "app/_internal/qml/OnboardingStepComplete.qml",
+                      "sha256":  "ebc871b9385b03d2041bb1ed849eec166fa89d428f5c6c823c616994049e642e",
+                      "size":  2957
+                  },
+                  {
+                      "path":  "app/_internal/qml/OnboardingStepProjects.qml",
+                      "sha256":  "a33fbe5cc71fcdd294bb384c2f03c1ac7285000cf1930c00fbc8e8eed12de231",
+                      "size":  1224
+                  },
+                  {
+                      "path":  "app/_internal/qml/OnboardingStepQuality.qml",
+                      "sha256":  "2fd58746cf8db21e9a9289bac3c8f748b89c0e71508d7c91687077dab8ca4c4b",
+                      "size":  1106
+                  },
+                  {
+                      "path":  "app/_internal/qml/OperationPanel.qml",
+                      "sha256":  "9373f9a962a701c45b0bf187cac1e2f396d568625fb9c11fef36a6ee8aea8153",
+                      "size":  2370
+                  },
+                  {
+                      "path":  "app/_internal/qml/PollerPanel.qml",
+                      "sha256":  "957d1f9934f61acf21a52ca20f7c62baf2d14605d7e5cb93360aaca1aabe96e8",
+                      "size":  11455
+                  },
+                  {
+                      "path":  "app/_internal/qml/ProjectsPanel.qml",
+                      "sha256":  "b7b4087595eb2e2f459b377e91ae65c1a7f7a1a508e167dd67c8e79f805f72a1",
+                      "size":  6764
+                  },
+                  {
+                      "path":  "app/_internal/qml/qmldir",
+                      "sha256":  "e63942d885f888cff69ec5f65d6a14101e33b37828782ac21864f8eb122fe0b7",
+                      "size":  2197
+                  },
+                  {
+                      "path":  "app/_internal/qml/RenderedVideoDetail.qml",
+                      "sha256":  "6526cba68d85f9eaa3cf5bf6b43dad9fa84943a44e0debd9777b01d7d08100c5",
+                      "size":  7166
+                  },
+                  {
+                      "path":  "app/_internal/qml/SessionsPanel.qml",
+                      "sha256":  "8bdb58d4af6be23bd880c6b32efb9df2f18f2b1bc734a126409c44eadc5da1d6",
+                      "size":  7475
+                  },
+                  {
+                      "path":  "app/_internal/qml/SettingsCard.qml",
+                      "sha256":  "2bb1acb0fd943dec4ca641ee4000b92749682ec87faedce33f509dc050e72cd5",
+                      "size":  1046
+                  },
+                  {
+                      "path":  "app/_internal/qml/SettingsPage.qml",
+                      "sha256":  "d4931fe1922040446414dd9694ab31cc5c8f7ee0757b99732de886970a39b49c",
+                      "size":  7400
+                  },
+                  {
+                      "path":  "app/_internal/qml/Sidebar.qml",
+                      "sha256":  "ffdf5d747f0a710c54140c8b71834c8bb1936ca13a736c9839668cb62f4fdd10",
+                      "size":  22655
+                  },
+                  {
+                      "path":  "app/_internal/qml/SplitModal.qml",
+                      "sha256":  "e58f69c7e951374af53a14faff46209b4dc98d2a818f054ee7cf373c2ae75b95",
+                      "size":  7547
+                  },
+                  {
+                      "path":  "app/_internal/qml/StatusBadge.qml",
+                      "sha256":  "a7e1654ca3f08d2da4aa2fe49ab747643bc0cc1655c100f349c1506a8b83ed85",
+                      "size":  1242
+                  },
+                  {
+                      "path":  "app/_internal/qml/StatusDot.qml",
+                      "sha256":  "fc3eab4889defc790cbb0dbd82dd112852a8b6a226d478c0a6c5495cb98db573",
+                      "size":  3454
+                  },
+                  {
+                      "path":  "app/_internal/qml/StatusGroup.qml",
+                      "sha256":  "925a2fd78aeb8613f0ff8037d2a188f9a0570911a9f621821a61fbe87239a662",
+                      "size":  2529
+                  },
+                  {
+                      "path":  "app/_internal/qml/StorageCard.qml",
+                      "sha256":  "da000129b66c188cf88985e21bd6ab2f99798f3f1df7762f0aba29e2f4e81df2",
+                      "size":  6549
+                  },
+                  {
+                      "path":  "app/_internal/qml/SystemCard.qml",
+                      "sha256":  "4f47544267f4d3dc826b3dd9691a6c5bf961211ed3e15fcc0b8d8918d9511360",
+                      "size":  5646
+                  },
+                  {
+                      "path":  "app/_internal/qml/SystemMonitor.qml",
+                      "sha256":  "11761b97dfb8d90d3ae82eb404cb7a559412495a864364a00bb3d0a44edf4ae0",
+                      "size":  7527
+                  },
+                  {
+                      "path":  "app/_internal/qml/Theme.qml",
+                      "sha256":  "b91107b1a8bb59edffb260464544b7682b2c5039e845700c2a7c826392a93a57",
+                      "size":  1821
+                  },
+                  {
+                      "path":  "app/_internal/qml/ThumbnailUploader.qml",
+                      "sha256":  "58c7e9199fc32b1844e81eea27f4694e9154edec23e98903cb515cc3998a8e9b",
+                      "size":  2717
+                  },
+                  {
+                      "path":  "app/_internal/qml/ToastManager.qml",
+                      "sha256":  "991ed39a691292ba3c1a490b80f94b789282c0439b7c179c9e89242db47b51f9",
+                      "size":  1101
+                  },
+                  {
+                      "path":  "app/_internal/qml/ToastNotification.qml",
+                      "sha256":  "973c696afb6f9410f81d920aadf282e558d08ef9b92375ba39c8c2e4afa75e87",
+                      "size":  5103
+                  },
+                  {
+                      "path":  "app/_internal/qml/TopMenuBar.qml",
+                      "sha256":  "2329297a888750ad7697e89c9f0f4dd5845dd0688b2c135d927832cfbb68ed1a",
+                      "size":  7020
+                  },
+                  {
+                      "path":  "app/_internal/qml/VideoCompareModal.qml",
+                      "sha256":  "c8f08a8002ab54672252f74768754fefc3d928499e24ea767d1bf6807d9362b0",
+                      "size":  3451
+                  },
+                  {
+                      "path":  "app/_internal/qml/VideoDetailPanel.qml",
+                      "sha256":  "af2744b36ff26979a0c5513cef07b4f6a1d418a5f7231438e84a08e14e9b1c23",
+                      "size":  5029
+                  },
+                  {
+                      "path":  "app/_internal/qml/WorkspaceCard.qml",
+                      "sha256":  "00c43d8e851f8eaa6b3879fc8b02179454365dc965f14fdf00516762a4b1e9f3",
+                      "size":  2618
+                  },
+                  {
+                      "path":  "app/_internal/qml/WorkspaceCardDisplay.qml",
+                      "sha256":  "e7f47048095d46fd75b79277a594a3b67350e92e3c04a608670323b166c5c7b8",
+                      "size":  11160
+                  },
+                  {
+                      "path":  "app/_internal/qml/WorkspaceEditForm.qml",
+                      "sha256":  "36e8fa54287590229ae0fd8cd1e3fdeced36e004e924db29f2bbaad4d8cd8143",
+                      "size":  5895
+                  },
+                  {
+                      "path":  "app/_internal/qml/WorkspaceMetrics.qml",
+                      "sha256":  "29fad3ab8619d34cf2fa0437c4615e72e7d03c37a5941b4b5e428a5197812f81",
+                      "size":  9816
+                  },
+                  {
+                      "path":  "app/_internal/qml/WorkspaceQueue.qml",
+                      "sha256":  "7b17e003a4d199c38644e8353ca0ffd7ab366e5287eacf45c5284750fb653e43",
+                      "size":  11453
+                  },
+                  {
+                      "path":  "app/_internal/qml/__init__.py",
+                      "sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                      "size":  0
+                  },
+                  {
+                      "path":  "app/_internal/resources/innertube_helper.js",
+                      "sha256":  "30dd1e41854ee39a15b2134dde3d12907b2a275514b92ae3bceab12d4f81472c",
+                      "size":  70000
+                  },
+                  {
+                      "path":  "apply-patch.ps1",
+                      "sha256":  "b6f0e1204309f9d7b52b915d57a0bb6bf879aceab40bc943f3020bf223c08033",
+                      "size":  12587
+                  }
+              ],
+    "totalSize":  21799092,
+    "fileCount":  67
+}

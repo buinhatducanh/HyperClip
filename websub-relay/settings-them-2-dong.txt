@@ -1,0 +1,6 @@
+Them 2 dong sau vao file:
+D:\HyperClip\HyperClip-TestCustomer-20260616-224538\HyperClip-Data\.hyperclip\settings.json
+(dat TRONG dau ngoac nhon ngoai cung, nho dau phay cho dung JSON):
+
+  "websubRelayUrl": "https://relay.hyperclip.id.vn",
+  "websubRelayToken": "eeaae89c16899b2761fccd940c9893c8c577399da03880c7"

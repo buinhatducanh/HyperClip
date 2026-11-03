@@ -1,0 +1,105 @@
+{
+  "version": "0.1.0",
+  "gitHead": "9008864",
+  "gitBranch": "fix-5080-e2e",
+  "builtAt": "2026-07-28T10:53:17+07:00",
+  "totalSize": 25226404,
+  "fileCount": 19,
+  "files": [
+    {
+      "path": "app/_internal/hyperclip-tauri.exe",
+      "sha256": "ee123b1b3cc3af5cc9cec6bec9e759347433ed27912f6e0935f8c0d85ffa2420",
+      "size": 24806100
+    },
+    {
+      "path": "app/_internal/resources/innertube_helper.js",
+      "sha256": "1cbb36666687a486bafe05c3557596c6f65ede50498ffd0005eb1421d408491b",
+      "size": 79171
+    },
+    {
+      "path": "app/_internal/resources/tiktok_helper.js",
+      "sha256": "8b571a0f5acbeaf3dac84d0fd7283ba6251a4d4a769e50e4c265d023d220ad40",
+      "size": 47030
+    },
+    {
+      "path": "app/_internal/qml/ManagementPanel.qml",
+      "sha256": "cb63ebc5e6732e838eeaaf5468f6165afa9c4cc2c9d0ee361bc8229b594f070a",
+      "size": 113470
+    },
+    {
+      "path": "app/_internal/qml/SettingsPage.qml",
+      "sha256": "2ab327fda4ae6cb9552cb3cf573ddbe386e7296b339a89213ccde281d6585218",
+      "size": 9459
+    },
+    {
+      "path": "app/_internal/qml/SettingsCard.qml",
+      "sha256": "af417abed530590925775582e9e335b2adb93ceea805306e0daa73e3dbe3ffb3",
+      "size": 2388
+    },
+    {
+      "path": "app/_internal/qml/AuthPanel.qml",
+      "sha256": "8f4b433f0e573fd1a3dd808353c527e13e42c160ddc60f8e5df5c4e0e5b8c5b2",
+      "size": 3783
+    },
+    {
+      "path": "app/_internal/qml/DetectionPanel.qml",
+      "sha256": "339c48e26d91d82de200d1634f706ef5b2c166fad9913fa32705f41e8aa3f16c",
+      "size": 7680
+    },
+    {
+      "path": "app/_internal/qml/DownloadCard.qml",
+      "sha256": "732d072d5e2b57caf3ff81a454d0811a1856a6c9d6fab7770253ca52de8890e5",
+      "size": 6454
+    },
+    {
+      "path": "app/_internal/qml/AutoRenderCard.qml",
+      "sha256": "627b23e9a32665c53d808519f1440637a1b9868fe1e72b16e1864e148b61230e",
+      "size": 12623
+    },
+    {
+      "path": "app/_internal/qml/StorageCard.qml",
+      "sha256": "a8d9d82fa9bf14591e6b73a1c12046cbdeb085e7838696c2e7ef999ea86146d7",
+      "size": 6597
+    },
+    {
+      "path": "app/_internal/qml/HardwareProfileCard.qml",
+      "sha256": "943cfdc9b240b37f5e541606d0752df8f00c4b30f0340a8b27e4c37335f23ca6",
+      "size": 7653
+    },
+    {
+      "path": "app/_internal/qml/WorkspaceQueue.qml",
+      "sha256": "a384ee4a9bd9a40ecbf14ae9c2d3e88976f685889b4b733dc6e6f91d80e95dd5",
+      "size": 13471
+    },
+    {
+      "path": "app/_internal/qml/Sidebar.qml",
+      "sha256": "45c08ae34dc197ea3638e327b2c31fbe88d234aa9ab3dac5a00135a8df5b0a0f",
+      "size": 28800
+    },
+    {
+      "path": "app/_internal/qml/TikTokPanel.qml",
+      "sha256": "02147c16b4fea4cb9e0294ba6798773d96075f8dda847483d1019bd427f6d1cb",
+      "size": 42725
+    },
+    {
+      "path": "app/_internal/qml/StatusBadge.qml",
+      "sha256": "a0876934f2fa820580b2822ea0306da97bcd8af39538448ccdf0bdce17e13222",
+      "size": 1560
+    },
+    {
+      "path": "app/_internal/qml/StatusGroup.qml",
+      "sha256": "041f61331597c4c0211a2e6fdc9d225d5da5a738a6bb5c4ccfc873eebd49c300",
+      "size": 2601
+    },
+    {
+      "path": "app/_internal/qml/main.qml",
+      "sha256": "f48dcb55e7eb3821997e0f44261ef83e896df5d99cc9aaed82b70f74ffa8352c",
+      "size": 22252
+    },
+    {
+      "path": "apply-patch.ps1",
+      "sha256": "b6f0e1204309f9d7b52b915d57a0bb6bf879aceab40bc943f3020bf223c08033",
+      "size": 12587
+    }
+  ]
+}
