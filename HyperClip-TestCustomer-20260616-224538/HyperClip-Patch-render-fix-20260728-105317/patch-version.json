@@ -1,0 +1,8 @@
+{
+    "patchBuiltAt": "2026-07-28T10:53:17+07:00",
+    "gitHead": "9008864",
+    "gitDate": "2026-07-28 10:53:16 +0700",
+    "gitBranch": "fix-5080-e2e",
+    "version": "0.1.0",
+    "note": "RENDER-FIX: chi binary + JS, ap DE len full patch da co (giu client.py)"
+}

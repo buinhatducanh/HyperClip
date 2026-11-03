@@ -1,0 +1,31 @@
+# Cloudflare NAMED tunnel cho relay WebSub — hostname CỐ ĐỊNH (Pass 85).
+#
+# Khác quick tunnel (cloudflared-quick.yml): hostname không đổi mỗi lần khởi
+# động, nên subscription với hub sống bền, không cần relay tự dò URL.
+#
+# Điền 3 chỗ <...> rồi chạy:
+#   cloudflared.exe --config <file này> tunnel run
+#
+# Tạo tunnel MỘT LẦN (xem DEPLOY-DOMAIN.md):
+#   cloudflared.exe tunnel login                       # mở trình duyệt, chọn zone = domain của bạn
+#   cloudflared.exe tunnel create hyperclip-websub      # in ra UUID + file credentials .json
+#   cloudflared.exe tunnel route dns hyperclip-websub relay.hyperclip.id.vn
+#
+# LƯU Ý: file này được truyền tường minh bằng --config để cloudflared KHÔNG đọc
+# ~/.cloudflared/config.yml (máy dev có config cũ 24/04 đè route về cổng 3001).
+
+tunnel: 3d38f067-9724-435a-9c94-c0d9aea6c915
+# Credentials ĐI KÈM TRONG GÓI (tạo sẵn từ máy dev) — máy khách không cần
+# đăng nhập Cloudflare. Chép gói thành D:\HyperClip\websub-relay là khớp.
+credentials-file: D:\HyperClip\websub-relay\3d38f067-9724-435a-9c94-c0d9aea6c915.json
+protocol: http2
+
+ingress:
+  - hostname: relay.hyperclip.id.vn
+    service: http://localhost:8787
+    originRequest:
+      # SSE /events là stream dài — không để cloudflared cắt theo timeout mặc định.
+      noHappyEyeballs: true
+      keepAliveTimeout: 90s
+      disableChunkedEncoding: false
+  - service: http_status:404

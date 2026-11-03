@@ -1,0 +1,45 @@
+# Git ignore for HyperClip project backup
+
+# Large archives
+*.rar
+*.zip
+*.7z
+*.tar.gz
+
+# User Data, logs, cache, profiles (sensitive and large session data)
+**/*-Data/
+**/chrome-profiles/
+**/TikTok-Profiles/
+**/Crashpad/
+**/.cache/
+**/logs/
+**/*.log
+**/*.log.*
+
+# Media, downloads, renders
+**/downloads/
+**/renders/
+**/media/
+**/*.mp4
+**/*.mkv
+**/*.avi
+**/*.mov
+**/*.wav
+**/*.mp3
+**/*.webm
+
+# Heavy binary dependencies & libraries exceeding GitHub limit (100MB)
+**/*.dll
+**/*.pyd
+**/*.pdb
+**/app/_internal/PySide6/
+**/app/_internal/resources/ffmpeg/
+**/app/_internal/resources/node/
+**/websub-relay/cloudflared.exe
+
+# Node modules
+**/node_modules/
+
+# Local backup directories
+**/app.backup-*/
+**/Thư mục mới/

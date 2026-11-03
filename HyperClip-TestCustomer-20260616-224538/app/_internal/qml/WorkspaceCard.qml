@@ -1,0 +1,95 @@
+// src/ui/qml/WorkspaceCard.qml
+// Thin wrapper: display card + click handling. Action buttons live in the
+// right-pane DetailEditor (Electron-style: click card → detail panel).
+import QtQuick
+import QtQuick.Layouts
+import QtQuick.Controls
+
+Rectangle {
+    id: card
+    color: "transparent"
+    height: 82
+
+    property string ws_id: ""
+    property string status: "pending"
+    property string title: ""
+    property real progress: 0
+    property string channel_name: ""
+    /// id kênh trong store (`ch-…`) — khoá tra avatar cho card.
+    property string channelId: ""
+    property string thumbnail: ""
+    property bool isShort: true
+    property int durationSec: 0
+    property int quality: 1080
+    property real speed: 1.0
+    property string fileSize: ""
+    property string ageLabel: ""
+    property string publishedTimeStr: ""
+    property real totalDurationSec: 0
+    property bool isStartupCatchup: false
+    property int partIndex: 0
+    property int partTotal: 0
+    property real sourceDupRatio: 0
+
+    property bool isSelected: false
+    property bool selectionActive: false
+
+    signal workspaceClicked(string ws_id)
+    signal selectToggled()
+    signal deleteClicked()
+
+    WorkspaceCardDisplay {
+        anchors.fill: parent
+        status: card.status
+        title: card.title
+        progress: card.progress
+        channel_name: card.channel_name
+        channelId: card.channelId
+        thumbnail: card.thumbnail
+        isShort: card.isShort
+        durationSec: card.durationSec
+        quality: card.quality
+        speed: card.speed
+        fileSize: card.fileSize
+        ageLabel: card.ageLabel
+        publishedTimeStr: card.publishedTimeStr
+        totalDurationSec: card.totalDurationSec
+        isStartupCatchup: card.isStartupCatchup
+        partIndex: card.partIndex
+        partTotal: card.partTotal
+        sourceDupRatio: card.sourceDupRatio
+        isSelected: card.isSelected
+        selectionActive: card.selectionActive
+        hovered: mouseArea.containsMouse || delBtn.hovered
+
+        MouseArea {
+            id: mouseArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+                card.workspaceClicked(card.ws_id)
+            }
+        }
+    }
+
+    // Delete button on the right
+    IconButton {
+        id: delBtn
+        anchors.right: parent.right
+        anchors.rightMargin: 8
+        anchors.verticalCenter: parent.verticalCenter
+        z: 10
+        iconName: "trash"
+        iconSize: 12
+        width: 24
+        height: 24
+        iconColorHover: Theme.error
+        opacity: delBtn.hovered ? 1.0 : (mouseArea.containsMouse ? 0.85 : 0.0)
+        visible: true
+
+        onClicked: card.deleteClicked()
+        Behavior on opacity { NumberAnimation { duration: 150 } }
+    }
+}
+
