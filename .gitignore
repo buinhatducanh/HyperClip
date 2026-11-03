@@ -20,6 +20,7 @@
 **/downloads/
 **/renders/
 **/media/
+temp_auto_push.bat
 **/*.mp4
 **/*.mkv
 **/*.avi
@@ -43,3 +44,5 @@
 # Local backup directories
 **/app.backup-*/
 **/Thư mục mới/
+.gitignore
+branch_structure.json

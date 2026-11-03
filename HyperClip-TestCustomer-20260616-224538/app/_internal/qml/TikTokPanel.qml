@@ -424,6 +424,66 @@ Rectangle {
 
             Rectangle {
                 Layout.preferredHeight: 24
+                Layout.preferredWidth: syncAdsLbl.implicitWidth + 16
+                radius: 4
+                color: syncAdsMa.containsMouse ? Theme.accent : Theme.surface
+                border.color: Theme.accent
+                border.width: 1
+                Label {
+                    id: syncAdsLbl
+                    anchors.centerIn: parent
+                    text: "🔄 Đồng bộ AdsPower"
+                    color: syncAdsMa.containsMouse ? "#000000" : Theme.accent
+                    font.pixelSize: 11
+                    font.bold: true
+                }
+                MouseArea {
+                    id: syncAdsMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        var ts = (typeof toastService !== "undefined" && toastService) ? toastService : (typeof toastManager !== "undefined" ? toastManager : null)
+                        if (ts) ts.show("AdsPower", "Đang quét danh sách hồ sơ từ AdsPower Local API...", "info")
+                        try {
+                            var xhr = new XMLHttpRequest()
+                            xhr.open("GET", "http://127.0.0.1:50325/api/v1/user/list?page=1&page_size=100")
+                            xhr.timeout = 5000
+                            xhr.onreadystatechange = function() {
+                                if (xhr.readyState === XMLHttpRequest.DONE) {
+                                    if (xhr.status === 200) {
+                                        try {
+                                            var res = JSON.parse(xhr.responseText)
+                                            var list = res.data && res.data.list ? res.data.list : []
+                                            if (list.length > 0) {
+                                                for (var k = 0; k < list.length; k++) {
+                                                    var p = list[k]
+                                                    var lbl = p.name ? (p.name.indexOf("@") === 0 ? p.name : ("@" + p.name)) : ("@Profile_" + (p.serial_number || p.user_id))
+                                                    tiktokModel.add_account(lbl, p.user_id)
+                                                }
+                                                panel.refreshData()
+                                                if (ts) ts.show("AdsPower", "Đã đồng bộ thành công " + list.length + " hồ sơ từ AdsPower!", "success")
+                                            } else {
+                                                if (ts) ts.show("AdsPower", "Không tìm thấy hồ sơ nào trên AdsPower!", "warning")
+                                            }
+                                        } catch(e) {
+                                            if (ts) ts.show("AdsPower", "Lỗi nạp hồ sơ: " + e.message, "error")
+                                        }
+                                    } else {
+                                        if (ts) ts.show("AdsPower", "Không kết nối được AdsPower Local API (port 50325)!", "error")
+                                    }
+                                }
+                            }
+                            xhr.send()
+                        } catch(err) {
+                            if (ts) ts.show("AdsPower", "Lỗi: " + err.message, "error")
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                Layout.preferredHeight: 24
                 Layout.preferredWidth: checkAdsLbl.implicitWidth + 16
                 radius: 4
                 color: checkAdsMa.containsMouse ? Theme.hoverBg : "transparent"

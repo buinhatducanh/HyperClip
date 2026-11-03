@@ -1,13 +1,42 @@
 // src/ui/qml/QuickPipelineCard.qml
-// Card thiết lập nhanh quy trình tự động hóa E2E (Tải -> Tách Part -> Render -> Đăng TikTok)
-// Thiết kế tối giản, gọn gàng, ẩn text hướng dẫn dài vào nút [?] hover ToolTip
+// Card thiết lập nhanh quy trình tự động hóa E2E (Tải -> Tách Part -> Render -> Đăng TikTok qua AdsPower)
+// Tích hợp cơ chế AdsPower Local API (port 50325), FastDone và Hot Upload chuẩn nhánh adspow
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
 SettingsCard {
     id: card
-    title: "⚡ QUY TRÌNH TỰ ĐỘNG HÓA E2E"
+    title: "⚡ QUY TRÌNH TỰ ĐỘNG HÓA E2E (CHUẨN ADSPOWER)"
+
+    property bool adsPowerOnline: false
+
+    function checkAdsPower() {
+        try {
+            var xhr = new XMLHttpRequest()
+            xhr.open("GET", "http://127.0.0.1:50325/status")
+            xhr.timeout = 2000
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === XMLHttpRequest.DONE) {
+                    if (xhr.status === 200) {
+                        try {
+                            var res = JSON.parse(xhr.responseText)
+                            card.adsPowerOnline = (res && res.code === 0)
+                        } catch(e) { card.adsPowerOnline = false }
+                    } else {
+                        card.adsPowerOnline = false
+                    }
+                }
+            }
+            xhr.send()
+        } catch(e) {
+            card.adsPowerOnline = false
+        }
+    }
+
+    Component.onCompleted: {
+        card.checkAdsPower()
+    }
 
     ColumnLayout {
         Layout.fillWidth: true
@@ -40,7 +69,7 @@ SettingsCard {
                         var trimStr = (settings && settings.defaultTrimLimit < 900) ? ("Tải " + settings.defaultTrimLimit + " phút đầu") : "Tải trọn vẹn video";
                         var partStr = (settings && settings.autoSplitEnabled) ? ("Chia " + settings.autoSplitParts + " Part") : "1 Video đơn";
                         var renStr = "Render " + (settings ? settings.autoRenderResolution : "1080p") + " AdsPow";
-                        var ttStr = (settings && settings.tiktokUploadEnabled) ? "Đăng TikTok từng Part" : "Lưu máy";
+                        var ttStr = (settings && settings.tiktokUploadEnabled) ? "Đăng TikTok từng Part qua AdsPower" : "Lưu máy";
                         return trimStr + "  ➔  " + partStr + "  ➔  " + renStr + "  ➔  " + ttStr;
                     }
                     color: Theme.text
@@ -322,7 +351,7 @@ SettingsCard {
                 }
             }
 
-            // ═══ BƯỚC 4: TỰ ĐỘNG ĐĂNG TIKTOK THEO PART ════════════════════
+            // ═══ BƯỚC 4: TỰ ĐỘNG ĐĂNG TIKTOK QUA ADSPOWER (CHUẨN ADSPOW) ══
             RowLayout {
                 spacing: 6
                 Layout.fillWidth: true
@@ -331,11 +360,11 @@ SettingsCard {
                     Label { anchors.centerIn: parent; text: "4"; color: "#000"; font.pixelSize: 11; font.bold: true }
                 }
                 Label {
-                    text: "Đăng TikTok từng Part"
+                    text: "Đăng TikTok qua AdsPower"
                     color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true
                 }
                 HelpTip {
-                    text: "Cơ chế cuốn chiếu: Xong part nào đăng part đó ngay qua AdsPower mà không cần chờ render hết toàn bộ video."
+                    text: "Cơ chế cuốn chiếu chuẩn AdsPow: Video hoặc từng Part render xong là AdsPower tự động nạp file vào TikTok Studio và bấm đăng ngay lập tức."
                 }
             }
             ColumnLayout {
@@ -349,7 +378,14 @@ SettingsCard {
                     Switch {
                         id: ttSwitch
                         checked: settings ? Boolean(settings.tiktokUploadEnabled) : false
-                        onToggled: if (settings) settings.tiktokUploadEnabled = checked
+                        onToggled: {
+                            if (settings) {
+                                settings.tiktokUploadEnabled = checked
+                                if (typeof backend !== "undefined" && typeof settings.save_to_backend === "function") {
+                                    settings.save_to_backend(backend)
+                                }
+                            }
+                        }
                     }
                     Label {
                         text: ttSwitch.checked ? "BẬT (Xong part nào đăng ngay)" : "TẮT (Chỉ render lưu máy)"
@@ -363,17 +399,38 @@ SettingsCard {
                 RowLayout {
                     spacing: 6
                     Layout.alignment: Qt.AlignRight
+
+                    // Trạng thái AdsPower Local API
+                    Rectangle {
+                        width: 8; height: 8; radius: 4
+                        color: card.adsPowerOnline ? Theme.success : Theme.error
+                    }
+                    Label {
+                        text: card.adsPowerOnline ? "AdsPower: Online (Port 50325)" : "AdsPower: Chưa kết nối"
+                        color: card.adsPowerOnline ? Theme.success : Theme.error
+                        font.pixelSize: 10
+                    }
+
+                    Item { width: 4 }
+
                     Label {
                         text: "FastDone:"
                         color: Theme.textMuted
                         font.pixelSize: 11
                     }
                     HelpTip {
-                        text: "Bỏ qua thời gian chờ xác nhận cuối để đẩy tốc độ hoàn tất đăng siêu tốc (<0.5s)."
+                        text: "FastDone: Bỏ qua thời gian chờ xác nhận cuối để đẩy tốc độ hoàn tất đăng siêu tốc (<0.5s)."
                     }
                     Switch {
                         checked: (settings && typeof settings.tiktokFastDone !== "undefined") ? Boolean(settings.tiktokFastDone) : true
-                        onToggled: if (settings) settings.tiktokFastDone = checked
+                        onToggled: {
+                            if (settings) {
+                                settings.tiktokFastDone = checked
+                                if (typeof backend !== "undefined" && typeof settings.save_to_backend === "function") {
+                                    settings.save_to_backend(backend)
+                                }
+                            }
+                        }
                     }
                 }
             }
