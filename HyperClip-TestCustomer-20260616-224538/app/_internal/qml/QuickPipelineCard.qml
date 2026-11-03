@@ -1,12 +1,13 @@
 // src/ui/qml/QuickPipelineCard.qml
 // Card thiết lập nhanh quy trình tự động hóa E2E (Tải -> Tách Part -> Render -> Đăng TikTok)
+// Thiết kế tối giản, gọn gàng, ẩn text hướng dẫn dài vào nút [?] hover ToolTip
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
 SettingsCard {
     id: card
-    title: "⚡ THIẾT LẬP NHANH QUY TRÌNH (TẢI ➔ TÁCH PART ➔ RENDER ➔ ĐĂNG TIKTOK)"
+    title: "⚡ QUY TRÌNH TỰ ĐỘNG HÓA E2E"
 
     ColumnLayout {
         Layout.fillWidth: true
@@ -15,46 +16,43 @@ SettingsCard {
         // ─── BANNER TÓM TẮT TRẠNG THÁI TRỰC QUAN ────────────────────────
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: bannerCol.implicitHeight + 16
+            Layout.preferredHeight: bannerRow.implicitHeight + 14
             radius: Theme.radiusMd
             color: Theme.surface
             border.color: Theme.accent
             border.width: 1
 
-            ColumnLayout {
-                id: bannerCol
+            RowLayout {
+                id: bannerRow
                 anchors.fill: parent
-                anchors.margins: 10
-                spacing: 6
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                spacing: 8
 
-                RowLayout {
+                Label {
+                    text: "LUỒNG THỰC THI:"
+                    color: Theme.accent
+                    font.pixelSize: Theme.textSm
+                    font.bold: true
+                }
+                Label {
+                    text: {
+                        var trimStr = (settings && settings.defaultTrimLimit < 900) ? ("Tải " + settings.defaultTrimLimit + " phút đầu") : "Tải trọn vẹn video";
+                        var partStr = (settings && settings.autoSplitEnabled) ? ("Chia " + settings.autoSplitParts + " Part") : "1 Video đơn";
+                        var renStr = "Render " + (settings ? settings.autoRenderResolution : "1080p") + " AdsPow";
+                        var ttStr = (settings && settings.tiktokUploadEnabled) ? "Đăng TikTok từng Part" : "Lưu máy";
+                        return trimStr + "  ➔  " + partStr + "  ➔  " + renStr + "  ➔  " + ttStr;
+                    }
+                    color: Theme.text
+                    font.pixelSize: Theme.textSm
+                    font.bold: true
                     Layout.fillWidth: true
-                    spacing: 6
-                    Label {
-                        text: "LUỒNG THỰC THI HIỆN TẠI:"
-                        color: Theme.accent
-                        font.pixelSize: Theme.textSm
-                        font.bold: true
-                    }
-                    Label {
-                        text: {
-                            var trimStr = (settings && settings.defaultTrimLimit < 900) ? ("Tải " + settings.defaultTrimLimit + " phút đầu") : "Tải trọn vẹn video";
-                            var partStr = (settings && settings.autoSplitEnabled) ? ("Chia " + settings.autoSplitParts + " Part liên tục") : "1 Video đơn";
-                            var renStr = "Render " + (settings ? settings.autoRenderResolution : "1080p") + " chuẩn AdsPow";
-                            var ttStr = (settings && settings.tiktokUploadEnabled) ? "Đăng TikTok từng Part ngay khi xong" : "Chỉ lưu máy";
-                            return trimStr + "  ➔  " + partStr + "  ➔  " + renStr + "  ➔  " + ttStr;
-                        }
-                        color: Theme.text
-                        font.pixelSize: Theme.textSm
-                        font.bold: true
-                        Layout.fillWidth: true
-                        elide: Text.ElideRight
-                    }
+                    elide: Text.ElideRight
                 }
             }
         }
 
-        // ─── 4 BƯỚC CỐT LÕI (BẢNG THIẾT LẬP) ───────────────────────────
+        // ─── 4 BƯỚC CỐT LÕI (BẢNG THIẾT LẬP GỌN GÀNG) ───────────────────
         GridLayout {
             columns: 2
             columnSpacing: Theme.spacingLg
@@ -62,23 +60,19 @@ SettingsCard {
             Layout.fillWidth: true
 
             // ═══ BƯỚC 1: GIỚI HẠN TẢI (TRIM LIMIT) ═══════════════════════
-            ColumnLayout {
-                spacing: 2
+            RowLayout {
+                spacing: 6
                 Layout.fillWidth: true
-                RowLayout {
-                    spacing: 6
-                    Rectangle {
-                        width: 20; height: 20; radius: 10; color: Theme.accent
-                        Label { anchors.centerIn: parent; text: "1"; color: "#000"; font.pixelSize: 11; font.bold: true }
-                    }
-                    Label {
-                        text: "Chỉ tải số phút cần tải (Cắt đầu video)"
-                        color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true
-                    }
+                Rectangle {
+                    width: 20; height: 20; radius: 10; color: Theme.accent
+                    Label { anchors.centerIn: parent; text: "1"; color: "#000"; font.pixelSize: 11; font.bold: true }
                 }
                 Label {
-                    text: "Ví dụ: Video gốc 20 phút, đặt 9 phút thì hệ thống chỉ tải 9 phút đầu rồi gửi sang bộ chia part. Tiết kiệm 60% thời gian tải."
-                    color: Theme.textMuted; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                    text: "Chỉ tải số phút cần tải"
+                    color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true
+                }
+                HelpTip {
+                    text: "Chỉ tải N phút đầu của video gốc (ví dụ video 20 phút chỉ tải 9 phút đầu rồi gửi sang bộ chia part). Tiết kiệm hơn 60% thời gian tải."
                 }
             }
             ColumnLayout {
@@ -113,9 +107,9 @@ SettingsCard {
                     Layout.alignment: Qt.AlignRight
                     Repeater {
                         model: [
-                            { label: "5 phút", val: 5 },
-                            { label: "9 phút (Chuẩn)", val: 9 },
-                            { label: "15 phút", val: 15 },
+                            { label: "5p", val: 5 },
+                            { label: "9p (Chuẩn)", val: 9 },
+                            { label: "15p", val: 15 },
                             { label: "Trọn vẹn", val: 999 }
                         ]
                         delegate: Rectangle {
@@ -151,23 +145,19 @@ SettingsCard {
             }
 
             // ═══ BƯỚC 2: TỰ ĐỘNG CHIA PART ════════════════════════════════
-            ColumnLayout {
-                spacing: 2
+            RowLayout {
+                spacing: 6
                 Layout.fillWidth: true
-                RowLayout {
-                    spacing: 6
-                    Rectangle {
-                        width: 20; height: 20; radius: 10; color: Theme.accent
-                        Label { anchors.centerIn: parent; text: "2"; color: "#000"; font.pixelSize: 11; font.bold: true }
-                    }
-                    Label {
-                        text: "Tự động chia Part (Render liên tục)"
-                        color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true
-                    }
+                Rectangle {
+                    width: 20; height: 20; radius: 10; color: Theme.accent
+                    Label { anchors.centerIn: parent; text: "2"; color: "#000"; font.pixelSize: 11; font.bold: true }
                 }
                 Label {
-                    text: "Ví dụ: Tải 9 phút và chia 3 part. Part 1 tải+render xong trước để đăng TikTok ngay, Part 2 & Part 3 tiếp tục render nền."
-                    color: Theme.textMuted; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                    text: "Tự động chia Part"
+                    color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true
+                }
+                HelpTip {
+                    text: "Tự động chia đoạn video đã tải thành các Part đều nhau và render liên tục. Part 1 tải+render xong trước để đăng TikTok ngay, Part 2 & Part 3 tiếp tục render nền."
                 }
             }
             ColumnLayout {
@@ -189,7 +179,7 @@ SettingsCard {
                         }
                     }
                     Label {
-                        text: splitSwitch.checked ? ("Đang chia " + (settings ? settings.autoSplitParts : 3) + " Part") : "Tắt (1 video duy nhất)"
+                        text: splitSwitch.checked ? ("Đang chia " + (settings ? settings.autoSplitParts : 3) + " Part") : "Tắt (1 video đơn)"
                         color: splitSwitch.checked ? Theme.success : Theme.textMuted
                         font.pixelSize: Theme.textMd
                         font.bold: true
@@ -240,23 +230,19 @@ SettingsCard {
             }
 
             // ═══ BƯỚC 3: MẪU RENDER VIDEO (CHUẨN ADSPOW) ══════════════════
-            ColumnLayout {
-                spacing: 2
+            RowLayout {
+                spacing: 6
                 Layout.fillWidth: true
-                RowLayout {
-                    spacing: 6
-                    Rectangle {
-                        width: 20; height: 20; radius: 10; color: Theme.accent
-                        Label { anchors.centerIn: parent; text: "3"; color: "#000"; font.pixelSize: 11; font.bold: true }
-                    }
-                    Label {
-                        text: "Mẫu render video (Khung dọc 9:16 chuẩn AdsPow)"
-                        color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true
-                    }
+                Rectangle {
+                    width: 20; height: 20; radius: 10; color: Theme.accent
+                    Label { anchors.centerIn: parent; text: "3"; color: "#000"; font.pixelSize: 11; font.bold: true }
                 }
                 Label {
-                    text: "Video vuông 1:1 ở giữa, chân trang nền xanh cyan #00B4FF phẳng. Tiêu đề nướng tự động theo tên video gốc."
-                    color: Theme.textMuted; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                    text: "Mẫu render AdsPow"
+                    color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true
+                }
+                HelpTip {
+                    text: "Khung dọc 9:16 chuẩn AdsPow: Video vuông 1:1 ở giữa, chân trang nền xanh cyan #00B4FF phẳng. Tiêu đề nướng tự động theo tên video gốc."
                 }
             }
             ColumnLayout {
@@ -268,7 +254,7 @@ SettingsCard {
                     Layout.fillWidth: true
                     spacing: 6
                     ComboBox {
-                        Layout.preferredWidth: 110
+                        Layout.preferredWidth: 100
                         font.pixelSize: Theme.textSm
                         model: ["1080p", "720p"]
                         currentIndex: settings ? Math.max(0, ["1080p", "720p"].indexOf(settings.autoRenderResolution)) : 0
@@ -297,7 +283,7 @@ SettingsCard {
                     Layout.alignment: Qt.AlignRight
                     Repeater {
                         model: [
-                            { label: "Chuẩn AdsPow ({title})", val: "{title}", overlay: true },
+                            { label: "Chuẩn ({title})", val: "{title}", overlay: true },
                             { label: "PART {part}", val: "PART {part} - {title}", overlay: true },
                             { label: "Nền trơn", val: "", overlay: false }
                         ]
@@ -337,23 +323,19 @@ SettingsCard {
             }
 
             // ═══ BƯỚC 4: TỰ ĐỘNG ĐĂNG TIKTOK THEO PART ════════════════════
-            ColumnLayout {
-                spacing: 2
+            RowLayout {
+                spacing: 6
                 Layout.fillWidth: true
-                RowLayout {
-                    spacing: 6
-                    Rectangle {
-                        width: 20; height: 20; radius: 10; color: Theme.accent
-                        Label { anchors.centerIn: parent; text: "4"; color: "#000"; font.pixelSize: 11; font.bold: true }
-                    }
-                    Label {
-                        text: "Tự động đăng TikTok theo từng Part"
-                        color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true
-                    }
+                Rectangle {
+                    width: 20; height: 20; radius: 10; color: Theme.accent
+                    Label { anchors.centerIn: parent; text: "4"; color: "#000"; font.pixelSize: 11; font.bold: true }
                 }
                 Label {
-                    text: "Cơ chế cuốn chiếu: Xong part nào đăng part đó ngay qua AdsPower mà không cần chờ render hết video. Kèm FastDone siêu tốc."
-                    color: Theme.textMuted; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                    text: "Đăng TikTok từng Part"
+                    color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true
+                }
+                HelpTip {
+                    text: "Cơ chế cuốn chiếu: Xong part nào đăng part đó ngay qua AdsPower mà không cần chờ render hết toàn bộ video."
                 }
             }
             ColumnLayout {
@@ -370,7 +352,7 @@ SettingsCard {
                         onToggled: if (settings) settings.tiktokUploadEnabled = checked
                     }
                     Label {
-                        text: ttSwitch.checked ? "BẬT (Xong part nào đăng part đó)" : "TẮT (Chỉ render lưu máy)"
+                        text: ttSwitch.checked ? "BẬT (Xong part nào đăng ngay)" : "TẮT (Chỉ render lưu máy)"
                         color: ttSwitch.checked ? Theme.success : Theme.warning
                         font.pixelSize: Theme.textMd
                         font.bold: true
@@ -382,9 +364,12 @@ SettingsCard {
                     spacing: 6
                     Layout.alignment: Qt.AlignRight
                     Label {
-                        text: "FastDone (Xong ngay <0.5s):"
+                        text: "FastDone:"
                         color: Theme.textMuted
                         font.pixelSize: 11
+                    }
+                    HelpTip {
+                        text: "Bỏ qua thời gian chờ xác nhận cuối để đẩy tốc độ hoàn tất đăng siêu tốc (<0.5s)."
                     }
                     Switch {
                         checked: (settings && typeof settings.tiktokFastDone !== "undefined") ? Boolean(settings.tiktokFastDone) : true

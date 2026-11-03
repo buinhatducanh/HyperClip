@@ -65,3 +65,4 @@ ManagementTimelineCard 1.0 ManagementTimelineCard.qml
 ManagementPipelineDetails 1.0 ManagementPipelineDetails.qml
 
 QuickPipelineCard 1.0 QuickPipelineCard.qml
+HelpTip 1.0 HelpTip.qml
