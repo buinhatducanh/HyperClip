@@ -1,0 +1,107 @@
+// src/ui/qml/ChannelItem.qml
+// Single channel row in the sidebar list
+import QtQuick
+import QtQuick.Layouts
+import QtQuick.Controls
+
+Rectangle {
+    id: item
+    width: parent ? parent.width : 200
+    height: 48
+    color: hoverArea.containsMouse ? Theme.hoverBg : "transparent"
+    border.color: Theme.cardBg
+    border.width: 0
+
+    property bool isPaused: false
+    property bool isActive: false
+    property int newCount: 0
+
+    signal pauseClicked()
+    signal deleteClicked()
+    signal compareClicked()
+
+    RowLayout {
+        anchors.fill: parent
+        anchors.leftMargin: 8
+        anchors.rightMargin: 6
+        spacing: 8
+
+        // Bản dựng chung `ChannelAvatar` — trước đây khối Image ẩn + OpacityMask
+        // được chép tay ở đây và ở Sidebar (hai bản, sửa một là quên một).
+        ChannelAvatar {
+            url: model.avatarUrl || ""
+            channelName: model.name || ""
+            // Kênh tạm dừng: xám hẳn cả viền lẫn chữ cái dự phòng — đúng như
+            // bản chép tay cũ, chỉ khác là không còn dựng lại khối vẽ.
+            tint: item.isPaused ? Theme.textMuted : (model.avatarColor || Theme.accent)
+            diameter: 22
+        }
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 0
+            Label {
+                text: model.name
+                color: item.isPaused ? Theme.textMuted : Theme.text
+                font.pixelSize: 16
+                elide: Text.ElideRight
+                Layout.fillWidth: true
+            }
+            Label {
+                text: {
+                    if (item.isPaused) return "Đã tạm dừng";
+                    let h = model.handle || model.channelId || "";
+                    if (h === "") return "";
+                    return h.startsWith("@") ? h : "@" + h;
+                }
+                color: Theme.textMuted
+                font.pixelSize: 14
+                elide: Text.ElideRight
+                Layout.fillWidth: true
+            }
+        }
+        Rectangle {
+            visible: item.newCount > 0
+            Layout.preferredWidth: 18
+            Layout.preferredHeight: 18
+            radius: 9
+            color: Theme.accent
+            Label {
+                anchors.centerIn: parent
+                text: item.newCount > 99 ? "99+" : item.newCount
+                color: "white"
+                font.pixelSize: 14
+                font.bold: true
+            }
+        }
+    }
+
+    MouseArea {
+        id: hoverArea
+        anchors.fill: parent
+        hoverEnabled: true
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onClicked: function(mouse) {
+            if (mouse.button === Qt.RightButton) {
+                ctxMenu.popup()
+            } else {
+                item.isActive = !item.isActive
+            }
+        }
+    }
+
+    Menu {
+        id: ctxMenu
+        MenuItem {
+            text: item.isPaused ? "Tiếp tục" : "Tạm dừng"
+            onTriggered: item.pauseClicked()
+        }
+        MenuItem {
+            text: "So sánh"
+            onTriggered: item.compareClicked()
+        }
+        MenuItem {
+            text: "Xóa"
+            onTriggered: item.deleteClicked()
+        }
+    }
+}
