@@ -35,3 +35,4 @@ Rectangle {
         ToolTip.timeout: 10000
     }
 }
+
