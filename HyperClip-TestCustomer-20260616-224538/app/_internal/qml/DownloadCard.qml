@@ -1,11 +1,11 @@
-// src/ui/qml/DownloadCard.qml
+﻿// src/ui/qml/DownloadCard.qml
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
 SettingsCard {
     id: card
-    title: "TẢI XUỐNG"
+    title: "Táº¢I XUá»NG"
 
     property bool trimRotateActive: false
     property real trimRotateMinVal: 4
@@ -60,7 +60,7 @@ SettingsCard {
         Layout.fillWidth: true
         spacing: Theme.spacingMd
         Label {
-            text: "Tự động tải"
+            text: "Tá»± Ä‘á»™ng táº£i"
             color: Theme.text
             font.pixelSize: Theme.textMd
             Layout.fillWidth: true
@@ -81,13 +81,13 @@ SettingsCard {
             spacing: 2
             Layout.fillWidth: true
             Label {
-                text: "Chất lượng tải"
+                text: "Cháº¥t lÆ°á»£ng táº£i"
                 color: Theme.text
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
             Label {
-                text: "Độ phân giải video mục tiêu (ví dụ 1080p, 720p)."
+                text: "Äá»™ phĂ¢n giáº£i video má»¥c tiĂªu (vĂ­ dá»¥ 1080p, 720p)."
                 color: Theme.textMuted
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
@@ -107,13 +107,13 @@ SettingsCard {
             spacing: 2
             Layout.fillWidth: true
             Label {
-                text: "Độ tuổi video tối đa (phút)"
+                text: "Äá»™ tuá»•i video tá»‘i Ä‘a (phĂºt)"
                 color: Theme.text
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
             Label {
-                text: "Chỉ tải video đăng tải trong N phút qua (1440 = 24h)."
+                text: "Chá»‰ táº£i video Ä‘Äƒng táº£i trong N phĂºt qua (1440 = 24h)."
                 color: Theme.textMuted
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
@@ -143,50 +143,95 @@ SettingsCard {
             spacing: 2
             Layout.fillWidth: true
             Label {
-                text: "Cắt tối đa (phút)"
+                text: "Giới hạn thời lượng tải (phút)"
                 color: Theme.text
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
             Label {
-                text: "Chỉ tải N phút đầu của video để tiết kiệm dung lượng."
+                text: "Chỉ tải N phút đầu của video gốc (ví dụ video 20 phút đặt 9: tải đúng 9 phút rồi đưa vào render & chia part). Đặt 999 để tải trọn vẹn."
                 color: Theme.textMuted
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
         }
-        SpinBox {
-            Layout.preferredWidth: 140
+        ColumnLayout {
+            Layout.preferredWidth: 160
             Layout.alignment: Qt.AlignRight
-            font.pixelSize: Theme.textMd
-            from: 1
-            to: 999
-            value: settings ? settings.defaultTrimLimit : 10
-            editable: true
-            onValueModified: if (settings) settings.defaultTrimLimit = value
-            onActiveFocusChanged: {
-                if (!activeFocus) {
-                    var val = valueFromText(contentItem.text, locale)
-                    val = Math.max(from, Math.min(to, val))
-                    value = val
-                    if (settings) settings.defaultTrimLimit = val
+            spacing: 4
+            SpinBox {
+                id: trimLimitSpin
+                Layout.fillWidth: true
+                font.pixelSize: Theme.textMd
+                from: 1
+                to: 999
+                value: settings ? settings.defaultTrimLimit : 10
+                editable: true
+                onValueModified: if (settings) settings.defaultTrimLimit = value
+                onActiveFocusChanged: {
+                    if (!activeFocus) {
+                        var val = valueFromText(contentItem.text, locale)
+                        val = Math.max(from, Math.min(to, val))
+                        value = val
+                        if (settings) settings.defaultTrimLimit = val
+                    }
+                }
+            }
+            RowLayout {
+                spacing: 4
+                Layout.alignment: Qt.AlignRight
+                Repeater {
+                    model: [
+                        { label: "5p", val: 5 },
+                        { label: "9p", val: 9 },
+                        { label: "15p", val: 15 },
+                        { label: "Trọn vẹn", val: 999 }
+                    ]
+                    delegate: Rectangle {
+                        id: trimPresetBtn
+                        required property var modelData
+                        width: trimPresetLbl.implicitWidth + 8
+                        height: 20
+                        radius: 3
+                        color: (settings && settings.defaultTrimLimit === modelData.val) ? Theme.accent : Theme.surface
+                        border.color: Theme.border
+                        border.width: 1
+                        Label {
+                            id: trimPresetLbl
+                            anchors.centerIn: parent
+                            text: trimPresetBtn.modelData.label
+                            font.pixelSize: 10
+                            color: (settings && settings.defaultTrimLimit === trimPresetBtn.modelData.val) ? "#000" : Theme.textMuted
+                            font.bold: settings && settings.defaultTrimLimit === trimPresetBtn.modelData.val
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (settings) {
+                                    settings.defaultTrimLimit = trimPresetBtn.modelData.val
+                                    trimLimitSpin.value = trimPresetBtn.modelData.val
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        // ─── Xoay vòng ngẫu nhiên thời lượng tải (Min - Max) ─────────────
+        // â”€â”€â”€ Xoay vĂ²ng ngáº«u nhiĂªn thá»i lÆ°á»£ng táº£i (Min - Max) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         ColumnLayout {
             spacing: 2
             Layout.fillWidth: true
             Label {
-                text: "Xoay vòng ngẫu nhiên thời lượng tải (Min - Max)"
+                text: "Xoay vĂ²ng ngáº«u nhiĂªn thá»i lÆ°á»£ng táº£i (Min - Max)"
                 color: Theme.text
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
             Label {
-                text: "Tự động chọn ngẫu nhiên một mốc thời lượng giữa Min và Max (ví dụ từ 4 đến 5 phút) cho từng video để tránh trùng lặp độ dài."
+                text: "Tá»± Ä‘á»™ng chá»n ngáº«u nhiĂªn má»™t má»‘c thá»i lÆ°á»£ng giá»¯a Min vĂ  Max (vĂ­ dá»¥ tá»« 4 Ä‘áº¿n 5 phĂºt) cho tá»«ng video Ä‘á»ƒ trĂ¡nh trĂ¹ng láº·p Ä‘á»™ dĂ i."
                 color: Theme.textMuted
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
@@ -207,7 +252,7 @@ SettingsCard {
             }
         }
 
-        // ─── Khối nhập Min / Max (Chỉ hiển thị khi bật công tắc xoay vòng) ───
+        // â”€â”€â”€ Khá»‘i nháº­p Min / Max (Chá»‰ hiá»ƒn thá»‹ khi báº­t cĂ´ng táº¯c xoay vĂ²ng) â”€â”€â”€
         Rectangle {
             id: rotateBox
             Layout.columnSpan: 2
@@ -235,7 +280,7 @@ SettingsCard {
                         color: Theme.accent
                     }
                     Label {
-                        text: "Khoảng thời lượng cắt xoay vòng (Phút)"
+                        text: "Khoáº£ng thá»i lÆ°á»£ng cáº¯t xoay vĂ²ng (PhĂºt)"
                         color: Theme.accent
                         font.pixelSize: Theme.textSm
                         font.bold: true
@@ -243,8 +288,8 @@ SettingsCard {
                 }
 
                 Label {
-                    text: "Mỗi video sẽ tự động cắt ngẫu nhiên từ " 
-                          + Math.round(card.trimRotateMinVal) + " phút đến " + Math.round(card.trimRotateMaxVal) + " phút (chính xác theo từng giây lẻ chống spam bot)."
+                    text: "Má»—i video sáº½ tá»± Ä‘á»™ng cáº¯t ngáº«u nhiĂªn tá»« " 
+                          + Math.round(card.trimRotateMinVal) + " phĂºt Ä‘áº¿n " + Math.round(card.trimRotateMaxVal) + " phĂºt (chĂ­nh xĂ¡c theo tá»«ng giĂ¢y láº» chá»‘ng spam bot)."
                     color: Theme.textMuted
                     font.pixelSize: 11
                     wrapMode: Text.WordWrap
@@ -255,11 +300,11 @@ SettingsCard {
                     Layout.fillWidth: true
                     spacing: 12
 
-                    // Ô nhập Min
+                    // Ă” nháº­p Min
                     RowLayout {
                         spacing: 6
                         Label {
-                            text: "Từ (Min):"
+                            text: "Tá»« (Min):"
                             color: Theme.text
                             font.pixelSize: Theme.textSm
                             font.bold: true
@@ -291,24 +336,24 @@ SettingsCard {
                             }
                         }
                         Label {
-                            text: "phút"
+                            text: "phĂºt"
                             color: Theme.textMuted
                             font.pixelSize: Theme.textSm
                         }
                     }
 
-                    // Ký hiệu liên kết
+                    // KĂ½ hiá»‡u liĂªn káº¿t
                     Label {
-                        text: "➔"
+                        text: "â”"
                         color: Theme.accent
                         font.pixelSize: 13
                     }
 
-                    // Ô nhập Max
+                    // Ă” nháº­p Max
                     RowLayout {
                         spacing: 6
                         Label {
-                            text: "Đến (Max):"
+                            text: "Äáº¿n (Max):"
                             color: Theme.text
                             font.pixelSize: Theme.textSm
                             font.bold: true
@@ -340,7 +385,7 @@ SettingsCard {
                             }
                         }
                         Label {
-                            text: "phút"
+                            text: "phĂºt"
                             color: Theme.textMuted
                             font.pixelSize: Theme.textSm
                         }
@@ -355,13 +400,13 @@ SettingsCard {
             spacing: 2
             Layout.fillWidth: true
             Label {
-                text: "Tải đồng thời"
+                text: "Táº£i Ä‘á»“ng thá»i"
                 color: Theme.text
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
             Label {
-                text: "Số luồng tải yt-dlp song song tối đa."
+                text: "Sá»‘ luá»“ng táº£i yt-dlp song song tá»‘i Ä‘a."
                 color: Theme.textMuted
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
@@ -397,7 +442,7 @@ SettingsCard {
                 font.bold: true
             }
             Label {
-                text: "Bỏ qua VPN, kết nối trực tiếp IP vật lý để tăng tốc độ tải."
+                text: "Bá» qua VPN, káº¿t ná»‘i trá»±c tiáº¿p IP váº­t lĂ½ Ä‘á»ƒ tÄƒng tá»‘c Ä‘á»™ táº£i."
                 color: Theme.textMuted
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
