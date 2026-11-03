@@ -1,16 +1,16 @@
-﻿// src/ui/qml/AutoRenderCard.qml
+// src/ui/qml/AutoRenderCard.qml
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
 SettingsCard {
-    title: "Tá»° Äá»˜NG RENDER"
+    title: "TỰ ĐỘNG RENDER"
 
     RowLayout {
         Layout.fillWidth: true
         spacing: Theme.spacingMd
         Label {
-            text: "Tá»± Ä‘á»™ng render"
+            text: "Tự động render"
             color: Theme.text
             font.pixelSize: Theme.textMd
             Layout.fillWidth: true
@@ -31,13 +31,13 @@ SettingsCard {
             spacing: 2
             Layout.fillWidth: true
             Label {
-                text: "Äá»™ phĂ¢n giáº£i"
+                text: "Độ phân giải"
                 color: Theme.text
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
             Label {
-                text: "Äá»™ phĂ¢n giáº£i video dá»c Ä‘áº§u ra (vĂ­ dá»¥ 1080p, 720p)."
+                text: "Độ phân giải video dọc đầu ra (ví dụ 1080p, 720p)."
                 color: Theme.textMuted
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
@@ -57,13 +57,13 @@ SettingsCard {
             spacing: 2
             Layout.fillWidth: true
             Label {
-                text: "Khung hĂ¬nh (FPS)"
+                text: "Khung hình (FPS)"
                 color: Theme.text
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
             Label {
-                text: "Tá»‘c Ä‘á»™ khung hĂ¬nh Ä‘áº§u ra (30 hoáº·c 60 fps)."
+                text: "Tốc độ khung hình đầu ra (30 hoặc 60 fps)."
                 color: Theme.textMuted
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
@@ -83,13 +83,13 @@ SettingsCard {
             spacing: 2
             Layout.fillWidth: true
             Label {
-                text: "Tá»‘c Ä‘á»™ phĂ¡t (Speed)"
+                text: "Tốc độ phát (Speed)"
                 color: Theme.text
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
             Label {
-                text: "Tá»± Ä‘á»™ng tÄƒng tá»‘c Ä‘á»™ video (lĂ¡ch báº£n quyá»n vĂ  tÄƒng Ä‘á»™ cuá»‘n)."
+                text: "Tự động tăng tốc độ video (lách bản quyền và tăng độ cuốn)."
                 color: Theme.textMuted
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
@@ -118,13 +118,13 @@ SettingsCard {
             spacing: 2
             Layout.fillWidth: true
             Label {
-                text: "Tá»± Ä‘á»™ng tĂ¡ch video"
+                text: "Tự động tách video"
                 color: Theme.text
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
             Label {
-                text: "Part 1 táº£i + render xong trÆ°á»›c vá»›i toĂ n bá»™ tĂ i nguyĂªn, sau Ä‘Ă³ tá»± táº£i tiáº¿p vĂ  render láº§n lÆ°á»£t part 2, part 3 (tá»‘i Ä‘a 3 pháº§n)."
+                text: "Part 1 tải + render xong trước với toàn bộ tài nguyên, sau đó tự tải tiếp và render lần lượt part 2, part 3 (tối đa 3 phần)."
                 color: Theme.textMuted
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
@@ -137,9 +137,9 @@ SettingsCard {
             onToggled: {
                 if (!settings) return
                 settings.autoSplitEnabled = checked
-                // Ghi ngÆ°á»£c giĂ¡ trá»‹ sĂ n ngay khi báº­t â€” SpinBox chá»‰ hiá»ƒn thá»‹
-                // clamp chá»© khĂ´ng tá»± lÆ°u, Ä‘á»ƒ nguyĂªn parts=1/minutes=0 lĂ 
-                // split khĂ´ng bao giá» cháº¡y.
+                // Ghi ngược giá trị sàn ngay khi bật — SpinBox chỉ hiển thị
+                // clamp chứ không tự lưu, để nguyên parts=1/minutes=0 là
+                // split không bao giờ chạy.
                 if (checked) {
                     if (settings.autoSplitParts < 2) settings.autoSplitParts = 2
                     if (settings.autoSplitMinutes < 1) settings.autoSplitMinutes = 5
@@ -152,13 +152,13 @@ SettingsCard {
             spacing: 2
             Layout.fillWidth: true
             Label {
-                text: "Cháº¿ Ä‘á»™ tĂ¡ch"
+                text: "Chế độ tách"
                 color: Theme.text
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
             Label {
-                text: "TĂ¡ch theo sá»‘ lÆ°á»£ng pháº§n cá»‘ Ä‘á»‹nh hoáº·c theo sá»‘ phĂºt má»—i pháº§n."
+                text: "Tách theo số lượng phần cố định hoặc theo số phút mỗi phần."
                 color: Theme.textMuted
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
@@ -170,7 +170,7 @@ SettingsCard {
             Layout.preferredWidth: 180
             Layout.alignment: Qt.AlignRight
             font.pixelSize: Theme.textMd
-            model: ["TĂ¡ch theo sá»‘ pháº§n", "TĂ¡ch theo thá»i lÆ°á»£ng (phĂºt)"]
+            model: ["Tách theo số phần", "Tách theo thời lượng (phút)"]
             currentIndex: settings ? (settings.autoSplitMode === "minutes" ? 1 : 0) : 0
             onActivated: if (settings) settings.autoSplitMode = currentIndex === 1 ? "minutes" : "parts"
         }
@@ -180,92 +180,50 @@ SettingsCard {
             spacing: 2
             Layout.fillWidth: true
             Label {
-                text: "Sá»‘ pháº§n tĂ¡ch"
+                text: "Số phần tách"
                 color: Theme.text
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
             Label {
-                text: "Cáº¯t video gá»‘c thĂ nh N pháº§n báº±ng nhau (tá»‘i Ä‘a 3 pháº§n)."
+                text: "Cắt video gốc thành N phần bằng nhau (tối đa 3 phần)."
                 color: Theme.textMuted
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
         }
-        ColumnLayout {
+        SpinBox {
             visible: settings ? (settings.autoSplitEnabled && settings.autoSplitMode === "parts") : false
             Layout.preferredWidth: 180
             Layout.alignment: Qt.AlignRight
-            spacing: 4
-            SpinBox {
-                id: splitPartsSpin
-                Layout.fillWidth: true
-                font.pixelSize: Theme.textMd
-                from: 2; to: 3
-                value: settings ? settings.autoSplitParts : 2
-                editable: true
-                onValueModified: if (settings) settings.autoSplitParts = value
-                onActiveFocusChanged: {
-                    if (!activeFocus) {
-                        var val = valueFromText(contentItem.text, locale)
-                        val = Math.max(from, Math.min(to, val))
-                        value = val
-                        if (settings) settings.autoSplitParts = val
-                    }
-                }
-            }
-            RowLayout {
-                spacing: 6
-                Layout.alignment: Qt.AlignRight
-                Repeater {
-                    model: [
-                        { label: "2 Part", val: 2 },
-                        { label: "3 Part", val: 3 }
-                    ]
-                    delegate: Rectangle {
-                        id: partPresetBtn
-                        required property var modelData
-                        width: partPresetLbl.implicitWidth + 12
-                        height: 22
-                        radius: 3
-                        color: (settings && settings.autoSplitParts === modelData.val) ? Theme.accent : Theme.surface
-                        border.color: Theme.border
-                        border.width: 1
-                        Label {
-                            id: partPresetLbl
-                            anchors.centerIn: parent
-                            text: partPresetBtn.modelData.label
-                            font.pixelSize: 11
-                            color: (settings && settings.autoSplitParts === partPresetBtn.modelData.val) ? "#000" : Theme.textMuted
-                            font.bold: settings && settings.autoSplitParts === partPresetBtn.modelData.val
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                if (settings) {
-                                    settings.autoSplitParts = partPresetBtn.modelData.val
-                                    splitPartsSpin.value = partPresetBtn.modelData.val
-                                }
-                            }
-                        }
-                    }
+            font.pixelSize: Theme.textMd
+            from: 2; to: 3
+            value: settings ? settings.autoSplitParts : 2
+            editable: true
+            onValueModified: if (settings) settings.autoSplitParts = value
+            onActiveFocusChanged: {
+                if (!activeFocus) {
+                    var val = valueFromText(contentItem.text, locale)
+                    val = Math.max(from, Math.min(to, val))
+                    value = val
+                    if (settings) settings.autoSplitParts = val
                 }
             }
         }
+
         ColumnLayout {
             visible: settings ? (settings.autoSplitEnabled && settings.autoSplitMode === "minutes") : false
             spacing: 2
             Layout.fillWidth: true
             Label {
-                text: "Sá»‘ phĂºt / pháº§n"
+                text: "Số phút / phần"
                 color: Theme.text
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
             Label {
-                text: "Má»—i pháº§n dĂ i N phĂºt â€” part 1 chá»‰ táº£i N phĂºt Ä‘áº§u Ä‘á»ƒ render nhanh nháº¥t; vĂ­ dá»¥ video 8:34 cáº¯t 5p â†’ part 1 = 5:00, part 2 = 3:34."
+                text: "Mỗi phần dài N phút — part 1 chỉ tải N phút đầu để render nhanh nhất; ví dụ video 8:34 cắt 5p → part 1 = 5:00, part 2 = 3:34."
                 color: Theme.textMuted
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
@@ -295,98 +253,48 @@ SettingsCard {
             spacing: 2
             Layout.fillWidth: true
             Label {
-                text: "Mẫu render video & Tiêu đề chân trang (Chuẩn AdsPow)"
+                // Pass 85: nhãn cũ "Mẫu đặt tên file" nói SAI việc ô này làm —
+                // backend nướng chuỗi này vào THANH DƯỚI của video (drawtext),
+                // không đặt tên file. Khách 15/08 thấy "có chữ trong video" mà
+                // không biết chữ đến từ đâu, và không có chỗ nào tắt.
+                text: "Chữ trên thanh dưới video"
                 color: Theme.text
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
             Label {
-                text: "Bố cục chuẩn AdsPow (video vuông 1:1 ở giữa, chân trang nền xanh #00B4FF). Chọn mẫu có sẵn hoặc nhập tùy biến:"
+                text: "Nướng vào khung dưới của video dọc (thẻ {title}, {channel}, {part}). Tắt công tắc để thanh dưới chỉ còn nền, không chữ."
                 color: Theme.textMuted
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
         }
-        ColumnLayout {
-            Layout.preferredWidth: 260
+        RowLayout {
+            spacing: 8
             Layout.alignment: Qt.AlignRight
-            spacing: 6
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 8
-                Switch {
-                    id: overlaySwitch
-                    checked: (settings && typeof settings.renderTitleOverlay !== "undefined") ? Boolean(settings.renderTitleOverlay) : true
-                    onToggled: if (settings) settings.renderTitleOverlay = checked
-                    ToolTip.text: checked ? "Đang nướng chữ vào video. Bấm để tắt (chỉ còn nền xanh trơn)." : "Đang TẮT chữ — thanh dưới chỉ còn nền xanh #00B4FF."
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 400
-                }
-                TextField {
-                    id: titleTplInput
-                    Layout.fillWidth: true
-                    enabled: overlaySwitch.checked
-                    opacity: enabled ? 1.0 : 0.45
-                    font.pixelSize: Theme.textMd
-                    color: Theme.text
-                    placeholderText: "Mẫu: {title}"
-                    placeholderTextColor: Theme.textMuted
-                    text: settings ? settings.autoRenderTitleTemplate : ""
-                    onEditingFinished: if (settings) settings.autoRenderTitleTemplate = text
-                    background: Rectangle {
-                        color: Theme.inputBg
-                        border.color: parent.activeFocus ? Theme.accent : Theme.border
-                        border.width: 1
-                        radius: Theme.radiusMd
-                    }
-                }
+            Switch {
+                id: overlaySwitch
+                checked: (settings && typeof settings.renderTitleOverlay !== "undefined") ? Boolean(settings.renderTitleOverlay) : true
+                onToggled: if (settings) settings.renderTitleOverlay = checked
+                ToolTip.text: checked ? "Đang nướng chữ vào video. Bấm để tắt." : "Đang TẮT chữ — thanh dưới chỉ còn nền."
+                ToolTip.visible: hovered
+                ToolTip.delay: 400
             }
-
-            // Nút bấm chọn nhanh mẫu
-            RowLayout {
-                spacing: 4
-                Layout.alignment: Qt.AlignRight
-                Repeater {
-                    model: [
-                        { label: "{title} (Chuẩn AdsPow)", val: "{title}", overlay: true },
-                        { label: "PART {part}", val: "PART {part} - {title}", overlay: true },
-                        { label: "Nền trơn", val: "", overlay: false }
-                    ]
-                    delegate: Rectangle {
-                        id: tplPresetBtn
-                        required property var modelData
-                        width: tplPresetLbl.implicitWidth + 8
-                        height: 20
-                        radius: 3
-                        readonly property bool isSelected: (settings && settings.renderTitleOverlay === modelData.overlay && (!modelData.overlay || settings.autoRenderTitleTemplate === modelData.val))
-                        color: isSelected ? Theme.accent : Theme.surface
-                        border.color: Theme.border
-                        border.width: 1
-                        Label {
-                            id: tplPresetLbl
-                            anchors.centerIn: parent
-                            text: tplPresetBtn.modelData.label
-                            font.pixelSize: 10
-                            color: tplPresetBtn.isSelected ? "#000" : Theme.textMuted
-                            font.bold: tplPresetBtn.isSelected
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                if (settings) {
-                                    settings.renderTitleOverlay = tplPresetBtn.modelData.overlay
-                                    overlaySwitch.checked = tplPresetBtn.modelData.overlay
-                                    if (tplPresetBtn.modelData.val !== "") {
-                                        settings.autoRenderTitleTemplate = tplPresetBtn.modelData.val
-                                        titleTplInput.text = tplPresetBtn.modelData.val
-                                    }
-                                }
-                            }
-                        }
-                    }
+            TextField {
+                Layout.preferredWidth: 180
+                enabled: overlaySwitch.checked
+                opacity: enabled ? 1.0 : 0.45
+                font.pixelSize: Theme.textMd
+                color: Theme.text
+                placeholderTextColor: Theme.textMuted
+                text: settings ? settings.autoRenderTitleTemplate : ""
+                onEditingFinished: if (settings) settings.autoRenderTitleTemplate = text
+                background: Rectangle {
+                    color: Theme.inputBg
+                    border.color: parent.activeFocus ? Theme.accent : Theme.border
+                    border.width: 1
+                    radius: Theme.radiusMd
                 }
             }
         }
@@ -401,7 +309,7 @@ SettingsCard {
                 font.bold: true
             }
             Label {
-                text: "Sá»‘ lÆ°á»£ng tiáº¿n trĂ¬nh render FFmpeg cháº¡y Ä‘á»“ng thá»i (khuyĂªn dĂ¹ng 2)."
+                text: "Số lượng tiến trình render FFmpeg chạy đồng thời (khuyên dùng 2)."
                 color: Theme.textMuted
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
@@ -426,27 +334,27 @@ SettingsCard {
             }
         }
 
-        // Pass 119 â€” HAI NĂM E2E TRÆ¯á»C ÄĂ‚Y CHá»ˆ CĂ“ á» CARD SHORTS.
+        // Pass 119 — HAI NÚM E2E TRƯỚC ĐÂY CHỈ CÓ Ở CARD SHORTS.
         //
-        // Pass 105 Ä‘Æ°a `renderMaxrateMbps` + `tiktokFastDone` ra UI, nhÆ°ng Ä‘áº·t
-        // trong ShortsSettingsCard. Tá»« Pass 104 trang CĂ i Ä‘áº·t chá»‰ hiá»‡n card cá»§a
-        // LĂ€N ÄANG Báº¬T, nĂªn mĂ¡y cháº¡y lĂ n Video dĂ i (Shorts=Táº®T) KHĂ”NG BAO GIá»œ
-        // báº¥m tá»›i Ä‘Æ°á»£c hai nĂºm nĂ y â€” Ä‘Ăºng cĂ¡i báº«y mĂ  Pass 105 sinh ra Ä‘á»ƒ chá»¯a:
-        // thá»© gĂ¬ áº£nh hÆ°á»Ÿng e2e pháº£i cĂ³ trong UI, vĂ  "cĂ³ trong UI" nghÄ©a lĂ  cĂ³ á»Ÿ
-        // lĂ n mĂ  mĂ¡y Ä‘Ă³ Ä‘ang cháº¡y.
+        // Pass 105 đưa `renderMaxrateMbps` + `tiktokFastDone` ra UI, nhưng đặt
+        // trong ShortsSettingsCard. Từ Pass 104 trang Cài đặt chỉ hiện card của
+        // LÀN ĐANG BẬT, nên máy chạy làn Video dài (Shorts=TẮT) KHÔNG BAO GIỜ
+        // bấm tới được hai núm này — đúng cái bẫy mà Pass 105 sinh ra để chữa:
+        // thứ gì ảnh hưởng e2e phải có trong UI, và "có trong UI" nghĩa là có ở
+        // làn mà máy đó đang chạy.
         ColumnLayout {
             spacing: 2
             Layout.fillWidth: true
             Label {
-                text: "Tráº§n bitrate render (Mbps)"
+                text: "Trần bitrate render (Mbps)"
                 color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true
             }
             Label {
-                text: "0 = tá»± Ä‘á»™ng theo card. Vá»›i part video dĂ i, Ä‘Ă¢y lĂ  Ä‘Ă²n báº©y ÄO ÄÆ¯á»¢C: "
-                      + "file 120 MB thĂ¬ TikTok xá»­ lĂ½ 2,9s, cĂ²n 57â€“91 MB chá»‰ 1,1â€“2,0s. "
-                      + "Äáº·t 3 rá»“i XEM THá»¬ video Ä‘áº§u â€” TikTok vá»‘n nĂ©n láº¡i cĂ²n ~1 Mbps. "
-                      + "Náº¥c 1 dĂ nh cho khi cáº§n Ă©p giĂ¢y tá»‘i Ä‘a: PHáº¢I xem thá»­ báº±ng máº¯t trÆ°á»›c, "
-                      + "720p á»Ÿ 1 Mbps dá»… lá»™ khá»‘i á»Ÿ cáº£nh chuyá»ƒn Ä‘á»™ng."
+                text: "0 = tự động theo card. Với part video dài, đây là đòn bẩy ĐO ĐƯỢC: "
+                      + "file 120 MB thì TikTok xử lý 2,9s, còn 57–91 MB chỉ 1,1–2,0s. "
+                      + "Đặt 3 rồi XEM THỬ video đầu — TikTok vốn nén lại còn ~1 Mbps. "
+                      + "Nấc 1 dành cho khi cần ép giây tối đa: PHẢI xem thử bằng mắt trước, "
+                      + "720p ở 1 Mbps dễ lộ khối ở cảnh chuyển động."
                 color: Theme.textMuted; font.pixelSize: 11
                 wrapMode: Text.WordWrap; Layout.fillWidth: true
             }
@@ -472,13 +380,13 @@ SettingsCard {
             spacing: 2
             Layout.fillWidth: true
             Label {
-                text: "ÄÄƒng TikTok: xong ngay khi gá»­i lá»‡nh Ä‘Äƒng"
+                text: "Đăng TikTok: xong ngay khi gửi lệnh đăng"
                 color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true
             }
             Label {
-                text: "KhĂ´ng chá» TikTok chuyá»ƒn trang xĂ¡c nháº­n. Äo trĂªn mĂ¡y khĂ¡ch: cháº·ng "
-                      + "xĂ¡c nháº­n 1,5â€“2,1s xuá»‘ng cĂ²n 0,5â€“0,7s. ÄĂ¡nh Ä‘á»•i: náº¿u TikTok há»ng "
-                      + "SAU cĂº báº¥m ÄÄƒng thĂ¬ app Ä‘Ă£ bĂ¡o xong â€” log ghi rĂµ \"fastDone\"."
+                text: "Không chờ TikTok chuyển trang xác nhận. Đo trên máy khách: chặng "
+                      + "xác nhận 1,5–2,1s xuống còn 0,5–0,7s. Đánh đổi: nếu TikTok hỏng "
+                      + "SAU cú bấm Đăng thì app đã báo xong — log ghi rõ \"fastDone\"."
                 color: Theme.textMuted; font.pixelSize: 11
                 wrapMode: Text.WordWrap; Layout.fillWidth: true
             }
