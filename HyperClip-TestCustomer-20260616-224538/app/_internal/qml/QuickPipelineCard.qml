@@ -27,7 +27,7 @@ SettingsCard {
         if (settings && typeof settings.autoSplitMinutes === "number" && settings.autoSplitMinutes > 0 && settings.autoSplitMinutes < 30) {
             return settings.autoSplitMinutes;
         }
-        return 4.0;
+        return 1.0;
     }
 
     // Tổng thời lượng video cắt tải về (mặc định 10 phút)
@@ -67,7 +67,7 @@ SettingsCard {
 
         if (splitMode === "custom_p1") {
             settings.autoSplitEnabled = true;
-            settings.autoSplitMode = "minutes";
+            settings.autoSplitMode = "parts";
             settings.autoSplitParts = (card.remainMinutes >= 1.0) ? 3 : 1;
             settings.autoSplitMinutes = card.p1Duration;
             try { settings.autoSplitCustomP1 = card.p1Duration; } catch(e) {}
@@ -75,14 +75,14 @@ SettingsCard {
             settings.autoRenderTitleTemplate = "PART {part}";
         } else if (splitMode === "parts_2") {
             settings.autoSplitEnabled = true;
-            settings.autoSplitMode = "minutes";
-            settings.autoSplitMinutes = Math.round((card.cutDuration / 2) * 10) / 10;
+            settings.autoSplitMode = "parts";
+            settings.autoSplitMinutes = Math.round((card.totalTrimMinutes / 2) * 10) / 10;
             settings.autoSplitParts = 2;
             settings.autoRenderTitleTemplate = "PART {part}";
         } else if (splitMode === "parts_3") {
             settings.autoSplitEnabled = true;
-            settings.autoSplitMode = "minutes";
-            settings.autoSplitMinutes = Math.round((card.cutDuration / 3) * 10) / 10;
+            settings.autoSplitMode = "parts";
+            settings.autoSplitMinutes = Math.round((card.totalTrimMinutes / 3) * 10) / 10;
             settings.autoSplitParts = 3;
             settings.autoRenderTitleTemplate = "PART {part}";
         }
@@ -100,7 +100,8 @@ SettingsCard {
                     "autoSplitPart1Minutes": card.p1Duration,
                     "autoSplitRemainMinutes": card.p2Duration,
                     "autoRenderTitleTemplate": "PART {part}",
-                    "trimRotateEnabled": false
+                    "trimRotateEnabled": false,
+                    "splitChainDelaySec": 0
                 });
             } catch(e) {}
 

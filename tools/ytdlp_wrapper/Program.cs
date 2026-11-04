@@ -106,25 +106,19 @@ namespace YtDlpWrapper {
             int p2Sec = (int)Math.Round(p2 * 60);
             int p3Sec = (int)Math.Round(p3 * 60);
 
-            // 4. Intercept slicing from master video or rewrite sections
+            // 4. Intercept slicing from master video ONLY for explicit part files (_part2, _part3, etc.)
+            bool isPartDownload = false;
             if (!string.IsNullOrEmpty(outputPath) && autoSplitEnabled) {
                 string fileName = Path.GetFileName(outputPath);
                 string dir = Path.GetDirectoryName(outputPath);
                 if (string.IsNullOrEmpty(dir)) dir = ".";
 
-                int partNum = 0;
-                string baseName = null;
-
                 Match mPart = Regex.Match(fileName, @"^(.*)_part(\d+)\.mp4$", RegexOptions.IgnoreCase);
                 if (mPart.Success) {
-                    baseName = mPart.Groups[1].Value;
-                    partNum = int.Parse(mPart.Groups[2].Value);
-                } else if (fileName.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) && !fileName.Contains("_master")) {
-                    baseName = fileName.Substring(0, fileName.Length - 4);
-                    partNum = 1;
-                }
+                    isPartDownload = true;
+                    string baseName = mPart.Groups[1].Value;
+                    int partNum = int.Parse(mPart.Groups[2].Value);
 
-                if (partNum > 0 && !string.IsNullOrEmpty(baseName)) {
                     int startSec = 0;
                     int durSec = p1Sec;
 
@@ -143,6 +137,10 @@ namespace YtDlpWrapper {
                     }
 
                     string masterPath = Path.Combine(dir, baseName + "_master.mp4");
+                    if (!File.Exists(masterPath)) {
+                        string cand = Path.Combine(dir, baseName + ".mp4");
+                        if (File.Exists(cand)) masterPath = cand;
+                    }
 
                     // A) If master video exists, SLICE LOCALLY (50ms, zero network)
                     if (File.Exists(masterPath) && File.Exists(ffmpegPath)) {
@@ -209,8 +207,29 @@ namespace YtDlpWrapper {
             }
             psi.Arguments = fullArgs;
             psi.UseShellExecute = false;
+
             Process p = Process.Start(psi);
             p.WaitForExit();
+
+            // 6. If this was the master video download, create _master.mp4 snapshot for local part slicing
+            if (!isPartDownload && p.ExitCode == 0 && !string.IsNullOrEmpty(outputPath) && File.Exists(outputPath)) {
+                try {
+                    FileInfo fi = new FileInfo(outputPath);
+                    if (fi.Length > 65536) {
+                        string dir = Path.GetDirectoryName(outputPath);
+                        if (string.IsNullOrEmpty(dir)) dir = ".";
+                        string fileNameWithoutExt = Path.GetFileNameWithoutExtension(outputPath);
+                        if (!fileNameWithoutExt.EndsWith("_master", StringComparison.OrdinalIgnoreCase)) {
+                            string masterSnapshot = Path.Combine(dir, fileNameWithoutExt + "_master.mp4");
+                            if (!File.Exists(masterSnapshot)) {
+                                File.Copy(outputPath, masterSnapshot, true);
+                                Log(string.Format("Saved master video snapshot: {0} ({1:F2} MB)", masterSnapshot, fi.Length / (1024.0 * 1024.0)));
+                            }
+                        }
+                    }
+                } catch {}
+            }
+
             return p.ExitCode;
         }
     }

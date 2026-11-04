@@ -106,11 +106,18 @@ namespace FfmpegWrapper {
                 outputPath = args[args.Length - 1];
             }
 
-            // Detect partNum from input or output
-            string combined = (inputPath ?? "") + " " + (outputPath ?? "");
-            Match mPart = Regex.Match(combined, @"(?:_part|PART\s*)(\d+)", RegexOptions.IgnoreCase);
-            if (mPart.Success) {
-                int.TryParse(mPart.Groups[1].Value, out partNum);
+            // CRITICAL: NEVER modify internal chunk renders, temp renders, or composite frames!
+            string allArgs = string.Join(" ", args);
+            bool isChunkOrTemp = allArgs.Contains("_chunk") || allArgs.Contains("_c0_") || allArgs.Contains("_c1_") ||
+                                 allArgs.Contains(@"\temp\") || allArgs.Contains("/temp/") || allArgs.Contains("_composite");
+
+            // Detect partNum only for final renders or trim operations
+            if (!isChunkOrTemp) {
+                string combined = (inputPath ?? "") + " " + (outputPath ?? "");
+                Match mPart = Regex.Match(combined, @"(?:_part|PART\s*)(\d+)", RegexOptions.IgnoreCase);
+                if (mPart.Success) {
+                    int.TryParse(mPart.Groups[1].Value, out partNum);
+                }
             }
 
             int durSec = 0;
@@ -121,7 +128,7 @@ namespace FfmpegWrapper {
             // 3. Transform arguments if autoSplitEnabled and valid partNum
             string[] modifiedArgs = (string[])args.Clone();
 
-            if (autoSplitEnabled && partNum > 0 && durSec > 0) {
+            if (!isChunkOrTemp && autoSplitEnabled && partNum > 0 && durSec > 0) {
                 bool isTrim = false;
                 bool isRender = false;
 

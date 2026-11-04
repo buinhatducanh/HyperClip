@@ -1,4 +1,4 @@
-// src/ui/qml/ManagementPanel.qml
+﻿// src/ui/qml/ManagementPanel.qml
 
 // Quản lí — left: 24h download queue (newest first). Right: full video detail
 
@@ -2084,12 +2084,19 @@ Rectangle {
 
                             let out = [];
                             for (let i = 0; i < parents.length; i++) {
-                                out.push(parents[i]);
                                 let parts = root.getSplitPartsFor(parents[i].id);
+                                let validParts = [];
                                 for (let j = 0; j < parts.length; j++) {
                                     if (parts[j] && parts[j].status !== "deleted") {
-                                        out.push(parts[j]);
+                                        validParts.push(parts[j]);
                                     }
+                                }
+                                if (validParts.length > 0) {
+                                    for (let k = 0; k < validParts.length; k++) {
+                                        out.push(validParts[k]);
+                                    }
+                                } else {
+                                    out.push(parents[i]);
                                 }
                             }
                             return out;
@@ -2384,8 +2391,16 @@ Rectangle {
                                         }
 
                                         // Chip thời lượng video
+                                        // Chip thá»i lÆ°á»£ng video
                                         Rectangle {
-                                            visible: (modelData.durationSec || modelData.duration || 0) > 0
+                                            visible: {
+                                                var d = (modelData.partIndex && modelData.sourceEndSec > modelData.sourceStartSec)
+                                                    ? (modelData.sourceEndSec - modelData.sourceStartSec)
+                                                    : ((modelData.partIndex && modelData.trimEnd > modelData.trimStart)
+                                                        ? (modelData.trimEnd - modelData.trimStart)
+                                                        : (modelData.durationSec || modelData.duration || 0));
+                                                return d > 0;
+                                            }
                                             Layout.preferredHeight: 15
                                             Layout.preferredWidth: durChipLbl.implicitWidth + 8
                                             radius: 3
@@ -2395,7 +2410,15 @@ Rectangle {
                                             Label {
                                                 id: durChipLbl
                                                 anchors.centerIn: parent
-                                                text: root.fmtClockMS(modelData.durationSec || modelData.duration || 0)
+                                                text: {
+                                                    if (modelData.partIndex && modelData.sourceEndSec > modelData.sourceStartSec) {
+                                                        return root.fmtClockMS(modelData.sourceEndSec - modelData.sourceStartSec);
+                                                    }
+                                                    if (modelData.partIndex && modelData.trimEnd > modelData.trimStart) {
+                                                        return root.fmtClockMS(modelData.trimEnd - modelData.trimStart);
+                                                    }
+                                                    return root.fmtClockMS(modelData.durationSec || modelData.duration || 0);
+                                                }
                                                 color: Theme.textMuted
                                                 font.pixelSize: 9
                                                 font.family: "Consolas"
