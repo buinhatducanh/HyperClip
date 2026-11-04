@@ -51,16 +51,33 @@ namespace YtDlpWrapper {
                         double.TryParse(mTrim.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out trimLimit);
                     }
 
+                    int parts = 3;
+                    Match mParts = Regex.Match(json, @"""autoSplitParts""\s*:\s*([0-9]+)");
+                    if (mParts.Success) {
+                        int.TryParse(mParts.Groups[1].Value, out parts);
+                    }
+
                     Match mP1 = Regex.Match(json, @"""autoSplitCustomP1""\s*:\s*([0-9\.]+)");
+                    bool hasCustomP1 = mP1.Success;
                     if (!mP1.Success) mP1 = Regex.Match(json, @"""autoSplitPart1Minutes""\s*:\s*([0-9\.]+)");
                     if (!mP1.Success) mP1 = Regex.Match(json, @"""autoSplitMinutes""\s*:\s*([0-9\.]+)");
                     if (mP1.Success) {
                         double.TryParse(mP1.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out p1);
                     }
 
-                    double rem = Math.Max(0, trimLimit - p1);
-                    p2 = Math.Round((rem / 2.0) * 10.0) / 10.0;
-                    p3 = Math.Max(0, Math.Round((rem - p2) * 10.0) / 10.0);
+                    if (parts == 2) {
+                        p1 = Math.Round((trimLimit / 2.0) * 10.0) / 10.0;
+                        p2 = Math.Max(0, Math.Round((trimLimit - p1) * 10.0) / 10.0);
+                        p3 = 0;
+                    } else if (parts == 3 && !hasCustomP1) {
+                        p1 = Math.Round((trimLimit / 3.0) * 10.0) / 10.0;
+                        p2 = Math.Round((trimLimit / 3.0) * 10.0) / 10.0;
+                        p3 = Math.Max(0, Math.Round((trimLimit - p1 - p2) * 10.0) / 10.0);
+                    } else {
+                        double rem = Math.Max(0, trimLimit - p1);
+                        p2 = Math.Round((rem / 2.0) * 10.0) / 10.0;
+                        p3 = Math.Max(0, Math.Round((rem - p2) * 10.0) / 10.0);
+                    }
                 }
             } catch {}
 

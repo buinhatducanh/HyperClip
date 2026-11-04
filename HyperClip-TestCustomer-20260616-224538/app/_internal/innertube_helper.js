@@ -1536,11 +1536,23 @@ function getSmartSplitPlan() {
         if (s.autoSplitEnabled === true) {
           const trimLimitMin = Number(s.defaultTrimLimit) || 10;
           const totalTrimSec = Math.max(60, Math.round(trimLimitMin * 60));
-          const p1Min = Number(s.autoSplitCustomP1) || Number(s.autoSplitPart1Minutes) || Number(s.autoSplitMinutes) || 4.0;
-          const p1Sec = Math.min(Math.round(p1Min * 60), Math.max(60, totalTrimSec - 60));
-          const remSec = Math.max(0, totalTrimSec - p1Sec);
-          const p2Sec = Math.round(remSec / 2);
-          const p3Sec = Math.max(0, remSec - p2Sec);
+          let p1Sec, p2Sec, p3Sec;
+
+          if (s.autoSplitParts === 2) {
+            p1Sec = Math.round(totalTrimSec / 2);
+            p2Sec = totalTrimSec - p1Sec;
+            p3Sec = 0;
+          } else if (s.autoSplitParts === 3 && !s.autoSplitCustomP1) {
+            p1Sec = Math.round(totalTrimSec / 3);
+            p2Sec = Math.round(totalTrimSec / 3);
+            p3Sec = Math.max(0, totalTrimSec - p1Sec - p2Sec);
+          } else {
+            const p1Min = Number(s.autoSplitCustomP1) || Number(s.autoSplitPart1Minutes) || Number(s.autoSplitMinutes) || 4.0;
+            p1Sec = Math.min(Math.round(p1Min * 60), Math.max(60, totalTrimSec - 60));
+            const remSec = Math.max(0, totalTrimSec - p1Sec);
+            p2Sec = Math.round(remSec / 2);
+            p3Sec = Math.max(0, remSec - p2Sec);
+          }
           return { enabled: true, trimLimitMin, totalTrimSec, p1Sec, p2Sec, p3Sec };
         }
       }
