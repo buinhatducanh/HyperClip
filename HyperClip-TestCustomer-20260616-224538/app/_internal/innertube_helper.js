@@ -1561,10 +1561,37 @@ function getSmartSplitPlan() {
   return null;
 }
 
+// Background Guard: tu dong don dep Part 1 trung lap
+function cleanDuplicateRenders() {
+  try {
+    const fs = require("fs");
+    const path = require("path");
+    const plan = getSmartSplitPlan();
+    const outDir = (plan && plan.outDir) || "D:\\CapCutで編集しました";
+    if (!fs.existsSync(outDir)) return;
+    const files = fs.readdirSync(outDir);
+    for (const f of files) {
+      const m = f.match(/^(.*)_part1\.mp4$/i);
+      if (m) {
+        const parentName = m[1] + ".mp4";
+        const parentPath = path.join(outDir, parentName);
+        const part1Path = path.join(outDir, f);
+        if (fs.existsSync(parentPath)) {
+          const pStat = fs.statSync(parentPath);
+          const cStat = fs.statSync(part1Path);
+          if (pStat.size > 500000 && cStat.size > 100000) {
+            dlog("[smart-split] Removing redundant Part 1 duplicate: " + f + " in favor of " + parentName);
+            try { fs.unlinkSync(part1Path); } catch (_) {}
+          }
+        }
+      }
+    }
+  } catch (_) {}
+}
+setInterval(cleanDuplicateRenders, 2000);
 async function resolveMediaNative(req) {
   const videoId = req.videoId;
   const maxHeight = req.maxHeight || 360;
-  const splitPlan = getSmartSplitPlan();
   const isSmartSplit = !!(splitPlan && splitPlan.enabled);
   const limitSec = isSmartSplit ? splitPlan.totalTrimSec : (req.limitSec || 0);
   const anonClient = await ensureGateClient();
@@ -1610,8 +1637,76 @@ async function resolveMediaNative(req) {
 async function downloadVideoNative(req, ctx) {
   const videoId = req.videoId;
   const outputPath = req.outputPath;
-  const maxHeight = req.maxHeight || 360;
+
   const splitPlan = getSmartSplitPlan();
+  if (splitPlan && splitPlan.enabled && outputPath) {
+    const dir = path.dirname(outputPath);
+    const fileName = path.basename(outputPath);
+    const mPart = fileName.match(/^(.*)_part(\d+)\.mp4$/i);
+    let masterPath = null;
+    if (mPart) {
+      const candidates = [
+        path.join(dir, mPart[1] + '_master.mp4'),
+        path.join(dir, `${videoId}_master.mp4`)
+      ];
+      try {
+        const files = fs.readdirSync(dir);
+        for (const f of files) {
+          if (f.includes(videoId) && f.endsWith('_master.mp4')) {
+            candidates.push(path.join(dir, f));
+          }
+        }
+      } catch (_) {}
+      for (const c of candidates) {
+        if (fs.existsSync(c) && fs.statSync(c).size > 65536) {
+          masterPath = c;
+          break;
+        }
+      }
+    }
+
+    if (mPart && masterPath) {
+      const partNum = parseInt(mPart[2], 10);
+      let startSec = 0;
+      let durSec = splitPlan.p1Sec;
+      if (partNum === 1) {
+        startSec = 0;
+        durSec = splitPlan.p1Sec;
+      } else if (partNum === 2) {
+        startSec = splitPlan.p1Sec;
+        durSec = splitPlan.p2Sec;
+      } else if (partNum === 3) {
+        startSec = splitPlan.p1Sec + splitPlan.p2Sec;
+        durSec = splitPlan.p3Sec;
+      } else {
+        startSec = splitPlan.p1Sec + splitPlan.p2Sec + (partNum - 3) * splitPlan.p3Sec;
+        durSec = splitPlan.p3Sec;
+      }
+
+      dlog(`[smart-split] Local slice for Part ${partNum} [${startSec}s..${startSec + durSec}s] (${durSec}s) from master to ${outputPath}`);
+      const ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');
+      const cp = require('child_process');
+      cp.execFileSync(ffmpegExe, [
+        '-y', '-ss', String(startSec), '-i', masterPath, '-t', String(durSec), '-c', 'copy', outputPath
+      ], { stdio: 'ignore' });
+
+      if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
+        dlog(`[smart-split] Part ${partNum} local slice complete: ${fs.statSync(outputPath).size} bytes`);
+        return {
+          ok: true,
+          outputPath: outputPath,
+          durationSec: durSec,
+          videoWidth: 640,
+          videoHeight: 360,
+          truncated: true,
+          sourceIp: '127.0.0.1'
+        };
+      }
+    }
+  }
+
+  const maxHeight = req.maxHeight || 360;
+  // splitPlan already declared above
   const isSmartSplit = !!(splitPlan && splitPlan.enabled && outputPath && outputPath.endsWith(".mp4") && !outputPath.includes("_part"));
   const limitSec = isSmartSplit ? splitPlan.totalTrimSec : (req.limitSec || 0);
   const masterPath = isSmartSplit ? outputPath.replace(/\.mp4$/i, "_master.mp4") : null;

@@ -67,19 +67,24 @@ SettingsCard {
 
         if (splitMode === "custom_p1") {
             settings.autoSplitEnabled = true;
-            // Ánh xạ sang "parts" để tương thích với enum lõi Rust backend (BUG-01)
-            settings.autoSplitMode = "parts";
+            settings.autoSplitMode = "minutes";
             settings.autoSplitParts = (card.remainMinutes >= 1.0) ? 3 : 1;
             settings.autoSplitMinutes = card.p1Duration;
             try { settings.autoSplitCustomP1 = card.p1Duration; } catch(e) {}
+            try { settings.autoSplitRemainMinutes = card.p2Duration; } catch(e) {}
+            settings.autoRenderTitleTemplate = "PART {part}";
         } else if (splitMode === "parts_2") {
             settings.autoSplitEnabled = true;
-            settings.autoSplitMode = "parts";
+            settings.autoSplitMode = "minutes";
+            settings.autoSplitMinutes = Math.round((card.cutDuration / 2) * 10) / 10;
             settings.autoSplitParts = 2;
+            settings.autoRenderTitleTemplate = "PART {part}";
         } else if (splitMode === "parts_3") {
             settings.autoSplitEnabled = true;
-            settings.autoSplitMode = "parts";
+            settings.autoSplitMode = "minutes";
+            settings.autoSplitMinutes = Math.round((card.cutDuration / 3) * 10) / 10;
             settings.autoSplitParts = 3;
+            settings.autoRenderTitleTemplate = "PART {part}";
         }
 
         // Bắn command cập nhật runtime cho backend Rust
@@ -94,6 +99,7 @@ SettingsCard {
                     "autoSplitCustomP1": card.p1Duration,
                     "autoSplitPart1Minutes": card.p1Duration,
                     "autoSplitRemainMinutes": card.p2Duration,
+                    "autoRenderTitleTemplate": "PART {part}",
                     "trimRotateEnabled": false
                 });
             } catch(e) {}
