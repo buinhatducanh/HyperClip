@@ -1,4 +1,4 @@
-// src/ui/qml/SettingsPage.qml
+﻿// src/ui/qml/SettingsPage.qml
 // Consolidated settings page showing all panels in a single scrollable view.
 import QtQuick
 import QtQuick.Layouts
