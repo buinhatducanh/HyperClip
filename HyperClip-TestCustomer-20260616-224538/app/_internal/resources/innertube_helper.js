@@ -1673,6 +1673,7 @@ async function downloadVideoNative(req, ctx) {
           try {
             const cp = require('child_process');
             const fs = require('fs');
+            const path = require('path');
             const ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');
             dlog(`[smart-split] Slicing Part 1 (0 -> ${splitPlan.p1Sec}s) from master to ${outputPath}`);
             cp.execFileSync(ffmpegExe, [
@@ -1848,6 +1849,7 @@ async function downloadVideoNative(req, ctx) {
           try {
             const cp = require('child_process');
             const fs = require('fs');
+            const path = require('path');
             const ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');
             dlog(`[smart-split] Slicing Part 1 (0 -> ${splitPlan.p1Sec}s) from master to ${outputPath}`);
             cp.execFileSync(ffmpegExe, [
