@@ -27,57 +27,77 @@ namespace YtDlpWrapper {
                 }
             }
 
-            // 3. Check if target is a part video (_part2.mp4, _part3.mp4, etc.)
-            if (!string.IsNullOrEmpty(outputPath)) {
+            // 3. Read settings
+            double trimLimit = 10.0;
+            double p1 = 4.0;
+            double p2 = 3.0;
+            double p3 = 3.0;
+            bool autoSplitEnabled = false;
+
+            try {
+                string dataDir = Environment.GetEnvironmentVariable("HYPERCLIP_DATA_DIR");
+                if (string.IsNullOrEmpty(dataDir)) {
+                    dataDir = @"D:\HyperClip\HyperClip-TestCustomer-20260616-224538\HyperClip-Data";
+                }
+                string setPath = Path.Combine(dataDir, @".hyperclip\settings.json");
+                if (File.Exists(setPath)) {
+                    string json = File.ReadAllText(setPath);
+                    if (json.Contains("\"autoSplitEnabled\": true") || json.Contains("\"autoSplitEnabled\":true")) {
+                        autoSplitEnabled = true;
+                    }
+
+                    Match mTrim = Regex.Match(json, @"""defaultTrimLimit""\s*:\s*([0-9\.]+)");
+                    if (mTrim.Success) {
+                        double.TryParse(mTrim.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out trimLimit);
+                    }
+
+                    Match mP1 = Regex.Match(json, @"""autoSplitCustomP1""\s*:\s*([0-9\.]+)");
+                    if (!mP1.Success) mP1 = Regex.Match(json, @"""autoSplitPart1Minutes""\s*:\s*([0-9\.]+)");
+                    if (!mP1.Success) mP1 = Regex.Match(json, @"""autoSplitMinutes""\s*:\s*([0-9\.]+)");
+                    if (mP1.Success) {
+                        double.TryParse(mP1.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out p1);
+                    }
+
+                    double rem = Math.Max(0, trimLimit - p1);
+                    p2 = Math.Round((rem / 2.0) * 10.0) / 10.0;
+                    p3 = Math.Max(0, Math.Round((rem - p2) * 10.0) / 10.0);
+                }
+            } catch {}
+
+            int p1Sec = (int)Math.Round(p1 * 60);
+            int p2Sec = (int)Math.Round(p2 * 60);
+            int p3Sec = (int)Math.Round(p3 * 60);
+
+            // 4. Intercept slicing from master video or rewrite sections
+            if (!string.IsNullOrEmpty(outputPath) && autoSplitEnabled) {
                 string fileName = Path.GetFileName(outputPath);
-                Match m = Regex.Match(fileName, @"^(.*)_part(\d+)\.mp4$", RegexOptions.IgnoreCase);
-                if (m.Success) {
-                    string baseName = m.Groups[1].Value;
-                    int partNum = int.Parse(m.Groups[2].Value);
-                    string dir = Path.GetDirectoryName(outputPath);
-                    if (string.IsNullOrEmpty(dir)) dir = ".";
+                string dir = Path.GetDirectoryName(outputPath);
+                if (string.IsNullOrEmpty(dir)) dir = ".";
+
+                int partNum = 0;
+                string baseName = null;
+
+                Match mPart = Regex.Match(fileName, @"^(.*)_part(\d+)\.mp4$", RegexOptions.IgnoreCase);
+                if (mPart.Success) {
+                    baseName = mPart.Groups[1].Value;
+                    partNum = int.Parse(mPart.Groups[2].Value);
+                } else if (fileName.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) && !fileName.Contains("_master")) {
+                    baseName = fileName.Substring(0, fileName.Length - 4);
+                    partNum = 1;
+                }
+
+                if (partNum > 0 && !string.IsNullOrEmpty(baseName)) {
                     string masterPath = Path.Combine(dir, baseName + "_master.mp4");
 
+                    // A) If master video exists, SLICE LOCALLY (50ms, zero network)
                     if (File.Exists(masterPath) && File.Exists(ffmpegPath)) {
-                        // Read settings
-                        double trimLimit = 10.0;
-                        double p1 = 4.0;
-                        double p2 = 3.0;
-                        double p3 = 3.0;
-
-                        try {
-                            string dataDir = Environment.GetEnvironmentVariable("HYPERCLIP_DATA_DIR");
-                            if (string.IsNullOrEmpty(dataDir)) {
-                                dataDir = @"D:\HyperClip\HyperClip-TestCustomer-20260616-224538\HyperClip-Data";
-                            }
-                            string setPath = Path.Combine(dataDir, @".hyperclip\settings.json");
-                            if (File.Exists(setPath)) {
-                                string json = File.ReadAllText(setPath);
-                                Match mTrim = Regex.Match(json, @"""defaultTrimLimit""\s*:\s*([0-9\.]+)");
-                                if (mTrim.Success) {
-                                    double.TryParse(mTrim.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out trimLimit);
-                                }
-
-                                Match mP1 = Regex.Match(json, @"""autoSplitCustomP1""\s*:\s*([0-9\.]+)");
-                                if (!mP1.Success) mP1 = Regex.Match(json, @"""autoSplitPart1Minutes""\s*:\s*([0-9\.]+)");
-                                if (!mP1.Success) mP1 = Regex.Match(json, @"""autoSplitMinutes""\s*:\s*([0-9\.]+)");
-                                if (mP1.Success) {
-                                    double.TryParse(mP1.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out p1);
-                                }
-
-                                double rem = Math.Max(0, trimLimit - p1);
-                                p2 = Math.Round((rem / 2.0) * 10.0) / 10.0;
-                                p3 = Math.Max(0, Math.Round((rem - p2) * 10.0) / 10.0);
-                            }
-                        } catch {}
-
-                        int p1Sec = (int)Math.Round(p1 * 60);
-                        int p2Sec = (int)Math.Round(p2 * 60);
-                        int p3Sec = (int)Math.Round(p3 * 60);
-
                         int startSec = 0;
-                        int durSec = 60;
-                        if (partNum == 2) {
+                        int durSec = p1Sec;
+
+                        if (partNum == 1) {
+                            startSec = 0;
+                            durSec = p1Sec;
+                        } else if (partNum == 2) {
                             startSec = p1Sec;
                             durSec = p2Sec;
                         } else if (partNum == 3) {
@@ -88,7 +108,6 @@ namespace YtDlpWrapper {
                             durSec = p3Sec;
                         }
 
-                        // Local slice via FFmpeg stream copy (<0.1s, zero network overhead)
                         ProcessStartInfo psiFmt = new ProcessStartInfo();
                         psiFmt.FileName = ffmpegPath;
                         psiFmt.Arguments = string.Format("-y -ss {0} -i \"{1}\" -t {2} -c copy \"{3}\"", startSec, masterPath, durSec, outputPath);
@@ -104,11 +123,22 @@ namespace YtDlpWrapper {
                             Console.WriteLine("[download] 100%");
                             return 0;
                         }
+                    } else if (partNum == 1) {
+                        // B) Fallback: Master not on disk yet, but yt-dlp was invoked for Part 1.
+                        // Clamp --download-sections to exact p1 duration!
+                        for (int i = 0; i < args.Length; i++) {
+                            if (args[i] == "--download-sections" && i + 1 < args.Length) {
+                                TimeSpan ts = TimeSpan.FromSeconds(p1Sec);
+                                string p1Time = string.Format("{0:D2}:{1:D2}:{2:D2}", (int)ts.TotalHours, ts.Minutes, ts.Seconds);
+                                args[i + 1] = "*00:00:00-" + p1Time;
+                                break;
+                            }
+                        }
                     }
                 }
             }
 
-            // Fallback: run real yt-dlp
+            // 5. Fallback: run real yt-dlp
             if (!File.Exists(realYtDlp)) {
                 Console.Error.WriteLine("[wrapper] yt-dlp_real.exe not found: " + realYtDlp);
                 return 1;
