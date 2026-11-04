@@ -16,6 +16,31 @@ namespace YtDlpWrapper {
             } catch {}
         }
 
+        static double GetMediaDuration(string filePath, string ffmpegPath) {
+            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return 0;
+            try {
+                ProcessStartInfo psi = new ProcessStartInfo {
+                    FileName = ffmpegPath,
+                    Arguments = string.Format("-i \"{0}\"", filePath),
+                    UseShellExecute = false,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                using (Process p = Process.Start(psi)) {
+                    string err = p.StandardError.ReadToEnd();
+                    p.WaitForExit(3000);
+                    Match m = Regex.Match(err, @"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)");
+                    if (m.Success) {
+                        int hours = int.Parse(m.Groups[1].Value);
+                        int mins = int.Parse(m.Groups[2].Value);
+                        double secs = double.Parse(m.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture);
+                        return hours * 3600.0 + mins * 60.0 + secs;
+                    }
+                }
+            } catch {}
+            return 0;
+        }
+
         static int Main(string[] args) {
             string exeDir = AppDomain.CurrentDomain.BaseDirectory;
             string realYtDlp = Path.Combine(exeDir, "yt-dlp_real.exe");
@@ -45,6 +70,7 @@ namespace YtDlpWrapper {
             double p1 = 1.0;
             double p2 = 4.5;
             double p3 = 4.5;
+            int parts = 3;
             bool autoSplitEnabled = true;
 
             try {
@@ -64,7 +90,6 @@ namespace YtDlpWrapper {
                         double.TryParse(mTrim.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out trimLimit);
                     }
 
-                    int parts = 3;
                     Match mParts = Regex.Match(json, @"""autoSplitParts""\s*:\s*([0-9]+)");
                     if (mParts.Success) {
                         int.TryParse(mParts.Groups[1].Value, out parts);
@@ -119,27 +144,55 @@ namespace YtDlpWrapper {
                     string baseName = mPart.Groups[1].Value;
                     int partNum = int.Parse(mPart.Groups[2].Value);
 
-                    int startSec = 0;
-                    int durSec = p1Sec;
-
-                    if (partNum == 1) {
-                        startSec = 0;
-                        durSec = p1Sec;
-                    } else if (partNum == 2) {
-                        startSec = p1Sec;
-                        durSec = p2Sec;
-                    } else if (partNum == 3) {
-                        startSec = p1Sec + p2Sec;
-                        durSec = p3Sec;
-                    } else {
-                        startSec = p1Sec + p2Sec + (partNum - 3) * p3Sec;
-                        durSec = p3Sec;
-                    }
-
                     string masterPath = Path.Combine(dir, baseName + "_master.mp4");
                     if (!File.Exists(masterPath)) {
                         string cand = Path.Combine(dir, baseName + ".mp4");
                         if (File.Exists(cand)) masterPath = cand;
+                    }
+
+                    double masterDur = 0;
+                    if (File.Exists(masterPath) && File.Exists(ffmpegPath)) {
+                        masterDur = GetMediaDuration(masterPath, ffmpegPath);
+                    }
+
+                    // Dynamic timeline: adapt to actual video duration vs user setting
+                    double effectiveTotal = (masterDur > 0) ? masterDur : (trimLimit > 0 ? trimLimit * 60.0 : 600.0);
+                    if (trimLimit > 0 && effectiveTotal > trimLimit * 60.0) {
+                        effectiveTotal = trimLimit * 60.0;
+                    }
+
+                    int effectiveP1 = p1Sec;
+                    if (effectiveP1 >= effectiveTotal) {
+                        effectiveP1 = (int)Math.Max(30, Math.Round(effectiveTotal / (double)parts));
+                    }
+
+                    double remainSec = Math.Max(0, effectiveTotal - effectiveP1);
+                    int effectiveP2 = 0;
+                    int effectiveP3 = 0;
+
+                    if (parts == 2) {
+                        effectiveP2 = (int)Math.Max(1, Math.Round(remainSec));
+                    } else {
+                        // 3 parts: divide remaining time equally between P2 and P3
+                        effectiveP2 = (int)Math.Max(1, Math.Round(remainSec / 2.0));
+                        effectiveP3 = (int)Math.Max(1, Math.Round(remainSec - effectiveP2));
+                    }
+
+                    int startSec = 0;
+                    int durSec = effectiveP1;
+
+                    if (partNum == 1) {
+                        startSec = 0;
+                        durSec = effectiveP1;
+                    } else if (partNum == 2) {
+                        startSec = effectiveP1;
+                        durSec = effectiveP2;
+                    } else if (partNum == 3) {
+                        startSec = effectiveP1 + effectiveP2;
+                        durSec = effectiveP3;
+                    } else {
+                        startSec = effectiveP1 + effectiveP2 + (partNum - 3) * effectiveP3;
+                        durSec = effectiveP3;
                     }
 
                     // A) If master video exists, SLICE LOCALLY (50ms, zero network)

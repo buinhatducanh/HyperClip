@@ -16,6 +16,31 @@ namespace FfmpegWrapper {
             } catch {}
         }
 
+        static double GetMediaDuration(string filePath, string ffmpegPath) {
+            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return 0;
+            try {
+                ProcessStartInfo psi = new ProcessStartInfo {
+                    FileName = ffmpegPath,
+                    Arguments = string.Format("-i \"{0}\"", filePath),
+                    UseShellExecute = false,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                using (Process p = Process.Start(psi)) {
+                    string err = p.StandardError.ReadToEnd();
+                    p.WaitForExit(3000);
+                    Match m = Regex.Match(err, @"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)");
+                    if (m.Success) {
+                        int hours = int.Parse(m.Groups[1].Value);
+                        int mins = int.Parse(m.Groups[2].Value);
+                        double secs = double.Parse(m.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture);
+                        return hours * 3600.0 + mins * 60.0 + secs;
+                    }
+                }
+            } catch {}
+            return 0;
+        }
+
         static int Main(string[] args) {
             string exeDir = AppDomain.CurrentDomain.BaseDirectory;
             string realFfmpeg = Path.Combine(exeDir, "ffmpeg_real.exe");
@@ -124,6 +149,14 @@ namespace FfmpegWrapper {
             if (partNum == 1) durSec = p1Sec;
             else if (partNum == 2) durSec = p2Sec;
             else if (partNum == 3) durSec = p3Sec;
+
+            // If input file exists, use its actual duration as authoritative
+            if (!string.IsNullOrEmpty(inputPath) && File.Exists(inputPath)) {
+                double actDur = GetMediaDuration(inputPath, realFfmpeg);
+                if (actDur > 0) {
+                    durSec = (int)Math.Round(actDur);
+                }
+            }
 
             // 3. Transform arguments if autoSplitEnabled and valid partNum
             string[] modifiedArgs = (string[])args.Clone();

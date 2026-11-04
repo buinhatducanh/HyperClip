@@ -2084,19 +2084,27 @@ Rectangle {
 
                             let out = [];
                             for (let i = 0; i < parents.length; i++) {
-                                let parts = root.getSplitPartsFor(parents[i].id);
+                                let p = parents[i];
+                                let parts = root.getSplitPartsFor(p.id);
                                 let validParts = [];
+                                let hasPart1InParts = false;
                                 for (let j = 0; j < parts.length; j++) {
                                     if (parts[j] && parts[j].status !== "deleted") {
                                         validParts.push(parts[j]);
+                                        if (parts[j].partIndex === 1 || (parts[j].id && parts[j].id.indexOf("-part1") !== -1)) {
+                                            hasPart1InParts = true;
+                                        }
                                     }
                                 }
                                 if (validParts.length > 0) {
+                                    if (!hasPart1InParts) {
+                                        out.push(p);
+                                    }
                                     for (let k = 0; k < validParts.length; k++) {
                                         out.push(validParts[k]);
                                     }
                                 } else {
-                                    out.push(parents[i]);
+                                    out.push(p);
                                 }
                             }
                             return out;
@@ -2361,7 +2369,7 @@ Rectangle {
                                     Label {
                                         text: (modelData.channelName || modelData.channelId || modelData.channel_id || "—")
                                             + " · " + root.fmtTimeAgo(modelData.createdAt)
-                                            + root.getPartsSummary(modelData.id)
+                                            + ((modelData.partIndex && modelData.partIndex >= 1) ? "" : root.getPartsSummary(modelData.id))
                                         color: Theme.textMuted
                                         font.pixelSize: 10
                                         elide: Text.ElideRight
