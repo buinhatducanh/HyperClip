@@ -269,8 +269,7 @@ SettingsCard {
                             { label: "5p", val: 5 },
                             { label: "9p", val: 9 },
                             { label: "10p (Chuẩn)", val: 10 },
-                            { label: "12p", val: 12 },
-                            { label: "15p", val: 15 },
+                            { label: "15p", val: 15 }, { label: "20p", val: 20 },
                             { label: "Trọn vẹn", val: 999 }
                         ]
                         delegate: Rectangle {
@@ -441,11 +440,7 @@ SettingsCard {
                         spacing: 4
                         Layout.alignment: Qt.AlignRight
                         Repeater {
-                            model: [
-                                { label: "3p", val: 3 },
-                                { label: "4p (Chuẩn TikTok)", val: 4 },
-                                { label: "5p", val: 5 }
-                            ]
+                            model: [ { label: "1p", val: 1 }, { label: "2p", val: 2 }, { label: "3p", val: 3 }, { label: "4p (Chuẩn)", val: 4 }, { label: "5p", val: 5 } ]
                             delegate: Rectangle {
                                 id: p1QuickBtn
                                 required property var modelData
