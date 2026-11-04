@@ -511,14 +511,14 @@ SettingsCard {
                                         anchors.centerIn: parent
                                         spacing: 0
                                         Label {
-                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            Layout.alignment: Qt.AlignHCenter
                                             text: "PART 1: " + card.p1Duration + "p (0:00 - " + card.formatTime(card.p1Duration) + ")"
                                             color: Theme.accent
                                             font.pixelSize: 9
                                             font.bold: true
                                         }
                                         Label {
-                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            Layout.alignment: Qt.AlignHCenter
                                             text: "⚡ Đăng TikTok ngay"
                                             color: Theme.textMuted
                                             font.pixelSize: 8
@@ -541,14 +541,14 @@ SettingsCard {
                                         anchors.centerIn: parent
                                         spacing: 0
                                         Label {
-                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            Layout.alignment: Qt.AlignHCenter
                                             text: "PART 2: " + card.p2Duration + "p (" + card.formatTime(card.p1Duration) + " - " + card.formatTime(card.p1Duration + card.p2Duration) + ")"
                                             color: Theme.text
                                             font.pixelSize: 9
                                             font.bold: true
                                         }
                                         Label {
-                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            Layout.alignment: Qt.AlignHCenter
                                             text: "Render nối tiếp"
                                             color: Theme.textMuted
                                             font.pixelSize: 8
@@ -571,14 +571,14 @@ SettingsCard {
                                         anchors.centerIn: parent
                                         spacing: 0
                                         Label {
-                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            Layout.alignment: Qt.AlignHCenter
                                             text: "PART 3: " + card.p3Duration + "p (" + card.formatTime(card.p1Duration + card.p2Duration) + " - " + card.formatTime(card.totalTrimMinutes) + ")"
                                             color: Theme.text
                                             font.pixelSize: 9
                                             font.bold: true
                                         }
                                         Label {
-                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            Layout.alignment: Qt.AlignHCenter
                                             text: "Hoàn tất video"
                                             color: Theme.textMuted
                                             font.pixelSize: 8
