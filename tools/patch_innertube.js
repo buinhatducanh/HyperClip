@@ -14,22 +14,18 @@ for (const filePath of targetFiles) {
 
   let content = fs.readFileSync(filePath, 'utf8');
 
-  // 1. Fix missing splitPlan in resolveMediaNative
+  // 1. Ensure fs and path are required at top level
+  if (!content.startsWith("const fs = require('fs');\nconst path = require('path');")) {
+    content = "const fs = require('fs');\nconst path = require('path');\n" + content;
+  }
+
+  // 2. Fix missing splitPlan in resolveMediaNative
   content = content.replace(
     /const maxHeight = req\.maxHeight \|\| 360;\r?\n\s*const isSmartSplit = !!\(splitPlan && splitPlan\.enabled\);/g,
     "const maxHeight = req.maxHeight || 360;\n  const splitPlan = getSmartSplitPlan();\n  const isSmartSplit = !!(splitPlan && splitPlan.enabled);"
   );
 
-  // 2. Fix ffmpeg path for local slice of Part 2 & Part 3
-  const oldSliceFfmpeg = `dlog(\`[smart-split] Local slice for Part \${partNum} [\${startSec}s..\${startSec + durSec}s] (\${durSec}s) from master to \${outputPath}\`);
-      const ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');`;
-
-  const newSliceFfmpeg = `dlog(\`[smart-split] Local slice for Part \${partNum} [\${startSec}s..\${startSec + durSec}s] (\${durSec}s) from master to \${outputPath}\`);
-      let ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg_real.exe');
-      if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg.exe');
-      if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');
-      if (!fs.existsSync(ffmpegExe)) ffmpegExe = 'D:\\\\HyperClip\\\\HyperClip-TestCustomer-20260616-224538\\\\app\\\\_internal\\\\resources\\\\ffmpeg\\\\bin\\\\ffmpeg_real.exe';`;
-
+  // 3. Fix ffmpeg path for local slice of Part 2 & Part 3
   if (content.includes("const ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');")) {
     content = content.replace(
       "const ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');",

@@ -1,3 +1,5 @@
+﻿const fs = require('fs');
+const path = require('path');
 // innertube_helper.js — Spawned by Rust InnertubeClient for youtubei.js v17
 // JSON-RPC: stdin requests -> stdout OR temp file responses
 // v4 — Persistent daemon mode for fast polling + LockupView extraction + handle→UC ID resolution
