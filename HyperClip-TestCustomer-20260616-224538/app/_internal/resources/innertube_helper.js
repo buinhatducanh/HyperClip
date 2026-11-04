@@ -1515,10 +1515,46 @@ function takeResolved(videoId, maxHeight, limitSec) {
 
 // Chain /player → format → range → decipher (đúng luật của downloadVideoNative,
 // KHÔNG fetch). Trả bản ghi cache hoặc throw. Dùng cho resolveMedia.
+
+function getSmartSplitPlan() {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const possiblePaths = [
+      process.env.HYPERCLIP_DATA_DIR ? path.join(process.env.HYPERCLIP_DATA_DIR, '.hyperclip', 'settings.json') : null,
+      process.env.HYPERCLIPB_DATA_DIR ? path.join(process.env.HYPERCLIPB_DATA_DIR, '.hyperclip', 'settings.json') : null,
+      path.resolve(__dirname, '..', '..', '..', 'HyperClip-Data', '.hyperclip', 'settings.json'),
+      path.resolve(__dirname, '..', '..', 'HyperClip-Data', '.hyperclip', 'settings.json'),
+      'D:\\HyperClip\\HyperClip-TestCustomer-20260616-224538\\HyperClip-Data\\.hyperclip\\settings.json',
+    ].filter(Boolean);
+
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        const raw = fs.readFileSync(p, 'utf8');
+        const parsed = JSON.parse(raw);
+        const s = parsed.settings || parsed;
+        if (s.autoSplitEnabled === true) {
+          const trimLimitMin = Number(s.defaultTrimLimit) || 10;
+          const totalTrimSec = Math.max(60, Math.round(trimLimitMin * 60));
+          const p1Min = Number(s.autoSplitCustomP1) || Number(s.autoSplitPart1Minutes) || Number(s.autoSplitMinutes) || 4.0;
+          const p1Sec = Math.min(Math.round(p1Min * 60), Math.max(60, totalTrimSec - 60));
+          const remSec = Math.max(0, totalTrimSec - p1Sec);
+          const p2Sec = Math.round(remSec / 2);
+          const p3Sec = Math.max(0, remSec - p2Sec);
+          return { enabled: true, trimLimitMin, totalTrimSec, p1Sec, p2Sec, p3Sec };
+        }
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
 async function resolveMediaNative(req) {
   const videoId = req.videoId;
   const maxHeight = req.maxHeight || 360;
-  const limitSec = req.limitSec || 0;
+  const splitPlan = getSmartSplitPlan();
+  const isSmartSplit = !!(splitPlan && splitPlan.enabled);
+  const limitSec = isSmartSplit ? splitPlan.totalTrimSec : (req.limitSec || 0);
   const anonClient = await ensureGateClient();
   const chain = ['ANDROID', 'IOS', null];
   const failures = [];
@@ -1563,7 +1599,11 @@ async function downloadVideoNative(req, ctx) {
   const videoId = req.videoId;
   const outputPath = req.outputPath;
   const maxHeight = req.maxHeight || 360;
-  const limitSec = req.limitSec || 0;
+  const splitPlan = getSmartSplitPlan();
+  const isSmartSplit = !!(splitPlan && splitPlan.enabled && outputPath && outputPath.endsWith(".mp4") && !outputPath.includes("_part"));
+  const limitSec = isSmartSplit ? splitPlan.totalTrimSec : (req.limitSec || 0);
+  const masterPath = isSmartSplit ? outputPath.replace(/\.mp4$/i, "_master.mp4") : null;
+  const fetchTarget = isSmartSplit ? masterPath : outputPath;
   const t0 = Date.now();
   // Pass 90: fetch v2 (hàng chunk + keep-alive + tail-hedge) theo cờ Rust
   // truyền (setting `nativeFetchV2`), mặc định v1 để A/B.
@@ -1622,20 +1662,37 @@ async function downloadVideoNative(req, ctx) {
       let written;
       try {
         written = useV2
-          ? await fetchUrlToFileParallelV2(cached.directUrl, cached.range, outputPath, sourceIp, cached.ua, ctx, { chunkKb: Number(req.chunkKb) || 0, agent, hostRace: req.hostRace !== false })
-          : await fetchUrlToFileParallel(cached.directUrl, cached.range, outputPath, sourceIp, cached.ua, ctx, agent);
+          ? await fetchUrlToFileParallelV2(cached.directUrl, cached.range, fetchTarget, sourceIp, cached.ua, ctx, { chunkKb: Number(req.chunkKb) || 0, agent, hostRace: req.hostRace !== false })
+          : await fetchUrlToFileParallel(cached.directUrl, cached.range, fetchTarget, sourceIp, cached.ua, ctx, agent);
       } finally {
         try { agent.hcDestroyPool(); agent.destroy(); } catch (_) {}
       }
       abortedCheck();
       if (written < 65536) throw new Error(`suspiciously small download (${written} bytes)`);
+        if (isSmartSplit && masterPath && require('fs').existsSync(masterPath)) {
+          try {
+            const cp = require('child_process');
+            const fs = require('fs');
+            const ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');
+            dlog(`[smart-split] Slicing Part 1 (0 -> ${splitPlan.p1Sec}s) from master to ${outputPath}`);
+            cp.execFileSync(ffmpegExe, [
+              '-y', '-ss', '0', '-i', masterPath, '-t', String(splitPlan.p1Sec), '-c', 'copy', outputPath
+            ], { stdio: 'ignore' });
+            if (fs.existsSync(outputPath)) {
+              written = fs.statSync(outputPath).size;
+            }
+          } catch (e) {
+            dlog(`[smart-split] Slicing Part 1 failed: ${(e && e.message) || e}`);
+          }
+        }
+
       dlog(`[native-dl] ${videoId} itag=${cached.format.itag} client=${cached.clientName}/direct/resolved${sourceIp ? '/bind:' + sourceIp : ''}${useV2 ? '/v2' : ''} ${written} bytes in ${((Date.now() - t0) / 1000).toFixed(1)}s${cached.range ? ' (ranged)' : ''} preconn_hit=${agent.hcHits}/${agent.hcHits + agent.hcMiss}`);
       return {
         bytes: written,
-        durationSec: cached.durationSec,
+        durationSec: isSmartSplit ? splitPlan.p1Sec : cached.durationSec,
         videoWidth: cached.format.width,
         videoHeight: cached.format.height,
-        truncated: !!cached.range,
+        truncated: !!cached.range || isSmartSplit,
         videoTitle: cached.title,
       };
     } catch (e) {
@@ -1748,12 +1805,12 @@ async function downloadVideoNative(req, ctx) {
       // request possible.
       const doFetch = (r) => directUrl
         ? (useV2
-            ? fetchUrlToFileParallelV2(directUrl, r, outputPath, sourceIp, ua, ctx, { chunkKb: Number(req.chunkKb) || 0, hostRace: req.hostRace !== false })
-            : fetchUrlToFileParallel(directUrl, r, outputPath, sourceIp, ua, ctx))
-        : fetchToFile(info, format.itag, r, outputPath);
+            ? fetchUrlToFileParallelV2(directUrl, r, fetchTarget, sourceIp, ua, ctx, { chunkKb: Number(req.chunkKb) || 0, hostRace: req.hostRace !== false })
+            : fetchUrlToFileParallel(directUrl, r, fetchTarget, sourceIp, ua, ctx))
+        : fetchToFile(info, format.itag, r, fetchTarget);
       const doFetchFull = () => directUrl
-        ? fetchUrlToFile(directUrl, null, outputPath, sourceIp, ua)
-        : fetchToFile(info, format.itag, null, outputPath);
+        ? fetchUrlToFile(directUrl, null, fetchTarget, sourceIp, ua)
+        : fetchToFile(info, format.itag, null, fetchTarget);
       try {
         let written;
         try {
@@ -1765,7 +1822,7 @@ async function downloadVideoNative(req, ctx) {
             if (!(useV2 && directUrl && !(e && e.aborted) && !(e && e.httpStatus))) throw e;
             abortedCheck();
             dlog(`[native-dl] ${videoId} fetch v2 lỗi (${(e && e.message) || e}) — thử v1 cùng range`);
-            written = await fetchUrlToFileParallel(directUrl, range, outputPath, sourceIp, ua, ctx);
+            written = await fetchUrlToFileParallel(directUrl, range, fetchTarget, sourceIp, ua, ctx);
           }
         } catch (e) {
           // Bị Rust hủy (thua hedge / video nguội nhường): dừng ngay, không
@@ -1787,13 +1844,30 @@ async function downloadVideoNative(req, ctx) {
         }
         abortedCheck();
         if (written < 65536) throw new Error(`suspiciously small download (${written} bytes)`);
+        if (isSmartSplit && masterPath && require('fs').existsSync(masterPath)) {
+          try {
+            const cp = require('child_process');
+            const fs = require('fs');
+            const ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');
+            dlog(`[smart-split] Slicing Part 1 (0 -> ${splitPlan.p1Sec}s) from master to ${outputPath}`);
+            cp.execFileSync(ffmpegExe, [
+              '-y', '-ss', '0', '-i', masterPath, '-t', String(splitPlan.p1Sec), '-c', 'copy', outputPath
+            ], { stdio: 'ignore' });
+            if (fs.existsSync(outputPath)) {
+              written = fs.statSync(outputPath).size;
+            }
+          } catch (e) {
+            dlog(`[smart-split] Slicing Part 1 failed: ${(e && e.message) || e}`);
+          }
+        }
+
         dlog(`[native-dl] ${videoId} itag=${format.itag} client=${clientName}${directUrl ? '/direct' : '/lib'}${sourceIp ? '/bind:' + sourceIp : ''}${useV2 ? '/v2' : ''} ${written} bytes in ${((Date.now() - t0) / 1000).toFixed(1)}s${range ? ' (ranged)' : ''}`);
         return {
           bytes: written,
-          durationSec: durationSec,
+          durationSec: isSmartSplit ? splitPlan.p1Sec : durationSec,
           videoWidth: format.width || 0,
           videoHeight: format.height || 0,
-          truncated: !!range,
+          truncated: !!range || isSmartSplit,
           // ORIGINAL-language title from /player videoDetails — the browse/
           // playlist surfaces auto-translate titles to the session hl (en),
           // which showed Korean titles as English in the UI (verified
@@ -2154,6 +2228,8 @@ function runDaemon(initialCookie) {
         // (fire-and-forget qua kênh điều khiển). Kết quả nằm trong cache 5 phút
         // + N socket TLS mở sẵn 25 s; `downloadVideo` tới sau sẽ dùng.
         if (req.cmd === 'resolveMedia') {
+          const splitPlan = getSmartSplitPlan();
+          if (splitPlan && splitPlan.enabled) { req.limitSec = splitPlan.totalTrimSec; }
           const tR = Date.now();
           let n = Math.max(1, Math.min(PARALLEL_CONNECTIONS_MAX, Number(req.conns) || PARALLEL_CONNECTIONS_DEFAULT));
           if (req.limitSec && req.limitSec > 0 && req.limitSec <= 65) {
@@ -2173,6 +2249,8 @@ function runDaemon(initialCookie) {
         }
 
         if (req.cmd === 'downloadVideo') {
+          const splitPlan = getSmartSplitPlan();
+          if (splitPlan && splitPlan.enabled) { req.limitSec = splitPlan.totalTrimSec; }
           // Pass 90: ctx = tiến độ (`progress` lines cùng id) + hủy được
           // (abortDownload) + telemetry theo slice.
           const dctx = newDownloadCtx(req.id || 0, req.videoId);
