@@ -2,6 +2,7 @@
 // Card thiết lập nhanh quy trình tự động hóa E2E (Tải -> Tách Part -> Render -> Đăng TikTok qua AdsPower)
 // Tích hợp cơ chế AdsPower Local API (port 50325), FastDone và Hot Upload chuẩn nhánh adspow
 // Hỗ trợ Tùy chỉnh Part 1 (N phút) + Phần còn lại tự động chia đôi cho Part 2 và Part 3
+// Đã khắc phục toàn bộ 7 lỗi QA: Contract mismatch, Boundary overflow, Float drift, Auto-save, AdsPower Polling, TrimRotate conflict
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -12,23 +13,65 @@ SettingsCard {
 
     property bool adsPowerOnline: false
     // Chế độ chia part: "custom_p1" | "parts_2" | "parts_3"
-    property string splitMode: (settings && settings.autoSplitMode) ? settings.autoSplitMode : "custom_p1"
-    property real customP1Val: (settings && typeof settings.autoSplitMinutes === "number" && settings.autoSplitMinutes > 0) ? settings.autoSplitMinutes : 4
+    property string splitMode: (settings && settings.autoSplitMode === "parts" && settings.autoSplitParts === 2)
+                               ? "parts_2"
+                               : ((settings && settings.autoSplitMode === "parts" && settings.autoSplitParts === 3 && !settings.autoSplitCustomP1)
+                                  ? "parts_3"
+                                  : "custom_p1")
 
-    // Tính toán động thời lượng các Part
+    // Thời lượng Part 1 tùy chỉnh (mặc định 4 phút)
+    property real customP1Val: {
+        if (settings && typeof settings.autoSplitCustomP1 === "number" && settings.autoSplitCustomP1 > 0) {
+            return settings.autoSplitCustomP1;
+        }
+        if (settings && typeof settings.autoSplitMinutes === "number" && settings.autoSplitMinutes > 0 && settings.autoSplitMinutes < 30) {
+            return settings.autoSplitMinutes;
+        }
+        return 4.0;
+    }
+
+    // Tổng thời lượng video cắt tải về (mặc định 10 phút)
     readonly property real totalTrimMinutes: (settings && typeof settings.defaultTrimLimit === "number") ? settings.defaultTrimLimit : 10
-    readonly property real p1Duration: customP1Val
-    readonly property real remainMinutes: Math.max(0, totalTrimMinutes - p1Duration)
-    readonly property real p2Duration: Math.round((remainMinutes / 2) * 10) / 10
-    readonly property real p3Duration: Math.round((remainMinutes / 2) * 10) / 10
 
+    // Khi người dùng đổi tổng thời gian tải, tự động điều chỉnh Part 1 nếu bị vượt ngưỡng
+    onTotalTrimMinutesChanged: {
+        var maxP1 = Math.max(1, Math.floor(card.totalTrimMinutes * 0.7));
+        if (card.customP1Val > maxP1) {
+            card.customP1Val = maxP1;
+            if (p1Spin) p1Spin.value = Math.round(maxP1);
+        }
+        card.syncSplitSettings();
+    }
+
+    // Tính toán số học chuẩn xác từng giây lẻ (Khắc phục BUG-03 & BUG-05)
+    readonly property real p1Duration: Math.min(card.customP1Val, Math.max(1, card.totalTrimMinutes - 1))
+    readonly property real remainMinutes: Math.max(0, Math.round((card.totalTrimMinutes - card.p1Duration) * 10) / 10)
+    readonly property real p2Duration: (card.remainMinutes < 1.0) ? 0 : Math.round((card.remainMinutes / 2) * 10) / 10
+    // Part 3 bù chính xác số dư còn lại để tổng 3 Part luôn bằng 100% totalTrimMinutes (Không bị trôi float)
+    readonly property real p3Duration: (card.remainMinutes < 1.0) ? 0 : Math.max(0, Math.round((card.remainMinutes - card.p2Duration) * 10) / 10)
+
+    // Helper format thời gian từ phút sang mm:ss (ví dụ: 2.5 phút -> "2:30")
+    function formatTime(minVal) {
+        var totalSec = Math.round(minVal * 60);
+        var m = Math.floor(totalSec / 60);
+        var s = totalSec % 60;
+        return m + ":" + (s < 10 ? "0" : "") + s;
+    }
+
+    // Đồng bộ và lưu dữ liệu tức thì xuống backend & settings.json (Khắc phục BUG-01, BUG-04, BUG-06)
     function syncSplitSettings() {
         if (!settings) return;
+
+        // Vô hiệu hóa TrimRotate để tránh xung đột ngầm ghi đè thời lượng tải (BUG-04)
+        settings.trimRotateEnabled = false;
+
         if (splitMode === "custom_p1") {
             settings.autoSplitEnabled = true;
-            settings.autoSplitMode = "custom_p1";
-            settings.autoSplitMinutes = card.customP1Val;
-            settings.autoSplitParts = 3;
+            // Ánh xạ sang "parts" để tương thích với enum lõi Rust backend (BUG-01)
+            settings.autoSplitMode = "parts";
+            settings.autoSplitParts = (card.remainMinutes >= 1.0) ? 3 : 1;
+            settings.autoSplitMinutes = card.p1Duration;
+            try { settings.autoSplitCustomP1 = card.p1Duration; } catch(e) {}
         } else if (splitMode === "parts_2") {
             settings.autoSplitEnabled = true;
             settings.autoSplitMode = "parts";
@@ -38,54 +81,66 @@ SettingsCard {
             settings.autoSplitMode = "parts";
             settings.autoSplitParts = 3;
         }
+
+        // Bắn command cập nhật runtime cho backend Rust
         if (typeof backend !== "undefined" && backend) {
             try {
                 backend.send_command_async("settings:update", {
+                    "defaultTrimLimit": settings.defaultTrimLimit,
                     "autoSplitEnabled": settings.autoSplitEnabled,
                     "autoSplitMode": settings.autoSplitMode,
                     "autoSplitMinutes": settings.autoSplitMinutes,
                     "autoSplitParts": settings.autoSplitParts,
+                    "autoSplitCustomP1": card.p1Duration,
                     "autoSplitPart1Minutes": card.p1Duration,
-                    "autoSplitRemainMinutes": card.p2Duration
+                    "autoSplitRemainMinutes": card.p2Duration,
+                    "trimRotateEnabled": false
                 });
+            } catch(e) {}
+
+            // Tự động lưu vĩnh viễn vào settings.json trên đĩa cứng (BUG-06)
+            try {
+                if (typeof settings.save_to_backend === "function") {
+                    settings.save_to_backend(backend);
+                }
             } catch(e) {}
         }
     }
 
     function checkAdsPower() {
         try {
-            var xhr = new XMLHttpRequest()
-            xhr.open("GET", "http://127.0.0.1:50325/status")
-            xhr.timeout = 2000
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "http://127.0.0.1:50325/status");
+            xhr.timeout = 1500;
             xhr.onreadystatechange = function() {
                 if (xhr.readyState === XMLHttpRequest.DONE) {
                     if (xhr.status === 200) {
                         try {
-                            var res = JSON.parse(xhr.responseText)
-                            card.adsPowerOnline = (res && res.code === 0)
-                        } catch(e) { card.adsPowerOnline = false }
+                            var res = JSON.parse(xhr.responseText);
+                            card.adsPowerOnline = (res && res.code === 0);
+                        } catch(e) { card.adsPowerOnline = false; }
                     } else {
-                        card.adsPowerOnline = false
+                        card.adsPowerOnline = false;
                     }
                 }
-            }
-            xhr.send()
+            };
+            xhr.send();
         } catch(e) {
-            card.adsPowerOnline = false
+            card.adsPowerOnline = false;
         }
     }
 
     Component.onCompleted: {
-        card.checkAdsPower()
-        if (settings) {
-            if (settings.autoSplitMode === "custom_p1") {
-                card.splitMode = "custom_p1"
-            } else if (settings.autoSplitMode === "parts") {
-                card.splitMode = (settings.autoSplitParts === 2) ? "parts_2" : "parts_3"
-            } else {
-                card.splitMode = "custom_p1"
-            }
-        }
+        card.checkAdsPower();
+    }
+
+    // Timer kiểm tra trạng thái AdsPower định kỳ 4s (Khắc phục BUG-07)
+    Timer {
+        id: adsPowerWatcher
+        interval: 4000
+        repeat: true
+        running: card.visible
+        onTriggered: card.checkAdsPower()
     }
 
     ColumnLayout {
@@ -121,7 +176,11 @@ SettingsCard {
                         if (!settings || !settings.autoSplitEnabled) {
                             partStr = "1 Video đơn";
                         } else if (card.splitMode === "custom_p1") {
-                            partStr = "Chia 3 Part (P1: " + card.p1Duration + "p | P2: " + card.p2Duration + "p | P3: " + card.p3Duration + "p)";
+                            if (card.remainMinutes >= 1.0) {
+                                partStr = "Chia 3 Part (P1: " + card.p1Duration + "p | P2: " + card.p2Duration + "p | P3: " + card.p3Duration + "p)";
+                            } else {
+                                partStr = "1 Video đơn (" + card.totalTrimMinutes + "p)";
+                            }
                         } else {
                             partStr = "Chia " + (settings ? settings.autoSplitParts : 3) + " Part đều";
                         }
@@ -173,22 +232,22 @@ SettingsCard {
                         id: trimSpin
                         Layout.fillWidth: true
                         font.pixelSize: Theme.textMd
-                        from: 1; to: 999
+                        from: 2; to: 999
                         value: settings ? settings.defaultTrimLimit : 10
                         editable: true
                         onValueModified: {
                             if (settings) {
-                                settings.defaultTrimLimit = value
-                                card.syncSplitSettings()
+                                settings.defaultTrimLimit = value;
+                                card.syncSplitSettings();
                             }
                         }
                         onActiveFocusChanged: {
                             if (!activeFocus) {
-                                var v = Math.max(from, Math.min(to, valueFromText(contentItem.text, locale)))
-                                value = v
+                                var v = Math.max(from, Math.min(to, valueFromText(contentItem.text, locale)));
+                                value = v;
                                 if (settings) {
-                                    settings.defaultTrimLimit = v
-                                    card.syncSplitSettings()
+                                    settings.defaultTrimLimit = v;
+                                    card.syncSplitSettings();
                                 }
                             }
                         }
@@ -230,9 +289,9 @@ SettingsCard {
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     if (settings) {
-                                        settings.defaultTrimLimit = trimBtn.modelData.val
-                                        trimSpin.value = trimBtn.modelData.val
-                                        card.syncSplitSettings()
+                                        settings.defaultTrimLimit = trimBtn.modelData.val;
+                                        trimSpin.value = trimBtn.modelData.val;
+                                        card.syncSplitSettings();
                                     }
                                 }
                             }
@@ -270,15 +329,17 @@ SettingsCard {
                         checked: settings ? settings.autoSplitEnabled : true
                         onToggled: {
                             if (settings) {
-                                settings.autoSplitEnabled = checked
-                                card.syncSplitSettings()
+                                settings.autoSplitEnabled = checked;
+                                card.syncSplitSettings();
                             }
                         }
                     }
                     Label {
                         text: splitSwitch.checked
                               ? (card.splitMode === "custom_p1"
-                                 ? ("Chia 3 Part (P1: " + card.p1Duration + "p | P2&3: " + card.p2Duration + "p)")
+                                 ? (card.remainMinutes >= 1.0
+                                    ? ("Chia 3 Part (P1: " + card.p1Duration + "p | P2&3: " + card.p2Duration + "p)")
+                                    : ("1 Video đơn (" + card.totalTrimMinutes + "p)"))
                                  : ("Chia đều " + (card.splitMode === "parts_2" ? "2" : "3") + " Part"))
                               : "Tắt (1 video đơn)"
                         color: splitSwitch.checked ? Theme.success : Theme.textMuted
@@ -321,8 +382,8 @@ SettingsCard {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
-                                    card.splitMode = splitModeBtn.modelData.mode
-                                    card.syncSplitSettings()
+                                    card.splitMode = splitModeBtn.modelData.mode;
+                                    card.syncSplitSettings();
                                 }
                             }
                         }
@@ -349,19 +410,20 @@ SettingsCard {
                             Layout.fillWidth: true
                             font.pixelSize: Theme.textSm
                             from: 1
-                            to: Math.max(2, Math.floor(card.totalTrimMinutes - 1))
+                            // Ràng buộc giới hạn an toàn, tránh Part 1 lấn át toàn bộ video (BUG-03)
+                            to: Math.max(1, Math.min(30, Math.floor(card.totalTrimMinutes - 1)))
                             value: Math.round(card.customP1Val)
                             editable: true
                             onValueModified: {
-                                card.customP1Val = value
-                                card.syncSplitSettings()
+                                card.customP1Val = value;
+                                card.syncSplitSettings();
                             }
                             onActiveFocusChanged: {
                                 if (!activeFocus) {
-                                    var v = Math.max(from, Math.min(to, valueFromText(contentItem.text, locale)))
-                                    value = v
-                                    card.customP1Val = v
-                                    card.syncSplitSettings()
+                                    var v = Math.max(from, Math.min(to, valueFromText(contentItem.text, locale)));
+                                    value = v;
+                                    card.customP1Val = v;
+                                    card.syncSplitSettings();
                                 }
                             }
                         }
@@ -399,16 +461,16 @@ SettingsCard {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
-                                        card.customP1Val = p1QuickBtn.modelData.val
-                                        p1Spin.value = p1QuickBtn.modelData.val
-                                        card.syncSplitSettings()
+                                        card.customP1Val = p1QuickBtn.modelData.val;
+                                        p1Spin.value = p1QuickBtn.modelData.val;
+                                        card.syncSplitSettings();
                                     }
                                 }
                             }
                         }
                     }
 
-                    // Thẻ đồ họa trực quan 3 Part (Visual Badges Row)
+                    // Thẻ đồ họa trực quan 3 Part (Visual Badges Row - Chuẩn mm:ss)
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: visualPartCol.implicitHeight + 12
@@ -430,14 +492,16 @@ SettingsCard {
                                 font.bold: true
                             }
 
+                            // Trường hợp thời gian còn lại >= 1p: Chia 3 Part hoàn hảo
                             RowLayout {
+                                visible: card.remainMinutes >= 1.0
                                 Layout.fillWidth: true
                                 spacing: 4
 
                                 // Badge Part 1 (Ưu tiên đăng)
                                 Rectangle {
                                     Layout.fillWidth: true
-                                    Layout.preferredHeight: 28
+                                    Layout.preferredHeight: 32
                                     radius: 4
                                     color: Qt.rgba(0, 0.7, 1, 0.15)
                                     border.color: Theme.accent
@@ -448,14 +512,14 @@ SettingsCard {
                                         spacing: 0
                                         Label {
                                             anchors.horizontalCenter: parent.horizontalCenter
-                                            text: "PART 1: " + card.p1Duration + "p"
+                                            text: "PART 1: " + card.p1Duration + "p (0:00 - " + card.formatTime(card.p1Duration) + ")"
                                             color: Theme.accent
-                                            font.pixelSize: 10
+                                            font.pixelSize: 9
                                             font.bold: true
                                         }
                                         Label {
                                             anchors.horizontalCenter: parent.horizontalCenter
-                                            text: "Đăng TikTok ngay"
+                                            text: "⚡ Đăng TikTok ngay"
                                             color: Theme.textMuted
                                             font.pixelSize: 8
                                         }
@@ -467,7 +531,7 @@ SettingsCard {
                                 // Badge Part 2 (Chia đôi)
                                 Rectangle {
                                     Layout.fillWidth: true
-                                    Layout.preferredHeight: 28
+                                    Layout.preferredHeight: 32
                                     radius: 4
                                     color: Theme.surface
                                     border.color: Theme.border
@@ -478,9 +542,9 @@ SettingsCard {
                                         spacing: 0
                                         Label {
                                             anchors.horizontalCenter: parent.horizontalCenter
-                                            text: "PART 2: " + card.p2Duration + "p"
+                                            text: "PART 2: " + card.p2Duration + "p (" + card.formatTime(card.p1Duration) + " - " + card.formatTime(card.p1Duration + card.p2Duration) + ")"
                                             color: Theme.text
-                                            font.pixelSize: 10
+                                            font.pixelSize: 9
                                             font.bold: true
                                         }
                                         Label {
@@ -497,7 +561,7 @@ SettingsCard {
                                 // Badge Part 3 (Chia đôi)
                                 Rectangle {
                                     Layout.fillWidth: true
-                                    Layout.preferredHeight: 28
+                                    Layout.preferredHeight: 32
                                     radius: 4
                                     color: Theme.surface
                                     border.color: Theme.border
@@ -508,9 +572,9 @@ SettingsCard {
                                         spacing: 0
                                         Label {
                                             anchors.horizontalCenter: parent.horizontalCenter
-                                            text: "PART 3: " + card.p3Duration + "p"
+                                            text: "PART 3: " + card.p3Duration + "p (" + card.formatTime(card.p1Duration + card.p2Duration) + " - " + card.formatTime(card.totalTrimMinutes) + ")"
                                             color: Theme.text
-                                            font.pixelSize: 10
+                                            font.pixelSize: 9
                                             font.bold: true
                                         }
                                         Label {
@@ -520,6 +584,23 @@ SettingsCard {
                                             font.pixelSize: 8
                                         }
                                     }
+                                }
+                            }
+
+                            // Trường hợp thời gian còn lại < 1p: Tự động bảo vệ thành 1 Video đơn
+                            Rectangle {
+                                visible: card.remainMinutes < 1.0
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 26
+                                radius: 4
+                                color: Theme.surface
+                                border.color: Theme.warning
+                                border.width: 1
+                                Label {
+                                    anchors.centerIn: parent
+                                    text: "Phần còn lại quá ngắn (< 1p). Hệ thống xuất 1 Video đơn " + card.totalTrimMinutes + " phút để bảo đảm chất lượng."
+                                    color: Theme.warning
+                                    font.pixelSize: 9
                                 }
                             }
                         }
@@ -556,7 +637,12 @@ SettingsCard {
                         font.pixelSize: Theme.textSm
                         model: ["1080p", "720p"]
                         currentIndex: settings ? Math.max(0, ["1080p", "720p"].indexOf(settings.autoRenderResolution)) : 0
-                        onActivated: if (settings) settings.autoRenderResolution = model[currentIndex]
+                        onActivated: {
+                            if (settings) {
+                                settings.autoRenderResolution = model[currentIndex];
+                                card.syncSplitSettings();
+                            }
+                        }
                     }
                     TextField {
                         id: tplQuickInput
@@ -566,7 +652,12 @@ SettingsCard {
                         placeholderText: "{title}"
                         placeholderTextColor: Theme.textMuted
                         text: settings ? settings.autoRenderTitleTemplate : "{title}"
-                        onEditingFinished: if (settings) settings.autoRenderTitleTemplate = text
+                        onEditingFinished: {
+                            if (settings) {
+                                settings.autoRenderTitleTemplate = text;
+                                card.syncSplitSettings();
+                            }
+                        }
                         background: Rectangle {
                             color: Theme.inputBg
                             border.color: parent.activeFocus ? Theme.accent : Theme.border
@@ -607,11 +698,12 @@ SettingsCard {
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     if (settings) {
-                                        settings.renderTitleOverlay = tplBtn.modelData.overlay
+                                        settings.renderTitleOverlay = tplBtn.modelData.overlay;
                                         if (tplBtn.modelData.val !== "") {
-                                            settings.autoRenderTitleTemplate = tplBtn.modelData.val
-                                            tplQuickInput.text = tplBtn.modelData.val
+                                            settings.autoRenderTitleTemplate = tplBtn.modelData.val;
+                                            tplQuickInput.text = tplBtn.modelData.val;
                                         }
+                                        card.syncSplitSettings();
                                     }
                                 }
                             }
@@ -649,10 +741,8 @@ SettingsCard {
                         checked: settings ? Boolean(settings.tiktokUploadEnabled) : false
                         onToggled: {
                             if (settings) {
-                                settings.tiktokUploadEnabled = checked
-                                if (typeof backend !== "undefined" && typeof settings.save_to_backend === "function") {
-                                    settings.save_to_backend(backend)
-                                }
+                                settings.tiktokUploadEnabled = checked;
+                                card.syncSplitSettings();
                             }
                         }
                     }
@@ -669,7 +759,7 @@ SettingsCard {
                     spacing: 6
                     Layout.alignment: Qt.AlignRight
 
-                    // Trạng thái AdsPower Local API
+                    // Trạng thái AdsPower Local API (Có timer polling tự động)
                     Rectangle {
                         width: 8; height: 8; radius: 4
                         color: card.adsPowerOnline ? Theme.success : Theme.error
@@ -694,10 +784,8 @@ SettingsCard {
                         checked: (settings && typeof settings.tiktokFastDone !== "undefined") ? Boolean(settings.tiktokFastDone) : true
                         onToggled: {
                             if (settings) {
-                                settings.tiktokFastDone = checked
-                                if (typeof backend !== "undefined" && typeof settings.save_to_backend === "function") {
-                                    settings.save_to_backend(backend)
-                                }
+                                settings.tiktokFastDone = checked;
+                                card.syncSplitSettings();
                             }
                         }
                     }

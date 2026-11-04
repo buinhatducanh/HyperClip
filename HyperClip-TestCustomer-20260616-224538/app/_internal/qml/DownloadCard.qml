@@ -1,4 +1,4 @@
-// src/ui/qml/DownloadCard.qml
+﻿// src/ui/qml/DownloadCard.qml
 // Card tùy chọn tải nâng cao (Chất lượng, Độ tuổi video, Xoay vòng Min-Max)
 // Mục cắt tối đa (Trim) đã được gom lên QuickPipelineCard để tránh trùng lặp
 import QtQuick

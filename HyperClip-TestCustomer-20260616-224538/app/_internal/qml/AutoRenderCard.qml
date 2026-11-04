@@ -1,4 +1,4 @@
-// src/ui/qml/AutoRenderCard.qml
+﻿// src/ui/qml/AutoRenderCard.qml
 // Card tùy chọn render nâng cao (FPS, Speed, Bitrate, Render song song)
 // Các mục trùng (Độ phân giải, Chia Part, Mẫu tiêu đề, TikTok FastDone) đã gom vào QuickPipelineCard
 import QtQuick

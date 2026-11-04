@@ -1,4 +1,4 @@
-// src/ui/qml/TikTokPanel.qml
+﻿// src/ui/qml/TikTokPanel.qml
 // Pass 38 — Panel TikTok: switch auto-upload, quản lý tài khoản (cột trái),
 // chi tiết account: kênh đã gán / gán kênh mới / caption / lịch sử (cột phải).
 // Data: tiktokModel (tiktok:list + event tiktok:update); switch: settings.

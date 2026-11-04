@@ -1,4 +1,4 @@
-// src/ui/qml/DetectionPanel.qml
+﻿// src/ui/qml/DetectionPanel.qml
 // Detection thresholds + poller monitoring + activity log
 // Thiết kế gọn gàng, ẩn text giải thích vào nút HelpTip [?]
 import QtQuick
