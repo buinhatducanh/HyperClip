@@ -9,13 +9,38 @@ const targetFiles = [
 
 for (const filePath of targetFiles) {
   if (!fs.existsSync(filePath)) {
-    console.log('Skipping non-existent:', filePath);
     continue;
   }
 
   let content = fs.readFileSync(filePath, 'utf8');
 
-  // Verify syntax
-  console.log('File verified:', filePath);
+  // 1. Fix missing splitPlan in resolveMediaNative
+  content = content.replace(
+    /const maxHeight = req\.maxHeight \|\| 360;\r?\n\s*const isSmartSplit = !!\(splitPlan && splitPlan\.enabled\);/g,
+    "const maxHeight = req.maxHeight || 360;\n  const splitPlan = getSmartSplitPlan();\n  const isSmartSplit = !!(splitPlan && splitPlan.enabled);"
+  );
+
+  // 2. Fix ffmpeg path for local slice of Part 2 & Part 3
+  const oldSliceFfmpeg = `dlog(\`[smart-split] Local slice for Part \${partNum} [\${startSec}s..\${startSec + durSec}s] (\${durSec}s) from master to \${outputPath}\`);
+      const ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');`;
+
+  const newSliceFfmpeg = `dlog(\`[smart-split] Local slice for Part \${partNum} [\${startSec}s..\${startSec + durSec}s] (\${durSec}s) from master to \${outputPath}\`);
+      let ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg_real.exe');
+      if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg.exe');
+      if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');
+      if (!fs.existsSync(ffmpegExe)) ffmpegExe = 'D:\\\\HyperClip\\\\HyperClip-TestCustomer-20260616-224538\\\\app\\\\_internal\\\\resources\\\\ffmpeg\\\\bin\\\\ffmpeg_real.exe';`;
+
+  if (content.includes("const ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');")) {
+    content = content.replace(
+      "const ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');",
+      `let ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg_real.exe');
+      if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg.exe');
+      if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');
+      if (!fs.existsSync(ffmpegExe)) ffmpegExe = 'D:\\\\HyperClip\\\\HyperClip-TestCustomer-20260616-224538\\\\app\\\\_internal\\\\resources\\\\ffmpeg\\\\bin\\\\ffmpeg_real.exe';`
+    );
+  }
+
+  fs.writeFileSync(filePath, content, 'utf8');
+  console.log('Patched:', filePath);
 }
-console.log('All innertube_helper.js files up to date!');
+console.log('All innertube_helper.js files successfully patched!');

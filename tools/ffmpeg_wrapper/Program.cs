@@ -76,6 +76,14 @@ namespace FfmpegWrapper {
                         double rem = Math.Max(0, trimLimit - p1);
                         p2 = Math.Round((rem / 2.0) * 10.0) / 10.0;
                         p3 = Math.Max(0, Math.Round((rem - p2) * 10.0) / 10.0);
+                        Match mRem = Regex.Match(json, @"""autoSplitRemainMinutes""\s*:\s*([0-9\.]+)");
+                        if (mRem.Success) {
+                            double remMin = 0;
+                            if (double.TryParse(mRem.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out remMin) && remMin > 0) {
+                                p2 = remMin;
+                                p3 = Math.Max(0, Math.Round((trimLimit - p1 - p2) * 10.0) / 10.0);
+                            }
+                        }
                     }
                 }
             } catch {}

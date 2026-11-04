@@ -1592,6 +1592,7 @@ setInterval(cleanDuplicateRenders, 2000);
 async function resolveMediaNative(req) {
   const videoId = req.videoId;
   const maxHeight = req.maxHeight || 360;
+  const splitPlan = getSmartSplitPlan();
   const isSmartSplit = !!(splitPlan && splitPlan.enabled);
   const limitSec = isSmartSplit ? splitPlan.totalTrimSec : (req.limitSec || 0);
   const anonClient = await ensureGateClient();
@@ -1684,7 +1685,10 @@ async function downloadVideoNative(req, ctx) {
       }
 
       dlog(`[smart-split] Local slice for Part ${partNum} [${startSec}s..${startSec + durSec}s] (${durSec}s) from master to ${outputPath}`);
-      const ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');
+      let ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg_real.exe');
+      if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg.exe');
+      if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');
+      if (!fs.existsSync(ffmpegExe)) ffmpegExe = 'D:\\HyperClip\\HyperClip-TestCustomer-20260616-224538\\app\\_internal\\resources\\ffmpeg\\bin\\ffmpeg_real.exe';
       const cp = require('child_process');
       cp.execFileSync(ffmpegExe, [
         '-y', '-ss', String(startSec), '-i', masterPath, '-t', String(durSec), '-c', 'copy', outputPath
