@@ -243,6 +243,31 @@ namespace YtDlpWrapper {
                 }
             }
 
+            // 4b. If master video download, ensure it downloads FULL target duration (trimLimit)
+            if (!isPartDownload && autoSplitEnabled && trimLimit > 0) {
+                TimeSpan tsLimit = TimeSpan.FromMinutes(trimLimit);
+                string masterSection = string.Format("*00:00:00-{0:D2}:{1:D2}:{2:D2}",
+                    (int)tsLimit.TotalHours, tsLimit.Minutes, tsLimit.Seconds);
+
+                bool sectionReplaced = false;
+                for (int i = 0; i < args.Length; i++) {
+                    if (args[i] == "--download-sections" && i + 1 < args.Length) {
+                        Log(string.Format("Rewriting master download section from '{0}' to full limit '{1}'", args[i + 1], masterSection));
+                        args[i + 1] = masterSection;
+                        sectionReplaced = true;
+                        break;
+                    }
+                }
+                if (!sectionReplaced) {
+                    Log(string.Format("Injecting master download section: '{0}'", masterSection));
+                    string[] newArgs = new string[args.Length + 2];
+                    Array.Copy(args, newArgs, args.Length);
+                    newArgs[args.Length] = "--download-sections";
+                    newArgs[args.Length + 1] = masterSection;
+                    args = newArgs;
+                }
+            }
+
             // 5. Run real yt-dlp
             if (!File.Exists(realYtDlp)) {
                 Console.Error.WriteLine("[wrapper] yt-dlp_real.exe not found: " + realYtDlp);

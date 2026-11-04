@@ -2398,16 +2398,11 @@ Rectangle {
                                             font.bold: true
                                         }
 
-                                        // Chip thời lượng video
-                                        // Chip thá»i lÆ°á»£ng video
+                                                                                // Chip thời lượng video
                                         Rectangle {
                                             visible: {
-                                                var d = (modelData.partIndex && modelData.sourceEndSec > modelData.sourceStartSec)
-                                                    ? (modelData.sourceEndSec - modelData.sourceStartSec)
-                                                    : ((modelData.partIndex && modelData.trimEnd > modelData.trimStart)
-                                                        ? (modelData.trimEnd - modelData.trimStart)
-                                                        : (modelData.durationSec || modelData.duration || 0));
-                                                return d > 0;
+                                                if (modelData.partIndex && modelData.partTotal && modelData.partTotal >= 2) return true;
+                                                return (modelData.durationSec || modelData.duration || 0) > 0;
                                             }
                                             Layout.preferredHeight: 15
                                             Layout.preferredWidth: durChipLbl.implicitWidth + 8
@@ -2419,8 +2414,22 @@ Rectangle {
                                                 id: durChipLbl
                                                 anchors.centerIn: parent
                                                 text: {
-                                                    if (modelData.partIndex && modelData.sourceEndSec > modelData.sourceStartSec) {
-                                                        return root.fmtClockMS(modelData.sourceEndSec - modelData.sourceStartSec);
+                                                    if ((modelData.status === "done" || modelData.status === "rendered") && modelData.partIndex > 1 && modelData.trimEnd > modelData.trimStart) {
+                                                        return root.fmtClockMS(modelData.trimEnd - modelData.trimStart);
+                                                    }
+                                                    if (modelData.partIndex && modelData.partTotal && modelData.partTotal >= 2) {
+                                                        var p1 = (root.settings && (root.settings.autoSplitCustomP1 || root.settings.autoSplitPart1Minutes)) ? (root.settings.autoSplitCustomP1 || root.settings.autoSplitPart1Minutes) : 1.0;
+                                                        var limit = (root.settings && root.settings.defaultTrimLimit) ? root.settings.defaultTrimLimit : 10.0;
+                                                        if (modelData.partIndex === 1) {
+                                                            return root.fmtClockMS(p1 * 60);
+                                                        } else if (modelData.partIndex === 2) {
+                                                            var rem = Math.max(0, limit - p1);
+                                                            var dur = (modelData.partTotal === 2) ? rem : (rem / 2.0);
+                                                            return root.fmtClockMS(dur * 60);
+                                                        } else if (modelData.partIndex === 3) {
+                                                            var rem = Math.max(0, limit - p1);
+                                                            return root.fmtClockMS((rem / 2.0) * 60);
+                                                        }
                                                     }
                                                     if (modelData.partIndex && modelData.trimEnd > modelData.trimStart) {
                                                         return root.fmtClockMS(modelData.trimEnd - modelData.trimStart);

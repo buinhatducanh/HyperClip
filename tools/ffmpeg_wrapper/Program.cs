@@ -146,15 +146,19 @@ namespace FfmpegWrapper {
             }
 
             int durSec = 0;
-            if (partNum == 1) durSec = p1Sec;
-            else if (partNum == 2) durSec = p2Sec;
-            else if (partNum == 3) durSec = p3Sec;
-
-            // If input file exists, use its actual duration as authoritative
-            if (!string.IsNullOrEmpty(inputPath) && File.Exists(inputPath)) {
-                double actDur = GetMediaDuration(inputPath, realFfmpeg);
-                if (actDur > 0) {
-                    durSec = (int)Math.Round(actDur);
+            if (partNum == 1) {
+                durSec = p1Sec;
+            } else if (partNum == 2) {
+                durSec = p2Sec;
+                if (!string.IsNullOrEmpty(inputPath) && File.Exists(inputPath)) {
+                    double actDur = GetMediaDuration(inputPath, realFfmpeg);
+                    if (actDur > 0) durSec = (int)Math.Round(actDur);
+                }
+            } else if (partNum == 3) {
+                durSec = p3Sec;
+                if (!string.IsNullOrEmpty(inputPath) && File.Exists(inputPath)) {
+                    double actDur = GetMediaDuration(inputPath, realFfmpeg);
+                    if (actDur > 0) durSec = (int)Math.Round(actDur);
                 }
             }
 
