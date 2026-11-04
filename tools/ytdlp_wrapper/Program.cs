@@ -96,11 +96,20 @@ namespace YtDlpWrapper {
                     }
 
                     Match mP1 = Regex.Match(json, @"""autoSplitCustomP1""\s*:\s*([0-9\.]+)");
-                    bool hasCustomP1 = mP1.Success;
-                    if (!mP1.Success) mP1 = Regex.Match(json, @"""autoSplitPart1Minutes""\s*:\s*([0-9\.]+)");
-                    if (!mP1.Success) mP1 = Regex.Match(json, @"""autoSplitMinutes""\s*:\s*([0-9\.]+)");
-                    if (mP1.Success) {
-                        double.TryParse(mP1.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out p1);
+                    bool hasCustomP1 = false;
+                    double cp1 = 0;
+                    if (mP1.Success && double.TryParse(mP1.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out cp1) && cp1 > 0) {
+                        p1 = cp1;
+                        hasCustomP1 = true;
+                    }
+                    if (!hasCustomP1) {
+                        mP1 = Regex.Match(json, @"""autoSplitPart1Minutes""\s*:\s*([0-9\.]+)");
+                        if (!mP1.Success) mP1 = Regex.Match(json, @"""autoSplitMinutes""\s*:\s*([0-9\.]+)");
+                        double p1m = 0;
+                        if (mP1.Success && double.TryParse(mP1.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out p1m) && p1m > 0) {
+                            p1 = p1m;
+                            hasCustomP1 = true;
+                        }
                     }
 
                     if (parts == 2) {

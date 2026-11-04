@@ -2418,17 +2418,26 @@ Rectangle {
                                                         return root.fmtClockMS(modelData.trimEnd - modelData.trimStart);
                                                     }
                                                     if (modelData.partIndex && modelData.partTotal && modelData.partTotal >= 2) {
-                                                        var p1 = (root.settings && (root.settings.autoSplitCustomP1 || root.settings.autoSplitPart1Minutes)) ? (root.settings.autoSplitCustomP1 || root.settings.autoSplitPart1Minutes) : 1.0;
-                                                        var limit = (root.settings && root.settings.defaultTrimLimit) ? root.settings.defaultTrimLimit : 10.0;
-                                                        if (modelData.partIndex === 1) {
-                                                            return root.fmtClockMS(p1 * 60);
-                                                        } else if (modelData.partIndex === 2) {
-                                                            var rem = Math.max(0, limit - p1);
-                                                            var dur = (modelData.partTotal === 2) ? rem : (rem / 2.0);
-                                                            return root.fmtClockMS(dur * 60);
-                                                        } else if (modelData.partIndex === 3) {
-                                                            var rem = Math.max(0, limit - p1);
-                                                            return root.fmtClockMS((rem / 2.0) * 60);
+                                                        var appSet = (typeof settings !== "undefined" && settings) ? settings : null;
+                                                        var limit = (appSet && appSet.defaultTrimLimit) ? appSet.defaultTrimLimit : 10.0;
+                                                        var totalParts = modelData.partTotal || (appSet && appSet.autoSplitParts) || 3;
+                                                        var customP1 = (appSet && typeof appSet.autoSplitCustomP1 === "number" && appSet.autoSplitCustomP1 > 0)
+                                                            ? appSet.autoSplitCustomP1
+                                                            : ((appSet && typeof appSet.autoSplitPart1Minutes === "number" && appSet.autoSplitPart1Minutes > 0) ? appSet.autoSplitPart1Minutes : 0);
+                                                        if (customP1 > 0) {
+                                                            if (modelData.partIndex === 1) {
+                                                                return root.fmtClockMS(customP1 * 60);
+                                                            } else if (modelData.partIndex === 2) {
+                                                                var rem = Math.max(0, limit - customP1);
+                                                                var dur = (totalParts === 2) ? rem : (rem / 2.0);
+                                                                return root.fmtClockMS(dur * 60);
+                                                            } else if (modelData.partIndex === 3) {
+                                                                var rem = Math.max(0, limit - customP1);
+                                                                return root.fmtClockMS((rem / 2.0) * 60);
+                                                            }
+                                                        } else {
+                                                            var equalSec = (limit * 60.0) / totalParts;
+                                                            return root.fmtClockMS(equalSec);
                                                         }
                                                     }
                                                     if (modelData.partIndex && modelData.trimEnd > modelData.trimStart) {

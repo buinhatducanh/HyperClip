@@ -78,12 +78,16 @@ SettingsCard {
             settings.autoSplitMode = "parts";
             settings.autoSplitMinutes = Math.round((card.totalTrimMinutes / 2) * 10) / 10;
             settings.autoSplitParts = 2;
+            try { settings.autoSplitCustomP1 = 0; } catch(e) {}
+            try { settings.autoSplitPart1Minutes = 0; } catch(e) {}
             settings.autoRenderTitleTemplate = "PART {part}";
         } else if (splitMode === "parts_3") {
             settings.autoSplitEnabled = true;
             settings.autoSplitMode = "parts";
             settings.autoSplitMinutes = Math.round((card.totalTrimMinutes / 3) * 10) / 10;
             settings.autoSplitParts = 3;
+            try { settings.autoSplitCustomP1 = 0; } catch(e) {}
+            try { settings.autoSplitPart1Minutes = 0; } catch(e) {}
             settings.autoRenderTitleTemplate = "PART {part}";
         }
 
@@ -96,9 +100,9 @@ SettingsCard {
                     "autoSplitMode": settings.autoSplitMode,
                     "autoSplitMinutes": settings.autoSplitMinutes,
                     "autoSplitParts": settings.autoSplitParts,
-                    "autoSplitCustomP1": card.p1Duration,
-                    "autoSplitPart1Minutes": card.p1Duration,
-                    "autoSplitRemainMinutes": card.p2Duration,
+                    "autoSplitCustomP1": (card.splitMode === "custom_p1" ? card.p1Duration : 0),
+                    "autoSplitPart1Minutes": (card.splitMode === "custom_p1" ? card.p1Duration : 0),
+                    "autoSplitRemainMinutes": (card.splitMode === "custom_p1" ? card.p2Duration : 0),
                     "autoRenderTitleTemplate": "PART {part}",
                     "trimRotateEnabled": false,
                     "splitChainDelaySec": 0
