@@ -430,7 +430,7 @@ Rectangle {
 
         }
 
-        parts.sort((a, b) => a.id.localeCompare(b.id));
+        parts.sort((a, b) => ((a.partIndex || 0) - (b.partIndex || 0)) || a.id.localeCompare(b.id));
 
         return parts;
 

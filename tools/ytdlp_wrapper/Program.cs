@@ -156,17 +156,18 @@ namespace YtDlpWrapper {
                     }
 
                     // Dynamic timeline: adapt to actual video duration vs user setting
-                    double effectiveTotal = (masterDur > 0) ? masterDur : (trimLimit > 0 ? trimLimit * 60.0 : 600.0);
-                    if (trimLimit > 0 && effectiveTotal > trimLimit * 60.0) {
+                    double effectiveTotal = (masterDur > 0) ? masterDur : ((trimLimit > 0 && trimLimit < 900) ? trimLimit * 60.0 : 600.0);
+                    if (trimLimit > 0 && trimLimit < 900 && effectiveTotal > trimLimit * 60.0) {
                         effectiveTotal = trimLimit * 60.0;
                     }
 
                     int effectiveP1 = p1Sec;
-                    if (effectiveP1 >= effectiveTotal) {
-                        effectiveP1 = (int)Math.Max(30, Math.Round(effectiveTotal / (double)parts));
+                    double remainSec = Math.Max(0, effectiveTotal - effectiveP1);
+                    if (effectiveP1 >= effectiveTotal || remainSec < 20.0) {
+                        effectiveP1 = (int)Math.Max(5, Math.Round(effectiveTotal / (double)parts));
+                        remainSec = Math.Max(0, effectiveTotal - effectiveP1);
                     }
 
-                    double remainSec = Math.Max(0, effectiveTotal - effectiveP1);
                     int effectiveP2 = 0;
                     int effectiveP3 = 0;
 
@@ -244,27 +245,41 @@ namespace YtDlpWrapper {
             }
 
             // 4b. If master video download, ensure it downloads FULL target duration (trimLimit)
-            if (!isPartDownload && autoSplitEnabled && trimLimit > 0) {
-                TimeSpan tsLimit = TimeSpan.FromMinutes(trimLimit);
-                string masterSection = string.Format("*00:00:00-{0:D2}:{1:D2}:{2:D2}",
-                    (int)tsLimit.TotalHours, tsLimit.Minutes, tsLimit.Seconds);
-
-                bool sectionReplaced = false;
-                for (int i = 0; i < args.Length; i++) {
-                    if (args[i] == "--download-sections" && i + 1 < args.Length) {
-                        Log(string.Format("Rewriting master download section from '{0}' to full limit '{1}'", args[i + 1], masterSection));
-                        args[i + 1] = masterSection;
-                        sectionReplaced = true;
-                        break;
+            if (!isPartDownload && autoSplitEnabled) {
+                if (trimLimit >= 900 || trimLimit <= 0) {
+                    // Full video download: remove --download-sections so yt-dlp gets 100% of the video
+                    System.Collections.Generic.List<string> cleanArgs = new System.Collections.Generic.List<string>();
+                    for (int i = 0; i < args.Length; i++) {
+                        if (args[i] == "--download-sections" && i + 1 < args.Length) {
+                            Log(string.Format("Full video mode: stripping section constraint '{0}'", args[i + 1]));
+                            i++;
+                            continue;
+                        }
+                        cleanArgs.Add(args[i]);
                     }
-                }
-                if (!sectionReplaced) {
-                    Log(string.Format("Injecting master download section: '{0}'", masterSection));
-                    string[] newArgs = new string[args.Length + 2];
-                    Array.Copy(args, newArgs, args.Length);
-                    newArgs[args.Length] = "--download-sections";
-                    newArgs[args.Length + 1] = masterSection;
-                    args = newArgs;
+                    args = cleanArgs.ToArray();
+                } else {
+                    TimeSpan tsLimit = TimeSpan.FromMinutes(trimLimit);
+                    string masterSection = string.Format("*00:00:00-{0:D2}:{1:D2}:{2:D2}",
+                        (int)tsLimit.TotalHours, tsLimit.Minutes, tsLimit.Seconds);
+
+                    bool sectionReplaced = false;
+                    for (int i = 0; i < args.Length; i++) {
+                        if (args[i] == "--download-sections" && i + 1 < args.Length) {
+                            Log(string.Format("Rewriting master download section from '{0}' to full limit '{1}'", args[i + 1], masterSection));
+                            args[i + 1] = masterSection;
+                            sectionReplaced = true;
+                            break;
+                        }
+                    }
+                    if (!sectionReplaced) {
+                        Log(string.Format("Injecting master download section: '{0}'", masterSection));
+                        string[] newArgs = new string[args.Length + 2];
+                        Array.Copy(args, newArgs, args.Length);
+                        newArgs[args.Length] = "--download-sections";
+                        newArgs[args.Length + 1] = masterSection;
+                        args = newArgs;
+                    }
                 }
             }
 
