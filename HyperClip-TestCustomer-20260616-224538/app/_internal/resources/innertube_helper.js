@@ -1592,6 +1592,10 @@ function getSmartSplitPlan(actualDurationSec) {
             }
           }
           return { enabled: true, trimLimitMin, totalTrimSec, p1Sec, p2Sec, p3Sec, parts: partsCount, isAdaptiveShort };
+        } else {
+          const trimLimitMin = Number(s.defaultTrimLimit) || 10;
+          let totalTrimSec = (trimLimitMin > 0 && trimLimitMin < 900) ? Math.round(trimLimitMin * 60) : 0;
+          return { enabled: false, trimLimitMin, totalTrimSec, parts: 1 };
         }
       }
     }
@@ -1632,7 +1636,7 @@ async function resolveMediaNative(req) {
   const maxHeight = req.maxHeight || 360;
   const splitPlan = getSmartSplitPlan();
   const isSmartSplit = !!(splitPlan && splitPlan.enabled);
-  const limitSec = isSmartSplit ? splitPlan.totalTrimSec : (req.limitSec || 0);
+  const limitSec = isSmartSplit ? splitPlan.totalTrimSec : (req.limitSec || (splitPlan && splitPlan.totalTrimSec) || 0);
   const anonClient = await ensureGateClient();
   const chain = ['ANDROID', 'IOS', null];
   const failures = [];
@@ -1758,7 +1762,7 @@ async function downloadVideoNative(req, ctx) {
   const maxHeight = req.maxHeight || 360;
   // splitPlan already declared above
   const isSmartSplit = !!(splitPlan && splitPlan.enabled && outputPath && outputPath.endsWith(".mp4") && !outputPath.includes("_part"));
-  const limitSec = isSmartSplit ? splitPlan.totalTrimSec : (req.limitSec || 0);
+  const limitSec = isSmartSplit ? splitPlan.totalTrimSec : (req.limitSec || (splitPlan && splitPlan.totalTrimSec) || 0);
   const masterPath = isSmartSplit ? outputPath.replace(/\.mp4$/i, "_master.mp4") : null;
   const fetchTarget = isSmartSplit ? masterPath : outputPath;
   const t0 = Date.now();
@@ -2392,7 +2396,7 @@ function runDaemon(initialCookie) {
         // + N socket TLS mở sẵn 25 s; `downloadVideo` tới sau sẽ dùng.
         if (req.cmd === 'resolveMedia') {
           const splitPlan = getSmartSplitPlan();
-          if (splitPlan && splitPlan.enabled) { req.limitSec = splitPlan.totalTrimSec; }
+          if (splitPlan && splitPlan.totalTrimSec) { req.limitSec = splitPlan.totalTrimSec; }
           const tR = Date.now();
           let n = Math.max(1, Math.min(PARALLEL_CONNECTIONS_MAX, Number(req.conns) || PARALLEL_CONNECTIONS_DEFAULT));
           if (req.limitSec && req.limitSec > 0 && req.limitSec <= 65) {
@@ -2413,7 +2417,7 @@ function runDaemon(initialCookie) {
 
         if (req.cmd === 'downloadVideo') {
           const splitPlan = getSmartSplitPlan();
-          if (splitPlan && splitPlan.enabled) { req.limitSec = splitPlan.totalTrimSec; }
+          if (splitPlan && splitPlan.totalTrimSec) { req.limitSec = splitPlan.totalTrimSec; }
           // Pass 90: ctx = tiến độ (`progress` lines cùng id) + hủy được
           // (abortDownload) + telemetry theo slice.
           const dctx = newDownloadCtx(req.id || 0, req.videoId);

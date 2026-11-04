@@ -65,7 +65,18 @@ SettingsCard {
         // Vô hiệu hóa TrimRotate để tránh xung đột ngầm ghi đè thời lượng tải (BUG-04)
         settings.trimRotateEnabled = false;
 
-        if (splitMode === "custom_p1") {
+        var isSplit = splitSwitch ? splitSwitch.checked : (settings ? settings.autoSplitEnabled : true);
+        settings.autoSplitEnabled = isSplit;
+
+        if (!isSplit) {
+            settings.autoSplitMode = "none";
+            settings.autoSplitParts = 1;
+            settings.autoSplitMinutes = card.totalTrimMinutes;
+            try { settings.autoSplitCustomP1 = 0; } catch(e) {}
+            try { settings.autoSplitPart1Minutes = 0; } catch(e) {}
+            try { settings.autoSplitRemainMinutes = 0; } catch(e) {}
+            settings.autoRenderTitleTemplate = "{title}";
+        } else if (splitMode === "custom_p1") {
             settings.autoSplitEnabled = true;
             settings.autoSplitMode = "parts";
             settings.autoSplitParts = (card.remainMinutes >= 1.0) ? 3 : 1;
@@ -100,10 +111,10 @@ SettingsCard {
                     "autoSplitMode": settings.autoSplitMode,
                     "autoSplitMinutes": settings.autoSplitMinutes,
                     "autoSplitParts": settings.autoSplitParts,
-                    "autoSplitCustomP1": (card.splitMode === "custom_p1" ? card.p1Duration : 0),
-                    "autoSplitPart1Minutes": (card.splitMode === "custom_p1" ? card.p1Duration : 0),
-                    "autoSplitRemainMinutes": (card.splitMode === "custom_p1" ? card.p2Duration : 0),
-                    "autoRenderTitleTemplate": "PART {part}",
+                    "autoSplitCustomP1": (isSplit && card.splitMode === "custom_p1" ? card.p1Duration : 0),
+                    "autoSplitPart1Minutes": (isSplit && card.splitMode === "custom_p1" ? card.p1Duration : 0),
+                    "autoSplitRemainMinutes": (isSplit && card.splitMode === "custom_p1" ? card.p2Duration : 0),
+                    "autoRenderTitleTemplate": settings.autoRenderTitleTemplate,
                     "trimRotateEnabled": false,
                     "splitChainDelaySec": 0
                 });

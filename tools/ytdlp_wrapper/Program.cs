@@ -253,8 +253,8 @@ namespace YtDlpWrapper {
                 }
             }
 
-            // 4b. If master video download, ensure it downloads FULL target duration (trimLimit)
-            if (!isPartDownload && autoSplitEnabled) {
+            // 4b. If master video or single video download, ensure it downloads target duration (trimLimit)
+            if (!isPartDownload) {
                 if (trimLimit >= 900 || trimLimit <= 0) {
                     // Full video download: remove --download-sections so yt-dlp gets 100% of the video
                     System.Collections.Generic.List<string> cleanArgs = new System.Collections.Generic.List<string>();

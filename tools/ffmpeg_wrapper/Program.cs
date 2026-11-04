@@ -151,7 +151,7 @@ namespace FfmpegWrapper {
                 Match mPart = Regex.Match(combined, @"(?:_part|PART\s*)(\d+)", RegexOptions.IgnoreCase);
                 if (mPart.Success) {
                     int.TryParse(mPart.Groups[1].Value, out partNum);
-                } else if (outputPath != null && outputPath.EndsWith(".trim.tmp", StringComparison.OrdinalIgnoreCase)) {
+                } else if (autoSplitEnabled && outputPath != null && outputPath.EndsWith(".trim.tmp", StringComparison.OrdinalIgnoreCase)) {
                     // Rust's maybe_trim_file trimming master video into Part 1 source
                     partNum = 1;
                 }

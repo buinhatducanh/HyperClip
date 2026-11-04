@@ -18,10 +18,18 @@ for (const filePath of targetFiles) {
   content = content.replace(/^(\uFEFF?\s*const fs = require\('fs'\);\s*const path = require\('path'\);\s*)+/, '');
   content = "const fs = require('fs');\nconst path = require('path');\n" + content;
 
-  // 2. Fix missing splitPlan in resolveMediaNative
+  // 2. Fix missing splitPlan in resolveMediaNative and fallback to single video limitSec
   content = content.replace(
     /const maxHeight = req\.maxHeight \|\| 360;\r?\n\s*const isSmartSplit = !!\(splitPlan && splitPlan\.enabled\);/g,
     "const maxHeight = req.maxHeight || 360;\n  const splitPlan = getSmartSplitPlan();\n  const isSmartSplit = !!(splitPlan && splitPlan.enabled);"
+  );
+  content = content.replace(
+    /const limitSec = isSmartSplit \? splitPlan\.totalTrimSec : \(req\.limitSec \|\| 0\);/g,
+    "const limitSec = isSmartSplit ? splitPlan.totalTrimSec : (req.limitSec || (splitPlan && splitPlan.totalTrimSec) || 0);"
+  );
+  content = content.replace(
+    /if \(splitPlan && splitPlan\.enabled\) \{ req\.limitSec = splitPlan\.totalTrimSec; \}/g,
+    "if (splitPlan && splitPlan.totalTrimSec) { req.limitSec = splitPlan.totalTrimSec; }"
   );
 
   // 3. Fix ffmpeg path for local slice of Part 2 & Part 3
@@ -36,7 +44,7 @@ for (const filePath of targetFiles) {
   }
 
   // 4. Update getSmartSplitPlan with Adaptive Intelligence for short/long videos
-  const oldFuncRegex = /function getSmartSplitPlan\(\) \{[\s\S]*?return null;\r?\n\}/;
+  const oldFuncRegex = /function getSmartSplitPlan\([^)]*\) \{[\s\S]*?return null;\r?\n\}/;
   const newFunc = `function getSmartSplitPlan(actualDurationSec) {
   try {
     const fs = require('fs');
@@ -111,6 +119,10 @@ for (const filePath of targetFiles) {
             }
           }
           return { enabled: true, trimLimitMin, totalTrimSec, p1Sec, p2Sec, p3Sec, parts: partsCount, isAdaptiveShort };
+        } else {
+          const trimLimitMin = Number(s.defaultTrimLimit) || 10;
+          let totalTrimSec = (trimLimitMin > 0 && trimLimitMin < 900) ? Math.round(trimLimitMin * 60) : 0;
+          return { enabled: false, trimLimitMin, totalTrimSec, parts: 1 };
         }
       }
     }
