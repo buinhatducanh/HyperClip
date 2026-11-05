@@ -145,6 +145,44 @@ namespace FfmpegWrapper {
             bool isChunkOrTemp = allArgs.Contains("_chunk") || allArgs.Contains("_c0_") || allArgs.Contains("_c1_") ||
                                  allArgs.Contains(@"\temp\") || allArgs.Contains("/temp/") || allArgs.Contains("_composite");
 
+            // Chunk Render Safeguard: Cap chunk duration if it exceeds actual input video duration
+            if (isChunkOrTemp && autoSplitEnabled && allArgs.Contains("_chunk") && !string.IsNullOrEmpty(inputPath) && File.Exists(inputPath)) {
+                double inputDur = GetMediaDuration(inputPath, realFfmpeg);
+                if (inputDur > 0) {
+                    double seekSec = 0;
+                    for (int i = 0; i < args.Length; i++) {
+                        if (args[i] == "-ss" && i + 1 < args.Length) {
+                            double.TryParse(args[i + 1], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out seekSec);
+                            break;
+                        }
+                    }
+                    double reqDur = 0;
+                    int tIdx = -1;
+                    for (int i = 0; i < args.Length; i++) {
+                        if (args[i] == "-t" && i + 1 < args.Length) {
+                            double.TryParse(args[i + 1], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out reqDur);
+                            tIdx = i + 1;
+                            break;
+                        }
+                    }
+                    if (tIdx != -1 && reqDur > 0 && (seekSec + reqDur) > (inputDur + 0.5)) {
+                        double maxDur = Math.Max(0.5, inputDur - seekSec);
+                        Log(string.Format("Chunk duration exceeds input duration: seek={0} req={1} inputDur={2} -> Capping -t to {3:F2}",
+                            seekSec, reqDur, inputDur, maxDur));
+                        string[] chunkArgs = (string[])args.Clone();
+                        chunkArgs[tIdx] = maxDur.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+                        for (int i = 0; i < chunkArgs.Length; i++) {
+                            if (chunkArgs[i] == "-filter_complex" && i + 1 < chunkArgs.Length) {
+                                string fc = chunkArgs[i + 1];
+                                string newFc = Regex.Replace(fc, @"duration=([0-9\.]+)", "duration=" + maxDur.ToString("F2", System.Globalization.CultureInfo.InvariantCulture));
+                                chunkArgs[i + 1] = newFc;
+                            }
+                        }
+                        args = chunkArgs;
+                    }
+                }
+            }
+
             // Detect partNum only for final renders or trim operations
             if (!isChunkOrTemp) {
                 string combined = (inputPath ?? "") + " " + (outputPath ?? "");

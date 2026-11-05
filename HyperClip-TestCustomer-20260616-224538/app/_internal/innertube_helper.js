@@ -1630,7 +1630,59 @@ function cleanDuplicateRenders() {
     }
   } catch (_) {}
 }
-setInterval(cleanDuplicateRenders, 2000);
+
+function guardPart1Duration() {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const child_process = require('child_process');
+    const plan = getSmartSplitPlan();
+    if (!plan || !plan.enabled || !plan.p1Sec || plan.p1Sec <= 0) return;
+
+    const targetSec = plan.p1Sec;
+    const possibleDirs = [
+      (plan && plan.outDir),
+      process.env.HYPERCLIP_DATA_DIR,
+      'D:\\HyperClip\\HyperClip-TestCustomer-20260616-224538\\HyperClip-Data'
+    ].filter(Boolean);
+
+    let ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg_real.exe');
+    if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg.exe');
+    if (!fs.existsSync(ffmpegExe)) ffmpegExe = 'D:\\HyperClip\\HyperClip-TestCustomer-20260616-224538\\app\\_internal\\resources\\ffmpeg\\bin\\ffmpeg_real.exe';
+    if (!fs.existsSync(ffmpegExe)) return;
+
+    for (const dir of possibleDirs) {
+      if (!fs.existsSync(dir)) continue;
+      const files = fs.readdirSync(dir);
+      for (const f of files) {
+        if (/^PART\s*1_.*\.mp4$/i.test(f) && !f.includes("_fixed") && !f.includes(".tmp")) {
+          const fullPath = path.join(dir, f);
+          const stat = fs.statSync(fullPath);
+          if (Date.now() - stat.mtimeMs < 2000) continue;
+
+          const probe = child_process.spawnSync(ffmpegExe, ['-i', fullPath], { encoding: 'utf8' });
+          const durMatch = (probe.stderr || '').match(/Duration:\s*(\d+):(\d+):(\d+\.?\d*)/);
+          if (durMatch) {
+            const actualDur = parseInt(durMatch[1]) * 3600 + parseInt(durMatch[2]) * 60 + parseFloat(durMatch[3]);
+            if (actualDur > targetSec + 1.5) {
+              const tmpPath = fullPath + '.norm.mp4';
+              const res = child_process.spawnSync(ffmpegExe, ['-y', '-i', fullPath, '-t', String(targetSec), '-c', 'copy', tmpPath]);
+              if (res.status === 0 && fs.existsSync(tmpPath) && fs.statSync(tmpPath).size > 1000) {
+                fs.unlinkSync(fullPath);
+                fs.renameSync(tmpPath, fullPath);
+                dlog(`[part1-guard] Successfully normalized ${f} from ${actualDur.toFixed(1)}s to ${targetSec}s (exact Part 1 duration)`);
+              } else {
+                try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (_) {}
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (_) {}
+}
+
+setInterval(() => { cleanDuplicateRenders(); guardPart1Duration(); }, 2000);
 async function resolveMediaNative(req) {
   const videoId = req.videoId;
   const maxHeight = req.maxHeight || 360;
