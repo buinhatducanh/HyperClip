@@ -16,11 +16,13 @@ SettingsCard {
     property bool isLoaded: false
 
     // Chế độ chia part: "custom_p1" | "parts_2" | "parts_3"
-    property string splitMode: (settings && settings.autoSplitMode === "parts" && settings.autoSplitParts === 2)
-                               ? "parts_2"
-                               : ((settings && settings.autoSplitMode === "parts" && settings.autoSplitParts === 3 && (settings.autoSplitCustomP1 === 0 || settings.autoSplitSubMode === "parts_3"))
-                                  ? "parts_3"
-                                  : "custom_p1")
+    property string splitMode: {
+        if (!settings || !settings.autoSplitEnabled || settings.autoSplitMode === "none") return "custom_p1";
+        if (settings.autoSplitMode === "minutes") return "custom_p1";
+        if (settings.autoSplitMode === "parts" && settings.autoSplitParts === 2) return "parts_2";
+        if (settings.autoSplitMode === "parts" && settings.autoSplitParts === 3) return "parts_3";
+        return "custom_p1";
+    }
 
     // Thời lượng Part 1 tùy chỉnh (mặc định 3 phút)
     property real customP1Val: {
@@ -104,7 +106,7 @@ SettingsCard {
             settings.autoRenderTitleTemplate = "{title}";
         } else if (card.splitMode === "custom_p1") {
             settings.autoSplitEnabled = true;
-            settings.autoSplitMode = "parts";
+            settings.autoSplitMode = "minutes";
             settings.autoSplitParts = (card.remainMinutes >= 1.0) ? 3 : 1;
             settings.autoSplitMinutes = card.p1Duration;
             try { settings.autoSplitCustomP1 = card.p1Duration; } catch(e) {}
@@ -187,11 +189,11 @@ SettingsCard {
                 var rawRes = backend.send_command("settings:get");
                 var res = (rawRes && rawRes.settings) ? rawRes.settings : rawRes;
                 if (res) {
-                    if (res.autoSplitSubMode) {
-                        card.splitMode = res.autoSplitSubMode;
+                    if (res.autoSplitMode === "minutes" || res.autoSplitSubMode === "custom_p1") {
+                        card.splitMode = "custom_p1";
                     } else if (res.autoSplitMode === "parts" && res.autoSplitParts === 2) {
                         card.splitMode = "parts_2";
-                    } else if (res.autoSplitMode === "parts" && res.autoSplitParts === 3 && (res.autoSplitCustomP1 <= 0 || !res.autoSplitCustomP1)) {
+                    } else if (res.autoSplitMode === "parts" && res.autoSplitParts === 3) {
                         card.splitMode = "parts_3";
                     } else {
                         card.splitMode = "custom_p1";

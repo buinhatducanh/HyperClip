@@ -93,6 +93,9 @@ namespace YtDlpWrapper {
                         double.TryParse(mTrim.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out trimLimit);
                     }
 
+                    Match mMode = Regex.Match(json, @"""autoSplitMode""\s*:\s*""([^""]+)""");
+                    string splitMode = mMode.Success ? mMode.Groups[1].Value : "parts";
+
                     Match mParts = Regex.Match(json, @"""autoSplitParts""\s*:\s*([0-9]+)");
                     if (mParts.Success) {
                         int.TryParse(mParts.Groups[1].Value, out parts);
@@ -101,30 +104,36 @@ namespace YtDlpWrapper {
                     Match mSub = Regex.Match(json, @"""autoSplitSubMode""\s*:\s*""([^""]+)""");
                     string subMode = mSub.Success ? mSub.Groups[1].Value : "";
 
+                    Match mMin = Regex.Match(json, @"""autoSplitMinutes""\s*:\s*([0-9\.]+)");
+                    if (mMin.Success) {
+                        double minVal = 0;
+                        if (double.TryParse(mMin.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out minVal) && minVal > 0) {
+                            p1 = minVal;
+                        }
+                    }
+
                     Match mP1 = Regex.Match(json, @"""autoSplitCustomP1""\s*:\s*([0-9\.]+)");
-                    bool hasCustomP1 = false;
-                    double cp1 = 0;
-                    if (subMode == "custom_p1" || (string.IsNullOrEmpty(subMode) && subMode != "parts_3" && subMode != "parts_2")) {
-                        if (mP1.Success && double.TryParse(mP1.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out cp1) && cp1 > 0) {
+                    if (mP1.Success) {
+                        double cp1 = 0;
+                        if (double.TryParse(mP1.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out cp1) && cp1 > 0) {
                             p1 = cp1;
-                            hasCustomP1 = true;
                         }
                     }
 
                     int totalTrimSec = (int)Math.Max(60, Math.Round(trimLimit * 60.0));
-                    if (parts == 2 || subMode == "parts_2") {
-                        p1Sec = totalTrimSec / 2;
-                        p2Sec = totalTrimSec - p1Sec;
-                        p3Sec = 0;
-                    } else if (subMode == "parts_3" || !hasCustomP1) {
-                        p1Sec = totalTrimSec / 3;
-                        p2Sec = totalTrimSec / 3;
-                        p3Sec = totalTrimSec - p1Sec - p2Sec;
-                    } else {
+                    if (splitMode == "minutes" || subMode == "custom_p1") {
                         p1Sec = (int)Math.Min(totalTrimSec - 60, Math.Max(60, Math.Round(p1 * 60.0)));
                         int remSec = Math.Max(0, totalTrimSec - p1Sec);
                         p2Sec = remSec / 2;
                         p3Sec = remSec - p2Sec;
+                    } else if (parts == 2 || subMode == "parts_2") {
+                        p1Sec = totalTrimSec / 2;
+                        p2Sec = totalTrimSec - p1Sec;
+                        p3Sec = 0;
+                    } else {
+                        p1Sec = totalTrimSec / 3;
+                        p2Sec = totalTrimSec / 3;
+                        p3Sec = totalTrimSec - p1Sec - p2Sec;
                     }
                 }
             } catch {}

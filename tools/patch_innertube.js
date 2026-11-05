@@ -87,18 +87,8 @@ for (const filePath of targetFiles) {
             return { enabled: true, trimLimitMin, totalTrimSec, p1Sec, p2Sec, p3Sec, parts: 2, isAdaptiveShort: true };
           }
 
-          if (s.autoSplitParts === 2 || s.autoSplitSubMode === "parts_2") {
-            p1Sec = Math.round(totalTrimSec / 2);
-            p2Sec = totalTrimSec - p1Sec;
-            p3Sec = 0;
-            partsCount = 2;
-          } else if (s.autoSplitSubMode === "parts_3" || (s.autoSplitParts === 3 && !s.autoSplitCustomP1 && s.autoSplitSubMode !== "custom_p1")) {
-            p1Sec = Math.round(totalTrimSec / 3);
-            p2Sec = Math.round(totalTrimSec / 3);
-            p3Sec = Math.max(0, totalTrimSec - p1Sec - p2Sec);
-            partsCount = 3;
-          } else {
-            const p1Min = Number(s.autoSplitCustomP1) || Number(s.autoSplitPart1Minutes) || Number(s.autoSplitMinutes) || 4.0;
+          if (s.autoSplitMode === "minutes" || s.autoSplitSubMode === "custom_p1" || (s.autoSplitCustomP1 && s.autoSplitCustomP1 > 0)) {
+            const p1Min = Number(s.autoSplitCustomP1) || Number(s.autoSplitPart1Minutes) || Number(s.autoSplitMinutes) || 3.0;
             const targetP1Sec = Math.round(p1Min * 60);
             p1Sec = Math.min(targetP1Sec, Math.max(60, totalTrimSec - 60));
             const remSec = Math.max(0, totalTrimSec - p1Sec);
@@ -117,6 +107,16 @@ for (const filePath of targetFiles) {
               p3Sec = Math.max(0, remSec - p2Sec);
               partsCount = 3;
             }
+          } else if (s.autoSplitParts === 2 || s.autoSplitSubMode === "parts_2") {
+            p1Sec = Math.round(totalTrimSec / 2);
+            p2Sec = totalTrimSec - p1Sec;
+            p3Sec = 0;
+            partsCount = 2;
+          } else {
+            p1Sec = Math.round(totalTrimSec / 3);
+            p2Sec = Math.round(totalTrimSec / 3);
+            p3Sec = Math.max(0, totalTrimSec - p1Sec - p2Sec);
+            partsCount = 3;
           }
           return { enabled: true, trimLimitMin, totalTrimSec, p1Sec, p2Sec, p3Sec, parts: partsCount, isAdaptiveShort };
         } else {
