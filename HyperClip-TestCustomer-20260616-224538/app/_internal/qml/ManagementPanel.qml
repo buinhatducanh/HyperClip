@@ -2414,36 +2414,19 @@ Rectangle {
                                                 id: durChipLbl
                                                 anchors.centerIn: parent
                                                 text: {
-                                                    if ((modelData.status === "done" || modelData.status === "rendered") && modelData.partIndex > 1 && modelData.trimEnd > modelData.trimStart) {
+                                                    // 1. Khi video da co khoang cat trimEnd - trimStart rieng cua no
+                                                    if (modelData.trimEnd > modelData.trimStart) {
                                                         return root.fmtClockMS(modelData.trimEnd - modelData.trimStart);
                                                     }
-                                                    if (modelData.partIndex && modelData.partTotal && modelData.partTotal >= 2) {
-                                                        var appSet = (typeof settings !== "undefined" && settings) ? settings : null;
-                                                        var limit = (appSet && appSet.defaultTrimLimit) ? appSet.defaultTrimLimit : 10.0;
-                                                        var totalParts = modelData.partTotal || (appSet && appSet.autoSplitParts) || 3;
-                                                        var customP1 = (appSet && typeof appSet.autoSplitCustomP1 === "number" && appSet.autoSplitCustomP1 > 0)
-                                                            ? appSet.autoSplitCustomP1
-                                                            : ((appSet && typeof appSet.autoSplitPart1Minutes === "number" && appSet.autoSplitPart1Minutes > 0) ? appSet.autoSplitPart1Minutes : 0);
-                                                        if (customP1 > 0) {
-                                                            if (modelData.partIndex === 1) {
-                                                                return root.fmtClockMS(customP1 * 60);
-                                                            } else if (modelData.partIndex === 2) {
-                                                                var rem = Math.max(0, limit - customP1);
-                                                                var dur = (totalParts === 2) ? rem : (rem / 2.0);
-                                                                return root.fmtClockMS(dur * 60);
-                                                            } else if (modelData.partIndex === 3) {
-                                                                var rem = Math.max(0, limit - customP1);
-                                                                return root.fmtClockMS((rem / 2.0) * 60);
-                                                            }
-                                                        } else {
-                                                            var equalSec = (limit * 60.0) / totalParts;
-                                                            return root.fmtClockMS(equalSec);
-                                                        }
+                                                    // 2. Khi la Part co pham vi trich xuat tu nguon (sourceEndSec - sourceStartSec)
+                                                    if (modelData.sourceEndSec > modelData.sourceStartSec) {
+                                                        return root.fmtClockMS(modelData.sourceEndSec - modelData.sourceStartSec);
                                                     }
-                                                    if (modelData.partIndex && modelData.trimEnd > modelData.trimStart) {
-                                                        return root.fmtClockMS(modelData.trimEnd - modelData.trimStart);
+                                                    // 3. Thoi luong thuc te tu metadata cua chinh video nay (doc lap 100% voi settings)
+                                                    if (modelData.durationSec || modelData.duration) {
+                                                        return root.fmtClockMS(modelData.durationSec || modelData.duration);
                                                     }
-                                                    return root.fmtClockMS(modelData.durationSec || modelData.duration || 0);
+                                                    return "0:00";
                                                 }
                                                 color: Theme.textMuted
                                                 font.pixelSize: 9
