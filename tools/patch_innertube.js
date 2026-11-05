@@ -172,8 +172,12 @@ for (const filePath of targetFiles) {
     );
   }
 
-  // 7. Add guardPart1Duration to guarantee Part 1 output file matches exact p1Sec
-  if (!content.includes("function guardPart1Duration()")) {
+  // 7. Add or update guardPart1Duration to guarantee Part 1 output file matches exact p1Sec & sync workspaces.json
+  if (content.includes("function guardPart1Duration()")) {
+    const oldGuardPattern = /function guardPart1Duration\(\)[\s\S]*?setInterval\(\(\) => \{ cleanDuplicateRenders\(\); guardPart1Duration\(\); \}, 2000\);/;
+    content = content.replace(oldGuardPattern, "setInterval(cleanDuplicateRenders, 2000);");
+  }
+  {
     const guardFunc = `
 function guardPart1Duration() {
   try {
@@ -193,30 +197,56 @@ function guardPart1Duration() {
     let ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg_real.exe');
     if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg.exe');
     if (!fs.existsSync(ffmpegExe)) ffmpegExe = 'D:\\\\HyperClip\\\\HyperClip-TestCustomer-20260616-224538\\\\app\\\\_internal\\\\resources\\\\ffmpeg\\\\bin\\\\ffmpeg_real.exe';
-    if (!fs.existsSync(ffmpegExe)) return;
 
     for (const dir of possibleDirs) {
       if (!fs.existsSync(dir)) continue;
-      const files = fs.readdirSync(dir);
-      for (const f of files) {
-        if (/^PART\\s*1_.*\\.mp4$/i.test(f) && !f.includes("_fixed") && !f.includes(".tmp")) {
-          const fullPath = path.join(dir, f);
-          const stat = fs.statSync(fullPath);
-          if (Date.now() - stat.mtimeMs < 2000) continue;
 
-          const probe = child_process.spawnSync(ffmpegExe, ['-i', fullPath], { encoding: 'utf8' });
-          const durMatch = (probe.stderr || '').match(/Duration:\\s*(\\d+):(\\d+):(\\d+\\.?\\d*)/);
-          if (durMatch) {
-            const actualDur = parseInt(durMatch[1]) * 3600 + parseInt(durMatch[2]) * 60 + parseFloat(durMatch[3]);
-            if (actualDur > targetSec + 1.5) {
-              const tmpPath = fullPath + '.norm.mp4';
-              const res = child_process.spawnSync(ffmpegExe, ['-y', '-i', fullPath, '-t', String(targetSec), '-c', 'copy', tmpPath]);
-              if (res.status === 0 && fs.existsSync(tmpPath) && fs.statSync(tmpPath).size > 1000) {
-                fs.unlinkSync(fullPath);
-                fs.renameSync(tmpPath, fullPath);
-                dlog(\`[part1-guard] Successfully normalized \${f} from \${actualDur.toFixed(1)}s to \${targetSec}s (exact Part 1 duration)\`);
-              } else {
-                try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (_) {}
+      // 1. Synchronize workspaces.json to prevent Rust equal split override (e.g. 225s / 3:45)
+      try {
+        const wsFile = path.join(dir, '.hyperclip', 'workspaces.json');
+        if (fs.existsSync(wsFile)) {
+          const wsJson = JSON.parse(fs.readFileSync(wsFile, 'utf8'));
+          let changed = false;
+          for (const ws of (wsJson.workspaces || [])) {
+            if (ws.partIndex === 1 && ws.partTotal >= 2) {
+              if (ws.trimEnd > targetSec + 1.0 || ws.durationSec > targetSec + 1 || ws.sourceEndSec > targetSec + 1.0) {
+                ws.trimEnd = targetSec;
+                ws.durationSec = targetSec;
+                ws.sourceEndSec = targetSec;
+                changed = true;
+              }
+            }
+          }
+          if (changed) {
+            fs.writeFileSync(wsFile, JSON.stringify(wsJson, null, 2), 'utf8');
+            dlog(\`[part1-guard] Synced workspaces.json Part 1 trimEnd & durationSec to \${targetSec}s\`);
+          }
+        }
+      } catch (_) {}
+
+      // 2. Physical file verification & lossless normalization
+      if (fs.existsSync(ffmpegExe)) {
+        const files = fs.readdirSync(dir);
+        for (const f of files) {
+          if (/^PART\\s*1_.*\\.mp4$/i.test(f) && !f.includes("_fixed") && !f.includes(".tmp")) {
+            const fullPath = path.join(dir, f);
+            const stat = fs.statSync(fullPath);
+            if (Date.now() - stat.mtimeMs < 2000) continue;
+
+            const probe = child_process.spawnSync(ffmpegExe, ['-i', fullPath], { encoding: 'utf8' });
+            const durMatch = (probe.stderr || '').match(/Duration:\\s*(\\d+):(\\d+):(\\d+\\.?\\d*)/);
+            if (durMatch) {
+              const actualDur = parseInt(durMatch[1]) * 3600 + parseInt(durMatch[2]) * 60 + parseFloat(durMatch[3]);
+              if (actualDur > targetSec + 1.5) {
+                const tmpPath = fullPath + '.norm.mp4';
+                const res = child_process.spawnSync(ffmpegExe, ['-y', '-i', fullPath, '-t', String(targetSec), '-c', 'copy', tmpPath]);
+                if (res.status === 0 && fs.existsSync(tmpPath) && fs.statSync(tmpPath).size > 1000) {
+                  fs.unlinkSync(fullPath);
+                  fs.renameSync(tmpPath, fullPath);
+                  dlog(\`[part1-guard] Successfully normalized \${f} from \${actualDur.toFixed(1)}s to \${targetSec}s (exact Part 1 duration)\`);
+                } else {
+                  try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (_) {}
+                }
               }
             }
           }
