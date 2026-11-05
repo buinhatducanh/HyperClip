@@ -13,28 +13,33 @@ SettingsCard {
 
     property bool adsPowerOnline: false
     // Chế độ chia part: "custom_p1" | "parts_2" | "parts_3"
+    property bool isLoaded: false
+
+    // Chế độ chia part: "custom_p1" | "parts_2" | "parts_3"
     property string splitMode: (settings && settings.autoSplitMode === "parts" && settings.autoSplitParts === 2)
                                ? "parts_2"
-                               : ((settings && settings.autoSplitMode === "parts" && settings.autoSplitParts === 3 && !settings.autoSplitCustomP1)
+                               : ((settings && settings.autoSplitMode === "parts" && settings.autoSplitParts === 3 && (settings.autoSplitCustomP1 === 0 || settings.autoSplitSubMode === "parts_3"))
                                   ? "parts_3"
                                   : "custom_p1")
 
-    // Thời lượng Part 1 tùy chỉnh (mặc định 4 phút)
+    // Thời lượng Part 1 tùy chỉnh (mặc định 3 phút)
     property real customP1Val: {
         if (settings && typeof settings.autoSplitCustomP1 === "number" && settings.autoSplitCustomP1 > 0) {
             return settings.autoSplitCustomP1;
         }
-        if (settings && typeof settings.autoSplitMinutes === "number" && settings.autoSplitMinutes > 0 && settings.autoSplitMinutes < 30) {
+        if (settings && typeof settings.autoSplitMinutes === "number" && settings.autoSplitMinutes > 0 && settings.autoSplitMinutes < 15) {
             return settings.autoSplitMinutes;
         }
-        return 1.0;
+        return 3.0;
     }
 
     // Tổng thời lượng video cắt tải về (mặc định 10 phút)
     readonly property real totalTrimMinutes: (settings && typeof settings.defaultTrimLimit === "number") ? settings.defaultTrimLimit : 10
+    readonly property int totalTrimSec: Math.max(60, Math.round(card.totalTrimMinutes * 60))
 
     // Khi người dùng đổi tổng thời gian tải, tự động điều chỉnh Part 1 nếu bị vượt ngưỡng
     onTotalTrimMinutesChanged: {
+        if (!card.isLoaded) return;
         var maxP1 = Math.max(1, Math.floor(card.totalTrimMinutes * 0.7));
         if (card.customP1Val > maxP1) {
             card.customP1Val = maxP1;
@@ -47,9 +52,32 @@ SettingsCard {
     readonly property real p1Duration: Math.min(card.customP1Val, Math.max(1, card.totalTrimMinutes - 1))
     readonly property real remainMinutes: Math.max(0, Math.round((card.totalTrimMinutes - card.p1Duration) * 10) / 10)
     readonly property real p2Duration: (card.remainMinutes < 1.0) ? 0 : Math.round((card.remainMinutes / 2) * 10) / 10
-    // Part 3 bù chính xác số dư còn lại để tổng 3 Part luôn bằng 100% totalTrimMinutes (Không bị trôi float)
     readonly property real p3Duration: (card.remainMinutes < 1.0) ? 0 : Math.max(0, Math.round((card.remainMinutes - card.p2Duration) * 10) / 10)
 
+    // Thời lượng thực tế từng part tính theo giây nguyên bản
+    readonly property int effP1Sec: {
+        if (card.splitMode === "parts_2") return Math.round(card.totalTrimSec / 2);
+        if (card.splitMode === "parts_3") return Math.round(card.totalTrimSec / 3);
+        return Math.min(Math.round(card.p1Duration * 60), Math.max(60, card.totalTrimSec - 60));
+    }
+    readonly property int effP2Sec: {
+        if (card.splitMode === "parts_2") return Math.max(0, card.totalTrimSec - card.effP1Sec);
+        if (card.splitMode === "parts_3") return Math.round(card.totalTrimSec / 3);
+        var rem = Math.max(0, card.totalTrimSec - card.effP1Sec);
+        return Math.round(rem / 2);
+    }
+    readonly property int effP3Sec: {
+        if (card.splitMode === "parts_2") return 0;
+        if (card.splitMode === "parts_3") return Math.max(0, card.totalTrimSec - card.effP1Sec - card.effP2Sec);
+        var rem = Math.max(0, card.totalTrimSec - card.effP1Sec);
+        return Math.max(0, rem - card.effP2Sec);
+    }
+
+    function formatSecClock(sec) {
+        var m = Math.floor(sec / 60);
+        var s = sec % 60;
+        return m + ":" + (s < 10 ? "0" : "") + s;
+    }
     // Helper format thời gian từ phút sang mm:ss (ví dụ: 2.5 phút -> "2:30")
     function formatTime(minVal) {
         var totalSec = Math.round(minVal * 60);
@@ -60,11 +88,9 @@ SettingsCard {
 
     // Đồng bộ và lưu dữ liệu tức thì xuống backend & settings.json (Khắc phục BUG-01, BUG-04, BUG-06)
     function syncSplitSettings() {
-        if (!settings) return;
+        if (!card.isLoaded || !settings) return;
 
-        // Vô hiệu hóa TrimRotate để tránh xung đột ngầm ghi đè thời lượng tải (BUG-04)
         settings.trimRotateEnabled = false;
-
         var isSplit = splitSwitch ? splitSwitch.checked : (settings ? settings.autoSplitEnabled : true);
         settings.autoSplitEnabled = isSplit;
 
@@ -76,33 +102,35 @@ SettingsCard {
             try { settings.autoSplitPart1Minutes = 0; } catch(e) {}
             try { settings.autoSplitRemainMinutes = 0; } catch(e) {}
             settings.autoRenderTitleTemplate = "{title}";
-        } else if (splitMode === "custom_p1") {
+        } else if (card.splitMode === "custom_p1") {
             settings.autoSplitEnabled = true;
             settings.autoSplitMode = "parts";
             settings.autoSplitParts = (card.remainMinutes >= 1.0) ? 3 : 1;
             settings.autoSplitMinutes = card.p1Duration;
             try { settings.autoSplitCustomP1 = card.p1Duration; } catch(e) {}
+            try { settings.autoSplitPart1Minutes = card.p1Duration; } catch(e) {}
             try { settings.autoSplitRemainMinutes = card.p2Duration; } catch(e) {}
             settings.autoRenderTitleTemplate = "PART {part}";
-        } else if (splitMode === "parts_2") {
+        } else if (card.splitMode === "parts_2") {
             settings.autoSplitEnabled = true;
             settings.autoSplitMode = "parts";
             settings.autoSplitMinutes = Math.round((card.totalTrimMinutes / 2) * 10) / 10;
             settings.autoSplitParts = 2;
             try { settings.autoSplitCustomP1 = 0; } catch(e) {}
             try { settings.autoSplitPart1Minutes = 0; } catch(e) {}
+            try { settings.autoSplitRemainMinutes = 0; } catch(e) {}
             settings.autoRenderTitleTemplate = "PART {part}";
-        } else if (splitMode === "parts_3") {
+        } else if (card.splitMode === "parts_3") {
             settings.autoSplitEnabled = true;
             settings.autoSplitMode = "parts";
             settings.autoSplitMinutes = Math.round((card.totalTrimMinutes / 3) * 10) / 10;
             settings.autoSplitParts = 3;
             try { settings.autoSplitCustomP1 = 0; } catch(e) {}
             try { settings.autoSplitPart1Minutes = 0; } catch(e) {}
+            try { settings.autoSplitRemainMinutes = 0; } catch(e) {}
             settings.autoRenderTitleTemplate = "PART {part}";
         }
 
-        // Bắn command cập nhật runtime cho backend Rust
         if (typeof backend !== "undefined" && backend) {
             try {
                 backend.send_command_async("settings:update", {
@@ -111,6 +139,7 @@ SettingsCard {
                     "autoSplitMode": settings.autoSplitMode,
                     "autoSplitMinutes": settings.autoSplitMinutes,
                     "autoSplitParts": settings.autoSplitParts,
+                    "autoSplitSubMode": card.splitMode,
                     "autoSplitCustomP1": (isSplit && card.splitMode === "custom_p1" ? card.p1Duration : 0),
                     "autoSplitPart1Minutes": (isSplit && card.splitMode === "custom_p1" ? card.p1Duration : 0),
                     "autoSplitRemainMinutes": (isSplit && card.splitMode === "custom_p1" ? card.p2Duration : 0),
@@ -120,7 +149,6 @@ SettingsCard {
                 });
             } catch(e) {}
 
-            // Tự động lưu vĩnh viễn vào settings.json trên đĩa cứng (BUG-06)
             try {
                 if (typeof settings.save_to_backend === "function") {
                     settings.save_to_backend(backend);
@@ -154,6 +182,33 @@ SettingsCard {
 
     Component.onCompleted: {
         card.checkAdsPower();
+        if (typeof backend !== "undefined" && backend) {
+            try {
+                var rawRes = backend.send_command("settings:get");
+                var res = (rawRes && rawRes.settings) ? rawRes.settings : rawRes;
+                if (res) {
+                    if (res.autoSplitSubMode) {
+                        card.splitMode = res.autoSplitSubMode;
+                    } else if (res.autoSplitMode === "parts" && res.autoSplitParts === 2) {
+                        card.splitMode = "parts_2";
+                    } else if (res.autoSplitMode === "parts" && res.autoSplitParts === 3 && (res.autoSplitCustomP1 <= 0 || !res.autoSplitCustomP1)) {
+                        card.splitMode = "parts_3";
+                    } else {
+                        card.splitMode = "custom_p1";
+                    }
+
+                    if (typeof res.autoSplitCustomP1 === "number" && res.autoSplitCustomP1 > 0) {
+                        card.customP1Val = res.autoSplitCustomP1;
+                    } else if (typeof res.autoSplitMinutes === "number" && res.autoSplitMinutes > 0 && res.autoSplitMinutes < 15) {
+                        card.customP1Val = res.autoSplitMinutes;
+                    }
+                    if (p1Spin) p1Spin.value = Math.round(card.customP1Val);
+                    if (trimSpin && typeof res.defaultTrimLimit === "number") trimSpin.value = res.defaultTrimLimit;
+                    if (splitSwitch && typeof res.autoSplitEnabled === "boolean") splitSwitch.checked = res.autoSplitEnabled;
+                }
+            } catch(e) {}
+        }
+        card.isLoaded = true;
     }
 
     // Timer kiểm tra trạng thái AdsPower định kỳ 4s (Khắc phục BUG-07)
@@ -204,7 +259,13 @@ SettingsCard {
                                 partStr = "1 Video đơn (" + card.totalTrimMinutes + "p)";
                             }
                         } else {
-                            partStr = "Chia " + (settings ? settings.autoSplitParts : 3) + " Part đều";
+                            if (card.splitMode === "parts_3") {
+                                partStr = "Chia 3 Part đều (" + card.formatSecClock(card.effP1Sec) + " / part)";
+                            } else if (card.splitMode === "parts_2") {
+                                partStr = "Chia 2 Part đều (" + card.formatSecClock(card.effP1Sec) + " / part)";
+                            } else {
+                                partStr = "Chia " + (settings ? settings.autoSplitParts : 3) + " Part đều";
+                            }
                         }
                         var renStr = "Render " + (settings ? settings.autoRenderResolution : "1080p") + " AdsPow";
                         var ttStr = (settings && settings.tiktokUploadEnabled) ? "Đăng TikTok từng Part qua AdsPower" : "Lưu máy";
@@ -361,7 +422,7 @@ SettingsCard {
                                  ? (card.remainMinutes >= 1.0
                                     ? ("Chia 3 Part (P1: " + card.p1Duration + "p | P2&3: " + card.p2Duration + "p)")
                                     : ("1 Video đơn (" + card.totalTrimMinutes + "p)"))
-                                 : ("Chia đều " + (card.splitMode === "parts_2" ? "2" : "3") + " Part"))
+                                 : (card.splitMode === "parts_2" ? ("Chia đều 2 Part (" + card.formatSecClock(card.effP1Sec) + " / part)") : ("Chia đều 3 Part (" + card.formatSecClock(card.effP1Sec) + " / part)")))
                               : "Tắt (1 video đơn)"
                         color: splitSwitch.checked ? Theme.success : Theme.textMuted
                         font.pixelSize: Theme.textMd
@@ -487,138 +548,203 @@ SettingsCard {
                         }
                     }
 
-                    // Thẻ đồ họa trực quan 3 Part (Visual Badges Row - Chuẩn mm:ss)
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: visualPartCol.implicitHeight + 12
-                        radius: 6
-                        color: Theme.cardBg
-                        border.color: Theme.border
-                        border.width: 1
+                    }
 
-                        ColumnLayout {
-                            id: visualPartCol
-                            anchors.fill: parent
-                            anchors.margins: 6
+                // Thẻ đồ họa trực quan phân bổ Part (Visual Badges - Chuẩn xác từng giây)
+                Rectangle {
+                    visible: splitSwitch.checked
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: visualPartCol.implicitHeight + 12
+                    radius: 6
+                    color: Theme.cardBg
+                    border.color: Theme.border
+                    border.width: 1
+
+                    ColumnLayout {
+                        id: visualPartCol
+                        anchors.fill: parent
+                        anchors.margins: 6
+                        spacing: 4
+
+                        Label {
+                            text: "PHÂN BỔ TRỰC QUAN (TỔNG " + card.totalTrimMinutes + " PHÚT):"
+                            color: Theme.accent
+                            font.pixelSize: 9
+                            font.bold: true
+                        }
+
+                        // ─── CHẾ ĐỘ 2 PART ĐỀU ───────────────────────────────
+                        RowLayout {
+                            visible: card.splitMode === "parts_2"
+                            Layout.fillWidth: true
                             spacing: 4
 
-                            Label {
-                                text: "PHÂN BỔ TRỰC QUAN (TỔNG " + card.totalTrimMinutes + " PHÚT):"
-                                color: Theme.accent
-                                font.pixelSize: 9
-                                font.bold: true
-                            }
-
-                            // Trường hợp thời gian còn lại >= 1p: Chia 3 Part hoàn hảo
-                            RowLayout {
-                                visible: card.remainMinutes >= 1.0
-                                Layout.fillWidth: true
-                                spacing: 4
-
-                                // Badge Part 1 (Ưu tiên đăng)
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 32
-                                    radius: 4
-                                    color: Qt.rgba(0, 0.7, 1, 0.15)
-                                    border.color: Theme.accent
-                                    border.width: 1
-
-                                    ColumnLayout {
-                                        anchors.centerIn: parent
-                                        spacing: 0
-                                        Label {
-                                            Layout.alignment: Qt.AlignHCenter
-                                            text: "PART 1: " + card.p1Duration + "p (0:00 - " + card.formatTime(card.p1Duration) + ")"
-                                            color: Theme.accent
-                                            font.pixelSize: 9
-                                            font.bold: true
-                                        }
-                                        Label {
-                                            Layout.alignment: Qt.AlignHCenter
-                                            text: "⚡ Đăng TikTok ngay"
-                                            color: Theme.textMuted
-                                            font.pixelSize: 8
-                                        }
-                                    }
-                                }
-
-                                Label { text: "➔"; color: Theme.textMuted; font.pixelSize: 10 }
-
-                                // Badge Part 2 (Chia đôi)
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 32
-                                    radius: 4
-                                    color: Theme.surface
-                                    border.color: Theme.border
-                                    border.width: 1
-
-                                    ColumnLayout {
-                                        anchors.centerIn: parent
-                                        spacing: 0
-                                        Label {
-                                            Layout.alignment: Qt.AlignHCenter
-                                            text: "PART 2: " + card.p2Duration + "p (" + card.formatTime(card.p1Duration) + " - " + card.formatTime(card.p1Duration + card.p2Duration) + ")"
-                                            color: Theme.text
-                                            font.pixelSize: 9
-                                            font.bold: true
-                                        }
-                                        Label {
-                                            Layout.alignment: Qt.AlignHCenter
-                                            text: "Render nối tiếp"
-                                            color: Theme.textMuted
-                                            font.pixelSize: 8
-                                        }
-                                    }
-                                }
-
-                                Label { text: "➔"; color: Theme.textMuted; font.pixelSize: 10 }
-
-                                // Badge Part 3 (Chia đôi)
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 32
-                                    radius: 4
-                                    color: Theme.surface
-                                    border.color: Theme.border
-                                    border.width: 1
-
-                                    ColumnLayout {
-                                        anchors.centerIn: parent
-                                        spacing: 0
-                                        Label {
-                                            Layout.alignment: Qt.AlignHCenter
-                                            text: "PART 3: " + card.p3Duration + "p (" + card.formatTime(card.p1Duration + card.p2Duration) + " - " + card.formatTime(card.totalTrimMinutes) + ")"
-                                            color: Theme.text
-                                            font.pixelSize: 9
-                                            font.bold: true
-                                        }
-                                        Label {
-                                            Layout.alignment: Qt.AlignHCenter
-                                            text: "Hoàn tất video"
-                                            color: Theme.textMuted
-                                            font.pixelSize: 8
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Trường hợp thời gian còn lại < 1p: Tự động bảo vệ thành 1 Video đơn
                             Rectangle {
-                                visible: card.remainMinutes < 1.0
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: 26
+                                Layout.preferredHeight: 32
+                                radius: 4
+                                color: Qt.rgba(0, 0.7, 1, 0.15)
+                                border.color: Theme.accent
+                                border.width: 1
+
+                                ColumnLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 0
+                                    Label {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "PART 1: " + card.formatSecClock(card.effP1Sec) + " (0:00 - " + card.formatSecClock(card.effP1Sec) + ")"
+                                        color: Theme.accent
+                                        font.pixelSize: 9
+                                        font.bold: true
+                                    }
+                                    Label {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "⚡ Đăng TikTok ngay"
+                                        color: Theme.textMuted
+                                        font.pixelSize: 8
+                                    }
+                                }
+                            }
+
+                            Label { text: "➔"; color: Theme.textMuted; font.pixelSize: 10 }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 32
                                 radius: 4
                                 color: Theme.surface
-                                border.color: Theme.warning
+                                border.color: Theme.border
                                 border.width: 1
-                                Label {
+
+                                ColumnLayout {
                                     anchors.centerIn: parent
-                                    text: "Phần còn lại quá ngắn (< 1p). Hệ thống xuất 1 Video đơn " + card.totalTrimMinutes + " phút để bảo đảm chất lượng."
-                                    color: Theme.warning
-                                    font.pixelSize: 9
+                                    spacing: 0
+                                    Label {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "PART 2: " + card.formatSecClock(card.effP2Sec) + " (" + card.formatSecClock(card.effP1Sec) + " - " + card.formatSecClock(card.totalTrimSec) + ")"
+                                        color: Theme.text
+                                        font.pixelSize: 9
+                                        font.bold: true
+                                    }
+                                    Label {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "Hoàn tất video"
+                                        color: Theme.textMuted
+                                        font.pixelSize: 8
+                                    }
                                 }
+                            }
+                        }
+
+                        // ─── CHẾ ĐỘ 3 PART (CUSTOM P1 HOẶC 3 PART ĐỀU) ───────
+                        RowLayout {
+                            visible: card.splitMode !== "parts_2" && (card.splitMode === "parts_3" || card.remainMinutes >= 1.0)
+                            Layout.fillWidth: true
+                            spacing: 4
+
+                            // Badge Part 1
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 32
+                                radius: 4
+                                color: Qt.rgba(0, 0.7, 1, 0.15)
+                                border.color: Theme.accent
+                                border.width: 1
+
+                                ColumnLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 0
+                                    Label {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "PART 1: " + card.formatSecClock(card.effP1Sec) + " (0:00 - " + card.formatSecClock(card.effP1Sec) + ")"
+                                        color: Theme.accent
+                                        font.pixelSize: 9
+                                        font.bold: true
+                                    }
+                                    Label {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "⚡ Đăng TikTok ngay"
+                                        color: Theme.textMuted
+                                        font.pixelSize: 8
+                                    }
+                                }
+                            }
+
+                            Label { text: "➔"; color: Theme.textMuted; font.pixelSize: 10 }
+
+                            // Badge Part 2
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 32
+                                radius: 4
+                                color: Theme.surface
+                                border.color: Theme.border
+                                border.width: 1
+
+                                ColumnLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 0
+                                    Label {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "PART 2: " + card.formatSecClock(card.effP2Sec) + " (" + card.formatSecClock(card.effP1Sec) + " - " + card.formatSecClock(card.effP1Sec + card.effP2Sec) + ")"
+                                        color: Theme.text
+                                        font.pixelSize: 9
+                                        font.bold: true
+                                    }
+                                    Label {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "Render nối tiếp"
+                                        color: Theme.textMuted
+                                        font.pixelSize: 8
+                                    }
+                                }
+                            }
+
+                            Label { text: "➔"; color: Theme.textMuted; font.pixelSize: 10 }
+
+                            // Badge Part 3
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 32
+                                radius: 4
+                                color: Theme.surface
+                                border.color: Theme.border
+                                border.width: 1
+
+                                ColumnLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 0
+                                    Label {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "PART 3: " + card.formatSecClock(card.effP3Sec) + " (" + card.formatSecClock(card.effP1Sec + card.effP2Sec) + " - " + card.formatSecClock(card.totalTrimSec) + ")"
+                                        color: Theme.text
+                                        font.pixelSize: 9
+                                        font.bold: true
+                                    }
+                                    Label {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "Hoàn tất video"
+                                        color: Theme.textMuted
+                                        font.pixelSize: 8
+                                    }
+                                }
+                            }
+                        }
+
+                        // Cảnh báo nếu P1 lấn át toàn bộ video
+                        Rectangle {
+                            visible: card.splitMode === "custom_p1" && card.remainMinutes < 1.0
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 26
+                            radius: 4
+                            color: Theme.surface
+                            border.color: Theme.warning
+                            border.width: 1
+                            Label {
+                                anchors.centerIn: parent
+                                text: "Phần còn lại quá ngắn (< 1p). Hệ thống xuất 1 Video đơn " + card.totalTrimMinutes + " phút để bảo đảm chất lượng."
+                                color: Theme.warning
+                                font.pixelSize: 9
                             }
                         }
                     }

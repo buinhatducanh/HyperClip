@@ -57,6 +57,9 @@ namespace FfmpegWrapper {
             double p2 = 4.5;
             double p3 = 4.5;
             bool autoSplitEnabled = true;
+            int p1Sec = 200;
+            int p2Sec = 200;
+            int p3Sec = 200;
 
             try {
                 string dataDir = Environment.GetEnvironmentVariable("HYPERCLIP_DATA_DIR");
@@ -81,50 +84,36 @@ namespace FfmpegWrapper {
                         int.TryParse(mParts.Groups[1].Value, out parts);
                     }
 
+                    Match mSub = Regex.Match(json, @"""autoSplitSubMode""\s*:\s*""([^""]+)""");
+                    string subMode = mSub.Success ? mSub.Groups[1].Value : "";
+
                     Match mP1 = Regex.Match(json, @"""autoSplitCustomP1""\s*:\s*([0-9\.]+)");
                     bool hasCustomP1 = false;
                     double cp1 = 0;
-                    if (mP1.Success && double.TryParse(mP1.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out cp1) && cp1 > 0) {
-                        p1 = cp1;
-                        hasCustomP1 = true;
-                    }
-                    if (!hasCustomP1) {
-                        mP1 = Regex.Match(json, @"""autoSplitPart1Minutes""\s*:\s*([0-9\.]+)");
-                        if (!mP1.Success) mP1 = Regex.Match(json, @"""autoSplitMinutes""\s*:\s*([0-9\.]+)");
-                        double p1m = 0;
-                        if (mP1.Success && double.TryParse(mP1.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out p1m) && p1m > 0) {
-                            p1 = p1m;
+                    if (subMode == "custom_p1" || (string.IsNullOrEmpty(subMode) && subMode != "parts_3" && subMode != "parts_2")) {
+                        if (mP1.Success && double.TryParse(mP1.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out cp1) && cp1 > 0) {
+                            p1 = cp1;
                             hasCustomP1 = true;
                         }
                     }
 
-                    if (parts == 2) {
-                        p1 = Math.Round((trimLimit / 2.0) * 10.0) / 10.0;
-                        p2 = Math.Max(0, Math.Round((trimLimit - p1) * 10.0) / 10.0);
-                        p3 = 0;
-                    } else if (parts == 3 && !hasCustomP1) {
-                        p1 = Math.Round((trimLimit / 3.0) * 10.0) / 10.0;
-                        p2 = Math.Round((trimLimit / 3.0) * 10.0) / 10.0;
-                        p3 = Math.Max(0, Math.Round((trimLimit - p1 - p2) * 10.0) / 10.0);
+                    int totalTrimSec = (int)Math.Max(60, Math.Round(trimLimit * 60.0));
+                    if (parts == 2 || subMode == "parts_2") {
+                        p1Sec = totalTrimSec / 2;
+                        p2Sec = totalTrimSec - p1Sec;
+                        p3Sec = 0;
+                    } else if (subMode == "parts_3" || !hasCustomP1) {
+                        p1Sec = totalTrimSec / 3;
+                        p2Sec = totalTrimSec / 3;
+                        p3Sec = totalTrimSec - p1Sec - p2Sec;
                     } else {
-                        double rem = Math.Max(0, trimLimit - p1);
-                        p2 = Math.Round((rem / 2.0) * 10.0) / 10.0;
-                        p3 = Math.Max(0, Math.Round((rem - p2) * 10.0) / 10.0);
-                        Match mRem = Regex.Match(json, @"""autoSplitRemainMinutes""\s*:\s*([0-9\.]+)");
-                        if (mRem.Success) {
-                            double remMin = 0;
-                            if (double.TryParse(mRem.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out remMin) && remMin > 0) {
-                                p2 = remMin;
-                                p3 = Math.Max(0, Math.Round((trimLimit - p1 - p2) * 10.0) / 10.0);
-                            }
-                        }
+                        p1Sec = (int)Math.Min(totalTrimSec - 60, Math.Max(60, Math.Round(p1 * 60.0)));
+                        int remSec = Math.Max(0, totalTrimSec - p1Sec);
+                        p2Sec = remSec / 2;
+                        p3Sec = remSec - p2Sec;
                     }
                 }
-            } catch {}
-
-            int p1Sec = (int)Math.Round(p1 * 60);
-            int p2Sec = (int)Math.Round(p2 * 60);
-            int p3Sec = (int)Math.Round(p3 * 60);
+            } catch { }
 
             // 2. Identify target part from arguments
             int partNum = 0;

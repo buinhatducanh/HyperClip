@@ -87,12 +87,12 @@ for (const filePath of targetFiles) {
             return { enabled: true, trimLimitMin, totalTrimSec, p1Sec, p2Sec, p3Sec, parts: 2, isAdaptiveShort: true };
           }
 
-          if (s.autoSplitParts === 2) {
+          if (s.autoSplitParts === 2 || s.autoSplitSubMode === "parts_2") {
             p1Sec = Math.round(totalTrimSec / 2);
             p2Sec = totalTrimSec - p1Sec;
             p3Sec = 0;
             partsCount = 2;
-          } else if (s.autoSplitParts === 3 && !s.autoSplitCustomP1) {
+          } else if (s.autoSplitSubMode === "parts_3" || (s.autoSplitParts === 3 && !s.autoSplitCustomP1 && s.autoSplitSubMode !== "custom_p1")) {
             p1Sec = Math.round(totalTrimSec / 3);
             p2Sec = Math.round(totalTrimSec / 3);
             p3Sec = Math.max(0, totalTrimSec - p1Sec - p2Sec);
@@ -209,17 +209,38 @@ function guardPart1Duration() {
           let changed = false;
           for (const ws of (wsJson.workspaces || [])) {
             if (ws.partIndex === 1 && ws.partTotal >= 2) {
-              if (ws.trimEnd > targetSec + 1.0 || ws.durationSec > targetSec + 1 || ws.sourceEndSec > targetSec + 1.0) {
-                ws.trimEnd = targetSec;
-                ws.durationSec = targetSec;
-                ws.sourceEndSec = targetSec;
+              if (Math.abs(ws.trimEnd - plan.p1Sec) > 1.0 || Math.abs(ws.durationSec - plan.p1Sec) > 1 || Math.abs(ws.sourceEndSec - plan.p1Sec) > 1.0) {
+                ws.trimEnd = plan.p1Sec;
+                ws.durationSec = plan.p1Sec;
+                ws.sourceStartSec = 0;
+                ws.sourceEndSec = plan.p1Sec;
+                changed = true;
+              }
+            } else if (ws.partIndex === 2 && ws.partTotal >= 2 && plan.p2Sec > 0) {
+              const p2Start = plan.p1Sec;
+              const p2End = plan.p1Sec + plan.p2Sec;
+              if (Math.abs(ws.trimEnd - plan.p2Sec) > 1.0 || Math.abs(ws.durationSec - plan.p2Sec) > 1 || Math.abs(ws.sourceEndSec - p2End) > 1.0) {
+                ws.trimEnd = plan.p2Sec;
+                ws.durationSec = plan.p2Sec;
+                ws.sourceStartSec = p2Start;
+                ws.sourceEndSec = p2End;
+                changed = true;
+              }
+            } else if (ws.partIndex === 3 && ws.partTotal === 3 && plan.p3Sec > 0) {
+              const p3Start = plan.p1Sec + plan.p2Sec;
+              const p3End = plan.p1Sec + plan.p2Sec + plan.p3Sec;
+              if (Math.abs(ws.trimEnd - plan.p3Sec) > 1.0 || Math.abs(ws.durationSec - plan.p3Sec) > 1 || Math.abs(ws.sourceEndSec - p3End) > 1.0) {
+                ws.trimEnd = plan.p3Sec;
+                ws.durationSec = plan.p3Sec;
+                ws.sourceStartSec = p3Start;
+                ws.sourceEndSec = p3End;
                 changed = true;
               }
             }
           }
           if (changed) {
             fs.writeFileSync(wsFile, JSON.stringify(wsJson, null, 2), 'utf8');
-            dlog(\`[part1-guard] Synced workspaces.json Part 1 trimEnd & durationSec to \${targetSec}s\`);
+            dlog(\`[part1-guard] Synced workspaces.json parts to plan durations (P1: \${plan.p1Sec}s, P2: \${plan.p2Sec}s, P3: \${plan.p3Sec}s)\`);
           }
         }
       } catch (_) {}
