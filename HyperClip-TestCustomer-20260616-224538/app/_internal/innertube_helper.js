@@ -1739,6 +1739,7 @@ async function resolveMediaNative(req) {
   const maxHeight = req.maxHeight || 360;
   const splitPlan = getSmartSplitPlan();
   const isSmartSplit = !!(splitPlan && splitPlan.enabled);
+  let planToUse = splitPlan || { p1Sec: (req.limitSec || 60), p2Sec: 0, p3Sec: 0 };
   const limitSec = isSmartSplit ? splitPlan.totalTrimSec : (req.limitSec || (splitPlan && splitPlan.totalTrimSec) || 0);
   const anonClient = await ensureGateClient();
   const chain = ['ANDROID', 'IOS', null];
@@ -1814,7 +1815,7 @@ async function downloadVideoNative(req, ctx) {
     if (mPart && masterPath) {
       const partNum = parseInt(mPart[2], 10);
       let startSec = 0;
-      let planToUse = splitPlan;
+      planToUse = splitPlan || planToUse;
       const metaFile = masterPath + '.meta.json';
       if (fs.existsSync(metaFile)) {
         try {
@@ -1938,9 +1939,10 @@ async function downloadVideoNative(req, ctx) {
             const cp = require('child_process');
             const fs = require('fs');
             const path = require('path');
-            let ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');
+            let ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg_real.exe');
             if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg.exe');
-            if (!fs.existsSync(ffmpegExe)) ffmpegExe = 'D:\\HyperClip\\HyperClip-TestCustomer-20260616-224538\\app\\_internal\\resources\\ffmpeg\\bin\\ffmpeg.exe';
+            if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');
+            if (!fs.existsSync(ffmpegExe)) ffmpegExe = 'D:\\HyperClip\\HyperClip-TestCustomer-20260616-224538\\app\\_internal\\resources\\ffmpeg\\bin\\ffmpeg_real.exe';
             dlog(`[smart-split] Slicing Part 1 (0 -> ${planToUse.p1Sec}s) from master to ${outputPath}`);
             cp.execFileSync(ffmpegExe, [
               '-y', '-ss', '0', '-i', masterPath, '-t', String(planToUse.p1Sec), '-c', 'copy', outputPath
@@ -2116,9 +2118,10 @@ async function downloadVideoNative(req, ctx) {
             const cp = require('child_process');
             const fs = require('fs');
             const path = require('path');
-            let ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');
+            let ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg_real.exe');
             if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg.exe');
-            if (!fs.existsSync(ffmpegExe)) ffmpegExe = 'D:\\HyperClip\\HyperClip-TestCustomer-20260616-224538\\app\\_internal\\resources\\ffmpeg\\bin\\ffmpeg.exe';
+            if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');
+            if (!fs.existsSync(ffmpegExe)) ffmpegExe = 'D:\\HyperClip\\HyperClip-TestCustomer-20260616-224538\\app\\_internal\\resources\\ffmpeg\\bin\\ffmpeg_real.exe';
             dlog(`[smart-split] Slicing Part 1 (0 -> ${planToUse.p1Sec}s) from master to ${outputPath}`);
             cp.execFileSync(ffmpegExe, [
               '-y', '-ss', '0', '-i', masterPath, '-t', String(planToUse.p1Sec), '-c', 'copy', outputPath

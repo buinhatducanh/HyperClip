@@ -1,4 +1,4 @@
-﻿// src/ui/qml/QuickPipelineCard.qml
+// src/ui/qml/QuickPipelineCard.qml
 // Card thiết lập nhanh quy trình tự động hóa E2E (Tải -> Tách Part -> Render -> Đăng TikTok qua AdsPower)
 // Tích hợp cơ chế AdsPower Local API (port 50325), FastDone và Hot Upload chuẩn nhánh adspow
 // Hỗ trợ Tùy chỉnh Part 1 (N phút) + Phần còn lại tự động chia đôi cho Part 2 và Part 3

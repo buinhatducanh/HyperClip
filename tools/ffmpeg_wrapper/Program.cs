@@ -131,7 +131,13 @@ namespace FfmpegWrapper {
 
             for (int i = 0; i < args.Length; i++) {
                 if (args[i] == "-i" && i + 1 < args.Length) {
-                    if (string.IsNullOrEmpty(inputPath)) inputPath = args[i + 1];
+                    string cand = args[i + 1];
+                    string ext = Path.GetExtension(cand).ToLowerInvariant();
+                    if (ext == ".mp4" || ext == ".mkv" || ext == ".webm" || ext == ".mov" || ext == ".ts" || cand.Contains("_part")) {
+                        inputPath = cand;
+                        break;
+                    }
+                    if (string.IsNullOrEmpty(inputPath)) inputPath = cand;
                 }
             }
             if (args.Length > 0 && !args[args.Length - 1].StartsWith("-")) {
@@ -140,11 +146,13 @@ namespace FfmpegWrapper {
 
             // CRITICAL: NEVER modify internal chunk renders, temp renders, or composite frames!
             string allArgs = string.Join(" ", args);
-            bool isChunkOrTemp = allArgs.Contains("_chunk") || allArgs.Contains("_c0_") || allArgs.Contains("_c1_") ||
-                                 allArgs.Contains(@"\temp\") || allArgs.Contains("/temp/") || allArgs.Contains("_composite");
+            bool isChunk = allArgs.Contains("_chunk") || allArgs.Contains("_c0_") || allArgs.Contains("_c1_");
+            bool isOutputTemp = !string.IsNullOrEmpty(outputPath) && (outputPath.Contains(@"\temp\") || outputPath.Contains("/temp/"));
+            bool isOutputImage = !string.IsNullOrEmpty(outputPath) && (outputPath.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || outputPath.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || outputPath.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase));
+            bool isChunkOrTemp = isChunk || isOutputTemp || isOutputImage;
 
             // Chunk Render Safeguard: Cap chunk duration if it exceeds actual input video duration
-            if (isChunkOrTemp && autoSplitEnabled && allArgs.Contains("_chunk") && !string.IsNullOrEmpty(inputPath) && File.Exists(inputPath)) {
+            if (isChunk && autoSplitEnabled && !string.IsNullOrEmpty(inputPath) && File.Exists(inputPath)) {
                 double inputDur = GetMediaDuration(inputPath, realFfmpeg);
                 if (inputDur > 0) {
                     double seekSec = 0;
@@ -184,12 +192,18 @@ namespace FfmpegWrapper {
             // Detect partNum only for final renders or trim operations
             if (!isChunkOrTemp) {
                 string combined = (inputPath ?? "") + " " + (outputPath ?? "");
-                Match mPart = Regex.Match(combined, @"(?:_part|PART\s*)(\d+)", RegexOptions.IgnoreCase);
+                Match mPart = Regex.Match(combined, @"(?:[_-]part|PART\s*)(\d+)", RegexOptions.IgnoreCase);
                 if (mPart.Success) {
                     int.TryParse(mPart.Groups[1].Value, out partNum);
-                } else if (autoSplitEnabled && outputPath != null && outputPath.EndsWith(".trim.tmp", StringComparison.OrdinalIgnoreCase)) {
-                    // Rust's maybe_trim_file trimming master video into Part 1 source
-                    partNum = 1;
+                } else {
+                    // Try looking in allArgs (e.g. temp workspace background ws-...-part2_composite_bg.png)
+                    mPart = Regex.Match(allArgs, @"(?:[_-]part|PART\s*)(\d+)", RegexOptions.IgnoreCase);
+                    if (mPart.Success) {
+                        int.TryParse(mPart.Groups[1].Value, out partNum);
+                    } else if (autoSplitEnabled && outputPath != null && outputPath.EndsWith(".trim.tmp", StringComparison.OrdinalIgnoreCase)) {
+                        // Rust's maybe_trim_file trimming master video into Part 1 source
+                        partNum = 1;
+                    }
                 }
             }
 
@@ -198,19 +212,31 @@ namespace FfmpegWrapper {
                 durSec = p1Sec;
                 if (!string.IsNullOrEmpty(inputPath) && File.Exists(inputPath)) {
                     double actDur = GetMediaDuration(inputPath, realFfmpeg);
-                    if (actDur > 0 && actDur < durSec) durSec = (int)Math.Round(actDur);
+                    if (actDur >= 10.0 && actDur < durSec) durSec = (int)Math.Round(actDur);
                 }
             } else if (partNum == 2) {
                 durSec = p2Sec;
                 if (!string.IsNullOrEmpty(inputPath) && File.Exists(inputPath)) {
                     double actDur = GetMediaDuration(inputPath, realFfmpeg);
-                    if (actDur > 0) durSec = (int)Math.Round(actDur);
+                    if (actDur >= 10.0) {
+                        durSec = (p2Sec > 0 && actDur > p2Sec + 2.0) ? p2Sec : (int)Math.Round(actDur);
+                    }
                 }
             } else if (partNum == 3) {
                 durSec = p3Sec;
                 if (!string.IsNullOrEmpty(inputPath) && File.Exists(inputPath)) {
                     double actDur = GetMediaDuration(inputPath, realFfmpeg);
-                    if (actDur > 0) durSec = (int)Math.Round(actDur);
+                    if (actDur >= 10.0) {
+                        durSec = (p3Sec > 0 && actDur > p3Sec + 2.0) ? p3Sec : (int)Math.Round(actDur);
+                    }
+                }
+            } else if (partNum > 3) {
+                durSec = p3Sec;
+                if (!string.IsNullOrEmpty(inputPath) && File.Exists(inputPath)) {
+                    double actDur = GetMediaDuration(inputPath, realFfmpeg);
+                    if (actDur >= 10.0) {
+                        durSec = (p3Sec > 0 && actDur > p3Sec + 2.0) ? p3Sec : (int)Math.Round(actDur);
+                    }
                 }
             }
 
@@ -240,8 +266,8 @@ namespace FfmpegWrapper {
                     for (int i = 0; i < modifiedArgs.Length; i++) {
                         if (modifiedArgs[i] == "-filter_complex" && i + 1 < modifiedArgs.Length) {
                             string fc = modifiedArgs[i + 1];
-                            string newFc = Regex.Replace(fc, @"trim=start=0:duration=([0-9\.]+)", "trim=start=0:duration=" + durSec);
-                            newFc = Regex.Replace(newFc, @"atrim=start=0:duration=([0-9\.]+)", "atrim=start=0:duration=" + durSec);
+                            string newFc = Regex.Replace(fc, @"trim=(?:start=0(?:\.0+)?:)?duration=([0-9\.]+)", "trim=start=0:duration=" + durSec);
+                            newFc = Regex.Replace(newFc, @"atrim=(?:start=0(?:\.0+)?:)?duration=([0-9\.]+)", "atrim=start=0:duration=" + durSec);
                             if (newFc != fc) {
                                 Log(string.Format("Adjusting filter_complex for Part {0}: duration -> {1}", partNum, durSec));
                                 modifiedArgs[i + 1] = newFc;

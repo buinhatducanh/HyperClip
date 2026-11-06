@@ -21,7 +21,7 @@ for (const filePath of targetFiles) {
   // 2. Fix missing splitPlan in resolveMediaNative and fallback to single video limitSec
   content = content.replace(
     /const maxHeight = req\.maxHeight \|\| 360;\r?\n\s*const isSmartSplit = !!\(splitPlan && splitPlan\.enabled\);/g,
-    "const maxHeight = req.maxHeight || 360;\n  const splitPlan = getSmartSplitPlan();\n  const isSmartSplit = !!(splitPlan && splitPlan.enabled);"
+    "const maxHeight = req.maxHeight || 360;\n  const splitPlan = getSmartSplitPlan();\n  const isSmartSplit = !!(splitPlan && splitPlan.enabled);\n  let planToUse = splitPlan || { p1Sec: (req.limitSec || 60), p2Sec: 0, p3Sec: 0 };"
   );
   content = content.replace(
     /const limitSec = isSmartSplit \? splitPlan\.totalTrimSec : \(req\.limitSec \|\| 0\);/g,
