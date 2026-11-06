@@ -1,19 +1,9 @@
 using System;
 using System.IO;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Threading;
 
 namespace HyperClipLauncher {
     static class Program {
-        [DllImport("user32.dll")]
-        private static extern bool SetForegroundWindow(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-        private const int SW_RESTORE = 9;
-
         [STAThread]
         static int Main(string[] args) {
             try {
@@ -30,36 +20,40 @@ namespace HyperClipLauncher {
                     return 1;
                 }
 
+                // If no app\HyperClip.exe is running, kill any stale leftover backend
+                bool isAppRunning = false;
                 int myPid = Process.GetCurrentProcess().Id;
-
-                // 1. Check if an actual app\HyperClip.exe is already running
-                Process[] procs = Process.GetProcessesByName("HyperClip");
-                foreach (Process p in procs) {
+                foreach (Process p in Process.GetProcessesByName("HyperClip")) {
                     try {
                         if (p.Id != myPid) {
-                            string pPath = "";
-                            try { pPath = p.MainModule.FileName; } catch {}
-                            bool isApp = !string.IsNullOrEmpty(pPath) && pPath.IndexOf("app\\HyperClip.exe", StringComparison.OrdinalIgnoreCase) >= 0;
-                            if (isApp) {
-                                if (p.Responding) {
-                                    if (p.MainWindowHandle != IntPtr.Zero) {
-                                        ShowWindow(p.MainWindowHandle, SW_RESTORE);
-                                        SetForegroundWindow(p.MainWindowHandle);
-                                    }
-                                    return 0;
-                                } else {
-                                    // Hung process
-                                    p.Kill();
-                                }
+                            string fn = "";
+                            try { fn = p.MainModule.FileName; } catch {}
+                            if (!string.IsNullOrEmpty(fn) && fn.IndexOf("app\\HyperClip.exe", StringComparison.OrdinalIgnoreCase) >= 0) {
+                                isAppRunning = true;
+                                break;
                             }
                         }
                     } catch {}
                 }
 
-                // 2. Clean up any leftover orphan hyperclip-tauri or node daemons
-                CleanupBackendProcesses(rootDir);
+                if (!isAppRunning) {
+                    try {
+                        foreach (Process t in Process.GetProcessesByName("hyperclip-tauri")) {
+                            try { t.Kill(); } catch {}
+                        }
+                        foreach (Process n in Process.GetProcessesByName("node")) {
+                            try {
+                                string fn = "";
+                                try { fn = n.MainModule.FileName; } catch {}
+                                if (!string.IsNullOrEmpty(fn) && fn.IndexOf("HyperClip", StringComparison.OrdinalIgnoreCase) >= 0) {
+                                    n.Kill();
+                                }
+                            } catch {}
+                        }
+                    } catch {}
+                }
 
-                // 3. Launch actual app\HyperClip.exe with app as working directory
+                // Set environment variables
                 Environment.SetEnvironmentVariable("HYPERCLIP_DATA_DIR", dataDir);
                 Environment.SetEnvironmentVariable("HYPERCLIPB_DATA_DIR", dataDir);
                 Environment.SetEnvironmentVariable("HYPERCLIP_EDITION", "long");
@@ -67,10 +61,7 @@ namespace HyperClipLauncher {
                 ProcessStartInfo psi = new ProcessStartInfo();
                 psi.FileName = appExe;
                 psi.WorkingDirectory = appDir;
-                psi.EnvironmentVariables["HYPERCLIP_DATA_DIR"] = dataDir;
-                psi.EnvironmentVariables["HYPERCLIPB_DATA_DIR"] = dataDir;
-                psi.EnvironmentVariables["HYPERCLIP_EDITION"] = "long";
-                psi.UseShellExecute = false;
+                psi.UseShellExecute = true;
 
                 if (args != null && args.Length > 0) {
                     string fullArgs = "";
@@ -83,46 +74,12 @@ namespace HyperClipLauncher {
                     psi.Arguments = fullArgs;
                 }
 
-                Process child = Process.Start(psi);
-                if (child != null) {
-                    // Wait for the app to exit, then cleanly terminate leftover backend processes
-                    child.WaitForExit();
-                    Thread.Sleep(1000);
-                    CleanupBackendProcesses(rootDir);
-                }
+                Process.Start(psi);
                 return 0;
             } catch (Exception ex) {
                 System.Windows.Forms.MessageBox.Show("Lỗi khởi động HyperClip:\n" + ex.Message, "HyperClip Error", System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Error);
                 return 1;
             }
-        }
-
-        private static void CleanupBackendProcesses(string rootDir) {
-            try {
-                Process[] tauris = Process.GetProcessesByName("hyperclip-tauri");
-                foreach (Process t in tauris) {
-                    try {
-                        string tPath = "";
-                        try { tPath = t.MainModule.FileName; } catch {}
-                        if (string.IsNullOrEmpty(tPath) || tPath.IndexOf(rootDir, StringComparison.OrdinalIgnoreCase) >= 0 || tPath.IndexOf("HyperClip", StringComparison.OrdinalIgnoreCase) >= 0) {
-                            t.Kill();
-                        }
-                    } catch {}
-                }
-            } catch {}
-
-            try {
-                Process[] nodes = Process.GetProcessesByName("node");
-                foreach (Process n in nodes) {
-                    try {
-                        string nPath = "";
-                        try { nPath = n.MainModule.FileName; } catch {}
-                        if (!string.IsNullOrEmpty(nPath) && (nPath.IndexOf(rootDir, StringComparison.OrdinalIgnoreCase) >= 0 || nPath.IndexOf("HyperClip", StringComparison.OrdinalIgnoreCase) >= 0)) {
-                            n.Kill();
-                        }
-                    } catch {}
-                }
-            } catch {}
         }
     }
 }
