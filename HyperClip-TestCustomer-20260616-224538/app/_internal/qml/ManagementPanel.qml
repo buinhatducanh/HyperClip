@@ -1,4 +1,4 @@
-﻿// src/ui/qml/ManagementPanel.qml
+// src/ui/qml/ManagementPanel.qml
 
 // Quản lí — left: 24h download queue (newest first). Right: full video detail
 
@@ -850,11 +850,15 @@ Rectangle {
 
     }
 
-    function fmtTimeAgo(ms) {
+    function fmtTimeAgo(ms, nowMs) {
 
         if (!ms || ms <= 0) return "—"
 
-        const diff = (Date.now() - ms) / 1000
+        const base = (nowMs && nowMs > 0) ? nowMs : ((root.nowMs && root.nowMs > 0) ? root.nowMs : Date.now())
+
+        const diff = (base - ms) / 1000
+
+        if (diff < 1) return "vừa xong"
 
         if (diff < 60) return Math.floor(diff) + " giây trước"
 
@@ -2368,7 +2372,7 @@ Rectangle {
 
                                     Label {
                                         text: (modelData.channelName || modelData.channelId || modelData.channel_id || "—")
-                                            + " · " + root.fmtTimeAgo(modelData.createdAt)
+                                            + " · " + root.fmtTimeAgo(modelData.createdAt, root.nowMs)
                                             + ((modelData.partIndex && modelData.partIndex >= 1) ? "" : root.getPartsSummary(modelData.id))
                                         color: Theme.textMuted
                                         font.pixelSize: 10
