@@ -151,16 +151,50 @@ namespace YtDlpWrapper {
                     string baseName = mPart.Groups[1].Value;
                     int partNum = int.Parse(mPart.Groups[2].Value);
 
-                    string masterPath = Path.Combine(dir, baseName + "_master.mp4");
-                    if (!File.Exists(masterPath)) {
-                        string cand = Path.Combine(dir, baseName + ".mp4");
-                        if (File.Exists(cand)) masterPath = cand;
+                    string cleanBase = Regex.Replace(baseName, @"(?:_h|\.hedge)$", "", RegexOptions.IgnoreCase);
+                    string[] candFiles = new string[] {
+                        Path.Combine(dir, baseName + "_master.mp4"),
+                        Path.Combine(dir, cleanBase + "_master.mp4"),
+                        Path.Combine(dir, cleanBase + "_h_master.mp4"),
+                        Path.Combine(dir, cleanBase + ".mp4.hedge_master.mp4"),
+                        Path.Combine(dir, cleanBase + ".hedge_master.mp4"),
+                        Path.Combine(dir, cleanBase + ".mp4.hedge.mp4"),
+                        Path.Combine(dir, cleanBase + ".mp4"),
+                        Path.Combine(dir, baseName + ".mp4")
+                    };
+
+                    string masterPath = null;
+                    double bestDur = 0;
+                    foreach (string cand in candFiles) {
+                        if (File.Exists(cand)) {
+                            double d = GetMediaDuration(cand, ffmpegPath);
+                            if (d > bestDur) {
+                                bestDur = d;
+                                masterPath = cand;
+                            }
+                        }
                     }
 
-                    double masterDur = 0;
-                    if (File.Exists(masterPath) && File.Exists(ffmpegPath)) {
-                        masterDur = GetMediaDuration(masterPath, ffmpegPath);
+                    // If duration is still short (< 180s) or no master found, look for any matching video in dir
+                    if (bestDur < 180.0) {
+                        Match mVid = Regex.Match(baseName, @"([a-zA-Z0-9_-]{11})");
+                        if (mVid.Success) {
+                            string vid = mVid.Groups[1].Value;
+                            try {
+                                foreach (string f in Directory.GetFiles(dir, "*" + vid + "*.mp4")) {
+                                    string fn = Path.GetFileName(f);
+                                    if (fn.Contains("_part") || fn.Contains("_chunk") || fn.Contains(".trim")) continue;
+                                    double d = GetMediaDuration(f, ffmpegPath);
+                                    if (d > bestDur) {
+                                        bestDur = d;
+                                        masterPath = f;
+                                    }
+                                }
+                            } catch {}
+                        }
                     }
+
+                    double masterDur = bestDur;
 
                     // Dynamic timeline: adapt to actual video duration vs user setting
                     double effectiveTotal = (masterDur > 0) ? masterDur : ((trimLimit > 0 && trimLimit < 900) ? trimLimit * 60.0 : 600.0);
@@ -319,12 +353,15 @@ namespace YtDlpWrapper {
                         string dir = Path.GetDirectoryName(outputPath);
                         if (string.IsNullOrEmpty(dir)) dir = ".";
                         string fileNameWithoutExt = Path.GetFileNameWithoutExtension(outputPath);
-                        if (!fileNameWithoutExt.EndsWith("_master", StringComparison.OrdinalIgnoreCase)) {
-                            string masterSnapshot = Path.Combine(dir, fileNameWithoutExt + "_master.mp4");
-                            if (!File.Exists(masterSnapshot)) {
-                                File.Copy(outputPath, masterSnapshot, true);
-                                Log(string.Format("Saved master video snapshot: {0} ({1:F2} MB)", masterSnapshot, fi.Length / (1024.0 * 1024.0)));
-                            }
+                        string cleanName = Regex.Replace(fileNameWithoutExt, @"(?:\.mp4)?(?:\.hedge)?$", "", RegexOptions.IgnoreCase);
+                        
+                        if (!cleanName.EndsWith("_master", StringComparison.OrdinalIgnoreCase)) {
+                            string masterSnapshot = Path.Combine(dir, cleanName + "_master.mp4");
+                            File.Copy(outputPath, masterSnapshot, true);
+                            Log(string.Format("Saved master video snapshot: {0} ({1:F2} MB)", masterSnapshot, fi.Length / (1024.0 * 1024.0)));
+
+                            string hMaster = Path.Combine(dir, cleanName + "_h_master.mp4");
+                            try { File.Copy(outputPath, hMaster, true); } catch {}
                         }
                     }
                 } catch {}
