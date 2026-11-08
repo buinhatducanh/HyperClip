@@ -203,6 +203,21 @@ async function main() {
   }
 
   console.log(`\nHoàn tất: Đã kích hoạt sẵn sàng ${successCount}/${targetList.length} tài khoản AdsPower vào trang Upload TikTok!`);
+
+  // Kích hoạt cầu nối CDP adspower_bridge.js chạy nền để các cổng 9223-9235 luôn sẵn sàng (<1ms)
+  try {
+    const bridgeScript = path.resolve(__dirname, 'adspower_bridge.js');
+    if (fs.existsSync(bridgeScript)) {
+      const nodeExe = process.execPath;
+      const { spawn } = require('child_process');
+      const bridgeProc = spawn(nodeExe, [bridgeScript], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      bridgeProc.unref();
+      console.log('✅ Đã kích hoạt cầu nối CDP (adspower_bridge.js) chạy nền!');
+    }
+  } catch (e) {}
 }
 
 main();
