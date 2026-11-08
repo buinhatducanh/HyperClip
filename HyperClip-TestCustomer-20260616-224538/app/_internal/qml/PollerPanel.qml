@@ -239,7 +239,13 @@ SettingsCard {
                     }
                     RowLayout { Layout.fillWidth: true; spacing: 8; Layout.preferredHeight: 16
                         Label { text: "Kênh"; color: Theme.textMuted; font.pixelSize: 12; Layout.preferredWidth: 70 }
-                        Label { text: model.channelName || "—"; color: Theme.text; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
+                        ChannelAvatarFor {
+                            channelKey: model.channelId || ""
+                            fallbackName: model.channelName || ""
+                            diameter: 16
+                            Layout.alignment: Qt.AlignVCenter
+                        }
+                        Label { text: model.channelName || "—"; color: Theme.text; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter }
                     }
                     RowLayout { Layout.fillWidth: true; spacing: 8; Layout.preferredHeight: 16
                         Label { text: "Download"; color: Theme.textMuted; font.pixelSize: 12; Layout.preferredWidth: 70 }

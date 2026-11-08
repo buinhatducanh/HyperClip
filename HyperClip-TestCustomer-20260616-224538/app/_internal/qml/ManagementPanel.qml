@@ -2370,15 +2370,26 @@ Rectangle {
                                         }
                                     }
 
-                                    Label {
-                                        text: (modelData.channelName || modelData.channelId || modelData.channel_id || "—")
-                                            + " · " + root.fmtTimeAgo(modelData.createdAt, root.nowMs)
-                                            + ((modelData.partIndex && modelData.partIndex >= 1) ? "" : root.getPartsSummary(modelData.id))
-                                        color: Theme.textMuted
-                                        font.pixelSize: 10
-                                        elide: Text.ElideRight
+                                    RowLayout {
                                         Layout.fillWidth: true
-                                        maximumLineCount: 1
+                                        spacing: 6
+                                        ChannelAvatarFor {
+                                            channelKey: modelData.channelId || modelData.channel_id || ""
+                                            fallbackName: modelData.channelName || ""
+                                            diameter: 14
+                                            Layout.alignment: Qt.AlignVCenter
+                                        }
+                                        Label {
+                                            text: (modelData.channelName || modelData.channelId || modelData.channel_id || "—")
+                                                + " · " + root.fmtTimeAgo(modelData.createdAt, root.nowMs)
+                                                + ((modelData.partIndex && modelData.partIndex >= 1) ? "" : root.getPartsSummary(modelData.id))
+                                            color: Theme.textMuted
+                                            font.pixelSize: 10
+                                            elide: Text.ElideRight
+                                            Layout.fillWidth: true
+                                            maximumLineCount: 1
+                                            Layout.alignment: Qt.AlignVCenter
+                                        }
                                     }
 
                                     RowLayout {

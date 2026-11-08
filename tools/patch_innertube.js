@@ -208,32 +208,79 @@ function guardPart1Duration() {
           const wsJson = JSON.parse(fs.readFileSync(wsFile, 'utf8'));
           let changed = false;
           for (const ws of (wsJson.workspaces || [])) {
+            // Find video actual total duration
+            let videoDur = 0;
+            const parentWs = (wsJson.workspaces || []).find(w => w.id === ws.partGroup || w.id === (ws.id || '').replace(/-part\d+$/, ''));
+            if (parentWs && parentWs.originalDurationSec && parentWs.originalDurationSec > 0) {
+              videoDur = parentWs.originalDurationSec;
+            } else if (ws.originalDurationSec && ws.originalDurationSec > 0) {
+              videoDur = ws.originalDurationSec;
+            } else if (parentWs && parentWs.durationSec && parentWs.durationSec > 180) {
+              videoDur = parentWs.durationSec;
+            } else if (ws.durationSec && ws.durationSec > 180) {
+              videoDur = ws.durationSec;
+            }
+
+            if (!videoDur || videoDur <= 0) {
+              try {
+                const hFile = path.join(dir, 'history.json');
+                if (fs.existsSync(hFile)) {
+                  const hObj = JSON.parse(fs.readFileSync(hFile, 'utf8'));
+                  const hEnt = (hObj.entries || []).find(e => e.videoId === ws.video_id);
+                  if (hEnt && (hEnt.originalDurationSec || hEnt.durationSec)) {
+                    videoDur = hEnt.originalDurationSec || hEnt.durationSec;
+                  }
+                }
+              } catch (_) {}
+            }
+
+            const targetP1 = plan.p1Sec || 180;
+            let effectiveP1 = targetP1;
+            let effectiveP2 = 0;
+            let effectiveP3 = 0;
+
+            if (videoDur > 0 && videoDur > targetP1) {
+              const remainSec = Math.max(0, videoDur - targetP1);
+              if (ws.partTotal === 2) {
+                effectiveP2 = Math.round(remainSec);
+              } else {
+                effectiveP2 = Math.ceil(remainSec / 2.0);
+                effectiveP3 = Math.floor(remainSec - effectiveP2);
+              }
+            } else {
+              effectiveP2 = plan.p2Sec || 180;
+              effectiveP3 = plan.p3Sec || 180;
+            }
+
             if (ws.partIndex === 1 && ws.partTotal >= 2) {
-              if (Math.abs(ws.trimEnd - plan.p1Sec) > 1.0 || Math.abs(ws.durationSec - plan.p1Sec) > 1 || Math.abs(ws.sourceEndSec - plan.p1Sec) > 1.0) {
-                ws.trimEnd = plan.p1Sec;
-                ws.durationSec = plan.p1Sec;
-                ws.sourceStartSec = 0;
-                ws.sourceEndSec = plan.p1Sec;
+              if (Math.abs(ws.trimStart - 0) > 0.5 || Math.abs(ws.trimEnd - effectiveP1) > 0.5 || Math.abs(ws.durationSec - effectiveP1) > 0.5 || Math.abs(ws.sourceEndSec - effectiveP1) > 0.5) {
+                ws.trimStart = 0.0;
+                ws.trimEnd = Number(effectiveP1.toFixed(1));
+                ws.durationSec = effectiveP1;
+                ws.sourceStartSec = 0.0;
+                ws.sourceEndSec = Number(effectiveP1.toFixed(1));
                 changed = true;
               }
-            } else if (ws.partIndex === 2 && ws.partTotal >= 2 && plan.p2Sec > 0) {
-              const p2Start = plan.p1Sec;
-              const p2End = plan.p1Sec + plan.p2Sec;
-              if (Math.abs(ws.trimEnd - plan.p2Sec) > 1.0 || Math.abs(ws.durationSec - plan.p2Sec) > 1 || Math.abs(ws.sourceEndSec - p2End) > 1.0) {
-                ws.trimEnd = plan.p2Sec;
-                ws.durationSec = plan.p2Sec;
-                ws.sourceStartSec = p2Start;
-                ws.sourceEndSec = p2End;
+            } else if (ws.partIndex === 2 && ws.partTotal >= 2 && effectiveP2 > 0) {
+              const p2Start = effectiveP1;
+              const p2End = effectiveP1 + effectiveP2;
+              if (Math.abs(ws.trimStart - p2Start) > 0.5 || Math.abs(ws.trimEnd - p2End) > 0.5 || Math.abs(ws.durationSec - effectiveP2) > 0.5 || Math.abs(ws.sourceEndSec - p2End) > 0.5 || Math.abs(ws.sourceStartSec - p2Start) > 0.5) {
+                ws.trimStart = Number(p2Start.toFixed(1));
+                ws.trimEnd = Number(p2End.toFixed(1));
+                ws.durationSec = effectiveP2;
+                ws.sourceStartSec = Number(p2Start.toFixed(1));
+                ws.sourceEndSec = Number(p2End.toFixed(1));
                 changed = true;
               }
-            } else if (ws.partIndex === 3 && ws.partTotal === 3 && plan.p3Sec > 0) {
-              const p3Start = plan.p1Sec + plan.p2Sec;
-              const p3End = plan.p1Sec + plan.p2Sec + plan.p3Sec;
-              if (Math.abs(ws.trimEnd - plan.p3Sec) > 1.0 || Math.abs(ws.durationSec - plan.p3Sec) > 1 || Math.abs(ws.sourceEndSec - p3End) > 1.0) {
-                ws.trimEnd = plan.p3Sec;
-                ws.durationSec = plan.p3Sec;
-                ws.sourceStartSec = p3Start;
-                ws.sourceEndSec = p3End;
+            } else if (ws.partIndex === 3 && ws.partTotal === 3 && effectiveP3 > 0) {
+              const p3Start = effectiveP1 + effectiveP2;
+              const p3End = effectiveP1 + effectiveP2 + effectiveP3;
+              if (Math.abs(ws.trimStart - p3Start) > 0.5 || Math.abs(ws.trimEnd - p3End) > 0.5 || Math.abs(ws.durationSec - effectiveP3) > 0.5 || Math.abs(ws.sourceEndSec - p3End) > 0.5 || Math.abs(ws.sourceStartSec - p3Start) > 0.5) {
+                ws.trimStart = Number(p3Start.toFixed(1));
+                ws.trimEnd = Number(p3End.toFixed(1));
+                ws.durationSec = effectiveP3;
+                ws.sourceStartSec = Number(p3Start.toFixed(1));
+                ws.sourceEndSec = Number(p3End.toFixed(1));
                 changed = true;
               }
             }

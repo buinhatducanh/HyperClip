@@ -14,6 +14,7 @@ SettingsCard {
     property bool adsPowerOnline: false
     // Chế độ chia part: "custom_p1" | "parts_2" | "parts_3"
     property bool isLoaded: false
+    property bool isSyncing: false
 
     // Chế độ chia part: "custom_p1" | "parts_2" | "parts_3"
     property string splitMode: {
@@ -41,7 +42,7 @@ SettingsCard {
 
     // Khi người dùng đổi tổng thời gian tải, tự động điều chỉnh Part 1 nếu bị vượt ngưỡng
     onTotalTrimMinutesChanged: {
-        if (!card.isLoaded) return;
+        if (!card.isLoaded || card.isSyncing) return;
         var maxP1 = Math.max(1, Math.floor(card.totalTrimMinutes * 0.7));
         if (card.customP1Val > maxP1) {
             card.customP1Val = maxP1;
@@ -90,7 +91,9 @@ SettingsCard {
 
     // Đồng bộ và lưu dữ liệu tức thì xuống backend & settings.json (Khắc phục BUG-01, BUG-04, BUG-06)
     function syncSplitSettings() {
-        if (!card.isLoaded || !settings) return;
+        if (!card.isLoaded || !settings || card.isSyncing) return;
+        card.isSyncing = true;
+        try {
 
         settings.trimRotateEnabled = false;
         var isSplit = splitSwitch ? splitSwitch.checked : (settings ? settings.autoSplitEnabled : true);
@@ -133,6 +136,14 @@ SettingsCard {
             settings.autoRenderTitleTemplate = "PART {part}";
         }
 
+        // Đồng bộ chất lượng tải và render theo chuẩn tối ưu AdsPow:
+        // - Chế độ 720p (Ưu tiên tốc độ AdsPow): Tải 360p siêu tốc (1-2s) -> Render & Đăng TikTok 720p (E2E < 15s)
+        // - Chế độ 1080p (Ưu tiên chất lượng): Tải 1080p Full HD -> Render & Đăng TikTok 1080p
+        var targetRes = settings.autoRenderResolution || "720p";
+        var targetDlQuality = (targetRes === "1080p") ? "1080" : "360";
+        settings.autoDownloadQuality = targetDlQuality;
+        settings.defaultQuality = (targetRes === "1080p") ? 1080 : 360;
+
         if (typeof backend !== "undefined" && backend) {
             try {
                 backend.send_command_async("settings:update", {
@@ -146,6 +157,11 @@ SettingsCard {
                     "autoSplitPart1Minutes": (isSplit && card.splitMode === "custom_p1" ? card.p1Duration : 0),
                     "autoSplitRemainMinutes": (isSplit && card.splitMode === "custom_p1" ? card.p2Duration : 0),
                     "autoRenderTitleTemplate": settings.autoRenderTitleTemplate,
+                    "autoRenderResolution": settings.autoRenderResolution,
+                    "autoDownloadQuality": targetDlQuality,
+                    "defaultQuality": (targetRes === "1080p" ? 1080 : 360),
+                    "tiktokUploadEnabled": settings.tiktokUploadEnabled,
+                    "tiktokFastDone": settings.tiktokFastDone,
                     "trimRotateEnabled": false,
                     "splitChainDelaySec": 0
                 });
@@ -156,6 +172,9 @@ SettingsCard {
                     settings.save_to_backend(backend);
                 }
             } catch(e) {}
+        }
+        } finally {
+            card.isSyncing = false;
         }
     }
 
@@ -207,6 +226,14 @@ SettingsCard {
                     if (p1Spin) p1Spin.value = Math.round(card.customP1Val);
                     if (trimSpin && typeof res.defaultTrimLimit === "number") trimSpin.value = res.defaultTrimLimit;
                     if (splitSwitch && typeof res.autoSplitEnabled === "boolean") splitSwitch.checked = res.autoSplitEnabled;
+                    if (ttSwitch && typeof res.tiktokUploadEnabled === "boolean") ttSwitch.checked = res.tiktokUploadEnabled;
+                    if (resCombo && res.autoRenderResolution) {
+                        var resIdx = ["720p", "1080p"].indexOf(res.autoRenderResolution);
+                        if (resIdx >= 0) resCombo.currentIndex = resIdx;
+                    }
+                    if (tplQuickInput && res.autoRenderTitleTemplate) {
+                        tplQuickInput.text = res.autoRenderTitleTemplate;
+                    }
                 }
             } catch(e) {}
         }
@@ -269,7 +296,9 @@ SettingsCard {
                                 partStr = "Chia " + (settings ? settings.autoSplitParts : 3) + " Part đều";
                             }
                         }
-                        var renStr = "Render " + (settings ? settings.autoRenderResolution : "1080p") + " AdsPow";
+                        var renStr = (settings && settings.autoRenderResolution === "720p")
+                            ? "Tải 360p ➔ Render 720p AdsPow (Siêu tốc)"
+                            : "Tải 1080p ➔ Render 1080p AdsPow (Full HD)";
                         var ttStr = (settings && settings.tiktokUploadEnabled) ? "Đăng TikTok từng Part qua AdsPower" : "Lưu máy";
                         return trimStr + "  ➔  " + partStr + "  ➔  " + renStr + "  ➔  " + ttStr;
                     }
@@ -688,14 +717,16 @@ SettingsCard {
                                     spacing: 0
                                     Label {
                                         Layout.alignment: Qt.AlignHCenter
-                                        text: "PART 2: " + card.formatSecClock(card.effP2Sec) + " (" + card.formatSecClock(card.effP1Sec) + " - " + card.formatSecClock(card.effP1Sec + card.effP2Sec) + ")"
+                                        text: (card.splitMode === "custom_p1")
+                                            ? ("PART 2: ~" + card.formatSecClock(card.effP2Sec) + " (Nối tiếp " + card.formatSecClock(card.effP1Sec) + " - 50% còn lại)")
+                                            : ("PART 2: " + card.formatSecClock(card.effP2Sec) + " (" + card.formatSecClock(card.effP1Sec) + " - " + card.formatSecClock(card.effP1Sec + card.effP2Sec) + ")")
                                         color: Theme.text
                                         font.pixelSize: 9
                                         font.bold: true
                                     }
                                     Label {
                                         Layout.alignment: Qt.AlignHCenter
-                                        text: "Render nối tiếp"
+                                        text: (card.splitMode === "custom_p1") ? "Chia đôi phần còn lại" : "Render nối tiếp"
                                         color: Theme.textMuted
                                         font.pixelSize: 8
                                     }
@@ -718,7 +749,9 @@ SettingsCard {
                                     spacing: 0
                                     Label {
                                         Layout.alignment: Qt.AlignHCenter
-                                        text: "PART 3: " + card.formatSecClock(card.effP3Sec) + " (" + card.formatSecClock(card.effP1Sec + card.effP2Sec) + " - " + card.formatSecClock(card.totalTrimSec) + ")"
+                                        text: (card.splitMode === "custom_p1")
+                                            ? ("PART 3: ~" + card.formatSecClock(card.effP3Sec) + " (Dồn tiếp đến hết video)")
+                                            : ("PART 3: " + card.formatSecClock(card.effP3Sec) + " (" + card.formatSecClock(card.effP1Sec + card.effP2Sec) + " - " + card.formatSecClock(card.totalTrimSec) + ")")
                                         color: Theme.text
                                         font.pixelSize: 9
                                         font.bold: true
@@ -731,6 +764,17 @@ SettingsCard {
                                     }
                                 }
                             }
+                        }
+
+                        // Chú thích giải thích công thức chia theo thời lượng thực tế
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignHCenter
+                            horizontalAlignment: Text.AlignHCenter
+                            visible: card.splitMode === "custom_p1" && card.remainMinutes >= 1.0
+                            text: "💡 Quy tắc dồn timeline: Part 1 = " + card.p1Duration + "p (0:00 - " + card.formatSecClock(card.effP1Sec) + ") · Part 2 & 3 chia đều 100% video còn lại (VD video 11:15: P1 0:00 - 3:00 | P2 3:00 - 7:08 | P3 7:08 - 11:15)"
+                            color: Theme.accent
+                            font.pixelSize: 8
                         }
 
                         // Cảnh báo nếu P1 lấn át toàn bộ video
@@ -778,13 +822,17 @@ SettingsCard {
                     Layout.fillWidth: true
                     spacing: 6
                     ComboBox {
+                        id: resCombo
                         Layout.preferredWidth: 100
                         font.pixelSize: Theme.textSm
-                        model: ["1080p", "720p"]
-                        currentIndex: settings ? Math.max(0, ["1080p", "720p"].indexOf(settings.autoRenderResolution)) : 0
+                        model: ["720p", "1080p"]
+                        currentIndex: settings ? Math.max(0, ["720p", "1080p"].indexOf(settings.autoRenderResolution)) : 0
                         onActivated: {
                             if (settings) {
-                                settings.autoRenderResolution = model[currentIndex];
+                                var chosenRes = model[currentIndex];
+                                settings.autoRenderResolution = chosenRes;
+                                settings.autoDownloadQuality = (chosenRes === "1080p") ? "1080" : "360";
+                                settings.defaultQuality = (chosenRes === "1080p") ? 1080 : 360;
                                 card.syncSplitSettings();
                             }
                         }

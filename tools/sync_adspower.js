@@ -71,6 +71,7 @@ async function main() {
   console.log('[3/3] Đang cập nhật vào cấu hình HyperClip (tiktok.json)...');
   const targetPaths = [
     path.resolve(__dirname, '../HyperClip-Data/.hyperclip/tiktok.json'),
+    path.resolve(__dirname, '../HyperClip-TestCustomer-20260616-224538/HyperClip-Data/.hyperclip/tiktok.json'),
     path.resolve(__dirname, '../HyperClipB-Data/.hyperclip/tiktok.json'),
     path.resolve(__dirname, '../app/data/.hyperclip/tiktok.json'),
     path.resolve(__dirname, '../HyperClipB-Package/HyperClipB-Data/.hyperclip/tiktok.json'),

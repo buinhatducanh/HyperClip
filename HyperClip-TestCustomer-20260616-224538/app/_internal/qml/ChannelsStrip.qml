@@ -61,7 +61,7 @@ Rectangle {
             spacing: 4
 
             delegate: Rectangle {
-                width: delegateLabel.implicitWidth + 32
+                width: delegateLabel.implicitWidth + 56
                 height: chStrip.height
                 radius: 4
                 color: root.filterChannelId === model.channelId ? Theme.accent + "30" : Theme.bg
@@ -76,6 +76,13 @@ Rectangle {
                     Rectangle {
                         width: 8; height: 8; radius: 4
                         color: model.paused ? Theme.textMuted : Theme.success
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+                    ChannelAvatarFor {
+                        channelKey: model.channelId || model.id || ""
+                        fallbackName: model.name || ""
+                        diameter: 18
+                        Layout.alignment: Qt.AlignVCenter
                     }
                     Label {
                         id: delegateLabel

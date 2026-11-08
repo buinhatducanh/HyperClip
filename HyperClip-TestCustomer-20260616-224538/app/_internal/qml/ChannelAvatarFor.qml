@@ -1,19 +1,14 @@
 // src/ui/qml/ChannelAvatarFor.qml
-// Avatar kênh tra theo KHOÁ — dùng ở trang nào chỉ cầm id/tên kênh chứ không
-// có sẵn `avatarUrl` trong model (Quản lí, Vận hành, Dashboard, hàng đợi).
+// Avatar kênh tra theo KHOÁ — dùng ở mọi trang trong app (TikTok, Quản lí, Vận hành, Dashboard, Hàng đợi).
 //
-// `ChannelAvatar` là phần VẼ (nhận sẵn url/tên/màu); file này là phần TRA:
-// hỏi `channelDir` — bảng dựng một lần từ payload `channel:list` — nên thêm
-// avatar cho một trang mới không phát sinh lời gọi backend nào cho từng dòng.
-//
-// Khoá nhận được: id store (`ch-…`), UC id, `@handle`, hoặc chính TÊN kênh —
-// mỗi model đang cầm một thứ khác nhau (lịch sử phát hiện chỉ có tên).
+// Hỗ trợ tra theo: id store (`ch-…`), UC id (`UC…`), `@handle`, hoặc TÊN kênh.
 import QtQuick
+import "ChannelDir.js" as ChannelDir
 
 ChannelAvatar {
     id: root
 
-    /// Khoá chính (thường là channelId của workspace = id store `ch-…`).
+    /// Khoá chính (thường là channelId của workspace = id store `ch-…` hoặc `UC…`).
     property string channelKey: ""
     /// Khoá dự phòng khi khoá chính rỗng/không tra được — thường là tên kênh.
     property string fallbackName: ""
@@ -24,42 +19,58 @@ ChannelAvatar {
     property var entry: ({})
 
     function reload() {
-        if (typeof channelDir !== "undefined" && channelDir && typeof channelDir.lookup === "function") {
-            var e = root.channelKey ? channelDir.lookup(root.channelKey) : null
-            if ((!e || !e.name) && root.fallbackName)
-                e = channelDir.lookup(root.fallbackName)
-            if (e && (e.avatarUrl || e.name)) {
-                entry = e
-                return
-            }
+        if (root.directUrl && root.directUrl !== "") {
+            entry = { "avatarUrl": root.directUrl, "name": root.fallbackName || root.channelKey }
+            return
         }
-        // Fallback tra từ tiktokModel.channels nếu có
-        if (typeof tiktokModel !== "undefined" && tiktokModel && tiktokModel.channels) {
-            var chs = tiktokModel.channels
-            for (var i = 0; i < chs.length; i++) {
-                var c = chs[i]
-                if (!c) continue
-                if ((root.channelKey && (c.channelId === root.channelKey || c.id === root.channelKey)) ||
-                    (root.fallbackName && c.name === root.fallbackName)) {
-                    entry = c
-                    return
+
+        var cm = (typeof channelListModel !== "undefined") ? channelListModel : null
+        var tm = (typeof tiktokModel !== "undefined") ? tiktokModel : null
+        var be = (typeof backend !== "undefined") ? backend : null
+
+        var e = root.channelKey ? ChannelDir.lookup(root.channelKey, cm, tm, be) : null
+        if ((!e || !e.name) && root.fallbackName) {
+            e = ChannelDir.lookup(root.fallbackName, cm, tm, be)
+        }
+
+        if (e && (e.avatarUrl || e.name)) {
+            entry = e
+            return
+        }
+
+        // Fallback tra trực tiếp từ tiktokModel.channels nếu có
+        try {
+            if (tm && tm.channels) {
+                var chs = tm.channels
+                for (var i = 0; i < chs.length; i++) {
+                    var c = chs[i]
+                    if (!c) continue
+                    if ((root.channelKey && (c.channelId === root.channelKey || c.id === root.channelKey)) ||
+                        (root.fallbackName && c.name === root.fallbackName)) {
+                        entry = c
+                        return
+                    }
                 }
             }
-        }
+        } catch (err) {}
+
         entry = ({})
     }
 
     onChannelKeyChanged: reload()
     onFallbackNameChanged: reload()
+    onDirectUrlChanged: reload()
     Component.onCompleted: reload()
 
     Connections {
-        target: (typeof channelDir !== "undefined") ? channelDir : null
-        function onChanged() { root.reload() }
+        target: (typeof channelListModel !== "undefined") ? channelListModel : null
+        ignoreUnknownSignals: true
+        function onCountChanged() { root.reload() }
     }
 
     Connections {
         target: (typeof tiktokModel !== "undefined") ? tiktokModel : null
+        ignoreUnknownSignals: true
         function onChanged() { root.reload() }
     }
 

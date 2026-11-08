@@ -67,26 +67,34 @@ namespace YtDlpWrapper {
 
             // 3. Read settings
             double trimLimit = 10.0;
-            double p1 = 1.0;
-            double p2 = 4.5;
-            double p3 = 4.5;
+            double p1 = 3.0;
+            double p2 = 3.5;
+            double p3 = 3.5;
             int parts = 3;
             bool autoSplitEnabled = true;
-            int p1Sec = 200;
-            int p2Sec = 200;
-            int p3Sec = 200;
+            int p1Sec = 180;
+            int p2Sec = 210;
+            int p3Sec = 210;
+            string autoRenderResolution = "1080p";
+            string autoDownloadQuality = "1080";
+            string dataDir = Environment.GetEnvironmentVariable("HYPERCLIP_DATA_DIR");
+            if (string.IsNullOrEmpty(dataDir)) {
+                dataDir = @"D:\HyperClip\HyperClip-TestCustomer-20260616-224538\HyperClip-Data";
+            }
 
             try {
-                string dataDir = Environment.GetEnvironmentVariable("HYPERCLIP_DATA_DIR");
-                if (string.IsNullOrEmpty(dataDir)) {
-                    dataDir = @"D:\HyperClip\HyperClip-TestCustomer-20260616-224538\HyperClip-Data";
-                }
                 string setPath = Path.Combine(dataDir, @".hyperclip\settings.json");
                 if (File.Exists(setPath)) {
                     string json = File.ReadAllText(setPath);
                     if (json.Contains("\"autoSplitEnabled\": false") || json.Contains("\"autoSplitEnabled\":false")) {
                         autoSplitEnabled = false;
                     }
+
+                    Match mRes = Regex.Match(json, @"""autoRenderResolution""\s*:\s*""([^""]+)""");
+                    if (mRes.Success) autoRenderResolution = mRes.Groups[1].Value.ToLowerInvariant();
+
+                    Match mDl = Regex.Match(json, @"""autoDownloadQuality""\s*:\s*""([^""]+)""");
+                    if (mDl.Success) autoDownloadQuality = mDl.Groups[1].Value;
 
                     Match mTrim = Regex.Match(json, @"""defaultTrimLimit""\s*:\s*([0-9\.]+)");
                     if (mTrim.Success) {
@@ -191,14 +199,50 @@ namespace YtDlpWrapper {
                                     }
                                 }
                             } catch {}
+
+                            // If still short, check history.json
+                            if (bestDur < 180.0) {
+                                try {
+                                    string histFile = Path.Combine(dataDir, "history.json");
+                                    if (File.Exists(histFile)) {
+                                        string hJson = File.ReadAllText(histFile);
+                                        Match mH = Regex.Match(hJson, string.Format(@"""videoId""\s*:\s*""{0}""[\s\S]*?""durationSec""\s*:\s*([0-9\.]+)", vid));
+                                        if (mH.Success) {
+                                            double hDur = 0;
+                                            if (double.TryParse(mH.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out hDur) && hDur > 0) {
+                                                bestDur = hDur;
+                                                Log(string.Format("Resolved video {0} duration {1}s from history.json", vid, hDur));
+                                            }
+                                        }
+                                    }
+                                } catch {}
+                            }
+
+                            // If still short, check workspaces.json
+                            if (bestDur < 180.0) {
+                                try {
+                                    string wsFile = Path.Combine(dataDir, @".hyperclip\workspaces.json");
+                                    if (File.Exists(wsFile)) {
+                                        string wJson = File.ReadAllText(wsFile);
+                                        Match mW = Regex.Match(wJson, string.Format(@"""video_id""\s*:\s*""{0}""[\s\S]*?""durationSec""\s*:\s*([0-9\.]+)", vid));
+                                        if (mW.Success) {
+                                            double wDur = 0;
+                                            if (double.TryParse(mW.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out wDur) && wDur > 0) {
+                                                bestDur = wDur;
+                                                Log(string.Format("Resolved video {0} duration {1}s from workspaces.json", vid, wDur));
+                                            }
+                                        }
+                                    }
+                                } catch {}
+                            }
                         }
                     }
 
                     double masterDur = bestDur;
 
                     // Dynamic timeline: adapt to actual video duration vs user setting
-                    double effectiveTotal = (masterDur > 0) ? masterDur : ((trimLimit > 0 && trimLimit < 900) ? trimLimit * 60.0 : 600.0);
-                    if (trimLimit > 0 && trimLimit < 900 && effectiveTotal > trimLimit * 60.0) {
+                    double effectiveTotal = (masterDur > 0) ? masterDur : ((trimLimit > 0 && trimLimit < 900) ? trimLimit * 60.0 : 660.0);
+                    if (trimLimit > 0 && trimLimit < 900 && masterDur <= 0) {
                         effectiveTotal = trimLimit * 60.0;
                     }
 
@@ -215,9 +259,9 @@ namespace YtDlpWrapper {
                     if (parts == 2) {
                         effectiveP2 = (int)Math.Max(1, Math.Round(remainSec));
                     } else {
-                        // 3 parts: divide remaining time equally between P2 and P3
-                        effectiveP2 = (int)Math.Max(1, Math.Round(remainSec / 2.0));
-                        effectiveP3 = (int)Math.Max(1, Math.Round(remainSec - effectiveP2));
+                        // 3 parts: divide remaining time equally between P2 and P3 (e.g. 495s: P2=248s 4:08, P3=247s 4:07)
+                        effectiveP2 = (int)Math.Max(1, Math.Ceiling(remainSec / 2.0));
+                        effectiveP3 = (int)Math.Max(1, Math.Floor(remainSec - effectiveP2));
                     }
 
                     int startSec = 0;
@@ -320,6 +364,55 @@ namespace YtDlpWrapper {
                         newArgs[args.Length] = "--download-sections";
                         newArgs[args.Length + 1] = masterSection;
                         args = newArgs;
+                    }
+                }
+            }
+
+            // 4c. Ensure download resolution strictly matches user setting (360p vs 720p vs 1080p)
+            string targetQ = "720";
+            if (autoDownloadQuality == "360") {
+                targetQ = "360";
+            } else if (autoRenderResolution.Contains("720") || autoDownloadQuality == "720") {
+                targetQ = "720";
+            } else if (autoRenderResolution.Contains("1080") || autoDownloadQuality == "1080") {
+                targetQ = "1080";
+            }
+
+            // 4d. Strip broken extractor-args that trigger YouTube SABR experiment blocking 1080p formats
+            System.Collections.Generic.List<string> cleanArgsList = new System.Collections.Generic.List<string>();
+            for (int i = 0; i < args.Length; i++) {
+                if (args[i] == "--extractor-args" && i + 1 < args.Length && args[i + 1].Contains("player_client=")) {
+                    Log("Stripping broken extractor-args to prevent SABR 360p fallback: " + args[i + 1]);
+                    i++; // skip flag and value
+                    continue;
+                }
+                cleanArgsList.Add(args[i]);
+            }
+            args = cleanArgsList.ToArray();
+
+            // 4e. Format string enforcement (NEVER allow /worst, and use fast progressive 18 for 360p)
+            for (int i = 0; i < args.Length; i++) {
+                if (args[i] == "-f" && i + 1 < args.Length) {
+                    if (targetQ == "360") {
+                        args[i + 1] = "bestvideo[height<=?360]+bestaudio/best[height<=?360]/18/best";
+                        Log("Enforced 360p format string (AdsPow Speed Flow): " + args[i + 1]);
+                    } else if (targetQ == "720") {
+                        args[i + 1] = "bestvideo[height<=?720]+bestaudio/bestvideo+bestaudio/best[height<=?720]/best";
+                        Log("Enforced 720p format string: " + args[i + 1]);
+                    } else if (targetQ == "1080") {
+                        args[i + 1] = "bestvideo[height<=?1080]+bestaudio/bestvideo+bestaudio/best[height<=?1080]/best";
+                        Log("Enforced 1080p format string: " + args[i + 1]);
+                    }
+                } else if (args[i].StartsWith("-f=")) {
+                    if (targetQ == "360") {
+                        args[i] = "-f=bestvideo[height<=?360]+bestaudio/best[height<=?360]/18/best";
+                        Log("Enforced 360p format string (AdsPow Speed Flow): " + args[i]);
+                    } else if (targetQ == "720") {
+                        args[i] = "-f=bestvideo[height<=?720]+bestaudio/bestvideo+bestaudio/best[height<=?720]/best";
+                        Log("Enforced 720p format string: " + args[i]);
+                    } else if (targetQ == "1080") {
+                        args[i] = "-f=bestvideo[height<=?1080]+bestaudio/bestvideo+bestaudio/best[height<=?1080]/best";
+                        Log("Enforced 1080p format string: " + args[i]);
                     }
                 }
             }

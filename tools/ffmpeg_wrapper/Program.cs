@@ -51,15 +51,16 @@ namespace FfmpegWrapper {
                 if (File.Exists(origFfmpeg)) realFfmpeg = origFfmpeg;
             }
 
-            // 1. Read settings to get part durations
+            // 1. Read settings to get part durations and quality
             double trimLimit = 10.0;
-            double p1 = 1.0;
-            double p2 = 4.5;
-            double p3 = 4.5;
+            double p1 = 3.0;
+            double p2 = 3.5;
+            double p3 = 3.5;
             bool autoSplitEnabled = true;
-            int p1Sec = 200;
-            int p2Sec = 200;
-            int p3Sec = 200;
+            int p1Sec = 180;
+            int p2Sec = 210;
+            int p3Sec = 210;
+            string renderRes = "1080p";
 
             try {
                 string dataDir = Environment.GetEnvironmentVariable("HYPERCLIP_DATA_DIR");
@@ -71,6 +72,11 @@ namespace FfmpegWrapper {
                     string json = File.ReadAllText(setPath);
                     if (json.Contains("\"autoSplitEnabled\": false") || json.Contains("\"autoSplitEnabled\":false")) {
                         autoSplitEnabled = false;
+                    }
+
+                    Match mRes = Regex.Match(json, @"""autoRenderResolution""\s*:\s*""([^""]+)""");
+                    if (mRes.Success) {
+                        renderRes = mRes.Groups[1].Value.ToLowerInvariant();
                     }
 
                     Match mTrim = Regex.Match(json, @"""defaultTrimLimit""\s*:\s*([0-9\.]+)");
@@ -210,40 +216,34 @@ namespace FfmpegWrapper {
             int durSec = 0;
             if (partNum == 1) {
                 durSec = p1Sec;
-                if (!string.IsNullOrEmpty(inputPath) && File.Exists(inputPath)) {
-                    double actDur = GetMediaDuration(inputPath, realFfmpeg);
-                    if (actDur >= 10.0 && actDur < durSec) durSec = (int)Math.Round(actDur);
-                }
             } else if (partNum == 2) {
                 durSec = p2Sec;
-                if (!string.IsNullOrEmpty(inputPath) && File.Exists(inputPath)) {
-                    double actDur = GetMediaDuration(inputPath, realFfmpeg);
-                    if (actDur >= 10.0) {
-                        durSec = (p2Sec > 0 && actDur > p2Sec + 2.0) ? p2Sec : (int)Math.Round(actDur);
-                    }
-                }
-            } else if (partNum == 3) {
+            } else if (partNum >= 3) {
                 durSec = p3Sec;
-                if (!string.IsNullOrEmpty(inputPath) && File.Exists(inputPath)) {
-                    double actDur = GetMediaDuration(inputPath, realFfmpeg);
-                    if (actDur >= 10.0) {
-                        durSec = (p3Sec > 0 && actDur > p3Sec + 2.0) ? p3Sec : (int)Math.Round(actDur);
-                    }
-                }
-            } else if (partNum > 3) {
-                durSec = p3Sec;
-                if (!string.IsNullOrEmpty(inputPath) && File.Exists(inputPath)) {
-                    double actDur = GetMediaDuration(inputPath, realFfmpeg);
-                    if (actDur >= 10.0) {
-                        durSec = (p3Sec > 0 && actDur > p3Sec + 2.0) ? p3Sec : (int)Math.Round(actDur);
-                    }
+            }
+
+            double actDur = 0;
+            if (!string.IsNullOrEmpty(inputPath) && File.Exists(inputPath)) {
+                actDur = GetMediaDuration(inputPath, realFfmpeg);
+            }
+
+            int targetT = durSec;
+            if (partNum == 1) {
+                // Part 1: Tuân thủ tuyệt đối p1Sec (3 phút). Nếu video nguồn ngắn hơn thì lấy hết video nguồn.
+                targetT = (actDur > 0.5 && actDur < p1Sec) ? (int)Math.Floor(actDur) : p1Sec;
+            } else if (partNum >= 2) {
+                // Part 2 & Part 3: Video nguồn là file slice đã chia đều. Lấy trọn vẹn 100% actDur của file slice!
+                if (actDur > 0.5) {
+                    targetT = (int)Math.Round(actDur);
+                } else {
+                    targetT = durSec;
                 }
             }
 
             // 3. Transform arguments if autoSplitEnabled and valid partNum
             string[] modifiedArgs = (string[])args.Clone();
 
-            if (!isChunkOrTemp && autoSplitEnabled && partNum > 0 && durSec > 0) {
+            if (!isChunkOrTemp && autoSplitEnabled && partNum > 0 && targetT > 0) {
                 bool isTrim = false;
                 bool isRender = false;
 
@@ -256,8 +256,8 @@ namespace FfmpegWrapper {
                     // Type A: maybe_trim_file call (-y -i ... -t 60 -c copy ...)
                     for (int i = 0; i < modifiedArgs.Length; i++) {
                         if (modifiedArgs[i] == "-t" && i + 1 < modifiedArgs.Length) {
-                            Log(string.Format("Adjusting maybe_trim_file for Part {0}: -t {1} -> -t {2}", partNum, modifiedArgs[i + 1], durSec));
-                            modifiedArgs[i + 1] = durSec.ToString();
+                            Log(string.Format("Adjusting maybe_trim_file for Part {0}: -t {1} -> -t {2}", partNum, modifiedArgs[i + 1], targetT));
+                            modifiedArgs[i + 1] = targetT.ToString();
                             break;
                         }
                     }
@@ -266,15 +266,35 @@ namespace FfmpegWrapper {
                     for (int i = 0; i < modifiedArgs.Length; i++) {
                         if (modifiedArgs[i] == "-filter_complex" && i + 1 < modifiedArgs.Length) {
                             string fc = modifiedArgs[i + 1];
-                            string newFc = Regex.Replace(fc, @"trim=(?:start=0(?:\.0+)?:)?duration=([0-9\.]+)", "trim=start=0:duration=" + durSec);
-                            newFc = Regex.Replace(newFc, @"atrim=(?:start=0(?:\.0+)?:)?duration=([0-9\.]+)", "atrim=start=0:duration=" + durSec);
+                            string newFc = Regex.Replace(fc, @"trim=(?:start=[0-9\.]+:)?duration=([0-9\.]+)", "trim=start=0:duration=" + targetT);
+                            newFc = Regex.Replace(newFc, @"atrim=(?:start=[0-9\.]+:)?duration=([0-9\.]+)", "atrim=start=0:duration=" + targetT);
+                            // Ensure 1080p resolution if user configured 1080p
+                            if (renderRes == "1080p" && newFc.Contains("scale=720:720")) {
+                                newFc = newFc.Replace("scale=720:720", "scale=1080:1080");
+                                Log("Upgrading render resolution to 1080p (scale=1080:1080)");
+                            } else if (renderRes == "720p" && newFc.Contains("scale=1080:1080")) {
+                                newFc = newFc.Replace("scale=1080:1080", "scale=720:720");
+                                Log("Setting render resolution to 720p (scale=720:720)");
+                            }
                             if (newFc != fc) {
-                                Log(string.Format("Adjusting filter_complex for Part {0}: duration -> {1}", partNum, durSec));
+                                Log(string.Format("Adjusting filter_complex for Part {0}: duration -> {1}", partNum, targetT));
                                 modifiedArgs[i + 1] = newFc;
                             }
                         } else if (modifiedArgs[i] == "-t" && i + 1 < modifiedArgs.Length) {
-                            Log(string.Format("Adjusting render -t for Part {0}: {1} -> {2}.00", partNum, modifiedArgs[i + 1], durSec));
-                            modifiedArgs[i + 1] = durSec.ToString() + ".00";
+                            Log(string.Format("Adjusting render -t for Part {0}: {1} -> {2}.00", partNum, modifiedArgs[i + 1], targetT));
+                            modifiedArgs[i + 1] = targetT.ToString() + ".00";
+                        }
+                    }
+
+                    // Tối ưu hóa bitrate theo chuẩn AdsPow cho 720p render siêu tốc
+                    if (renderRes == "720p") {
+                        for (int m = 0; m < modifiedArgs.Length; m++) {
+                            if (modifiedArgs[m] == "-maxrate" && m + 1 < modifiedArgs.Length) {
+                                modifiedArgs[m + 1] = "3M";
+                            }
+                            if (modifiedArgs[m] == "-bufsize" && m + 1 < modifiedArgs.Length) {
+                                modifiedArgs[m + 1] = "4M";
+                            }
                         }
                     }
                 }

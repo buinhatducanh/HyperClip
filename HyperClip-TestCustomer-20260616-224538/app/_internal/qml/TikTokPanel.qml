@@ -1,4 +1,4 @@
-﻿// src/ui/qml/TikTokPanel.qml
+// src/ui/qml/TikTokPanel.qml
 // Pass 38 — Panel TikTok: switch auto-upload, quản lý tài khoản (cột trái),
 // chi tiết account: kênh đã gán / gán kênh mới / caption / lịch sử (cột phải).
 // Data: tiktokModel (tiktok:list + event tiktok:update); switch: settings.
@@ -319,23 +319,57 @@ Rectangle {
         xhr.send()
     }
 
+    // Khi vừa mở app: Miễn là auto upload tiktok bật -> Tự động mở các màn hình AdsPower đã gán kênh (Chuẩn nhánh adspow)
+    Timer {
+        id: autoOpenAssignedTimer
+        interval: 3500
+        running: true
+        repeat: false
+        onTriggered: {
+            if (settings && settings.tiktokUploadEnabled) {
+                panel.openAssignedAdsPowerBrowsers(true)
+            }
+        }
+    }
+
+    property int openNextIdx: 0
+    property var accountsToOpen: []
+    Timer {
+        id: staggerOpenTimer
+        interval: 500
+        running: false
+        repeat: true
+        onTriggered: {
+            if (panel.openNextIdx < panel.accountsToOpen.length) {
+                var acc = panel.accountsToOpen[panel.openNextIdx]
+                panel.openAdsPowerBrowser(acc.profileId, acc.adsPowerSerial || (panel.openNextIdx + 1), acc.label)
+                panel.openNextIdx++
+            } else {
+                staggerOpenTimer.stop()
+            }
+        }
+    }
+
+    function openAccountsStaggered(list) {
+        if (!list || list.length === 0) return
+        panel.accountsToOpen = list
+        panel.openNextIdx = 0
+        staggerOpenTimer.start()
+    }
+
     // Tự động mở các cửa sổ AdsPower của các nick đã gán kênh (Vào sẵn Upload)
-    function openAssignedAdsPowerBrowsers() {
+    function openAssignedAdsPowerBrowsers(silent) {
         var ts = (typeof toastService !== "undefined" && toastService) ? toastService : (typeof toastManager !== "undefined" ? toastManager : null)
         var targetList = panel.getAssignedAccounts()
         if (!targetList || targetList.length === 0) {
             targetList = panel.accountsList
         }
         if (!targetList || targetList.length === 0) {
-            if (ts) ts.show("AdsPower", "Chưa có tài khoản AdsPower nào được gán kênh YouTube!", "warning")
+            if (ts && !silent) ts.show("AdsPower", "Chưa có tài khoản AdsPower nào được gán kênh YouTube!", "warning")
             return
         }
-        if (ts) ts.show("AdsPower", "Đang tự động mở " + targetList.length + " tài khoản AdsPower vào sẵn Upload...", "info")
-        for (var i = 0; i < targetList.length; i++) {
-            (function(acc, idx) {
-                panel.openAdsPowerBrowser(acc.profileId, acc.adsPowerSerial || (idx + 1), acc.label)
-            })(targetList[i], i)
-        }
+        if (ts && !silent) ts.show("AdsPower", "Đang mở " + targetList.length + " tài khoản AdsPower vào sẵn Upload...", "info")
+        panel.openAccountsStaggered(targetList)
     }
 
     function statusColor(st) {
@@ -406,18 +440,7 @@ Rectangle {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        var ts = (typeof toastService !== "undefined" && toastService) ? toastService : (typeof toastManager !== "undefined" ? toastManager : null)
-                        var list = panel.accountsList
-                        if (!list || list.length === 0) {
-                            if (ts) ts.show("AdsPower", "Không tìm thấy tài khoản nào trong danh sách!", "warning")
-                            return
-                        }
-                        if (ts) ts.show("AdsPower", "Đang kích hoạt mở toàn bộ " + list.length + " cửa sổ AdsPower (Vào sẵn Upload)...", "info")
-                        for (var i = 0; i < list.length; i++) {
-                            (function(acc, idx) {
-                                panel.openAdsPowerBrowser(acc.profileId, acc.adsPowerSerial || (idx + 1), acc.label)
-                            })(list[i], i)
-                        }
+                        panel.openAssignedAdsPowerBrowsers(false)
                     }
                 }
             }
@@ -456,13 +479,26 @@ Rectangle {
                                             var res = JSON.parse(xhr.responseText)
                                             var list = res.data && res.data.list ? res.data.list : []
                                             if (list.length > 0) {
+                                                var existingList = panel.accountsList || []
+                                                var addedCount = 0
                                                 for (var k = 0; k < list.length; k++) {
                                                     var p = list[k]
-                                                    var lbl = p.name ? (p.name.indexOf("@") === 0 ? p.name : ("@" + p.name)) : ("@Profile_" + (p.serial_number || p.user_id))
-                                                    tiktokModel.add_account(lbl, p.user_id)
+                                                    var pid = String(p.user_id || "")
+                                                    var lbl = p.name ? (p.name.indexOf("@") === 0 ? p.name : ("@" + p.name)) : ("@Profile_" + (p.serial_number || pid))
+                                                    var exists = false
+                                                    for (var ex = 0; ex < existingList.length; ex++) {
+                                                        if (existingList[ex].profileId === pid || existingList[ex].label === lbl || existingList[ex].id === ("adspower_" + pid)) {
+                                                            exists = true
+                                                            break
+                                                        }
+                                                    }
+                                                    if (!exists && typeof tiktokModel !== "undefined" && tiktokModel && typeof tiktokModel.add_account === "function") {
+                                                        tiktokModel.add_account(lbl)
+                                                        addedCount++
+                                                    }
                                                 }
                                                 panel.refreshData()
-                                                if (ts) ts.show("AdsPower", "Đã đồng bộ thành công " + list.length + " hồ sơ từ AdsPower!", "success")
+                                                if (ts) ts.show("AdsPower", "Đã quét xong " + list.length + " hồ sơ AdsPower (" + addedCount + " mới)!", "success")
                                             } else {
                                                 if (ts) ts.show("AdsPower", "Không tìm thấy hồ sơ nào trên AdsPower!", "warning")
                                             }
@@ -1093,11 +1129,10 @@ Rectangle {
                                         anchors.centerIn: parent
                                         spacing: 6
                                         ChannelAvatarFor {
-                                            channelKey: modelData.channelId || ""
+                                            channelKey: modelData.channelId || modelData.id || ""
                                             fallbackName: modelData.name || ""
                                             directUrl: modelData.avatarUrl || ""
-                                            url: modelData.avatarUrl || ""
-                                            diameter: 16
+                                            diameter: 18
                                             Layout.alignment: Qt.AlignVCenter
                                         }
                                         Label {
@@ -1170,11 +1205,10 @@ Rectangle {
                                     spacing: 8
 
                                     ChannelAvatarFor {
-                                        channelKey: modelData.ch.channelId || ""
+                                        channelKey: modelData.ch.channelId || modelData.ch.id || ""
                                         fallbackName: modelData.ch.name || ""
                                         directUrl: modelData.ch.avatarUrl || ""
-                                        url: modelData.ch.avatarUrl || ""
-                                        diameter: 20
+                                        diameter: 22
                                         Layout.alignment: Qt.AlignVCenter
                                     }
 
@@ -1422,5 +1456,8 @@ Rectangle {
             tiktokModel.refresh_soon()
         }
         Qt.callLater(function() { panel.ensureSelection() })
+        if (settings && settings.tiktokUploadEnabled) {
+            Qt.callLater(function() { panel.openAssignedAdsPowerBrowsers(true) })
+        }
     }
 }

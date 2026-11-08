@@ -646,9 +646,17 @@ ColumnLayout {
             DetailKVRow {
                 keyText: "Trim range"
                 valueText: {
-                    const s = detailsRoot.videoData.trimStart || 0
-                    const e = detailsRoot.videoData.trimEnd || 0
-                    return (s > 0 || e > 0) ? (Fmt.clock(s) + " → " + Fmt.clock(e)) : "Không cắt"
+                    let s = detailsRoot.videoData.trimStart || 0
+                    let e = detailsRoot.videoData.trimEnd || 0
+                    // Nếu là Part nối tiếp và có source range, ưu tiên hiển thị mốc thời gian dồn trên toàn video gốc (VD: 3:00 → 7:08)
+                    if (detailsRoot.videoData.sourceStartSec !== undefined && detailsRoot.videoData.sourceEndSec !== undefined && detailsRoot.videoData.sourceEndSec > detailsRoot.videoData.sourceStartSec) {
+                        s = detailsRoot.videoData.sourceStartSec
+                        e = detailsRoot.videoData.sourceEndSec
+                    }
+                    if (s <= 0 && e <= 0) return "Không cắt"
+                    let f1 = (s >= 3600) ? Fmt.clock(s) : Fmt.clockMS(s)
+                    let f2 = (e >= 3600) ? Fmt.clock(e) : Fmt.clockMS(e)
+                    return f1 + " → " + f2
                 }
             }
             DetailKVRow {
