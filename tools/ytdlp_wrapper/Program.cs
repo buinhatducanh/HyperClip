@@ -394,8 +394,8 @@ namespace YtDlpWrapper {
             for (int i = 0; i < args.Length; i++) {
                 if (args[i] == "-f" && i + 1 < args.Length) {
                     if (targetQ == "360") {
-                        args[i + 1] = "bestvideo[height<=?360]+bestaudio/best[height<=?360]/18/best";
-                        Log("Enforced 360p format string (AdsPow Speed Flow): " + args[i + 1]);
+                        args[i + 1] = "18/best[height<=?360]/bestvideo[height<=?360]+bestaudio/worst";
+                        Log("Enforced 360p format string (AdsPow Speed Flow - Fast 18): " + args[i + 1]);
                     } else if (targetQ == "720") {
                         args[i + 1] = "bestvideo[height<=?720]+bestaudio/bestvideo+bestaudio/best[height<=?720]/best";
                         Log("Enforced 720p format string: " + args[i + 1]);
@@ -405,8 +405,8 @@ namespace YtDlpWrapper {
                     }
                 } else if (args[i].StartsWith("-f=")) {
                     if (targetQ == "360") {
-                        args[i] = "-f=bestvideo[height<=?360]+bestaudio/best[height<=?360]/18/best";
-                        Log("Enforced 360p format string (AdsPow Speed Flow): " + args[i]);
+                        args[i] = "-f=18/best[height<=?360]/bestvideo[height<=?360]+bestaudio/worst";
+                        Log("Enforced 360p format string (AdsPow Speed Flow - Fast 18): " + args[i]);
                     } else if (targetQ == "720") {
                         args[i] = "-f=bestvideo[height<=?720]+bestaudio/bestvideo+bestaudio/best[height<=?720]/best";
                         Log("Enforced 720p format string: " + args[i]);

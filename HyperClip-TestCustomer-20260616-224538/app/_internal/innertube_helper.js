@@ -2001,7 +2001,7 @@ async function downloadVideoNative(req, ctx) {
         durSec = p3Sec;
       }
 
-      dlog(`[smart-split] Local slice for Part ${partNum} [${startSec}s..${startSec + durSec}s] (${durSec}s) from master to ${outputPath}`); [${startSec}s..${startSec + durSec}s] (${durSec}s) from master to ${outputPath}`); [${startSec}s..${startSec + durSec}s] (${durSec}s) from master to ${outputPath}`);
+      dlog(`[smart-split] Local slice for Part ${partNum} [${startSec}s..${startSec + durSec}s] (${durSec}s) from master to ${outputPath}`);
       let ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg_real.exe');
       if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg.exe');
       if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');
