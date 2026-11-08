@@ -290,13 +290,33 @@ namespace FfmpegWrapper {
                     if (renderRes == "720p") {
                         for (int m = 0; m < modifiedArgs.Length; m++) {
                             if (modifiedArgs[m] == "-maxrate" && m + 1 < modifiedArgs.Length) {
-                                modifiedArgs[m + 1] = "3M";
+                                modifiedArgs[m + 1] = "600k";
                             }
                             if (modifiedArgs[m] == "-bufsize" && m + 1 < modifiedArgs.Length) {
-                                modifiedArgs[m + 1] = "4M";
+                                modifiedArgs[m + 1] = "1200k";
                             }
                         }
                     }
+                }
+            }
+
+            // 3b. Chuẩn tối ưu hóa bitrate & codec siêu tốc nhánh AdsPow (Commit 06ccf8b & 70e1244):
+            // Nén gọn video 3-5 phút xuống ~10-12MB để TikTok upload & transcode trong 2.5s
+            for (int m = 0; m < modifiedArgs.Length; m++) {
+                if (modifiedArgs[m] == "-b:a" && m + 1 < modifiedArgs.Length) {
+                    modifiedArgs[m + 1] = "48k";
+                }
+                if (modifiedArgs[m] == "-maxrate" && m + 1 < modifiedArgs.Length) {
+                    modifiedArgs[m + 1] = (renderRes == "1080p") ? "1.5M" : "600k";
+                }
+                if (modifiedArgs[m] == "-bufsize" && m + 1 < modifiedArgs.Length) {
+                    modifiedArgs[m + 1] = (renderRes == "1080p") ? "3M" : "1200k";
+                }
+                if (modifiedArgs[m] == "-cq" && m + 1 < modifiedArgs.Length) {
+                    modifiedArgs[m + 1] = (renderRes == "1080p") ? "23" : "25";
+                }
+                if (modifiedArgs[m] == "-c:v" && m + 1 < modifiedArgs.Length && modifiedArgs[m + 1] == "hevc_nvenc") {
+                    modifiedArgs[m + 1] = "h264_nvenc";
                 }
             }
 
