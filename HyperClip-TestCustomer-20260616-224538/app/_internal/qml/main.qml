@@ -69,6 +69,32 @@ ApplicationWindow {
     property bool tiktokLoaded: false
     property bool settingsLoaded: true
 
+    Timer {
+        id: startupDataSyncTimer
+        interval: 250
+        repeat: true
+        running: true
+        property int tickCount: 0
+        onTriggered: {
+            tickCount++
+            var backendReady = typeof backend !== "undefined" && backend && typeof backend.send_command === "function"
+            if (backendReady) {
+                if (typeof channelListModel !== "undefined" && channelListModel && typeof channelListModel.load_from_backend === "function") {
+                    channelListModel.load_from_backend(backend)
+                }
+                if (typeof quota !== "undefined" && quota && typeof quota.refresh_from_backend === "function") {
+                    quota.refresh_from_backend(backend)
+                }
+                if (channelListModel && channelListModel.rowCount && channelListModel.rowCount() > 0) {
+                    running = false
+                }
+            }
+            if (tickCount >= 20) {
+                running = false
+            }
+        }
+    }
+
     onCenterViewChanged: {
         if (centerView === "management") managementLoaded = true
         else if (centerView === "scancore") scanCoreLoaded = true

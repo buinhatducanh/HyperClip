@@ -57,11 +57,16 @@ Rectangle {
 
     Timer {
         id: backendRetryTimer
-        interval: 400
-        repeat: false
+        interval: 350
+        repeat: true
+        property int retryCount: 0
         onTriggered: {
+            retryCount++;
             if (root.workspaces.length === 0) {
                 root.refreshList();
+            }
+            if (root.workspaces.length > 0 || retryCount >= 20) {
+                running = false;
             }
         }
     }

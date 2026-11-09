@@ -25,16 +25,15 @@ namespace HyperClipLauncher {
                     return 1;
                 }
 
-                // Set environment variables for current process tree
-                Environment.SetEnvironmentVariable("HYPERCLIP_DATA_DIR", dataDir);
-                Environment.SetEnvironmentVariable("HYPERCLIPB_DATA_DIR", dataDir);
-                Environment.SetEnvironmentVariable("HYPERCLIP_EDITION", "long");
-
                 ProcessStartInfo psi = new ProcessStartInfo {
                     FileName = appExe,
                     WorkingDirectory = appDir,
-                    UseShellExecute = true
+                    UseShellExecute = false
                 };
+
+                psi.EnvironmentVariables["HYPERCLIP_DATA_DIR"] = dataDir;
+                psi.EnvironmentVariables["HYPERCLIPB_DATA_DIR"] = dataDir;
+                psi.EnvironmentVariables["HYPERCLIP_EDITION"] = "long";
 
                 if (args != null && args.Length > 0) {
                     psi.Arguments = string.Join(" ", args);
