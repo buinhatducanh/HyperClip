@@ -1819,48 +1819,13 @@ function main() {
   });
 
   const cleanupAndExit = () => {
-    dlog('[tiktok_helper] HyperClip closing. Stopping AdsPower browsers & port bridges...');
+    dlog('[tiktok_helper] HyperClip closing. Stopping owned port bridges...');
     try {
       for (const [vport, bridge] of activeBridges.entries()) {
         try { bridge.server.close(); } catch (e) {}
       }
       activeBridges.clear();
 
-      // Kích hoạt ngay lập tức cleanup-all.ps1 như một tiến trình độc lập
-      const candCleanup = [
-        path.resolve(__dirname, '../../../cleanup-all.ps1'),
-        path.resolve(__dirname, '../../cleanup-all.ps1'),
-        'D:/HyperClip/HyperClip-TestCustomer-20260616-224538/cleanup-all.ps1',
-        'D:/HyperClip/cleanup-all.ps1'
-      ];
-      for (const c of candCleanup) {
-        if (fs.existsSync(c)) {
-          cp.spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', c], {
-            detached: true,
-            stdio: 'ignore',
-            windowsHide: true
-          }).unref();
-          break;
-        }
-      }
-
-      const pids = [
-        'k1is4tqh', 'k1ir7lv0', 'k1ir7low', 'k1ir7liq', 'k1io3wad', 'k1io3w4l',
-        'k1i9kkkl', 'k1i9kkkk', 'k1i9kkka', 'k1i9kkk9', 'k1i9kkk7', 'k1i9kkk6',
-        'k1i9kkk5', 'k1i9kkk3', 'k1i9kkk2', 'k1i9kkk1', 'k1i9kkk0', 'k1i9kkjx',
-        'k1eectd1', 'k1eecie7'
-      ];
-      pids.forEach(id => {
-        try {
-          http.get(`http://127.0.0.1:50325/api/v1/browser/stop?user_id=${id}`, () => {}).on('error', () => {});
-        } catch (e) {}
-      });
-      for (let s = 1; s <= 20; s++) {
-        try {
-          http.get(`http://127.0.0.1:50325/api/v1/browser/stop?serial_number=${s}`, () => {}).on('error', () => {});
-        } catch (e) {}
-      }
-      try { cp.execSync('taskkill /F /IM SunBrowser.exe', { stdio: 'ignore' }); } catch (e) {}
     } catch (e) {}
     process.exit(0);
   };
