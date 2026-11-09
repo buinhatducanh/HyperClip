@@ -43,37 +43,39 @@ SettingsCard {
     // Khi người dùng đổi tổng thời gian tải, tự động điều chỉnh Part 1 nếu bị vượt ngưỡng
     onTotalTrimMinutesChanged: {
         if (!card.isLoaded || card.isSyncing) return;
-        var maxP1 = Math.max(1, Math.floor(card.totalTrimMinutes * 0.7));
-        if (card.customP1Val > maxP1) {
-            card.customP1Val = maxP1;
-            if (p1Spin) p1Spin.value = Math.round(maxP1);
-        }
+        var maxP1 = Math.max(1, Math.min(30, Math.floor(card.totalTrimMinutes)));
+        if (card.customP1Val > maxP1) card.customP1Val = maxP1;
+        if (p1Spin && p1Spin.value !== Math.round(card.customP1Val)) p1Spin.value = Math.round(card.customP1Val);
         card.syncSplitSettings();
     }
 
     // Tính toán số học chuẩn xác từng giây lẻ (Khắc phục BUG-03 & BUG-05)
-    readonly property real p1Duration: Math.min(card.customP1Val, Math.max(1, card.totalTrimMinutes - 1))
-    readonly property real remainMinutes: Math.max(0, Math.round((card.totalTrimMinutes - card.p1Duration) * 10) / 10)
-    readonly property real p2Duration: (card.remainMinutes < 1.0) ? 0 : Math.round((card.remainMinutes / 2) * 10) / 10
-    readonly property real p3Duration: (card.remainMinutes < 1.0) ? 0 : Math.max(0, Math.round((card.remainMinutes - card.p2Duration) * 10) / 10)
+    readonly property real p1Duration: Math.min(card.customP1Val, card.totalTrimMinutes)
+    readonly property int remainingSec: Math.max(0, card.totalTrimSec - Math.round(card.p1Duration * 60))
+    readonly property real remainMinutes: Math.round((card.remainingSec / 60) * 10) / 10
+    readonly property int customPartCount: card.remainingSec < 30 ? 1 : (card.remainingSec < 60 ? 2 : 3)
+    readonly property real p2Duration: card.effP2Sec / 60
+    readonly property real p3Duration: card.effP3Sec / 60
 
     // Thời lượng thực tế từng part tính theo giây nguyên bản
     readonly property int effP1Sec: {
         if (card.splitMode === "parts_2") return Math.round(card.totalTrimSec / 2);
         if (card.splitMode === "parts_3") return Math.round(card.totalTrimSec / 3);
-        return Math.min(Math.round(card.p1Duration * 60), Math.max(60, card.totalTrimSec - 60));
+        return Math.min(Math.round(card.p1Duration * 60), card.totalTrimSec);
     }
     readonly property int effP2Sec: {
         if (card.splitMode === "parts_2") return Math.max(0, card.totalTrimSec - card.effP1Sec);
         if (card.splitMode === "parts_3") return Math.round(card.totalTrimSec / 3);
         var rem = Math.max(0, card.totalTrimSec - card.effP1Sec);
-        return Math.round(rem / 2);
+        if (rem < 30) return 0;
+        if (rem < 60) return rem;
+        return Math.ceil(rem / 2);
     }
     readonly property int effP3Sec: {
         if (card.splitMode === "parts_2") return 0;
         if (card.splitMode === "parts_3") return Math.max(0, card.totalTrimSec - card.effP1Sec - card.effP2Sec);
         var rem = Math.max(0, card.totalTrimSec - card.effP1Sec);
-        return Math.max(0, rem - card.effP2Sec);
+        return rem < 60 ? 0 : Math.max(0, rem - card.effP2Sec);
     }
 
     function formatSecClock(sec) {
@@ -110,10 +112,10 @@ SettingsCard {
         } else if (card.splitMode === "custom_p1") {
             settings.autoSplitEnabled = true;
             settings.autoSplitMode = "minutes";
-            settings.autoSplitParts = (card.remainMinutes >= 1.0) ? 3 : 1;
-            settings.autoSplitMinutes = card.p1Duration;
-            try { settings.autoSplitCustomP1 = card.p1Duration; } catch(e) {}
-            try { settings.autoSplitPart1Minutes = card.p1Duration; } catch(e) {}
+            settings.autoSplitParts = card.customPartCount;
+            settings.autoSplitMinutes = card.customP1Val;
+            try { settings.autoSplitCustomP1 = card.customP1Val; } catch(e) {}
+            try { settings.autoSplitPart1Minutes = card.customP1Val; } catch(e) {}
             try { settings.autoSplitRemainMinutes = card.p2Duration; } catch(e) {}
             settings.autoRenderTitleTemplate = "PART {part}";
         } else if (card.splitMode === "parts_2") {
@@ -146,15 +148,15 @@ SettingsCard {
 
         if (typeof backend !== "undefined" && backend) {
             try {
-                backend.send_command_async("settings:update", {
+                var updateResult = backend.send_command("settings:update", {
                     "defaultTrimLimit": settings.defaultTrimLimit,
                     "autoSplitEnabled": settings.autoSplitEnabled,
                     "autoSplitMode": settings.autoSplitMode,
                     "autoSplitMinutes": settings.autoSplitMinutes,
                     "autoSplitParts": settings.autoSplitParts,
                     "autoSplitSubMode": card.splitMode,
-                    "autoSplitCustomP1": (isSplit && card.splitMode === "custom_p1" ? card.p1Duration : 0),
-                    "autoSplitPart1Minutes": (isSplit && card.splitMode === "custom_p1" ? card.p1Duration : 0),
+                    "autoSplitCustomP1": (isSplit && card.splitMode === "custom_p1" ? card.customP1Val : 0),
+                    "autoSplitPart1Minutes": (isSplit && card.splitMode === "custom_p1" ? card.customP1Val : 0),
                     "autoSplitRemainMinutes": (isSplit && card.splitMode === "custom_p1" ? card.p2Duration : 0),
                     "autoRenderTitleTemplate": settings.autoRenderTitleTemplate,
                     "autoRenderResolution": settings.autoRenderResolution,
@@ -165,7 +167,10 @@ SettingsCard {
                     "trimRotateEnabled": false,
                     "splitChainDelaySec": 0
                 });
-            } catch(e) {}
+                if (updateResult && (updateResult.ok === false || updateResult.error)) {
+                    console.warn("Could not persist E2E settings:", updateResult.error || "settings:update failed");
+                }
+            } catch(e) { console.warn("Could not persist E2E settings:", e); }
 
             try {
                 if (typeof settings.save_to_backend === "function") {
@@ -203,11 +208,16 @@ SettingsCard {
 
     Component.onCompleted: {
         card.checkAdsPower();
+        var hasPersistedSplitMode = false;
         if (typeof backend !== "undefined" && backend) {
             try {
                 var rawRes = backend.send_command("settings:get");
                 var res = (rawRes && rawRes.settings) ? rawRes.settings : rawRes;
                 if (res) {
+                    hasPersistedSplitMode = res.autoSplitEnabled === false
+                        || res.autoSplitMode === "none"
+                        || res.autoSplitMode === "minutes"
+                        || (res.autoSplitMode === "parts" && (res.autoSplitParts === 2 || res.autoSplitParts === 3));
                     if (res.autoSplitMode === "minutes" || res.autoSplitSubMode === "custom_p1") {
                         card.splitMode = "custom_p1";
                     } else if (res.autoSplitMode === "parts" && res.autoSplitParts === 2) {
@@ -238,6 +248,14 @@ SettingsCard {
             } catch(e) {}
         }
         card.isLoaded = true;
+        if (!hasPersistedSplitMode) {
+            if (splitSwitch) splitSwitch.checked = true;
+            card.splitMode = "custom_p1";
+            if (settings) {
+                settings.autoSplitEnabled = true;
+                card.syncSplitSettings();
+            }
+        }
     }
 
     // Timer kiểm tra trạng thái AdsPower định kỳ 4s (Khắc phục BUG-07)
@@ -279,11 +297,13 @@ SettingsCard {
                     text: {
                         var trimStr = (settings && settings.defaultTrimLimit < 900) ? ("Tải " + settings.defaultTrimLimit + " phút đầu") : "Tải trọn vẹn video";
                         var partStr = "";
-                        if (!settings || !settings.autoSplitEnabled) {
+                        if (!splitSwitch || !splitSwitch.checked) {
                             partStr = "1 Video đơn";
                         } else if (card.splitMode === "custom_p1") {
-                            if (card.remainMinutes >= 1.0) {
+                            if (card.customPartCount === 3) {
                                 partStr = "Chia 3 Part (P1: " + card.p1Duration + "p | P2: " + card.p2Duration + "p | P3: " + card.p3Duration + "p)";
+                            } else if (card.customPartCount === 2) {
+                                partStr = "Chia 2 Part (P1: " + card.p1Duration + "p | P2: " + card.p2Duration + "p)";
                             } else {
                                 partStr = "1 Video đơn (" + card.totalTrimMinutes + "p)";
                             }
@@ -439,7 +459,7 @@ SettingsCard {
                     spacing: 8
                     Switch {
                         id: splitSwitch
-                        checked: settings ? settings.autoSplitEnabled : true
+                        checked: settings && typeof settings.autoSplitEnabled === "boolean" ? settings.autoSplitEnabled : true
                         onToggled: {
                             if (settings) {
                                 settings.autoSplitEnabled = checked;
@@ -450,9 +470,11 @@ SettingsCard {
                     Label {
                         text: splitSwitch.checked
                               ? (card.splitMode === "custom_p1"
-                                 ? (card.remainMinutes >= 1.0
+                                 ? (card.customPartCount === 3
                                     ? ("Chia 3 Part (P1: " + card.p1Duration + "p | P2&3: " + card.p2Duration + "p)")
-                                    : ("1 Video đơn (" + card.totalTrimMinutes + "p)"))
+                                    : (card.customPartCount === 2
+                                       ? ("Chia 2 Part (P1: " + card.p1Duration + "p | P2: " + card.p2Duration + "p)")
+                                       : ("1 Video đơn (" + card.totalTrimMinutes + "p)")))
                                  : (card.splitMode === "parts_2" ? ("Chia đều 2 Part (" + card.formatSecClock(card.effP1Sec) + " / part)") : ("Chia đều 3 Part (" + card.formatSecClock(card.effP1Sec) + " / part)")))
                               : "Tắt (1 video đơn)"
                         color: splitSwitch.checked ? Theme.success : Theme.textMuted
@@ -524,7 +546,7 @@ SettingsCard {
                             font.pixelSize: Theme.textSm
                             from: 1
                             // Ràng buộc giới hạn an toàn, tránh Part 1 lấn át toàn bộ video (BUG-03)
-                            to: Math.max(1, Math.min(30, Math.floor(card.totalTrimMinutes - 1)))
+                            to: Math.max(1, Math.min(30, Math.floor(card.totalTrimMinutes)))
                             value: Math.round(card.customP1Val)
                             editable: true
                             onValueModified: {
@@ -548,7 +570,7 @@ SettingsCard {
                         spacing: 4
                         Layout.alignment: Qt.AlignRight
                         Repeater {
-                            model: [ { label: "1p", val: 1 }, { label: "2p", val: 2 }, { label: "3p", val: 3 }, { label: "4p (Chuẩn)", val: 4 }, { label: "5p", val: 5 } ]
+                            model: [ { label: "1p", val: 1 }, { label: "2p", val: 2 }, { label: "3p (Chuẩn)", val: 3 }, { label: "4p", val: 4 }, { label: "5p", val: 5 } ]
                             delegate: Rectangle {
                                 id: p1QuickBtn
                                 required property var modelData
@@ -669,7 +691,7 @@ SettingsCard {
 
                         // ─── CHẾ ĐỘ 3 PART (CUSTOM P1 HOẶC 3 PART ĐỀU) ───────
                         RowLayout {
-                            visible: card.splitMode !== "parts_2" && (card.splitMode === "parts_3" || card.remainMinutes >= 1.0)
+                            visible: card.splitMode !== "parts_2" && (card.splitMode === "parts_3" || card.customPartCount >= 2)
                             Layout.fillWidth: true
                             spacing: 4
 
@@ -701,7 +723,7 @@ SettingsCard {
                                 }
                             }
 
-                            Label { text: "➔"; color: Theme.textMuted; font.pixelSize: 10 }
+                            Label { text: "➔"; visible: card.splitMode !== "custom_p1" || card.customPartCount === 3; color: Theme.textMuted; font.pixelSize: 10 }
 
                             // Badge Part 2
                             Rectangle {
@@ -718,7 +740,9 @@ SettingsCard {
                                     Label {
                                         Layout.alignment: Qt.AlignHCenter
                                         text: (card.splitMode === "custom_p1")
-                                            ? ("PART 2: ~" + card.formatSecClock(card.effP2Sec) + " (Nối tiếp " + card.formatSecClock(card.effP1Sec) + " - 50% còn lại)")
+                                            ? ("PART 2: " + card.formatSecClock(card.effP2Sec) + (card.customPartCount === 2
+                                                ? (" (" + card.formatSecClock(card.effP1Sec) + " - " + card.formatSecClock(card.totalTrimSec) + ")")
+                                                : (" (Nối tiếp " + card.formatSecClock(card.effP1Sec) + " - 50% còn lại)")))
                                             : ("PART 2: " + card.formatSecClock(card.effP2Sec) + " (" + card.formatSecClock(card.effP1Sec) + " - " + card.formatSecClock(card.effP1Sec + card.effP2Sec) + ")")
                                         color: Theme.text
                                         font.pixelSize: 9
@@ -726,17 +750,20 @@ SettingsCard {
                                     }
                                     Label {
                                         Layout.alignment: Qt.AlignHCenter
-                                        text: (card.splitMode === "custom_p1") ? "Chia đôi phần còn lại" : "Render nối tiếp"
+                                        text: (card.splitMode === "custom_p1")
+                                            ? (card.customPartCount === 2 ? "Phần còn lại" : "Chia đôi phần còn lại")
+                                            : "Render nối tiếp"
                                         color: Theme.textMuted
                                         font.pixelSize: 8
                                     }
                                 }
                             }
 
-                            Label { text: "➔"; color: Theme.textMuted; font.pixelSize: 10 }
+                            Label { text: "➔"; visible: card.splitMode !== "custom_p1" || card.customPartCount === 3; color: Theme.textMuted; font.pixelSize: 10 }
 
                             // Badge Part 3
                             Rectangle {
+                                visible: card.splitMode !== "custom_p1" || card.customPartCount === 3
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 32
                                 radius: 4
@@ -771,7 +798,7 @@ SettingsCard {
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignHCenter
                             horizontalAlignment: Text.AlignHCenter
-                            visible: card.splitMode === "custom_p1" && card.remainMinutes >= 1.0
+                            visible: card.splitMode === "custom_p1" && card.customPartCount === 3
                             text: "💡 Quy tắc dồn timeline: Part 1 = " + card.p1Duration + "p (0:00 - " + card.formatSecClock(card.effP1Sec) + ") · Part 2 & 3 chia đều 100% video còn lại (VD video 11:15: P1 0:00 - 3:00 | P2 3:00 - 7:08 | P3 7:08 - 11:15)"
                             color: Theme.accent
                             font.pixelSize: 8
@@ -779,7 +806,7 @@ SettingsCard {
 
                         // Cảnh báo nếu P1 lấn át toàn bộ video
                         Rectangle {
-                            visible: card.splitMode === "custom_p1" && card.remainMinutes < 1.0
+                            visible: card.splitMode === "custom_p1" && card.customPartCount === 1
                             Layout.fillWidth: true
                             Layout.preferredHeight: 26
                             radius: 4
@@ -788,7 +815,7 @@ SettingsCard {
                             border.width: 1
                             Label {
                                 anchors.centerIn: parent
-                                text: "Phần còn lại quá ngắn (< 1p). Hệ thống xuất 1 Video đơn " + card.totalTrimMinutes + " phút để bảo đảm chất lượng."
+                                text: "Nguồn không còn đủ thời lượng cho các part tiếp theo. Hệ thống xuất một video với toàn bộ " + card.totalTrimMinutes + " phút đã chọn."
                                 color: Theme.warning
                                 font.pixelSize: 9
                             }

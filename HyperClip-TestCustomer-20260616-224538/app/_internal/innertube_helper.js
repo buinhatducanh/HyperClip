@@ -786,6 +786,18 @@ function computeByteRange(format, durationSec, limitSec) {
   return null;
 }
 
+function runFileAsync(filePath, args) {
+  const childProcess = require('child_process');
+  return new Promise((resolve, reject) => {
+    const child = childProcess.spawn(filePath, args, { windowsHide: true, stdio: 'ignore' });
+    child.once('error', reject);
+    child.once('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`Process failed with exit code ${code}: ${filePath}`));
+    });
+  });
+}
+
 // UA per innertube client context: googlevideo can enforce coherence between
 // the client that issued the URL and the UA that fetches it.
 const CLIENT_UA = {
@@ -1597,19 +1609,19 @@ function makePreconnAgent(videoId, host, n) {
   agent.hcDestroyPool = () => { if (usable) for (const s of usable.sockets) { try { s.destroy(); } catch (_) {} } };
   return agent;
 }
-function takeResolved(videoId, maxHeight, limitSec) {
+function takeResolved(videoId, maxHeight) {
   const r = resolvedMedia.get(videoId);
   if (!r) return null;
   resolvedMedia.delete(videoId);
   if (Date.now() - r.at > RESOLVE_TTL_MS) return null;
-  if (r.maxHeight !== maxHeight || r.limitSec !== limitSec) return null;
+  if (r.maxHeight !== maxHeight) return null;
   return r;
 }
 
 // Chain /player â†’ format â†’ range â†’ decipher (Ä‘Ăºng luáº­t cá»§a downloadVideoNative,
 // KHĂ”NG fetch). Tráº£ báº£n ghi cache hoáº·c throw. DĂ¹ng cho resolveMedia.
 
-function getSmartSplitPlan(actualDurationSec) {
+function readSmartSplitSettingsSnapshot() {
   try {
     const fs = require('fs');
     const path = require('path');
@@ -1621,263 +1633,111 @@ function getSmartSplitPlan(actualDurationSec) {
       'D:\\HyperClip\\HyperClip-TestCustomer-20260616-224538\\HyperClip-Data\\.hyperclip\\settings.json',
     ].filter(Boolean);
 
-    for (const p of possiblePaths) {
-      if (fs.existsSync(p)) {
-        const raw = fs.readFileSync(p, 'utf8');
-        const parsed = JSON.parse(raw);
-        const s = parsed.settings || parsed;
-        if (s.autoSplitEnabled === true) {
-          const trimLimitMin = Number(s.defaultTrimLimit) || 10;
-          let totalTrimSec = Math.max(60, Math.round(trimLimitMin * 60));
-
-          const actSec = Number(actualDurationSec) || 0;
-          let isAdaptiveShort = false;
-          if (actSec > 30 && actSec < totalTrimSec) {
-            totalTrimSec = actSec;
-            isAdaptiveShort = true;
-          }
-
-          let p1Sec, p2Sec, p3Sec;
-          let partsCount = s.autoSplitParts || 3;
-
-          // Tuân thủ tuyệt đối cài đặt chia Part của người dùng, không can thiệp rule ngầm
-          if (s.autoSplitMode === "minutes" || s.autoSplitSubMode === "custom_p1" || (s.autoSplitCustomP1 && s.autoSplitCustomP1 > 0)) {
-            const p1Min = Number(s.autoSplitCustomP1) || Number(s.autoSplitPart1Minutes) || Number(s.autoSplitMinutes) || 3.0;
-            const targetP1Sec = Math.round(p1Min * 60);
-
-            if (totalTrimSec <= targetP1Sec) {
-              p1Sec = totalTrimSec;
-              p2Sec = 0;
-              p3Sec = 0;
-              partsCount = 1;
-            } else {
-              p1Sec = targetP1Sec;
-              const remSec = Math.max(0, totalTrimSec - p1Sec);
-              if (remSec < 30 || partsCount === 1) {
-                p1Sec = totalTrimSec;
-                p2Sec = 0;
-                p3Sec = 0;
-                partsCount = 1;
-              } else if (remSec < 60 || partsCount === 2) {
-                p2Sec = remSec;
-                p3Sec = 0;
-                partsCount = 2;
-              } else {
-                p2Sec = Math.round(remSec / 2);
-                p3Sec = Math.max(0, remSec - p2Sec);
-                partsCount = 3;
-              }
-            }
-          } else if (s.autoSplitParts === 2 || s.autoSplitSubMode === "parts_2") {
-            p1Sec = Math.round(totalTrimSec / 2);
-            p2Sec = totalTrimSec - p1Sec;
-            p3Sec = 0;
-            partsCount = 2;
-          } else {
-            p1Sec = Math.round(totalTrimSec / 3);
-            p2Sec = Math.round(totalTrimSec / 3);
-            p3Sec = Math.max(0, totalTrimSec - p1Sec - p2Sec);
-            partsCount = 3;
-          }
-          return { enabled: true, trimLimitMin, totalTrimSec, p1Sec, p2Sec, p3Sec, parts: partsCount, isAdaptiveShort };
-        } else {
-          const trimLimitMin = Number(s.defaultTrimLimit) || 10;
-          let totalTrimSec = (trimLimitMin > 0 && trimLimitMin < 900) ? Math.round(trimLimitMin * 60) : 0;
-          return { enabled: false, trimLimitMin, totalTrimSec, parts: 1 };
-        }
-      }
+    for (const settingsPath of possiblePaths) {
+      if (!fs.existsSync(settingsPath)) continue;
+      const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      const raw = parsed.settings || parsed;
+      return {
+        autoSplitEnabled: raw.autoSplitEnabled !== false && raw.autoSplitMode !== 'none',
+        autoSplitMode: String(raw.autoSplitMode || ''),
+        autoSplitSubMode: String(raw.autoSplitSubMode || ''),
+        autoSplitParts: Number(raw.autoSplitParts) || 3,
+        autoSplitCustomP1: Number(raw.autoSplitCustomP1) || Number(raw.autoSplitPart1Minutes) || Number(raw.autoSplitMinutes) || 3,
+        defaultTrimLimit: Number(raw.defaultTrimLimit) || 10,
+      };
     }
   } catch (_) {}
   return null;
 }
 
-// Background Guard: tu dong don dep Part 1 trung lap
-function cleanDuplicateRenders() {
-  try {
-    const fs = require("fs");
-    const path = require("path");
-    const plan = getSmartSplitPlan();
-    const outDir = (plan && plan.outDir) || "D:\\CapCută§ç·¨é›†ă—ă¾ă—ăŸ";
-    if (!fs.existsSync(outDir)) return;
-    const files = fs.readdirSync(outDir);
-    for (const f of files) {
-      const m = f.match(/^(.*)_part1\.mp4$/i);
-      if (m) {
-        const parentName = m[1] + ".mp4";
-        const parentPath = path.join(outDir, parentName);
-        const part1Path = path.join(outDir, f);
-        if (fs.existsSync(parentPath)) {
-          const pStat = fs.statSync(parentPath);
-          const cStat = fs.statSync(part1Path);
-          if (pStat.size > 500000 && cStat.size > 100000) {
-            dlog("[smart-split] Removing redundant Part 1 duplicate: " + f + " in favor of " + parentName);
-            try { fs.unlinkSync(part1Path); } catch (_) {}
-          }
-        }
-      }
+function getSmartSplitPlan(actualDurationSec, settingsSnapshot) {
+  const settings = settingsSnapshot || readSmartSplitSettingsSnapshot();
+  if (!settings) return null;
+
+  const trimLimitMin = Number(settings.defaultTrimLimit) || 10;
+  const sourceSec = Math.max(0, Math.floor(Number(actualDurationSec) || 0));
+  const isFullVideo = trimLimitMin >= 900;
+  const configuredTotalSec = isFullVideo ? sourceSec : Math.max(60, Math.round(trimLimitMin * 60));
+  const totalTrimSec = sourceSec > 0
+    ? (configuredTotalSec > 0 ? Math.min(sourceSec, configuredTotalSec) : sourceSec)
+    : configuredTotalSec;
+  const mode = settings.autoSplitMode || '';
+  const subMode = settings.autoSplitSubMode || '';
+  const customP1 = Number(settings.autoSplitCustomP1) || 3;
+  const isCustomP1 = mode === 'minutes' || subMode === 'custom_p1' || !mode;
+  const normalizedSettings = {
+    autoSplitEnabled: settings.autoSplitEnabled !== false && settings.autoSplitMode !== 'none',
+    autoSplitMode: mode || (isCustomP1 ? 'minutes' : 'parts'),
+    autoSplitSubMode: subMode || (isCustomP1 ? 'custom_p1' : ''),
+    autoSplitParts: Number(settings.autoSplitParts) || 3,
+    autoSplitCustomP1: customP1,
+    defaultTrimLimit: trimLimitMin,
+  };
+  const base = {
+    enabled: normalizedSettings.autoSplitEnabled,
+    trimLimitMin,
+    sourceDurationSec: sourceSec || null,
+    totalTrimSec,
+    settingsSnapshot: normalizedSettings,
+    settingsVersion: [trimLimitMin, normalizedSettings.autoSplitMode, normalizedSettings.autoSplitParts, customP1, normalizedSettings.autoSplitEnabled ? 1 : 0].join(':'),
+    isAdaptiveShort: sourceSec > 0 && configuredTotalSec > 0 && sourceSec < configuredTotalSec,
+  };
+
+  if (!base.enabled) return { ...base, parts: 1, p1Sec: totalTrimSec, p2Sec: 0, p3Sec: 0 };
+
+  let p1Sec = 0;
+  let p2Sec = 0;
+  let p3Sec = 0;
+  let parts = 1;
+  if (totalTrimSec > 0 && isCustomP1) {
+    const targetP1Sec = Math.max(1, Math.round(customP1 * 60));
+    p1Sec = Math.min(targetP1Sec, totalTrimSec);
+    const remainingSec = Math.max(0, totalTrimSec - p1Sec);
+    if (remainingSec < 30) {
+      p1Sec = totalTrimSec;
+    } else if (remainingSec < 60) {
+      p2Sec = remainingSec;
+      parts = 2;
+    } else {
+      p2Sec = Math.ceil(remainingSec / 2);
+      p3Sec = remainingSec - p2Sec;
+      parts = 3;
     }
-  } catch (_) {}
+  } else if (totalTrimSec > 0 && (settings.autoSplitParts === 2 || subMode === 'parts_2')) {
+    p1Sec = Math.ceil(totalTrimSec / 2);
+    p2Sec = totalTrimSec - p1Sec;
+    parts = 2;
+  } else if (totalTrimSec > 0) {
+    p1Sec = Math.ceil(totalTrimSec / 3);
+    p2Sec = Math.ceil((totalTrimSec - p1Sec) / 2);
+    p3Sec = totalTrimSec - p1Sec - p2Sec;
+    parts = 3;
+  }
+
+  return { ...base, p1Sec, p2Sec, p3Sec, parts };
 }
 
-
-
-
-
-function guardPart1Duration() {
+function saveSplitPlanMetadata(masterPath, videoId, splitPlan, sourceDurationSec) {
+  if (!masterPath || !splitPlan) return;
   try {
-    const fs = require('fs');
-    const path = require('path');
-    const child_process = require('child_process');
-    const plan = getSmartSplitPlan();
-    if (!plan || !plan.enabled || !plan.p1Sec || plan.p1Sec <= 0) return;
-
-    const targetSec = plan.p1Sec;
-    const possibleDirs = [
-      (plan && plan.outDir),
-      process.env.HYPERCLIP_DATA_DIR,
-      'D:\\HyperClip\\HyperClip-TestCustomer-20260616-224538\\HyperClip-Data'
-    ].filter(Boolean);
-
-    let ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg_real.exe');
-    if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg.exe');
-    if (!fs.existsSync(ffmpegExe)) ffmpegExe = 'D:\\HyperClip\\HyperClip-TestCustomer-20260616-224538\\app\\_internal\\resources\\ffmpeg\\bin\\ffmpeg_real.exe';
-
-    for (const dir of possibleDirs) {
-      if (!fs.existsSync(dir)) continue;
-
-      // 1. Synchronize workspaces.json to prevent Rust equal split override (e.g. 225s / 3:45)
-      try {
-        const wsFile = path.join(dir, '.hyperclip', 'workspaces.json');
-        if (fs.existsSync(wsFile)) {
-          const wsJson = JSON.parse(fs.readFileSync(wsFile, 'utf8'));
-          let changed = false;
-          for (const ws of (wsJson.workspaces || [])) {
-            // Find video actual total duration
-            let videoDur = 0;
-            const parentWs = (wsJson.workspaces || []).find(w => w.id === ws.partGroup || w.id === (ws.id || '').replace(/-part\d+$/, ''));
-            if (parentWs && parentWs.originalDurationSec && parentWs.originalDurationSec > 0) {
-              videoDur = parentWs.originalDurationSec;
-            } else if (ws.originalDurationSec && ws.originalDurationSec > 0) {
-              videoDur = ws.originalDurationSec;
-            } else if (parentWs && parentWs.durationSec && parentWs.durationSec > 180) {
-              videoDur = parentWs.durationSec;
-            } else if (ws.durationSec && ws.durationSec > 180) {
-              videoDur = ws.durationSec;
-            }
-
-            if (!videoDur || videoDur <= 0) {
-              try {
-                const hFile = path.join(dir, 'history.json');
-                if (fs.existsSync(hFile)) {
-                  const hObj = JSON.parse(fs.readFileSync(hFile, 'utf8'));
-                  const hEnt = (hObj.entries || []).find(e => e.videoId === ws.video_id);
-                  if (hEnt && (hEnt.originalDurationSec || hEnt.durationSec)) {
-                    videoDur = hEnt.originalDurationSec || hEnt.durationSec;
-                  }
-                }
-              } catch (_) {}
-            }
-
-            const targetP1 = plan.p1Sec || 180;
-            let effectiveP1 = targetP1;
-            let effectiveP2 = 0;
-            let effectiveP3 = 0;
-
-            if (videoDur > 0 && videoDur > targetP1) {
-              const remainSec = Math.max(0, videoDur - targetP1);
-              if (ws.partTotal === 2) {
-                effectiveP2 = Math.round(remainSec);
-              } else {
-                // e.g. 11m15s (675s): 675 - 180 = 495s -> P2 = 248s (4m08s), P3 = 247s (4m07s)
-                effectiveP2 = Math.ceil(remainSec / 2.0);
-                effectiveP3 = Math.floor(remainSec - effectiveP2);
-              }
-            } else {
-              effectiveP2 = plan.p2Sec || 180;
-              effectiveP3 = plan.p3Sec || 180;
-            }
-
-            if (ws.partIndex === 1 && ws.partTotal >= 2) {
-              if (Math.abs(ws.trimStart - 0) > 0.5 || Math.abs(ws.trimEnd - effectiveP1) > 0.5 || Math.abs(ws.durationSec - effectiveP1) > 0.5 || Math.abs(ws.sourceEndSec - effectiveP1) > 0.5) {
-                ws.trimStart = 0.0;
-                ws.trimEnd = Number(effectiveP1.toFixed(1));
-                ws.durationSec = effectiveP1;
-                ws.sourceStartSec = 0.0;
-                ws.sourceEndSec = Number(effectiveP1.toFixed(1));
-                changed = true;
-              }
-            } else if (ws.partIndex === 2 && ws.partTotal >= 2 && effectiveP2 > 0) {
-              const p2Start = effectiveP1;
-              const p2End = effectiveP1 + effectiveP2;
-              if (Math.abs(ws.trimStart - p2Start) > 0.5 || Math.abs(ws.trimEnd - p2End) > 0.5 || Math.abs(ws.durationSec - effectiveP2) > 0.5 || Math.abs(ws.sourceEndSec - p2End) > 0.5 || Math.abs(ws.sourceStartSec - p2Start) > 0.5) {
-                ws.trimStart = Number(p2Start.toFixed(1));
-                ws.trimEnd = Number(p2End.toFixed(1));
-                ws.durationSec = effectiveP2;
-                ws.sourceStartSec = Number(p2Start.toFixed(1));
-                ws.sourceEndSec = Number(p2End.toFixed(1));
-                changed = true;
-              }
-            } else if (ws.partIndex === 3 && ws.partTotal === 3 && effectiveP3 > 0) {
-              const p3Start = effectiveP1 + effectiveP2;
-              const p3End = (videoDur > 0) ? videoDur : (effectiveP1 + effectiveP2 + effectiveP3);
-              const p3Dur = p3End - p3Start;
-              if (Math.abs(ws.trimStart - p3Start) > 0.5 || Math.abs(ws.trimEnd - p3End) > 0.5 || Math.abs(ws.durationSec - p3Dur) > 0.5 || Math.abs(ws.sourceEndSec - p3End) > 0.5 || Math.abs(ws.sourceStartSec - p3Start) > 0.5) {
-                ws.trimStart = Number(p3Start.toFixed(1));
-                ws.trimEnd = Number(p3End.toFixed(1));
-                ws.durationSec = p3Dur;
-                ws.sourceStartSec = Number(p3Start.toFixed(1));
-                ws.sourceEndSec = Number(p3End.toFixed(1));
-                changed = true;
-              }
-            }
-          }
-          if (changed) {
-            fs.writeFileSync(wsFile, JSON.stringify(wsJson, null, 2), 'utf8');
-            dlog(`[part1-guard] Synced workspaces.json parts to plan durations (P1: ${plan.p1Sec}s, P2: ${plan.p2Sec}s, P3: ${plan.p3Sec}s)`);
-          }
-        }
-      } catch (_) {}
-
-      // 2. Physical file verification & lossless normalization
-      if (fs.existsSync(ffmpegExe)) {
-        const files = fs.readdirSync(dir);
-        for (const f of files) {
-          if (/^PART\s*1_.*\.mp4$/i.test(f) && !f.includes("_fixed") && !f.includes(".tmp")) {
-            const fullPath = path.join(dir, f);
-            const stat = fs.statSync(fullPath);
-            if (Date.now() - stat.mtimeMs < 2000) continue;
-
-            const probe = child_process.spawnSync(ffmpegExe, ['-i', fullPath], { encoding: 'utf8' });
-            const durMatch = (probe.stderr || '').match(/Duration:\s*(\d+):(\d+):(\d+\.?\d*)/);
-            if (durMatch) {
-              const actualDur = parseInt(durMatch[1]) * 3600 + parseInt(durMatch[2]) * 60 + parseFloat(durMatch[3]);
-              if (actualDur > targetSec + 1.5) {
-                const tmpPath = fullPath + '.norm.mp4';
-                const res = child_process.spawnSync(ffmpegExe, ['-y', '-i', fullPath, '-t', String(targetSec), '-c', 'copy', tmpPath]);
-                if (res.status === 0 && fs.existsSync(tmpPath) && fs.statSync(tmpPath).size > 1000) {
-                  fs.unlinkSync(fullPath);
-                  fs.renameSync(tmpPath, fullPath);
-                  dlog(`[part1-guard] Successfully normalized ${f} from ${actualDur.toFixed(1)}s to ${targetSec}s (exact Part 1 duration)`);
-                } else {
-                  try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (_) {}
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  } catch (_) {}
+    const sourceDuration = Number(sourceDurationSec) || Number(splitPlan.sourceDurationSec) || 0;
+    const actualDuration = Number(splitPlan.totalTrimSec) || sourceDuration;
+    require('fs').writeFileSync(masterPath + '.meta.json', JSON.stringify({
+      videoId,
+      sourceDurationSec: sourceDuration,
+      actualDurationSec: actualDuration,
+      splitPlan: { ...splitPlan, sourceDurationSec: sourceDuration || null }
+    }, null, 2), 'utf8');
+  } catch (e) {
+    dlog(`[smart-split] Could not save job plan for ${videoId}: ${(e && e.message) || e}`);
+  }
 }
 
-setInterval(() => { cleanDuplicateRenders(); guardPart1Duration(); }, 2000);
 async function resolveMediaNative(req) {
   const videoId = req.videoId;
   const maxHeight = req.maxHeight || 360;
-  const splitPlan = getSmartSplitPlan();
-  const isSmartSplit = !!(splitPlan && splitPlan.enabled);
-  let planToUse = splitPlan || { p1Sec: (req.limitSec || 60), p2Sec: 0, p3Sec: 0 };
-  const limitSec = isSmartSplit ? splitPlan.totalTrimSec : (req.limitSec || (splitPlan && splitPlan.totalTrimSec) || 0);
+  const settingsSnapshot = readSmartSplitSettingsSnapshot();
+  const configuredPlan = getSmartSplitPlan(0, settingsSnapshot);
   const anonClient = await ensureGateClient();
   const chain = ['ANDROID', 'IOS', null];
   const failures = [];
@@ -1901,18 +1761,22 @@ async function resolveMediaNative(req) {
         .filter(f => f.has_video).reduce((m, f) => Math.max(m, f.height || 0), 0);
       if (adaptiveMax >= maxHeight) throw new Error(`progressive only ${gotHeight}p, need ${maxHeight}p â€” yt-dlp can merge adaptive`);
     }
-    const range = computeByteRange(format, durationSec, limitSec);
     let directUrl = null;
     try {
       directUrl = await format.decipher(sessClient.session.player);
       if (typeof directUrl !== 'string' || !directUrl.startsWith('http')) directUrl = null;
     } catch (_) { directUrl = null; }
     if (!directUrl) { failures.push(`${clientName}: decipher failed`); continue; }
+    const planToUse = getSmartSplitPlan(durationSec, settingsSnapshot) || configuredPlan;
+    const isFullVideo = Number(settingsSnapshot && settingsSnapshot.defaultTrimLimit) >= 900;
+    const limitSec = isFullVideo ? 0 : ((planToUse && planToUse.totalTrimSec) || req.limitSec || 0);
+    const range = computeByteRange(format, durationSec, limitSec);
     return {
       at: Date.now(), maxHeight, limitSec, directUrl, range,
       ua: CLIENT_UA[clientName] || CLIENT_UA.WEB,
       format: { itag: format.itag, width: format.width || 0, height: format.height || 0 },
       durationSec, title: info.basic_info?.title || '', clientName, host: hostOf(directUrl),
+      splitPlan: planToUse,
     };
   }
   throw new Error(failures.join(' | ') || 'resolve failed');
@@ -1921,10 +1785,25 @@ async function resolveMediaNative(req) {
 async function downloadVideoNative(req, ctx) {
   const videoId = req.videoId;
   const outputPath = req.outputPath;
-
-  const splitPlan = getSmartSplitPlan();
+  const settingsSnapshot = readSmartSplitSettingsSnapshot();
+  let splitPlan = getSmartSplitPlan(0, settingsSnapshot);
   let planToUse = splitPlan || { p1Sec: (req.limitSec || 60), p2Sec: 0, p3Sec: 0 };
-  if (splitPlan && splitPlan.enabled && outputPath) {
+  const maxHeight = req.maxHeight || 360;
+  const isPartRequest = !!(outputPath && /_part\d+\.mp4$/i.test(path.basename(outputPath)));
+  let cached = null;
+  if (!isPartRequest && req.useResolved !== false) {
+    const inflight = resolveInflight.get(videoId);
+    if (inflight) {
+      await Promise.race([inflight.catch(() => {}), new Promise(r => setTimeout(r, 3000))]);
+      if (ctx && ctx.aborted) throw new AbortedError();
+    }
+    cached = takeResolved(videoId, maxHeight);
+    if (cached && cached.splitPlan) {
+      planToUse = cached.splitPlan;
+      splitPlan = cached.splitPlan;
+    }
+  }
+  if (outputPath) {
     const dir = path.dirname(outputPath);
     const fileName = path.basename(outputPath);
     const mPart = fileName.match(/^(.*)_part(\d+)\.mp4$/i);
@@ -1950,16 +1829,21 @@ async function downloadVideoNative(req, ctx) {
       }
     }
 
+    if (mPart && !masterPath) {
+      throw new Error(`Part request ${fileName} has no downloaded master; use the section-download fallback`);
+    }
+
     if (mPart && masterPath) {
       const partNum = parseInt(mPart[2], 10);
       let startSec = 0;
       let durSec = 180;
       let masterDur = 0;
+      let masterMeta = null;
       const metaFile = masterPath + '.meta.json';
       if (fs.existsSync(metaFile)) {
         try {
-          const meta = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
-          if (meta.actualDurationSec) masterDur = meta.actualDurationSec;
+          masterMeta = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
+          if (masterMeta.actualDurationSec) masterDur = masterMeta.actualDurationSec;
         } catch (_) {}
       }
       if (!masterDur) {
@@ -1975,16 +1859,16 @@ async function downloadVideoNative(req, ctx) {
         } catch (_) {}
       }
 
-      const p1Sec = (splitPlan && splitPlan.p1Sec) || 180;
-      let p2Sec = 0;
-      let p3Sec = 0;
-      if (masterDur > p1Sec) {
-        const remSec = masterDur - p1Sec;
-        p2Sec = Math.ceil(remSec / 2.0);
-        p3Sec = Math.floor(remSec - p2Sec);
-      } else {
-        p2Sec = (splitPlan && splitPlan.p2Sec) || 180;
-        p3Sec = (splitPlan && splitPlan.p3Sec) || 180;
+      const partPlan = masterMeta && masterMeta.splitPlan && masterMeta.splitPlan.settingsSnapshot
+        ? masterMeta.splitPlan
+        : null;
+      if (!partPlan || !partPlan.enabled) throw new Error(`No saved split plan for ${videoId}; refusing to create a part with live settings`);
+      const p1Sec = Math.max(0, Number(partPlan.p1Sec) || 0);
+      const p2Sec = Math.max(0, Number(partPlan.p2Sec) || 0);
+      const p3Sec = Math.max(0, Number(partPlan.p3Sec) || 0);
+      const totalSec = Math.max(0, Number(partPlan.totalTrimSec) || masterDur || 0);
+      if (partNum > (Number(partPlan.parts) || 1)) {
+        throw new Error(`Part ${partNum} is outside saved plan (${partPlan.parts} parts)`);
       }
 
       if (partNum === 1) {
@@ -2001,15 +1885,17 @@ async function downloadVideoNative(req, ctx) {
         durSec = p3Sec;
       }
 
+      durSec = Math.max(0, Math.min(durSec, totalSec - startSec));
+      if (durSec <= 0) throw new Error(`Part ${partNum} has no source duration in saved plan`);
       dlog(`[smart-split] Local slice for Part ${partNum} [${startSec}s..${startSec + durSec}s] (${durSec}s) from master to ${outputPath}`);
       let ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg_real.exe');
       if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg.exe');
       if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');
       if (!fs.existsSync(ffmpegExe)) ffmpegExe = 'D:\\HyperClip\\HyperClip-TestCustomer-20260616-224538\\app\\_internal\\resources\\ffmpeg\\bin\\ffmpeg_real.exe';
-      const cp = require('child_process');
-      cp.execFileSync(ffmpegExe, [
+      try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch (_) {}
+      await runFileAsync(ffmpegExe, [
         '-y', '-ss', String(startSec), '-i', masterPath, '-t', String(durSec), '-c', 'copy', outputPath
-      ], { stdio: 'ignore' });
+      ]);
 
       if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
         dlog(`[smart-split] Part ${partNum} local slice complete: ${fs.statSync(outputPath).size} bytes`);
@@ -2023,13 +1909,14 @@ async function downloadVideoNative(req, ctx) {
           sourceIp: '127.0.0.1'
         };
       }
+      throw new Error(`Local slice for Part ${partNum} produced no valid output`);
     }
   }
 
-  const maxHeight = req.maxHeight || 360;
-  // splitPlan already declared above
-  const isSmartSplit = !!(splitPlan && splitPlan.enabled && outputPath && outputPath.endsWith(".mp4") && !outputPath.includes("_part"));
-  const limitSec = isSmartSplit ? splitPlan.totalTrimSec : (req.limitSec || (splitPlan && splitPlan.totalTrimSec) || 0);
+  const isSmartSplit = !!(planToUse && planToUse.enabled && outputPath && outputPath.endsWith(".mp4") && !outputPath.includes("_part"));
+  const jobSettingsSnapshot = (planToUse && planToUse.settingsSnapshot) || settingsSnapshot;
+  const isFullVideo = Number(jobSettingsSnapshot && jobSettingsSnapshot.defaultTrimLimit) >= 900;
+  const limitSec = isFullVideo ? 0 : ((planToUse && planToUse.totalTrimSec) || req.limitSec || 0);
   const masterPath = isSmartSplit ? outputPath.replace(/\.mp4$/i, "_master.mp4") : null;
   const fetchTarget = isSmartSplit ? masterPath : outputPath;
   const t0 = Date.now();
@@ -2071,18 +1958,11 @@ async function downloadVideoNative(req, ctx) {
   // Pass 90 (A1): URL Ä‘Ă£ resolve sá»›m + socket má»Ÿ sáºµn â†’ bá» qua /player+decipher.
   // Lá»—i báº¥t ká»³ (403 vĂ¬ URL/IP lá»‡ch, 416, socket cháº¿tâ€¦) â†’ cháº¡y láº¡i chain Ä‘áº§y Ä‘á»§
   // nhÆ° chÆ°a cĂ³ gĂ¬ â€” khĂ´ng tá»‡ hÆ¡n Ä‘Æ°á»ng cÅ©.
-  let cached = null;
-  if (req.useResolved !== false) {
-    // Resolve sá»›m Ä‘ang cháº¡y dá»Ÿ (download tá»›i nhanh hÆ¡n /player) â†’ Ä‘á»£i nĂ³
-    // (tá»‘i Ä‘a 3 s) thay vĂ¬ gá»i /player láº§n hai.
-    const inflight = resolveInflight.get(videoId);
-    if (inflight) {
-      await Promise.race([inflight.catch(() => {}), new Promise(r => setTimeout(r, 3000))]);
-      abortedCheck();
-    }
-    cached = takeResolved(videoId, maxHeight, limitSec);
-  }
+  // The resolver snapshot is captured before the download starts and reused here.
   if (cached) {
+    if (isSmartSplit && masterPath) {
+      saveSplitPlanMetadata(masterPath, videoId, cached.splitPlan || planToUse, cached.durationSec);
+    }
     const agent = makePreconnAgent(videoId, cached.host, PARALLEL_CONNECTIONS);
     const ageMs = Date.now() - cached.at;
     dlog(`[native-dl] ${videoId} dĂ¹ng URL resolve sá»›m (${(ageMs / 1000).toFixed(1)}s trÆ°á»›c, ${cached.clientName}, ${agent.hcPreconn} socket má»Ÿ sáºµn)`);
@@ -2099,37 +1979,30 @@ async function downloadVideoNative(req, ctx) {
       if (written < 65536) throw new Error(`suspiciously small download (${written} bytes)`);
         if (isSmartSplit && masterPath && require('fs').existsSync(masterPath)) {
           try {
-            const cp = require('child_process');
             const fs = require('fs');
             const path = require('path');
             let ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg_real.exe');
             if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg.exe');
             if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');
             if (!fs.existsSync(ffmpegExe)) ffmpegExe = 'D:\\HyperClip\\HyperClip-TestCustomer-20260616-224538\\app\\_internal\\resources\\ffmpeg\\bin\\ffmpeg_real.exe';
-            const actualDur = Number(cached.durationSec) || 0;
-            const p1Dur = planToUse.p1Sec || 180;
-            let p2Dur = 0, p3Dur = 0;
-            if (actualDur > p1Dur) {
-              const rem = actualDur - p1Dur;
-              p2Dur = Math.ceil(rem / 2.0);
-              p3Dur = Math.floor(rem - p2Dur);
+            const sourceDurationSec = Number(cached.durationSec) || 0;
+            const savedPlan = cached.splitPlan || getSmartSplitPlan(sourceDurationSec, planToUse.settingsSnapshot) || planToUse;
+            saveSplitPlanMetadata(masterPath, videoId, savedPlan, sourceDurationSec);
+            dlog(`[smart-split] Slicing Part 1 (0 -> ${savedPlan.p1Sec}s) from master to ${outputPath}`);
+            try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch (_) {}
+            await runFileAsync(ffmpegExe, [
+              '-y', '-ss', '0', '-i', masterPath, '-t', String(savedPlan.p1Sec), '-c', 'copy', outputPath
+            ]);
+            if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size <= 1000) {
+              const splitError = new Error('Part 1 slice produced no valid output');
+              splitError.splitFailure = true;
+              throw splitError;
             }
-            try {
-              fs.writeFileSync(masterPath + '.meta.json', JSON.stringify({
-                videoId,
-                actualDurationSec: actualDur,
-                splitPlan: { enabled: true, totalTrimSec: actualDur, p1Sec: p1Dur, p2Sec: p2Dur, p3Sec: p3Dur, parts: 3 }
-              }, null, 2), 'utf8');
-            } catch (_) {}
-            dlog(`[smart-split] Slicing Part 1 (0 -> ${planToUse.p1Sec}s) from master to ${outputPath}`);
-            cp.execFileSync(ffmpegExe, [
-              '-y', '-ss', '0', '-i', masterPath, '-t', String(planToUse.p1Sec), '-c', 'copy', outputPath
-            ], { stdio: 'ignore' });
-            if (fs.existsSync(outputPath)) {
-              written = fs.statSync(outputPath).size;
-            }
+            written = fs.statSync(outputPath).size;
           } catch (e) {
             dlog(`[smart-split] Slicing Part 1 failed: ${(e && e.message) || e}`);
+            e.splitFailure = true;
+            throw e;
           }
         }
 
@@ -2144,6 +2017,7 @@ async function downloadVideoNative(req, ctx) {
       };
     } catch (e) {
       if (e && e.aborted) throw e;
+      if (e && e.splitFailure) throw e;
       abortedCheck();
       // Ghi kĂ¨m sá»‘ redirect + host cuá»‘i: phĂ¢n xá»­ Ä‘Æ°á»£c "400 do socket lá»‡ch
       // host sau redirect" (Ä‘Ă£ sá»­a á»Ÿ PreconnAgent) hay 400 tá»« chĂ­nh URL.
@@ -2200,6 +2074,10 @@ async function downloadVideoNative(req, ctx) {
         throw new Error('live/upcoming â€” native path only handles finished VODs');
       }
       const durationSec = info.basic_info?.duration || 0;
+      if (isSmartSplit) {
+        planToUse = getSmartSplitPlan(durationSec, planToUse.settingsSnapshot) || planToUse;
+        saveSplitPlanMetadata(masterPath, videoId, planToUse, durationSec);
+      }
       const format = pickProgressiveFormat(info, maxHeight);
       if (!format) {
         dlog(`[native-dl] ${videoId} no progressive mp4 format on ${clientName}`);
@@ -2293,22 +2171,28 @@ async function downloadVideoNative(req, ctx) {
         if (written < 65536) throw new Error(`suspiciously small download (${written} bytes)`);
         if (isSmartSplit && masterPath && require('fs').existsSync(masterPath)) {
           try {
-            const cp = require('child_process');
             const fs = require('fs');
             const path = require('path');
             let ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg_real.exe');
             if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'resources', 'ffmpeg', 'bin', 'ffmpeg.exe');
             if (!fs.existsSync(ffmpegExe)) ffmpegExe = path.resolve(__dirname, 'ffmpeg', 'bin', 'ffmpeg.exe');
             if (!fs.existsSync(ffmpegExe)) ffmpegExe = 'D:\\HyperClip\\HyperClip-TestCustomer-20260616-224538\\app\\_internal\\resources\\ffmpeg\\bin\\ffmpeg_real.exe';
+            saveSplitPlanMetadata(masterPath, videoId, planToUse, durationSec);
             dlog(`[smart-split] Slicing Part 1 (0 -> ${planToUse.p1Sec}s) from master to ${outputPath}`);
-            cp.execFileSync(ffmpegExe, [
+            try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch (_) {}
+            await runFileAsync(ffmpegExe, [
               '-y', '-ss', '0', '-i', masterPath, '-t', String(planToUse.p1Sec), '-c', 'copy', outputPath
-            ], { stdio: 'ignore' });
-            if (fs.existsSync(outputPath)) {
-              written = fs.statSync(outputPath).size;
+            ]);
+            if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size <= 1000) {
+              const splitError = new Error('Part 1 slice produced no valid output');
+              splitError.splitFailure = true;
+              throw splitError;
             }
+            written = fs.statSync(outputPath).size;
           } catch (e) {
             dlog(`[smart-split] Slicing Part 1 failed: ${(e && e.message) || e}`);
+            e.splitFailure = true;
+            throw e;
           }
         }
 
@@ -2332,6 +2216,7 @@ async function downloadVideoNative(req, ctx) {
           dlog(`[native-dl] ${videoId} bá»‹ há»§y theo lá»‡nh Rust (abortDownload) â€” dá»«ng, khĂ´ng sang client khĂ¡c`);
           throw e;
         }
+        if (e && e.splitFailure) throw e;
         dlog(`[native-dl] ${videoId} fetch failed on ${clientName}: ${(e && e.message) || e}`);
         failures.push(`${clientName}: fetch ${(e && e.message) || e}`);
         lastErr = e;

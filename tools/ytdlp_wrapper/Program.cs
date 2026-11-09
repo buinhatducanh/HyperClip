@@ -75,6 +75,8 @@ namespace YtDlpWrapper {
             int p1Sec = 180;
             int p2Sec = 210;
             int p3Sec = 210;
+            string splitMode = "parts";
+            string subMode = "";
             string autoRenderResolution = "1080p";
             string autoDownloadQuality = "1080";
             string dataDir = Environment.GetEnvironmentVariable("HYPERCLIP_DATA_DIR");
@@ -102,7 +104,8 @@ namespace YtDlpWrapper {
                     }
 
                     Match mMode = Regex.Match(json, @"""autoSplitMode""\s*:\s*""([^""]+)""");
-                    string splitMode = mMode.Success ? mMode.Groups[1].Value : "parts";
+                    splitMode = mMode.Success ? mMode.Groups[1].Value : "parts";
+                    if (splitMode == "none") autoSplitEnabled = false;
 
                     Match mParts = Regex.Match(json, @"""autoSplitParts""\s*:\s*([0-9]+)");
                     if (mParts.Success) {
@@ -110,7 +113,7 @@ namespace YtDlpWrapper {
                     }
 
                     Match mSub = Regex.Match(json, @"""autoSplitSubMode""\s*:\s*""([^""]+)""");
-                    string subMode = mSub.Success ? mSub.Groups[1].Value : "";
+                    subMode = mSub.Success ? mSub.Groups[1].Value : "";
 
                     Match mMin = Regex.Match(json, @"""autoSplitMinutes""\s*:\s*([0-9\.]+)");
                     if (mMin.Success) {
@@ -130,17 +133,29 @@ namespace YtDlpWrapper {
 
                     int totalTrimSec = (int)Math.Max(60, Math.Round(trimLimit * 60.0));
                     if (splitMode == "minutes" || subMode == "custom_p1") {
-                        p1Sec = (int)Math.Min(totalTrimSec - 60, Math.Max(60, Math.Round(p1 * 60.0)));
+                        p1Sec = (int)Math.Min(totalTrimSec, Math.Max(1, Math.Round(p1 * 60.0)));
                         int remSec = Math.Max(0, totalTrimSec - p1Sec);
-                        p2Sec = remSec / 2;
-                        p3Sec = remSec - p2Sec;
+                        if (remSec < 30) {
+                            p1Sec = totalTrimSec;
+                            p2Sec = 0;
+                            p3Sec = 0;
+                            parts = 1;
+                        } else if (remSec < 60) {
+                            p2Sec = remSec;
+                            p3Sec = 0;
+                            parts = 2;
+                        } else {
+                            p2Sec = (int)Math.Ceiling(remSec / 2.0);
+                            p3Sec = remSec - p2Sec;
+                            parts = 3;
+                        }
                     } else if (parts == 2 || subMode == "parts_2") {
-                        p1Sec = totalTrimSec / 2;
+                        p1Sec = (int)Math.Ceiling(totalTrimSec / 2.0);
                         p2Sec = totalTrimSec - p1Sec;
                         p3Sec = 0;
                     } else {
-                        p1Sec = totalTrimSec / 3;
-                        p2Sec = totalTrimSec / 3;
+                        p1Sec = (int)Math.Ceiling(totalTrimSec / 3.0);
+                        p2Sec = (int)Math.Ceiling((totalTrimSec - p1Sec) / 2.0);
                         p3Sec = totalTrimSec - p1Sec - p2Sec;
                     }
                 }
@@ -148,7 +163,7 @@ namespace YtDlpWrapper {
 
             // 4. Intercept slicing from master video ONLY for explicit part files (_part2, _part3, etc.)
             bool isPartDownload = false;
-            if (!string.IsNullOrEmpty(outputPath) && autoSplitEnabled) {
+            if (!string.IsNullOrEmpty(outputPath)) {
                 string fileName = Path.GetFileName(outputPath);
                 string dir = Path.GetDirectoryName(outputPath);
                 if (string.IsNullOrEmpty(dir)) dir = ".";
@@ -239,29 +254,91 @@ namespace YtDlpWrapper {
                     }
 
                     double masterDur = bestDur;
-
-                    // Dynamic timeline: adapt to actual video duration vs user setting
-                    double effectiveTotal = (masterDur > 0) ? masterDur : ((trimLimit > 0 && trimLimit < 900) ? trimLimit * 60.0 : 660.0);
-                    if (trimLimit > 0 && trimLimit < 900 && masterDur <= 0) {
-                        effectiveTotal = trimLimit * 60.0;
+                    bool hasSavedPlan = false;
+                    bool savedPlanEnabled = false;
+                    int savedParts = 0;
+                    int savedP1Sec = 0;
+                    int savedP2Sec = 0;
+                    int savedP3Sec = 0;
+                    double savedTotalSec = 0;
+                    string[] splitMetaCandidates = new string[] {
+                        string.IsNullOrEmpty(masterPath) ? null : masterPath + ".meta.json",
+                        Path.Combine(dir, cleanBase + "_master.mp4.meta.json"),
+                        Path.Combine(dir, baseName + "_master.mp4.meta.json")
+                    };
+                    foreach (string metaPath in splitMetaCandidates) {
+                        if (string.IsNullOrEmpty(metaPath) || !File.Exists(metaPath)) continue;
+                        try {
+                            string meta = File.ReadAllText(metaPath);
+                            Match mEnabled = Regex.Match(meta, @"""enabled""\s*:\s*(true|false)", RegexOptions.IgnoreCase);
+                            Match mSavedParts = Regex.Match(meta, @"""parts""\s*:\s*([0-9]+)");
+                            Match mSavedP1 = Regex.Match(meta, @"""p1Sec""\s*:\s*([0-9\.]+)");
+                            Match mSavedP2 = Regex.Match(meta, @"""p2Sec""\s*:\s*([0-9\.]+)");
+                            Match mSavedP3 = Regex.Match(meta, @"""p3Sec""\s*:\s*([0-9\.]+)");
+                            Match mSavedTotal = Regex.Match(meta, @"""totalTrimSec""\s*:\s*([0-9\.]+)");
+                            Match mActualTotal = Regex.Match(meta, @"""actualDurationSec""\s*:\s*([0-9\.]+)");
+                            int.TryParse(mSavedP1.Groups[1].Value, out savedP1Sec);
+                            int.TryParse(mSavedP2.Groups[1].Value, out savedP2Sec);
+                            int.TryParse(mSavedP3.Groups[1].Value, out savedP3Sec);
+                            int.TryParse(mSavedParts.Groups[1].Value, out savedParts);
+                            double.TryParse(mSavedTotal.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out savedTotalSec);
+                            if (savedTotalSec <= 0) double.TryParse(mActualTotal.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out savedTotalSec);
+                            savedPlanEnabled = mEnabled.Success && string.Equals(mEnabled.Groups[1].Value, "true", StringComparison.OrdinalIgnoreCase);
+                            hasSavedPlan = mSavedParts.Success && mSavedP1.Success && savedP1Sec > 0 && savedTotalSec > 0;
+                        } catch (Exception ex) {
+                            Log("Could not read saved split plan: " + ex.Message);
+                        }
+                        if (hasSavedPlan) break;
                     }
 
-                    int effectiveP1 = p1Sec;
+                    if (!hasSavedPlan && !autoSplitEnabled) {
+                        Console.Error.WriteLine("[smart-split] No saved plan for this part and automatic split is now disabled.");
+                        return 1;
+                    }
+
+                    int effectiveParts = hasSavedPlan ? savedParts : parts;
+                    if (hasSavedPlan && !savedPlanEnabled) {
+                        Console.Error.WriteLine(string.Format("[smart-split] Part {0} is outside saved plan ({1} parts).", partNum, effectiveParts));
+                        return 1;
+                    }
+
+                    // A sidecar plan is immutable for this video. Use live settings only for legacy jobs without one.
+                    double effectiveTotal = hasSavedPlan
+                        ? savedTotalSec
+                        : ((masterDur > 0) ? masterDur : ((trimLimit > 0 && trimLimit < 900) ? trimLimit * 60.0 : 660.0));
+                    int effectiveP1 = hasSavedPlan ? savedP1Sec : p1Sec;
                     double remainSec = Math.Max(0, effectiveTotal - effectiveP1);
-                    if (effectiveP1 >= effectiveTotal || remainSec < 20.0) {
-                        effectiveP1 = (int)Math.Max(5, Math.Round(effectiveTotal / (double)parts));
-                        remainSec = Math.Max(0, effectiveTotal - effectiveP1);
-                    }
-
                     int effectiveP2 = 0;
                     int effectiveP3 = 0;
-
-                    if (parts == 2) {
-                        effectiveP2 = (int)Math.Max(1, Math.Round(remainSec));
+                    if (hasSavedPlan) {
+                        effectiveP2 = savedP2Sec;
+                        effectiveP3 = savedP3Sec;
+                    } else if (splitMode == "minutes" || subMode == "custom_p1") {
+                        effectiveP1 = (int)Math.Min(effectiveTotal, Math.Max(1, p1Sec));
+                        remainSec = Math.Max(0, effectiveTotal - effectiveP1);
+                        if (remainSec < 30) {
+                            effectiveP1 = (int)effectiveTotal;
+                            effectiveParts = 1;
+                        } else if (remainSec < 60) {
+                            effectiveP2 = (int)remainSec;
+                            effectiveParts = 2;
+                        } else {
+                            effectiveP2 = (int)Math.Ceiling(remainSec / 2.0);
+                            effectiveP3 = (int)(remainSec - effectiveP2);
+                            effectiveParts = 3;
+                        }
+                    } else if (effectiveParts == 2) {
+                        effectiveP1 = (int)Math.Ceiling(effectiveTotal / 2.0);
+                        effectiveP2 = (int)(effectiveTotal - effectiveP1);
                     } else {
-                        // 3 parts: divide remaining time equally between P2 and P3 (e.g. 495s: P2=248s 4:08, P3=247s 4:07)
-                        effectiveP2 = (int)Math.Max(1, Math.Ceiling(remainSec / 2.0));
-                        effectiveP3 = (int)Math.Max(1, Math.Floor(remainSec - effectiveP2));
+                        effectiveP1 = (int)Math.Ceiling(effectiveTotal / 3.0);
+                        remainSec = Math.Max(0, effectiveTotal - effectiveP1);
+                        effectiveP2 = (int)Math.Ceiling(remainSec / 2.0);
+                        effectiveP3 = (int)(remainSec - effectiveP2);
+                    }
+                    if (partNum > effectiveParts || effectiveP1 <= 0 || (partNum == 2 && effectiveP2 <= 0) || (partNum >= 3 && effectiveP3 <= 0)) {
+                        Console.Error.WriteLine(string.Format("[smart-split] Part {0} has no segment in the {1}-part plan.", partNum, effectiveParts));
+                        return 1;
                     }
 
                     int startSec = 0;
@@ -283,6 +360,7 @@ namespace YtDlpWrapper {
 
                     // A) If master video exists, SLICE LOCALLY (50ms, zero network)
                     if (File.Exists(masterPath) && File.Exists(ffmpegPath)) {
+                        try { if (File.Exists(outputPath)) File.Delete(outputPath); } catch {}
                         ProcessStartInfo psiFmt = new ProcessStartInfo();
                         psiFmt.FileName = ffmpegPath;
                         psiFmt.Arguments = string.Format("-y -ss {0} -i \"{1}\" -t {2} -c copy \"{3}\"", startSec, masterPath, durSec, outputPath);
@@ -291,7 +369,7 @@ namespace YtDlpWrapper {
                         Process pFmt = Process.Start(psiFmt);
                         pFmt.WaitForExit();
 
-                        if (File.Exists(outputPath) && new FileInfo(outputPath).Length > 1000) {
+                        if (pFmt.ExitCode == 0 && File.Exists(outputPath) && new FileInfo(outputPath).Length > 1000) {
                             Log(string.Format("Local slice successful for part {0} [{1}s..{2}s] ({3}s) -> {4}", partNum, startSec, startSec + durSec, durSec, outputPath));
                             Console.WriteLine("[smart-split] Local slice successful for part " + partNum + " [" + startSec + "s.." + (startSec + durSec) + "s] (" + durSec + "s)");
                             Console.WriteLine("[download] Destination: " + outputPath);
