@@ -24,17 +24,17 @@ ApplicationWindow {
     property alias toastService: toastManager
 
     // Center pane view state: "settings" | "workspace" | "rendered" | "management" | "scancore" | "tiktok"
-    property string centerView: "settings"
+    property string centerView: "management"
     property string filterChannelId: ""
     property string pendingView: ""
-    property bool managementLoaded: false
+    property bool managementLoaded: true
     property bool scanCoreLoaded: false
     property bool tiktokLoaded: false
-    property bool settingsLoaded: true
+    property bool settingsLoaded: false
 
     Timer {
         id: startupDataSyncTimer
-        interval: 250
+        interval: 200
         repeat: true
         running: true
         property int tickCount: 0
@@ -42,8 +42,12 @@ ApplicationWindow {
             tickCount++
             var backendReady = typeof backend !== "undefined" && backend && typeof backend.send_command === "function"
             if (backendReady) {
+                backend.send_command("channel:sync")
                 if (typeof channelListModel !== "undefined" && channelListModel && typeof channelListModel.load_from_backend === "function") {
                     channelListModel.load_from_backend(backend)
+                }
+                if (typeof policyChannelModel !== "undefined" && policyChannelModel && typeof policyChannelModel.load_from_backend === "function") {
+                    policyChannelModel.load_from_backend(backend)
                 }
                 if (typeof quota !== "undefined" && quota && typeof quota.refresh_from_backend === "function") {
                     quota.refresh_from_backend(backend)
@@ -52,7 +56,7 @@ ApplicationWindow {
                     running = false
                 }
             }
-            if (tickCount >= 20) {
+            if (tickCount >= 30) {
                 running = false
             }
         }
