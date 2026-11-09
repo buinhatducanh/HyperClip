@@ -644,8 +644,17 @@ function getAdsPowerProfileIdentifier(port) {
             targetAcc = data.accounts[accountIndex];
           }
           if (targetAcc) {
-            if (targetAcc.profileId && !targetAcc.profileId.startsWith('tt')) {
-              return { type: 'user_id', value: targetAcc.profileId };
+            if (targetAcc.enabled === false) {
+              return { type: 'skip', reason: `Tài khoản [${targetAcc.label || targetAcc.id}] đã tắt (enabled=false)` };
+            }
+            if (targetAcc.id && targetAcc.id.startsWith('tt')) {
+              return { type: 'skip', reason: `Tài khoản Chrome thường [${targetAcc.label || targetAcc.id}] không dùng AdsPower` };
+            }
+            if (targetAcc.profileId && targetAcc.profileId.startsWith('tt')) {
+              return { type: 'skip', reason: `Tài khoản Chrome thường [${targetAcc.label || targetAcc.id}] không dùng AdsPower` };
+            }
+            if (targetAcc.profileId) {
+              return { type: 'user_id', value: targetAcc.profileId.replace(/^adspower_/, '') };
             }
             if (targetAcc.adsPowerSerial) return { type: 'serial_number', value: targetAcc.adsPowerSerial };
             if (targetAcc.id && targetAcc.id.startsWith('adspower_') && !targetAcc.id.startsWith('adspower_tt')) {
@@ -659,13 +668,10 @@ function getAdsPowerProfileIdentifier(port) {
     dlog(`[AdsPower] Không đọc được profileId từ tiktok.json: ${err.message}`);
   }
 
-  if (accountIndex >= 0) {
-    return { type: 'serial_number', value: accountIndex + 1 };
-  }
   if (portStr && portStr.startsWith('k')) {
     return { type: 'user_id', value: portStr };
   }
-  return { type: 'serial_number', value: 1 };
+  return { type: 'skip', reason: `Port ${port} không khớp với AdsPower profile hợp lệ nào` };
 }
 
 function getAllAdsPowerAccounts() {
@@ -694,10 +700,32 @@ function getAllAdsPowerAccounts() {
   return [];
 }
 
-async function getAdsPowerEndpoint(target) {
+async function getAdsPowerEndpoint(target, opts = {}) {
+  const isPrepare = !!opts.isPrepare;
   const queryParam = (target.type === 'user_id')
     ? `user_id=${encodeURIComponent(target.value)}`
     : `serial_number=${encodeURIComponent(target.value)}`;
+
+  // Kiểm tra phòng thủ: nếu đang prepare và upload vừa tới -> nhả ngay lập tức
+  if (isPrepare && uploadPending) {
+    dlog(`[SmartSkip] getAdsPowerEndpoint: có upload pending, nhường đường ngay (0ms)`);
+    return null;
+  }
+
+  // 1. Kiểm tra nhanh xem profile đã Active sẵn chưa trước khi gọi start
+  try {
+    const actRes = await fetchAdsPower(`/api/v1/browser/active?${queryParam}`);
+    if (actRes && actRes.code === 0 && actRes.data?.status === 'Active') {
+      const debugPort = actRes.data?.debug_port;
+      const wsPuppeteer = actRes.data?.ws?.puppeteer;
+      if (debugPort || wsPuppeteer) {
+        dlog(`[AdsPower] Profile (${queryParam}) đã Active sẵn: debug_port=${debugPort}`);
+        return wsPuppeteer || `http://127.0.0.1:${debugPort}`;
+      }
+    }
+  } catch (e) {}
+
+  if (isPrepare && uploadPending) return null;
 
   dlog(`[AdsPower] Khởi động / Kết nối Profile (${queryParam})...`);
   const launchArgs = encodeURIComponent(JSON.stringify(['https://www.tiktok.com/tiktokstudio/upload']));
@@ -718,10 +746,18 @@ async function getAdsPowerEndpoint(target) {
     }
   }
 
+  // CƠ CHẾ PHÒNG THỦ: Khi chỉ đang làm nóng (prepare), TUYỆT ĐỐI KHÔNG FALLBACK mở profile khác!
+  if (isPrepare) {
+    dlog(`[SmartSkip] Profile (${queryParam}) chưa sẵn sàng lúc prepare -> Bỏ qua làm nóng profile này (0ms blocking).`);
+    return null;
+  }
+
+  // Chỉ khi upload thật (doUpload) mới cần fallback nếu profile chính hỏng
   const errMsg = res ? (res.msg || '') : 'No response';
   dlog(`[AdsPower] ⚠️ Profile gốc (${queryParam}) không thể kết nối (${errMsg}). Đang tự động tìm kiếm profile khả dụng để fallback...`);
   const allAccs = getAllAdsPowerAccounts();
   for (const acc of allAccs) {
+    if (acc.enabled === false) continue;
     const pid = acc.profileId || acc.id;
     if (!pid || pid.startsWith('tt') || pid === target.value || `adspower_${pid}` === target.value) continue;
     await sleep(350); // Tránh rate-limit của AdsPower
@@ -746,23 +782,32 @@ async function getAdsPowerEndpoint(target) {
 }
 
 // Connect CDP: Kết nối độc quyền AdsPower Profile theo profileId hoặc Serial
-async function connectCdp(port) {
+async function connectCdp(port, opts = {}) {
+  const isPrepare = !!opts.isPrepare;
   const target = getAdsPowerProfileIdentifier(port);
+  if (target.type === 'skip') {
+    dlog(`[SmartSkip] connectCdp bỏ qua (${target.reason})`);
+    if (isPrepare) return null;
+    throw new Error(`SKIP_ACCOUNT: ${target.reason}`);
+  }
   const targetLabel = `${target.type}=${target.value}`;
   
-  // Kết nối qua AdsPower (Đã gỡ bỏ vĩnh viễn cơ chế mở Google Chrome thường)
+  // Kết nối qua AdsPower
   try {
-    const adsTarget = await getAdsPowerEndpoint(target);
+    const adsTarget = await getAdsPowerEndpoint(target, opts);
+    if (!adsTarget && isPrepare) return null;
     const portMatch = String(adsTarget).match(/:(\d+)/);
     if (portMatch && typeof port === 'number' && port >= 9223) {
       ensurePortBridge(port, portMatch[1]);
     }
     dlog(`[AdsPower] Nối CDP vào AdsPower Profile (${targetLabel}) qua ${adsTarget}...`);
-    const browser = await chromium.connectOverCDP(adsTarget, { timeout: 15000 });
+    const cdpTimeout = isPrepare ? 3500 : 15000;
+    const browser = await chromium.connectOverCDP(adsTarget, { timeout: cdpTimeout });
     dlog(`[AdsPower] Đã kết nối thành công tới AdsPower Profile (${targetLabel})!`);
     return browser;
   } catch (adsErr) {
     dlog(`[AdsPower] Không thể kết nối AdsPower Profile (${targetLabel}): ${adsErr.message}`);
+    if (isPrepare) return null;
     throw new Error(`ADSPOWER_CONNECT_FAILED (${targetLabel}): ${adsErr.message}. Vui lòng mở phần mềm AdsPower!`);
   }
 }
@@ -1143,16 +1188,28 @@ async function gotoUpload(page) {
 // thật, trang đã sạch và ổn định → chặng "chờ editor + quét popup" (1.64s
 // trong log 11:10) co lại còn thời gian TikTok nhận file.
 async function doPrepare(port) {
+  if (uploadPending) {
+    dlog('[SmartSkip] prepare bỏ qua ngay: upload đang chờ (0ms)');
+    return { skipped: true };
+  }
+  const target = getAdsPowerProfileIdentifier(port);
+  if (target.type === 'skip') {
+    dlog(`[SmartSkip] prepare bỏ qua port ${port}: ${target.reason} (0ms)`);
+    return { skipped: true };
+  }
+
   const t = Date.now();
-  const browser = await connectCdp(port);
+  const browser = await connectCdp(port, { isPrepare: true });
+  if (!browser) {
+    dlog(`[SmartSkip] prepare không lấy được CDP cho port ${port} -> bỏ qua an toàn`);
+    return { skipped: true };
+  }
   try {
-    // Nhả ngay ở mọi mốc nếu upload vừa tới: upload là việc nóng, prepare chỉ
-    // là warm — warm dở dang vô hại (upload tự goto/đóng popup như trước).
-    if (uploadPending) { dlog('prepare nhả sớm — upload vừa tới'); return {}; }
+    if (uploadPending) { dlog('prepare nhả sớm — upload vừa tới'); return { skipped: true }; }
     const page = await getTikTokPage(browser, true);
-    if (uploadPending) { dlog('prepare nhả sớm — upload vừa tới'); return {}; }
+    if (uploadPending) { dlog('prepare nhả sớm — upload vừa tới'); return { skipped: true }; }
     await gotoUpload(page);
-    if (uploadPending) { dlog('prepare nhả sớm — upload vừa tới'); return {}; }
+    if (uploadPending) { dlog('prepare nhả sớm — upload vừa tới'); return { skipped: true }; }
     await dismissBlockingPopups(page);
     dlog(`prepare xong sau ${((Date.now() - t) / 1000).toFixed(1)}s (trang upload sẵn sàng)`);
     return {};
@@ -1581,16 +1638,16 @@ async function doCheckLogin(port) {
 // trang: phase `file` 0.1s → 0.9s, app 0.8s → 1.9s, tổng 7.1s.
 // Quy tắc: upload luôn ĐƯỢC ƯU TIÊN — prepare thấy có upload thì tự dừng sớm;
 // upload chờ prepare nhả (tối đa PREPARE_YIELD_MAX_MS) rồi mới chạy.
-const PREPARE_YIELD_MAX_MS = 3000;
+const PREPARE_YIELD_MAX_MS = 200;
 let uploadPending = false;
 let preparing = false;
 
 async function waitForPrepareToYield() {
   const deadline = Date.now() + PREPARE_YIELD_MAX_MS;
   while (preparing && Date.now() < deadline) {
-    await sleep(50);
+    await sleep(20);
   }
-  if (preparing) dlog('prepare chưa nhả sau 3s — upload chạy đè (ưu tiên upload)');
+  if (preparing) dlog('prepare chưa nhả — upload chạy ngay (ưu tiên tuyệt đối upload)');
 }
 
 async function handle(req) {
@@ -1602,6 +1659,7 @@ async function handle(req) {
       case 'upload': {
         if (!req.filePath) throw new Error('filePath required');
         uploadPending = true;
+        preparing = false; // Ngắt cờ preparing ngay lập tức để ưu tiên upload!
         try {
           await waitForPrepareToYield();
           const result = await Promise.race([
@@ -1619,6 +1677,11 @@ async function handle(req) {
       case 'prepare': {
         if (uploadPending) {
           dlog('prepare bỏ qua — đang có upload (không giẫm chân)');
+          return { id, ok: true, cmd: 'prepare', skipped: true };
+        }
+        const target = getAdsPowerProfileIdentifier(req.port || 9223);
+        if (target.type === 'skip') {
+          dlog(`[SmartSkip] prepare command bỏ qua port ${req.port}: ${target.reason}`);
           return { id, ok: true, cmd: 'prepare', skipped: true };
         }
         preparing = true;
@@ -1703,7 +1766,12 @@ async function autoWarmAssignedProfiles() {
     const launchArgs = encodeURIComponent(JSON.stringify(['https://www.tiktok.com/tiktokstudio/upload']));
 
     for (let i = 0; i < accounts.length; i++) {
+      if (uploadPending) {
+        dlog('[AdsPower Hot-Start] Phát hiện upload đang chạy -> Tạm dừng Hot-Start ngay lập tức để nhường đường');
+        break;
+      }
       const acc = accounts[i];
+      if (acc.enabled === false) continue;
       const isAssigned = targetList.some(t => t.id === acc.id || t.profileId === acc.profileId);
       if (!isAssigned) continue;
 

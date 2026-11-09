@@ -56,5 +56,3 @@ branch_structure.json
 
 **/app/hyperclip-tauri.exe
 **/app/qml/
-.vscode/
-public/
