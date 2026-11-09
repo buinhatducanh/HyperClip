@@ -1,99 +1,131 @@
-# cleanup-all.ps1
-# Tu dong tat sach toan bo cac tien trinh va cua so lien quan khi HyperClip dong
+# Close only the AdsPower profiles managed by the current HyperClip session.
 param(
     [switch]$IncludeHyperClip
 )
 
-$ErrorActionPreference = "SilentlyContinue"
+$ErrorActionPreference = 'SilentlyContinue'
+$apiUrl = if ($env:ADSPOWER_API_URL) { $env:ADSPOWER_API_URL.TrimEnd('/') } else { 'http://127.0.0.1:50325' }
+$dataDir = if ($env:HYPERCLIP_DATA_DIR) { $env:HYPERCLIP_DATA_DIR } elseif ($env:HYPERCLIPB_DATA_DIR) { $env:HYPERCLIPB_DATA_DIR } else { Join-Path $PSScriptRoot 'HyperClip-Data' }
+$hyperClipDir = Join-Path $dataDir '.hyperclip'
+$sessionFile = Join-Path $hyperClipDir 'adspower_session.json'
+$startLock = Join-Path $hyperClipDir 'adspower_start.lock'
+$cleanupLock = Join-Path $hyperClipDir 'adspower_cleanup.lock'
+$lockStream = $null
+$apiReady = $false
 
-# 1. Dong cac profile AdsPower (SunBrowser) qua AdsPower Local API (chuan xac & an toan du lieu)
-try {
-    # 1.1 Lay danh sach tat ca browser dang Active truc tiep tu AdsPower API
-    $activeRes = Invoke-RestMethod -Uri "http://127.0.0.1:50325/api/v1/browser/local-active" -Method Get -TimeoutSec 2 -ErrorAction SilentlyContinue
-    if ($activeRes -and $activeRes.data -and $activeRes.data.list) {
-        foreach ($item in $activeRes.data.list) {
-            if ($item.user_id) {
-                Invoke-RestMethod -Uri "http://127.0.0.1:50325/api/v1/browser/stop?user_id=$($item.user_id)" -Method Get -TimeoutSec 2 -ErrorAction SilentlyContinue | Out-Null
-                Start-Sleep -Milliseconds 150
-            }
-        }
-    }
-} catch {}
+if (Test-Path $sessionFile) {
+    try {
+        $status = Invoke-RestMethod -Uri "$apiUrl/status" -Method Get -TimeoutSec 2
+        $apiReady = ($status.code -eq 0)
+    } catch { $apiReady = $false }
+}
 
-# 1.2 Fallback: Duyet qua danh sach tai khoan trong tiktok.json neu local-active chua bao quat het
 try {
-    $candidatePaths = @(
-        (Join-Path $PSScriptRoot "HyperClip-Data\.hyperclip\tiktok.json"),
-        (Join-Path $PSScriptRoot "..\HyperClip-Data\.hyperclip\tiktok.json"),
-        "D:\HyperClip\HyperClip-TestCustomer-20260616-224538\HyperClip-Data\.hyperclip\tiktok.json",
-        "D:\HyperClip\HyperClip-Data\.hyperclip\tiktok.json"
-    )
-    foreach ($ttJsonPath in $candidatePaths) {
-        if (Test-Path $ttJsonPath) {
-            $ttData = Get-Content $ttJsonPath -Raw | ConvertFrom-Json
-            foreach ($acc in $ttData.accounts) {
-                if ($acc.profileId) {
-                    Invoke-RestMethod -Uri "http://127.0.0.1:50325/api/v1/browser/stop?user_id=$($acc.profileId)" -Method Get -TimeoutSec 1 -ErrorAction SilentlyContinue | Out-Null
-                }
-            }
+    while (Test-Path $startLock) {
+        $lockInfo = Get-Item -LiteralPath $startLock -ErrorAction SilentlyContinue
+        if (-not $lockInfo) { break }
+        $lockAge = [DateTime]::UtcNow - $lockInfo.LastWriteTimeUtc
+        if ($lockAge.TotalMinutes -ge 10) {
+            Remove-Item -LiteralPath $startLock -Force
             break
         }
+        Start-Sleep -Seconds 1
     }
-} catch {}
 
-# 1.3 Cho trinh duyet AdsPower dong em diu trong 800ms
-Start-Sleep -Milliseconds 800
+    if ((Test-Path $sessionFile) -and -not $apiReady) {
+        try {
+            $status = Invoke-RestMethod -Uri "$apiUrl/status" -Method Get -TimeoutSec 2
+            $apiReady = ($status.code -eq 0)
+        } catch { $apiReady = $false }
+    }
 
-# 2. Dong dut diem bat ky tien trinh SunBrowser nao con sot lai (giai phong RAM/GPU)
-Get-Process -Name SunBrowser -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    if ((Test-Path $sessionFile) -and $apiReady) {
+        try {
+            $lockStream = [System.IO.File]::Open($cleanupLock, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        } catch {
+            # Another lifecycle owner is already stopping these profiles.
+            exit 0
+        }
 
-# 3. Dong cac trinh duyet Chrome chay rieng cho HyperClip (YouTube CDP port 9222, TikTok profiles)
-# TUYET DOI khong tat nham Chrome ca nhan cua nguoi dung
-Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-    $_.Name -eq "chrome.exe" -and (
-        $_.CommandLine -match "HyperClip-Data" -or
-        $_.CommandLine -match "TikTok-Profiles" -or
-        $_.CommandLine -match "HyperClipB-Data" -or
-        $_.CommandLine -match "remote-debugging-port=9222" -or
-        $_.CommandLine -match "remote-debugging-port=9223" -or
-        $_.CommandLine -match "remote-debugging-port=9224" -or
-        $_.CommandLine -match "remote-debugging-port=9234"
+        $session = Get-Content $sessionFile -Raw | ConvertFrom-Json
+        $profiles = @($session.profiles)
+        $failedProfiles = @()
+        $index = 0
+
+        foreach ($profile in $profiles) {
+            $profileId = [string]$profile.profileId
+            $serial = [string]$profile.adsPowerSerial
+            if ([string]::IsNullOrWhiteSpace($profileId) -and [string]::IsNullOrWhiteSpace($serial)) { continue }
+
+            $target = if (-not [string]::IsNullOrWhiteSpace($profileId)) {
+                'user_id=' + [uri]::EscapeDataString($profileId)
+            } else {
+                'serial_number=' + [uri]::EscapeDataString($serial)
+            }
+
+            $stopped = $false
+            for ($attempt = 1; $attempt -le 3 -and -not $stopped; $attempt++) {
+                try {
+                    $response = Invoke-RestMethod -Uri "$apiUrl/api/v1/browser/stop?$target" -Method Get -TimeoutSec 5
+                    $stopped = ($response.code -eq 0)
+                } catch {
+                    $stopped = $false
+                }
+                if (-not $stopped -and $attempt -lt 3) { Start-Sleep -Milliseconds 1200 }
+            }
+
+            if (-not $stopped) { $failedProfiles += $profile }
+            $index++
+            if ($index -lt $profiles.Count) { Start-Sleep -Milliseconds 1100 }
+        }
+
+        if ($failedProfiles.Count -eq 0) {
+            Remove-Item -LiteralPath $sessionFile -Force
+        } else {
+            $retryState = [ordered]@{
+                updatedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+                profiles = $failedProfiles
+            }
+            $retryJson = $retryState | ConvertTo-Json -Depth 5
+            [System.IO.File]::WriteAllText($sessionFile, $retryJson, [System.Text.UTF8Encoding]::new($false))
+        }
+    }
+} catch {
+    # Keep shutdown best-effort. The GUI is already closed at this point.
+} finally {
+    if ($lockStream) {
+        $lockStream.Dispose()
+        Remove-Item -LiteralPath $cleanupLock -Force
+    }
+}
+
+# Close HyperClip-owned Chrome and helper processes only; never kill every SunBrowser.
+Get-CimInstance Win32_Process | Where-Object {
+    $_.Name -eq 'chrome.exe' -and $_.CommandLine -and (
+        $_.CommandLine -match [regex]::Escape($dataDir) -or
+        $_.CommandLine -match 'TikTok-Profiles'
     )
-} | ForEach-Object {
-    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-}
+} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 
-# 4. Dong engine backend hyperclip-tauri neu HyperClip da dong
-$hcRunning = Get-Process -Name "HyperClip" -ErrorAction SilentlyContinue | Where-Object {
-    try { $_.Path -match "app\\HyperClip\.exe" } catch { $false }
+$hcRunning = Get-Process -Name 'HyperClip' | Where-Object {
+    try { $_.Path -match 'app\\HyperClip\.exe' } catch { $false }
 }
 if (-not $hcRunning -or $IncludeHyperClip) {
-    Get-Process -Name "hyperclip-tauri" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-}
-
-# 5. Dong cac tien trinh helper con cua HyperClip
-if (-not $hcRunning -or $IncludeHyperClip) {
-    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-        ($_.Name -match "ffmpeg|ffprobe" -and $_.ExecutablePath -match "HyperClip") -or
-        ($_.Name -eq "node.exe" -and $_.CommandLine -match "tiktok_helper|innertube_helper|adspower_bridge")
-    } | ForEach-Object {
-        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-    }
-}
-
-# 6. Dong HyperClip neu duoc yeu cau
-if ($IncludeHyperClip) {
-    Get-Process | Where-Object { $_.ProcessName -match "HyperClip|HyperShort" } | Stop-Process -Force -ErrorAction SilentlyContinue
-}
-
-# 7. Dong cua so CMD chay watchdog/debug neu duoc yeu cau tat hoan toan
-if ($IncludeHyperClip) {
-    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-        $_.Name -eq "cmd.exe" -and (
-            $_.CommandLine -match "HyperClip-Debug.bat" -or
-            $_.CommandLine -match "HyperClip-AutoRestart.bat"
+    Get-Process -Name 'hyperclip-tauri' | Stop-Process -Force
+    Get-CimInstance Win32_Process | Where-Object {
+        $_.Name -eq 'node.exe' -and $_.CommandLine -and (
+            $_.CommandLine -match [regex]::Escape($PSScriptRoot) -and
+            $_.CommandLine -match 'tiktok_helper|innertube_helper|adspower_bridge'
         )
-    } | ForEach-Object {
-        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-    }
+    } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+}
+
+if ($IncludeHyperClip) {
+    Get-Process | Where-Object { $_.ProcessName -match 'HyperClip|HyperShort' } | Stop-Process -Force
+    Get-CimInstance Win32_Process | Where-Object {
+        $_.Name -eq 'cmd.exe' -and $_.CommandLine -and (
+            $_.CommandLine -match 'HyperClip-Debug\.bat' -or
+            $_.CommandLine -match 'HyperClip-AutoRestart\.bat'
+        )
+    } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 }

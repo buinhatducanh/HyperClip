@@ -1,13 +1,14 @@
 const fs = require('fs');
 const path = require('path');
 const cp = require('child_process');
+const DATA_DIR = process.env.HYPERCLIP_DATA_DIR || process.env.HYPERCLIPB_DATA_DIR || '';
 
 // â”€â”€â”€ HyperClip Lifecycle Engine: Auto-Start AdsPower & Auto-Shutdown Watcher â”€â”€â”€
 function ensureShutdownWatcher() {
   try {
     const candidateWatchScripts = [
-      path.resolve(__dirname, '../../../watch-shutdown.ps1'),
       path.resolve(__dirname, '../../watch-shutdown.ps1'),
+      path.resolve(__dirname, '../../../watch-shutdown.ps1'),
       'D:/HyperClip/HyperClip-TestCustomer-20260616-224538/watch-shutdown.ps1',
       'D:/HyperClip/watch-shutdown.ps1'
     ];
@@ -26,20 +27,14 @@ function ensureShutdownWatcher() {
 
 function ensureAutoOpenAdsPower() {
   try {
-    const lockFile = path.resolve(__dirname, '../../../.adspower_auto_opened.lock');
-    if (fs.existsSync(lockFile)) {
-      const stats = fs.statSync(lockFile);
-      if (Date.now() - stats.mtimeMs < 45000) {
-        return; // ÄĂ£ cháº¡y trong 45s qua
-      }
-    }
-    fs.writeFileSync(lockFile, String(Date.now()));
-
     const settingsCandidates = [
-      'D:/HyperClip/HyperClip-TestCustomer-20260616-224538/HyperClip-Data/.hyperclip/settings.json',
+      DATA_DIR ? path.join(DATA_DIR, '.hyperclip', 'settings.json') : null,
+      path.resolve(__dirname, '../../HyperClip-Data/.hyperclip/settings.json'),
       path.resolve(__dirname, '../../../HyperClip-Data/.hyperclip/settings.json'),
-      path.resolve(__dirname, '../../HyperClip-Data/.hyperclip/settings.json')
-    ];
+      path.resolve(__dirname, '../../app/data/.hyperclip/settings.json'),
+      path.resolve(__dirname, '../../../app/data/.hyperclip/settings.json'),
+      'D:/HyperClip/HyperClip-TestCustomer-20260616-224538/HyperClip-Data/.hyperclip/settings.json'
+    ].filter(Boolean);
     let isTiktokEnabled = false;
     for (const sp of settingsCandidates) {
       if (fs.existsSync(sp)) {
@@ -55,31 +50,17 @@ function ensureAutoOpenAdsPower() {
     }
     if (!isTiktokEnabled) return;
 
-    const startScript = path.resolve(__dirname, '../../../tools/start_assigned_adspower.js');
-    if (fs.existsSync(startScript)) {
-      cp.spawn(process.execPath, [startScript], {
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: true
-      }).unref();
-    }
-  } catch (e) {}
-}
-
-function triggerShutdownCleanup() {
-  try {
-    const candidateCleanup = [
-      path.resolve(__dirname, '../../../cleanup-all.ps1'),
-      path.resolve(__dirname, '../../cleanup-all.ps1'),
-      'D:/HyperClip/HyperClip-TestCustomer-20260616-224538/cleanup-all.ps1',
-      'D:/HyperClip/cleanup-all.ps1'
+    const startScripts = [
+      path.resolve(__dirname, '../../tools/start_assigned_adspower.js'),
+      path.resolve(__dirname, '../../../tools/start_assigned_adspower.js')
     ];
-    for (const s of candidateCleanup) {
-      if (fs.existsSync(s)) {
-        cp.spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', s], {
+    for (const startScript of startScripts) {
+      if (fs.existsSync(startScript)) {
+        cp.spawn(process.execPath, [startScript], {
           detached: true,
           stdio: 'ignore',
-          windowsHide: true
+          windowsHide: true,
+          env: process.env
         }).unref();
         break;
       }
@@ -2757,7 +2738,6 @@ function runDaemon(initialCookie) {
   });
 
   process.stdin.on('end', () => {
-    try { triggerShutdownCleanup(); } catch (e) {}
     process.exit(0);
   });
 

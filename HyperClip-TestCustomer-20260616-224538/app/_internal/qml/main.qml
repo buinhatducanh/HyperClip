@@ -16,43 +16,6 @@ ApplicationWindow {
     title: (typeof isShortEdition !== "undefined" && isShortEdition) ? "HyperShort" : "HyperClip"
     color: Theme.bg
 
-    property bool allowExit: false
-    Timer {
-        id: exitDelayTimer
-        interval: 600
-        repeat: false
-        onTriggered: {
-            root.allowExit = true
-            Qt.quit()
-        }
-    }
-
-    onClosing: function(close) {
-        if (!root.allowExit) {
-            close.accepted = false
-            try {
-                // 1. Dừng ngay toàn bộ 20 profile AdsPower qua Local API theo serial number
-                for (var i = 1; i <= 20; i++) {
-                    try {
-                        var reqSerial = new XMLHttpRequest()
-                        reqSerial.open("GET", "http://127.0.0.1:50325/api/v1/browser/stop?serial_number=" + i)
-                        reqSerial.send()
-                    } catch (e1) {}
-                }
-                // 2. Dừng trực tiếp danh sách profile IDs đã gán kênh
-                var pids = ["k1is4tqh", "k1ir7lv0", "k1ir7low", "k1ir7liq", "k1io3wad", "k1io3w4l", "k1i9kkkl", "k1i9kkkk", "k1i9kkka", "k1i9kkk9", "k1i9kkk7", "k1i9kkk6", "k1i9kkk5", "k1i9kkk3", "k1i9kkk2", "k1i9kkk1", "k1i9kkk0", "k1i9kkjx", "k1eectd1", "k1eecie7"]
-                for (var j = 0; j < pids.length; j++) {
-                    try {
-                        var reqPid = new XMLHttpRequest()
-                        reqPid.open("GET", "http://127.0.0.1:50325/api/v1/browser/stop?user_id=" + encodeURIComponent(pids[j]))
-                        reqPid.send()
-                    } catch (e2) {}
-                }
-            } catch (err) {}
-            exitDelayTimer.start()
-        }
-    }
-
     palette.highlight: Theme.accent
     palette.highlightedText: "#FFFFFF"
     palette.window: Theme.bg

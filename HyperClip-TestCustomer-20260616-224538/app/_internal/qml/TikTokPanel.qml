@@ -320,19 +320,6 @@ Rectangle {
         xhr.send()
     }
 
-    // Khi vừa mở app: Miễn là auto upload tiktok bật -> Tự động mở các màn hình AdsPower đã gán kênh (Chuẩn nhánh adspow)
-    Timer {
-        id: autoOpenAssignedTimer
-        interval: 3500
-        running: true
-        repeat: false
-        onTriggered: {
-            if (settings && settings.tiktokUploadEnabled) {
-                panel.openAssignedAdsPowerBrowsers(true)
-            }
-        }
-    }
-
     property int openNextIdx: 0
     property var accountsToOpen: []
     Timer {

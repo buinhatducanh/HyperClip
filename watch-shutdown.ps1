@@ -1,7 +1,9 @@
-﻿# watch-shutdown.ps1
+# watch-shutdown.ps1
 # Tự động theo dõi tiến trình HyperClip. Khi cửa sổ HyperClip đóng -> tự động dọn sạch 100% cửa sổ và tiến trình liên quan
 
-$debugLog = "D:\HyperClip\watch_debug.log"
+$ErrorActionPreference = "SilentlyContinue"
+$debugLog = Join-Path $PSScriptRoot "watch_debug.log"
+$packagePattern = [regex]::Escape($PSScriptRoot)
 "Starting watch-shutdown at $(Get-Date)" | Out-File $debugLog
 
 # Đảm bảo chỉ 1 tiến trình watch chạy duy nhất
@@ -29,9 +31,13 @@ while ($true) {
     # 1. Chờ cho đến khi tìm thấy tiến trình HyperClip (UI chính)
     $target = $null
     while (-not $target) {
-        $procs = Get-Process -Name "HyperClip" -ErrorAction SilentlyContinue
+        $procs = Get-Process -Name "HyperClip" -ErrorAction SilentlyContinue | Where-Object {
+            try { $_.Path -match $packagePattern } catch { $false }
+        }
         if (-not $procs) {
-            $procs = Get-Process -Name "hyperclip-tauri" -ErrorAction SilentlyContinue
+            $procs = Get-Process -Name "hyperclip-tauri" -ErrorAction SilentlyContinue | Where-Object {
+                try { $_.Path -match $packagePattern } catch { $false }
+            }
         }
         if ($procs) {
             $target = $procs | Select-Object -First 1
@@ -58,7 +64,7 @@ while ($true) {
 
     $remainingGui = Get-Process -Name "HyperClip" -ErrorAction SilentlyContinue | Where-Object {
         try {
-            $_.Path -match "HyperClip"
+            $_.Path -match $packagePattern
         } catch { $true }
     }
 
