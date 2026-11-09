@@ -132,7 +132,7 @@ namespace YtDlpWrapper {
                     }
 
                     int totalTrimSec = (int)Math.Max(60, Math.Round(trimLimit * 60.0));
-                    if (splitMode == "minutes" || subMode == "custom_p1") {
+                    if (splitMode == "minutes" || subMode == "custom_p1" || (p1 > 0 && splitMode != "parts")) {
                         p1Sec = (int)Math.Min(totalTrimSec, Math.Max(1, Math.Round(p1 * 60.0)));
                         int remSec = Math.Max(0, totalTrimSec - p1Sec);
                         if (remSec < 30) {
@@ -140,7 +140,7 @@ namespace YtDlpWrapper {
                             p2Sec = 0;
                             p3Sec = 0;
                             parts = 1;
-                        } else if (remSec < 60) {
+                        } else if (remSec < 60 || parts == 2) {
                             p2Sec = remSec;
                             p3Sec = 0;
                             parts = 2;
@@ -313,13 +313,13 @@ namespace YtDlpWrapper {
                     if (hasSavedPlan) {
                         effectiveP2 = savedP2Sec;
                         effectiveP3 = savedP3Sec;
-                    } else if (splitMode == "minutes" || subMode == "custom_p1") {
+                    } else if (splitMode == "minutes" || subMode == "custom_p1" || (p1Sec > 0 && splitMode != "parts")) {
                         effectiveP1 = (int)Math.Min(effectiveTotal, Math.Max(1, p1Sec));
                         remainSec = Math.Max(0, effectiveTotal - effectiveP1);
                         if (remainSec < 30) {
                             effectiveP1 = (int)effectiveTotal;
                             effectiveParts = 1;
-                        } else if (remainSec < 60) {
+                        } else if (remainSec < 60 || effectiveParts == 2) {
                             effectiveP2 = (int)remainSec;
                             effectiveParts = 2;
                         } else {

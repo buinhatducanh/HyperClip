@@ -113,18 +113,30 @@ namespace FfmpegWrapper {
                     }
 
                     int totalTrimSec = (int)Math.Max(60, Math.Round(trimLimit * 60.0));
-                    if (splitMode == "minutes" || subMode == "custom_p1") {
-                        p1Sec = (int)Math.Min(totalTrimSec - 60, Math.Max(60, Math.Round(p1 * 60.0)));
+                    if (splitMode == "minutes" || subMode == "custom_p1" || (p1 > 0 && splitMode != "parts")) {
+                        p1Sec = (int)Math.Min(totalTrimSec, Math.Max(1, Math.Round(p1 * 60.0)));
                         int remSec = Math.Max(0, totalTrimSec - p1Sec);
-                        p2Sec = remSec / 2;
-                        p3Sec = remSec - p2Sec;
+                        if (remSec < 30) {
+                            p1Sec = totalTrimSec;
+                            p2Sec = 0;
+                            p3Sec = 0;
+                            parts = 1;
+                        } else if (remSec < 60 || parts == 2) {
+                            p2Sec = remSec;
+                            p3Sec = 0;
+                            parts = 2;
+                        } else {
+                            p2Sec = (int)Math.Ceiling(remSec / 2.0);
+                            p3Sec = remSec - p2Sec;
+                            parts = 3;
+                        }
                     } else if (parts == 2 || subMode == "parts_2") {
-                        p1Sec = totalTrimSec / 2;
+                        p1Sec = (int)Math.Ceiling(totalTrimSec / 2.0);
                         p2Sec = totalTrimSec - p1Sec;
                         p3Sec = 0;
                     } else {
-                        p1Sec = totalTrimSec / 3;
-                        p2Sec = totalTrimSec / 3;
+                        p1Sec = (int)Math.Ceiling(totalTrimSec / 3.0);
+                        p2Sec = (int)Math.Ceiling((totalTrimSec - p1Sec) / 2.0);
                         p3Sec = totalTrimSec - p1Sec - p2Sec;
                     }
                 }
@@ -212,6 +224,38 @@ namespace FfmpegWrapper {
                     }
                 }
             }
+
+            // Read sidecar metadata if available for exact sync with downloader plan
+            try {
+                string[] checkPaths = new string[] { inputPath, outputPath };
+                foreach (string cp in checkPaths) {
+                    if (string.IsNullOrEmpty(cp)) continue;
+                    string dir = Path.GetDirectoryName(cp);
+                    string fn = Path.GetFileName(cp);
+                    if (string.IsNullOrEmpty(dir)) dir = ".";
+                    Match mVid = Regex.Match(fn, @"([a-zA-Z0-9_-]{11})");
+                    if (mVid.Success) {
+                        string vid = mVid.Groups[1].Value;
+                        string[] candMeta = new string[] {
+                            Path.Combine(dir, vid + "_master.mp4.meta.json"),
+                            Path.Combine(dir, fn + ".meta.json")
+                        };
+                        foreach (string cm in candMeta) {
+                            if (File.Exists(cm)) {
+                                string meta = File.ReadAllText(cm);
+                                Match mSavedP1 = Regex.Match(meta, @"""p1Sec""\s*:\s*([0-9\.]+)");
+                                Match mSavedP2 = Regex.Match(meta, @"""p2Sec""\s*:\s*([0-9\.]+)");
+                                Match mSavedP3 = Regex.Match(meta, @"""p3Sec""\s*:\s*([0-9\.]+)");
+                                int sp1 = 0, sp2 = 0, sp3 = 0;
+                                if (mSavedP1.Success && int.TryParse(mSavedP1.Groups[1].Value, out sp1) && sp1 > 0) p1Sec = sp1;
+                                if (mSavedP2.Success && int.TryParse(mSavedP2.Groups[1].Value, out sp2) && sp2 > 0) p2Sec = sp2;
+                                if (mSavedP3.Success && int.TryParse(mSavedP3.Groups[1].Value, out sp3) && sp3 > 0) p3Sec = sp3;
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch {}
 
             int durSec = 0;
             if (partNum == 1) {

@@ -1733,6 +1733,113 @@ function saveSplitPlanMetadata(masterPath, videoId, splitPlan, sourceDurationSec
   }
 }
 
+function reconcileWorkspacesWithSmartSplit() {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const possibleDirs = [
+      process.env.HYPERCLIP_DATA_DIR,
+      process.env.HYPERCLIPB_DATA_DIR,
+      path.resolve(__dirname, '..', '..', '..', 'HyperClip-Data'),
+      path.resolve(__dirname, '..', '..', 'HyperClip-Data'),
+      path.resolve(__dirname, '..', 'data'),
+      'D:\\HyperClip\\HyperClip-TestCustomer-20260616-224538\\HyperClip-Data',
+      'D:\\HyperClip\\HyperClip-Data'
+    ].filter(Boolean);
+
+    const settingsSnapshot = readSmartSplitSettingsSnapshot();
+    if (!settingsSnapshot || !settingsSnapshot.autoSplitEnabled) return;
+
+    for (const dir of possibleDirs) {
+      if (!fs.existsSync(dir)) continue;
+      const wsCandidates = [
+        path.join(dir, '.hyperclip', 'workspaces.json'),
+        path.join(dir, 'workspaces.json')
+      ];
+      for (const wsFile of wsCandidates) {
+        if (!fs.existsSync(wsFile)) continue;
+        try {
+          const raw = fs.readFileSync(wsFile, 'utf8');
+          const wsJson = JSON.parse(raw);
+          if (!wsJson || !Array.isArray(wsJson.workspaces)) continue;
+
+          let changed = false;
+          const groups = new Map();
+          for (const ws of wsJson.workspaces) {
+            const grp = ws.partGroup || (ws.id ? ws.id.replace(/-part\d+$/, '') : null);
+            if (!grp || !ws.partIndex || !ws.partTotal || ws.partTotal < 2) continue;
+            if (!groups.has(grp)) groups.set(grp, []);
+            groups.get(grp).push(ws);
+          }
+
+          for (const [grpId, parts] of groups.entries()) {
+            if (parts.length < 2) continue;
+            let totalDur = 0;
+            let videoId = null;
+            for (const p of parts) {
+              if (p.originalDurationSec && p.originalDurationSec > totalDur) totalDur = p.originalDurationSec;
+              if (p.video_id) videoId = p.video_id;
+            }
+            if (totalDur <= 0) {
+              const trimLimitMin = Number(settingsSnapshot.defaultTrimLimit) || 10;
+              totalDur = trimLimitMin < 900 ? trimLimitMin * 60 : 600;
+            }
+
+            const plan = getSmartSplitPlan(totalDur, settingsSnapshot);
+            if (!plan || !plan.enabled) continue;
+
+            const p1Target = plan.p1Sec;
+            const p2Target = plan.p2Sec;
+            const p3Target = plan.p3Sec;
+
+            for (const ws of parts) {
+              let tStart = 0;
+              let tEnd = 0;
+              let tDur = 0;
+              if (ws.partIndex === 1) {
+                tStart = 0;
+                tEnd = p1Target;
+                tDur = p1Target;
+              } else if (ws.partIndex === 2) {
+                tStart = p1Target;
+                tEnd = p1Target + p2Target;
+                tDur = p2Target;
+              } else if (ws.partIndex === 3) {
+                tStart = p1Target + p2Target;
+                tEnd = plan.totalTrimSec || (p1Target + p2Target + p3Target);
+                tDur = p3Target;
+              }
+
+              if (tDur > 0) {
+                if (Math.abs((ws.durationSec || 0) - tDur) > 0.5 ||
+                    Math.abs((ws.trimEnd || 0) - tEnd) > 0.5 ||
+                    Math.abs((ws.trimStart || 0) - tStart) > 0.5 ||
+                    Math.abs((ws.sourceEndSec || 0) - tEnd) > 0.5 ||
+                    Math.abs((ws.sourceStartSec || 0) - tStart) > 0.5) {
+                  ws.trimStart = tStart;
+                  ws.trimEnd = tEnd;
+                  ws.durationSec = tDur;
+                  ws.sourceStartSec = tStart;
+                  ws.sourceEndSec = tEnd;
+                  changed = true;
+                }
+              }
+            }
+          }
+
+          if (changed) {
+            fs.writeFileSync(wsFile, JSON.stringify(wsJson, null, 2), 'utf8');
+            dlog(`[smart-split-reconciler] Successfully synced ${wsFile} to Smart Split Plan`);
+          }
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+}
+
+setInterval(reconcileWorkspacesWithSmartSplit, 2500);
+setTimeout(reconcileWorkspacesWithSmartSplit, 500);
+
 async function resolveMediaNative(req) {
   const videoId = req.videoId;
   const maxHeight = req.maxHeight || 360;
@@ -1859,16 +1966,25 @@ async function downloadVideoNative(req, ctx) {
         } catch (_) {}
       }
 
-      const partPlan = masterMeta && masterMeta.splitPlan && masterMeta.splitPlan.settingsSnapshot
+      let effectivePlan = (masterMeta && masterMeta.splitPlan && masterMeta.splitPlan.enabled)
         ? masterMeta.splitPlan
         : null;
-      if (!partPlan || !partPlan.enabled) throw new Error(`No saved split plan for ${videoId}; refusing to create a part with live settings`);
-      const p1Sec = Math.max(0, Number(partPlan.p1Sec) || 0);
-      const p2Sec = Math.max(0, Number(partPlan.p2Sec) || 0);
-      const p3Sec = Math.max(0, Number(partPlan.p3Sec) || 0);
-      const totalSec = Math.max(0, Number(partPlan.totalTrimSec) || masterDur || 0);
-      if (partNum > (Number(partPlan.parts) || 1)) {
-        throw new Error(`Part ${partNum} is outside saved plan (${partPlan.parts} parts)`);
+      if (!effectivePlan || !effectivePlan.enabled) {
+        effectivePlan = getSmartSplitPlan(masterDur, settingsSnapshot) || splitPlan;
+        if (effectivePlan && effectivePlan.enabled) {
+          saveSplitPlanMetadata(masterPath, videoId, effectivePlan, masterDur);
+          dlog(`[smart-split] Dynamically recovered split plan for ${videoId}: P1=${effectivePlan.p1Sec}s, P2=${effectivePlan.p2Sec}s, P3=${effectivePlan.p3Sec}s (parts: ${effectivePlan.parts})`);
+        }
+      }
+      if (!effectivePlan || !effectivePlan.enabled) {
+        throw new Error(`Auto split is not enabled for ${videoId}`);
+      }
+      const p1Sec = Math.max(0, Number(effectivePlan.p1Sec) || 0);
+      const p2Sec = Math.max(0, Number(effectivePlan.p2Sec) || 0);
+      const p3Sec = Math.max(0, Number(effectivePlan.p3Sec) || 0);
+      const totalSec = Math.max(0, Number(effectivePlan.totalTrimSec) || masterDur || 0);
+      if (partNum > (Number(effectivePlan.parts) || 1)) {
+        throw new Error(`Part ${partNum} is outside saved plan (${effectivePlan.parts} parts)`);
       }
 
       if (partNum === 1) {
