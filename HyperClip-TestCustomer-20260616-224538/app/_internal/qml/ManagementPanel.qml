@@ -46,11 +46,22 @@ Rectangle {
         interval: 300
         repeat: false
         onTriggered: {
-            if (root.currentVideoId) {
+            if (root.currentVideoId && typeof backend !== "undefined" && backend && typeof backend.send_command === "function") {
                 const resp = backend.send_command("workspace:managementGet", {"id": root.currentVideoId});
                 if (resp && resp.ok !== false && resp.result) {
                     root.currentVideoData = resp.result;
                 }
+            }
+        }
+    }
+
+    Timer {
+        id: backendRetryTimer
+        interval: 400
+        repeat: false
+        onTriggered: {
+            if (root.workspaces.length === 0) {
+                root.refreshList();
             }
         }
     }
@@ -327,6 +338,12 @@ Rectangle {
 
         errorText = ""
 
+        if (typeof backend === "undefined" || !backend || typeof backend.send_command !== "function") {
+            listLoading = false;
+            backendRetryTimer.restart();
+            return;
+        }
+
         const resp = backend.send_command("workspace:managementList")
 
         if (resp && resp.ok !== false && resp.result) {
@@ -393,6 +410,11 @@ Rectangle {
         // giữa chừng → Repeater rebuild, delegate video bị hủy → crash 18/07.
 
         Qt.callLater(function() {
+
+            if (typeof backend === "undefined" || !backend || typeof backend.send_command !== "function") {
+                detailLoading = false;
+                return;
+            }
 
             const resp = backend.send_command("workspace:managementGet", {"id": id})
 

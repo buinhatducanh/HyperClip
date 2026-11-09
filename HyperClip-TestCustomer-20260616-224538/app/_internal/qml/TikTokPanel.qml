@@ -117,8 +117,9 @@ Rectangle {
     }
     Connections {
         target: (typeof tiktokModel !== "undefined") ? tiktokModel : null
+        ignoreUnknownSignals: true
         function onChanged() {
-            panel.refreshData()
+            panel.refreshEpoch++
             Qt.callLater(function() { panel.ensureSelection() })
         }
     }

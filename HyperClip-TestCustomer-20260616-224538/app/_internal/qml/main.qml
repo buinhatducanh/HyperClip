@@ -66,14 +66,8 @@ ApplicationWindow {
     property string pendingView: ""
     property bool managementLoaded: true
     property bool scanCoreLoaded: false
-    property bool tiktokLoaded: (typeof settings !== "undefined" && settings && settings.tiktokUploadEnabled) ? true : false
+    property bool tiktokLoaded: false
     property bool settingsLoaded: false
-
-    Component.onCompleted: {
-        if (typeof settings !== "undefined" && settings && settings.tiktokUploadEnabled) {
-            root.tiktokLoaded = true
-        }
-    }
 
     onCenterViewChanged: {
         if (centerView === "management") managementLoaded = true

@@ -6,7 +6,7 @@
 *.7z
 *.tar.gz
 
-# User Data, logs, cache, profiles (sensitive and large session data)
+# Sensitive and session data
 **/*-Data/
 **/chrome-profiles/
 **/TikTok-Profiles/
@@ -15,6 +15,13 @@
 **/logs/
 **/*.log
 **/*.log.*
+**/app/data/
+**/.hyperclip/
+*.lock
+*.png
+tools/tiktok_orig.qml
+tools/ffmpeg_wrapper/ffmpeg.exe
+tools/ytdlp_wrapper/yt-dlp.exe
 
 # Media, downloads, renders
 **/downloads/

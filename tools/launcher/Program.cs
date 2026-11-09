@@ -53,7 +53,13 @@ namespace HyperClipLauncher {
                     } catch {}
                 }
 
-                // Set environment variables
+                // Set environment variables for process and user persistent scope
+                try {
+                    Environment.SetEnvironmentVariable("HYPERCLIP_DATA_DIR", dataDir, EnvironmentVariableTarget.User);
+                    Environment.SetEnvironmentVariable("HYPERCLIPB_DATA_DIR", dataDir, EnvironmentVariableTarget.User);
+                    Environment.SetEnvironmentVariable("HYPERCLIP_EDITION", "long", EnvironmentVariableTarget.User);
+                } catch {}
+
                 Environment.SetEnvironmentVariable("HYPERCLIP_DATA_DIR", dataDir);
                 Environment.SetEnvironmentVariable("HYPERCLIPB_DATA_DIR", dataDir);
                 Environment.SetEnvironmentVariable("HYPERCLIP_EDITION", "long");
@@ -61,7 +67,10 @@ namespace HyperClipLauncher {
                 ProcessStartInfo psi = new ProcessStartInfo();
                 psi.FileName = appExe;
                 psi.WorkingDirectory = appDir;
-                psi.UseShellExecute = true;
+                psi.UseShellExecute = false;
+                psi.EnvironmentVariables["HYPERCLIP_DATA_DIR"] = dataDir;
+                psi.EnvironmentVariables["HYPERCLIPB_DATA_DIR"] = dataDir;
+                psi.EnvironmentVariables["HYPERCLIP_EDITION"] = "long";
 
                 if (args != null && args.Length > 0) {
                     string fullArgs = "";
