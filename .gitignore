@@ -53,3 +53,6 @@ temp_auto_push.bat
 **/Thư mục mới/
 .gitignore
 branch_structure.json
+
+**/app/hyperclip-tauri.exe
+**/app/qml/
