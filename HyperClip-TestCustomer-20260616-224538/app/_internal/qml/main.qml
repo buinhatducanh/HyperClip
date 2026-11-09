@@ -61,13 +61,13 @@ ApplicationWindow {
     property alias toastService: toastManager
 
     // Center pane view state: "settings" | "workspace" | "rendered" | "management" | "scancore" | "tiktok"
-    property string centerView: "management"
+    property string centerView: "settings"
     property string filterChannelId: ""
     property string pendingView: ""
-    property bool managementLoaded: true
+    property bool managementLoaded: false
     property bool scanCoreLoaded: false
     property bool tiktokLoaded: false
-    property bool settingsLoaded: false
+    property bool settingsLoaded: true
 
     onCenterViewChanged: {
         if (centerView === "management") managementLoaded = true
