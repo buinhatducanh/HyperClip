@@ -20,3 +20,4 @@ files.forEach(f => {
     console.log(`Fixed ${fixed} string quality fields in ${f}`);
   }
 });
+

@@ -58,3 +58,4 @@ targetDirs.forEach(td => {
 });
 
 console.log('=== Step 1 Complete: All fallback dirs unified! ===\n');
+

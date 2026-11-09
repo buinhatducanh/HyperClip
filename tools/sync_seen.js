@@ -65,3 +65,4 @@ targetDirs.forEach(td => {
 });
 
 console.log('=== Step 3 Complete: Seen sync finished! ===\n');
+
