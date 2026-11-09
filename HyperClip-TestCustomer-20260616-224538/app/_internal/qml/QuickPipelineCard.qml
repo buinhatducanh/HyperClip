@@ -212,7 +212,7 @@ SettingsCard {
         if (typeof backend !== "undefined" && backend) {
             try {
                 var rawRes = backend.send_command("settings:get");
-                var res = (rawRes && rawRes.settings) ? rawRes.settings : rawRes;
+                var res = (rawRes && rawRes.settings) ? rawRes.settings : ((rawRes && rawRes.result) ? rawRes.result : rawRes);
                 if (res) {
                     hasPersistedSplitMode = res.autoSplitEnabled === false
                         || res.autoSplitMode === "none"

@@ -65,7 +65,10 @@ Rectangle {
             if (root.workspaces.length === 0) {
                 root.refreshList();
             }
-            if (root.workspaces.length > 0 || retryCount >= 20) {
+            if (quota && typeof quota.refresh_from_backend === "function" && typeof backend !== "undefined" && backend) {
+                quota.refresh_from_backend(backend);
+            }
+            if ((root.workspaces.length > 0 && quota && quota.projectCount > 0) || retryCount >= 20) {
                 running = false;
             }
         }
@@ -219,11 +222,12 @@ Rectangle {
 
         refreshList()
 
-        // Số liệu quota chỉ kéo về khi mở trang; sau đó event `quota:scan` mỗi
-
-        // nhịp tự cập nhật, không tốn thêm lệnh JSON-RPC nào.
-
-        if (quota) quota.refresh_from_backend(backend)
+        if (quota && typeof quota.refresh_from_backend === "function" && typeof backend !== "undefined" && backend) {
+            quota.refresh_from_backend(backend)
+        }
+        if (typeof backend !== "undefined" && backend && typeof backend.send_command === "function") {
+            backend.send_command("channel:sync")
+        }
 
     }
 
