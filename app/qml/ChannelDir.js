@@ -41,7 +41,7 @@ function feedList(list) {
     _isLoaded = true;
 }
 
-function ensureLoaded(channelListModel, tiktokModel, backend) {
+function ensureLoaded(channelListModel, tiktokModel) {
     if (_isLoaded && Object.keys(_cache).length > 0) return;
 
     // 1. Thử nạp từ channelListModel
@@ -65,34 +65,18 @@ function ensureLoaded(channelListModel, tiktokModel, backend) {
             feedList(tiktokModel.channels);
         }
     } catch (e2) { }
+}
 
-    // 3. Fallback đọc trực tiếp từ backend channel:list nếu cache chưa có
-        if (!_isLoaded && typeof backend !== "undefined" && backend && typeof backend.send_command === "function") {
-            try {
-                var resp = backend.send_command("channel:list");
-                if (resp) {
-                    var r = resp.result || resp;
-                    var list = (r && r.channels) ? r.channels : (Array.isArray(r) ? r : []);
-                    if (list.length > 0) {
-                        feedList(list);
-                    }
-                }
-            } catch (e3) { }
-        }
-    }
+function lookup(key, channelListModel, tiktokModel) {
+    if (!key) return null;
+    var k = String(key).trim();
+    if (_cache[k]) return _cache[k];
+    var kLower = k.toLowerCase();
+    if (_cache[kLower]) return _cache[kLower];
 
-    function lookup(key, channelListModel, tiktokModel, backend) {
-        if (!key) return null;
-        var k = String(key).trim();
-        if (_cache[k]) return _cache[k];
-        var kLower = k.toLowerCase();
-        if (_cache[kLower]) return _cache[kLower];
+    ensureLoaded(channelListModel, tiktokModel);
+    if (_cache[k]) return _cache[k];
+    if (_cache[kLower]) return _cache[kLower];
 
-        // Nếu chưa thấy, thử load lại
-        ensureLoaded(channelListModel, tiktokModel, backend);
-        if (_cache[k]) return _cache[k];
-        if (_cache[kLower]) return _cache[kLower];
-
-        return null;
-    }
-
+    return null;
+}

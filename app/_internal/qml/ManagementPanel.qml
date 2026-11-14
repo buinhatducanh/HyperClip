@@ -55,26 +55,6 @@ Rectangle {
         }
     }
 
-    Timer {
-        id: backendRetryTimer
-        interval: 350
-        repeat: true
-        property int retryCount: 0
-        onTriggered: {
-            retryCount++;
-            if (root.workspaces.length === 0) {
-                root.refreshList();
-            }
-            if (quota && typeof quota.refresh_from_backend === "function" && typeof backend !== "undefined" && backend) {
-                quota.refresh_from_backend(backend);
-            }
-            if ((root.workspaces.length > 0 && quota && quota.projectCount > 0) || retryCount >= 20) {
-                running = false;
-            }
-        }
-    }
-
-
     property var workspaces: []
 
     property string currentVideoId: ""
@@ -225,9 +205,6 @@ Rectangle {
         if (quota && typeof quota.refresh_from_backend === "function" && typeof backend !== "undefined" && backend) {
             quota.refresh_from_backend(backend)
         }
-        if (typeof backend !== "undefined" && backend && typeof backend.send_command === "function") {
-            backend.send_command("channel:sync")
-        }
 
     }
 
@@ -349,7 +326,6 @@ Rectangle {
 
         if (typeof backend === "undefined" || !backend || typeof backend.send_command !== "function") {
             listLoading = false;
-            backendRetryTimer.restart();
             return;
         }
 

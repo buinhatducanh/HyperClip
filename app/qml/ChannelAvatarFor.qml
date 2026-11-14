@@ -1,9 +1,7 @@
 // src/ui/qml/ChannelAvatarFor.qml
 // Avatar kênh tra theo KHOÁ — dùng ở mọi trang trong app (TikTok, Quản lí, Vận hành, Dashboard, Hàng đợi).
-//
 // Hỗ trợ tra theo: id store (`ch-…`), UC id (`UC…`), `@handle`, hoặc TÊN kênh.
 import QtQuick
-import "ChannelDir.js" as ChannelDir
 
 ChannelAvatar {
     id: root
@@ -24,24 +22,22 @@ ChannelAvatar {
             return
         }
 
-        var cm = (typeof channelListModel !== "undefined") ? channelListModel : null
-        var tm = (typeof tiktokModel !== "undefined") ? tiktokModel : null
-        var be = (typeof backend !== "undefined") ? backend : null
-
-        var e = root.channelKey ? ChannelDir.lookup(root.channelKey, cm, tm, be) : null
-        if ((!e || !e.name) && root.fallbackName) {
-            e = ChannelDir.lookup(root.fallbackName, cm, tm, be)
+        // 1. Dùng channelDir native context property (nhanh, an toàn, không gọi RPC đồng bộ)
+        if (typeof channelDir !== "undefined" && channelDir && typeof channelDir.lookup === "function") {
+            var e = root.channelKey ? channelDir.lookup(root.channelKey) : null
+            if ((!e || !e.name) && root.fallbackName) {
+                e = channelDir.lookup(root.fallbackName)
+            }
+            if (e && (e.avatarUrl || e.name)) {
+                entry = e
+                return
+            }
         }
 
-        if (e && (e.avatarUrl || e.name)) {
-            entry = e
-            return
-        }
-
-        // Fallback tra trực tiếp từ tiktokModel.channels nếu có
+        // 2. Fallback tra từ tiktokModel.channels nếu có
         try {
-            if (tm && tm.channels) {
-                var chs = tm.channels
+            if (typeof tiktokModel !== "undefined" && tiktokModel && tiktokModel.channels) {
+                var chs = tiktokModel.channels
                 for (var i = 0; i < chs.length; i++) {
                     var c = chs[i]
                     if (!c) continue
@@ -63,9 +59,9 @@ ChannelAvatar {
     Component.onCompleted: reload()
 
     Connections {
-        target: (typeof channelListModel !== "undefined") ? channelListModel : null
+        target: (typeof channelDir !== "undefined") ? channelDir : null
         ignoreUnknownSignals: true
-        function onCountChanged() { root.reload() }
+        function onChanged() { root.reload() }
     }
 
     Connections {

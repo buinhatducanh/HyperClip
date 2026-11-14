@@ -16,6 +16,10 @@ ApplicationWindow {
     title: (typeof isShortEdition !== "undefined" && isShortEdition) ? "HyperShort" : "HyperClip"
     color: Theme.bg
 
+    onClosing: function(close) {
+        Qt.quit()
+    }
+
     palette.highlight: Theme.accent
     palette.highlightedText: "#FFFFFF"
     palette.window: Theme.bg
@@ -27,47 +31,6 @@ ApplicationWindow {
     property string centerView: "management"
     property string filterChannelId: ""
     property string pendingView: ""
-    property bool managementLoaded: true
-    property bool scanCoreLoaded: false
-    property bool tiktokLoaded: false
-    property bool settingsLoaded: false
-
-    Timer {
-        id: startupDataSyncTimer
-        interval: 200
-        repeat: true
-        running: true
-        property int tickCount: 0
-        onTriggered: {
-            tickCount++
-            var backendReady = typeof backend !== "undefined" && backend && typeof backend.send_command === "function"
-            if (backendReady) {
-                backend.send_command("channel:sync")
-                if (typeof channelListModel !== "undefined" && channelListModel && typeof channelListModel.load_from_backend === "function") {
-                    channelListModel.load_from_backend(backend)
-                }
-                if (typeof policyChannelModel !== "undefined" && policyChannelModel && typeof policyChannelModel.load_from_backend === "function") {
-                    policyChannelModel.load_from_backend(backend)
-                }
-                if (typeof quota !== "undefined" && quota && typeof quota.refresh_from_backend === "function") {
-                    quota.refresh_from_backend(backend)
-                }
-                if (channelListModel && channelListModel.rowCount && channelListModel.rowCount() > 0) {
-                    running = false
-                }
-            }
-            if (tickCount >= 30) {
-                running = false
-            }
-        }
-    }
-
-    onCenterViewChanged: {
-        if (centerView === "management") managementLoaded = true
-        else if (centerView === "scancore") scanCoreLoaded = true
-        else if (centerView === "tiktok") tiktokLoaded = true
-        else if (centerView === "settings") settingsLoaded = true
-    }
     // Các trang chiếm toàn màn hình (ẩn Sidebar + cột queue phải).
     readonly property bool wideView: centerView === "management"
                                      || centerView === "tiktok" || centerView === "scancore"
@@ -153,7 +116,7 @@ ApplicationWindow {
                 Loader {
                     id: managementLoader
                     anchors.fill: parent
-                    active: root.centerView === "management" || root.managementLoaded
+                    active: root.centerView === "management" || (item !== null)
                     visible: root.centerView === "management"
                     sourceComponent: Component {
                         ManagementPanel {
@@ -165,7 +128,7 @@ ApplicationWindow {
                 Loader {
                     id: scanCoreLoader
                     anchors.fill: parent
-                    active: root.centerView === "scancore" || root.scanCoreLoaded
+                    active: root.centerView === "scancore" || (item !== null)
                     visible: root.centerView === "scancore"
                     sourceComponent: Component {
                         ScanCorePanel {}
@@ -175,7 +138,7 @@ ApplicationWindow {
                 Loader {
                     id: tiktokLoader
                     anchors.fill: parent
-                    active: root.centerView === "tiktok" || root.tiktokLoaded
+                    active: root.centerView === "tiktok" || (item !== null)
                     visible: root.centerView === "tiktok"
                     sourceComponent: Component {
                         TikTokPanel {}
@@ -185,7 +148,7 @@ ApplicationWindow {
                 Loader {
                     id: settingsLoader
                     anchors.fill: parent
-                    active: root.centerView === "settings" || root.settingsLoaded
+                    active: root.centerView === "settings" || (item !== null)
                     visible: root.centerView === "settings"
                     sourceComponent: Component {
                         SettingsPage {}
