@@ -227,11 +227,97 @@ Rectangle {
         root.refreshList();
     }
 
+    Timer {
+        id: autoPurgeTimer
+        interval: 2000
+        repeat: false
+        property var pendingIds: []
+        function queuePurge(wsId) {
+            if (!wsId) return;
+            if (pendingIds.indexOf(wsId) === -1) {
+                pendingIds.push(wsId);
+            }
+            restart();
+        }
+        onTriggered: {
+            for (let i = 0; i < pendingIds.length; i++) {
+                let id = pendingIds[i];
+                if (typeof backend !== "undefined" && backend) {
+                    try {
+                        backend.send_command("workspace:delete", {"id": id});
+                    } catch(e) {}
+                }
+                root.handleWorkspaceDeleted(id);
+            }
+            pendingIds = [];
+        }
+    }
+
+    function purgeDeadWorkspaces(wsList) {
+        if (!wsList || !wsList.length) return;
+        let deadIds = [];
+        for (let i = 0; i < wsList.length; i++) {
+            let ws = wsList[i];
+            if (ws && (ws.status === "error" || ws.status === "failed")) {
+                let err = String(ws.error || "").toLowerCase();
+                if (err.indexOf("unavailable") !== -1 || err.indexOf("private") !== -1 || err.indexOf("removed") !== -1) {
+                    deadIds.push(ws.id);
+                }
+            }
+        }
+        if (deadIds.length > 0 && typeof backend !== "undefined" && backend) {
+            for (let j = 0; j < deadIds.length; j++) {
+                try {
+                    backend.send_command("workspace:delete", {"id": deadIds[j]});
+                } catch(e) {}
+                root.handleWorkspaceDeleted(deadIds[j]);
+            }
+            console.log("[AutoClean] Automatically purged " + deadIds.length + " unavailable video workspace(s).");
+        }
+    }
+
+    function clearErroredWorkspaces() {
+        let errored = [];
+        for (let i = 0; i < root.workspaces.length; i++) {
+            let ws = root.workspaces[i];
+            if (ws && (ws.status === "error" || ws.status === "failed")) {
+                errored.push(ws.id);
+            }
+        }
+        if (errored.length === 0) {
+            if (typeof toastService !== "undefined" && toastService) {
+                toastService.show("Dọn dẹp", "Không có video nào bị lỗi cần dọn dẹp.", "info");
+            }
+            return;
+        }
+        for (let j = 0; j < errored.length; j++) {
+            if (typeof backend !== "undefined" && backend) {
+                try {
+                    backend.send_command("workspace:delete", {"id": errored[j]});
+                } catch(e) {}
+            }
+            root.handleWorkspaceDeleted(errored[j]);
+        }
+        if (typeof toastService !== "undefined" && toastService) {
+            toastService.show("Đã dọn dẹp", "Đã dọn sạch " + errored.length + " video lỗi khỏi hàng đợi.", "success");
+        }
+    }
+
     function handleWorkspaceUpdated(params) {
         if (!params || !params.id) return;
         if (params.status === "deleted") {
             root.handleWorkspaceDeleted(params.id);
             return;
+        }
+        if (params.status === "error" || params.status === "failed") {
+            var errText = String(params.error || "").toLowerCase();
+            if (errText.indexOf("unavailable") !== -1 || errText.indexOf("private") !== -1 || errText.indexOf("removed") !== -1) {
+                console.log("[AutoClean] Video unavailable on YouTube: " + (params.video_id || params.id) + " -> Auto-purging workspace");
+                if (typeof toastService !== "undefined" && toastService) {
+                    toastService.show("Tự động bỏ qua", "Video [" + (params.title || params.video_id || "") + "] đã bị xoá/ẩn trên YouTube — đã tự động dọn dẹp", "warning");
+                }
+                autoPurgeTimer.queuePurge(params.id);
+            }
         }
         let updatedList = [];
         let found = false;
@@ -337,6 +423,7 @@ Rectangle {
             workspaces = rawWorkspaces.filter(function(ws) {
                 return ws && ws.id && ws.status !== "deleted";
             })
+            root.purgeDeadWorkspaces(rawWorkspaces);
 
             // Clean up selectedIds to only keep existing ones
 
@@ -990,15 +1077,11 @@ Rectangle {
     }
 
     function getThumbnailSource(thumbnailLocal, videoId) {
-
         if (!thumbnailLocal) {
-
-            return videoId
-
-                ? "https://i.ytimg.com/vi/" + videoId + "/hqdefault.jpg"
-
-                : "";
-
+            if (!videoId || videoId.length < 5 || videoId.indexOf("PL") === 0) {
+                return "";
+            }
+            return "https://i.ytimg.com/vi/" + videoId + "/hqdefault.jpg";
         }
 
         let t = thumbnailLocal.trim();
@@ -1790,9 +1873,25 @@ Rectangle {
                         }
 
                         IconButton {
+                            id: cleanErrorBtn
+                            iconName: "check"
+                            label: "Dọn video lỗi"
+                            iconSize: 10
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 24
+                            colorIdle: "transparent"
+                            colorHover: Theme.hoverBg
+                            iconColorIdle: Theme.text
+                            iconColorHover: Theme.accent
+                            border.color: Theme.border
+                            tooltipText: "Tự động dọn dẹp các video bị lỗi tải / đã bị xóa trên YouTube"
+                            onClicked: {
+                                root.clearErroredWorkspaces();
+                            }
+                        }
 
+                        IconButton {
                             iconName: "trash"
-
                             label: "Xóa toàn bộ"
 
                             iconSize: 10
