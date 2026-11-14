@@ -102,7 +102,17 @@ foreach ($tPath in $candidatePaths) {
                 try {
                     $jsonContent = Get-Content -LiteralPath $tPath -Raw -Encoding UTF8
                     $parsed = $jsonContent | ConvertFrom-Json
-                    if ($parsed.mappings) { $existing.mappings = $parsed.mappings }
+                    if ($parsed.mappings) {
+                        $cleanedMaps = @{}
+                        foreach ($prop in $parsed.mappings.PSObject.Properties) {
+                            $val = [string]$prop.Value
+                            if ($val.StartsWith("tt_adspower_")) {
+                                $val = $val.Replace("tt_adspower_", "adspower_")
+                            }
+                            $cleanedMaps[$prop.Name] = $val
+                        }
+                        $existing.mappings = $cleanedMaps
+                    }
                     if ($parsed.history)  { $existing.history = $parsed.history }
                 } catch {}
             }
