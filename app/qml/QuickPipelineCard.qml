@@ -148,7 +148,7 @@ SettingsCard {
 
         if (typeof backend !== "undefined" && backend) {
             try {
-                var updateResult = backend.send_command("settings:update", {
+                var payload = {
                     "defaultTrimLimit": settings.defaultTrimLimit,
                     "autoSplitEnabled": settings.autoSplitEnabled,
                     "autoSplitMode": settings.autoSplitMode,
@@ -166,11 +166,13 @@ SettingsCard {
                     "tiktokFastDone": settings.tiktokFastDone,
                     "trimRotateEnabled": false,
                     "splitChainDelaySec": 0
-                });
-                if (updateResult && (updateResult.ok === false || updateResult.error)) {
-                    console.warn("Could not persist E2E settings:", updateResult.error || "settings:update failed");
+                };
+                if (typeof backend.send_command_async === "function") {
+                    backend.send_command_async("settings:update", payload);
+                } else if (typeof backend.send_command === "function") {
+                    backend.send_command("settings:update", payload);
                 }
-            } catch(e) { console.warn("Could not persist E2E settings:", e); }
+            } catch(e) {}
 
             try {
                 if (typeof settings.save_to_backend === "function") {
@@ -209,43 +211,37 @@ SettingsCard {
     Component.onCompleted: {
         card.checkAdsPower();
         var hasPersistedSplitMode = false;
-        if (typeof backend !== "undefined" && backend) {
-            try {
-                var rawRes = backend.send_command("settings:get");
-                var res = (rawRes && rawRes.settings) ? rawRes.settings : ((rawRes && rawRes.result) ? rawRes.result : rawRes);
-                if (res) {
-                    hasPersistedSplitMode = res.autoSplitEnabled === false
-                        || res.autoSplitMode === "none"
-                        || res.autoSplitMode === "minutes"
-                        || (res.autoSplitMode === "parts" && (res.autoSplitParts === 2 || res.autoSplitParts === 3));
-                    if (res.autoSplitMode === "minutes" || res.autoSplitSubMode === "custom_p1") {
-                        card.splitMode = "custom_p1";
-                    } else if (res.autoSplitMode === "parts" && res.autoSplitParts === 2) {
-                        card.splitMode = "parts_2";
-                    } else if (res.autoSplitMode === "parts" && res.autoSplitParts === 3) {
-                        card.splitMode = "parts_3";
-                    } else {
-                        card.splitMode = "custom_p1";
-                    }
+        if (settings) {
+            hasPersistedSplitMode = settings.autoSplitEnabled === false
+                || settings.autoSplitMode === "none"
+                || settings.autoSplitMode === "minutes"
+                || (settings.autoSplitMode === "parts" && (settings.autoSplitParts === 2 || settings.autoSplitParts === 3));
+            if (settings.autoSplitMode === "minutes" || settings.autoSplitSubMode === "custom_p1") {
+                card.splitMode = "custom_p1";
+            } else if (settings.autoSplitMode === "parts" && settings.autoSplitParts === 2) {
+                card.splitMode = "parts_2";
+            } else if (settings.autoSplitMode === "parts" && settings.autoSplitParts === 3) {
+                card.splitMode = "parts_3";
+            } else {
+                card.splitMode = "custom_p1";
+            }
 
-                    if (typeof res.autoSplitCustomP1 === "number" && res.autoSplitCustomP1 > 0) {
-                        card.customP1Val = res.autoSplitCustomP1;
-                    } else if (typeof res.autoSplitMinutes === "number" && res.autoSplitMinutes > 0 && res.autoSplitMinutes < 15) {
-                        card.customP1Val = res.autoSplitMinutes;
-                    }
-                    if (p1Spin) p1Spin.value = Math.round(card.customP1Val);
-                    if (trimSpin && typeof res.defaultTrimLimit === "number") trimSpin.value = res.defaultTrimLimit;
-                    if (splitSwitch && typeof res.autoSplitEnabled === "boolean") splitSwitch.checked = res.autoSplitEnabled;
-                    if (ttSwitch && typeof res.tiktokUploadEnabled === "boolean") ttSwitch.checked = res.tiktokUploadEnabled;
-                    if (resCombo && res.autoRenderResolution) {
-                        var resIdx = ["720p", "1080p"].indexOf(res.autoRenderResolution);
-                        if (resIdx >= 0) resCombo.currentIndex = resIdx;
-                    }
-                    if (tplQuickInput && res.autoRenderTitleTemplate) {
-                        tplQuickInput.text = res.autoRenderTitleTemplate;
-                    }
-                }
-            } catch(e) {}
+            if (typeof settings.autoSplitCustomP1 === "number" && settings.autoSplitCustomP1 > 0) {
+                card.customP1Val = settings.autoSplitCustomP1;
+            } else if (typeof settings.autoSplitMinutes === "number" && settings.autoSplitMinutes > 0 && settings.autoSplitMinutes < 15) {
+                card.customP1Val = settings.autoSplitMinutes;
+            }
+            if (p1Spin) p1Spin.value = Math.round(card.customP1Val);
+            if (trimSpin && typeof settings.defaultTrimLimit === "number") trimSpin.value = settings.defaultTrimLimit;
+            if (splitSwitch && typeof settings.autoSplitEnabled === "boolean") splitSwitch.checked = settings.autoSplitEnabled;
+            if (ttSwitch && typeof settings.tiktokUploadEnabled === "boolean") ttSwitch.checked = settings.tiktokUploadEnabled;
+            if (resCombo && settings.autoRenderResolution) {
+                var resIdx = ["720p", "1080p"].indexOf(settings.autoRenderResolution);
+                if (resIdx >= 0) resCombo.currentIndex = resIdx;
+            }
+            if (tplQuickInput && settings.autoRenderTitleTemplate) {
+                tplQuickInput.text = settings.autoRenderTitleTemplate;
+            }
         }
         card.isLoaded = true;
         if (!hasPersistedSplitMode) {
@@ -253,7 +249,7 @@ SettingsCard {
             card.splitMode = "custom_p1";
             if (settings) {
                 settings.autoSplitEnabled = true;
-                card.syncSplitSettings();
+                Qt.callLater(card.syncSplitSettings);
             }
         }
     }
