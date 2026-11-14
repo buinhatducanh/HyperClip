@@ -564,44 +564,7 @@ SettingsCard {
                         }
                         Label { text: "phút"; color: Theme.textMuted; font.pixelSize: Theme.textSm }
                     }
-
-                    // Nút chọn nhanh cho Part 1
-                    RowLayout {
-                        spacing: 4
-                        Layout.alignment: Qt.AlignRight
-                        Repeater {
-                            model: [ { label: "1p", val: 1 }, { label: "2p", val: 2 }, { label: "3p (Chuẩn)", val: 3 }, { label: "4p", val: 4 }, { label: "5p", val: 5 } ]
-                            delegate: Rectangle {
-                                id: p1QuickBtn
-                                required property var modelData
-                                width: p1QuickLbl.implicitWidth + 8
-                                height: 20
-                                radius: 3
-                                readonly property bool isSel: Math.round(card.customP1Val) === modelData.val
-                                color: isSel ? Theme.accent : Theme.surface
-                                border.color: Theme.border; border.width: 1
-                                Label {
-                                    id: p1QuickLbl
-                                    anchors.centerIn: parent
-                                    text: p1QuickBtn.modelData.label
-                                    font.pixelSize: 9
-                                    color: p1QuickBtn.isSel ? "#000" : Theme.textMuted
-                                    font.bold: p1QuickBtn.isSel
-                                }
-                                MouseArea {
-                                    anchors.fill: parent
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        card.customP1Val = p1QuickBtn.modelData.val;
-                                        p1Spin.value = p1QuickBtn.modelData.val;
-                                        card.syncSplitSettings();
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    }
+                }
 
                 // Thẻ đồ họa trực quan phân bổ Part (Visual Badges - Chuẩn xác từng giây)
                 Rectangle {
