@@ -1,4 +1,4 @@
-// src/ui/qml/SettingsPage.qml
+﻿// src/ui/qml/SettingsPage.qml
 // Consolidated settings page showing all panels in a single scrollable view.
 import QtQuick
 import QtQuick.Layouts
@@ -54,6 +54,9 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.bottomMargin: Theme.spacingXs
             }
+
+            // Thiet lap nhanh quy trinh E2E (Tai -> Tach Part -> Render -> Dang TikTok)
+            QuickPipelineCard { Layout.fillWidth: true }
 
             RowLayout {
                 Layout.fillWidth: true

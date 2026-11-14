@@ -52,7 +52,7 @@ ColumnLayout {
         }
         SpinBox {
             id: trimStart
-            from: 0; to: (workspaceData.durationSec || 3600)
+            from: 0; to: (workspaceData.originalDurationSec || workspaceData.durationSec || 3600)
             value: workspaceData.trimStart || 0
             editable: true; Layout.fillWidth: true
             onValueModified: workspaceModel.update_field(workspaceId, "trimStart", value, backend)
@@ -68,7 +68,7 @@ ColumnLayout {
         Label { text: "→"; color: Theme.text; font.pixelSize: Theme.textSm }
         SpinBox {
             id: trimEnd
-            from: 0; to: (workspaceData.durationSec || 3600)
+            from: 0; to: (workspaceData.originalDurationSec || workspaceData.durationSec || 3600)
             value: workspaceData.trimEnd || (workspaceData.durationSec || 60)
             editable: true; Layout.fillWidth: true
             onValueModified: workspaceModel.update_field(workspaceId, "trimEnd", value, backend)

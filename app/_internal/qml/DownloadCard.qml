@@ -1,11 +1,13 @@
-// src/ui/qml/DownloadCard.qml
+﻿// src/ui/qml/DownloadCard.qml
+// Card tùy chọn tải nâng cao (Chất lượng, Độ tuổi video, Xoay vòng Min-Max)
+// Mục cắt tối đa (Trim) đã được gom lên QuickPipelineCard để tránh trùng lặp
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 
 SettingsCard {
     id: card
-    title: "TẢI XUỐNG"
+    title: "TÙY CHỌN TẢI NÂNG CAO"
 
     property bool trimRotateActive: false
     property real trimRotateMinVal: 4
@@ -63,35 +65,36 @@ SettingsCard {
             text: "Tự động tải"
             color: Theme.text
             font.pixelSize: Theme.textMd
+            font.bold: true
             Layout.fillWidth: true
+        }
+        HelpTip {
+            text: "Tự động bắt đầu tải video ngay khi phát hiện video mới từ danh sách kênh đang theo dõi."
         }
         Switch {
             checked: settings ? settings.autoDownloadEnabled : true
             onToggled: if (settings) settings.autoDownloadEnabled = checked
         }
     }
- 
+
     GridLayout {
         columns: 2
         columnSpacing: Theme.spacingLg
         rowSpacing: Theme.spacingMd
         Layout.fillWidth: true
- 
-        ColumnLayout {
-            spacing: 2
+
+        // ─── CHẤT LƯỢNG TẢI ───────────────────────────────────────────
+        RowLayout {
+            spacing: 6
             Layout.fillWidth: true
             Label {
-                text: "Chất lượng tải"
+                text: "Chất lượng tải nguồn"
                 color: Theme.text
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
-            Label {
-                text: "Độ phân giải video mục tiêu (ví dụ 1080p, 720p)."
-                color: Theme.textMuted
-                font.pixelSize: 11
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
+            HelpTip {
+                text: "Độ phân giải video tải từ YouTube về máy (1080, 720, 480, 360). Khuyên dùng 1080 để hình ảnh sắc nét nhất."
             }
         }
         ComboBox {
@@ -102,9 +105,10 @@ SettingsCard {
             currentIndex: settings ? Math.max(0, model.indexOf(settings.autoDownloadQuality)) : 0
             onActivated: if (settings) settings.autoDownloadQuality = model[currentIndex]
         }
- 
-        ColumnLayout {
-            spacing: 2
+
+        // ─── ĐỘ TUỔI VIDEO TỐI ĐA ─────────────────────────────────────
+        RowLayout {
+            spacing: 6
             Layout.fillWidth: true
             Label {
                 text: "Độ tuổi video tối đa (phút)"
@@ -112,12 +116,8 @@ SettingsCard {
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
-            Label {
-                text: "Chỉ tải video đăng tải trong N phút qua (1440 = 24h)."
-                color: Theme.textMuted
-                font.pixelSize: 11
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
+            HelpTip {
+                text: "Chỉ tải video mới được đăng trong vòng N phút qua (1440 phút = 24 giờ). Tránh tải lại video cũ."
             }
         }
         SpinBox {
@@ -138,59 +138,19 @@ SettingsCard {
                 }
             }
         }
- 
-        ColumnLayout {
-            spacing: 2
-            Layout.fillWidth: true
-            Label {
-                text: "Cắt tối đa (phút)"
-                color: Theme.text
-                font.pixelSize: Theme.textMd
-                font.bold: true
-            }
-            Label {
-                text: "Chỉ tải N phút đầu của video để tiết kiệm dung lượng."
-                color: Theme.textMuted
-                font.pixelSize: 11
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-            }
-        }
-        SpinBox {
-            Layout.preferredWidth: 140
-            Layout.alignment: Qt.AlignRight
-            font.pixelSize: Theme.textMd
-            from: 1
-            to: 999
-            value: settings ? settings.defaultTrimLimit : 10
-            editable: true
-            onValueModified: if (settings) settings.defaultTrimLimit = value
-            onActiveFocusChanged: {
-                if (!activeFocus) {
-                    var val = valueFromText(contentItem.text, locale)
-                    val = Math.max(from, Math.min(to, val))
-                    value = val
-                    if (settings) settings.defaultTrimLimit = val
-                }
-            }
-        }
 
-        // ─── Xoay vòng ngẫu nhiên thời lượng tải (Min - Max) ─────────────
-        ColumnLayout {
-            spacing: 2
+        // ─── XOAY VÒNG THỜI LƯỢNG TẢI (MIN - MAX) ────────────────────
+        RowLayout {
+            spacing: 6
             Layout.fillWidth: true
             Label {
-                text: "Xoay vòng ngẫu nhiên thời lượng tải (Min - Max)"
+                text: "Xoay vòng ngẫu nhiên (Min - Max)"
                 color: Theme.text
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
-            Label {
-                text: "Tự động chọn ngẫu nhiên một mốc thời lượng giữa Min và Max (ví dụ từ 4 đến 5 phút) cho từng video để tránh trùng lặp độ dài."
-                color: Theme.textMuted
-                font.pixelSize: 11
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
+            HelpTip {
+                text: "Tự động chọn ngẫu nhiên một mốc thời lượng giữa Min và Max (ví dụ từ 4 đến 5 phút) theo từng giây lẻ cho mỗi video để tránh trùng lặp độ dài và chống bot TikTok."
             }
         }
         Switch {
@@ -213,9 +173,9 @@ SettingsCard {
             Layout.columnSpan: 2
             Layout.fillWidth: true
             visible: card.trimRotateActive
-            implicitHeight: visible ? rotateInnerCol.implicitHeight + 20 : 0
-            color: Theme.accent + "0D"
-            border.color: Theme.accent + "4D"
+            implicitHeight: visible ? rotateInnerCol.implicitHeight + 16 : 0
+            color: Theme.surface
+            border.color: Theme.accent
             border.width: 1
             radius: Theme.radiusMd
             clip: true
@@ -228,186 +188,39 @@ SettingsCard {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 6
-                    Icon {
-                        name: "refresh"
-                        size: 13
-                        color: Theme.accent
-                    }
+                    spacing: 8
+
                     Label {
-                        text: "Khoảng thời lượng cắt xoay vòng (Phút)"
+                        text: "Khoảng thời lượng xoay vòng (Phút):"
                         color: Theme.accent
                         font.pixelSize: Theme.textSm
                         font.bold: true
                     }
-                }
-
-                Label {
-                    text: "Mỗi video sẽ tự động cắt ngẫu nhiên từ " 
-                          + Math.round(card.trimRotateMinVal) + " phút đến " + Math.round(card.trimRotateMaxVal) + " phút (chính xác theo từng giây lẻ chống spam bot)."
-                    color: Theme.textMuted
-                    font.pixelSize: 11
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 12
-
-                    // Ô nhập Min
-                    RowLayout {
-                        spacing: 6
-                        Label {
-                            text: "Từ (Min):"
-                            color: Theme.text
-                            font.pixelSize: Theme.textSm
-                            font.bold: true
-                        }
-                        SpinBox {
-                            id: minSpin
-                            implicitWidth: 95
-                            font.pixelSize: Theme.textMd
-                            from: 1
-                            to: 999
-                            value: Math.round(card.trimRotateMinVal)
-                            editable: true
-                            onValueModified: applyMin(value)
-                            onActiveFocusChanged: {
-                                if (!activeFocus) {
-                                    var val = valueFromText(contentItem.text, locale)
-                                    val = Math.max(from, Math.min(to, isNaN(val) ? 4 : val))
-                                    value = val
-                                    applyMin(val)
-                                }
-                            }
-                            function applyMin(v) {
-                                card.trimRotateMinVal = v
-                                if (card.trimRotateMaxVal < v) {
-                                    card.trimRotateMaxVal = v
-                                    maxSpin.value = v
-                                }
-                                card.syncTrimRotate()
-                            }
-                        }
-                        Label {
-                            text: "phút"
-                            color: Theme.textMuted
-                            font.pixelSize: Theme.textSm
-                        }
-                    }
-
-                    // Ký hiệu liên kết
-                    Label {
-                        text: "➔"
-                        color: Theme.accent
-                        font.pixelSize: 13
-                    }
-
-                    // Ô nhập Max
-                    RowLayout {
-                        spacing: 6
-                        Label {
-                            text: "Đến (Max):"
-                            color: Theme.text
-                            font.pixelSize: Theme.textSm
-                            font.bold: true
-                        }
-                        SpinBox {
-                            id: maxSpin
-                            implicitWidth: 95
-                            font.pixelSize: Theme.textMd
-                            from: 1
-                            to: 999
-                            value: Math.round(card.trimRotateMaxVal)
-                            editable: true
-                            onValueModified: applyMax(value)
-                            onActiveFocusChanged: {
-                                if (!activeFocus) {
-                                    var val = valueFromText(contentItem.text, locale)
-                                    val = Math.max(from, Math.min(to, isNaN(val) ? 5 : val))
-                                    value = val
-                                    applyMax(val)
-                                }
-                            }
-                            function applyMax(v) {
-                                card.trimRotateMaxVal = v
-                                if (card.trimRotateMinVal > v) {
-                                    card.trimRotateMinVal = v
-                                    minSpin.value = v
-                                }
-                                card.syncTrimRotate()
-                            }
-                        }
-                        Label {
-                            text: "phút"
-                            color: Theme.textMuted
-                            font.pixelSize: Theme.textSm
-                        }
-                    }
-
                     Item { Layout.fillWidth: true }
+                    Label { text: "Min:"; color: Theme.textMuted; font.pixelSize: Theme.textSm }
+                    SpinBox {
+                        from: 1; to: 120
+                        value: Math.round(card.trimRotateMinVal)
+                        editable: true
+                        onValueModified: {
+                            card.trimRotateMinVal = value
+                            if (card.trimRotateMaxVal < value) card.trimRotateMaxVal = value
+                            card.syncTrimRotate()
+                        }
+                    }
+                    Label { text: "Max:"; color: Theme.textMuted; font.pixelSize: Theme.textSm }
+                    SpinBox {
+                        from: 1; to: 120
+                        value: Math.round(card.trimRotateMaxVal)
+                        editable: true
+                        onValueModified: {
+                            card.trimRotateMaxVal = value
+                            if (card.trimRotateMinVal > value) card.trimRotateMinVal = value
+                            card.syncTrimRotate()
+                        }
+                    }
                 }
             }
-        }
- 
-        ColumnLayout {
-            spacing: 2
-            Layout.fillWidth: true
-            Label {
-                text: "Tải đồng thời"
-                color: Theme.text
-                font.pixelSize: Theme.textMd
-                font.bold: true
-            }
-            Label {
-                text: "Số luồng tải yt-dlp song song tối đa."
-                color: Theme.textMuted
-                font.pixelSize: 11
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-            }
-        }
-        SpinBox {
-            Layout.preferredWidth: 140
-            Layout.alignment: Qt.AlignRight
-            font.pixelSize: Theme.textMd
-            from: 1
-            to: 16
-            value: settings ? settings.maxConcurrentDownloads : 1
-            editable: true
-            onValueModified: if (settings) settings.maxConcurrentDownloads = value
-            onActiveFocusChanged: {
-                if (!activeFocus) {
-                    var val = valueFromText(contentItem.text, locale)
-                    val = Math.max(from, Math.min(to, val))
-                    value = val
-                    if (settings) settings.maxConcurrentDownloads = val
-                }
-            }
-        }
-
-        ColumnLayout {
-            spacing: 2
-            Layout.fillWidth: true
-            Label {
-                text: "Direct Route IP (Bypass VPN)"
-                color: Theme.text
-                font.pixelSize: Theme.textMd
-                font.bold: true
-            }
-            Label {
-                text: "Bỏ qua VPN, kết nối trực tiếp IP vật lý để tăng tốc độ tải."
-                color: Theme.textMuted
-                font.pixelSize: 11
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-            }
-        }
-        Switch {
-            Layout.alignment: Qt.AlignRight
-            checked: settings ? settings.bypassVpn : true
-            onToggled: if (settings) settings.bypassVpn = checked
         }
     }
 }

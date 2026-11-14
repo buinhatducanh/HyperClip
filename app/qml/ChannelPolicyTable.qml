@@ -291,28 +291,11 @@ function applyStandard(chId, next) {
 
                 spacing: 10
 
-                Rectangle {
-
-                    width: 32; height: 32; radius: 8
-
-                    color: Theme.accent + "20"
-
-                    border.color: Theme.accent + "60"
-
-                    border.width: 1
-
-                    Icon {
-
-                        name: "settings"
-
-                        size: 16
-
-                        color: Theme.accent
-
-                        anchors.centerIn: parent
-
-                    }
-
+                ChannelAvatarFor {
+                    channelKey: policyEditor.chId || ""
+                    fallbackName: policyEditor.chName || ""
+                    diameter: 32
+                    Layout.alignment: Qt.AlignVCenter
                 }
 
                 ColumnLayout {
@@ -1691,20 +1674,20 @@ function applyStandard(chId, next) {
 
                         }
 
+                        ChannelAvatarFor {
+                            channelKey: row.chId || ""
+                            fallbackName: row.chName || ""
+                            diameter: 18
+                            Layout.alignment: Qt.AlignVCenter
+                        }
                         Label {
-
                             text: row.chName
-
                             color: Theme.text
-
                             font.pixelSize: 12
-
                             elide: Text.ElideRight
-
                             Layout.fillWidth: true
-
                             Layout.minimumWidth: 0
-
+                            Layout.alignment: Qt.AlignVCenter
                         }
 
                     }

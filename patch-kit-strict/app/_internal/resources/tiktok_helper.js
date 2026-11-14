@@ -273,8 +273,31 @@ const FAST_DONE_GRACE_MS = 100;
 
 const readline = require('readline');
 const http = require('http');
+const net = require('net');
 const path = require('path');
 const fs = require('fs');
+const cp = require('child_process');
+
+// Tự động kích hoạt watch-shutdown để khi người dùng tắt cửa sổ HyperClip, toàn bộ cửa sổ AdsPower & tiến trình liên quan tự tắt sạch
+try {
+  const candidateWatchScripts = [
+    path.resolve(__dirname, '../../../watch-shutdown.ps1'),
+    path.resolve(__dirname, '../../watch-shutdown.ps1'),
+    'D:/HyperClip/HyperClip-TestCustomer-20260616-224538/watch-shutdown.ps1',
+    'D:/HyperClip/watch-shutdown.ps1'
+  ];
+  for (const s of candidateWatchScripts) {
+    if (fs.existsSync(s)) {
+      cp.spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', s], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true
+      }).unref();
+      break;
+    }
+  }
+} catch (e) {}
+
 let chromium;
 try {
   chromium = require('playwright-core').chromium;
@@ -289,6 +312,78 @@ function dlog(msg) {
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+// Bộ cầu nối cổng CDP: Chuyển tiếp cổng 9223+i nội bộ của Rust trực tiếp sang cổng debug AdsPower
+const activeBridges = new Map(); // virtualPort -> { server, targetPort }
+
+function ensurePortBridge(virtualPort, targetPort) {
+  if (!virtualPort || !targetPort) return;
+  virtualPort = parseInt(virtualPort, 10);
+  targetPort = parseInt(targetPort, 10);
+  if (isNaN(virtualPort) || isNaN(targetPort) || virtualPort <= 0 || targetPort <= 0) return;
+  if (virtualPort === targetPort) return;
+
+  const existing = activeBridges.get(virtualPort);
+  if (existing) {
+    if (existing.targetPort === targetPort) return;
+    try { existing.server.close(); } catch (e) {}
+  }
+
+  try {
+    const server = net.createServer((clientSocket) => {
+      const targetSocket = net.connect(targetPort, '127.0.0.1');
+      clientSocket.pipe(targetSocket);
+      targetSocket.pipe(clientSocket);
+      clientSocket.on('error', () => {});
+      targetSocket.on('error', () => {});
+    });
+    server.on('error', (err) => {
+      dlog(`[PortBridge] Cổng ${virtualPort} gặp lỗi: ${err.message}`);
+    });
+    server.listen(virtualPort, '127.0.0.1', () => {
+      dlog(`[PortBridge] ✅ Đã tạo cầu nối CDP: 127.0.0.1:${virtualPort} -> 127.0.0.1:${targetPort}`);
+    });
+    activeBridges.set(virtualPort, { server, targetPort });
+  } catch (e) {
+    dlog(`[PortBridge] Lỗi mở cổng ${virtualPort}: ${e.message}`);
+  }
+}
+
+function requestDirect(url, timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    http.get(url, { timeout: timeoutMs }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch (e) { resolve(null); }
+      });
+    }).on('error', () => resolve(null));
+  });
+}
+
+async function ensureTikTokUploadTab(debugPort) {
+  if (!debugPort) return;
+  try {
+    const tabs = await requestDirect(`http://127.0.0.1:${debugPort}/json/list`, 4000);
+    if (!Array.isArray(tabs)) return;
+
+    let ttTab = tabs.find(t => t.type === 'page' && t.url && t.url.includes('/tiktokstudio/upload'));
+    const startTab = tabs.find(t => t.type === 'page' && t.url && t.url.includes('start.adspower.net'));
+
+    if (!ttTab) {
+      ttTab = await requestDirect(`http://127.0.0.1:${debugPort}/json/new?https%3A%2F%2Fwww.tiktok.com%2Ftiktokstudio%2Fupload`, 4000);
+      await sleep(500);
+    }
+
+    if (ttTab && ttTab.id) {
+      await requestDirect(`http://127.0.0.1:${debugPort}/json/activate/${ttTab.id}`, 2000);
+    }
+
+    if (startTab && startTab.id && (!ttTab || ttTab.id !== startTab.id)) {
+      await requestDirect(`http://127.0.0.1:${debugPort}/json/close/${startTab.id}`, 2000);
+    }
+  } catch (err) {}
 }
 
 function randDelay() {
@@ -529,6 +624,7 @@ function getAdsPowerProfileIdentifier(port) {
       path.resolve(__dirname, '../../HyperClip-Data/.hyperclip/tiktok.json'),
       path.resolve(__dirname, '../data/.hyperclip/tiktok.json'),
       path.resolve(__dirname, '../../data/.hyperclip/tiktok.json'),
+      path.resolve(__dirname, '../../../data/.hyperclip/tiktok.json'),
       path.resolve(__dirname, '../../../HyperClipB-Data/.hyperclip/tiktok.json'),
       path.resolve(__dirname, '../../HyperClipB-Data/.hyperclip/tiktok.json'),
       'C:/HyperClipB-Package/HyperClipB-Data/.hyperclip/tiktok.json'
@@ -548,8 +644,22 @@ function getAdsPowerProfileIdentifier(port) {
             targetAcc = data.accounts[accountIndex];
           }
           if (targetAcc) {
-            if (targetAcc.profileId) return { type: 'user_id', value: targetAcc.profileId };
+            if (targetAcc.enabled === false) {
+              return { type: 'skip', reason: `Tài khoản [${targetAcc.label || targetAcc.id}] đã tắt (enabled=false)` };
+            }
+            if (targetAcc.id && targetAcc.id.startsWith('tt')) {
+              return { type: 'skip', reason: `Tài khoản Chrome thường [${targetAcc.label || targetAcc.id}] không dùng AdsPower` };
+            }
+            if (targetAcc.profileId && targetAcc.profileId.startsWith('tt')) {
+              return { type: 'skip', reason: `Tài khoản Chrome thường [${targetAcc.label || targetAcc.id}] không dùng AdsPower` };
+            }
+            if (targetAcc.profileId) {
+              return { type: 'user_id', value: targetAcc.profileId.replace(/^adspower_/, '') };
+            }
             if (targetAcc.adsPowerSerial) return { type: 'serial_number', value: targetAcc.adsPowerSerial };
+            if (targetAcc.id && targetAcc.id.startsWith('adspower_') && !targetAcc.id.startsWith('adspower_tt')) {
+              return { type: 'user_id', value: targetAcc.id.replace('adspower_', '') };
+            }
           }
         }
       }
@@ -558,64 +668,147 @@ function getAdsPowerProfileIdentifier(port) {
     dlog(`[AdsPower] Không đọc được profileId từ tiktok.json: ${err.message}`);
   }
 
-  if (accountIndex >= 0) {
-    return { type: 'serial_number', value: accountIndex + 1 };
-  }
   if (portStr && portStr.startsWith('k')) {
     return { type: 'user_id', value: portStr };
   }
-  return { type: 'serial_number', value: 1 };
+  return { type: 'skip', reason: `Port ${port} không khớp với AdsPower profile hợp lệ nào` };
 }
 
-async function getAdsPowerEndpoint(target) {
+function getAllAdsPowerAccounts() {
+  try {
+    const candidatePaths = [
+      process.env.HYPERCLIP_DATA_DIR ? path.join(process.env.HYPERCLIP_DATA_DIR, '.hyperclip', 'tiktok.json') : null,
+      path.resolve(__dirname, '../../../HyperClip-Data/.hyperclip/tiktok.json'),
+      path.resolve(__dirname, '../../HyperClip-Data/.hyperclip/tiktok.json'),
+      path.resolve(__dirname, '../data/.hyperclip/tiktok.json'),
+      path.resolve(__dirname, '../../data/.hyperclip/tiktok.json'),
+      path.resolve(__dirname, '../../../data/.hyperclip/tiktok.json'),
+      path.resolve(__dirname, '../../../HyperClipB-Data/.hyperclip/tiktok.json'),
+      path.resolve(__dirname, '../../HyperClipB-Data/.hyperclip/tiktok.json'),
+      'C:/HyperClipB-Package/HyperClipB-Data/.hyperclip/tiktok.json'
+    ].filter(Boolean);
+
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) {
+        const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+        if (data && Array.isArray(data.accounts) && data.accounts.length > 0) {
+          return data.accounts;
+        }
+      }
+    }
+  } catch (e) {}
+  return [];
+}
+
+async function getAdsPowerEndpoint(target, opts = {}) {
+  const isPrepare = !!opts.isPrepare;
   const queryParam = (target.type === 'user_id')
     ? `user_id=${encodeURIComponent(target.value)}`
     : `serial_number=${encodeURIComponent(target.value)}`;
 
+  // Kiểm tra phòng thủ: nếu đang prepare và upload vừa tới -> nhả ngay lập tức
+  if (isPrepare && uploadPending) {
+    dlog(`[SmartSkip] getAdsPowerEndpoint: có upload pending, nhường đường ngay (0ms)`);
+    return null;
+  }
+
+  // 1. Kiểm tra nhanh xem profile đã Active sẵn chưa trước khi gọi start
+  try {
+    const actRes = await fetchAdsPower(`/api/v1/browser/active?${queryParam}`);
+    if (actRes && actRes.code === 0 && actRes.data?.status === 'Active') {
+      const debugPort = actRes.data?.debug_port;
+      const wsPuppeteer = actRes.data?.ws?.puppeteer;
+      if (debugPort || wsPuppeteer) {
+        dlog(`[AdsPower] Profile (${queryParam}) đã Active sẵn: debug_port=${debugPort}`);
+        return wsPuppeteer || `http://127.0.0.1:${debugPort}`;
+      }
+    }
+  } catch (e) {}
+
+  if (isPrepare && uploadPending) return null;
+
   dlog(`[AdsPower] Khởi động / Kết nối Profile (${queryParam})...`);
   const launchArgs = encodeURIComponent(JSON.stringify(['https://www.tiktok.com/tiktokstudio/upload']));
-  // Gọi /api/v1/browser/start với open_tabs=1 và launch_args vào thẳng Upload
-  const res = await fetchAdsPower(`/api/v1/browser/start?${queryParam}&open_tabs=1&launch_args=${launchArgs}`);
-  if (!res || res.code !== 0) {
-    throw new Error(`ADSPOWER_API_ERROR (${queryParam}): ${res ? res.msg : 'No response'}`);
+  
+  let res = null;
+  try {
+    res = await fetchAdsPower(`/api/v1/browser/start?${queryParam}&open_tabs=1&launch_args=${launchArgs}`);
+  } catch (fetchErr) {
+    dlog(`[AdsPower] Lỗi gọi AdsPower API: ${fetchErr.message}`);
   }
-  const wsEndpoint = res.data?.ws?.puppeteer;
-  const debugPort = res.data?.debug_port;
-  if (!wsEndpoint && !debugPort) {
-    throw new Error(`ADSPOWER_NO_PORT: Không nhận được debug port từ AdsPower (${queryParam})`);
+
+  if (res && res.code === 0) {
+    const wsEndpoint = res.data?.ws?.puppeteer;
+    const debugPort = res.data?.debug_port;
+    if (wsEndpoint || debugPort) {
+      dlog(`[AdsPower] Profile (${queryParam}) sẵn sàng: debug_port=${debugPort}`);
+      return wsEndpoint || `http://127.0.0.1:${debugPort}`;
+    }
   }
-  dlog(`[AdsPower] Profile (${queryParam}) sẵn sàng: debug_port=${debugPort}`);
-  return wsEndpoint || `http://127.0.0.1:${debugPort}`;
+
+  // CƠ CHẾ PHÒNG THỦ: Khi chỉ đang làm nóng (prepare), TUYỆT ĐỐI KHÔNG FALLBACK mở profile khác!
+  if (isPrepare) {
+    dlog(`[SmartSkip] Profile (${queryParam}) chưa sẵn sàng lúc prepare -> Bỏ qua làm nóng profile này (0ms blocking).`);
+    return null;
+  }
+
+  // Chỉ khi upload thật (doUpload) mới cần fallback nếu profile chính hỏng
+  const errMsg = res ? (res.msg || '') : 'No response';
+  dlog(`[AdsPower] ⚠️ Profile gốc (${queryParam}) không thể kết nối (${errMsg}). Đang tự động tìm kiếm profile khả dụng để fallback...`);
+  const allAccs = getAllAdsPowerAccounts();
+  for (const acc of allAccs) {
+    if (acc.enabled === false) continue;
+    const pid = acc.profileId || acc.id;
+    if (!pid || pid.startsWith('tt') || pid === target.value || `adspower_${pid}` === target.value) continue;
+    await sleep(350); // Tránh rate-limit của AdsPower
+    try {
+      const cleanPid = pid.replace(/^adspower_/, '');
+      const fbParam = `user_id=${encodeURIComponent(cleanPid)}`;
+      const fbRes = await fetchAdsPower(`/api/v1/browser/start?${fbParam}&open_tabs=1&launch_args=${launchArgs}`);
+      if (fbRes && fbRes.code === 0) {
+        const fbWs = fbRes.data?.ws?.puppeteer;
+        const fbPort = fbRes.data?.debug_port;
+        if (fbWs || fbPort) {
+          dlog(`[AdsPower] ✅ TỰ ĐỘNG FALLBACK THÀNH CÔNG sang profile [${acc.label || cleanPid}] (${fbParam}, port ${fbPort})!`);
+          return fbWs || `http://127.0.0.1:${fbPort}`;
+        }
+      }
+    } catch (fbErr) {
+      // Thử account tiếp theo
+    }
+  }
+
+  throw new Error(`ADSPOWER_API_ERROR (${queryParam}): ${errMsg}`);
 }
 
-// Connect CDP: Ưu tiên AdsPower Profile theo profileId hoặc Serial
-async function connectCdp(port) {
+// Connect CDP: Kết nối độc quyền AdsPower Profile theo profileId hoặc Serial
+async function connectCdp(port, opts = {}) {
+  const isPrepare = !!opts.isPrepare;
   const target = getAdsPowerProfileIdentifier(port);
+  if (target.type === 'skip') {
+    dlog(`[SmartSkip] connectCdp bỏ qua (${target.reason})`);
+    if (isPrepare) return null;
+    throw new Error(`SKIP_ACCOUNT: ${target.reason}`);
+  }
   const targetLabel = `${target.type}=${target.value}`;
   
-  // 1. Kết nối qua AdsPower
+  // Kết nối qua AdsPower
   try {
-    const adsTarget = await getAdsPowerEndpoint(target);
+    const adsTarget = await getAdsPowerEndpoint(target, opts);
+    if (!adsTarget && isPrepare) return null;
+    const portMatch = String(adsTarget).match(/:(\d+)/);
+    if (portMatch && typeof port === 'number' && port >= 9223) {
+      ensurePortBridge(port, portMatch[1]);
+    }
     dlog(`[AdsPower] Nối CDP vào AdsPower Profile (${targetLabel}) qua ${adsTarget}...`);
-    const browser = await chromium.connectOverCDP(adsTarget, { timeout: 10000 });
+    const cdpTimeout = isPrepare ? 3500 : 15000;
+    const browser = await chromium.connectOverCDP(adsTarget, { timeout: cdpTimeout });
     dlog(`[AdsPower] Đã kết nối thành công tới AdsPower Profile (${targetLabel})!`);
     return browser;
   } catch (adsErr) {
-    dlog(`[AdsPower] Chưa kết nối được AdsPower Profile (${targetLabel}) (${adsErr.message}) -> fallback sang Chrome local port ${port}`);
-    
-    // 2. Fallback sang Chrome cục bộ nếu AdsPower chưa khởi chạy hoặc profile chưa tạo
-    const url = `http://127.0.0.1:${port}`;
-    const deadline = Date.now() + CDP_CONNECT_TIMEOUT_MS;
-    let lastErr = null;
-    while (Date.now() < deadline) {
-      try {
-        return await chromium.connectOverCDP(url, { timeout: 5000 });
-      } catch (e) {
-        lastErr = e;
-        await sleep(1000);
-      }
-    }
-    throw new Error(`CDP_CONNECT_FAILED: AdsPower: ${adsErr.message} | Chrome: ${lastErr ? lastErr.message : 'timeout'}`);
+    dlog(`[AdsPower] Không thể kết nối AdsPower Profile (${targetLabel}): ${adsErr.message}`);
+    if (isPrepare) return null;
+    throw new Error(`ADSPOWER_CONNECT_FAILED (${targetLabel}): ${adsErr.message}. Vui lòng mở phần mềm AdsPower!`);
   }
 }
 
@@ -995,16 +1188,28 @@ async function gotoUpload(page) {
 // thật, trang đã sạch và ổn định → chặng "chờ editor + quét popup" (1.64s
 // trong log 11:10) co lại còn thời gian TikTok nhận file.
 async function doPrepare(port) {
+  if (uploadPending) {
+    dlog('[SmartSkip] prepare bỏ qua ngay: upload đang chờ (0ms)');
+    return { skipped: true };
+  }
+  const target = getAdsPowerProfileIdentifier(port);
+  if (target.type === 'skip') {
+    dlog(`[SmartSkip] prepare bỏ qua port ${port}: ${target.reason} (0ms)`);
+    return { skipped: true };
+  }
+
   const t = Date.now();
-  const browser = await connectCdp(port);
+  const browser = await connectCdp(port, { isPrepare: true });
+  if (!browser) {
+    dlog(`[SmartSkip] prepare không lấy được CDP cho port ${port} -> bỏ qua an toàn`);
+    return { skipped: true };
+  }
   try {
-    // Nhả ngay ở mọi mốc nếu upload vừa tới: upload là việc nóng, prepare chỉ
-    // là warm — warm dở dang vô hại (upload tự goto/đóng popup như trước).
-    if (uploadPending) { dlog('prepare nhả sớm — upload vừa tới'); return {}; }
+    if (uploadPending) { dlog('prepare nhả sớm — upload vừa tới'); return { skipped: true }; }
     const page = await getTikTokPage(browser, true);
-    if (uploadPending) { dlog('prepare nhả sớm — upload vừa tới'); return {}; }
+    if (uploadPending) { dlog('prepare nhả sớm — upload vừa tới'); return { skipped: true }; }
     await gotoUpload(page);
-    if (uploadPending) { dlog('prepare nhả sớm — upload vừa tới'); return {}; }
+    if (uploadPending) { dlog('prepare nhả sớm — upload vừa tới'); return { skipped: true }; }
     await dismissBlockingPopups(page);
     dlog(`prepare xong sau ${((Date.now() - t) / 1000).toFixed(1)}s (trang upload sẵn sàng)`);
     return {};
@@ -1433,16 +1638,16 @@ async function doCheckLogin(port) {
 // trang: phase `file` 0.1s → 0.9s, app 0.8s → 1.9s, tổng 7.1s.
 // Quy tắc: upload luôn ĐƯỢC ƯU TIÊN — prepare thấy có upload thì tự dừng sớm;
 // upload chờ prepare nhả (tối đa PREPARE_YIELD_MAX_MS) rồi mới chạy.
-const PREPARE_YIELD_MAX_MS = 3000;
+const PREPARE_YIELD_MAX_MS = 200;
 let uploadPending = false;
 let preparing = false;
 
 async function waitForPrepareToYield() {
   const deadline = Date.now() + PREPARE_YIELD_MAX_MS;
   while (preparing && Date.now() < deadline) {
-    await sleep(50);
+    await sleep(20);
   }
-  if (preparing) dlog('prepare chưa nhả sau 3s — upload chạy đè (ưu tiên upload)');
+  if (preparing) dlog('prepare chưa nhả — upload chạy ngay (ưu tiên tuyệt đối upload)');
 }
 
 async function handle(req) {
@@ -1454,6 +1659,7 @@ async function handle(req) {
       case 'upload': {
         if (!req.filePath) throw new Error('filePath required');
         uploadPending = true;
+        preparing = false; // Ngắt cờ preparing ngay lập tức để ưu tiên upload!
         try {
           await waitForPrepareToYield();
           const result = await Promise.race([
@@ -1471,6 +1677,11 @@ async function handle(req) {
       case 'prepare': {
         if (uploadPending) {
           dlog('prepare bỏ qua — đang có upload (không giẫm chân)');
+          return { id, ok: true, cmd: 'prepare', skipped: true };
+        }
+        const target = getAdsPowerProfileIdentifier(req.port || 9223);
+        if (target.type === 'skip') {
+          dlog(`[SmartSkip] prepare command bỏ qua port ${req.port}: ${target.reason}`);
           return { id, ok: true, cmd: 'prepare', skipped: true };
         }
         preparing = true;
@@ -1498,58 +1709,167 @@ async function handle(req) {
   }
 }
 
-// Khởi động bộ phản hồi CDP dự phòng trên cổng 9222-9260 để Rust backend không bao giờ bị timeout
-function startFallbackCdpBridge() {
-  const START_PORT = 9222;
-  const END_PORT = 9260;
-  const VERSION_DATA = JSON.stringify({
-    Browser: 'Chrome/148.0.0.0',
-    'Protocol-Version': '1.3',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
-    'V8-Version': '12.0.0.0',
-    'WebKit-Version': '537.36 (@0)'
-  });
-  const LIST_DATA = JSON.stringify([
-    {
-      description: '',
-      devtoolsFrontendUrl: '',
-      id: 'page-ready',
-      title: 'TikTok Studio',
-      type: 'page',
-      url: 'https://www.tiktok.com/tiktokstudio/upload'
-    }
-  ]);
+async function autoWarmAssignedProfiles() {
+  try {
+    const statusRes = await fetchAdsPower('/status');
+    if (!statusRes || statusRes.code !== 0) return;
 
-  for (let port = START_PORT; port <= END_PORT; port++) {
-    try {
-      const server = http.createServer((req, res) => {
-        res.writeHead(200, {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        });
-        const url = req.url || '';
-        if (url.includes('/version')) {
-          res.end(VERSION_DATA);
-        } else if (url === '/json' || url.includes('/list')) {
-          res.end(LIST_DATA);
-        } else {
-          res.end(VERSION_DATA);
+    let candidatePaths = [
+      process.env.HYPERCLIP_DATA_DIR ? path.join(process.env.HYPERCLIP_DATA_DIR, '.hyperclip', 'tiktok.json') : null,
+      path.resolve(__dirname, '../../../HyperClip-Data/.hyperclip/tiktok.json'),
+      path.resolve(__dirname, '../../HyperClip-Data/.hyperclip/tiktok.json'),
+      path.resolve(__dirname, '../data/.hyperclip/tiktok.json'),
+      'D:/HyperClip/HyperClip-TestCustomer-20260616-224538/HyperClip-Data/.hyperclip/tiktok.json',
+      'D:/HyperClip/HyperClip-Data/.hyperclip/tiktok.json'
+    ].filter(Boolean);
+
+    let tiktokData = null;
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) {
+        try {
+          const d = JSON.parse(fs.readFileSync(p, 'utf8'));
+          if (d && Array.isArray(d.accounts)) {
+            tiktokData = d;
+            break;
+          }
+        } catch (e) {}
+      }
+    }
+
+    if (!tiktokData) return;
+
+    const mappings = tiktokData.mappings || {};
+    const accounts = tiktokData.accounts || [];
+
+    const assignedMap = {};
+    for (const cid in mappings) {
+      if (mappings[cid]) {
+        const val = String(mappings[cid]);
+        assignedMap[val] = true;
+        assignedMap[val.replace(/^tt_/, '')] = true;
+      }
+    }
+
+    const assignedAccounts = accounts.filter(acc => {
+      const cleanId = String(acc.id).replace(/^tt_/, '');
+      if (assignedMap[acc.id] || assignedMap[cleanId]) return true;
+      if (acc.profileId) {
+        for (const k in assignedMap) {
+          if (k.includes(acc.profileId)) return true;
         }
-      });
-      server.on('error', () => {
-        // Cổng đã có Chrome hoặc tiến trình khác sử dụng -> bỏ qua, ưu tiên Chrome thật
-      });
-      server.listen(port, '127.0.0.1');
-    } catch (_) {}
+      }
+      return false;
+    });
+
+    const targetList = (assignedAccounts.length > 0) ? assignedAccounts : accounts;
+    dlog(`[AdsPower Hot-Start] Phát hiện ${targetList.length} tài khoản AdsPower đã gán cần mở sẵn TikTok Upload...`);
+    const launchArgs = encodeURIComponent(JSON.stringify(['https://www.tiktok.com/tiktokstudio/upload']));
+
+    for (let i = 0; i < accounts.length; i++) {
+      if (uploadPending) {
+        dlog('[AdsPower Hot-Start] Phát hiện upload đang chạy -> Tạm dừng Hot-Start ngay lập tức để nhường đường');
+        break;
+      }
+      const acc = accounts[i];
+      if (acc.enabled === false) continue;
+      const isAssigned = targetList.some(t => t.id === acc.id || t.profileId === acc.profileId);
+      if (!isAssigned) continue;
+
+      const pid = acc.profileId ? acc.profileId.replace(/^adspower_/, '') : (acc.id ? acc.id.replace(/^adspower_/, '') : null);
+      if (!pid || pid.startsWith('tt')) continue;
+
+      const virtualPort = 9223 + i;
+      let debugPort = null;
+
+      // 1. Kiểm tra xem profile đã Active chưa
+      try {
+        const actRes = await fetchAdsPower(`/api/v1/browser/active?user_id=${encodeURIComponent(pid)}`);
+        if (actRes && actRes.code === 0 && actRes.data?.status === 'Active') {
+          debugPort = actRes.data?.debug_port;
+          dlog(`[AdsPower Hot-Start] Profile ${pid} đã Active sẵn (Port: ${debugPort})`);
+        }
+      } catch (e) {}
+
+      // 2. Nếu chưa bật, mở profile kèm retry chống Rate Limit
+      if (!debugPort) {
+        for (let attempt = 1; attempt <= 5; attempt++) {
+          try {
+            const startRes = await fetchAdsPower(`/api/v1/browser/start?user_id=${encodeURIComponent(pid)}&open_tabs=1&launch_args=${launchArgs}`);
+            if (startRes && startRes.code === 0) {
+              debugPort = startRes.data?.debug_port;
+              dlog(`[AdsPower Hot-Start] ✅ Đã mở profile ${pid} vào sẵn TikTok Upload (Port ${debugPort})`);
+              break;
+            }
+            const msg = startRes?.msg || '';
+            if (msg.includes('Too many request') || startRes?.code === -1) {
+              await sleep(1500);
+              continue;
+            }
+            dlog(`[AdsPower Hot-Start] Lỗi mở profile ${pid}: ${msg}`);
+            break;
+          } catch (err) {
+            await sleep(1500);
+          }
+        }
+      }
+
+      // 3. Nếu có debugPort, đảm bảo tab TikTok Upload & thiết lập Port Bridge
+      if (debugPort) {
+        await ensureTikTokUploadTab(debugPort);
+        ensurePortBridge(virtualPort, debugPort);
+      }
+
+      await sleep(1300);
+    }
+  } catch (err) {
+    dlog(`[AdsPower Hot-Start] Lỗi: ${err.message}`);
   }
 }
 
+function isTikTokUploadEnabled() {
+  try {
+    const candidatePaths = [
+      process.env.HYPERCLIP_DATA_DIR ? path.join(process.env.HYPERCLIP_DATA_DIR, '.hyperclip', 'settings.json') : null,
+      path.resolve(__dirname, '../../../HyperClip-Data/.hyperclip/settings.json'),
+      path.resolve(__dirname, '../../HyperClip-Data/.hyperclip/settings.json'),
+      path.resolve(__dirname, '../data/.hyperclip/settings.json'),
+      'D:/HyperClip/HyperClip-TestCustomer-20260616-224538/HyperClip-Data/.hyperclip/settings.json',
+      'D:/HyperClip/HyperClip-Data/.hyperclip/settings.json'
+    ].filter(Boolean);
+
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) {
+        try {
+          const d = JSON.parse(fs.readFileSync(p, 'utf8'));
+          const enabled = d?.settings?.tiktokUploadEnabled ?? d?.tiktokUploadEnabled;
+          if (typeof enabled === 'boolean') return enabled;
+        } catch (e) {}
+      }
+    }
+  } catch (err) {}
+  return false;
+}
+
 function main() {
-  try { startFallbackCdpBridge(); } catch (_) {}
   const rl = readline.createInterface({ input: process.stdin, terminal: false });
   // Signal ready (client Rust đợi dòng {daemon:true} đầu tiên)
   process.stdout.write(JSON.stringify({ daemon: true, ready: true }) + '\n');
   dlog('daemon ready');
+
+  // Khi vừa mở app: Miễn là auto upload tiktok bật -> Tự động mở các màn hình AdsPower đã gán kênh (Chuẩn nhánh adspow)
+  setTimeout(() => {
+    try {
+      if (isTikTokUploadEnabled()) {
+        dlog('[AdsPower Auto-Open] Auto upload TikTok đang BẬT -> Tự động mở các màn hình AdsPower đã gán kênh...');
+        autoWarmAssignedProfiles().catch((err) => {
+          dlog(`[AdsPower Auto-Open] Lỗi: ${err.message}`);
+        });
+      } else {
+        dlog('[AdsPower Auto-Open] Auto upload TikTok đang TẮT -> Bỏ qua tự động mở màn hình AdsPower.');
+      }
+    } catch (e) {}
+  }, 2500);
+
   rl.on('line', (line) => {
     const trimmed = line.trim();
     if (!trimmed) return;
@@ -1565,7 +1885,22 @@ function main() {
       process.stdout.write(JSON.stringify(resp) + '\n');
     });
   });
-  rl.on('close', () => process.exit(0));
+
+  const cleanupAndExit = () => {
+    dlog('[tiktok_helper] HyperClip closing. Stopping owned port bridges...');
+    try {
+      for (const [vport, bridge] of activeBridges.entries()) {
+        try { bridge.server.close(); } catch (e) {}
+      }
+      activeBridges.clear();
+
+    } catch (e) {}
+    process.exit(0);
+  };
+
+  rl.on('close', cleanupAndExit);
+  process.on('SIGINT', cleanupAndExit);
+  process.on('SIGTERM', cleanupAndExit);
 }
 
 main();

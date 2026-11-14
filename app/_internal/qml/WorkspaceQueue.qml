@@ -275,6 +275,7 @@ Rectangle {
                 title: model.title
                 progress: model.progress || 0
                 channel_name: model.channel_name
+                channel_id: model.channelId || model.channel_id || ""
                 thumbnail: model.thumbnail
                 isShort: model.isShort
                 durationSec: model.durationSec || 0

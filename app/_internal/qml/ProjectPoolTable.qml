@@ -76,14 +76,16 @@ Rectangle {
             ? quota.projects.get_broken_project_ids() : []
         if (!broken || broken.length === 0) {
             try {
-                var resp = backend.send_command("quota:summary")
-                if (resp && resp.result && resp.result.projects) {
-                    var projs = resp.result.projects
-                    broken = []
-                    for (var i = 0; i < projs.length; i++) {
-                        var p = projs[i]
-                        if (p.blocked && p.error !== "Hết quota hôm nay" && p.projectId) {
-                            broken.push(p.projectId)
+                if (typeof backend !== "undefined" && backend && typeof backend.send_command === "function") {
+                    var resp = backend.send_command("quota:summary")
+                    if (resp && resp.result && resp.result.projects) {
+                        var projs = resp.result.projects
+                        broken = []
+                        for (var i = 0; i < projs.length; i++) {
+                            var p = projs[i]
+                            if (p.blocked && p.error !== "Hết quota hôm nay" && p.projectId) {
+                                broken.push(p.projectId)
+                            }
                         }
                     }
                 }
@@ -111,12 +113,14 @@ Rectangle {
             ? quota.projects.get_all_project_ids() : []
         if (!all || all.length === 0) {
             try {
-                var resp = backend.send_command("quota:summary")
-                if (resp && resp.result && resp.result.projects) {
-                    var projs = resp.result.projects
-                    all = []
-                    for (var i = 0; i < projs.length; i++) {
-                        if (projs[i].projectId) all.push(projs[i].projectId)
+                if (typeof backend !== "undefined" && backend && typeof backend.send_command === "function") {
+                    var resp = backend.send_command("quota:summary")
+                    if (resp && resp.result && resp.result.projects) {
+                        var projs = resp.result.projects
+                        all = []
+                        for (var i = 0; i < projs.length; i++) {
+                            if (projs[i].projectId) all.push(projs[i].projectId)
+                        }
                     }
                 }
             } catch (err) {}
@@ -139,14 +143,16 @@ Rectangle {
             ? quota.projects.get_broken_project_ids() : []
         if (!broken || broken.length === 0) {
             try {
-                var resp = backend.send_command("quota:summary")
-                if (resp && resp.result && resp.result.projects) {
-                    var projs = resp.result.projects
-                    broken = []
-                    for (var i = 0; i < projs.length; i++) {
-                        var p = projs[i]
-                        if (p.blocked && p.error !== "Hết quota hôm nay" && p.projectId) {
-                            broken.push(p.projectId)
+                if (typeof backend !== "undefined" && backend && typeof backend.send_command === "function") {
+                    var resp = backend.send_command("quota:summary")
+                    if (resp && resp.result && resp.result.projects) {
+                        var projs = resp.result.projects
+                        broken = []
+                        for (var i = 0; i < projs.length; i++) {
+                            var p = projs[i]
+                            if (p.blocked && p.error !== "Hết quota hôm nay" && p.projectId) {
+                                broken.push(p.projectId)
+                            }
                         }
                     }
                 }

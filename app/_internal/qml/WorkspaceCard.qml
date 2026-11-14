@@ -15,6 +15,7 @@ Rectangle {
     property string title: ""
     property real progress: 0
     property string channel_name: ""
+    property string channel_id: ""
     property string thumbnail: ""
     property bool isShort: true
     property int durationSec: 0
@@ -41,6 +42,7 @@ Rectangle {
         title: card.title
         progress: card.progress
         channel_name: card.channel_name
+        channel_id: card.channel_id
         thumbnail: card.thumbnail
         isShort: card.isShort
         durationSec: card.durationSec

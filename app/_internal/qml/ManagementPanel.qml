@@ -46,11 +46,30 @@ Rectangle {
         interval: 300
         repeat: false
         onTriggered: {
-            if (root.currentVideoId) {
+            if (root.currentVideoId && typeof backend !== "undefined" && backend && typeof backend.send_command === "function") {
                 const resp = backend.send_command("workspace:managementGet", {"id": root.currentVideoId});
                 if (resp && resp.ok !== false && resp.result) {
                     root.currentVideoData = resp.result;
                 }
+            }
+        }
+    }
+
+    Timer {
+        id: backendRetryTimer
+        interval: 350
+        repeat: true
+        property int retryCount: 0
+        onTriggered: {
+            retryCount++;
+            if (root.workspaces.length === 0) {
+                root.refreshList();
+            }
+            if (quota && typeof quota.refresh_from_backend === "function" && typeof backend !== "undefined" && backend) {
+                quota.refresh_from_backend(backend);
+            }
+            if ((root.workspaces.length > 0 && quota && quota.projectCount > 0) || retryCount >= 20) {
+                running = false;
             }
         }
     }
@@ -203,11 +222,12 @@ Rectangle {
 
         refreshList()
 
-        // Số liệu quota chỉ kéo về khi mở trang; sau đó event `quota:scan` mỗi
-
-        // nhịp tự cập nhật, không tốn thêm lệnh JSON-RPC nào.
-
-        if (quota) quota.refresh_from_backend(backend)
+        if (quota && typeof quota.refresh_from_backend === "function" && typeof backend !== "undefined" && backend) {
+            quota.refresh_from_backend(backend)
+        }
+        if (typeof backend !== "undefined" && backend && typeof backend.send_command === "function") {
+            backend.send_command("channel:sync")
+        }
 
     }
 
@@ -327,6 +347,12 @@ Rectangle {
 
         errorText = ""
 
+        if (typeof backend === "undefined" || !backend || typeof backend.send_command !== "function") {
+            listLoading = false;
+            backendRetryTimer.restart();
+            return;
+        }
+
         const resp = backend.send_command("workspace:managementList")
 
         if (resp && resp.ok !== false && resp.result) {
@@ -394,6 +420,11 @@ Rectangle {
 
         Qt.callLater(function() {
 
+            if (typeof backend === "undefined" || !backend || typeof backend.send_command !== "function") {
+                detailLoading = false;
+                return;
+            }
+
             const resp = backend.send_command("workspace:managementGet", {"id": id})
 
             if (resp && resp.ok !== false && resp.result) {
@@ -430,7 +461,7 @@ Rectangle {
 
         }
 
-        parts.sort((a, b) => a.id.localeCompare(b.id));
+        parts.sort((a, b) => ((a.partIndex || 0) - (b.partIndex || 0)) || a.id.localeCompare(b.id));
 
         return parts;
 
@@ -850,11 +881,15 @@ Rectangle {
 
     }
 
-    function fmtTimeAgo(ms) {
+    function fmtTimeAgo(ms, nowMs) {
 
         if (!ms || ms <= 0) return "—"
 
-        const diff = (Date.now() - ms) / 1000
+        const base = (nowMs && nowMs > 0) ? nowMs : ((root.nowMs && root.nowMs > 0) ? root.nowMs : Date.now())
+
+        const diff = (base - ms) / 1000
+
+        if (diff < 1) return "vừa xong"
 
         if (diff < 60) return Math.floor(diff) + " giây trước"
 
@@ -981,9 +1016,13 @@ Rectangle {
     function getThumbnailSource(thumbnailLocal, videoId) {
 
         if (!thumbnailLocal) {
-            return (videoId && videoId.indexOf("PL") !== 0)
+
+            return videoId
+
                 ? "https://i.ytimg.com/vi/" + videoId + "/hqdefault.jpg"
+
                 : "";
+
         }
 
         let t = thumbnailLocal.trim();
@@ -2080,12 +2119,27 @@ Rectangle {
 
                             let out = [];
                             for (let i = 0; i < parents.length; i++) {
-                                out.push(parents[i]);
-                                let parts = root.getSplitPartsFor(parents[i].id);
+                                let p = parents[i];
+                                let parts = root.getSplitPartsFor(p.id);
+                                let validParts = [];
+                                let hasPart1InParts = false;
                                 for (let j = 0; j < parts.length; j++) {
                                     if (parts[j] && parts[j].status !== "deleted") {
-                                        out.push(parts[j]);
+                                        validParts.push(parts[j]);
+                                        if (parts[j].partIndex === 1 || (parts[j].id && parts[j].id.indexOf("-part1") !== -1)) {
+                                            hasPart1InParts = true;
+                                        }
                                     }
+                                }
+                                if (validParts.length > 0) {
+                                    if (!hasPart1InParts) {
+                                        out.push(p);
+                                    }
+                                    for (let k = 0; k < validParts.length; k++) {
+                                        out.push(validParts[k]);
+                                    }
+                                } else {
+                                    out.push(p);
                                 }
                             }
                             return out;
@@ -2347,15 +2401,26 @@ Rectangle {
                                         }
                                     }
 
-                                    Label {
-                                        text: (modelData.channelName || modelData.channelId || modelData.channel_id || "—")
-                                            + " · " + root.fmtTimeAgo(modelData.createdAt)
-                                            + root.getPartsSummary(modelData.id)
-                                        color: Theme.textMuted
-                                        font.pixelSize: 10
-                                        elide: Text.ElideRight
+                                    RowLayout {
                                         Layout.fillWidth: true
-                                        maximumLineCount: 1
+                                        spacing: 6
+                                        ChannelAvatarFor {
+                                            channelKey: modelData.channelId || modelData.channel_id || ""
+                                            fallbackName: modelData.channelName || ""
+                                            diameter: 14
+                                            Layout.alignment: Qt.AlignVCenter
+                                        }
+                                        Label {
+                                            text: (modelData.channelName || modelData.channelId || modelData.channel_id || "—")
+                                                + " · " + root.fmtTimeAgo(modelData.createdAt, root.nowMs)
+                                                + ((modelData.partIndex && modelData.partIndex >= 1) ? "" : root.getPartsSummary(modelData.id))
+                                            color: Theme.textMuted
+                                            font.pixelSize: 10
+                                            elide: Text.ElideRight
+                                            Layout.fillWidth: true
+                                            maximumLineCount: 1
+                                            Layout.alignment: Qt.AlignVCenter
+                                        }
                                     }
 
                                     RowLayout {
@@ -2379,9 +2444,12 @@ Rectangle {
                                             font.bold: true
                                         }
 
-                                        // Chip thời lượng video
+                                                                                // Chip thời lượng video
                                         Rectangle {
-                                            visible: (modelData.durationSec || modelData.duration || 0) > 0
+                                            visible: {
+                                                if (modelData.partIndex && modelData.partTotal && modelData.partTotal >= 2) return true;
+                                                return (modelData.durationSec || modelData.duration || 0) > 0;
+                                            }
                                             Layout.preferredHeight: 15
                                             Layout.preferredWidth: durChipLbl.implicitWidth + 8
                                             radius: 3
@@ -2391,7 +2459,21 @@ Rectangle {
                                             Label {
                                                 id: durChipLbl
                                                 anchors.centerIn: parent
-                                                text: root.fmtClockMS(modelData.durationSec || modelData.duration || 0)
+                                                text: {
+                                                    // 1. Khi video da co khoang cat trimEnd - trimStart rieng cua no
+                                                    if (modelData.trimEnd > modelData.trimStart) {
+                                                        return root.fmtClockMS(modelData.trimEnd - modelData.trimStart);
+                                                    }
+                                                    // 2. Khi la Part co pham vi trich xuat tu nguon (sourceEndSec - sourceStartSec)
+                                                    if (modelData.sourceEndSec > modelData.sourceStartSec) {
+                                                        return root.fmtClockMS(modelData.sourceEndSec - modelData.sourceStartSec);
+                                                    }
+                                                    // 3. Thoi luong thuc te tu metadata cua chinh video nay (doc lap 100% voi settings)
+                                                    if (modelData.durationSec || modelData.duration) {
+                                                        return root.fmtClockMS(modelData.durationSec || modelData.duration);
+                                                    }
+                                                    return "0:00";
+                                                }
                                                 color: Theme.textMuted
                                                 font.pixelSize: 9
                                                 font.family: "Consolas"

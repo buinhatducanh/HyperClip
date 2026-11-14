@@ -473,8 +473,8 @@ Rectangle {
                                 anchors.centerIn: parent
                                 visible: {
                                     let nextIdx = compactStageItem.index + 1
-                                    let nextSt = cardRoot.timelineStages[nextIdx]
-                                    return Boolean(nextSt && nextSt.deltaSec !== undefined && nextSt.deltaSec >= 0)
+                                    let nextSt = cardRoot.timelineStages ? cardRoot.timelineStages[nextIdx] : null
+                                    return !!(nextSt && typeof nextSt.deltaSec === "number" && nextSt.deltaSec >= 0)
                                 }
                                 radius: 8
                                 color: "#191D26"
@@ -489,7 +489,7 @@ Rectangle {
                                     text: {
                                         let nextIdx = compactStageItem.index + 1
                                         let nextSt = cardRoot.timelineStages[nextIdx]
-                                        return (nextSt && nextSt.deltaSec !== undefined && nextSt.deltaSec >= 0) ? ("+" + Fmt.duration(nextSt.deltaSec)) : ""
+                                        return (nextSt && nextSt.deltaSec >= 0) ? ("+" + Fmt.duration(nextSt.deltaSec)) : ""
                                     }
                                     color: Theme.accent
                                     font.pixelSize: 9

@@ -1,5 +1,6 @@
-// src/ui/qml/DetectionPanel.qml
+﻿// src/ui/qml/DetectionPanel.qml
 // Detection thresholds + poller monitoring + activity log
+// Thiết kế gọn gàng, ẩn text giải thích vào nút HelpTip [?]
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -12,9 +13,13 @@ SettingsCard {
         Layout.fillWidth: true
         spacing: 8
         Label {
-            text: "Bật quét"
-            color: Theme.textMuted
+            text: "Bật quét tự động"
+            color: Theme.text
             font.pixelSize: Theme.textMd
+            font.bold: true
+        }
+        HelpTip {
+            text: "Kích hoạt hệ thống theo dõi định kỳ danh sách kênh YouTube qua Data API v3 và CDP Watcher."
         }
         Item { Layout.fillWidth: true }
         Switch {
@@ -27,7 +32,8 @@ SettingsCard {
         text: "Trạng thái: " + ((poller && poller.active) ? "Đang chạy" : "Tạm dừng")
               + ((poller && poller.lastError) ? " · " + poller.lastError : "")
         color: (poller && poller.active) ? Theme.success : Theme.textMuted
-        font.pixelSize: 10
+        font.pixelSize: 11
+        font.bold: true
     }
 
     GridLayout {
@@ -35,9 +41,10 @@ SettingsCard {
         columnSpacing: 16
         rowSpacing: 12
         Layout.fillWidth: true
- 
-        ColumnLayout {
-            spacing: 2
+
+        // ─── CHU KỲ QUÉT (MS) ─────────────────────────────────────────
+        RowLayout {
+            spacing: 6
             Layout.fillWidth: true
             Label {
                 text: "Chu kỳ quét (ms)"
@@ -45,12 +52,8 @@ SettingsCard {
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
-            Label {
-                text: "Chu kỳ quét YouTube Data API v3 & Chrome CDP (tần suất liên quan trực tiếp tới tốc độ bắt video)."
-                color: Theme.textMuted
-                font.pixelSize: 11
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
+            HelpTip {
+                text: "Tần suất quét YouTube Data API v3 & Chrome CDP (mặc định 3.000 - 5.000 ms, liên quan trực tiếp tới tốc độ bắt video mới)."
             }
         }
         SpinBox {
@@ -69,104 +72,69 @@ SettingsCard {
                 }
             }
         }
- 
 
- 
-        ColumnLayout {
-            spacing: 2
+        // ─── THỜI LƯỢNG TỐI ĐA (PHÚT) ─────────────────────────────────
+        RowLayout {
+            spacing: 6
             Layout.fillWidth: true
             Label {
-                text: "TG tối đa (phút)"
+                text: "Thời lượng video tối đa"
                 color: Theme.text
                 font.pixelSize: Theme.textMd
                 font.bold: true
             }
-            Label {
-                text: "Giới hạn thời lượng video tối đa để tự động tải."
-                color: Theme.textMuted
-                font.pixelSize: 11
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
+            HelpTip {
+                text: "Giới hạn thời lượng video tối đa để tự động tải (phút). Video dài hơn mức này sẽ bị bỏ qua để bảo vệ bộ nhớ máy."
             }
         }
-        TextField {
+        RowLayout {
             Layout.preferredWidth: 180
             Layout.alignment: Qt.AlignRight
-            font.pixelSize: Theme.textMd
-            color: Theme.text
-            placeholderTextColor: Theme.textMuted
-            text: settings ? Math.round(settings.videoMaxDurationSec / 60).toString() : "60"
-            validator: IntValidator { bottom: 1; top: 120 }
-            onEditingFinished: {
-                let mins = parseInt(text)
-                if (!isNaN(mins) && settings) {
-                    settings.videoMaxDurationSec = mins * 60
-                }
-            }
-            background: Rectangle {
-                color: Theme.inputBg
-                border.color: parent.activeFocus ? Theme.accent : Theme.border
-                border.width: 1
-                radius: Theme.radiusMd
-            }
-        }
-
-        // Pass 58: ô "Daemon Limit" đã gỡ — không còn pool daemon quét nền,
-        // lõi phát hiện là Data API (xem GcpWizard/QuotaPoolCard).
-    }
-
-    Rectangle {
-        Layout.fillWidth: true
-        Layout.topMargin: 8
-        Layout.bottomMargin: 8
-        implicitHeight: warningColumn.implicitHeight + 24
-        color: Qt.rgba(56, 189, 248, 0.03)
-        border.color: Qt.rgba(56, 189, 248, 0.15)
-        border.width: 1
-        radius: Theme.radiusMd
-
-        ColumnLayout {
-            id: warningColumn
-            anchors.fill: parent
-            anchors.margins: 12
             spacing: 6
-
-            RowLayout {
-                spacing: 8
+            TextField {
                 Layout.fillWidth: true
-                Text {
-                    text: "⚡"
-                    font.pixelSize: 16
-                    color: Theme.accent
-                    font.bold: true
-                }
-                Label {
-                    text: "LÕI QUÉT HYPERCLIP (DATA API v3 & CDP WATCHER)"
-                    color: Theme.accent
-                    font.bold: true
-                    font.pixelSize: Theme.textMd
-                    Layout.fillWidth: true
-                }
-            }
-
-            Label {
-                text: "• <b>Tự động gộp 50 kênh/unit:</b> Tối ưu hóa tuyệt đối ngân sách Quota YouTube.<br/>" +
-                      "• <b>Quản lý Quota & Pool 60 Projects:</b> Kiểm tra key, trạng thái từng project tại tab <b>Lõi quét</b>.<br/>" +
-                      "• <b>Chế độ bắt video thời gian thực:</b> Hoạt động song song với Chrome CDP Watcher."
+                font.pixelSize: Theme.textMd
                 color: Theme.text
-                font.pixelSize: 11
-                wrapMode: Text.WordWrap
-                textFormat: Text.RichText
-                Layout.fillWidth: true
-                lineHeight: 1.3
+                placeholderTextColor: Theme.textMuted
+                text: settings ? Math.round(settings.videoMaxDurationSec / 60).toString() : "60"
+                validator: IntValidator { bottom: 1; top: 120 }
+                onEditingFinished: {
+                    let mins = parseInt(text)
+                    if (!isNaN(mins) && settings) {
+                        settings.videoMaxDurationSec = mins * 60
+                    }
+                }
+                background: Rectangle {
+                    color: Theme.inputBg
+                    border.color: parent.activeFocus ? Theme.accent : Theme.border
+                    border.width: 1
+                    radius: Theme.radiusMd
+                }
             }
+            Label { text: "phút"; color: Theme.textMuted; font.pixelSize: Theme.textMd }
         }
     }
 
-    Button {
-        text: (poller && poller.active) ? "Tạm dừng quét" : "Tiếp tục quét"
-        Layout.preferredWidth: 150
-        onClicked: if (poller) { poller.active ? poller.pause(backend) : poller.resume(backend) }
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: 10
+        Layout.topMargin: 4
+
+        Button {
+            text: (poller && poller.active) ? "Tạm dừng quét" : "Tiếp tục quét"
+            Layout.preferredWidth: 140
+            onClicked: if (poller) { poller.active ? poller.pause(backend) : poller.resume(backend) }
+        }
+
+        Item { Layout.fillWidth: true }
+
+        Label {
+            text: "Pool 60 Projects · Gộp 50 kênh/unit · CDP Realtime"
+            color: Theme.textMuted
+            font.pixelSize: 11
+        }
+        HelpTip {
+            text: "Lõi quét Data API v3 tối ưu hóa quota kết hợp song song với Chrome CDP Watcher để bắt video <1s."
+        }
     }
 }
-

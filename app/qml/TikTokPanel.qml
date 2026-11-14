@@ -117,8 +117,9 @@ Rectangle {
     }
     Connections {
         target: (typeof tiktokModel !== "undefined") ? tiktokModel : null
+        ignoreUnknownSignals: true
         function onChanged() {
-            panel.refreshData()
+            panel.refreshEpoch++
             Qt.callLater(function() { panel.ensureSelection() })
         }
     }
@@ -319,23 +320,44 @@ Rectangle {
         xhr.send()
     }
 
+    property int openNextIdx: 0
+    property var accountsToOpen: []
+    Timer {
+        id: staggerOpenTimer
+        interval: 500
+        running: false
+        repeat: true
+        onTriggered: {
+            if (panel.openNextIdx < panel.accountsToOpen.length) {
+                var acc = panel.accountsToOpen[panel.openNextIdx]
+                panel.openAdsPowerBrowser(acc.profileId, acc.adsPowerSerial || (panel.openNextIdx + 1), acc.label)
+                panel.openNextIdx++
+            } else {
+                staggerOpenTimer.stop()
+            }
+        }
+    }
+
+    function openAccountsStaggered(list) {
+        if (!list || list.length === 0) return
+        panel.accountsToOpen = list
+        panel.openNextIdx = 0
+        staggerOpenTimer.start()
+    }
+
     // Tự động mở các cửa sổ AdsPower của các nick đã gán kênh (Vào sẵn Upload)
-    function openAssignedAdsPowerBrowsers() {
+    function openAssignedAdsPowerBrowsers(silent) {
         var ts = (typeof toastService !== "undefined" && toastService) ? toastService : (typeof toastManager !== "undefined" ? toastManager : null)
         var targetList = panel.getAssignedAccounts()
         if (!targetList || targetList.length === 0) {
             targetList = panel.accountsList
         }
         if (!targetList || targetList.length === 0) {
-            if (ts) ts.show("AdsPower", "Chưa có tài khoản AdsPower nào được gán kênh YouTube!", "warning")
+            if (ts && !silent) ts.show("AdsPower", "Chưa có tài khoản AdsPower nào được gán kênh YouTube!", "warning")
             return
         }
-        if (ts) ts.show("AdsPower", "Đang tự động mở " + targetList.length + " tài khoản AdsPower vào sẵn Upload...", "info")
-        for (var i = 0; i < targetList.length; i++) {
-            (function(acc, idx) {
-                panel.openAdsPowerBrowser(acc.profileId, acc.adsPowerSerial || (idx + 1), acc.label)
-            })(targetList[i], i)
-        }
+        if (ts && !silent) ts.show("AdsPower", "Đang mở " + targetList.length + " tài khoản AdsPower vào sẵn Upload...", "info")
+        panel.openAccountsStaggered(targetList)
     }
 
     function statusColor(st) {
@@ -406,47 +428,79 @@ Rectangle {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        var ts = (typeof toastService !== "undefined" && toastService) ? toastService : (typeof toastManager !== "undefined" ? toastManager : null)
-                        var list = panel.accountsList
-                        if (!list || list.length === 0) {
-                            if (ts) ts.show("AdsPower", "Không tìm thấy tài khoản nào trong danh sách!", "warning")
-                            return
-                        }
-                        if (ts) ts.show("AdsPower", "Đang kích hoạt mở toàn bộ " + list.length + " cửa sổ AdsPower (Vào sẵn Upload)...", "info")
-                        for (var i = 0; i < list.length; i++) {
-                            (function(acc, idx) {
-                                panel.openAdsPowerBrowser(acc.profileId, acc.adsPowerSerial || (idx + 1), acc.label)
-                            })(list[i], i)
-                        }
+                        panel.openAssignedAdsPowerBrowsers(false)
                     }
                 }
             }
 
             Rectangle {
                 Layout.preferredHeight: 24
-                Layout.preferredWidth: openAllBrowsersLbl.implicitWidth + 16
+                Layout.preferredWidth: syncAdsLbl.implicitWidth + 16
                 radius: 4
-                color: openAllBrowsersMa.containsMouse ? Theme.accent : Theme.accent + "22"
+                color: syncAdsMa.containsMouse ? Theme.accent : Theme.surface
                 border.color: Theme.accent
                 border.width: 1
                 Label {
-                    id: openAllBrowsersLbl
+                    id: syncAdsLbl
                     anchors.centerIn: parent
-                    text: "🌐 Mở toàn bộ Chrome + AdsPower"
-                    color: openAllBrowsersMa.containsMouse ? "#ffffff" : Theme.accent
+                    text: "🔄 Đồng bộ AdsPower"
+                    color: syncAdsMa.containsMouse ? "#000000" : Theme.accent
                     font.pixelSize: 11
                     font.bold: true
                 }
                 MouseArea {
-                    id: openAllBrowsersMa
+                    id: syncAdsMa
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
                         var ts = (typeof toastService !== "undefined" && toastService) ? toastService : (typeof toastManager !== "undefined" ? toastManager : null)
-                        if (ts) ts.show("Trình duyệt", "Đang mở song song toàn bộ Chrome + AdsPower cho tất cả tài khoản...", "info")
-                        if (typeof backend !== "undefined" && backend) {
-                            backend.send_command_async("system:openFile", { "path": "C:\\Users\\Administrator\\Desktop\\HyperClip\\MO_TOAN_BO_TRINH_DUYET.bat" })
+                        if (ts) ts.show("AdsPower", "Đang quét danh sách hồ sơ từ AdsPower Local API...", "info")
+                        try {
+                            var xhr = new XMLHttpRequest()
+                            xhr.open("GET", "http://127.0.0.1:50325/api/v1/user/list?page=1&page_size=100")
+                            xhr.timeout = 5000
+                            xhr.onreadystatechange = function() {
+                                if (xhr.readyState === XMLHttpRequest.DONE) {
+                                    if (xhr.status === 200) {
+                                        try {
+                                            var res = JSON.parse(xhr.responseText)
+                                            var list = res.data && res.data.list ? res.data.list : []
+                                            if (list.length > 0) {
+                                                var existingList = panel.accountsList || []
+                                                var addedCount = 0
+                                                for (var k = 0; k < list.length; k++) {
+                                                    var p = list[k]
+                                                    var pid = String(p.user_id || "")
+                                                    var lbl = p.name ? (p.name.indexOf("@") === 0 ? p.name : ("@" + p.name)) : ("@Profile_" + (p.serial_number || pid))
+                                                    var exists = false
+                                                    for (var ex = 0; ex < existingList.length; ex++) {
+                                                        if (existingList[ex].profileId === pid || existingList[ex].label === lbl || existingList[ex].id === ("adspower_" + pid)) {
+                                                            exists = true
+                                                            break
+                                                        }
+                                                    }
+                                                    if (!exists && typeof tiktokModel !== "undefined" && tiktokModel && typeof tiktokModel.add_account === "function") {
+                                                        tiktokModel.add_account(lbl)
+                                                        addedCount++
+                                                    }
+                                                }
+                                                panel.refreshData()
+                                                if (ts) ts.show("AdsPower", "Đã quét xong " + list.length + " hồ sơ AdsPower (" + addedCount + " mới)!", "success")
+                                            } else {
+                                                if (ts) ts.show("AdsPower", "Không tìm thấy hồ sơ nào trên AdsPower!", "warning")
+                                            }
+                                        } catch(e) {
+                                            if (ts) ts.show("AdsPower", "Lỗi nạp hồ sơ: " + e.message, "error")
+                                        }
+                                    } else {
+                                        if (ts) ts.show("AdsPower", "Không kết nối được AdsPower Local API (port 50325)!", "error")
+                                    }
+                                }
+                            }
+                            xhr.send()
+                        } catch(err) {
+                            if (ts) ts.show("AdsPower", "Lỗi: " + err.message, "error")
                         }
                     }
                 }
@@ -1063,11 +1117,10 @@ Rectangle {
                                         anchors.centerIn: parent
                                         spacing: 6
                                         ChannelAvatarFor {
-                                            channelKey: modelData.channelId || ""
+                                            channelKey: modelData.channelId || modelData.id || ""
                                             fallbackName: modelData.name || ""
                                             directUrl: modelData.avatarUrl || ""
-                                            url: modelData.avatarUrl || ""
-                                            diameter: 16
+                                            diameter: 18
                                             Layout.alignment: Qt.AlignVCenter
                                         }
                                         Label {
@@ -1140,11 +1193,10 @@ Rectangle {
                                     spacing: 8
 
                                     ChannelAvatarFor {
-                                        channelKey: modelData.ch.channelId || ""
+                                        channelKey: modelData.ch.channelId || modelData.ch.id || ""
                                         fallbackName: modelData.ch.name || ""
                                         directUrl: modelData.ch.avatarUrl || ""
-                                        url: modelData.ch.avatarUrl || ""
-                                        diameter: 20
+                                        diameter: 22
                                         Layout.alignment: Qt.AlignVCenter
                                     }
 
@@ -1392,5 +1444,8 @@ Rectangle {
             tiktokModel.refresh_soon()
         }
         Qt.callLater(function() { panel.ensureSelection() })
+        if (settings && settings.tiktokUploadEnabled) {
+            Qt.callLater(function() { panel.openAssignedAdsPowerBrowsers(true) })
+        }
     }
 }

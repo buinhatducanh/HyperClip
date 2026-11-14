@@ -68,6 +68,7 @@ ColumnLayout {
             title: modelData.title
             progress: modelData.progress || 0
             channel_name: modelData.channel_name
+            channel_id: modelData.channelId || modelData.channel_id || ""
             thumbnail: modelData.thumbnail
             isShort: modelData.isShort
             durationSec: modelData.durationSec || 0

@@ -79,10 +79,20 @@ Dialog {
                         font.pixelSize: 15
                         font.bold: true
                     }
-                    Label {
-                        text: "Kênh: " + dlg.channelName + " (" + dlg.channelId + ")"
-                        color: Theme.accent
-                        font.pixelSize: 11
+                    RowLayout {
+                        spacing: 6
+                        ChannelAvatarFor {
+                            channelKey: dlg.channelId || ""
+                            fallbackName: dlg.channelName || ""
+                            diameter: 16
+                            Layout.alignment: Qt.AlignVCenter
+                        }
+                        Label {
+                            text: "Kênh: " + dlg.channelName + " (" + dlg.channelId + ")"
+                            color: Theme.accent
+                            font.pixelSize: 11
+                            Layout.alignment: Qt.AlignVCenter
+                        }
                     }
                 }
 

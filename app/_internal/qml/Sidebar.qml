@@ -21,6 +21,15 @@ Rectangle {
     border.color: Theme.border
     border.width: 0
 
+    Component.onCompleted: {
+        if (typeof backend !== "undefined" && backend && typeof backend.send_command === "function") {
+            backend.send_command("channel:sync");
+        }
+        if (typeof channelListModel !== "undefined" && channelListModel && typeof channelListModel.load_from_backend === "function" && typeof backend !== "undefined" && backend) {
+            channelListModel.load_from_backend(backend);
+        }
+    }
+
     // ─── Section Header: Kênh theo dõi ─────────────────────────────
     Rectangle {
         id: logoBlock

@@ -11,6 +11,7 @@ Rectangle {
     property real progress: 0
     property string channel_name: ""
     property string channelId: ""
+    property string channel_id: ""
     property string publishedTimeStr: ""
     property string thumbnail: ""
     property bool isShort: true
@@ -257,14 +258,25 @@ Rectangle {
                 }
             }
 
-            // Channel name row
-            Label {
-                text: channel_name || "—"
-                color: Theme.accent
-                font.pixelSize: Theme.textSm
-                font.bold: true
-                elide: Text.ElideRight
+            // Channel name row with avatar
+            RowLayout {
                 Layout.fillWidth: true
+                spacing: 6
+                ChannelAvatarFor {
+                    channelKey: channelId || channel_id || (typeof card !== "undefined" && (card.channelId || card.channel_id)) || ""
+                    fallbackName: channel_name || ""
+                    diameter: 16
+                    Layout.alignment: Qt.AlignVCenter
+                }
+                Label {
+                    text: channel_name || "—"
+                    color: Theme.accent
+                    font.pixelSize: Theme.textSm
+                    font.bold: true
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                }
             }
 
             // Detailed metadata line

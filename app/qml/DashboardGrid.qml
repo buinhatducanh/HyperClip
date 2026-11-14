@@ -192,10 +192,20 @@ Rectangle {
                                                 elide: Text.ElideRight
                                                 Layout.fillWidth: true
                                             }
-                                            Label {
-                                                text: (model.channelName || "—") + " · " + (model.quality || "")
-                                                color: Theme.textMuted
-                                                font.pixelSize: 11
+                                            RowLayout {
+                                                spacing: 6
+                                                ChannelAvatarFor {
+                                                    channelKey: model.channelId || ""
+                                                    fallbackName: model.channelName || ""
+                                                    diameter: 14
+                                                    Layout.alignment: Qt.AlignVCenter
+                                                }
+                                                Label {
+                                                    text: (model.channelName || "—") + " · " + (model.quality || "")
+                                                    color: Theme.textMuted
+                                                    font.pixelSize: 11
+                                                    Layout.alignment: Qt.AlignVCenter
+                                                }
                                             }
                                         }
                                         Label {
