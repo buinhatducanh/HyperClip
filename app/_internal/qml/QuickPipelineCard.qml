@@ -44,9 +44,13 @@ SettingsCard {
     onTotalTrimMinutesChanged: {
         if (!card.isLoaded || card.isSyncing) return;
         var maxP1 = Math.max(1, Math.min(30, Math.floor(card.totalTrimMinutes)));
-        if (card.customP1Val > maxP1) card.customP1Val = maxP1;
-        if (p1Spin && p1Spin.value !== Math.round(card.customP1Val)) p1Spin.value = Math.round(card.customP1Val);
-        card.syncSplitSettings();
+        if (card.customP1Val > maxP1) {
+            card.customP1Val = maxP1;
+            if (p1Spin && p1Spin.value !== Math.round(card.customP1Val)) {
+                p1Spin.value = Math.round(card.customP1Val);
+            }
+            card.syncSplitSettings();
+        }
     }
 
     // Tính toán số học chuẩn xác từng giây lẻ (Khắc phục BUG-03 & BUG-05)
