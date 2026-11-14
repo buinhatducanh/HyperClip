@@ -1,6 +1,5 @@
-.pragma library
 // src/ui/qml/ChannelDir.js
-// Thư viện Singleton chia sẻ danh mục Kênh YouTube (tra cứu Avatar, Màu sắc, ID, Name)
+// Thư viện chia sẻ danh mục Kênh YouTube (tra cứu Avatar, Màu sắc, ID, Name)
 
 var _cache = {};
 var _isLoaded = false;
