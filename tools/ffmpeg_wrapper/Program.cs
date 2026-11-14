@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
+using System.Collections.Generic;
 
 namespace FfmpegWrapper {
     class Program {
@@ -9,9 +10,11 @@ namespace FfmpegWrapper {
             try {
                 string dataDir = Environment.GetEnvironmentVariable("HYPERCLIP_DATA_DIR");
                 if (string.IsNullOrEmpty(dataDir)) {
-                    dataDir = @"D:\HyperClip\HyperClip-TestCustomer-20260616-224538\HyperClip-Data";
+                    dataDir = @"C:\Users\Administrator\Desktop\HyperClip\HyperClip-Data";
                 }
                 string logFile = Path.Combine(dataDir, @"logs\wrapper.log");
+                string dir = Path.GetDirectoryName(logFile);
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
                 File.AppendAllText(logFile, string.Format("[{0:yyyy-MM-dd HH:mm:ss}] [ffmpeg_wrapper] {1}\r\n", DateTime.Now, msg));
             } catch {}
         }
@@ -51,21 +54,21 @@ namespace FfmpegWrapper {
                 if (File.Exists(origFfmpeg)) realFfmpeg = origFfmpeg;
             }
 
-            // 1. Read settings to get part durations and quality
+            // 1. Read settings to get part durations, resolution, and background mode
             double trimLimit = 10.0;
             double p1 = 3.0;
-            double p2 = 3.5;
-            double p3 = 3.5;
             bool autoSplitEnabled = true;
             int p1Sec = 180;
             int p2Sec = 210;
             int p3Sec = 210;
-            string renderRes = "1080p";
+            string renderRes = "720p"; // Chuẩn TikTok/Shorts mặc định
+            string bgMode = "thumbnail"; // "thumbnail" (Quy tắc 1) hoặc "custom" (Quy tắc 2)
+            string customBgPath = null;
 
             try {
                 string dataDir = Environment.GetEnvironmentVariable("HYPERCLIP_DATA_DIR");
                 if (string.IsNullOrEmpty(dataDir)) {
-                    dataDir = @"D:\HyperClip\HyperClip-TestCustomer-20260616-224538\HyperClip-Data";
+                    dataDir = @"C:\Users\Administrator\Desktop\HyperClip\HyperClip-Data";
                 }
                 string setPath = Path.Combine(dataDir, @".hyperclip\settings.json");
                 if (File.Exists(setPath)) {
@@ -77,6 +80,17 @@ namespace FfmpegWrapper {
                     Match mRes = Regex.Match(json, @"""autoRenderResolution""\s*:\s*""([^""]+)""");
                     if (mRes.Success) {
                         renderRes = mRes.Groups[1].Value.ToLowerInvariant();
+                    }
+
+                    Match mBg = Regex.Match(json, @"""canvasBackgroundMode""\s*:\s*""([^""]+)""");
+                    if (mBg.Success) {
+                        bgMode = mBg.Groups[1].Value.ToLowerInvariant();
+                    }
+
+                    Match mBgPath = Regex.Match(json, @"""customBgPath""\s*:\s*""([^""]+)""");
+                    if (mBgPath.Success) {
+                        string customPath = mBgPath.Groups[1].Value.Replace("\\\\", "\\");
+                        if (File.Exists(customPath)) customBgPath = customPath;
                     }
 
                     Match mTrim = Regex.Match(json, @"""defaultTrimLimit""\s*:\s*([0-9\.]+)");
@@ -142,6 +156,14 @@ namespace FfmpegWrapper {
                 }
             } catch { }
 
+            if (customBgPath == null) {
+                if (File.Exists("bg.jpg")) customBgPath = Path.GetFullPath("bg.jpg");
+                else if (File.Exists("app\\bg.jpg")) customBgPath = Path.GetFullPath("app\\bg.jpg");
+                else if (File.Exists(Path.Combine(exeDir, @"..\..\..\bg.jpg"))) {
+                    customBgPath = Path.GetFullPath(Path.Combine(exeDir, @"..\..\..\bg.jpg"));
+                }
+            }
+
             // 2. Identify target part from arguments
             int partNum = 0;
             string inputPath = null;
@@ -162,12 +184,81 @@ namespace FfmpegWrapper {
                 outputPath = args[args.Length - 1];
             }
 
-            // CRITICAL: NEVER modify internal chunk renders, temp renders, or composite frames!
             string allArgs = string.Join(" ", args);
+            bool isCompositeBgGen = !string.IsNullOrEmpty(outputPath) && outputPath.Contains("_composite_bg") && (outputPath.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || outputPath.Contains(".tmp"));
             bool isChunk = allArgs.Contains("_chunk") || allArgs.Contains("_c0_") || allArgs.Contains("_c1_");
             bool isOutputTemp = !string.IsNullOrEmpty(outputPath) && (outputPath.Contains(@"\temp\") || outputPath.Contains("/temp/"));
             bool isOutputImage = !string.IsNullOrEmpty(outputPath) && (outputPath.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || outputPath.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || outputPath.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase));
-            bool isChunkOrTemp = isChunk || isOutputTemp || isOutputImage;
+            bool isChunkOrTemp = isChunk || (isOutputTemp && !isCompositeBgGen) || (isOutputImage && !isCompositeBgGen);
+
+            string[] modifiedArgs = (string[])args.Clone();
+
+            // ═══ CANVSA REVOLUTION: INTERCEPT COMPOSITE BACKGROUND GENERATION (2 QUY TẮC) ═══
+            // Quy tắc 1 (Mặc định): Tự động lấy thumbnail video phủ 100% canvas, sắc nét, có chỉnh màu tăng tương phản
+            // Quy tắc 2: Gắn ảnh nền tùy chỉnh riêng (customBgPath hoặc bg.jpg)
+            if (isCompositeBgGen) {
+                int cw = 720, ch = 1280, tw = 660, th = 350, tx = 30, ty = 30;
+                if (renderRes == "1080p") {
+                    cw = 1080; ch = 1920; tw = 990; th = 525; tx = 45; ty = 45;
+                } else if (renderRes == "360p") {
+                    cw = 360; ch = 640; tw = 330; th = 175; tx = 15; ty = 15;
+                }
+
+                bool useCustomBg = (bgMode == "custom" && !string.IsNullOrEmpty(customBgPath) && File.Exists(customBgPath));
+
+                // Nếu user chọn Quy tắc 2 (Gắn ảnh riêng) mà Tauri chưa chèn vào args, tự động chèn -i <customBgPath>
+                if (useCustomBg) {
+                    bool alreadyIn = false;
+                    for (int j = 0; j < modifiedArgs.Length; j++) {
+                        if (modifiedArgs[j] == "-i" && j + 1 < modifiedArgs.Length && 
+                            (modifiedArgs[j + 1].Equals(customBgPath, StringComparison.OrdinalIgnoreCase) || 
+                             modifiedArgs[j + 1].EndsWith(Path.GetFileName(customBgPath), StringComparison.OrdinalIgnoreCase))) {
+                            alreadyIn = true;
+                            break;
+                        }
+                    }
+                    if (!alreadyIn) {
+                        List<string> injList = new List<string>();
+                        bool added = false;
+                        for (int k = 0; k < modifiedArgs.Length; k++) {
+                            if (!added && modifiedArgs[k] == "-filter_complex") {
+                                injList.Add("-i");
+                                injList.Add(customBgPath);
+                                added = true;
+                            }
+                            injList.Add(modifiedArgs[k]);
+                        }
+                        if (!added) {
+                            injList.Insert(0, customBgPath);
+                            injList.Insert(0, "-i");
+                        }
+                        modifiedArgs = injList.ToArray();
+                    }
+                }
+
+                for (int i = 0; i < modifiedArgs.Length; i++) {
+                    if (modifiedArgs[i] == "-filter_complex" && i + 1 < modifiedArgs.Length) {
+                        string customFilter = "";
+                        if (useCustomBg) {
+                            // Quy tắc 2: Dùng ảnh nền tùy chỉnh [1:v]
+                            customFilter = string.Format("[1:v]scale={0}:{1}:force_original_aspect_ratio=increase,crop={0}:{1}:(ow-iw)/2:(oh-ih)/2[full_bg];" +
+                                                         "[0:v]scale={2}:{3}:force_original_aspect_ratio=increase,crop={2}:{3},drawbox=x=0:y=0:w={2}:h={3}:color=white@0.25:t=2[hd_box];" +
+                                                         "[full_bg][hd_box]overlay=x={4}:y={5},format=nv12[final]",
+                                                         cw, ch, tw, th, tx, ty);
+                        } else {
+                            // Quy tắc 1 (Mặc định chuẩn): Lấy ngay thumbnail video [0:v] làm ảnh nền full bleed thẩm mỹ cao
+                            customFilter = string.Format("[0:v]scale={0}:{1}:force_original_aspect_ratio=increase,crop={0}:{1}:(ow-iw)/2:(oh-ih)/2,eq=brightness=-0.1:saturation=1.1[full_bg];" +
+                                                         "[0:v]scale={2}:{3}:force_original_aspect_ratio=increase,crop={2}:{3},drawbox=x=0:y=0:w={2}:h={3}:color=white@0.3:t=2[hd_box];" +
+                                                         "[full_bg][hd_box]overlay=x={4}:y={5},format=nv12[final]",
+                                                         cw, ch, tw, th, tx, ty);
+                        }
+                        modifiedArgs[i + 1] = customFilter;
+                        Log(string.Format("Overriding _composite_bg with full-canvas layout ({0}x{1}) - {2}", 
+                            cw, ch, useCustomBg ? "Quy tắc 2: Ảnh tùy chỉnh (" + customBgPath + ")" : "Quy tắc 1: Thumbnail video mặc định"));
+                        break;
+                    }
+                }
+            }
 
             // Chunk Render Safeguard: Cap chunk duration if it exceeds actual input video duration
             if (isChunk && autoSplitEnabled && !string.IsNullOrEmpty(inputPath) && File.Exists(inputPath)) {
@@ -203,29 +294,28 @@ namespace FfmpegWrapper {
                             }
                         }
                         args = chunkArgs;
+                        modifiedArgs = (string[])args.Clone();
                     }
                 }
             }
 
             // Detect partNum only for final renders or trim operations
-            if (!isChunkOrTemp) {
+            if (!isChunkOrTemp && !isCompositeBgGen) {
                 string combined = (inputPath ?? "") + " " + (outputPath ?? "");
                 Match mPart = Regex.Match(combined, @"(?:[_-]part|PART\s*)(\d+)", RegexOptions.IgnoreCase);
                 if (mPart.Success) {
                     int.TryParse(mPart.Groups[1].Value, out partNum);
                 } else {
-                    // Try looking in allArgs (e.g. temp workspace background ws-...-part2_composite_bg.png)
                     mPart = Regex.Match(allArgs, @"(?:[_-]part|PART\s*)(\d+)", RegexOptions.IgnoreCase);
                     if (mPart.Success) {
                         int.TryParse(mPart.Groups[1].Value, out partNum);
                     } else if (autoSplitEnabled && outputPath != null && outputPath.EndsWith(".trim.tmp", StringComparison.OrdinalIgnoreCase)) {
-                        // Rust's maybe_trim_file trimming master video into Part 1 source
                         partNum = 1;
                     }
                 }
             }
 
-            // Read sidecar metadata if available for exact sync with downloader plan
+            // Read sidecar metadata if available
             try {
                 string[] checkPaths = new string[] { inputPath, outputPath };
                 foreach (string cp in checkPaths) {
@@ -257,15 +347,7 @@ namespace FfmpegWrapper {
                 }
             } catch {}
 
-            int durSec = 0;
-            if (partNum == 1) {
-                durSec = p1Sec;
-            } else if (partNum == 2) {
-                durSec = p2Sec;
-            } else if (partNum >= 3) {
-                durSec = p3Sec;
-            }
-
+            int durSec = (partNum == 1) ? p1Sec : ((partNum == 2) ? p2Sec : p3Sec);
             double actDur = 0;
             if (!string.IsNullOrEmpty(inputPath) && File.Exists(inputPath)) {
                 actDur = GetMediaDuration(inputPath, realFfmpeg);
@@ -273,21 +355,13 @@ namespace FfmpegWrapper {
 
             int targetT = durSec;
             if (partNum == 1) {
-                // Part 1: Tuân thủ tuyệt đối p1Sec (3 phút). Nếu video nguồn ngắn hơn thì lấy hết video nguồn.
                 targetT = (actDur > 0.5 && actDur < p1Sec) ? (int)Math.Floor(actDur) : p1Sec;
             } else if (partNum >= 2) {
-                // Part 2 & Part 3: Video nguồn là file slice đã chia đều. Lấy trọn vẹn 100% actDur của file slice!
-                if (actDur > 0.5) {
-                    targetT = (int)Math.Round(actDur);
-                } else {
-                    targetT = durSec;
-                }
+                targetT = (actDur > 0.5) ? (int)Math.Round(actDur) : durSec;
             }
 
-            // 3. Transform arguments if autoSplitEnabled and valid partNum
-            string[] modifiedArgs = (string[])args.Clone();
-
-            if (!isChunkOrTemp && autoSplitEnabled && partNum > 0 && targetT > 0) {
+            // ═══ 3. TRANSFORM ARGUMENTS FOR RENDER & TRIM ═══
+            if (!isChunkOrTemp && !isCompositeBgGen) {
                 bool isTrim = false;
                 bool isRender = false;
 
@@ -296,8 +370,7 @@ namespace FfmpegWrapper {
                     if (modifiedArgs[i] == "-c" && i + 1 < modifiedArgs.Length && modifiedArgs[i + 1] == "copy") isTrim = true;
                 }
 
-                if (isTrim) {
-                    // Type A: maybe_trim_file call (-y -i ... -t 60 -c copy ...)
+                if (isTrim && autoSplitEnabled && partNum > 0 && targetT > 0) {
                     for (int i = 0; i < modifiedArgs.Length; i++) {
                         if (modifiedArgs[i] == "-t" && i + 1 < modifiedArgs.Length) {
                             Log(string.Format("Adjusting maybe_trim_file for Part {0}: -t {1} -> -t {2}", partNum, modifiedArgs[i + 1], targetT));
@@ -306,31 +379,41 @@ namespace FfmpegWrapper {
                         }
                     }
                 } else if (isRender) {
-                    // Type B: Full render call (with -filter_complex and -t)
+                    // Áp dụng bố cục chuẩn đã thống nhất:
+                    // Video chiều cao tăng gấp rưỡi (1.5x), giữ chiều ngang, dời lên chạm sát thumbnail ở trên!
+                    int vw = 720, vh = 608, vy = 380;
+                    if (renderRes == "1080p") {
+                        vw = 1080; vh = 912; vy = 570;
+                    } else if (renderRes == "360p") {
+                        vw = 360; vh = 304; vy = 190;
+                    }
+
                     for (int i = 0; i < modifiedArgs.Length; i++) {
                         if (modifiedArgs[i] == "-filter_complex" && i + 1 < modifiedArgs.Length) {
                             string fc = modifiedArgs[i + 1];
-                            string newFc = Regex.Replace(fc, @"trim=(?:start=[0-9\.]+:)?duration=([0-9\.]+)", "trim=start=0:duration=" + targetT);
-                            newFc = Regex.Replace(newFc, @"atrim=(?:start=[0-9\.]+:)?duration=([0-9\.]+)", "atrim=start=0:duration=" + targetT);
-                            // Ensure 1080p resolution if user configured 1080p
-                            if (renderRes == "1080p" && newFc.Contains("scale=720:720")) {
-                                newFc = newFc.Replace("scale=720:720", "scale=1080:1080");
-                                Log("Upgrading render resolution to 1080p (scale=1080:1080)");
-                            } else if (renderRes == "720p" && newFc.Contains("scale=1080:1080")) {
-                                newFc = newFc.Replace("scale=1080:1080", "scale=720:720");
-                                Log("Setting render resolution to 720p (scale=720:720)");
+                            string newFc = fc;
+
+                            if (autoSplitEnabled && partNum > 0 && targetT > 0) {
+                                newFc = Regex.Replace(newFc, @"trim=(?:start=[0-9\.]+:)?duration=([0-9\.]+)", "trim=start=0:duration=" + targetT);
+                                newFc = Regex.Replace(newFc, @"atrim=(?:start=[0-9\.]+:)?duration=([0-9\.]+)", "atrim=start=0:duration=" + targetT);
                             }
+
+                            // 1. Cập nhật scale video: Giữ chiều ngang, chiều cao tăng gấp rưỡi
+                            newFc = Regex.Replace(newFc, @"scale=\d+:\d+", string.Format("scale={0}:{1}", vw, vh));
+
+                            // 2. Cập nhật vị trí overlay: Dời lên chạm sát đáy thumbnail
+                            newFc = Regex.Replace(newFc, @"(overlay(?:_cuda)?=x=0:y=)\d+", string.Format("${{1}}{0}", vy));
+
                             if (newFc != fc) {
-                                Log(string.Format("Adjusting filter_complex for Part {0}: duration -> {1}", partNum, targetT));
+                                Log(string.Format("Adjusting filter_complex: scale={0}:{1}, y={2}, targetT={3}", vw, vh, vy, targetT));
                                 modifiedArgs[i + 1] = newFc;
                             }
-                        } else if (modifiedArgs[i] == "-t" && i + 1 < modifiedArgs.Length) {
+                        } else if (modifiedArgs[i] == "-t" && i + 1 < modifiedArgs.Length && autoSplitEnabled && partNum > 0 && targetT > 0) {
                             Log(string.Format("Adjusting render -t for Part {0}: {1} -> {2}.00", partNum, modifiedArgs[i + 1], targetT));
                             modifiedArgs[i + 1] = targetT.ToString() + ".00";
                         }
                     }
 
-                    // Tối ưu hóa bitrate theo chuẩn AdsPow cho 720p render siêu tốc
                     if (renderRes == "720p") {
                         for (int m = 0; m < modifiedArgs.Length; m++) {
                             if (modifiedArgs[m] == "-maxrate" && m + 1 < modifiedArgs.Length) {
@@ -344,8 +427,7 @@ namespace FfmpegWrapper {
                 }
             }
 
-            // 3b. Chuẩn tối ưu hóa bitrate & codec siêu tốc nhánh AdsPow (Commit 06ccf8b & 70e1244):
-            // Nén gọn video 3-5 phút xuống ~10-12MB để TikTok upload & transcode trong 2.5s
+            // Bitrate & codec chuẩn AdsPow
             for (int m = 0; m < modifiedArgs.Length; m++) {
                 if (modifiedArgs[m] == "-b:a" && m + 1 < modifiedArgs.Length) {
                     modifiedArgs[m + 1] = "48k";

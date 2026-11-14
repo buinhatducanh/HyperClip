@@ -397,11 +397,8 @@ Rectangle {
         ignoreUnknownSignals: true
 
         function onWorkspace_deleted(wsId) { root.handleWorkspaceDeleted(wsId); }
-        function onWorkspaceDeleted(wsId) { root.handleWorkspaceDeleted(wsId); }
         function onWorkspace_updated(params) { root.handleWorkspaceUpdated(params); }
-        function onWorkspaceUpdated(params) { root.handleWorkspaceUpdated(params); }
         function onNew_video_detected(params) { root.handleNewVideoDetected(params); }
-        function onNewVideoDetected(params) { root.handleNewVideoDetected(params); }
     }
 
     function refreshList() {
@@ -2891,7 +2888,8 @@ Rectangle {
                             splitParts: root.getSplitPartsFor(root.currentVideoId)
                             onRetryTikTok: function(vid) {
                                 tiktokModel.retry_upload(vid)
-                                toastService.show("TikTok", "Đang kill Chrome + mở fresh để đăng lại...", "info")
+                                var ts = (typeof toastService !== "undefined" && toastService) ? toastService : (typeof toastManager !== "undefined" ? toastManager : null);
+                                if (ts) ts.show("TikTok", "Đang kill Chrome + mở fresh để đăng lại...", "info");
                             }
                             onOpenFolder: function(path) {
                                 backend.send_command_async("system:openFolder", {"path": path})

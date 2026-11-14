@@ -2,6 +2,7 @@
 // Avatar kênh tra theo KHOÁ — dùng ở mọi trang trong app (TikTok, Quản lí, Vận hành, Dashboard, Hàng đợi).
 // Hỗ trợ tra theo: id store (`ch-…`), UC id (`UC…`), `@handle`, hoặc TÊN kênh.
 import QtQuick
+import "ChannelDir.js" as ChannelDirLib
 
 ChannelAvatar {
     id: root
@@ -22,7 +23,7 @@ ChannelAvatar {
             return
         }
 
-        // 1. Dùng channelDir native context property (nhanh, an toàn, không gọi RPC đồng bộ)
+        // 1. Dùng channelDir native context property nếu có
         if (typeof channelDir !== "undefined" && channelDir && typeof channelDir.lookup === "function") {
             var e = root.channelKey ? channelDir.lookup(root.channelKey) : null
             if ((!e || !e.name) && root.fallbackName) {
@@ -34,21 +35,17 @@ ChannelAvatar {
             }
         }
 
-        // 2. Fallback tra từ tiktokModel.channels nếu có
+        // 2. Tra qua ChannelDirLib (O(1) cached lookup)
         try {
-            if (typeof tiktokModel !== "undefined" && tiktokModel && tiktokModel.channels) {
-                var chs = tiktokModel.channels
-                for (var i = 0; i < chs.length; i++) {
-                    var c = chs[i]
-                    if (!c) continue
-                    if ((root.channelKey && (c.channelId === root.channelKey || c.id === root.channelKey)) ||
-                        (root.fallbackName && c.name === root.fallbackName)) {
-                        entry = c
-                        return
-                    }
-                }
+            var cached = ChannelDirLib.lookup(root.channelKey, (typeof channelListModel !== "undefined" ? channelListModel : null), (typeof tiktokModel !== "undefined" ? tiktokModel : null));
+            if ((!cached || !cached.name) && root.fallbackName) {
+                cached = ChannelDirLib.lookup(root.fallbackName, (typeof channelListModel !== "undefined" ? channelListModel : null), (typeof tiktokModel !== "undefined" ? tiktokModel : null));
             }
-        } catch (err) {}
+            if (cached && (cached.avatarUrl || cached.name)) {
+                entry = cached;
+                return;
+            }
+        } catch (eCache) {}
 
         entry = ({})
     }

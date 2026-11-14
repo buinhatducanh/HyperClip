@@ -6,6 +6,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import QtQuick.Dialogs
 
 SettingsCard {
     id: card
@@ -45,11 +46,11 @@ SettingsCard {
         if (!card.isLoaded || card.isSyncing) return;
         var maxP1 = Math.max(1, Math.min(30, Math.floor(card.totalTrimMinutes)));
         if (card.customP1Val > maxP1) {
-            card.customP1Val = maxP1;
-            if (p1Spin && p1Spin.value !== Math.round(card.customP1Val)) {
-                p1Spin.value = Math.round(card.customP1Val);
+            if (p1Spin) {
+                p1Spin.value = maxP1;
+            } else {
+                card.customP1Val = maxP1;
             }
-            card.syncSplitSettings();
         }
     }
 
@@ -164,6 +165,9 @@ SettingsCard {
                     "autoSplitRemainMinutes": (isSplit && card.splitMode === "custom_p1" ? card.p2Duration : 0),
                     "autoRenderTitleTemplate": settings.autoRenderTitleTemplate,
                     "autoRenderResolution": settings.autoRenderResolution,
+                    "canvasBackgroundMode": (settings && settings.canvasBackgroundMode) ? settings.canvasBackgroundMode : "thumbnail",
+                    "customBgPath": (settings && settings.customBgPath) ? settings.customBgPath : "",
+                    "renderTitleOverlay": false,
                     "autoDownloadQuality": targetDlQuality,
                     "defaultQuality": (targetRes === "1080p" ? 1080 : 360),
                     "tiktokUploadEnabled": settings.tiktokUploadEnabled,
@@ -796,11 +800,11 @@ SettingsCard {
                     Label { anchors.centerIn: parent; text: "3"; color: "#000"; font.pixelSize: 11; font.bold: true }
                 }
                 Label {
-                    text: "Mẫu render AdsPow"
+                    text: "Mẫu Render & Ảnh nền Canvas (2 Quy Tắc)"
                     color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true
                 }
                 HelpTip {
-                    text: "Khung dọc 9:16 chuẩn AdsPow: Video vuông 1:1 ở giữa, chân trang nền xanh cyan #00B4FF phẳng. Tiêu đề nướng tự động theo tên video gốc."
+                    text: "Bố cục Shorts 9:16 mới:\n- Video cao 1.5x (608px) chạm sát đáy thumbnail trên (y=380).\n- Ảnh nền bao trùm 100% Canvas theo 2 quy tắc:\n  + Quy tắc 1 (Mặc định): Tự động lấy Thumbnail video phủ kín Canvas.\n  + Quy tắc 2: Gắn ảnh riêng tùy chỉnh (.jpg/.png) từ máy tính."
                 }
             }
             ColumnLayout {
@@ -857,7 +861,7 @@ SettingsCard {
                         model: [
                             { label: "Chuẩn ({title})", val: "{title}", overlay: true },
                             { label: "PART {part}", val: "PART {part} - {title}", overlay: true },
-                            { label: "Nền trơn", val: "", overlay: false }
+                            { label: "Bỏ chữ (Không Title)", val: "", overlay: false }
                         ]
                         delegate: Rectangle {
                             id: tplBtn
@@ -889,6 +893,99 @@ SettingsCard {
                                         card.syncSplitSettings();
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // ── THIẾT LẬP ẢNH NỀN CANVAS (2 QUY TẮC ĐÃ THỐNG NHẤT) ──
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 4
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        Label {
+                            text: "Ảnh nền Canvas (Full 100%):"
+                            font.pixelSize: 11
+                            font.bold: true
+                            color: Theme.text
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+
+                        // Nút Quy Tắc 1: Thumbnail Video (Mặc định)
+                        Rectangle {
+                            id: btnBgThumb
+                            width: lblBgThumb.implicitWidth + 14
+                            height: 24
+                            radius: 3
+                            readonly property bool isSel: !settings || !settings.canvasBackgroundMode || settings.canvasBackgroundMode === "thumbnail"
+                            color: isSel ? Theme.accent : Theme.surface
+                            border.color: isSel ? Theme.accent : Theme.border
+                            border.width: 1
+                            Label {
+                                id: lblBgThumb
+                                anchors.centerIn: parent
+                                text: "🖼️ 1. Thumbnail (Mặc định)"
+                                font.pixelSize: 10
+                                color: btnBgThumb.isSel ? "#000" : Theme.text
+                                font.bold: btnBgThumb.isSel
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (settings) {
+                                        settings.canvasBackgroundMode = "thumbnail";
+                                        card.syncSplitSettings();
+                                    }
+                                }
+                            }
+                        }
+
+                        // Nút Quy Tắc 2: Gắn Ảnh Tùy Chỉnh
+                        Rectangle {
+                            id: btnBgCustom
+                            width: lblBgCustom.implicitWidth + 14
+                            height: 24
+                            radius: 3
+                            readonly property bool isSel: settings && settings.canvasBackgroundMode === "custom"
+                            color: isSel ? Theme.accent : Theme.surface
+                            border.color: isSel ? Theme.accent : Theme.border
+                            border.width: 1
+                            Label {
+                                id: lblBgCustom
+                                anchors.centerIn: parent
+                                text: "📁 2. Gắn Ảnh Tùy Chỉnh"
+                                font.pixelSize: 10
+                                color: btnBgCustom.isSel ? "#000" : Theme.text
+                                font.bold: btnBgCustom.isSel
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: bgCustomFileDialog.open()
+                            }
+                        }
+                    }
+
+                    // Dòng trạng thái trực quan
+                    Label {
+                        Layout.fillWidth: true
+                        font.pixelSize: 9
+                        color: Theme.textMuted
+                        elide: Text.ElideMiddle
+                        text: {
+                            if (!settings || !settings.canvasBackgroundMode || settings.canvasBackgroundMode === "thumbnail") {
+                                return "✓ Đang áp dụng Quy tắc 1: Tự động lấy Thumbnail từng video phủ kín 100% Canvas.";
+                            } else {
+                                var p = settings.customBgPath || "bg.jpg";
+                                return "✓ Đang áp dụng Quy tắc 2: Dùng ảnh riêng: " + p;
                             }
                         }
                     }
@@ -973,6 +1070,23 @@ SettingsCard {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    FileDialog {
+        id: bgCustomFileDialog
+        title: "Chọn ảnh nền Canvas (Background)"
+        nameFilters: ["Ảnh (*.jpg *.png *.jpeg)"]
+        onAccepted: {
+            var rawPath = selectedFile.toString().replace("file:///", "");
+            if (rawPath.indexOf(":") === -1 && rawPath.charAt(0) === "/") {
+                rawPath = rawPath.substring(1);
+            }
+            if (settings) {
+                settings.canvasBackgroundMode = "custom";
+                settings.customBgPath = rawPath;
+                card.syncSplitSettings();
             }
         }
     }

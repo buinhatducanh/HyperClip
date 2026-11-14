@@ -1,9 +1,10 @@
-﻿// src/ui/qml/AutoRenderCard.qml
+// src/ui/qml/AutoRenderCard.qml
 // Card tùy chọn render nâng cao (FPS, Speed, Bitrate, Render song song)
 // Các mục trùng (Độ phân giải, Chia Part, Mẫu tiêu đề, TikTok FastDone) đã gom vào QuickPipelineCard
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import QtQuick.Dialogs
 
 SettingsCard {
     title: "TÙY CHỌN RENDER NÂNG CAO"
@@ -148,6 +149,107 @@ SettingsCard {
                     value = v
                     if (settings) settings.renderMaxrateMbps = v
                 }
+            }
+        }
+
+        // ─── ẢNH NỀN CANVAS (2 QUY TẮC) ─────────────────────────────
+        RowLayout {
+            spacing: 6
+            Layout.fillWidth: true
+            Label {
+                text: "Ảnh nền Canvas (100%)"
+                color: Theme.text
+                font.pixelSize: Theme.textMd
+                font.bold: true
+            }
+            HelpTip {
+                text: "2 Quy tắc nền Canvas:\n1. Mặc định: Tự động lấy Thumbnail của chính video đó phủ kín 100% canvas.\n2. Tùy chọn: Chọn file ảnh riêng (.jpg/.png) từ máy tính."
+            }
+        }
+        RowLayout {
+            Layout.preferredWidth: 260
+            Layout.alignment: Qt.AlignRight
+            spacing: 6
+
+            Rectangle {
+                id: autoBgThumbBtn
+                width: autoBgThumbLbl.implicitWidth + 12
+                height: 24
+                radius: 3
+                readonly property bool isSel: !settings || !settings.canvasBackgroundMode || settings.canvasBackgroundMode === "thumbnail"
+                color: isSel ? Theme.accent : Theme.surface
+                border.color: isSel ? Theme.accent : Theme.border
+                border.width: 1
+                Label {
+                    id: autoBgThumbLbl
+                    anchors.centerIn: parent
+                    text: "🖼️ 1. Thumbnail"
+                    font.pixelSize: 10
+                    font.bold: autoBgThumbBtn.isSel
+                    color: autoBgThumbBtn.isSel ? "#000" : Theme.text
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        if (settings) settings.canvasBackgroundMode = "thumbnail"
+                        if (typeof backend !== "undefined" && backend) {
+                            try {
+                                backend.send_command_async("settings:update", {
+                                    "canvasBackgroundMode": "thumbnail"
+                                });
+                            } catch(e) {}
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                id: autoBgCustomBtn
+                width: autoBgCustomLbl.implicitWidth + 12
+                height: 24
+                radius: 3
+                readonly property bool isSel: settings && settings.canvasBackgroundMode === "custom"
+                color: isSel ? Theme.accent : Theme.surface
+                border.color: isSel ? Theme.accent : Theme.border
+                border.width: 1
+                Label {
+                    id: autoBgCustomLbl
+                    anchors.centerIn: parent
+                    text: "📁 2. Ảnh riêng"
+                    font.pixelSize: 10
+                    font.bold: autoBgCustomBtn.isSel
+                    color: autoBgCustomBtn.isSel ? "#000" : Theme.text
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: autoBgFileDialog.open()
+                }
+            }
+        }
+    }
+
+    FileDialog {
+        id: autoBgFileDialog
+        title: "Chọn ảnh nền Canvas (Background)"
+        nameFilters: ["Ảnh (*.jpg *.png *.jpeg)"]
+        onAccepted: {
+            var rawPath = selectedFile.toString().replace("file:///", "");
+            if (rawPath.indexOf(":") === -1 && rawPath.charAt(0) === "/") {
+                rawPath = rawPath.substring(1);
+            }
+            if (settings) {
+                settings.canvasBackgroundMode = "custom";
+                settings.customBgPath = rawPath;
+            }
+            if (typeof backend !== "undefined" && backend) {
+                try {
+                    backend.send_command_async("settings:update", {
+                        "canvasBackgroundMode": "custom",
+                        "customBgPath": rawPath
+                    });
+                } catch(e) {}
             }
         }
     }
