@@ -34,6 +34,45 @@ SettingsCard {
         rowSpacing: Theme.spacingMd
         Layout.fillWidth: true
 
+        // ─── ĐỘ PHÂN GIẢI RENDER ──────────────────────────────────────
+        RowLayout {
+            spacing: 6
+            Layout.fillWidth: true
+            Label {
+                text: "Độ phân giải render"
+                color: Theme.text
+                font.pixelSize: Theme.textMd
+                font.bold: true
+            }
+            HelpTip {
+                text: "Độ phân giải video Shorts thành phẩm:\n- 360p (360x640): Siêu nhẹ, tải & render chỉ mất 1-2 giây.\n- 720p (720x1280): Chuẩn tối ưu hóa cho AdsPower & TikTok.\n- 1080p (1080x1920): Full HD sắc nét cao."
+            }
+        }
+        ComboBox {
+            Layout.preferredWidth: 180
+            Layout.alignment: Qt.AlignRight
+            font.pixelSize: Theme.textMd
+            model: ["360p", "720p", "1080p"]
+            currentIndex: settings ? Math.max(0, ["360p", "720p", "1080p"].indexOf(settings.autoRenderResolution)) : 1
+            onActivated: {
+                if (settings) {
+                    var r = model[currentIndex];
+                    settings.autoRenderResolution = r;
+                    settings.autoDownloadQuality = (r === "1080p") ? "1080" : "360";
+                    settings.defaultQuality = (r === "1080p") ? 1080 : 360;
+                    if (typeof backend !== "undefined" && backend) {
+                        try {
+                            backend.send_command_async("settings:update", {
+                                "autoRenderResolution": r,
+                                "autoDownloadQuality": (r === "1080p") ? "1080" : "360",
+                                "defaultQuality": (r === "1080p") ? 1080 : 360
+                            });
+                        } catch(e) {}
+                    }
+                }
+            }
+        }
+
         // ─── KHUNG HÌNH (FPS) ─────────────────────────────────────────
         RowLayout {
             spacing: 6

@@ -18,14 +18,24 @@ SettingsCard {
             try { settings.trimRotateEnabled = card.trimRotateActive } catch(e) {}
             try { settings.trimRotateMin = card.trimRotateMinVal } catch(e) {}
             try { settings.trimRotateMax = card.trimRotateMaxVal } catch(e) {}
+            try {
+                if (typeof settings.save_to_backend === "function") {
+                    settings.save_to_backend(backend);
+                }
+            } catch(e) {}
         }
         if (typeof backend !== "undefined" && backend) {
             try {
-                backend.send_command_async("settings:update", {
+                var payload = {
                     "trimRotateEnabled": card.trimRotateActive,
                     "trimRotateMin": card.trimRotateMinVal,
                     "trimRotateMax": card.trimRotateMaxVal
-                });
+                };
+                if (typeof backend.send_command_async === "function") {
+                    backend.send_command_async("settings:update", payload);
+                } else if (typeof backend.send_command === "function") {
+                    backend.send_command("settings:update", payload);
+                }
             } catch(e) {}
         }
     }
@@ -207,6 +217,16 @@ SettingsCard {
                             if (card.trimRotateMaxVal < value) card.trimRotateMaxVal = value
                             card.syncTrimRotate()
                         }
+                        onActiveFocusChanged: {
+                            if (!activeFocus) {
+                                var val = valueFromText(contentItem.text, locale);
+                                val = Math.max(from, Math.min(to, val));
+                                value = val;
+                                card.trimRotateMinVal = val;
+                                if (card.trimRotateMaxVal < val) card.trimRotateMaxVal = val;
+                                card.syncTrimRotate();
+                            }
+                        }
                     }
                     Label { text: "Max:"; color: Theme.textMuted; font.pixelSize: Theme.textSm }
                     SpinBox {
@@ -217,6 +237,16 @@ SettingsCard {
                             card.trimRotateMaxVal = value
                             if (card.trimRotateMinVal > value) card.trimRotateMinVal = value
                             card.syncTrimRotate()
+                        }
+                        onActiveFocusChanged: {
+                            if (!activeFocus) {
+                                var val = valueFromText(contentItem.text, locale);
+                                val = Math.max(from, Math.min(to, val));
+                                value = val;
+                                card.trimRotateMaxVal = val;
+                                if (card.trimRotateMinVal > val) card.trimRotateMinVal = val;
+                                card.syncTrimRotate();
+                            }
                         }
                     }
                 }

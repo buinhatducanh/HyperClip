@@ -423,6 +423,15 @@ namespace FfmpegWrapper {
                                 modifiedArgs[m + 1] = "1200k";
                             }
                         }
+                    } else if (renderRes == "360p") {
+                        for (int m = 0; m < modifiedArgs.Length; m++) {
+                            if (modifiedArgs[m] == "-maxrate" && m + 1 < modifiedArgs.Length) {
+                                modifiedArgs[m + 1] = "350k";
+                            }
+                            if (modifiedArgs[m] == "-bufsize" && m + 1 < modifiedArgs.Length) {
+                                modifiedArgs[m + 1] = "700k";
+                            }
+                        }
                     }
                 }
             }
@@ -433,13 +442,13 @@ namespace FfmpegWrapper {
                     modifiedArgs[m + 1] = "48k";
                 }
                 if (modifiedArgs[m] == "-maxrate" && m + 1 < modifiedArgs.Length) {
-                    modifiedArgs[m + 1] = (renderRes == "1080p") ? "1.5M" : "600k";
+                    modifiedArgs[m + 1] = (renderRes == "1080p") ? "1.5M" : ((renderRes == "360p") ? "350k" : "600k");
                 }
                 if (modifiedArgs[m] == "-bufsize" && m + 1 < modifiedArgs.Length) {
-                    modifiedArgs[m + 1] = (renderRes == "1080p") ? "3M" : "1200k";
+                    modifiedArgs[m + 1] = (renderRes == "1080p") ? "3M" : ((renderRes == "360p") ? "700k" : "1200k");
                 }
                 if (modifiedArgs[m] == "-cq" && m + 1 < modifiedArgs.Length) {
-                    modifiedArgs[m + 1] = (renderRes == "1080p") ? "23" : "25";
+                    modifiedArgs[m + 1] = (renderRes == "1080p") ? "23" : ((renderRes == "360p") ? "27" : "25");
                 }
                 if (modifiedArgs[m] == "-c:v" && m + 1 < modifiedArgs.Length && modifiedArgs[m + 1] == "hevc_nvenc") {
                     modifiedArgs[m + 1] = "h264_nvenc";
