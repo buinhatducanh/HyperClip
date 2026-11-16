@@ -17,6 +17,11 @@ SettingsCard {
     property bool isLoaded: false
     property bool isSyncing: false
 
+    // Chế độ xoay vòng Min-Max (Trim Rotate)
+    property bool rotateModeActive: settings && typeof settings.trimRotateEnabled === "boolean" ? settings.trimRotateEnabled : false
+    property int rotateMinVal: settings && typeof settings.trimRotateMin === "number" ? Math.round(settings.trimRotateMin) : 8
+    property int rotateMaxVal: settings && typeof settings.trimRotateMax === "number" ? Math.round(settings.trimRotateMax) : 10
+
     // Chế độ chia part: "custom_p1" | "parts_2" | "parts_3"
     property string splitMode: {
         if (!settings || !settings.autoSplitEnabled || settings.autoSplitMode === "none") return "custom_p1";
@@ -37,8 +42,8 @@ SettingsCard {
         return 3.0;
     }
 
-    // Tổng thời lượng video cắt tải về (mặc định 10 phút)
-    readonly property real totalTrimMinutes: (settings && typeof settings.defaultTrimLimit === "number") ? settings.defaultTrimLimit : 10
+    // Tổng thời lượng video cắt tải về (mặc định 10 phút, nếu bật xoay vòng thì lấy rotateMaxVal)
+    readonly property real totalTrimMinutes: card.rotateModeActive ? card.rotateMaxVal : ((settings && typeof settings.defaultTrimLimit === "number") ? settings.defaultTrimLimit : 10)
     readonly property int totalTrimSec: Math.max(60, Math.round(card.totalTrimMinutes * 60))
 
     // Khi người dùng đổi tổng thời gian tải, tự động điều chỉnh Part 1 nếu bị vượt ngưỡng
@@ -102,7 +107,12 @@ SettingsCard {
         card.isSyncing = true;
         try {
 
-        settings.trimRotateEnabled = false;
+        settings.trimRotateEnabled = card.rotateModeActive;
+        settings.trimRotateMin = card.rotateMinVal;
+        settings.trimRotateMax = card.rotateMaxVal;
+        if (card.rotateModeActive && card.rotateMaxVal > 0) {
+            settings.defaultTrimLimit = card.rotateMaxVal;
+        }
         var isSplit = splitSwitch ? splitSwitch.checked : (settings ? settings.autoSplitEnabled : true);
         settings.autoSplitEnabled = isSplit;
 
@@ -154,7 +164,7 @@ SettingsCard {
         if (typeof backend !== "undefined" && backend) {
             try {
                 var payload = {
-                    "defaultTrimLimit": settings.defaultTrimLimit,
+                    "defaultTrimLimit": card.rotateModeActive ? card.rotateMaxVal : settings.defaultTrimLimit,
                     "autoSplitEnabled": settings.autoSplitEnabled,
                     "autoSplitMode": settings.autoSplitMode,
                     "autoSplitMinutes": settings.autoSplitMinutes,
@@ -172,7 +182,9 @@ SettingsCard {
                     "defaultQuality": (targetRes === "1080p" ? 1080 : 360),
                     "tiktokUploadEnabled": settings.tiktokUploadEnabled,
                     "tiktokFastDone": settings.tiktokFastDone,
-                    "trimRotateEnabled": false,
+                    "trimRotateEnabled": card.rotateModeActive,
+                    "trimRotateMin": card.rotateMinVal,
+                    "trimRotateMax": card.rotateMaxVal,
                     "splitChainDelaySec": 0
                 };
                 if (typeof backend.send_command_async === "function") {
@@ -243,8 +255,11 @@ SettingsCard {
             if (trimSpin && typeof settings.defaultTrimLimit === "number") trimSpin.value = settings.defaultTrimLimit;
             if (splitSwitch && typeof settings.autoSplitEnabled === "boolean") splitSwitch.checked = settings.autoSplitEnabled;
             if (ttSwitch && typeof settings.tiktokUploadEnabled === "boolean") ttSwitch.checked = settings.tiktokUploadEnabled;
+            if (typeof settings.trimRotateEnabled === "boolean") card.rotateModeActive = settings.trimRotateEnabled;
+            if (typeof settings.trimRotateMin === "number" && settings.trimRotateMin > 0) card.rotateMinVal = Math.round(settings.trimRotateMin);
+            if (typeof settings.trimRotateMax === "number" && settings.trimRotateMax > 0) card.rotateMaxVal = Math.round(settings.trimRotateMax);
             if (resCombo && settings.autoRenderResolution) {
-                var resIdx = ["720p", "1080p"].indexOf(settings.autoRenderResolution);
+                var resIdx = ["360p", "720p", "1080p"].indexOf(settings.autoRenderResolution);
                 if (resIdx >= 0) resCombo.currentIndex = resIdx;
             }
             if (tplQuickInput && settings.autoRenderTitleTemplate) {
@@ -299,7 +314,9 @@ SettingsCard {
                 }
                 Label {
                     text: {
-                        var trimStr = (settings && settings.defaultTrimLimit < 900) ? ("Tải " + settings.defaultTrimLimit + " phút đầu") : "Tải trọn vẹn video";
+                        var trimStr = card.rotateModeActive
+                            ? ("Tải xoay vòng " + card.rotateMinVal + "p - " + card.rotateMaxVal + "p")
+                            : ((settings && settings.defaultTrimLimit < 900) ? ("Tải " + settings.defaultTrimLimit + " phút đầu") : "Tải trọn vẹn video");
                         var partStr = "";
                         if (!splitSwitch || !splitSwitch.checked) {
                             partStr = "1 Video đơn";
@@ -320,9 +337,11 @@ SettingsCard {
                                 partStr = "Chia " + (settings ? settings.autoSplitParts : 3) + " Part đều";
                             }
                         }
-                        var renStr = (settings && settings.autoRenderResolution === "720p")
-                            ? "Tải 360p ➔ Render 720p AdsPow (Siêu tốc)"
-                            : "Tải 1080p ➔ Render 1080p AdsPow (Full HD)";
+                        var renStr = (settings && settings.autoRenderResolution === "360p")
+                            ? "Tải 360p ➔ Render 360p (Siêu nhẹ E2E < 8s)"
+                            : ((settings && settings.autoRenderResolution === "1080p")
+                                ? "Tải 1080p ➔ Render 1080p AdsPow (Full HD)"
+                                : "Tải 360p ➔ Render 720p AdsPow (Siêu tốc)");
                         var ttStr = (settings && settings.tiktokUploadEnabled) ? "Đăng TikTok từng Part qua AdsPower" : "Lưu máy";
                         return trimStr + "  ➔  " + partStr + "  ➔  " + renStr + "  ➔  " + ttStr;
                     }
@@ -351,83 +370,251 @@ SettingsCard {
                     Label { anchors.centerIn: parent; text: "1"; color: "#000"; font.pixelSize: 11; font.bold: true }
                 }
                 Label {
-                    text: "Chỉ tải số phút cần tải"
+                    text: "Giới hạn thời lượng tải"
                     color: Theme.text; font.pixelSize: Theme.textMd; font.bold: true
                 }
                 HelpTip {
-                    text: "Tải một lần trọn vẹn N phút đầu của video gốc (ví dụ video 20-60 phút chỉ tải 10 phút đầu) về máy để làm nguồn trích xuất các Part. Tiết kiệm hơn 60% thời gian tải và chống nghẽn mạng."
+                    text: "Cắt lấy N phút đầu của video gốc để chia Part & render. Hỗ trợ chế độ Cố định hoặc Xoay vòng ngẫu nhiên (Min - Max) giúp video đa dạng thời lượng chống trùng lặp thuật toán."
                 }
             }
             ColumnLayout {
                 Layout.preferredWidth: 320
                 Layout.alignment: Qt.AlignRight
-                spacing: 4
+                spacing: 6
 
+                // Chuyển đổi chế độ: Cố định vs Xoay vòng (Min-Max)
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 8
-                    SpinBox {
-                        id: trimSpin
+                    spacing: 4
+
+                    Rectangle {
+                        id: modeFixedBtn
                         Layout.fillWidth: true
-                        font.pixelSize: Theme.textMd
-                        from: 2; to: 999
-                        value: settings ? settings.defaultTrimLimit : 10
-                        editable: true
-                        onValueModified: {
-                            if (settings) {
-                                settings.defaultTrimLimit = value;
+                        height: 26
+                        radius: 4
+                        readonly property bool isSel: !card.rotateModeActive
+                        color: isSel ? Theme.accent : Theme.surface
+                        border.color: isSel ? Theme.accent : Theme.border
+                        border.width: 1
+                        Label {
+                            anchors.centerIn: parent
+                            text: "⏱️ Cố định"
+                            font.pixelSize: 11
+                            font.bold: modeFixedBtn.isSel
+                            color: modeFixedBtn.isSel ? "#000" : Theme.text
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                card.rotateModeActive = false;
+                                if (settings) settings.trimRotateEnabled = false;
                                 card.syncSplitSettings();
                             }
                         }
-                        onActiveFocusChanged: {
-                            if (!activeFocus) {
-                                var v = Math.max(from, Math.min(to, valueFromText(contentItem.text, locale)));
-                                value = v;
+                    }
+
+                    Rectangle {
+                        id: modeRotateBtn
+                        Layout.fillWidth: true
+                        height: 26
+                        radius: 4
+                        readonly property bool isSel: card.rotateModeActive
+                        color: isSel ? Theme.accent : Theme.surface
+                        border.color: isSel ? Theme.accent : Theme.border
+                        border.width: 1
+                        Label {
+                            anchors.centerIn: parent
+                            text: "🔄 Xoay vòng (Min-Max)"
+                            font.pixelSize: 11
+                            font.bold: modeRotateBtn.isSel
+                            color: modeRotateBtn.isSel ? "#000" : Theme.text
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                card.rotateModeActive = true;
+                                if (settings) settings.trimRotateEnabled = true;
+                                card.syncSplitSettings();
+                            }
+                        }
+                    }
+                }
+
+                // Giao diện khi chọn: Cố định
+                ColumnLayout {
+                    visible: !card.rotateModeActive
+                    Layout.fillWidth: true
+                    spacing: 4
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        SpinBox {
+                            id: trimSpin
+                            Layout.fillWidth: true
+                            font.pixelSize: Theme.textMd
+                            from: 2; to: 999
+                            value: settings ? settings.defaultTrimLimit : 10
+                            editable: true
+                            onValueModified: {
                                 if (settings) {
-                                    settings.defaultTrimLimit = v;
+                                    settings.defaultTrimLimit = value;
                                     card.syncSplitSettings();
+                                }
+                            }
+                            onActiveFocusChanged: {
+                                if (!activeFocus) {
+                                    var v = Math.max(from, Math.min(to, valueFromText(contentItem.text, locale)));
+                                    value = v;
+                                    if (settings) {
+                                        settings.defaultTrimLimit = v;
+                                        card.syncSplitSettings();
+                                    }
+                                }
+                            }
+                        }
+                        Label { text: "phút"; color: Theme.textMuted; font.pixelSize: Theme.textMd }
+                    }
+
+                    RowLayout {
+                        spacing: 4
+                        Layout.alignment: Qt.AlignRight
+                        Repeater {
+                            model: [
+                                { label: "5p", val: 5 },
+                                { label: "9p", val: 9 },
+                                { label: "10p (Chuẩn)", val: 10 },
+                                { label: "15p", val: 15 },
+                                { label: "Trọn vẹn", val: 999 }
+                            ]
+                            delegate: Rectangle {
+                                id: trimBtn
+                                required property var modelData
+                                width: trimBtnLbl.implicitWidth + 8
+                                height: 22
+                                radius: 3
+                                readonly property bool isSel: settings && settings.defaultTrimLimit === modelData.val
+                                color: isSel ? Theme.accent : Theme.surface
+                                border.color: Theme.border; border.width: 1
+                                Label {
+                                    id: trimBtnLbl
+                                    anchors.centerIn: parent
+                                    text: trimBtn.modelData.label
+                                    font.pixelSize: 10
+                                    color: trimBtn.isSel ? "#000" : Theme.textMuted
+                                    font.bold: trimBtn.isSel
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        if (settings) {
+                                            settings.defaultTrimLimit = trimBtn.modelData.val;
+                                            trimSpin.value = trimBtn.modelData.val;
+                                            card.syncSplitSettings();
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-                    Label { text: "phút"; color: Theme.textMuted; font.pixelSize: Theme.textMd }
                 }
 
-                RowLayout {
+                // Giao diện khi chọn: Xoay vòng Min - Max
+                ColumnLayout {
+                    visible: card.rotateModeActive
+                    Layout.fillWidth: true
                     spacing: 4
-                    Layout.alignment: Qt.AlignRight
-                    Repeater {
-                        model: [
-                            { label: "5p", val: 5 },
-                            { label: "9p", val: 9 },
-                            { label: "10p (Chuẩn)", val: 10 },
-                            { label: "15p", val: 15 }, { label: "20p", val: 20 },
-                            { label: "Trọn vẹn", val: 999 }
-                        ]
-                        delegate: Rectangle {
-                            id: trimBtn
-                            required property var modelData
-                            width: trimBtnLbl.implicitWidth + 10
-                            height: 22
-                            radius: 3
-                            readonly property bool isSel: settings && settings.defaultTrimLimit === modelData.val
-                            color: isSel ? Theme.accent : Theme.surface
-                            border.color: Theme.border; border.width: 1
-                            Label {
-                                id: trimBtnLbl
-                                anchors.centerIn: parent
-                                text: trimBtn.modelData.label
-                                font.pixelSize: 10
-                                color: trimBtn.isSel ? "#000" : Theme.textMuted
-                                font.bold: trimBtn.isSel
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        Label { text: "Min:"; color: Theme.textMuted; font.pixelSize: Theme.textSm }
+                        SpinBox {
+                            id: rotateMinSpin
+                            Layout.fillWidth: true
+                            font.pixelSize: Theme.textSm
+                            from: 1; to: card.rotateMaxVal
+                            value: card.rotateMinVal
+                            editable: true
+                            onValueModified: {
+                                card.rotateMinVal = value;
+                                if (card.rotateMaxVal < value) card.rotateMaxVal = value;
+                                card.syncSplitSettings();
                             }
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    if (settings) {
-                                        settings.defaultTrimLimit = trimBtn.modelData.val;
-                                        trimSpin.value = trimBtn.modelData.val;
+                            onActiveFocusChanged: {
+                                if (!activeFocus) {
+                                    var v = Math.max(from, Math.min(to, valueFromText(contentItem.text, locale)));
+                                    value = v;
+                                    card.rotateMinVal = v;
+                                    if (card.rotateMaxVal < v) card.rotateMaxVal = v;
+                                    card.syncSplitSettings();
+                                }
+                            }
+                        }
+                        Label { text: "Max:"; color: Theme.textMuted; font.pixelSize: Theme.textSm }
+                        SpinBox {
+                            id: rotateMaxSpin
+                            Layout.fillWidth: true
+                            font.pixelSize: Theme.textSm
+                            from: card.rotateMinVal; to: 120
+                            value: card.rotateMaxVal
+                            editable: true
+                            onValueModified: {
+                                card.rotateMaxVal = value;
+                                if (card.rotateMinVal > value) card.rotateMinVal = value;
+                                card.syncSplitSettings();
+                            }
+                            onActiveFocusChanged: {
+                                if (!activeFocus) {
+                                    var v = Math.max(from, Math.min(to, valueFromText(contentItem.text, locale)));
+                                    value = v;
+                                    card.rotateMaxVal = v;
+                                    if (card.rotateMinVal > v) card.rotateMinVal = v;
+                                    card.syncSplitSettings();
+                                }
+                            }
+                        }
+                        Label { text: "phút"; color: Theme.textMuted; font.pixelSize: Theme.textSm }
+                    }
+
+                    RowLayout {
+                        spacing: 4
+                        Layout.alignment: Qt.AlignRight
+                        Repeater {
+                            model: [
+                                { label: "4p - 5p", min: 4, max: 5 },
+                                { label: "8p - 10p (Chuẩn)", min: 8, max: 10 },
+                                { label: "10p - 12p", min: 10, max: 12 },
+                                { label: "14p - 16p", min: 14, max: 16 }
+                            ]
+                            delegate: Rectangle {
+                                id: rotBtn
+                                required property var modelData
+                                width: rotBtnLbl.implicitWidth + 8
+                                height: 22
+                                radius: 3
+                                readonly property bool isSel: card.rotateMinVal === modelData.min && card.rotateMaxVal === modelData.max
+                                color: isSel ? Theme.accent : Theme.surface
+                                border.color: Theme.border; border.width: 1
+                                Label {
+                                    id: rotBtnLbl
+                                    anchors.centerIn: parent
+                                    text: rotBtn.modelData.label
+                                    font.pixelSize: 10
+                                    color: rotBtn.isSel ? "#000" : Theme.textMuted
+                                    font.bold: rotBtn.isSel
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        card.rotateMinVal = rotBtn.modelData.min;
+                                        card.rotateMaxVal = rotBtn.modelData.max;
+                                        rotateMinSpin.value = rotBtn.modelData.min;
+                                        rotateMaxSpin.value = rotBtn.modelData.max;
                                         card.syncSplitSettings();
                                     }
                                 }
@@ -817,10 +1004,10 @@ SettingsCard {
                     spacing: 6
                     ComboBox {
                         id: resCombo
-                        Layout.preferredWidth: 100
+                        Layout.preferredWidth: 90
                         font.pixelSize: Theme.textSm
-                        model: ["720p", "1080p"]
-                        currentIndex: settings ? Math.max(0, ["720p", "1080p"].indexOf(settings.autoRenderResolution)) : 0
+                        model: ["360p", "720p", "1080p"]
+                        currentIndex: settings ? Math.max(0, ["360p", "720p", "1080p"].indexOf(settings.autoRenderResolution)) : 1
                         onActivated: {
                             if (settings) {
                                 var chosenRes = model[currentIndex];
@@ -850,6 +1037,54 @@ SettingsCard {
                             border.color: parent.activeFocus ? Theme.accent : Theme.border
                             border.width: 1
                             radius: Theme.radiusMd
+                        }
+                    }
+                }
+
+                // Chọn nhanh độ phân giải render
+                RowLayout {
+                    spacing: 4
+                    Layout.alignment: Qt.AlignRight
+                    Repeater {
+                        model: [
+                            { label: "360p (Siêu nhẹ)", val: "360p" },
+                            { label: "720p (Chuẩn AdsPow)", val: "720p" },
+                            { label: "1080p (Full HD)", val: "1080p" }
+                        ]
+                        delegate: Rectangle {
+                            id: resBtn
+                            required property var modelData
+                            width: resBtnLbl.implicitWidth + 8
+                            height: 22
+                            radius: 3
+                            readonly property bool isSel: settings && settings.autoRenderResolution === modelData.val
+                            color: isSel ? Theme.accent : Theme.surface
+                            border.color: isSel ? Theme.accent : Theme.border
+                            border.width: 1
+                            Label {
+                                id: resBtnLbl
+                                anchors.centerIn: parent
+                                text: resBtn.modelData.label
+                                font.pixelSize: 10
+                                color: resBtn.isSel ? "#000" : Theme.textMuted
+                                font.bold: resBtn.isSel
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (settings) {
+                                        settings.autoRenderResolution = resBtn.modelData.val;
+                                        settings.autoDownloadQuality = (resBtn.modelData.val === "1080p") ? "1080" : "360";
+                                        settings.defaultQuality = (resBtn.modelData.val === "1080p") ? 1080 : 360;
+                                        if (resCombo) {
+                                            var idx = ["360p", "720p", "1080p"].indexOf(resBtn.modelData.val);
+                                            if (idx >= 0) resCombo.currentIndex = idx;
+                                        }
+                                        card.syncSplitSettings();
+                                    }
+                                }
+                            }
                         }
                     }
                 }
