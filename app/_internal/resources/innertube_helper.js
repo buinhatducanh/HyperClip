@@ -1635,10 +1635,11 @@ function getSmartSplitPlan(actualDurationSec, settingsSnapshot) {
   const settings = settingsSnapshot || readSmartSplitSettingsSnapshot();
   if (!settings) return null;
 
-  const trimLimitMin = Number(settings.defaultTrimLimit) || 10;
+  const isRotate = !!(settings.trimRotateEnabled);
+  const trimLimitMin = isRotate ? (Number(settings.trimRotateMax) || 10) : (Number(settings.defaultTrimLimit) || 10);
   const sourceSec = Math.max(0, Math.floor(Number(actualDurationSec) || 0));
   const isFullVideo = trimLimitMin >= 900;
-  const configuredTotalSec = isFullVideo ? sourceSec : Math.max(60, Math.round(trimLimitMin * 60));
+  const configuredTotalSec = isFullVideo ? sourceSec : (isRotate && sourceSec > 0 ? sourceSec : Math.max(60, Math.round(trimLimitMin * 60)));
   const totalTrimSec = sourceSec > 0
     ? (configuredTotalSec > 0 ? Math.min(sourceSec, configuredTotalSec) : sourceSec)
     : configuredTotalSec;
