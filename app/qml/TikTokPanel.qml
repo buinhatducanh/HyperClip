@@ -5,6 +5,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import QtCore as QtCore
 
 Rectangle {
     id: panel
@@ -18,6 +19,358 @@ Rectangle {
     // "Gán" không hề xuất hiện. Với đúng 1 tài khoản thì không ai nghĩ phải
     // bấm chọn nó trước → khách báo "nút thêm kênh TikTok không hoạt động".
     property int refreshEpoch: 0
+    property string adsPowerApiUrl: "http://127.0.0.1:50325"
+    property string adsPowerApiKey: ""
+    property bool isSyncingAdsPower: false
+    property var adsPowerPickerList: []
+    property bool showAdsPowerPicker: false
+    property var profileOverrides: ({})
+    property int profileOverrideEpoch: 0
+
+    function _cleanPid(pid) {
+        return String(pid || "").trim().replace(/^adspower_/i, "")
+    }
+
+    function resolveProfileId(acc) {
+        var _ = panel.profileOverrideEpoch
+        if (!acc) return ""
+        var ov = panel.profileOverrides || {}
+        var ovPid = (acc.id && ov[acc.id]) ? ov[acc.id] : ((acc.label && ov[acc.label]) ? ov[acc.label] : "")
+        if (ovPid && String(ovPid).indexOf("tt") !== 0) return panel._cleanPid(ovPid)
+        if (acc.profileId && String(acc.profileId).indexOf("tt") !== 0) return panel._cleanPid(acc.profileId)
+        if (acc.id && String(acc.id).indexOf("adspower_") === 0 && String(acc.id).indexOf("adspower_tt") !== 0) {
+            return String(acc.id).replace(/^adspower_/i, "")
+        }
+        return ""
+    }
+
+    function saveProfileOverrides() {
+        try {
+            adsPowerPrefs.setValue("profileMap", encodeURIComponent(JSON.stringify(panel.profileOverrides || {})))
+            adsPowerPrefs.sync()
+        } catch (e) {}
+        panel.profileOverrideEpoch++
+    }
+
+    function setProfileOverride(accId, label, pid) {
+        var map = {}
+        var cur = panel.profileOverrides || {}
+        for (var k in cur) {
+            if (cur.hasOwnProperty(k)) map[k] = cur[k]
+        }
+        var clean = panel._cleanPid(pid)
+        if (clean && clean.indexOf("tt") !== 0) {
+            if (accId) map[String(accId)] = clean
+            if (label) map[String(label)] = clean
+        } else {
+            if (accId) delete map[String(accId)]
+            if (label) delete map[String(label)]
+        }
+        panel.profileOverrides = map
+        panel.saveProfileOverrides()
+    }
+
+    function _adsPowerIniUrl() {
+        var base = String(QtCore.StandardPaths.writableLocation(QtCore.StandardPaths.AppDataLocation) || "").replace(/\/+$/, "")
+        if (!base) return ""
+        if (base.indexOf("file:") === 0) return base + "/adspower_ui.ini"
+        if (/^[A-Za-z]:/.test(base)) return "file:///" + base.replace(/\\/g, "/") + "/adspower_ui.ini"
+        return "file://" + base + "/adspower_ui.ini"
+    }
+
+    QtCore.Settings {
+        id: adsPowerPrefs
+        category: "AdsPower"
+        location: panel._adsPowerIniUrl()
+    }
+
+    function getToast() {
+        return (typeof toastService !== "undefined" && toastService) ? toastService : (typeof toastManager !== "undefined" ? toastManager : null)
+    }
+
+    function loadAdsPowerConfig() {
+        try {
+            var savedUrl = adsPowerPrefs.value("apiUrl", "")
+            var savedKey = adsPowerPrefs.value("apiKey", "")
+            var rawMap = adsPowerPrefs.value("profileMap", "")
+            if (savedUrl) panel.adsPowerApiUrl = String(savedUrl)
+            if (savedKey !== undefined && savedKey !== null) panel.adsPowerApiKey = String(savedKey)
+            if (rawMap) {
+                try {
+                    var parsedMap = JSON.parse(decodeURIComponent(String(rawMap)))
+                    if (parsedMap && typeof parsedMap === "object") {
+                        panel.profileOverrides = parsedMap
+                        panel.profileOverrideEpoch++
+                    }
+                } catch (eMap) {}
+            }
+        } catch (e) {}
+    }
+
+    function saveAdsPowerConfig() {
+        try {
+            adsPowerPrefs.setValue("apiUrl", panel.adsPowerApiUrl || "http://127.0.0.1:50325")
+            adsPowerPrefs.setValue("apiKey", panel.adsPowerApiKey || "")
+            adsPowerPrefs.sync()
+        } catch (e) {}
+    }
+
+    function commitAdsPowerInputs() {
+        if (typeof adsPowerApiInput !== "undefined" && adsPowerApiInput && typeof adsPowerApiKeyInput !== "undefined" && adsPowerApiKeyInput) {
+            panel.applyAdsPowerFields(adsPowerApiInput.text, adsPowerApiKeyInput.text)
+            adsPowerApiInput.text = panel.adsPowerApiUrl
+            adsPowerApiKeyInput.text = panel.adsPowerApiKey
+        }
+    }
+
+    function applyAdsPowerFields(rawUrl, rawKey) {
+        var normUrl = panel.normalizeAdsPowerApi(rawUrl)
+        var explicitKey = String(rawKey !== undefined ? rawKey : (typeof adsPowerApiKeyInput !== "undefined" && adsPowerApiKeyInput ? adsPowerApiKeyInput.text : panel.adsPowerApiKey)).trim()
+        if (explicitKey) {
+            panel.adsPowerApiKey = explicitKey
+        } else if (String(rawUrl || "").indexOf("api_key=") < 0) {
+            panel.adsPowerApiKey = ""
+        }
+        panel.saveAdsPowerConfig()
+        return normUrl
+    }
+
+    function openAdsPowerGet(xhr, pathAndQuery) {
+        xhr.open("GET", panel.buildAdsPowerEndpoint(pathAndQuery))
+        if (panel.adsPowerApiKey) {
+            try { xhr.setRequestHeader("Authorization", "Bearer " + panel.adsPowerApiKey) } catch (e) {}
+        }
+    }
+
+    function normalizeAdsPowerApi(raw) {
+        var s = String(raw || "").trim()
+        if (!s) {
+            panel.adsPowerApiUrl = "http://127.0.0.1:50325"
+            panel.adsPowerApiKey = ""
+            return panel.adsPowerApiUrl
+        }
+        if (/^\d+$/.test(s)) {
+            s = "http://127.0.0.1:" + s
+        } else if (s.indexOf("http://") !== 0 && s.indexOf("https://") !== 0) {
+            s = "http://" + s
+        }
+        var extractedKey = ""
+        var qIdx = s.indexOf("?")
+        if (qIdx >= 0) {
+            var qs = s.slice(qIdx + 1)
+            s = s.slice(0, qIdx)
+            var parts = qs.split("&")
+            for (var i = 0; i < parts.length; i++) {
+                var kv = parts[i].split("=")
+                if (kv[0] === "api_key" && kv.length > 1) {
+                    extractedKey = decodeURIComponent(kv.slice(1).join("="))
+                }
+            }
+        }
+        s = s.replace(/\/api\/v\d+\/.*$/i, "").replace(/\/status\/?$/i, "").replace(/\/+$/, "")
+        panel.adsPowerApiUrl = s || "http://127.0.0.1:50325"
+        if (extractedKey) panel.adsPowerApiKey = extractedKey
+        else if (qIdx >= 0) panel.adsPowerApiKey = ""
+        return panel.adsPowerApiUrl
+    }
+
+    function buildAdsPowerEndpoint(pathAndQuery) {
+        var base = panel.adsPowerApiUrl || "http://127.0.0.1:50325"
+        var url = base + pathAndQuery
+        if (panel.adsPowerApiKey && url.indexOf("api_key=") < 0) {
+            url += (url.indexOf("?") >= 0 ? "&" : "?") + "api_key=" + encodeURIComponent(panel.adsPowerApiKey)
+        }
+        return url
+    }
+
+    function addAccountSafe(label, pid) {
+        var lbl = String(label || "").trim()
+        var cleanPid = panel._cleanPid(pid)
+        if (!lbl && cleanPid) lbl = "@Profile_" + cleanPid
+        if (!lbl) return false
+        if (cleanPid) {
+            panel.setProfileOverride("", lbl, cleanPid)
+        }
+        var canSetProfileId = (typeof tiktokModel !== "undefined" && tiktokModel && typeof tiktokModel.set_profile_id === "function")
+        var added = false
+        if (typeof tiktokModel !== "undefined" && tiktokModel && typeof tiktokModel.add_account === "function") {
+            try {
+                if (cleanPid && canSetProfileId && tiktokModel.add_account.length >= 2) {
+                    tiktokModel.add_account(lbl, cleanPid)
+                } else {
+                    tiktokModel.add_account(lbl)
+                }
+                added = true
+            } catch (e1) {
+                try {
+                    tiktokModel.add_account(lbl)
+                    added = true
+                } catch (e2) {}
+            }
+        }
+        if (!added && typeof backend !== "undefined" && backend) {
+            try {
+                var resp = backend.send_command("tiktok:addAccount", { "label": lbl, "profileId": cleanPid })
+                if (resp && (resp.ok !== false)) added = true
+            } catch (e3) {}
+        }
+        if (added) {
+            Qt.callLater(function() {
+                panel.refreshData()
+                var list = panel.accountsList || []
+                for (var i = list.length - 1; i >= 0; i--) {
+                    if (list[i].label === lbl) {
+                        if (cleanPid) {
+                            panel.setProfileOverride(list[i].id, lbl, cleanPid)
+                            if (canSetProfileId && (!list[i].profileId || String(list[i].profileId).indexOf("tt") === 0)) {
+                                try { tiktokModel.set_profile_id(list[i].id, cleanPid) } catch (e4) {}
+                            }
+                        }
+                        panel.selectedAccountId = list[i].id
+                        break
+                    }
+                }
+            })
+        }
+        return added
+    }
+
+    function syncAdsPowerProfiles(openPickerIfNeeded) {
+        var ts = panel.getToast()
+        if (panel.isSyncingAdsPower) return
+        panel.isSyncingAdsPower = true
+        if (ts) ts.show("AdsPower", "Đang tải danh sách hồ sơ từ " + panel.adsPowerApiUrl + "...", "info")
+        try {
+            var xhr = new XMLHttpRequest()
+            panel.openAdsPowerGet(xhr, "/api/v1/user/list?page=1&page_size=200")
+            xhr.timeout = 8000
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === XMLHttpRequest.DONE) {
+                    panel.isSyncingAdsPower = false
+                    if (xhr.status === 200) {
+                        try {
+                            var res = JSON.parse(xhr.responseText)
+                            if (res && res.code !== undefined && res.code !== 0) {
+                                if (ts) ts.show("AdsPower", "Lỗi AdsPower API: " + (res.msg || ("code " + res.code)), "error")
+                                return
+                            }
+                            var list = res.data && res.data.list ? res.data.list : []
+                            if (list.length > 0) {
+                                var existingList = panel.accountsList || []
+                                var addedCount = 0
+                                var updatedCount = 0
+                                var mismatchCount = 0
+                                var unimportedCount = 0
+                                var matchedCount = 0
+                                var pickerRows = []
+                                var canSetProfileId = (typeof tiktokModel !== "undefined" && tiktokModel && typeof tiktokModel.set_profile_id === "function")
+                                for (var k = 0; k < list.length; k++) {
+                                    var p = list[k]
+                                    var pid = String(p.user_id || "").trim()
+                                    var ser = String(p.serial_number || (k + 1)).trim()
+                                    var grp = String(p.group_name || "").trim()
+                                    var lbl = p.name ? (p.name.indexOf("@") === 0 ? p.name : ("@" + p.name)) : ("@Profile_" + (ser || pid))
+                                    var stateKind = "new"
+                                    var existingId = ""
+                                    for (var ex = 0; ex < existingList.length; ex++) {
+                                        var exPid = panel.resolveProfileId(existingList[ex])
+                                        if ((pid && exPid === pid) || (pid && existingList[ex].id === ("adspower_" + pid))) {
+                                            stateKind = "matched"
+                                            existingId = existingList[ex].id
+                                            matchedCount++
+                                            break
+                                        }
+                                        if (existingList[ex].label === lbl) {
+                                            existingId = existingList[ex].id
+                                            if (pid && exPid !== pid) {
+                                                if (canSetProfileId) {
+                                                    try {
+                                                        tiktokModel.set_profile_id(existingList[ex].id, pid)
+                                                        stateKind = "matched"
+                                                        updatedCount++
+                                                    } catch (eUpd) {
+                                                        stateKind = "mismatch"
+                                                        mismatchCount++
+                                                    }
+                                                } else {
+                                                    panel.setProfileOverride(existingList[ex].id, existingList[ex].label, pid)
+                                                    stateKind = "matched"
+                                                    updatedCount++
+                                                }
+                                            } else {
+                                                stateKind = "matched"
+                                                matchedCount++
+                                            }
+                                            break
+                                        }
+                                    }
+                                    if (stateKind === "new") {
+                                        if (pid && !canSetProfileId) {
+                                            unimportedCount++
+                                        } else if (panel.addAccountSafe(lbl, pid)) {
+                                            stateKind = "matched"
+                                            addedCount++
+                                        }
+                                    }
+                                    pickerRows.push({
+                                        label: lbl,
+                                        userId: pid,
+                                        serial: ser,
+                                        groupName: grp,
+                                        stateKind: stateKind,
+                                        existingId: existingId
+                                    })
+                                }
+                                pickerRows.sort(function(a, b) {
+                                    var rank = { "mismatch": 0, "new": 1, "matched": 2 }
+                                    return (rank[a.stateKind] !== undefined ? rank[a.stateKind] : 9) - (rank[b.stateKind] !== undefined ? rank[b.stateKind] : 9)
+                                })
+                                panel.adsPowerPickerList = pickerRows
+                                if (openPickerIfNeeded || mismatchCount > 0 || unimportedCount > 0) {
+                                    panel.showAdsPowerPicker = true
+                                }
+                                panel.refreshData()
+                                Qt.callLater(function() { panel.ensureSelection() })
+                                if (ts) {
+                                    if (mismatchCount > 0) {
+                                        ts.show("AdsPower", "Có " + mismatchCount + " nick lệch ID và " + unimportedCount + " hồ sơ chưa vào app — hãy tắt & mở lại HyperClip để tự đồng bộ!", "warning")
+                                    } else if (unimportedCount > 0 && !canSetProfileId) {
+                                        ts.show("AdsPower", "Đã khớp chuẩn " + matchedCount + " nick đang dùng. Còn " + unimportedCount + " hồ sơ khác trên AdsPower (profile mới chỉ cần mở lại app sẽ tự thêm).", "info")
+                                    } else {
+                                        var msg = "Đã quét " + list.length + " hồ sơ AdsPower (" + matchedCount + " đã khớp"
+                                        if (addedCount > 0) msg += ", " + addedCount + " mới"
+                                        if (updatedCount > 0) msg += ", " + updatedCount + " cập nhật ID"
+                                        msg += ")!"
+                                        ts.show("AdsPower", msg, "success")
+                                    }
+                                }
+                            } else {
+                                panel.adsPowerPickerList = []
+                                if (ts) ts.show("AdsPower", "Không tìm thấy hồ sơ nào trên AdsPower!", "warning")
+                            }
+                        } catch(e) {
+                            if (ts) ts.show("AdsPower", "Lỗi nạp hồ sơ: " + e.message, "error")
+                        }
+                    } else {
+                        if (ts) ts.show("AdsPower", "Không kết nối được AdsPower API (" + panel.adsPowerApiUrl + ")!", "error")
+                    }
+                }
+            }
+            xhr.ontimeout = function() {
+                panel.isSyncingAdsPower = false
+                if (ts) ts.show("AdsPower", "Hết thời gian chờ kết nối AdsPower API (" + panel.adsPowerApiUrl + ").", "error")
+            }
+            xhr.onerror = function() {
+                panel.isSyncingAdsPower = false
+                if (ts) ts.show("AdsPower", "Không kết nối được AdsPower API (" + panel.adsPowerApiUrl + ")!", "error")
+            }
+            xhr.send()
+        } catch(err) {
+            panel.isSyncingAdsPower = false
+            if (ts) ts.show("AdsPower", "Lỗi: " + err.message, "error")
+        }
+    }
+
     function refreshData() {
         panel.refreshEpoch++
         if (typeof tiktokModel !== "undefined" && tiktokModel && typeof tiktokModel.refresh_soon === "function") {
@@ -223,7 +576,7 @@ Rectangle {
         if (!tplInput.activeFocus)
             tplInput.text = selAcc ? (selAcc.captionTemplate || "") : ""
         if (typeof profileIdInput !== "undefined" && profileIdInput && !profileIdInput.activeFocus)
-            profileIdInput.text = selAcc ? (selAcc.profileId || "") : ""
+            profileIdInput.text = selAcc ? panel.resolveProfileId(selAcc) : ""
     }
 
     function accountLabel(accId) {
@@ -273,7 +626,7 @@ Rectangle {
         var target = profileId ? ("user_id=" + encodeURIComponent(profileId)) : ("serial_number=" + encodeURIComponent(serial || "1"))
         var launchArgs = encodeURIComponent(JSON.stringify(["https://www.tiktok.com/tiktokstudio/upload"]))
         var xhr = new XMLHttpRequest()
-        xhr.open("GET", "http://127.0.0.1:50325/api/v1/browser/start?" + target + "&open_tabs=1&launch_args=" + launchArgs)
+        panel.openAdsPowerGet(xhr, "/api/v1/browser/start?" + target + "&open_tabs=1&launch_args=" + launchArgs)
         xhr.onreadystatechange = function() {
             if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
                 try {
@@ -454,54 +807,8 @@ Rectangle {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        var ts = (typeof toastService !== "undefined" && toastService) ? toastService : (typeof toastManager !== "undefined" ? toastManager : null)
-                        if (ts) ts.show("AdsPower", "Đang quét danh sách hồ sơ từ AdsPower Local API...", "info")
-                        try {
-                            var xhr = new XMLHttpRequest()
-                            xhr.open("GET", "http://127.0.0.1:50325/api/v1/user/list?page=1&page_size=100")
-                            xhr.timeout = 5000
-                            xhr.onreadystatechange = function() {
-                                if (xhr.readyState === XMLHttpRequest.DONE) {
-                                    if (xhr.status === 200) {
-                                        try {
-                                            var res = JSON.parse(xhr.responseText)
-                                            var list = res.data && res.data.list ? res.data.list : []
-                                            if (list.length > 0) {
-                                                var existingList = panel.accountsList || []
-                                                var addedCount = 0
-                                                for (var k = 0; k < list.length; k++) {
-                                                    var p = list[k]
-                                                    var pid = String(p.user_id || "")
-                                                    var lbl = p.name ? (p.name.indexOf("@") === 0 ? p.name : ("@" + p.name)) : ("@Profile_" + (p.serial_number || pid))
-                                                    var exists = false
-                                                    for (var ex = 0; ex < existingList.length; ex++) {
-                                                        if (existingList[ex].profileId === pid || existingList[ex].label === lbl || existingList[ex].id === ("adspower_" + pid)) {
-                                                            exists = true
-                                                            break
-                                                        }
-                                                    }
-                                                    if (!exists && typeof tiktokModel !== "undefined" && tiktokModel && typeof tiktokModel.add_account === "function") {
-                                                        tiktokModel.add_account(lbl)
-                                                        addedCount++
-                                                    }
-                                                }
-                                                panel.refreshData()
-                                                if (ts) ts.show("AdsPower", "Đã quét xong " + list.length + " hồ sơ AdsPower (" + addedCount + " mới)!", "success")
-                                            } else {
-                                                if (ts) ts.show("AdsPower", "Không tìm thấy hồ sơ nào trên AdsPower!", "warning")
-                                            }
-                                        } catch(e) {
-                                            if (ts) ts.show("AdsPower", "Lỗi nạp hồ sơ: " + e.message, "error")
-                                        }
-                                    } else {
-                                        if (ts) ts.show("AdsPower", "Không kết nối được AdsPower Local API (port 50325)!", "error")
-                                    }
-                                }
-                            }
-                            xhr.send()
-                        } catch(err) {
-                            if (ts) ts.show("AdsPower", "Lỗi: " + err.message, "error")
-                        }
+                        panel.commitAdsPowerInputs()
+                        panel.syncAdsPowerProfiles()
                     }
                 }
             }
@@ -526,10 +833,11 @@ Rectangle {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        var ts = (typeof toastService !== "undefined" && toastService) ? toastService : (typeof toastManager !== "undefined" ? toastManager : null)
+                        panel.commitAdsPowerInputs()
+                        var ts = panel.getToast()
                         try {
                             var xhr = new XMLHttpRequest()
-                            xhr.open("GET", "http://127.0.0.1:50325/status")
+                            panel.openAdsPowerGet(xhr, "/status")
                             xhr.timeout = 3000
                             xhr.onreadystatechange = function() {
                                 if (xhr.readyState === XMLHttpRequest.DONE) {
@@ -537,7 +845,7 @@ Rectangle {
                                         try {
                                             var json = JSON.parse(xhr.responseText)
                                             if (json.code === 0) {
-                                                if (ts) ts.show("AdsPower", "Kết nối AdsPower Local API thành công! (127.0.0.1:50325)", "success")
+                                                if (ts) ts.show("AdsPower", "Kết nối AdsPower Local API thành công! (" + panel.adsPowerApiUrl + ")", "success")
                                                 return
                                             }
                                         } catch (e) {}
@@ -551,18 +859,18 @@ Rectangle {
                                     } catch (e2) {}
                                     if (ts) {
                                         if (ok) {
-                                            ts.show("AdsPower", "Kết nối AdsPower Local API thành công! (127.0.0.1:50325)", "success")
+                                            ts.show("AdsPower", "Kết nối AdsPower Local API thành công! (" + panel.adsPowerApiUrl + ")", "success")
                                         } else {
-                                            ts.show("AdsPower", "Không thể kết nối AdsPower Local API! Hãy bật AdsPower và mở cài đặt Local API (port 50325).", "error")
+                                            ts.show("AdsPower", "Không thể kết nối AdsPower Local API (" + panel.adsPowerApiUrl + ")! Hãy bật AdsPower và kiểm tra Local API / API Key.", "error")
                                         }
                                     }
                                 }
                             }
                             xhr.ontimeout = function() {
-                                if (ts) ts.show("AdsPower", "Hết thời gian chờ kết nối AdsPower Local API (127.0.0.1:50325).", "error")
+                                if (ts) ts.show("AdsPower", "Hết thời gian chờ kết nối AdsPower Local API (" + panel.adsPowerApiUrl + ").", "error")
                             }
                             xhr.onerror = function() {
-                                if (ts) ts.show("AdsPower", "Không thể kết nối AdsPower Local API! Hãy bật AdsPower và mở cài đặt Local API (port 50325).", "error")
+                                if (ts) ts.show("AdsPower", "Không thể kết nối AdsPower Local API (" + panel.adsPowerApiUrl + ")! Hãy bật AdsPower và kiểm tra Local API / API Key.", "error")
                             }
                             xhr.send()
                         } catch (err) {
@@ -592,11 +900,95 @@ Rectangle {
         }
 
         Label {
-            text: "Tự động đăng TikTok qua AdsPower Browser (Local API: 127.0.0.1:50325). Khuyến nghị 1-2 kênh YouTube / tài khoản. Video render xong sẽ tự đăng theo mapping."
+            text: "Tự động đăng TikTok qua AdsPower Browser (Local API: " + panel.adsPowerApiUrl + "). Khuyến nghị 1-2 kênh YouTube / tài khoản. Video render xong sẽ tự đăng theo mapping."
             color: Theme.textMuted
             font.pixelSize: 11
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
+        }
+
+        // 2 dòng cấu hình kết nối AdsPower: Dòng 1 = API URL / ID, Dòng 2 = API Key + nút Load lại
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 6
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Label {
+                    text: "AdsPower ID / API:"
+                    color: Theme.textMuted
+                    font.pixelSize: 11
+                    font.bold: true
+                    Layout.preferredWidth: 108
+                }
+
+                TextField {
+                    id: adsPowerApiInput
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 28
+                    placeholderText: "Link hoặc Port/ID AdsPower (vd: http://127.0.0.1:50325 hoặc http://local.adspower.net:50325)"
+                    font.pixelSize: 11
+                    text: panel.adsPowerApiUrl
+                    onAccepted: {
+                        panel.commitAdsPowerInputs()
+                        adsPowerApiKeyInput.forceActiveFocus()
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Label {
+                    text: "API Key:"
+                    color: Theme.textMuted
+                    font.pixelSize: 11
+                    font.bold: true
+                    Layout.preferredWidth: 108
+                }
+
+                TextField {
+                    id: adsPowerApiKeyInput
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 28
+                    placeholderText: "Nhập AdsPower API Key (để trống nếu AdsPower không bật xác thực)"
+                    font.pixelSize: 11
+                    text: panel.adsPowerApiKey
+                    onAccepted: {
+                        panel.commitAdsPowerInputs()
+                        panel.syncAdsPowerProfiles()
+                    }
+                }
+
+                Rectangle {
+                    Layout.preferredHeight: 28
+                    Layout.preferredWidth: reloadApiLbl.implicitWidth + 18
+                    radius: 4
+                    color: reloadApiMa.containsMouse ? "#00A4EF" : Theme.accent
+                    opacity: panel.isSyncingAdsPower ? 0.6 : 1.0
+                    Label {
+                        id: reloadApiLbl
+                        anchors.centerIn: parent
+                        text: panel.isSyncingAdsPower ? "⏳ Đang tải..." : "🔄 Load lại"
+                        color: "white"
+                        font.pixelSize: 11
+                        font.bold: true
+                    }
+                    MouseArea {
+                        id: reloadApiMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            panel.commitAdsPowerInputs()
+                            panel.syncAdsPowerProfiles()
+                        }
+                    }
+                }
+            }
         }
 
         // Pass 42: có kênh gán mà switch tổng tắt = flow chết im lặng (18/07)
@@ -670,33 +1062,210 @@ Rectangle {
                             }
                         }
 
-                        Rectangle {
-                            id: addAccBtn
+                        RowLayout {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 28
+                            spacing: 6
+
+                            Rectangle {
+                                id: addAccBtn
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 28
+                                radius: 4
+                                color: addMa.containsMouse ? "#00A4EF" : Theme.accent
+                                function doAdd() {
+                                    var label = newAccInput.text.trim()
+                                    var pid = newProfileIdInput.text.trim()
+                                    var ts = panel.getToast()
+                                    if (!label && !pid) {
+                                        if (ts) ts.show("TikTok", "Vui lòng nhập @username TikTok hoặc chọn từ AdsPower!", "warning")
+                                        newAccInput.forceActiveFocus()
+                                        return
+                                    }
+                                    if (label && label.indexOf("@") !== 0) {
+                                        label = "@" + label
+                                    }
+                                    if (!label && pid) {
+                                        // Tự động lấy tên profile từ AdsPower API theo ID (nếu kết nối được), fallback @Profile_<id>
+                                        try {
+                                            var xhr = new XMLHttpRequest()
+                                            panel.openAdsPowerGet(xhr, "/api/v1/user/list?user_id=" + encodeURIComponent(pid))
+                                            xhr.timeout = 2000
+                                            xhr.onreadystatechange = function() {
+                                                if (xhr.readyState === XMLHttpRequest.DONE) {
+                                                    var resolvedName = "@Profile_" + pid
+                                                    if (xhr.status === 200) {
+                                                        try {
+                                                            var res = JSON.parse(xhr.responseText)
+                                                            var list = res.data && res.data.list ? res.data.list : []
+                                                            if (list.length > 0 && list[0].name) {
+                                                                resolvedName = list[0].name.indexOf("@") === 0 ? list[0].name : ("@" + list[0].name)
+                                                            }
+                                                        } catch (e) {}
+                                                    }
+                                                    if (panel.addAccountSafe(resolvedName, pid)) {
+                                                        newAccInput.text = ""
+                                                        newProfileIdInput.text = ""
+                                                        panel.refreshData()
+                                                        Qt.callLater(function() { panel.ensureSelection() })
+                                                        if (ts) ts.show("TikTok", "Đã thêm " + resolvedName + " (ID: " + pid + ")", "success")
+                                                    }
+                                                }
+                                            }
+                                            xhr.ontimeout = function() {
+                                                var fb = "@Profile_" + pid
+                                                if (panel.addAccountSafe(fb, pid)) {
+                                                    newAccInput.text = ""
+                                                    newProfileIdInput.text = ""
+                                                    panel.refreshData()
+                                                    Qt.callLater(function() { panel.ensureSelection() })
+                                                    if (ts) ts.show("TikTok", "Đã thêm " + fb + " (ID: " + pid + ")", "success")
+                                                }
+                                            }
+                                            xhr.onerror = xhr.ontimeout
+                                            xhr.send()
+                                            return
+                                        } catch (err) {}
+                                    }
+                                    if (panel.addAccountSafe(label, pid)) {
+                                        var addedLbl = label || ("@Profile_" + panel._cleanPid(pid))
+                                        var cleanPidShow = panel._cleanPid(pid)
+                                        newAccInput.text = ""
+                                        newProfileIdInput.text = ""
+                                        panel.refreshData()
+                                        Qt.callLater(function() { panel.ensureSelection() })
+                                        if (ts) ts.show("TikTok", "Đã thêm tài khoản " + addedLbl + (cleanPidShow ? (" (AdsPower ID: " + cleanPidShow + ")") : ""), "success")
+                                    } else {
+                                        if (ts) ts.show("TikTok", "Không thêm được tài khoản — kiểm tra lại tên hoặc kết nối backend!", "error")
+                                    }
+                                }
+                                Label {
+                                    anchors.centerIn: parent
+                                    text: "+ Thêm AdsPower"
+                                    color: "white"
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                }
+                                MouseArea {
+                                    id: addMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: addAccBtn.doAdd()
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.preferredWidth: pickAdsLbl.implicitWidth + 14
+                                Layout.preferredHeight: 28
+                                radius: 4
+                                color: panel.showAdsPowerPicker ? Theme.accent + "22" : (pickAdsMa.containsMouse ? Theme.hoverBg : Theme.surface)
+                                border.color: panel.showAdsPowerPicker ? Theme.accent : Theme.border
+                                border.width: 1
+                                Label {
+                                    id: pickAdsLbl
+                                    anchors.centerIn: parent
+                                    text: panel.showAdsPowerPicker ? "▲ Ẩn AdsPower" : "📋 Chọn từ AdsPower"
+                                    color: panel.showAdsPowerPicker ? Theme.accent : Theme.text
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                }
+                                MouseArea {
+                                    id: pickAdsMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        panel.showAdsPowerPicker = !panel.showAdsPowerPicker
+                                        if (panel.showAdsPowerPicker) {
+                                            panel.commitAdsPowerInputs()
+                                            panel.syncAdsPowerProfiles(true)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            visible: panel.showAdsPowerPicker
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: panel.adsPowerPickerList.length === 0 ? 34 : Math.min(138, pickerFlick.contentHeight + 8)
                             radius: 4
-                            color: addMa.containsMouse ? "#00A4EF" : Theme.accent
-                            function doAdd() {
-                                var label = newAccInput.text.trim()
-                                var pid = newProfileIdInput.text.trim()
-                                if (!label) return
-                                tiktokModel.add_account(label, pid)
-                                newAccInput.text = ""
-                                newProfileIdInput.text = ""
-                            }
+                            color: Theme.bg
+                            border.color: Theme.border
+                            border.width: 1
+                            clip: true
+
                             Label {
+                                visible: panel.adsPowerPickerList.length === 0
                                 anchors.centerIn: parent
-                                text: "+ Thêm tài khoản AdsPower"
-                                color: "white"
-                                font.pixelSize: 11
-                                font.bold: true
+                                text: panel.isSyncingAdsPower ? "Đang tải hồ sơ AdsPower..." : "Không có dữ liệu AdsPower — kiểm tra Local API."
+                                color: Theme.textMuted
+                                font.pixelSize: 10
                             }
-                            MouseArea {
-                                id: addMa
+
+                            Flickable {
+                                id: pickerFlick
+                                visible: panel.adsPowerPickerList.length > 0
                                 anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: addAccBtn.doAdd()
+                                anchors.margins: 4
+                                contentHeight: pickerCol.implicitHeight
+                                clip: true
+
+                                ColumnLayout {
+                                    id: pickerCol
+                                    width: pickerFlick.width
+                                    spacing: 3
+
+                                    Repeater {
+                                        model: panel.adsPowerPickerList
+                                        delegate: Rectangle {
+                                            Layout.fillWidth: true
+                                            Layout.preferredHeight: 24
+                                            radius: 3
+                                            color: pickRowMa.containsMouse ? Theme.hoverBg : "transparent"
+
+                                            RowLayout {
+                                                anchors.fill: parent
+                                                anchors.leftMargin: 6
+                                                anchors.rightMargin: 6
+                                                spacing: 6
+
+                                                Label {
+                                                    text: modelData.label + " (#" + modelData.serial + " · " + modelData.userId + ")"
+                                                    color: Theme.text
+                                                    font.pixelSize: 10
+                                                    elide: Text.ElideRight
+                                                    Layout.fillWidth: true
+                                                }
+
+                                                Label {
+                                                    text: modelData.stateKind === "matched" ? "✓ Khớp" : (modelData.stateKind === "mismatch" ? "⚠ Lệch ID" : "+ Mới")
+                                                    color: modelData.stateKind === "matched" ? "#22C55E" : (modelData.stateKind === "mismatch" ? "#F59E0B" : Theme.accent)
+                                                    font.pixelSize: 9
+                                                    font.bold: true
+                                                }
+                                            }
+
+                                            MouseArea {
+                                                id: pickRowMa
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    var ts = panel.getToast()
+                                                    if (modelData.stateKind === "matched" && modelData.existingId) {
+                                                        panel.selectedAccountId = modelData.existingId
+                                                        if (ts) ts.show("AdsPower", "Đã chọn " + modelData.label + " (ID: " + modelData.userId + ")", "info")
+                                                    } else {
+                                                        newAccInput.text = modelData.label
+                                                        newProfileIdInput.text = modelData.userId
+                                                        if (ts) ts.show("AdsPower", "Đã điền " + modelData.label + " (ID: " + modelData.userId + ") — bấm '+ Thêm AdsPower' để thêm ngay.", "info")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -717,6 +1286,8 @@ Rectangle {
                             color: modelData.id === panel.selectedAccountId ? Theme.hoverBg : Theme.bg
                             border.color: modelData.id === panel.selectedAccountId ? Theme.accent : Theme.border
                             border.width: 1
+
+                            readonly property string effectivePid: panel.resolveProfileId(modelData)
 
                             // Danh sách các kênh YouTube được gán vào tài khoản TikTok này
                             readonly property var assignedChannelsList: {
@@ -794,8 +1365,8 @@ Rectangle {
                                         font.pixelSize: 10
                                     }
                                     Label {
-                                        text: modelData.profileId ? modelData.profileId : "Chưa đặt"
-                                        color: modelData.profileId ? Theme.accent : "#FFB800"
+                                        text: accItem.effectivePid ? accItem.effectivePid : "Chưa đặt"
+                                        color: accItem.effectivePid ? Theme.accent : "#FFB800"
                                         font.pixelSize: 10
                                         font.bold: true
                                         elide: Text.ElideRight
@@ -887,9 +1458,10 @@ Rectangle {
                                             hoverEnabled: true
                                             cursorShape: Qt.PointingHandCursor
                                             onClicked: {
-                                                panel.openAdsPowerBrowser(modelData.profileId, modelData.adsPowerSerial, modelData.label || modelData.profileId)
-                                                var ts = (typeof toastService !== "undefined" && toastService) ? toastService : (typeof toastManager !== "undefined" ? toastManager : null)
-                                                if (ts) ts.show("AdsPower", "Đang mở trình duyệt AdsPower (" + (modelData.label || modelData.profileId) + ") vào sẵn trang Upload TikTok…", "info")
+                                                var pidToOpen = accItem.effectivePid
+                                                panel.openAdsPowerBrowser(pidToOpen, modelData.adsPowerSerial, modelData.label || pidToOpen)
+                                                var ts = panel.getToast()
+                                                if (ts) ts.show("AdsPower", "Đang mở trình duyệt AdsPower (" + (modelData.label || pidToOpen) + ") vào sẵn trang Upload TikTok…", "info")
                                             }
                                         }
                                     }
@@ -962,6 +1534,7 @@ Rectangle {
                                                 }
                                                 delDisarm.stop()
                                                 delBtn.armed = false
+                                                panel.setProfileOverride(modelData.id, modelData.label, "")
                                                 if (panel.selectedAccountId === modelData.id) panel.selectedAccountId = ""
                                                 tiktokModel.remove_account(modelData.id)
                                                 if (toastService)
@@ -1031,7 +1604,7 @@ Rectangle {
                                 Layout.fillWidth: true
                                 placeholderText: "Nhập User ID của AdsPower Profile (ví dụ: k9b12345)"
                                 font.pixelSize: 12
-                                text: panel.selAcc ? (panel.selAcc.profileId || "") : ""
+                                text: panel.selAcc ? panel.resolveProfileId(panel.selAcc) : ""
                                 onAccepted: savePidBtn.doSave()
                             }
                             Rectangle {
@@ -1041,9 +1614,22 @@ Rectangle {
                                 radius: 4
                                 color: savePidMa.containsMouse ? "#00A4EF" : Theme.accent
                                 function doSave() {
-                                    if (panel.selectedAccountId) {
-                                        tiktokModel.set_profile_id(panel.selectedAccountId, profileIdInput.text.trim())
-                                        toastService.show("TikTok", "Đã cập nhật AdsPower Profile ID", "success")
+                                    if (!panel.selectedAccountId) return
+                                    var ts = panel.getToast()
+                                    var newPid = panel._cleanPid(profileIdInput.text)
+                                    var curLbl = panel.selAcc ? (panel.selAcc.label || "") : ""
+                                    if (typeof tiktokModel !== "undefined" && tiktokModel && typeof tiktokModel.set_profile_id === "function") {
+                                        tiktokModel.set_profile_id(panel.selectedAccountId, newPid)
+                                    }
+                                    panel.setProfileOverride(panel.selectedAccountId, curLbl, newPid)
+                                    profileIdInput.text = newPid
+                                    panel.refreshEpoch++
+                                    if (ts) {
+                                        if (newPid) {
+                                            ts.show("TikTok", "Đã lưu AdsPower Profile ID: " + newPid, "success")
+                                        } else {
+                                            ts.show("TikTok", "Đã xoá AdsPower Profile ID", "info")
+                                        }
                                     }
                                 }
                                 Label {
@@ -1064,7 +1650,7 @@ Rectangle {
                         }
 
                         Label {
-                            text: "User ID lấy từ AdsPower (cột ID). HyperClip dùng AdsPower Local API (127.0.0.1:50325) để tự động mở và tải video lên TikTok."
+                            text: "User ID lấy từ AdsPower (cột ID). HyperClip dùng AdsPower Local API (" + panel.adsPowerApiUrl + ") để tự động mở và tải video lên TikTok."
                             color: Theme.textMuted
                             font.pixelSize: 10
                             wrapMode: Text.WordWrap
@@ -1440,6 +2026,7 @@ Rectangle {
     // (sự cố 26/07 17:48). `refresh_soon()` là bản dồn-về-đầu-event-loop có sẵn
     // trong model, đúng cho tình huống này.
     Component.onCompleted: {
+        panel.loadAdsPowerConfig()
         if (typeof tiktokModel !== "undefined" && tiktokModel) {
             tiktokModel.refresh_soon()
         }

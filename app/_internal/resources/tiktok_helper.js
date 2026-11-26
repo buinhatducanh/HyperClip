@@ -273,6 +273,7 @@ const FAST_DONE_GRACE_MS = 100;
 
 const readline = require('readline');
 const http = require('http');
+const https = require('https');
 const net = require('net');
 const path = require('path');
 const fs = require('fs');
@@ -588,17 +589,120 @@ async function typeCaption(page, editor, caption) {
   return Date.now() - t;
 }
 
-const ADSPOWER_API_URL = process.env.ADSPOWER_API_URL || 'http://127.0.0.1:50325';
+function parseAdsPowerIni(filePath) {
+  let apiUrl = '';
+  let apiKey = '';
+  let profileMap = {};
+  try {
+    if (!fs.existsSync(filePath)) return { apiUrl, apiKey, profileMap };
+    const lines = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/);
+    let inSection = false;
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith(';') || line.startsWith('#')) continue;
+      if (line.startsWith('[')) {
+        inSection = /^\[AdsPower\]$/i.test(line);
+        continue;
+      }
+      if (!inSection) continue;
+      const eq = line.indexOf('=');
+      if (eq < 0) continue;
+      const k = line.slice(0, eq).trim();
+      let v = line.slice(eq + 1).trim();
+      if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) {
+        v = v.slice(1, -1).replace(/\\"/g, '"');
+      }
+      if (k === 'apiUrl' && v) apiUrl = v;
+      if (k === 'apiKey') apiKey = v;
+      if (k === 'profileMap' && v) {
+        try {
+          const parsed = JSON.parse(decodeURIComponent(v));
+          if (parsed && typeof parsed === 'object') profileMap = parsed;
+        } catch (eMap) {}
+      }
+    }
+  } catch (e) {}
+  return { apiUrl, apiKey, profileMap };
+}
 
-function fetchAdsPower(endpoint) {
+function getProfileOverridesFromIni() {
+  try {
+    if (process.env.APPDATA) {
+      return parseAdsPowerIni(path.join(process.env.APPDATA, 'HyperClip', 'adspower_ui.ini')).profileMap || {};
+    }
+  } catch (e) {}
+  return {};
+}
+
+function resolveAccountPid(acc, overrides) {
+  if (!acc) return '';
+  const map = overrides || getProfileOverridesFromIni();
+  const ov = (acc.id && map[acc.id]) || (acc.label && map[acc.label]) || '';
+  if (ov && !String(ov).startsWith('tt')) {
+    return String(ov).replace(/^adspower_/i, '').trim();
+  }
+  if (acc.profileId && !String(acc.profileId).startsWith('tt')) {
+    return String(acc.profileId).replace(/^adspower_/i, '').trim();
+  }
+  if (acc.id && String(acc.id).startsWith('adspower_') && !String(acc.id).startsWith('adspower_tt')) {
+    return String(acc.id).replace(/^adspower_/i, '').trim();
+  }
+  return '';
+}
+
+function getAdsPowerConfig() {
+  let apiUrl = String(process.env.ADSPOWER_API_URL || '').trim();
+  let apiKey = String(process.env.ADSPOWER_API_KEY || '').trim();
+  try {
+    const candidateConfigs = [
+      process.env.HYPERCLIP_DATA_DIR ? path.join(process.env.HYPERCLIP_DATA_DIR, '.hyperclip', 'adspower.json') : null,
+      path.resolve(__dirname, '../../../HyperClip-Data/.hyperclip/adspower.json'),
+      path.resolve(__dirname, '../../HyperClip-Data/.hyperclip/adspower.json'),
+      path.resolve(__dirname, '../data/.hyperclip/adspower.json'),
+      path.resolve(__dirname, '../../../HyperClipB-Data/.hyperclip/adspower.json'),
+    ].filter(Boolean);
+    for (const p of candidateConfigs) {
+      if (fs.existsSync(p)) {
+        const cfg = JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, ''));
+        if (!apiUrl && cfg && cfg.apiUrl) apiUrl = String(cfg.apiUrl).trim();
+        if (!apiKey && cfg && cfg.apiKey) apiKey = String(cfg.apiKey).trim();
+        if (apiUrl || apiKey) break;
+      }
+    }
+    if ((!apiUrl || !apiKey) && process.env.APPDATA) {
+      const ini = parseAdsPowerIni(path.join(process.env.APPDATA, 'HyperClip', 'adspower_ui.ini'));
+      if (!apiUrl && ini.apiUrl) apiUrl = ini.apiUrl;
+      if (!apiKey && ini.apiKey) apiKey = ini.apiKey;
+    }
+  } catch (e) {}
+  return {
+    apiUrl: (apiUrl || 'http://127.0.0.1:50325').replace(/\/+$/, ''),
+    apiKey,
+  };
+}
+
+function fetchAdsPower(endpoint, retries = 2) {
   return new Promise((resolve, reject) => {
-    const url = `${ADSPOWER_API_URL}${endpoint}`;
-    const req = http.get(url, { timeout: 10000 }, (res) => {
+    const cfg = getAdsPowerConfig();
+    let url = `${cfg.apiUrl}${endpoint}`;
+    if (cfg.apiKey && !url.includes('api_key=')) {
+      url += (url.includes('?') ? '&' : '?') + `api_key=${encodeURIComponent(cfg.apiKey)}`;
+    }
+    const client = url.startsWith('https://') ? https : http;
+    const headers = cfg.apiKey ? { Authorization: `Bearer ${cfg.apiKey}` } : {};
+    const req = client.get(url, { timeout: 10000, headers }, (res) => {
       let data = '';
       res.on('data', chunk => { data += chunk; });
       res.on('end', () => {
         try {
-          resolve(JSON.parse(data));
+          const parsed = JSON.parse(data);
+          if (parsed && parsed.code !== 0 && /too many request/i.test(String(parsed.msg || '')) && retries > 0) {
+            setTimeout(() => {
+              fetchAdsPower(endpoint, retries - 1).then(resolve, reject);
+            }, 1200);
+            return;
+          }
+          resolve(parsed);
         } catch (e) {
           reject(new Error(`AdsPower response invalid JSON: ${data.slice(0, 100)}`));
         }
@@ -647,19 +751,17 @@ function getAdsPowerProfileIdentifier(port) {
             if (targetAcc.enabled === false) {
               return { type: 'skip', reason: `Tài khoản [${targetAcc.label || targetAcc.id}] đã tắt (enabled=false)` };
             }
+            const resolvedPid = resolveAccountPid(targetAcc);
+            if (resolvedPid) {
+              return { type: 'user_id', value: resolvedPid };
+            }
             if (targetAcc.id && targetAcc.id.startsWith('tt')) {
               return { type: 'skip', reason: `Tài khoản Chrome thường [${targetAcc.label || targetAcc.id}] không dùng AdsPower` };
             }
             if (targetAcc.profileId && targetAcc.profileId.startsWith('tt')) {
               return { type: 'skip', reason: `Tài khoản Chrome thường [${targetAcc.label || targetAcc.id}] không dùng AdsPower` };
             }
-            if (targetAcc.profileId) {
-              return { type: 'user_id', value: targetAcc.profileId.replace(/^adspower_/, '') };
-            }
             if (targetAcc.adsPowerSerial) return { type: 'serial_number', value: targetAcc.adsPowerSerial };
-            if (targetAcc.id && targetAcc.id.startsWith('adspower_') && !targetAcc.id.startsWith('adspower_tt')) {
-              return { type: 'user_id', value: targetAcc.id.replace('adspower_', '') };
-            }
           }
         }
       }
@@ -756,13 +858,13 @@ async function getAdsPowerEndpoint(target, opts = {}) {
   const errMsg = res ? (res.msg || '') : 'No response';
   dlog(`[AdsPower] ⚠️ Profile gốc (${queryParam}) không thể kết nối (${errMsg}). Đang tự động tìm kiếm profile khả dụng để fallback...`);
   const allAccs = getAllAdsPowerAccounts();
+  const overrides = getProfileOverridesFromIni();
   for (const acc of allAccs) {
     if (acc.enabled === false) continue;
-    const pid = acc.profileId || acc.id;
-    if (!pid || pid.startsWith('tt') || pid === target.value || `adspower_${pid}` === target.value) continue;
+    const cleanPid = resolveAccountPid(acc, overrides);
+    if (!cleanPid || cleanPid === target.value || `adspower_${cleanPid}` === target.value) continue;
     await sleep(350); // Tránh rate-limit của AdsPower
     try {
-      const cleanPid = pid.replace(/^adspower_/, '');
       const fbParam = `user_id=${encodeURIComponent(cleanPid)}`;
       const fbRes = await fetchAdsPower(`/api/v1/browser/start?${fbParam}&open_tabs=1&launch_args=${launchArgs}`);
       if (fbRes && fbRes.code === 0) {
@@ -1765,6 +1867,7 @@ async function autoWarmAssignedProfiles() {
     dlog(`[AdsPower Hot-Start] Phát hiện ${targetList.length} tài khoản AdsPower đã gán cần mở sẵn TikTok Upload...`);
     const launchArgs = encodeURIComponent(JSON.stringify(['https://www.tiktok.com/tiktokstudio/upload']));
 
+    const overrides = getProfileOverridesFromIni();
     for (let i = 0; i < accounts.length; i++) {
       if (uploadPending) {
         dlog('[AdsPower Hot-Start] Phát hiện upload đang chạy -> Tạm dừng Hot-Start ngay lập tức để nhường đường');
@@ -1775,10 +1878,14 @@ async function autoWarmAssignedProfiles() {
       const isAssigned = targetList.some(t => t.id === acc.id || t.profileId === acc.profileId);
       if (!isAssigned) continue;
 
-      const pid = acc.profileId ? acc.profileId.replace(/^adspower_/, '') : (acc.id ? acc.id.replace(/^adspower_/, '') : null);
-      if (!pid || pid.startsWith('tt')) continue;
+      const pid = resolveAccountPid(acc, overrides);
+      if (!pid) continue;
 
-      const virtualPort = 9223 + i;
+      const virtualPort = 9223 + Math.min(i, 15);
+      if (i >= 15) {
+        dlog(`[AdsPower Hot-Start] ⚠️ Tài khoản #${i + 1} (${acc.label || pid}) vượt quá giới hạn 16 port (9223..9238) của backend — bỏ qua bind port 9238 để tránh ghi đè tài khoản #16!`);
+        continue;
+      }
       let debugPort = null;
 
       // 1. Kiểm tra xem profile đã Active chưa
